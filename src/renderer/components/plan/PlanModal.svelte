@@ -24,8 +24,8 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import Kbd from "../ui/Kbd.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import SaveToProjectPicker from "../pickers/SaveToProjectPicker.svelte";
-  import { projectSourceFileName } from "../pickers/lib/project-source-file";
+  import SaveFilePicker from "../pickers/SaveFilePicker.svelte";
+  import { exportFileName } from "../pickers/lib/export-file-name";
 
   const commentExtensions = [CommentMark];
 
@@ -59,7 +59,7 @@
 
   // Overflow (⋯) menu holding the secondary header actions (Copy, Bookmark).
   let overflowOpen = $state(false);
-  let saveToProjectContent = $state<string | null>(null);
+  let savedCopyContent = $state<string | null>(null);
 
   // Editor handles owned by the shell, surfaced here to drive comment features.
   let shell: DocumentShell | null = $state(null);
@@ -122,8 +122,8 @@
     return planStore.flushContentSave(plan.id);
   }
 
-  function openSaveToProject() {
-    saveToProjectContent = shell?.getCurrentMarkdown() ?? plan.content;
+  function openSaveCopy() {
+    savedCopyContent = shell?.getCurrentMarkdown() ?? plan.content;
   }
 
   // Comment persistence. Everything else about the margin — the selection
@@ -276,9 +276,9 @@
           <DropdownMenu.Separator />
         {/if}
         {#if planServerId && planProjectRoot}
-          <DropdownMenu.Item data-testid="save-plan-to-project" onSelect={openSaveToProject}>
+          <DropdownMenu.Item data-testid="save-plan-to-project" onSelect={openSaveCopy}>
             <FolderIcon size={14} />
-            <span class="flex-1 text-left">Save to project…</span>
+            <span class="flex-1 text-left">Save a copy…</span>
           </DropdownMenu.Item>
         {/if}
         <DropdownMenu.Item onSelect={copy}>
@@ -334,15 +334,15 @@
 
 </DocumentShell>
 
-{#if saveToProjectContent !== null && planServerId && planProjectRoot}
-  <SaveToProjectPicker
+{#if savedCopyContent !== null && planServerId && planProjectRoot}
+  <SaveFilePicker
     open
-    onClose={() => (saveToProjectContent = null)}
+    onClose={() => (savedCopyContent = null)}
     api={serverConnections.apiFor(planServerId)}
     serverId={planServerId}
     ctx={session.ctxForDirectory(planProjectRoot)}
-    projectRoot={planProjectRoot}
-    fileName={projectSourceFileName(plan.title, "plan")}
-    content={saveToProjectContent}
+    initialPath={planProjectRoot}
+    fileName={exportFileName(plan.title, "md", "plan")}
+    content={savedCopyContent}
   />
 {/if}

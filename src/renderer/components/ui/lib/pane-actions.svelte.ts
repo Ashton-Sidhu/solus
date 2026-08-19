@@ -9,11 +9,17 @@ import { requestInputFocus } from '../../../lib/inputFocus'
  * `isLeading` is the only positional fact any of them actually use, and it
  * still means something once there are more than two panes.
  */
-export function paneActions(paneId: PaneId) {
+export function paneActions(paneId: PaneId | undefined) {
   const session = getWorkspaceContext()
   const router = session.router
 
   return {
+    /** Whether this surface sits in a pane at all. Pill mode renders the pages
+     *  inline with no pane of their own, so every positional control below is
+     *  meaningless there and must not be offered. */
+    get inPane(): boolean {
+      return !!paneId && !!router.pane(paneId)
+    },
     get isLeading(): boolean {
       return router.leadingPane.id === paneId
     },
@@ -21,18 +27,20 @@ export function paneActions(paneId: PaneId) {
       return session.maximizedPaneId === paneId
     },
     close(): void {
-      router.closePane(paneId)
+      if (paneId) router.closePane(paneId)
     },
     closeOverlay(): void {
       router.closeOverlay(paneId)
     },
     toggleMaximize(): void {
+      if (!paneId) return
       session.maximizedPaneId = session.maximizedPaneId === paneId ? null : paneId
     },
     /** Send this pane's surface one position over — out to a companion pane, or
      *  back into the leading one. Returning to the lead hands focus to the
      *  composer that comes with it. */
     moveAcross(): void {
+      if (!paneId) return
       const leading = router.leadingPane.id === paneId
       router.movePane(paneId, leading ? 1 : -1)
       if (leading) requestInputFocus()

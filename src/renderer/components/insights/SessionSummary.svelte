@@ -65,13 +65,15 @@
   class="overflow-hidden rounded-xl bg-card text-xs shadow-[shadow:var(--insights-card-shadow)]"
   aria-label="Session"
 >
-  <header class="flex h-11 items-center gap-2.5 pr-3 pl-5 shadow-[inset_0_-0.5px_0_var(--hairline)]">
+  <header
+    class="flex min-h-11 flex-wrap items-center gap-x-2.5 gap-y-1 py-2 pr-3 pl-5 shadow-[inset_0_-0.5px_0_var(--hairline)]"
+  >
     <!-- This is the task affordance the full turn page exposes. It remains a
          button while the durable session binding loads; the click resolves
          that binding before it navigates. -->
     <button
       type="button"
-      class="h-10 min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-left text-sm font-medium underline decoration-muted-foreground/35 underline-offset-4 transition-colors hover:decoration-foreground focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] active:scale-[0.96]"
+      class="min-w-48 flex-1 cursor-pointer border-0 bg-transparent p-0 text-left text-sm leading-5 font-medium text-pretty underline decoration-muted-foreground/35 underline-offset-4 transition-colors hover:decoration-foreground focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] active:scale-[0.96]"
       title="Open task in the trailing pane"
       onclick={onOpenTask}
     >{taskTitle ?? sessionName ?? shortId(session.sessionId)}</button
@@ -80,7 +82,6 @@
       >{shortId(session.sessionId)}</span
     >
     <CopyButton text={session.sessionId} title="Copy the session id" iconOnly />
-    <span class="flex-1"></span>
     <span class="shrink-0 tabular-nums">
       Turn {view.position || "—"}
       <span class="text-muted-foreground">of {view.turnCount}</span>

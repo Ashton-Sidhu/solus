@@ -13,6 +13,8 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' 
   unloadedCompletedTaskIds: Set<string>
   closeTabs: (tabIds: string[]) => void
   catalogTasks: SidebarTask[]
+  activeTasks: SidebarTask[]
+  openedDraftCount: number
   session: unknown
   tabIdBySessionId: Map<string, string>
   renameSession: (tabId: string) => Promise<void>
@@ -25,6 +27,16 @@ function sidebarStoreForDismissal(): SidebarStoreHarness {
   store.openTaskIds = new Set<string>()
   store.closedTabIds = []
   store.unloadedCompletedTaskIds = new Set<string>()
+  store.activeTasks = []
+  store.openedDraftCount = 0
+  // A conversation on screen is the case the composer fallback exists for; a
+  // pane already showing a draft or a page needs nothing.
+  store.session = {
+    showsConversation: false,
+    openSessionDraft: () => {
+      store.openedDraftCount += 1
+    },
+  }
   store.closeTabs = (tabIds: string[]) => {
     store.closedTabIds.push(...tabIds)
   }
@@ -91,6 +103,59 @@ describe('session sidebar dismissal', () => {
     expect(store.closedTabIds).toEqual(['root-tab', 'child-tab'])
     expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['root'])
     expect([...store.openTaskIds]).toEqual([])
+  })
+
+  test('ending the last active task composes a new prompt', () => {
+    // WHY: closing a tab falls through to whichever tab sits beside it, and a
+    // completed task can still hold one. Ending the column's last live task
+    // must not land the user in work they already finished.
+    const store = sidebarStoreForDismissal()
+    ;(store.session as { showsConversation: boolean }).showsConversation = true
+    store.activeTasks = []
+
+    store.closeTask({
+      id: 'root',
+      taskId: 'root',
+      lifecycle: 'active',
+      tabIds: ['root-tab'],
+    } as SidebarTask)
+
+    expect(store.openedDraftCount).toBe(1)
+  })
+
+  test('ending a task while others are still live keeps the pane where it is', () => {
+    // WHY: the composer fallback exists only for an emptied column. Yanking the
+    // user off a conversation that still has live siblings would be a worse
+    // interruption than the one it fixes.
+    const store = sidebarStoreForDismissal()
+    ;(store.session as { showsConversation: boolean }).showsConversation = true
+    store.activeTasks = [{ id: 'other' } as SidebarTask]
+
+    store.closeTask({
+      id: 'root',
+      taskId: 'root',
+      lifecycle: 'active',
+      tabIds: ['root-tab'],
+    } as SidebarTask)
+
+    expect(store.openedDraftCount).toBe(0)
+  })
+
+  test('tidying an already shelved row composes nothing', () => {
+    // WHY: dismissing a completed row is housekeeping, not the end of live
+    // work, so it must not move the user off whatever they were reading.
+    const store = sidebarStoreForDismissal()
+    ;(store.session as { showsConversation: boolean }).showsConversation = true
+    store.activeTasks = []
+
+    store.closeTask({
+      id: 'root',
+      taskId: 'root',
+      lifecycle: 'completed',
+      tabIds: ['root-tab'],
+    } as SidebarTask)
+
+    expect(store.openedDraftCount).toBe(0)
   })
 
   test('restoring a task restores its full linked session tree', () => {

@@ -70,5 +70,6 @@
   {embedded}
   fullScreen={pane.maximized}
   onToggleFullScreen={pane.toggleMaximize}
+  onMoveAcross={pane.moveAcross}
   onExit={embedded ? pane.close : undefined}
 />

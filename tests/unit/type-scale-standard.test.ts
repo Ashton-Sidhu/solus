@@ -44,6 +44,7 @@ const RUNGS = [
   'text-2xl',
   'text-menu',
   'text-workspace-chrome',
+  'text-footnote',
   'text-caption',
   'text-body',
   'text-h1',
@@ -220,5 +221,103 @@ describe('renderer type scale', () => {
   test('the pending list names files that exist', () => {
     const known = new Set([...allSources()].map(({ path }) => repoPath(path)))
     expect(pending.filter((entry) => !known.has(entry))).toEqual([])
+  })
+
+  /**
+   * Persistent workspace chrome — the rails, list pages, rows and headers that
+   * stay on screen. Dialogs and forms (`servers/`, `settings/`, `connections/`)
+   * are deliberately outside: they are transient, and a fixed size there is a
+   * choice rather than an oversight.
+   */
+  const CHROME_DIRS = [
+    'components/ui/list-page/',
+    'components/session/',
+    'components/project-panel/',
+    'components/layout/',
+    'components/workspace/',
+    'components/prs/',
+    'components/tasks/',
+    'components/automations/',
+    'components/pickers/',
+    'components/command-palette/',
+  ]
+  const CHROME_FILES = ['components/conversation/SessionBreadcrumb.svelte']
+  const isChrome = (path: string) => {
+    const rel = sourcePath(path)
+    return CHROME_DIRS.some((dir) => rel.startsWith(dir)) || CHROME_FILES.includes(rel)
+  }
+
+  const chromePending: string[] = JSON.parse(
+    readFileSync(join(import.meta.dir, 'fixtures/chrome-fixed-size-pending.json'), 'utf8'),
+  )
+  const CHROME_PENDING = new Set(chromePending)
+
+  const rungOverridePending: string[] = JSON.parse(
+    readFileSync(join(import.meta.dir, 'fixtures/rung-override-pending.json'), 'utf8'),
+  )
+  const RUNG_OVERRIDE_PENDING = new Set(rungOverridePending)
+
+  /** A call site redefining what a rung *means*, rather than picking one. */
+  const rungOverrides = (source: string) => [...source.matchAll(/\[--text-[a-z-]+:/g)]
+
+  /**
+   * A fixed 14px on a surface that is supposed to follow the display.
+   *
+   * Unprefixed only. `max-md:text-sm` is a different statement: it bumps type
+   * up on a phone, where 14px is the readable floor, and several composers and
+   * dialogs rely on it. Catching those too would have meant either deleting a
+   * deliberate mobile size or parking the file on the ratchet forever.
+   */
+  const fixedChromeSize = (source: string) =>
+    [...source.matchAll(/(?<![\w:-])text-sm(?![\w-])/g)]
+
+  test('a rung is picked by name, never redefined at a call site', () => {
+    // WHY: `--text-workspace-chrome` is a contract — 14px, stepping to 12px on a
+    // laptop display. A surface that overwrites its value inline is not picking
+    // a rung, it is minting a private one, and it has to restate the laptop and
+    // coarse-pointer boundary by hand to do so. Six copies of that boundary had
+    // already accumulated, each able to drift on its own. Rungs are defined in
+    // index.css; `--text-chrome-dense` exists so a dense surface has one to pick.
+    const offenders: string[] = []
+    for (const { path, source } of allSources()) {
+      if (SIZE_DEFINING_FILES.has(sourcePath(path))) continue
+      if (RUNG_OVERRIDE_PENDING.has(repoPath(path))) continue
+      for (const match of rungOverrides(source)) {
+        offenders.push(`${location(path, source, match.index)} ${match[0]}…]`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  test('persistent chrome never pins a fixed 14px', () => {
+    // WHY: this is the rule that acts on code nobody has written yet. In chrome,
+    // text is either primary — so it rides a rung and follows the display — or
+    // it is supporting metadata, which is `text-xs` and fixed deliberately.
+    // There is no third case, so `text-sm` on a rail or a list row is always a
+    // surface someone forgot. Fifteen sessions of hand-resizing text were spent
+    // finding these by eye on a large display; this finds them in CI instead.
+    const offenders: string[] = []
+    for (const { path, source } of allSources()) {
+      if (!isChrome(path) || CHROME_PENDING.has(repoPath(path))) continue
+      for (const match of fixedChromeSize(source)) {
+        offenders.push(`${location(path, source, match.index)} text-sm`)
+      }
+    }
+    expect(offenders).toEqual([])
+  })
+
+  test('both new ratchets only tighten, and name files that exist', () => {
+    const known = new Set([...allSources()].map(({ path }) => repoPath(path)))
+    const stale = [...chromePending, ...rungOverridePending].filter((e) => !known.has(e))
+    expect(stale).toEqual([])
+
+    const migrated: string[] = []
+    for (const { path, source } of allSources()) {
+      const repo = repoPath(path)
+      if (CHROME_PENDING.has(repo) && fixedChromeSize(source).length === 0) migrated.push(repo)
+      if (RUNG_OVERRIDE_PENDING.has(repo) && rungOverrides(source).length === 0) migrated.push(repo)
+    }
+    // WHY: a cleaned surface that stays on the list can silently regrow.
+    expect(migrated).toEqual([])
   })
 })

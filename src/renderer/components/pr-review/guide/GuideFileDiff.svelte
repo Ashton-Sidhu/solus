@@ -28,7 +28,7 @@
     onDiffWorkerPoolReady,
     setDiffWorkerPoolTheme,
   } from "../../../lib/diff-worker-pool";
-  import DiffCommentForm from "../../diff/DiffCommentForm.svelte";
+  import { CommentComposer } from "../../ui/comment-composer";
   import DiffInlineComment from "../../diff/DiffInlineComment.svelte";
   import { Button } from "../../ui/button";
   import { InlineCommentDraft } from "../../diff/diff-comment-draft.store.svelte";
@@ -414,12 +414,14 @@
 -->
 <div bind:this={draftFormWrapper} class="solus-inline-draft-portal">
   {#if draft.range}
-    <DiffCommentForm
+    <CommentComposer
       onSave={handleDraftSave}
       onCancel={resetDraft}
-      rangeLabel={draft.rangeLabel}
+      anchorLabel={draft.rangeLabel}
       initialValue={draft.value}
       onFormValueChange={(v) => (draft.value = v)}
+      placeholder="What should change here?"
+      submitLabel="Add comment"
     />
   {/if}
 </div>

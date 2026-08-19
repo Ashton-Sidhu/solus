@@ -15,7 +15,7 @@ describe('split list page chrome', () => {
     // WHY: The narrow list is navigation for the open review. Changing project
     // there would replace the queue while the user is reading the review.
     expect(source).toMatch(
-      /{#if !split}\s*<ListProjectSwitcher[\s\S]*?\/>\s*{\/if}/,
+      /{#if !split[^}]*}\s*<ListProjectSwitcher[\s\S]*?\/>\s*{\/if}/,
     )
   })
 })

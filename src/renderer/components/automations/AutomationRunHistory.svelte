@@ -7,6 +7,7 @@
     runDuration,
     relativeTime,
   } from "./lib/automation-format";
+  import { EYEBROW } from "./lib/rail-styles";
 
   // The rail's History block: one line per run — what the run did and when.
   // Clicking a run resumes the session it spawned.
@@ -41,12 +42,9 @@
 
 <div class="flex min-w-0 flex-col gap-3 text-workspace-chrome">
   <div class="flex items-baseline justify-between gap-2.5">
-    <span
-      class="font-normal text-muted-foreground uppercase"
-      >History</span
-    >
+    <span class={EYEBROW}>History</span>
     {#if runs.length > 0}
-      <span class="text-[color:color-mix(in_oklab,var(--muted-foreground)_80%,transparent)]">
+      <span class="text-xs text-[color:color-mix(in_oklab,var(--muted-foreground)_80%,transparent)]">
         {runs.length}
         {runs.length === 1 ? "run" : "runs"}
       </span>
@@ -54,7 +52,7 @@
   </div>
 
   {#if runs.length === 0}
-    <p class="m-0 leading-normal text-muted-foreground">
+    <p class="m-0 text-xs leading-normal text-muted-foreground">
       No runs yet. Use Run now to test it.
     </p>
   {:else}
@@ -75,7 +73,7 @@
  : 'text-[color:color-mix(in_oklab,var(--foreground)_82%,var(--muted-foreground))]'}"
             >{summary(run)}</span
           >
-          <span class="shrink-0 tabular-nums text-muted-foreground"
+          <span class="shrink-0 text-xs tabular-nums text-muted-foreground"
             >{runDate(run.startedAt) || relativeTime(run.startedAt)}</span
           >
         </button>

@@ -81,7 +81,12 @@ describe('Solus internals', () => {
     spanId: 'launch', parentSpanId: 'setup', kind: 'internal.dispatch_step', name: 'launch_run', startedAt: 1_020,
   })
   const worktree = span({
-    spanId: 'worktree', parentSpanId: 'launch', kind: 'internal.dispatch_step', name: 'worktree_create', startedAt: 1_030,
+    spanId: 'worktree',
+    parentSpanId: 'launch',
+    kind: 'internal.dispatch_step',
+    name: 'worktree_create',
+    startedAt: 1_030,
+    attrs: { fn: 'createWorktree', file: 'control-plane.ts' },
   })
   const tool = span({ spanId: 'tool', parentSpanId: 'root', startedAt: 1_200 })
   const settlement = span({
@@ -106,8 +111,16 @@ describe('Solus internals', () => {
     ])
   })
 
-  test('a dispatch step reads as a phrase rather than an identifier', () => {
-    expect(view.rows.find((row) => row.spanId === 'worktree')?.label).toBe('worktree create')
+  // WHY: a dispatch step is Solus's own code, and the reader of one is on their
+  // way to it. The step id has to survive verbatim so it can be searched for,
+  // and the function it times is what turns the row into a destination.
+  test('a dispatch step names the function it times, id intact', () => {
+    expect(view.rows.find((row) => row.spanId === 'worktree')?.label)
+      .toBe('worktree_create · createWorktree')
+  })
+
+  test('a step recorded before call sites were captured still names itself', () => {
+    expect(view.rows.find((row) => row.spanId === 'launch')?.label).toBe('launch_run')
   })
 
   test('a trace with nothing to reveal does not offer the toggle', () => {
@@ -350,6 +363,31 @@ describe('Trace surface composition', () => {
   test('a waterfall label carries no coloured dot', () => {
     expect(waterfall).not.toMatch(/size-1\.5[^"]*rounded-full/)
     expect(waterfall).not.toMatch(/rounded-full[^"]*size-1\.5/)
+  })
+
+  // Why it matters: a trace can be hundreds of rows long. If the open span's
+  // detail only lives at the end of the plot, every pick costs a scroll to the
+  // bottom and back, which is the whole complaint the dock exists to answer.
+  test('the open span detail docks in view instead of resting at the end of the plot', () => {
+    expect(waterfall).toContain('sticky bottom-0')
+  })
+
+  // Why it matters: sticky positions against the nearest scroll container. An
+  // `overflow-hidden` Trace card silently becomes that container, and the dock
+  // stops following the reader with no error anywhere.
+  test('the Trace card does not clip itself into a scroll container', () => {
+    const panel = readFileSync(
+      join(import.meta.dir, '../../src/renderer/components/insights/TurnDetailPanel.svelte'),
+      'utf8',
+    )
+    expect(panel).not.toMatch(/overflow-hidden rounded-xl bg-card/)
+  })
+
+  // Why it matters: the detail is no longer beside its own row, so without a
+  // position track nothing on it says when in the turn the span ran.
+  test('the docked detail states where in the trace the span sits', () => {
+    expect(waterfall).toContain('openExtent')
+    expect(waterfall).toContain('startOffsetMs')
   })
 
   // Why it matters: coverage is the complement of the remainder the legend

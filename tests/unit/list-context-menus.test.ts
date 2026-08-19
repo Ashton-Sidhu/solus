@@ -46,6 +46,26 @@ describe('list page context menus', () => {
     expect(menu).toContain('<ContextMenu.SubContent>')
   })
 
+  test('sessions and tasks both reach Insights from their context menu', () => {
+    // WHY: telemetry is only useful where the work is. Both menus scope the
+    // page to the thing that was right-clicked — a session by Solus's own id,
+    // a task by its id, which is what every one of its turns records.
+    const sessionMenu = readComponent('session/SessionContextMenu.svelte')
+    const taskMenu = readComponent('session/TaskContextMenu.svelte')
+    expect(sessionMenu).toContain('Open in Insights')
+    expect(sessionMenu).toContain('session.openInsightsForSession(targetSessionId)')
+    expect(taskMenu).toContain('Open in Insights')
+    expect(taskMenu).toContain('session.openInsightsForTask(taskId)')
+  })
+
+  test('the action row opens the current session in Insights', () => {
+    // WHY: the orb is where a session's own actions live; asking what the
+    // conversation in front of you cost should not mean retyping its id.
+    const orb = readComponent('layout/ActionOrb.svelte')
+    expect(orb).toContain('data-orb-action="insights"')
+    expect(orb).toContain('session.openInsightsForSession(sessionId)')
+  })
+
   test('pull requests name the browser action as web, not the provider host', () => {
     // WHY: users choose a destination, not an implementation boundary.
     const menu = readComponent('prs/PrContextMenu.svelte')

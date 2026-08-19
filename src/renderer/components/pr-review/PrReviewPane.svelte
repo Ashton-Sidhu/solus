@@ -46,6 +46,7 @@
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
   import PrDetailMasthead from "./PrDetailMasthead.svelte";
   import PrPanelHeader from "./PrPanelHeader.svelte";
+  import PaneSwapButton from "../ui/PaneSwapButton.svelte";
   import PrViewTabs from "./PrViewTabs.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
   import { Button } from "../ui/button";
@@ -83,6 +84,7 @@
     embedded = false,
     fullScreen = false,
     onToggleFullScreen,
+    onMoveAcross,
     onExit,
     onStep,
     guideEnabled = true,
@@ -110,6 +112,11 @@
     /** Embedded only: the panel is covering the list rather than sitting beside it. */
     fullScreen?: boolean;
     onToggleFullScreen?: () => void;
+    /** Move the review between the leading pane and the companion beside it.
+     *  Passed only by the route adapter: mounted as the pull requests page's
+     *  own detail panel there is no pane of its own to move. `embedded` states
+     *  which way the move goes. */
+    onMoveAcross?: () => void;
     /** How Esc and the close control get out. Defaults to leaving the review route. */
     onExit?: () => void;
     /** How J / K walk the queue. Defaults to stepping the review route. */
@@ -880,6 +887,8 @@
       total={listOrder.length}
       {fullScreen}
       {onToggleFullScreen}
+      {onMoveAcross}
+      isLeading={false}
       onStep={step}
       onClose={exit}
       tabs={panelTabs}
@@ -935,6 +944,14 @@
           {/if}
 
           <FrameExpandButton variant="projectPanel" size="header" />
+
+          {#if onMoveAcross}
+            <PaneSwapButton
+              onMove={onMoveAcross}
+              iconSize={13}
+              class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
+            />
+          {/if}
 
           {#if onToggleMaximize}
             <TooltipUI.Root>

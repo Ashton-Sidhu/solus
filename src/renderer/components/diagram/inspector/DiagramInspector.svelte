@@ -177,8 +177,14 @@
     {/each}
   </div>
 
+  <!-- Keyed on the tab so each section rises in on its own. The tab contents are
+       already mounted per-tab by an {#if}, so this costs no extra churn. -->
   <div class="diagram-inspector__body" role="tabpanel" aria-labelledby="diagram-node-tab-{tab}">
-    {@render children()}
+    {#key tab}
+      <div class="diagram-inspector__panel">
+        {@render children()}
+      </div>
+    {/key}
   </div>
 
   <!-- Edits are live: there is no Save button, only a save-state read-out. -->

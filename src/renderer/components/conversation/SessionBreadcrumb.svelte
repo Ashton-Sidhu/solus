@@ -28,15 +28,11 @@
   import * as Breadcrumb from "../ui/breadcrumb";
   import * as Command from "../ui/command";
   import { MenuSearch } from "../ui/menu";
-  import ProjectMark from "../session/ProjectMark.svelte";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
-  import {
-    projectInitial,
-    taskStatusFor,
-    type SidebarTask,
-  } from "../session/lib/task-list";
+  import { taskStatusFor, type SidebarTask } from "../session/lib/task-list";
   import { taskRef } from "../tasks/task-page/lib/task-page";
   import {
     breadcrumbLeafLabels,
@@ -323,16 +319,25 @@
   const crumbButton =
     "flex h-[1.875rem] cursor-pointer items-center rounded px-[0.46875rem] transition-[background] duration-150 hover:bg-accent";
   const menuRow =
-    "flex h-[2.125rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent";
+    "flex h-[2.125rem] [.is-laptop-display_&]:h-[1.9375rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent";
   const menuLabel =
-    "min-w-0 flex-1 overflow-hidden text-sm text-ellipsis whitespace-nowrap";
+    "min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap";
+  // The Projects and Sessions headings take the same laptop step as the task
+  // menu's Open/Completed pair: the three menus open off one band and are read
+  // in one pass, so they shrink together or the band looks assembled.
   const menuHeading =
-    "px-[0.5625rem] pt-1.5 pb-1.5 text-xs font-medium  text-muted-foreground uppercase";
+    "px-[0.5625rem] pt-1.5 pb-1.5 [.is-laptop-display_&]:pt-1 [.is-laptop-display_&]:pb-1 text-xs font-medium text-muted-foreground uppercase";
   // Rows you can close reserve the slot the X lands in, so nothing reflows the
   // moment a pointer crosses the row.
   // The wash follows the row, not the pointer's exact target: reaching for the X
   // must not read as leaving the row.
   const menuRowClosable = `${menuRow} pr-7 group-hover/row:bg-accent`;
+  // Task rows are Command rows, so they arrive carrying the app-wide menu rung
+  // (14px) while the project and session menus' plain rows inherit the dense
+  // rung from the surface. The band's three menus are one control read across
+  // one hover, so the task rows restate the surface's rung rather than standing
+  // a size above their own headings.
+  const taskMenuRow = `${menuRowClosable} text-chrome-dense`;
   const rowStatus = "shrink-0 text-xs font-medium whitespace-nowrap";
   const rowClose =
     "absolute top-1/2 right-[0.4375rem] flex size-[1.125rem] -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,background,color] duration-150 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100 pointer-coarse:opacity-100";
@@ -364,7 +369,7 @@
   <div class="group/row relative">
     <Command.Item
       value="{item.title} {item.taskId ?? item.id}"
-      class={menuRowClosable}
+      class={taskMenuRow}
       data-menu-current={item.key === task?.key ? "" : undefined}
       onSelect={() => selectTask(item)}
       oncontextmenu={(event) => openTaskContextMenu(event, item)}
@@ -425,7 +430,7 @@
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
       <Breadcrumb.List
-        class="min-w-0 flex-nowrap gap-px text-workspace-chrome text-foreground"
+        class="min-w-0 flex-nowrap gap-px text-foreground"
       >
         <Breadcrumb.Item
           class="relative shrink-0"
@@ -440,12 +445,7 @@
                 aria-expanded={menu === "project"}
                 onclick={() => (menu = menu === "project" ? null : "project")}
               >
-                <ProjectMark
-                  {projectKey}
-                  initial={projectInitial(projectLabel)}
-                  active
-                  class="size-4"
-                />
+                <ProjectFavicon projectRoot={projectKey} class="size-4" />
                 <span class="whitespace-nowrap text-muted-foreground"
                   >{projectLabel}</span
                 >
@@ -457,7 +457,7 @@
                  which swallows the pointer over anything that is not a control
                  and reads as a mouseleave that closes the menu. -->
             <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] p-[0.3125rem]">
+              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(16.5rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={menuHeading}>Projects</div>
                 {#each sidebarStore.projectSummaries as project (project.projectKey)}
                   {@const note = projectNote(project.waiting, project.failed)}
@@ -467,10 +467,8 @@
                     onclick={() =>
                       pickProject(project.leadTaskKey, project.projectKey)}
                   >
-                    <ProjectMark
-                      projectKey={project.projectKey}
-                      initial={project.initial}
-                      active={project.projectKey === projectKey}
+                    <ProjectFavicon
+                      projectRoot={project.projectKey}
                       class="size-[1.125rem]"
                     />
                     <span
@@ -510,7 +508,7 @@
                   }}
                 >
                   <FolderOpenIcon size={14} class="shrink-0" />
-                  <span class="flex-1 text-sm">Open project…</span>
+                  <span class="flex-1">Open project…</span>
                 </button>
               </div>
             </div>
@@ -566,14 +564,14 @@
             </Breadcrumb.Link>
             {#if menu === "task"}
               <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] overflow-hidden p-0">
+                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(17.5rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
                       bind:value={taskQuery}
                       placeholder="Search tasks in {projectLabel}"
                     />
                     <Command.List
-                      class="max-h-[min(24rem,calc(100vh-8rem))] overflow-y-auto p-[0.3125rem]"
+                      class="max-h-[min(24rem,calc(100vh-8rem))] [.is-laptop-display_&]:max-h-[min(19rem,calc(100vh-7rem))] overflow-y-auto p-[0.3125rem]"
                     >
                       {#if filteredTasksInProject.length === 0}
                         <div
@@ -589,14 +587,13 @@
                                taken from the group's own heading slot: one of
                                them is a control, and the two only read as a pair
                                while they share one type and one label column.
-                               The empty leading box is the caret's column. -->
+                               Every label in the list — header, task, footer —
+                               starts at the row padding; the caret that opens
+                               the completed section is a trailing affordance so
+                               nothing is pushed off that edge. -->
                           <div
-                            class="flex h-[1.625rem] items-center gap-1.5 px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            class="flex h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] items-center gap-1.5 [.is-laptop-display_&]:gap-1 px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                           >
-                            <span
-                              class="size-[0.6875rem] shrink-0"
-                              aria-hidden="true"
-                            ></span>
                             <span>Open</span>
                             <span class="tabular-nums opacity-50"
                               >{taskGroups.open.length}</span
@@ -616,7 +613,7 @@
                                onto it and open the section with Enter. -->
                           <Command.Item
                             value="completed tasks section"
-                            class="h-[1.625rem] gap-1.5 rounded-md px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            class="h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] gap-1.5 [.is-laptop-display_&]:gap-1 rounded-md px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                             aria-expanded={completedVisible}
                             onSelect={() =>
                               (completedOverride = {
@@ -624,17 +621,17 @@
                                 expanded: !completedVisible,
                               })}
                           >
-                            <CaretDownIcon
-                              size={11}
-                              weight="bold"
-                              class="shrink-0 transition-transform duration-150 {completedVisible
- ? ''
- : '-rotate-90'}"
-                            />
                             <span>Completed</span>
                             <span class="tabular-nums opacity-50"
                               >{taskGroups.completed.length}</span
                             >
+                            <CaretDownIcon
+                              size={11}
+                              weight="bold"
+                              class="ml-auto shrink-0 [.is-laptop-display_&]:size-[0.625rem] transition-transform duration-150 {completedVisible
+ ? ''
+ : '-rotate-90'}"
+                            />
                           </Command.Item>
                           {#if completedVisible}
                             {#each taskGroups.completed as item (item.id)}
@@ -649,11 +646,11 @@
                       ></div>
                       <Command.Item
                         value="new task create"
-                        class="h-8 text-muted-foreground hover:text-foreground"
+                        class="{menuRow} h-8 text-chrome-dense text-muted-foreground hover:text-foreground"
                         onSelect={newTask}
                       >
                         <PlusIcon size={14} class="shrink-0" />
-                        <span class="flex-1 text-sm">New task</span>
+                        <span class="flex-1">New task</span>
                         <span class="text-xs opacity-60"
                           >{comboHint("global.new-task")}</span
                         >
@@ -690,7 +687,7 @@
               <SessionNameInput
                 value={current?.label ?? leafLabels.session}
                 variant="band"
-                class="text-workspace-chrome font-medium"
+                class="font-medium"
                 onCommit={(next) => {
                   void session.renameTab(tabId, next);
                   renamingTabId = null;
@@ -739,7 +736,7 @@
           {/if}
           {#if menu === "session"}
             <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] p-[0.3125rem]">
+              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(16.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={menuHeading}>Sessions</div>
                 {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
                   {@const status = taskStatusFor(child.attention)}
@@ -797,7 +794,7 @@
                   onclick={newSession}
                 >
                   <PlusIcon size={14} class="shrink-0" />
-                  <span class="flex-1 text-sm"
+                  <span class="flex-1"
                     >New session in this task</span
                   >
                   <span class="text-xs opacity-60"
@@ -888,7 +885,7 @@
       >
         <PlusIcon size={14} class="text-muted-foreground" />
         <span
-          class="text-sm font-medium whitespace-nowrap @max-[36rem]:hidden"
+          class="text-workspace-chrome font-medium whitespace-nowrap @max-[36rem]:hidden"
           >New Task</span
         >
       </button>

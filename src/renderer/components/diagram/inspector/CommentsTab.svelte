@@ -1,11 +1,8 @@
 <script lang="ts">
   import type { PlanComment } from '../../../../shared/types'
   import { threadTime } from '../../../lib/relative-time'
-  import PlanCommentEditor from '../../plan/PlanCommentEditor.svelte'
   import {
-    authorInitials,
     authorLabel,
-    authorName,
     commentAuthor,
     isResolved,
     isUnread,
@@ -23,7 +20,6 @@
     onShowResolvedChange: (show: boolean) => void
     /** Open the thread's card on the canvas and pan its anchor into view. */
     onOpenThread: (commentId: string) => void
-    onAddThread: (text: string) => void
     /** Open the diagram-wide thread list. */
     onShowAll: () => void
     now: number
@@ -36,15 +32,12 @@
     showResolved,
     onShowResolvedChange,
     onOpenThread,
-    onAddThread,
     onShowAll,
     now,
   }: Props = $props()
 
   const open = $derived(threads.filter((t) => !isResolved(t)))
   const resolved = $derived(threads.filter(isResolved))
-
-  let composing = $state(false)
 
   function replyCount(thread: PlanComment): string {
     const count = thread.replies?.length ?? 0
@@ -58,8 +51,8 @@
 
   {#if threads.length === 0}
     <p class="ct-empty">
-      No threads on this {anchorKind} yet. A thread rides its {anchorKind}, so it survives a
-      re-layout.
+      No threads on this {anchorKind} yet. Start one on the canvas — a thread rides its
+      {anchorKind}, so it survives a re-layout.
     </p>
   {:else}
     <div class="ct-list">
@@ -78,10 +71,8 @@
               {#if isUnread(thread)}
                 <span class="ct-unread" aria-label="Unread"></span>
               {/if}
-              <span class="ct-avatar" aria-hidden="true">
-                {authorInitials(commentAuthor(thread))}
-              </span>
-              <span class="ct-name">{authorName(commentAuthor(thread))}</span>
+              <!-- No byline: only the agent branch above names an author, and
+                   the reader never needs telling that their own note is theirs. -->
               <span class="ct-meta">
                 {thread.createdAt ? threadTime(thread.createdAt, now) : ''}{replyCount(thread)}
               </span>
@@ -96,31 +87,11 @@
       {#each resolved as thread (thread.id)}
         <div class="ct-resolved">
           <span class="ct-resolved-dot" aria-hidden="true"></span>
-          <span>Resolved · {authorName(thread.resolvedBy ?? 'you')}</span>
+          <span>Resolved</span>
           <button type="button" class="ct-text-btn" onclick={() => onOpenThread(thread.id)}>Show</button>
         </div>
       {/each}
     </div>
-  {/if}
-</div>
-
-<div class="inspector-field">
-  <span class="inspector-label">Add</span>
-  {#if composing}
-    <PlanCommentEditor
-      initialValue=""
-      placeholder="Comment on this {anchorKind}…"
-      onSave={(text) => {
-        onAddThread(text)
-        composing = false
-      }}
-      onCancel={() => (composing = false)}
-    />
-  {:else}
-    <button type="button" class="ct-add" onclick={() => (composing = true)}>
-      <span class="ct-avatar ct-avatar--you" aria-hidden="true">You</span>
-      <span>Comment on this {anchorKind}…</span>
-    </button>
   {/if}
 </div>
 
@@ -156,41 +127,42 @@
   .ct-list {
     display: flex;
     flex-direction: column;
-    gap: 0.375rem;
+    gap: 0.5rem;
   }
 
-  /* Each row is the pin's tint at 9% behind a 1px 55% edge — the same colour
-     rule the canvas pin and the thread card use. */
+  /* A row here is the same surface as a thread card in the plan and document
+     rails — popover fill behind a 1px accent-tinted edge — only shorter,
+     because the conversation itself opens on the canvas. */
   .ct-row {
     display: flex;
     flex-direction: column;
-    gap: 0.3125rem;
-    padding: 0.5625rem 0.6875rem;
-    border-radius: 0.625rem;
+    gap: 0.5rem;
+    padding: 0.6875rem 0.75rem;
+    border: 0.0625rem solid color-mix(in oklab, var(--solus-accent) 22%, var(--solus-container-border));
+    border-radius: 1rem;
+    background: var(--solus-popover-bg);
     text-align: left;
     cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
+    transition: border-color var(--duration-quick) var(--ease-premium);
   }
 
-  .ct-row--open {
-    border: 0.0625rem solid color-mix(in srgb, var(--solus-art-2) 55%, transparent);
-    background: color-mix(in srgb, var(--solus-art-2) 9%, var(--solus-container-bg));
-  }
-
+  /* Hover reaches the focused card's edge; the fill never moves, exactly as in
+     the rails. */
   .ct-row--open:hover {
-    background: color-mix(in srgb, var(--solus-art-2) 15%, var(--solus-container-bg));
+    border-color: color-mix(in oklab, var(--solus-accent) 45%, var(--solus-container-border));
   }
 
   .ct-row--agent {
     flex-direction: row;
     align-items: center;
     gap: 0.4375rem;
-    border: 0.0625rem solid color-mix(in srgb, var(--solus-accent) 30%, transparent);
-    background: color-mix(in srgb, var(--solus-accent) 6%, var(--solus-container-bg));
+    border-color: color-mix(in srgb, var(--solus-accent) 30%, transparent);
+    background: color-mix(in srgb, var(--solus-accent) 5%, var(--solus-popover-bg));
   }
 
   .ct-row--agent:hover {
-    background: color-mix(in srgb, var(--solus-accent) 11%, var(--solus-container-bg));
+    border-color: color-mix(in srgb, var(--solus-accent) 55%, transparent);
+    background: color-mix(in srgb, var(--solus-accent) 9%, var(--solus-popover-bg));
   }
 
   .ct-row:focus-visible {
@@ -213,28 +185,6 @@
     background: var(--solus-art-2);
   }
 
-  /* Only a human ever wears a circle here — Solus takes the ✦ branch above, so
-     this row has exactly one author tone rather than a hashed palette, and
-     that tone is the terracotta that already means "you" everywhere else. */
-  .ct-avatar {
-    display: grid;
-    place-items: center;
-    flex: none;
-    width: 1.0625rem;
-    height: 1.0625rem;
-    border-radius: 9999px;
-    background: var(--solus-accent);
-    color: var(--solus-text-on-accent);
-    font-size: var(--text-xs);
-    font-weight: 500;
-  }
-
-  .ct-name {
-    font-size: var(--text-xs);
-    font-weight: 500;
-    color: var(--solus-text-primary);
-  }
-
   .ct-meta {
     font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
@@ -249,8 +199,9 @@
     -webkit-box-orient: vertical;
     overflow: hidden;
     font-size: var(--text-xs);
-    line-height: 1.55;
-    color: var(--solus-text-tertiary);
+    line-height: 1.6;
+    color: color-mix(in srgb, var(--solus-text-primary) 90%, var(--solus-text-tertiary));
+    word-break: break-word;
     text-wrap: pretty;
   }
 
@@ -313,29 +264,6 @@
     outline-offset: 0.125rem;
   }
 
-  /* The only dashed affordance in the panel besides Add field. */
-  .ct-add {
-    display: flex;
-    align-items: center;
-    gap: 0.4375rem;
-    padding: 0.5625rem 0.6875rem;
-    border: 0.0625rem dashed color-mix(in srgb, var(--solus-accent) 45%, transparent);
-    border-radius: 0.625rem;
-    background: color-mix(in srgb, var(--solus-accent) 5%, var(--solus-container-bg));
-    color: var(--solus-text-tertiary);
-    font-size: var(--text-xs);
-    text-align: left;
-    cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
-  }
-
-  .ct-add:hover { background: color-mix(in srgb, var(--solus-accent) 10%, var(--solus-container-bg)); }
-
-  .ct-add:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.125rem;
-  }
-
   .ct-foot {
     display: flex;
     align-items: center;
@@ -354,6 +282,6 @@
   .ct-foot__all:hover { color: var(--solus-accent); opacity: 0.8; }
 
   @media (prefers-reduced-motion: reduce) {
-    .ct-row, .ct-add, .ct-text-btn { transition: none; }
+    .ct-row, .ct-text-btn { transition: none; }
   }
 </style>

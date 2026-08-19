@@ -188,7 +188,7 @@
          than colour at this size. -->
     <span class="flex min-w-0 flex-1 flex-col gap-1">
       <span
-        class="truncate text-sm {selected ? 'font-medium' : 'font-normal'}"
+        class="truncate text-workspace-chrome {selected ? 'font-medium' : 'font-normal'}"
         >{pr.title}</span
       >
       <span
@@ -235,7 +235,7 @@
       <span class="flex min-w-0 items-center gap-2">
         {@render stateIcon()}
         <span
-          class="min-w-0 truncate text-sm {selected
+          class="min-w-0 truncate text-workspace-chrome {selected
             ? 'font-medium'
             : 'font-medium'}">{pr.title}</span
         >

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { MetricsSpan } from '../../src/shared/observability-types'
 import { buildTraceView, type WaterfallRow } from '../../src/renderer/components/insights/lib/waterfall'
 import {
+  activation,
   barsForLines,
   buildWaterfallTree,
   expandableIds,
@@ -189,6 +190,58 @@ describe('opening a lane', () => {
 
   test('an unknown span opens nothing', () => {
     expect(pathToSpan(treeOf(threeTools), 'missing')).toEqual([])
+  })
+})
+
+describe('activating a line', () => {
+  // Solus's dispatch steps hang off the turn's `setup` span, so the only way
+  // into them is `setup`'s own caret. A click that opened the detail panel and
+  // left the steps folded made the internals toggle look like it did nothing.
+  const setupWithSteps = [
+    root,
+    span({ spanId: 'setup', parentSpanId: 'root', kind: 'setup', name: 'setup', startedAt: 1_010 }),
+    span({
+      spanId: 'step1',
+      parentSpanId: 'setup',
+      kind: 'internal.dispatch_step',
+      name: 'launch_run',
+      startedAt: 1_020,
+    }),
+    span({
+      spanId: 'step2',
+      parentSpanId: 'setup',
+      kind: 'internal.dispatch_step',
+      name: 'git_state',
+      startedAt: 1_040,
+    }),
+  ]
+
+  // WHY: dispatch folds nest — setup's steps hold steps of their own — so a
+  // lane named after its kind reads "Dispatch steps" at every level and tells
+  // the reader nothing about which level they are looking at.
+  test('a step lane names its members, not its kind', () => {
+    const lane = flattenTree(treeOf(setupWithSteps), new Set(['setup']))
+      .find((line) => line.type === 'group')!
+    expect(lane.type === 'group' && lane.group.label).toBe('launch_run, git_state')
+  })
+
+  test('a span with children unfolds on activation and opens its own detail', () => {
+    const tree = treeOf(setupWithSteps)
+    const closed = flattenTree(tree, new Set())
+    const setupLine = closed.find((line) => line.type === 'span' && line.row.spanId === 'setup')!
+    expect(activation(setupLine)).toEqual({ toggleId: 'setup', selectSpanId: 'setup' })
+    expect(flattenTree(tree, new Set(['setup'])).length).toBeGreaterThan(closed.length)
+  })
+
+  test('a leaf span only opens its detail — there is nothing to unfold', () => {
+    const line = flattenTree(treeOf(setupWithSteps), new Set(expandableIds(treeOf(setupWithSteps))))
+      .find((entry) => entry.type === 'span' && entry.row.spanId === 'step1')!
+    expect(activation(line)).toEqual({ toggleId: null, selectSpanId: 'step1' })
+  })
+
+  test('a lane only unfolds — a lane has no detail of its own', () => {
+    const lane = flattenTree(treeOf(threeTools), new Set())[1]
+    expect(activation(lane)).toEqual({ toggleId: lane.id, selectSpanId: null })
   })
 })
 

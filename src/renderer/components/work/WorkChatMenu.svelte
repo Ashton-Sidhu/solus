@@ -35,18 +35,20 @@
 </script>
 
 <DropdownMenu.Root bind:open>
-  <DropdownMenu.Content customAnchor={triggerEl} side="bottom" align="end" sideOffset={6} collisionPadding={8} class="w-[240px]" aria-label="Document chat actions" onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}>
+  <DropdownMenu.Content customAnchor={triggerEl} side="bottom" align="end" sideOffset={6} collisionPadding={8} class="w-[19rem]" aria-label="Document chat actions" onInteractOutside={(event) => { if (triggerEl?.contains(event.target as Node)) event.preventDefault() }}>
     {#each options as option, index (option.id)}
       <DropdownMenu.Item
         disabled={loading}
-        class="h-10 gap-2.5"
+        class="h-auto min-h-11 gap-2.5 py-1.5"
         onSelect={() => handleSelect(index)}
       >
-        <span class="mt-[0.09375rem] flex shrink-0 items-center justify-center self-start text-(--solus-text-tertiary)">
+        <span class="mt-[0.1875rem] flex shrink-0 items-center justify-center self-start text-(--solus-text-tertiary)">
           <option.Icon size={14} />
         </span>
-        <span class="flex min-w-0 flex-1 flex-col gap-[0.03125rem]">
-          <span class="truncate text-xs leading-[1.25] font-medium text-(--solus-text-primary)">{option.label}</span>
+        <!-- Label on the menu rung, description a step down: two lines of the
+             same 12px gave the row no hierarchy and read as one dense block. -->
+        <span class="flex min-w-0 flex-1 flex-col gap-[0.0625rem]">
+          <span class="truncate text-menu leading-[1.25] font-medium text-(--solus-text-primary)">{option.label}</span>
           {#if option.id === 'resume'}
             <span class="truncate text-xs leading-[1.25] text-(--solus-text-tertiary)">
               {#if originalSessionMeta}

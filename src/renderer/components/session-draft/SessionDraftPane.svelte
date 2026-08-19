@@ -270,8 +270,13 @@
   /* A session draft is one compact prompt surface, whether it fills the
      leading pane or sits beside a document. Keep one stable measure so opening
      Ask Solus cannot resize the bar. max-width still lets it contract when the
-     pane itself is narrower than 52rem. */
+     pane itself is narrower than the measure. */
   .draft-column {
+    --solus-reading-max: 56rem;
+  }
+  /* A laptop display has less room to spend, so the wider desktop measure would
+     push the bar against the pane edges. Keep the original 52rem there. */
+  :global(html.is-laptop-display) .draft-column {
     --solus-reading-max: 52rem;
   }
 </style>

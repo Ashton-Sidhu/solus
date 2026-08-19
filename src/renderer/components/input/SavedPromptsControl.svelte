@@ -128,16 +128,6 @@
     if (!open) query = "";
   });
 
-  // A draft that has been emptied is no longer the restored prompt, so the send
-  // that eventually happens shouldn't delete it. Early-returns on the common
-  // unlinked path, so this costs one read per keystroke.
-  $effect(() => {
-    if (!input.savedPromptId) return;
-    if (input.text.trim() === "" && input.attachments.length === 0) {
-      input.savedPromptId = null;
-    }
-  });
-
   $effect(() => {
     if (!active) return;
     const onRequest = (event: Event) => {
@@ -165,7 +155,6 @@
 
     input.text = "";
     input.attachments.splice(0, input.attachments.length);
-    input.savedPromptId = null;
     onClearEditor();
     onRefocus();
 
@@ -194,14 +183,12 @@
       input.attachments.length,
       ...prompt.attachments.map((attachment) => ({ ...attachment })),
     );
-    input.savedPromptId = prompt.id;
     open = false;
     onRefocus();
   }
 
   function remove(prompt: SavedPrompt) {
     if (!projectRoot || !serverId) return;
-    if (input.savedPromptId === prompt.id) input.savedPromptId = null;
     const deleted = savedPrompts.remove(projectRoot, prompt.id, serverId);
     toasts.undo("Saved prompt deleted", () => {
       // Sequenced after the delete so an instant undo can't be overwritten by
@@ -282,11 +269,11 @@
           disabled={!projectRoot}
           aria-label="Saved prompts"
           aria-expanded={open}
-          class="flex h-full items-center gap-1.5 rounded-r-lg px-2.5 text-sm text-(--solus-text-tertiary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
+          class="flex h-full items-center gap-1.5 rounded-r-lg px-2.5 text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,color,scale] hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none disabled:opacity-50"
           style="cursor:{projectRoot ? 'pointer' : 'not-allowed'}"
         >
-          <span>Saved</span>
-          <span class="text-xs tabular-nums opacity-60"
+          <span class="font-medium">Saved</span>
+          <span class="shrink-0 tabular-nums text-(--solus-text-tertiary)"
             >{count}</span
           >
           <!-- The caret points at where the sheet appears, and flips while it

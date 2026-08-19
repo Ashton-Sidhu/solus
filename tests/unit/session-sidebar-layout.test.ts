@@ -99,14 +99,18 @@ describe('session sidebar layout', () => {
     expect(source).toContain('pr-8 pl-[1.5625rem]')
   })
 
-  test('keeps draft rows inside the sidebar width without a nested vertical scroller', () => {
-    // WHY: draft rows recover a small amount of right-side space for their
-    // discard action, so the section clips horizontally. It must not claim a
-    // separate vertical scrollbar from the task list below it.
+  test('leads the task list with drafts instead of a section heading', () => {
+    // WHY: a heading that appears only while a draft exists is a standing row
+    // the column cannot afford, and labelling one group and not the other reads
+    // as if it labels both. Drafts lead the same scroller as the tasks, told
+    // apart by their own row and a wider gap below the group.
     const source = readSessionSource('SessionSidebar.svelte')
     expect(source).toContain(
-      'class="overflow-x-hidden px-3.5 pb-1 @max-[15rem]:px-2.5"',
+      'class="mb-3 flex flex-col gap-[0.1875rem]"\n        role="listbox"\n        aria-label="Drafts"',
     )
+    // One action bar in the whole column, and it belongs to the tasks.
+    expect(source.match(/<TaskActionBar/g)).toHaveLength(1)
+    // No nested scroller: the drafts group sits inside the task scroll area.
     expect(source).not.toContain('flex max-h-[10.5rem] flex-shrink-0 flex-col')
   })
 
@@ -125,26 +129,13 @@ describe('session sidebar layout', () => {
   test('keeps project filtering behind one compact filter action', () => {
     // WHY: an always-visible project selector looked like a task row and used
     // scarce width even when no scope was active.
-    const source = readSessionSource('TaskListHeader.svelte')
+    const source = readSessionSource('TaskActionBar.svelte')
     expect(source).toContain('FunnelIcon')
     expect(source).toContain('aria-haspopup="menu"')
     expect(source).toContain('ml-auto flex shrink-0 items-center gap-1')
     expect(source).not.toContain('menuOpen || scopedProject')
     expect(source).toContain('text-primary')
     expect(source).not.toContain('All projects')
-    expect(source).not.toContain('ProjectMark')
   })
 
-  test('compacts task search actions only on fine-pointer laptop displays', () => {
-    // WHY: the task sidebar needs a denser toolbar on laptop screens without
-    // shrinking the same controls on large desktops or coarse-pointer clients.
-    const sidebar = readSessionSource('SessionSidebar.svelte')
-    const header = readSessionSource('TaskListHeader.svelte')
-
-    expect(sidebar).toContain('text-workspace-chrome')
-    expect(sidebar).toContain('[.is-laptop-display_&]:h-6 pointer-coarse:h-7')
-    expect(sidebar).toContain('[.is-laptop-display_&]:size-6 pointer-coarse:size-7')
-    expect(header).toContain('[.is-laptop-display_&]:h-7 pointer-coarse:h-8')
-    expect(header).toContain('[.is-laptop-display_&]:size-6 pointer-coarse:size-7')
-  })
 })

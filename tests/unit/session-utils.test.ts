@@ -5,7 +5,12 @@ import {
   computeCurrentActivity,
   formatDiffInlineComments,
 } from '../../src/renderer/contexts/workspace/session.utils'
-import { attemptServerId, findOpenTabForSession, sessionDisplayName } from '../../src/renderer/lib/sessionUtils'
+import {
+  attemptServerId,
+  findOpenTabForSession,
+  getStatusLabel,
+  sessionDisplayName,
+} from '../../src/renderer/lib/sessionUtils'
 
 function diffComment(selectedCode: string): DiffComment {
   return {
@@ -192,5 +197,27 @@ describe('attemptServerId', () => {
       liveServerId: 'workshop',
       taskServerId: 'local',
     })).toBe('workshop')
+  })
+})
+
+describe('getStatusLabel', () => {
+  test('names every status a picker row can be in except idle', () => {
+    // WHY: the picker row no longer carries an "open tab" dot, so this label is
+    // the only thing on the row that reports what a session is doing. A status
+    // with no label would leave an active session looking like a dormant one.
+    const active: SessionStatus[] = [
+      'connecting',
+      'running',
+      'awaiting_input',
+      'awaiting_plan',
+      'rate_limited',
+      'completed',
+      'failed',
+      'interrupted',
+      'dead',
+    ]
+
+    expect(active.filter((status) => !getStatusLabel(status))).toEqual([])
+    expect(getStatusLabel('idle')).toBeNull()
   })
 })

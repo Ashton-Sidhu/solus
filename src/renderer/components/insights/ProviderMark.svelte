@@ -10,12 +10,11 @@
    * glyph and OpenAI's blossom — so a backend looks the same wherever Solus
    * names it.
    *
-   * Each is drawn in the brand's own ink: Claude in the terracotta the session
-   * picker and the onboarding cards already use, and Codex in the blue of its
-   * app icon — the same hue its bar carries on the volume histogram, so one
-   * colour names one backend across the page. The picker sets the blossom on a
-   * white plate because it draws the mark in solid black; at caption size a
-   * white disc would outweigh the glyph, so the mark takes the ink instead.
+   * Each is drawn the way the picker draws it: Claude in the terracotta the
+   * session picker and the onboarding cards already use, and Codex as its solid
+   * black blossom on a white plate, which is the only way that mark stays
+   * legible in dark mode. The plate scales with the glyph on the same ratio the
+   * picker uses, so a small mark keeps the disc proportionate.
    *
    * Nothing is drawn for a backend Solus does not recognise. The caller words
    * that case, because "Unknown", "unknown provider", and "Agent" are each
@@ -27,6 +26,9 @@
   }
 
   let { mark, size = 12 }: Props = $props();
+
+  /** The picker sits a 13px blossom on a 20px plate; keep that ratio at any size. */
+  const plateSize = $derived(Math.round(size * (20 / 13)));
 </script>
 
 {#if mark === "claude"}
@@ -34,7 +36,10 @@
     <ClaudeIcon {size} />
   </span>
 {:else if mark === "codex"}
-  <span class="flex shrink-0 items-center text-(--brand-codex)">
-    <OpenAIBlossom {size} fill="currentColor" />
+  <span
+    class="flex shrink-0 items-center justify-center rounded-full bg-white"
+    style="width:{plateSize}px;height:{plateSize}px"
+  >
+    <OpenAIBlossom {size} />
   </span>
 {/if}

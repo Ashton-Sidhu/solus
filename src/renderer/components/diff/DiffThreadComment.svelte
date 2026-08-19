@@ -182,7 +182,9 @@
   {#if interactive}
     <div class="border-t border-(--solus-container-border) px-2.5 py-2">
       {#if replying}
-        <div class="flex flex-col gap-1.5">
+        <!-- Bare field: the first line starts at the top edge, so the mic rides
+             half of the `leading-4` below it. -->
+        <div class="flex flex-col gap-1.5" style="--rc-mic-line-center:0.5rem">
           <MarkdownTextarea
             bind:ref={replyEl}
             bind:value={replyText}

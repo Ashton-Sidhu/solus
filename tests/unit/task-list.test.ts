@@ -13,7 +13,6 @@ import {
   hasGlyph,
   prChipFor,
   prChipForBranches,
-  projectInitial,
   reconcileSidebarTasks,
   resolveTaskSidebarLifecycle,
   shouldCompleteTaskForPr,
@@ -322,8 +321,8 @@ describe('buildProjectSummaries', () => {
         projectLabel: 'model-routing',
       }),
     ])
-    expect(solus).toMatchObject({ label: 'solus', initial: 'S', count: 2, waiting: 1, failed: 0 })
-    expect(routing).toMatchObject({ label: 'model-routing', initial: 'MR', count: 1, waiting: 0, failed: 1 })
+    expect(solus).toMatchObject({ label: 'solus', count: 2, waiting: 1, failed: 0 })
+    expect(routing).toMatchObject({ label: 'model-routing', count: 1, waiting: 0, failed: 1 })
   })
 
   it('leads each project with its most urgent task, so picking one lands on the decision', () => {
@@ -331,13 +330,6 @@ describe('buildProjectSummaries', () => {
     // happens to be first in tab order would make it a navigation dead end.
     const [summary] = buildProjectSummaries([task('idle', 'idle'), task('asks', 'question')])
     expect(summary.leadTaskKey).toBe('asks')
-  })
-})
-
-describe('projectInitial', () => {
-  it('takes one letter from a single word and two from a compound name', () => {
-    expect(projectInitial('solus')).toBe('S')
-    expect(projectInitial('model-routing')).toBe('MR')
   })
 })
 

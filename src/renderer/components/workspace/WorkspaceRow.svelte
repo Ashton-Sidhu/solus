@@ -144,7 +144,7 @@
        right edge and opened a dead band across the middle of every row; sharing
        the growth closes that band and spends it on the one other column with
        prose in it. Ellipsis, never wraps. -->
-  <span class="min-w-0 flex-[3] truncate text-sm font-normal ">
+  <span class="min-w-0 flex-[3] truncate text-workspace-chrome font-normal">
     {#each titleRuns as run, i (i)}{#if run.hit}<mark
           class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
           >{run.text}</mark

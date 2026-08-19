@@ -140,10 +140,19 @@
       <div class="row">
         <Input class="inspector-input" bind:value={field.type} oninput={commitFields} placeholder="Type" />
         <Input class="inspector-input" bind:value={field.ref} oninput={commitFields} placeholder="Ref, e.g. users.id" />
-        <label class="nullable">
-          <input type="checkbox" bind:checked={field.nullable} onchange={commitFields} />
-          null
-        </label>
+        <!-- A toggle chip rather than a checkbox: the row is already three
+             controls wide, and this reads the same as the key badge beside it. -->
+        <button
+          type="button"
+          class="nullable"
+          class:nullable--set={!!field.nullable}
+          aria-pressed={!!field.nullable}
+          title={field.nullable ? 'Nullable' : 'Not null'}
+          onclick={() => {
+            field.nullable = !field.nullable
+            commitFields()
+          }}
+        >null</button>
       </div>
     </div>
   {/each}
@@ -177,38 +186,64 @@
     min-width: 0;
   }
 
+  /* A field is one card of two rows, so the name and its type/ref/null line
+     never read as two separate fields stacked by accident. */
   .row-group {
     display: flex;
     flex-direction: column;
     gap: 0.375rem;
     padding: 0.5rem;
-    border-radius: 0.5rem;
+    border-radius: 0.75rem;
     background: color-mix(in srgb, var(--solus-surface-hover) 55%, transparent);
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--solus-text-primary) 5%, transparent);
+    transition: box-shadow var(--duration-base) var(--ease-premium);
   }
 
-  .key-btn {
+  .row-group:focus-within {
+    box-shadow: inset 0 0 0 0.0625rem var(--solus-accent-border);
+  }
+
+  /* Key and null are the row's two badges: same height, same mono type, both
+     lighting up in the accent when set. */
+  .key-btn,
+  .nullable {
     flex-shrink: 0;
-    width: 2.25rem;
-    height: 1.75rem;
-    border: 0.0625rem solid transparent;
-    border-radius: 0.375rem;
+    /* Matches the Input primitive's h-8 beside it, so a field row reads as one
+       control strip rather than a tall box with two short chips bolted on. */
+    height: 2rem;
+    border: none;
+    border-radius: 0.5rem;
     background: var(--solus-surface-hover);
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--solus-text-primary) 6%, transparent);
     color: var(--solus-text-tertiary);
+    font-family: var(--solus-code-font-family);
     font-size: var(--text-xs);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     cursor: pointer;
     transition:
       color var(--duration-quick) var(--ease-premium),
-      background var(--duration-quick) var(--ease-premium);
+      background var(--duration-quick) var(--ease-premium),
+      box-shadow var(--duration-quick) var(--ease-premium);
   }
 
-  .key-btn--set {
+  .key-btn { width: 2.375rem; }
+
+  .key-btn:hover,
+  .nullable:hover {
+    color: var(--solus-text-secondary);
+    box-shadow: inset 0 0 0 0.0625rem var(--solus-tool-border);
+  }
+
+  .key-btn--set,
+  .nullable--set {
     color: var(--solus-accent);
-    background: color-mix(in srgb, var(--solus-accent) 12%, transparent);
+    background: var(--solus-accent-light);
+    box-shadow: inset 0 0 0 0.0625rem var(--solus-accent-border-medium);
   }
 
-  .key-btn:focus-visible {
+  .key-btn:focus-visible,
+  .nullable:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: 0.125rem;
   }
@@ -218,25 +253,26 @@
   .row :global(.metric-key) { flex: 0 0 7rem; }
 
   .nullable {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 0.25rem;
-    font-size: var(--text-xs);
-    color: var(--solus-text-secondary);
-    cursor: pointer;
+    padding: 0 0.5625rem;
     user-select: none;
   }
 
-  .nullable input {
-    accent-color: var(--solus-accent);
-    cursor: pointer;
-  }
-
+  /* Guidance, not a field: indented off the label column and set in the tertiary
+     tone so it never reads as another row. */
   .note {
     margin: 0;
+    padding-left: 0.125rem;
     font-size: var(--text-xs);
-    line-height: 1.5;
+    line-height: 1.55;
     color: var(--solus-text-tertiary);
+    text-wrap: pretty;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .row-group,
+    .key-btn,
+    .nullable {
+      transition: none;
+    }
   }
 </style>

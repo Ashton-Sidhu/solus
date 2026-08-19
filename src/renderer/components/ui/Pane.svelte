@@ -10,7 +10,12 @@
   import ConversationPaneSkeleton from "../conversation/ConversationPaneSkeleton.svelte";
   import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
   import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
+  import PrReviewSkeleton from "../pr-review/PrReviewSkeleton.svelte";
+  import TasksPageSkeleton from "../tasks/TasksPageSkeleton.svelte";
   import TaskPageSkeleton from "../tasks/task-page/TaskPageSkeleton.svelte";
+  import AutomationsPageSkeleton from "../automations/AutomationsPageSkeleton.svelte";
+  import AutomationBuilderSkeleton from "../automations/AutomationBuilderSkeleton.svelte";
+  import InsightsPageSkeleton from "../insights/InsightsPageSkeleton.svelte";
   import ReviewLoadingSurface from "../review/ReviewLoadingSurface.svelte";
   import PaneChrome from "./PaneChrome.svelte";
   import { paneActions } from "./lib/pane-actions.svelte";
@@ -47,8 +52,18 @@
         <SettingsPageSkeleton />
       {:else if ref.name === "prs"}
         <PrsPageSkeleton />
+      {:else if ref.name === "prReview"}
+        <PrReviewSkeleton />
+      {:else if ref.name === "tasks"}
+        <TasksPageSkeleton />
       {:else if ref.name === "task"}
         <TaskPageSkeleton />
+      {:else if ref.name === "automations"}
+        <AutomationsPageSkeleton />
+      {:else if ref.name === "automation"}
+        <AutomationBuilderSkeleton />
+      {:else if ref.name === "insights"}
+        <InsightsPageSkeleton />
       {:else if ref.name === "review"}
         <div class="relative h-full min-h-0 w-full">
           <ReviewLoadingSurface view={ref.params.view ?? "diff"} />

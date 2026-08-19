@@ -1,6 +1,5 @@
 <script lang="ts">
   import { Panel, useSvelteFlow, useViewport } from '@xyflow/svelte'
-  import DiagramExportMenu from './DiagramExportMenu.svelte'
   import DiagramLayoutMenu from './DiagramLayoutMenu.svelte'
   import type { DiagramDoc } from '../../../shared/diagram-types'
   import type { LayoutDirection } from '../../../shared/diagram-layout'
@@ -13,9 +12,6 @@
     onDeleteSelected?: () => void
     hasSelection?: boolean
     getDoc: () => DiagramDoc
-    exportBgColor: string
-    exportTitle: string
-    prepareImageExport?: () => Promise<() => void>
     minimapVisible: boolean
     onToggleMinimap: () => void
     onFlowReady?: (flow: ReturnType<typeof useSvelteFlow>) => void
@@ -29,9 +25,6 @@
     onDeleteSelected,
     hasSelection = false,
     getDoc,
-    exportBgColor,
-    exportTitle,
-    prepareImageExport,
     minimapVisible,
     onToggleMinimap,
     onFlowReady,
@@ -150,8 +143,6 @@
           <rect x="9" y="8.5" width="4" height="3.5" rx="0.75" fill="currentColor" stroke="none" />
         </svg>
       </button>
-
-      <DiagramExportMenu {getDoc} bgColor={exportBgColor} title={exportTitle} {prepareImageExport} />
     </div>
 
     {#if onDeleteSelected}
@@ -197,9 +188,9 @@
     gap: 0.125rem;
   }
 
-  /* :global so the shared button styling also reaches the trigger buttons
-     rendered by DiagramLayoutMenu / DiagramExportMenu, which reuse this class
-     across component boundaries. Scoped under .canvas-toolbar so it can't leak. */
+  /* :global so the shared button styling also reaches the trigger button
+     rendered by DiagramLayoutMenu, which reuses this class across a component
+     boundary. Scoped under .canvas-toolbar so it can't leak. */
   .canvas-toolbar :global(.canvas-toolbar__btn) {
     display: grid;
     place-items: center;

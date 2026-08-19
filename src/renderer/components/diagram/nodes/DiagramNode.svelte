@@ -378,7 +378,17 @@
 <style>
   .diagram-node {
     --node-accent: var(--solus-accent);
-    --node-radius: 0.625rem;
+    /* Display rung, set on the shell (see DiagramShell.css). The card is one
+       object, so every dimension that gives it its size — box, padding, glyph
+       slots and type — is expressed against it rather than a subset, which
+       would just re-open the gap between a card and the words inside it. The
+       fallback keeps a card rendered outside the shell (the thumbnail) at 1. */
+    --node-scale: var(--diagram-node-scale, 1);
+    --node-pad-x: calc(0.6875rem * var(--node-scale));
+    --node-pad-bottom: calc(0.625rem * var(--node-scale));
+    --node-title-size: calc(var(--text-caption) * var(--node-scale));
+    --node-meta-size: calc(var(--text-footnote) * var(--node-scale));
+    --node-radius: calc(0.625rem * var(--node-scale));
     /* The card's three shadow roles are separate layers so they compose instead
        of overwriting each other: a selection ring, the stacked-paper depth mark,
        and the ambient lift. Transparent placeholders keep the list valid when a
@@ -389,7 +399,9 @@
     position: relative;
     display: flex;
     flex-direction: column;
-    gap: 0.09375rem;
+    /* Enough air that the eyebrow reads as a line above the title rather than
+       as its first word — at 1.5px the two rows collided. */
+    gap: calc(0.25rem * var(--node-scale));
     /* Fill the xyflow node wrapper so resizing in either axis is reflected by
        the card, and so the connection handles (anchored to the wrapper's
        mid-sides) line up with the card's edges instead of drifting to its
@@ -397,9 +409,9 @@
     box-sizing: border-box;
     width: 100%;
     height: 100%;
-    min-width: 12.5rem;
-    max-width: 18rem;
-    padding: 0.5625rem 0.6875rem 0.625rem;
+    min-width: calc(12.5rem * var(--node-scale));
+    max-width: calc(18rem * var(--node-scale));
+    padding: calc(0.5625rem * var(--node-scale)) var(--node-pad-x) var(--node-pad-bottom);
     border-radius: var(--node-radius);
     border: 0.0625rem solid var(--solus-tool-border);
     background: var(--solus-container-bg);
@@ -457,19 +469,19 @@
      would read as a flat oval/rhombus — and stack the icon over a centred label. */
   .diagram-node--circle,
   .diagram-node--diamond {
-    min-width: 7.5rem;
-    max-width: 13rem;
-    min-height: 7.5rem;
+    min-width: calc(7.5rem * var(--node-scale));
+    max-width: calc(13rem * var(--node-scale));
+    min-height: calc(7.5rem * var(--node-scale));
     justify-content: center;
     align-items: center;
     text-align: center;
-    gap: 0.25rem;
+    gap: calc(0.25rem * var(--node-scale));
   }
   .diagram-node--circle .diagram-node__kind,
   .diagram-node--diamond .diagram-node__kind {
     flex-direction: column;
     align-items: center;
-    gap: 0.25rem;
+    gap: calc(0.25rem * var(--node-scale));
   }
   /* The spacer only earns its keep in the horizontal kind row. */
   .diagram-node--circle .diagram-node__kind-spacer,
@@ -485,7 +497,7 @@
      selection ring all hug the outline natively. */
   .diagram-node--circle {
     border-radius: 50%;
-    padding: 1rem;
+    padding: calc(1rem * var(--node-scale));
   }
 
   /* Diamond can't use a plain border — clip-path would slice the stroke off — so
@@ -500,7 +512,7 @@
     box-shadow: none;
   }
   .diagram-node--diamond {
-    padding: 1.75rem 1.25rem;
+    padding: calc(1.75rem * var(--node-scale)) calc(1.25rem * var(--node-scale));
   }
   /* Lift the real content above the polygon backdrop (which sits at z-index 0). */
   .diagram-node--diamond > :not(.diagram-node__shape) {
@@ -539,8 +551,12 @@
   .diagram-node__kind {
     display: flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: calc(0.375rem * var(--node-scale));
+    /* Holds the fixed glyph slot, so it stays off the card's display rung. */
     min-height: 0.875rem;
+    /* On top of the card's row gap: the eyebrow needs a wider step than the
+       rows below the title, which stay on the plain gap. */
+    margin-bottom: calc(0.25rem * var(--node-scale));
   }
 
   .diagram-node__kind-spacer {
@@ -554,6 +570,10 @@
     flex-shrink: 0;
     width: 0.875rem;
     height: 0.875rem;
+    /* The glyph slot is fixed geometry — the svg icons are drawn at 12/14px in
+       the markup, so the slot holds their box and the emoji fallback matches
+       it, instead of following the text preference or the card's display rung
+       and cropping an icon that cannot follow. */
     font-size: var(--text-xs);
     line-height: 1;
     /* Neutral by default: a canvas of tinted glyphs is noise. A node the user
@@ -565,8 +585,11 @@
     color: var(--node-accent);
   }
 
+  /* The card's own heading. One rung above the footnote register the rest of
+     the card spends — the eyebrow above it separates on weight and colour
+     rather than on a second size step, which would make every card larger. */
   .diagram-node__label {
-    font-size: var(--text-sm);
+    font-size: var(--node-title-size);
     font-weight: 500;
     line-height: 1.15;
     display: -webkit-box;
@@ -579,12 +602,15 @@
     word-break: break-word;
   }
 
+  /* The eyebrow. It sits one rung under the title but reads as its equal at
+     weight 500, because uppercase caps match a lowercase title's cap height —
+     so the register is carried by weight, tracking and colour instead. */
   .diagram-node__subtitle {
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     color: var(--solus-text-tertiary);
-    font-weight: 500;
+    font-weight: 400;
     line-height: 1.2;
-
+    letter-spacing: 0.04em;
     text-transform: uppercase;
     opacity: 0.8;
     white-space: nowrap;
@@ -599,7 +625,9 @@
     border-bottom: 0.09375rem solid var(--solus-accent-border);
     outline: none;
     color: var(--solus-text-primary);
-    font-size: var(--text-sm);
+    /* Renaming swaps this in for the label, so it holds the label's rung — the
+       card must not resize as you start typing. */
+    font-size: var(--node-title-size);
     font-weight: 500;
     padding: 0;
   }
@@ -610,8 +638,8 @@
     display: grid;
     place-items: center;
     flex-shrink: 0;
-    width: 1.25rem;
-    height: 1.25rem;
+    width: calc(1.25rem * var(--node-scale));
+    height: calc(1.25rem * var(--node-scale));
     border: none;
     border-radius: 0.375rem;
     background: transparent;
@@ -653,11 +681,11 @@
     align-items: center;
     gap: 0.1875rem;
     flex-shrink: 0;
-    padding: 0.0625rem 0.3125rem;
+    padding: 0.0625rem calc(0.3125rem * var(--node-scale));
     border: none;
     border-radius: 0.25rem;
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     font-variant-numeric: tabular-nums;
     color: var(--solus-accent);
     background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
@@ -697,18 +725,20 @@
     background: transparent;
     border: 0.0625rem solid color-mix(in srgb, var(--solus-text-tertiary) 20%, transparent);
     color: var(--solus-text-secondary);
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     font-weight: 500;
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
 
-  /* Entity field table. Negative margins pull it out to the card's edges — the
-     card's own padding is 9/11/10, so these mirror it exactly. */
+  /* Entity field table. Negative margins pull it out to the card's edges — they
+     read the card's own padding tokens so the two cannot drift apart when the
+     display rung compacts the card. */
   .diagram-node__fields {
     display: flex;
     flex-direction: column;
-    margin: 0.1875rem -0.6875rem -0.625rem;
+    margin: calc(0.1875rem * var(--node-scale)) calc(-1 * var(--node-pad-x))
+      calc(-1 * var(--node-pad-bottom));
     border-top: 0.0625rem solid var(--solus-tool-border);
     background: color-mix(in srgb, var(--solus-surface-hover) 55%, transparent);
   }
@@ -716,21 +746,24 @@
   .diagram-node__field {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: calc(0.5rem * var(--node-scale));
     min-width: 0;
-    padding: 0.21875rem 0.6875rem;
+    padding: calc(0.21875rem * var(--node-scale)) var(--node-pad-x);
   }
 
   .diagram-node__field-key {
     flex: none;
-    width: 0.5625rem;
-    height: 0.5625rem;
+    width: calc(0.5625rem * var(--node-scale));
+    height: calc(0.5625rem * var(--node-scale));
   }
 
   .diagram-node__field-key--letters {
-    font-size: var(--text-xs);
+    /* FK/UQ share the key slot with the PK glyph, so they track the slot rather
+       than the text preference — a scaled letter pair would push the field name
+       across — and follow it down on the compact display rung. */
+    font-size: calc(0.75rem * var(--node-scale));
     font-weight: 500;
-    line-height: 0.5625rem;
+    line-height: calc(0.5625rem * var(--node-scale));
     color: var(--solus-text-tertiary);
   }
 
@@ -738,7 +771,7 @@
     flex: 1;
     min-width: 0;
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
 
     color: var(--solus-text-primary);
     overflow: hidden;
@@ -755,7 +788,7 @@
     flex: 0 1 auto;
     min-width: 0;
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     color: var(--solus-text-tertiary);
     font-variant-numeric: tabular-nums;
     overflow: hidden;
@@ -765,10 +798,12 @@
 
   .diagram-node__field-more {
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     color: var(--solus-text-tertiary);
     opacity: 0.8;
-    padding: 0.1875rem 0.6875rem 0.3125rem 1.6875rem;
+    /* Indented past the key slot so it lines up with the field names above it. */
+    padding: calc(0.1875rem * var(--node-scale)) var(--node-pad-x)
+      calc(0.3125rem * var(--node-scale)) calc(1.6875rem * var(--node-scale));
   }
 
   /* Legacy meta */
@@ -780,7 +815,7 @@
   }
 
   .diagram-node__meta {
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     color: var(--solus-text-secondary);
     font-weight: 400;
   }
@@ -808,14 +843,14 @@
   }
 
   .diagram-node__metric-key {
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     font-weight: 500;
     color: var(--solus-text-tertiary);
     white-space: nowrap;
   }
 
   .diagram-node__metric-val {
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     font-weight: 500;
     color: var(--solus-text-primary);
     font-variant-numeric: tabular-nums;
@@ -831,7 +866,7 @@
   }
 
   .diagram-node__tag {
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     font-weight: 500;
     color: var(--solus-text-tertiary);
     padding: 0.0625rem 0.25rem;
@@ -841,7 +876,7 @@
 
   /* Expanded body/custom html */
   .diagram-node__body {
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     color: var(--solus-text-secondary);
     line-height: 1.55;
     margin: 0;
@@ -852,7 +887,7 @@
   }
 
   .diagram-node__custom {
-    font-size: var(--text-xs);
+    font-size: var(--node-meta-size);
     color: var(--solus-text-secondary);
     line-height: 1.55;
     max-height: 12rem;

@@ -8,6 +8,9 @@ export const KEYBINDINGS = {
   'global.new-task':          { combo: { mod: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyN' }, scope: 'global', label: 'New task',                 group: 'Tasks' },
   'global.new-session-without-task': { combo: { mod: true, shift: true, code: 'KeyN' }, web: { alt: true, shift: true, code: 'KeyU' }, scope: 'global', label: 'New session without task', group: 'Tasks' },
   'global.new-session':       { combo: { mod: true, code: 'KeyT' }, web: { alt: true, shift: true, code: 'KeyT' }, scope: 'global', label: 'New session in task',       group: 'Tasks' },
+  // Files a task; `global.new-task` starts a session on one. Every ⌥⇧ letter is
+  // already spoken for, so the web default pairs ⌘⌥ with the same key.
+  'global.create-task':       { combo: { mod: true, shift: true, code: 'KeyT' }, web: { mod: true, alt: true, code: 'KeyT' }, scope: 'global', label: 'Create task',        group: 'Tasks' },
   'global.new-split-chat':    { combo: { alt: true, shift: true, code: 'Slash' },          scope: 'global',             label: 'Toggle split chat',        group: 'Tabs' },
   'global.fork-tab':          { combo: { alt: true, code: 'KeyF' },                       scope: 'global',             label: 'Fork session',             group: 'Tabs' },
   'global.next-tab':          { combo: { ctrl: true, code: 'Tab' }, web: { alt: true, shift: true, code: 'ArrowRight' }, scope: 'global', label: 'Next branch / tab',     group: 'Tabs' },

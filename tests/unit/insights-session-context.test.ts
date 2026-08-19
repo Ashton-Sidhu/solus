@@ -252,6 +252,27 @@ describe('Insights session surfaces composition', () => {
     expect(panel).toContain('session?.taskId || boundTask?.id || null')
   })
 
+  test('the summary resolves the current task name from the recorded task id', () => {
+    // WHY: a new session records its prompt-derived task title before generated
+    // task metadata replaces it. The durable id must lead back to the current
+    // title instead of leaving Insights on that stale first-prompt snapshot.
+    expect(panel).toContain('workspace.tasksStore.taskForId(taskId)')
+    expect(panel).toContain('task?.title || session?.taskTitle')
+    expect(panel).not.toContain(
+      'String(attr(root, "taskTitle") ?? "") || session?.taskTitle || boundTask?.title',
+    )
+  })
+
+  test('the session heading shows the complete task name', () => {
+    // WHY: task names vary in length. A one-line ellipsis made short names look
+    // complete while longer names silently lost the part that distinguished them.
+    const heading = summary.slice(summary.indexOf('<header'), summary.indexOf('</header>'))
+    const taskButtonClass = heading.match(/<button[\s\S]*?class="([^"]+)"/)?.[1]
+    expect(heading).toContain('flex-wrap')
+    expect(taskButtonClass).toContain('text-pretty')
+    expect(taskButtonClass).not.toContain('truncate')
+  })
+
   test('a row answers its second question on hover, the way a session row does', () => {
     expect(summary).toContain('<SessionTurnTooltip {row} />')
   })

@@ -11,7 +11,7 @@
 
 <p
   class={cn(
-    "flex items-baseline justify-center gap-1.5 whitespace-nowrap text-sm leading-relaxed text-(--solus-text-tertiary)",
+    "flex items-baseline justify-center gap-1.5 whitespace-nowrap text-workspace-chrome leading-relaxed text-(--solus-text-tertiary)",
     className,
   )}
 >

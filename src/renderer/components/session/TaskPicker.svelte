@@ -232,7 +232,7 @@
   >
     <ListChecksIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     <span class="min-w-0 flex-1">
-      <span class="block truncate text-sm font-medium">{task.title}</span>
+      <span class="block truncate font-medium">{task.title}</span>
       <span class="block truncate text-xs text-(--solus-text-tertiary)">{projectLabel(task)}</span>
     </span>
   </button>
@@ -248,7 +248,7 @@
       bind:value={query}
       type="text"
       placeholder={`Search ${tasks.length} tasks…`}
-      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
+      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
     />
     <button
       type="button"
@@ -346,9 +346,9 @@
           </div>
           <h2 class="m-0 text-2xl font-medium leading-[1.25] text-pretty text-(--solus-text-primary)">{selectedTask.title}</h2>
           {#if selectedTask.body}
-            <p class="whitespace-pre-wrap text-pretty pt-[18px] text-sm leading-6 text-(--solus-text-secondary)">{selectedTask.body}</p>
+            <p class="whitespace-pre-wrap text-pretty pt-[18px] leading-6 text-(--solus-text-secondary)">{selectedTask.body}</p>
           {:else}
-            <p class="pt-[18px] text-sm text-(--solus-text-tertiary)">No task description.</p>
+            <p class="pt-[18px] text-(--solus-text-tertiary)">No task description.</p>
           {/if}
           {#if prRows.length}
             <div class="flex flex-col gap-[7px] pt-[26px]">
@@ -371,7 +371,7 @@
                       <PrIcon size={13} />
                     </span>
                     <span class="flex h-5 shrink-0 items-center text-xs tabular-nums text-(--solus-text-tertiary) opacity-65">{row.ref}</span>
-                    <span class="flex h-5 min-w-0 flex-1 items-center truncate text-sm">
+                    <span class="flex h-5 min-w-0 flex-1 items-center truncate">
                       {#if row.title}
                         {row.title}
                       {:else}
@@ -418,7 +418,7 @@
                         aria-hidden="true"><path d={row.icon} /></svg
                       >
                     </span>
-                    <span class="min-w-0 flex-1 truncate text-sm">{row.label}</span>
+                    <span class="min-w-0 flex-1 truncate">{row.label}</span>
                     <span class="w-[92px] shrink-0 text-xs whitespace-nowrap text-(--solus-text-tertiary) opacity-70">{row.kindLabel}</span>
                     <span class="w-[88px] shrink-0 truncate text-right text-xs whitespace-nowrap text-(--solus-text-tertiary) opacity-75">{row.meta}</span>
                   </div>
@@ -453,7 +453,7 @@
   </div>
 {:else if open && layer.el}
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]" style={centringStyle}>
-    <div bind:this={pickerEl} class="flex h-3/4 max-h-[75%] w-4/5 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] [.is-laptop-display_&]:w-[90%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-(--solus-container-bg) max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
+    <div bind:this={pickerEl} class="flex h-3/4 max-h-[75%] w-4/5 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl text-workspace-chrome border border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] [.is-laptop-display_&]:w-[90%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-(--solus-container-bg) max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
     </div>
   </div>

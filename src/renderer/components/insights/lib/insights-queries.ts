@@ -61,6 +61,19 @@ export function sessionTurnsSql(sessionId: string, range: TimeRange): string {
   ].join('\n')
 }
 
+/** Every turn a task's work produced, across every session that ran it — the
+ *  task is the unit of work, and one task is often several attempts. */
+export function taskTurnsSql(taskId: string, range: TimeRange): string {
+  return [
+    `select ${TURN_SELECT_COLUMNS.join(', ')}`,
+    'from turns',
+    `where task_id = '${taskId.replace(/'/g, "''")}'`,
+    `  and ${rangeCondition(range)}`,
+    'order by started_at desc',
+    `limit ${EXPLORE_ROW_LIMIT}`,
+  ].join('\n')
+}
+
 /** The histogram's own query: turn volume split by provider. Independent
  *  of whatever the user is asking, because it is the context the answer sits
  *  in — narrowing it with the question would flatten the shape being explained. */
@@ -234,6 +247,7 @@ export function presetsFor(
 export type GeneratedQuery =
   | { kind: 'explore' }
   | { kind: 'session'; sessionId: string }
+  | { kind: 'task'; taskId: string }
   | { kind: 'preset'; presetId: string }
 
 /** Re-emits a generated statement at the given range. Returns null when a
@@ -241,5 +255,6 @@ export type GeneratedQuery =
 export function generatedSql(query: GeneratedQuery, range: TimeRange): string | null {
   if (query.kind === 'explore') return defaultExploreSql(range)
   if (query.kind === 'session') return sessionTurnsSql(query.sessionId, range)
+  if (query.kind === 'task') return taskTurnsSql(query.taskId, range)
   return sqlPresets(range).find((preset) => preset.id === query.presetId)?.text ?? null
 }

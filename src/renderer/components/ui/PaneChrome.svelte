@@ -1,14 +1,10 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import {
-    XIcon,
-    ArrowsOutIcon,
-    ArrowsInIcon,
-    ArrowSquareOutIcon,
-  } from "phosphor-svelte";
+  import { XIcon, ArrowsOutIcon, ArrowsInIcon } from "phosphor-svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import { comboHint, type BindingId } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
+  import PaneSwapButton from "./PaneSwapButton.svelte";
 
   /** The pane's only chrome: a floating icon cluster over the top-right of the
    *  content. Every surface below the top rail is content now, so pane-level
@@ -70,23 +66,7 @@
   {#if trailing}{@render trailing()}{/if}
 
   {#if onOpenInSplit}
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props })}
-          <button
-            {...props}
-            type="button"
-            class={PAGE_ICON_BTN}
-            onclick={onOpenInSplit}
-            data-testid={isLeading ? "open-in-split" : "open-as-page"}
-            aria-label={isLeading ? "Open in split" : "Open as page"}
-          >
-            <ArrowSquareOutIcon size={15} />
-          </button>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={isLeading ? "Open in split" : "Open as page"} />
-    </TooltipUI.Root>
+    <PaneSwapButton {isLeading} onMove={onOpenInSplit} />
   {/if}
 
   {#if onToggleMaximize}

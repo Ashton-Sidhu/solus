@@ -45,7 +45,11 @@
             class="chip__x"
             onclick={() => onChange(values.filter((_, idx) => idx !== i))}
             aria-label="Remove {label} {value}"
-          >✕</button>
+          >
+            <svg viewBox="0 0 16 16" width="8" height="8" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <path d="M4 4l8 8M12 4l-8 8" />
+            </svg>
+          </button>
         </span>
       {/each}
     </div>
@@ -63,10 +67,11 @@
   .chip {
     display: inline-flex;
     align-items: center;
-    gap: 0.3125rem;
-    padding: 0.125rem 0.25rem 0.125rem 0.5rem;
-    border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
+    gap: 0.25rem;
+    padding: 0.1875rem 0.25rem 0.1875rem 0.5625rem;
+    border-radius: 9999px;
+    background: var(--solus-accent-light);
+    box-shadow: inset 0 0 0 0.0625rem var(--solus-accent-border);
     color: var(--solus-text-secondary);
     font-size: var(--text-xs);
     font-weight: 500;
@@ -74,25 +79,30 @@
 
   .chip--muted {
     background: var(--solus-surface-hover);
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--solus-text-primary) 7%, transparent);
     color: var(--solus-text-tertiary);
   }
 
+  /* The remove target stays quiet until the chip is under the pointer, so a
+     list of badges reads as content rather than as a row of close buttons. */
   .chip__x {
     display: grid;
     place-items: center;
-    width: 0.875rem;
-    height: 0.875rem;
+    width: 1rem;
+    height: 1rem;
     border: none;
-    border-radius: 0.25rem;
+    border-radius: 9999px;
     background: transparent;
     color: inherit;
-    font-size: var(--text-xs);
     cursor: pointer;
-    opacity: 0.7;
+    opacity: 0.45;
     transition:
       opacity var(--duration-quick) var(--ease-premium),
-      background var(--duration-quick) var(--ease-premium);
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
   }
+
+  .chip:hover .chip__x { opacity: 0.8; }
 
   .chip__x:hover {
     opacity: 1;

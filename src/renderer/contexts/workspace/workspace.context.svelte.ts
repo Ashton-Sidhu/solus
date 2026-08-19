@@ -20,6 +20,7 @@ import { PrsStore, type PrReviewTab } from '../prs/prs.store.svelte'
 import { PrInboxStore } from '../prs/pr-inbox.store.svelte'
 import { projectCatalog } from '../projects/project-catalog.store.svelte'
 import { prSurfaceError } from '../../components/prs/lib/pr-surface-error'
+import { insightsStore } from '../../components/insights/insights.store.svelte'
 import { StacksStore } from '../prs/stacks.store.svelte'
 import { type Task, type TaskSnapshot } from '../../../shared/task-types'
 import { writeSessionHandoff } from './active-session-pointer'
@@ -2799,7 +2800,7 @@ export class WorkspaceContext {
   /** Open a work as the single artifact. `aside` puts it beside the
    *  conversation; otherwise it takes the focused pane. */
   openWork(workId: string, target: 'focused' | 'aside' = 'focused'): void {
-    this.router.navigate({ name: 'work', params: { workId } }, { target: this.artifactTarget(target) })
+    this.router.navigate({ name: 'work', params: { workId } }, { target: this.paneTarget(target) })
   }
 
   closeWorkModal(): void {
@@ -2919,6 +2920,11 @@ export class WorkspaceContext {
     // The default target covers the conversation rather than taking over
     // whichever companion pane happens to hold focus; contextual links can
     // explicitly request a companion.
+    //
+    // Asking for the companion is the one case exclusivity would defeat: a page
+    // already showing in the lead would be replaced there and the split would
+    // never appear. Clear the group first so the request is honoured.
+    if (target === 'aside') this.router.closeGroup('page')
     this.router.navigate(ref, { via, target })
     this.isExpanded = true
     track('surface_viewed', { surface, via })
@@ -2939,22 +2945,22 @@ export class WorkspaceContext {
     this.togglePage({ name: 'folio', params: {} }, via, 'workspace')
   }
 
-  openFolio(via: Via = 'click'): void {
-    this.showPage({ name: 'folio', params: {} }, via, 'workspace')
+  openFolio(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {
+    this.showPage({ name: 'folio', params: {} }, via, 'workspace', this.paneTarget(target))
   }
 
   /** Open a plan as the single artifact. */
   openPlan(planId: string, target: 'focused' | 'aside' = 'focused'): void {
     this.router.navigate(
       { name: 'plan', params: { planId, serverId: this.planStore.hostFor(planId) ?? undefined } },
-      { target: this.artifactTarget(target) },
+      { target: this.paneTarget(target) },
     )
   }
 
-  /** An artifact opening fresh covers the conversation; `aside` puts it beside
-   *  one. Where an artifact is already open, exclusivity replaces it in place
-   *  and this target is never consulted. */
-  private artifactTarget(target: 'focused' | 'aside'): NavTarget {
+  /** A surface opening fresh covers the conversation; `aside` puts it beside
+   *  one. Where an artifact of the same group is already open, exclusivity
+   *  replaces it in place and this target is never consulted. */
+  private paneTarget(target: 'focused' | 'aside'): NavTarget {
     return target === 'aside' ? 'aside' : this.router.leadingPane.id
   }
 
@@ -3028,8 +3034,8 @@ export class WorkspaceContext {
     )
   }
 
-  openTasks(via: Via = 'click'): void {
-    this.showPage({ name: 'tasks', params: {} }, via, 'tasks')
+  openTasks(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {
+    this.showPage({ name: 'tasks', params: {} }, via, 'tasks', this.paneTarget(target))
   }
 
   /** Open the standalone create-task modal. Current-project entry points may
@@ -3052,9 +3058,18 @@ export class WorkspaceContext {
     }
   }
 
-  openPrs(projectPath: string | null = null, via: Via = 'click'): void {
+  openPrs(
+    projectPath: string | null = null,
+    via: Via = 'click',
+    target: 'focused' | 'aside' = 'focused',
+  ): void {
     this.prsStore.needsReviewOnly = false
-    this.showPage({ name: 'prs', params: { projectPath: projectPath ?? undefined } }, via, 'prs')
+    this.showPage(
+      { name: 'prs', params: { projectPath: projectPath ?? undefined } },
+      via,
+      'prs',
+      this.paneTarget(target),
+    )
   }
 
   async openReviewMode(
@@ -3092,8 +3107,35 @@ export class WorkspaceContext {
     this.togglePage({ name: 'insights', params: {} }, via, 'insights')
   }
 
-  openInsights(via: Via = 'click'): void {
-    this.showPage({ name: 'insights', params: {} }, via, 'insights')
+  openInsights(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {
+    this.showPage({ name: 'insights', params: {} }, via, 'insights', this.paneTarget(target))
+  }
+
+  /** Insights, asked about one session: every turn it ran, newest first. The
+   *  scope is the question, not the route — the page renders whatever the store
+   *  last asked, exactly as it does for a preset or a typed statement.
+   *
+   *  `metrics.db` is host-local and the page follows the active host, so a
+   *  session recorded on another host answers empty. The entry points offer
+   *  this only for the active host's own sessions. */
+  openInsightsForSession(
+    sessionId: string,
+    via: Via = 'click',
+    target: 'focused' | 'aside' = 'focused',
+  ): void {
+    void insightsStore.runGenerated({ kind: 'session', sessionId })
+    this.openInsights(via, target)
+  }
+
+  /** Insights, asked about one task: every turn of every session that worked
+   *  it, so a task's real cost and time include each attempt. */
+  openInsightsForTask(
+    taskId: string,
+    via: Via = 'click',
+    target: 'focused' | 'aside' = 'focused',
+  ): void {
+    void insightsStore.runGenerated({ kind: 'task', taskId })
+    this.openInsights(via, target)
   }
 
   /** One turn's waterfall, by the trace that identifies it: the Insights page
@@ -3116,9 +3158,20 @@ export class WorkspaceContext {
   /** Open the automations page, optionally focused on one automation. In editor
    *  mode a focused automation opens in the side-panel builder; otherwise (and
    *  for the bare list) the full-page list is shown. */
-  openAutomations(focusId?: string | null, via: Via = 'click'): void {
-    if (focusId && this.window.viewMode === 'editor') this.openAutomationBuilder(focusId)
-    else this.showPage({ name: 'automations', params: { automationId: focusId ?? undefined } }, via, 'automations')
+  openAutomations(
+    focusId?: string | null,
+    via: Via = 'click',
+    target: 'focused' | 'aside' = 'focused',
+  ): void {
+    if (focusId && this.window.viewMode === 'editor') this.openAutomationBuilder(focusId, target)
+    else {
+      this.showPage(
+        { name: 'automations', params: { automationId: focusId ?? undefined } },
+        via,
+        'automations',
+        this.paneTarget(target),
+      )
+    }
     void this.automationsStore.loadAll()
   }
 
@@ -3135,7 +3188,7 @@ export class WorkspaceContext {
     if (serverId) params.serverId = serverId
     this.router.navigate(
       { name: 'automation', params },
-      { target: this.artifactTarget(target) },
+      { target: this.paneTarget(target) },
     )
     this.isExpanded = true
     void this.automationsStore.loadAll(serverId)

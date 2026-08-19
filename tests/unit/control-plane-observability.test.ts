@@ -166,6 +166,35 @@ describe.serial('ControlPlane observability hooks', () => {
     plane.shutdown()
   })
 
+  test('a resumed turn records the task its session is bound to', async () => {
+    // WHY: only a first dispatch carries a task in its options. Without the
+    // session's own binding standing in for later turns, every turn after the
+    // first records no task and "what did this task cost" cannot be asked.
+    const taskStore = await import('../../src/main/tasks/task-store')
+    const { Task } = await import('../../src/main/tasks/task')
+    const record = await taskStore.createTask({ title: 'Thread open in insights' })
+    await (await Task.byId(record.id)).linkSession('thread-1')
+
+    const backend = new Backend()
+    const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const resumed = await plane.runTurn({
+      target: { kind: 'session', sessionId: 'solus-task' }, sessionId: 'solus-task', input: input('thread-1'), tools: [],
+      options: { prompt: 'keep going', promptSource: 'typed', skipTaskCreation: true },
+    })
+    await resumed.agentSessionId
+    backend.complete('thread-1', 0)
+    await resumed.done
+
+    const turns = turnRows('solus-task')
+    expect(turns).toHaveLength(1)
+    expect(JSON.parse(turns[0].attrs)).toMatchObject({
+      taskId: record.id,
+      taskTitle: 'Thread open in insights',
+    })
+    plane.shutdown()
+  })
+
   test('records a fulfilled Codex failed turn as error', async () => {
     const backend = new Backend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))

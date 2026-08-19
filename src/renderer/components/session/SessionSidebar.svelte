@@ -32,8 +32,9 @@
   import * as Sidebar from "../ui/sidebar";
   import TaskListSkeleton from "./TaskListSkeleton.svelte";
   import SessionContextMenu from "./SessionContextMenu.svelte";
+  import SidebarNavContextMenu from "./SidebarNavContextMenu.svelte";
   import TaskContextMenu from "./TaskContextMenu.svelte";
-  import TaskListHeader from "./TaskListHeader.svelte";
+  import TaskActionBar from "./TaskActionBar.svelte";
   import TaskRow from "./TaskRow.svelte";
   import DraftRow from "./DraftRow.svelte";
   import SessionSidebarTooltip from "./SessionSidebarTooltip.svelte";
@@ -41,6 +42,7 @@
   import type { TaskSnoozeAnchor } from "./lib/task-snooze";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
   import { prNavigationTarget } from "./lib/pr-navigation";
+  import type { SidebarNavPage } from "./lib/sidebar-nav";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
     hasDisclosure,
@@ -92,6 +94,9 @@
       }
     | { kind: "pinned"; pin: PinnedSession; x: number; y: number }
     | null
+  >(null);
+  let navContextMenu = $state<
+    { page: SidebarNavPage; x: number; y: number } | null
   >(null);
   const expandedTaskIds = new SvelteSet<string>();
   /** The row being renamed in place. One at a time: the edit replaces the label
@@ -707,6 +712,34 @@
     sessionContextMenu = null;
   }
 
+  /** Right-clicking a nav destination offers the same page in either pane. The
+   *  left click keeps its toggle; the menu only ever opens. */
+  function openNavContextMenu(event: MouseEvent, page: SidebarNavPage) {
+    event.preventDefault();
+    event.stopPropagation();
+    navContextMenu = { page, x: event.clientX, y: event.clientY };
+  }
+
+  function openNavPage(page: SidebarNavPage, target: "focused" | "aside") {
+    switch (page) {
+      case "folio":
+        session.openFolio("click", target);
+        break;
+      case "automations":
+        session.openAutomations(null, "click", target);
+        break;
+      case "insights":
+        session.openInsights("click", target);
+        break;
+      case "prs":
+        session.openPrs(null, "click", target);
+        break;
+      case "tasks":
+        session.openTasks("click", target);
+        break;
+    }
+  }
+
   function openTaskContextMenu(
     event: MouseEvent | PointerEvent,
     taskId: string,
@@ -844,6 +877,7 @@
               : ''}"
             isActive={session.router.at("folio")}
             onclick={() => session.toggleFolio()}
+            oncontextmenu={(event) => openNavContextMenu(event, "folio")}
           >
             <span class="flex shrink-0 items-center"
               ><BooksIcon size={14} /></span
@@ -865,6 +899,7 @@
               : ''}"
             isActive={session.router.at("automations")}
             onclick={() => session.toggleAutomations()}
+            oncontextmenu={(event) => openNavContextMenu(event, "automations")}
           >
             <span class="flex shrink-0 items-center"
               ><ArrowsClockwiseIcon size={14} /></span
@@ -886,6 +921,7 @@
               : ''}"
             isActive={session.router.at("insights")}
             onclick={() => session.toggleInsights()}
+            oncontextmenu={(event) => openNavContextMenu(event, "insights")}
           >
             <span class="flex shrink-0 items-center"
               ><ChartBarIcon size={14} /></span
@@ -907,6 +943,7 @@
               : ''}"
             isActive={session.router.at("prs")}
             onclick={togglePrs}
+            oncontextmenu={(event) => openNavContextMenu(event, "prs")}
           >
             <span class="flex shrink-0 items-center"
               ><GitPullRequestIcon size={14} /></span
@@ -932,6 +969,7 @@
               : ''}"
             isActive={session.router.at("tasks")}
             onclick={() => session.toggleTasks()}
+            oncontextmenu={(event) => openNavContextMenu(event, "tasks")}
           >
             <span class="flex shrink-0 items-center"
               ><ListChecksIcon size={14} /></span
@@ -971,34 +1009,6 @@
     class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border @max-[15rem]:mx-2.5"
   ></div>
 
-  <!-- Drafts are their own section above the tasks, not rows inside that list:
-       a prompt on its way to becoming a task is not one yet, and filing it under
-       the Tasks heading would say it is. The section is absent until something
-       is written. It has no separate vertical scroller; the task list below
-       keeps the remaining scroll area. -->
-  {#if sidebarStore.draftRows.length > 0}
-    <div class="flex flex-shrink-0 flex-col">
-      <TaskListHeader label="Drafts" count={sidebarStore.draftRows.length} />
-      <div
-        class="overflow-x-hidden px-3.5 pb-1 @max-[15rem]:px-2.5"
-      >
-        <div
-          class="flex flex-col gap-[0.1875rem]"
-          role="listbox"
-          aria-label="Drafts"
-        >
-          {#each sidebarStore.draftRows as row (row.draftId)}
-            <DraftRow
-              {row}
-              onSelect={() => openDraft(row)}
-              onDiscard={() => discardDraft(row)}
-            />
-          {/each}
-        </div>
-      </div>
-    </div>
-  {/if}
-
   <div class="flex-shrink-0">
     {#snippet taskSearch()}
       <label
@@ -1006,7 +1016,7 @@
       >
         <MagnifyingGlassIcon
           size={14}
-          class="pointer-events-none absolute top-1/2 left-0.5 -translate-y-1/2 text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] transition-colors duration-150 group-focus-within/search:text-[color-mix(in_oklch,var(--foreground)_70%,transparent)] [.is-laptop-display_&]:size-[13px] pointer-coarse:size-3.5"
+          class="pointer-events-none absolute top-1/2 left-0.5 -translate-y-1/2 text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] transition-colors duration-150 group-focus-within/search:text-[color-mix(in_oklch,var(--foreground)_70%,transparent)]"
           aria-hidden="true"
         />
         <input
@@ -1016,7 +1026,7 @@
           placeholder="Search tasks"
           aria-label="Search sidebar tasks"
           title={`Search sidebar tasks (${comboHint("global.focus-sidebar-task-search")})`}
-          class="h-7 w-full rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-workspace-chrome tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [.is-laptop-display_&]:h-6 pointer-coarse:h-7 [&::-webkit-search-cancel-button]:hidden"
+          class="w-full h-7 rounded-lg border-0 bg-transparent pr-8 pl-[1.5625rem] text-workspace-chrome tracking-[-0.006em] text-foreground outline-none placeholder:text-[color-mix(in_oklch,var(--foreground)_45%,transparent)] [&::-webkit-search-cancel-button]:hidden"
           onkeydown={(event) => {
             if (event.key !== "Escape") return;
             event.preventDefault();
@@ -1048,7 +1058,7 @@
     {#snippet taskPicker()}
       <button
         type="button"
-        class="relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] [.is-laptop-display_&]:size-6 pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
+        class="relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
         aria-label="Open task picker"
         title={`Open task picker (${comboHint("global.task-picker")})`}
         onclick={() => {
@@ -1056,19 +1066,13 @@
           session.taskPickerOpen = true;
         }}
       >
-        <PlusIcon
-          size={15}
-          class="[.is-laptop-display_&]:size-[13px] pointer-coarse:size-[15px]"
-        />
+        <PlusIcon size={15} />
       </button>
     {/snippet}
-    <TaskListHeader
-      label="Tasks"
-      count={sidebarStore.headerCount}
+    <TaskActionBar
       scopedProject={sidebarStore.scopedProject}
       projectChoices={sidebarStore.projectFilterChoices}
       onFilter={filterToProject}
-      showLabel={false}
       leading={taskSearch}
       trailing={taskPicker}
     />
@@ -1135,6 +1139,28 @@
     class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
   >
+    <!-- Drafts lead the list rather than sitting under a heading of their own. A
+         prompt on its way to becoming a task is not one yet, and a standing
+         eyebrow that appears and disappears above the list says more about that
+         distinction than it is worth. The pencil mark on each row carries it,
+         and the wider gap below the group keeps drafts from reading as tasks.
+         They scroll with the tasks; the group is absent until something is
+         written. -->
+    {#if sidebarStore.draftRows.length > 0}
+      <div
+        class="mb-3 flex flex-col gap-[0.1875rem]"
+        role="listbox"
+        aria-label="Drafts"
+      >
+        {#each sidebarStore.draftRows as row (row.draftId)}
+          <DraftRow
+            {row}
+            onSelect={() => openDraft(row)}
+            onDiscard={() => discardDraft(row)}
+          />
+        {/each}
+      </div>
+    {/if}
     <div
       role="tree"
       tabindex="-1"
@@ -1457,6 +1483,17 @@
       onClose={closeSessionContextMenu}
     />
   {/if}
+{/if}
+
+{#if navContextMenu}
+  {@const navPage = navContextMenu.page}
+  <SidebarNavContextMenu
+    x={navContextMenu.x}
+    y={navContextMenu.y}
+    onOpen={() => openNavPage(navPage, "focused")}
+    onOpenInSplit={() => openNavPage(navPage, "aside")}
+    onClose={() => (navContextMenu = null)}
+  />
 {/if}
 
 {#if snoozeTargets.length > 0 && snoozeAnchor}

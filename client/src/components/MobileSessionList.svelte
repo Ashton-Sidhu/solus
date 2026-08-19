@@ -24,7 +24,7 @@
     filterSidebarTasks,
     groupTasks,
   } from "@renderer/components/session/lib/task-list";
-  import ProjectMark from "@renderer/components/session/ProjectMark.svelte";
+  import ProjectFavicon from "@renderer/components/ui/ProjectFavicon.svelte";
   import ReviewGuideGlyph from "@renderer/components/review/ReviewGuideGlyph.svelte";
   import { toasts } from "@renderer/lib/toasts";
   import { requestInputFocus } from "@renderer/lib/inputFocus";
@@ -492,16 +492,10 @@
             toggleProject(group.projectKey);
           }}
         >
-          <!-- The same mark the desktop rail and the breadcrumb carry: a phone
-               scrolls through more project headings than either, so the colour
-               is what tells one section from the next before its name is
-               read. -->
-          <ProjectMark
-            projectKey={group.projectKey}
-            initial={group.initial}
-            active={false}
-            class="size-4"
-          />
+          <!-- The same mark the desktop rail and the breadcrumb carry: the
+               project's own favicon where it has one, a folder where it does
+               not. -->
+          <ProjectFavicon projectRoot={group.projectKey} class="size-4" />
           <span class="min-w-0 flex-1 truncate">{group.projectLabel}</span>
           <span class="text-xs opacity-60 tabular-nums">{group.tasks.length}</span>
           <button

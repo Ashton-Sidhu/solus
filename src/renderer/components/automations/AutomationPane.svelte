@@ -3,6 +3,7 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
+  import AutomationBuilderSkeleton from "./AutomationBuilderSkeleton.svelte";
 
   let { params, paneId }: RouteSurfaceProps<"automation"> = $props();
 
@@ -17,15 +18,15 @@
   );
 </script>
 
-{#if params.automationId === null || automation}
+<!-- Two waits, one silhouette: the store fetching the named automation, and the
+     builder's own lazy module. Neither may leave the pane blank — a pane the
+     user just moved across with no content and no chrome reads as a crash. -->
+{#if params.automationId !== null && !automation}
+  <AutomationBuilderSkeleton />
+{:else}
   {#key automation?.id ?? "new"}
     {#await import("./AutomationBuilder.svelte")}
-      <div
-        class="grid h-full min-h-32 w-full place-items-center text-sm text-(--solus-text-tertiary)"
-        role="status"
-      >
-        Loading automation…
-      </div>
+      <AutomationBuilderSkeleton />
     {:then automationModule}
       {@const AutomationBuilder = automationModule.default}
       <AutomationBuilder
@@ -37,14 +38,14 @@
       />
     {/await}
   {/key}
-  <!-- After the content: the builder header is a window drag region, and a drag
-       rect later in the DOM would re-cover this cluster's no-drag holes. -->
-  <PaneChrome
-    onClose={pane.close}
-    onOpenInSplit={pane.moveAcross}
-    onToggleMaximize={pane.toggleMaximize}
-    maximized={pane.maximized}
-    isLeading={pane.isLeading}
-    closeLabel="Close automation"
-  />
 {/if}
+<!-- After the content: the builder header is a window drag region, and a drag
+     rect later in the DOM would re-cover this cluster's no-drag holes. -->
+<PaneChrome
+  onClose={pane.close}
+  onOpenInSplit={pane.moveAcross}
+  onToggleMaximize={pane.toggleMaximize}
+  maximized={pane.maximized}
+  isLeading={pane.isLeading}
+  closeLabel="Close automation"
+/>

@@ -8,7 +8,7 @@
   interface Props {
     /** One word for what is selected: the node's kind, or simply "Edge". */
     kindWord: string
-    /** Runs vertically down the rail. Truncates rather than shrinking the type. */
+    /** Name of the selection. Shown on hover — the rail itself stays icon-only. */
     label: string
     /** The identity tile's tint — the one place selection colour appears. */
     tint: string
@@ -43,13 +43,16 @@
 </script>
 
 <!-- The whole rail is one hit target — a collapse, not a dismiss, so getting
-     back should never require aiming. Clicking a tab icon reopens on that tab. -->
+     back should never require aiming. Clicking a tab icon reopens on that tab.
+     The rail is 3rem wide, so every name is either cut off or turned on its
+     side in it: identity lives in the tinted tile and in hover text instead. -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   class="diagram-rail"
   role="button"
   tabindex="0"
   aria-label="Expand inspector for {label}"
+  title="{label} — {kindWord}"
   onclick={() => onExpand()}
   onkeydown={handleRailKeydown}
   in:fly|global={{ x: 16, duration: reduceMotion ? 0 : 180, easing: quintOut }}
@@ -58,8 +61,6 @@
   <span class="diagram-rail__tile" style="--tile-tint:{tint}" aria-hidden="true">
     {@render tile()}
   </span>
-
-  <span class="diagram-rail__kind">{kindWord}</span>
 
   <span class="diagram-rail__rule" aria-hidden="true"></span>
 
@@ -112,8 +113,6 @@
 
   <span class="diagram-rail__rule" aria-hidden="true"></span>
 
-  <span class="diagram-rail__label">{label}</span>
-
   <span class="diagram-rail__expand" aria-hidden="true">
     <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round">
       <path d="M2.5 3v10M12 8H5.5M9 5L6 8l3 3" />
@@ -134,14 +133,35 @@
     gap: 0.625rem;
     width: 3rem;
     padding: 0.5rem 0 0.4375rem;
-    background: var(--solus-container-bg);
+    /* The same pane of glass as the open panel, at rail width — collapsing must
+       read as the panel narrowing, not as a different object. */
+    background:
+      linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--solus-text-primary) 3%, transparent),
+        transparent 5rem
+      ),
+      var(--solus-container-bg);
+    backdrop-filter: blur(1.25rem) saturate(1.4);
     border: 0.0625rem solid var(--solus-container-border);
-    border-radius: 0.875rem;
+    border-radius: 1rem;
     box-shadow:
-      0 1.125rem 2.75rem -1.125rem rgba(60, 40, 25, 0.34),
-      0 0.0625rem 0.1875rem rgba(60, 40, 25, 0.08);
+      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.14),
+      0 0.1875rem 0.5rem -0.25rem rgba(60, 40, 25, 0.14),
+      0 1.125rem 2.75rem -1.125rem rgba(60, 40, 25, 0.36);
     z-index: 9;
+    transition:
+      border-color var(--duration-base) var(--ease-premium),
+      box-shadow var(--duration-base) var(--ease-premium);
     cursor: pointer;
+  }
+
+  .diagram-rail:hover {
+    border-color: var(--solus-tool-border);
+    box-shadow:
+      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.14),
+      0 0.25rem 0.75rem -0.25rem rgba(60, 40, 25, 0.18),
+      0 1.375rem 3rem -1.125rem rgba(60, 40, 25, 0.42);
   }
 
   .diagram-rail:focus-visible {
@@ -154,36 +174,33 @@
     place-items: center;
     width: 2rem;
     height: 2rem;
-    border-radius: 0.5625rem;
+    border-radius: 0.625rem;
     font-size: var(--text-sm);
     line-height: 1;
     color: var(--tile-tint);
     background: linear-gradient(
       155deg,
-      color-mix(in srgb, var(--tile-tint) 24%, transparent),
-      color-mix(in srgb, var(--tile-tint) 7%, transparent)
+      color-mix(in srgb, var(--tile-tint) 26%, transparent),
+      color-mix(in srgb, var(--tile-tint) 6%, transparent)
     );
-    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--tile-tint) 34%, transparent);
+    box-shadow:
+      inset 0 0 0 0.0625rem color-mix(in srgb, var(--tile-tint) 36%, transparent),
+      inset 0 0.0625rem 0 rgba(255, 255, 255, 0.18),
+      0 0.25rem 0.75rem -0.375rem color-mix(in srgb, var(--tile-tint) 45%, transparent);
   }
 
-  .diagram-rail__kind {
-    max-width: 100%;
-    padding: 0 0.125rem;
-    font-size: var(--text-xs);
-    font-weight: 500;
-
-    text-transform: uppercase;
-    color: var(--solus-text-tertiary);
-    opacity: 0.85;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
+  /* Faded at both ends so the divider stops short of the rail's rounded walls
+     instead of butting into them. */
   .diagram-rail__rule {
     width: 1.25rem;
     height: 0.0625rem;
-    background: var(--solus-container-border);
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--solus-container-border) 22%,
+      var(--solus-container-border) 78%,
+      transparent
+    );
   }
 
   .diagram-rail__tabs {
@@ -200,13 +217,15 @@
     width: 1.875rem;
     height: 1.75rem;
     border: none;
-    border-radius: 0.375rem;
+    border-radius: 0.5rem;
     background: transparent;
     color: var(--solus-text-tertiary);
     cursor: pointer;
     transition:
       color var(--duration-base) var(--ease-premium),
-      background var(--duration-base) var(--ease-premium);
+      background var(--duration-base) var(--ease-premium),
+      box-shadow var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
   }
 
   .diagram-rail__tab:hover {
@@ -214,9 +233,12 @@
     background: var(--solus-surface-hover);
   }
 
+  .diagram-rail__tab:active { scale: 0.94; }
+
   .diagram-rail__tab--active {
     color: var(--solus-accent);
-    background: color-mix(in srgb, var(--solus-accent) 11%, transparent);
+    background: var(--solus-accent-light);
+    box-shadow: inset 0 0 0 0.0625rem var(--solus-accent-border);
   }
 
   /* The collapsed rail's one piece of new information: Solus has spoken. */
@@ -228,23 +250,12 @@
     height: 0.3125rem;
     border-radius: 9999px;
     background: var(--solus-art-2);
+    box-shadow: 0 0 0 0.09375rem var(--solus-container-bg);
   }
 
   .diagram-rail__tab:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: -0.125rem;
-  }
-
-  /* Truncates at ~112px of vertical run — the type never shrinks to fit. */
-  .diagram-rail__label {
-    writing-mode: vertical-rl;
-    max-height: 7rem;
-    font-size: var(--text-xs);
-    font-weight: 500;
-    color: var(--solus-text-tertiary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .diagram-rail__expand {
@@ -253,11 +264,50 @@
     width: 1.75rem;
     height: 1.5rem;
     color: var(--solus-text-tertiary);
+    transition:
+      color var(--duration-base) var(--ease-premium),
+      translate var(--duration-base) var(--ease-premium);
   }
 
-  .diagram-rail:hover .diagram-rail__expand { color: var(--solus-text-primary); }
+  /* Nudges toward the canvas on hover — the direction the panel will open. */
+  .diagram-rail:hover .diagram-rail__expand {
+    color: var(--solus-text-primary);
+    translate: -0.125rem 0;
+  }
+
+  /* The rail floats over the canvas, so on a laptop it costs drawing area the
+     user cannot get back by resizing. Geometry only — the tab glyphs and the
+     tile keep their size, because a smaller hit target is not a smaller rail. */
+  :global(html.is-laptop-display) .diagram-rail {
+    right: 0.75rem;
+    top: 0.75rem;
+    gap: 0.5rem;
+    width: 2.625rem;
+    padding: 0.4375rem 0 0.375rem;
+    border-radius: 0.75rem;
+  }
+  :global(html.is-laptop-display) .diagram-rail__tile {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.5rem;
+  }
+  :global(html.is-laptop-display) .diagram-rail__rule {
+    width: 1rem;
+  }
+  :global(html.is-laptop-display) .diagram-rail__tab {
+    width: 1.75rem;
+    height: 1.5rem;
+  }
+  :global(html.is-laptop-display) .diagram-rail__expand {
+    height: 1.25rem;
+  }
 
   @media (prefers-reduced-motion: reduce) {
-    .diagram-rail__tab { transition: none; }
+    .diagram-rail,
+    .diagram-rail__tab,
+    .diagram-rail__expand {
+      transition: none;
+    }
+    .diagram-rail:hover .diagram-rail__expand { translate: none; }
   }
 </style>

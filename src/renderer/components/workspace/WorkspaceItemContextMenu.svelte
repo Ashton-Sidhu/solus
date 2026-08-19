@@ -42,12 +42,13 @@
   }
 
   async function copyId() {
+    const itemId = item.id;
     onClose();
     try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(item.id);
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(itemId);
       else {
         const textarea = document.createElement("textarea");
-        textarea.value = item.id;
+        textarea.value = itemId;
         textarea.style.position = "fixed";
         textarea.style.opacity = "0";
         document.body.appendChild(textarea);

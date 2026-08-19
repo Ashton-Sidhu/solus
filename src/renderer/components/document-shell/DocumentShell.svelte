@@ -644,7 +644,7 @@
 {#snippet renameField()}
   <!-- svelte-ignore a11y_autofocus -->
   <input
-    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-sm font-medium text-(--solus-text-primary) outline-none"
+    class="doc-shell-title-input min-w-24 max-w-96 flex-1 rounded-md border border-(--solus-accent-border) bg-(--solus-surface-hover) px-1.5 py-0.5 text-workspace-chrome font-medium text-(--solus-text-primary) outline-none"
     bind:value={renameValue}
     onblur={commitRename}
     onkeydown={renameKeydown}
@@ -748,7 +748,7 @@
 
       <!-- Right: verbs only. Word count moved to the document's own byline and
            find is ⌘F — neither is a button here any more. -->
-      <div class="doc-shell-header-actions flex shrink-0 items-center gap-0.75">
+      <div class="doc-shell-header-actions flex shrink-0 items-center gap-1.5">
         <button
           type="button"
           class="doc-shell-header-btn"
@@ -983,7 +983,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-sm);
+    font-size: var(--text-workspace-chrome);
     font-weight: 500;
     color: var(--solus-text-primary);
     background: transparent;
@@ -1006,10 +1006,10 @@
      cluster is the surface's primary action, so the eye finds it first. */
   .doc-shell-header-btn {
     flex-shrink: 0;
-    height: 1.75rem;
-    padding: 0 0.625rem;
-    border-radius: 0.4375rem;
-    font-size: var(--text-sm);
+    height: 1.5rem;
+    padding: 0 0.4375rem;
+    border-radius: 0.375rem;
+    font-size: var(--text-chrome-dense);
     font-weight: 400;
     color: var(--solus-text-tertiary);
     background: transparent;

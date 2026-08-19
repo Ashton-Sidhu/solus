@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ChartBarIcon,
     CheckIcon,
     GitForkIcon,
     TreeStructureIcon,
@@ -66,6 +67,14 @@
 
   const sess = $derived(tabId ? session.sessionFor(tabId) : null);
   const copyableSessionId = $derived(sess?.agentSessionId ?? sessionId ?? null);
+  /** Telemetry is keyed by Solus's own session id, not the provider thread's,
+   *  so an open session answers from its tab and a closed one from the id the
+   *  surface listed it under. */
+  const insightsSessionId = $derived(sess?.id ?? sessionId ?? null);
+  /** A session that never reached the provider has no turns to show. */
+  const canOpenInsights = $derived(
+    !!insightsSessionId && (!!sess?.agentSessionId || !!sessionId),
+  );
   const splitTabId = $derived(session.splitChatTabId);
   const isSplit = $derived(!!tabId && tabId === splitTabId);
   const canSplit = $derived(showSplit && (!!tabId || !!onOpenInSplit));
@@ -130,6 +139,12 @@
     onClose();
     if (openTargetInSplit) openTargetInSplit();
     else if (targetTabId) session.openTabInSplit(targetTabId);
+  }
+
+  function openInInsights() {
+    const targetSessionId = insightsSessionId;
+    onClose();
+    if (targetSessionId) session.openInsightsForSession(targetSessionId);
   }
 
   function closeSplit() {
@@ -210,6 +225,12 @@
       <ContextMenu.Item onSelect={copySessionId}>
         <CopyIcon />
         Copy Session ID
+      </ContextMenu.Item>
+    {/if}
+    {#if canOpenInsights}
+      <ContextMenu.Item onSelect={openInInsights}>
+        <ChartBarIcon />
+        Open in Insights
       </ContextMenu.Item>
     {/if}
     {#if canSplit}

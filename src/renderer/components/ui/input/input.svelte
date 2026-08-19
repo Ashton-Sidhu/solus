@@ -1,10 +1,12 @@
 <!-- DIVERGED FROM STOCK: Solus field dictation and submit behavior lives here.
-     The size default is `text-sm max-md:text-sm`, an inversion of stock's
-     mobile-first pair. Same rendering at both breakpoints, but a default has to
-     lose to the call site: a breakpoint-prefixed size is a different
-     tailwind-merge group than a bare `text-[…]`, so stock's desktop size
-     survived every call site's own size and then won the cascade on any window
-     ≥768px. Keep the desktop default unprefixed. -->
+     The size default inherits from the surface rather than pinning a size, so a
+     page declares its chrome rung once and its fields obey; `#root` in index.css
+     guarantees there is always a size to inherit.
+     The breakpoint pair is kept deliberately, and both halves must stay equal:
+     a breakpoint-prefixed size is a different tailwind-merge group than a bare
+     `text-[…]`, so stock's mobile-first `md:text-sm` survived every call site's
+     own size and then won the cascade on any window ≥768px. Keep the desktop
+     default unprefixed and un-`!` so a call site still wins. -->
 
 <script lang="ts">
 	import type { HTMLInputAttributes, HTMLInputTypeAttribute } from "svelte/elements";
@@ -71,7 +73,7 @@
 		bind:this={ref}
 		data-slot={dataSlot}
 		class={cn(
-			"border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-8 rounded-lg border bg-transparent! px-2.5 py-1 text-sm max-md:text-sm transition-colors file:h-6 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+			"border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-8 rounded-lg border bg-transparent! px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-colors file:h-6 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
 			className
 		)}
 		type="file"
@@ -89,7 +91,7 @@
 			bind:this={ref}
 			data-slot={dataSlot}
 			class={cn(
-				"border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-8 rounded-lg border bg-transparent! px-2.5 py-1 text-sm max-md:text-sm transition-colors file:h-6 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+				"border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-8 rounded-lg border bg-transparent! px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-colors file:h-6 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
 				mic && "pr-8",
 				field.micState === "recording" && "invisible pointer-events-none",
 				className
@@ -120,7 +122,7 @@
 		bind:this={ref}
 		data-slot={dataSlot}
 		class={cn(
-			"border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-8 rounded-lg border bg-transparent! px-2.5 py-1 text-sm max-md:text-sm transition-colors file:h-6 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
+			"border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:aria-invalid:border-destructive/50 h-8 rounded-lg border bg-transparent! px-2.5 py-1 text-[length:inherit] max-md:text-[length:inherit] transition-colors file:h-6 file:text-sm file:font-medium focus-visible:ring-3 aria-invalid:ring-3 file:text-foreground placeholder:text-muted-foreground w-full min-w-0 outline-none file:inline-flex file:border-0 file:bg-transparent! disabled:bg-transparent! dark:bg-transparent! dark:disabled:bg-transparent! disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50",
 			className
 		)}
 		{type}

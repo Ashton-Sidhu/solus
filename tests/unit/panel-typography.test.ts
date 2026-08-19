@@ -12,15 +12,38 @@ const rendererCss = readFileSync(
 
 describe('persistent panel typography', () => {
   test('uses one client-display type rung for persistent workspace chrome', () => {
-    // WHY: resizing a pane must not resize its text. A 1512px MacBook stays on
-    // the compact 12px rung, while large desktop and mobile clients use 14px.
-    expect(rendererCss).toContain('--text-workspace-chrome: 0.75rem;')
+    // WHY: resizing a pane must not resize its text. Laptop workspace chrome
+    // uses the compact 12px rung, while large desktop and coarse-pointer mobile
+    // clients retain the readable 14px rung.
+    expect(rendererCss).toContain('--text-workspace-chrome: 0.875rem;')
     expect(rendererCss).toMatch(
-      /@media \(min-width: 100rem\), \(max-width: 48rem\) and \(pointer: coarse\)[\s\S]*?--text-workspace-chrome: 0\.875rem;/,
+      /@media \(pointer: fine\)[\s\S]*?html\.is-laptop-display\s*{[\s\S]*?--text-workspace-chrome: 0\.75rem;/,
     )
 
     const breadcrumb = readRendererSource('conversation/SessionBreadcrumb.svelte')
-    expect(breadcrumb).toContain('gap-px text-workspace-chrome')
+    expect(breadcrumb).toContain('gap-px text-workspace-chrome {variant ===')
+    // The crumb bar is one surface and its three menus are another. A menu is
+    // portalled onto document.body, so it sits outside the bar that opened it
+    // and inherits nothing — it has to name its own rung. That is the one case
+    // where declaring is right, and it is why these three exist at all.
+    //
+    // They used to name it by overwriting `--text-workspace-chrome` inline,
+    // which meant each menu restated the laptop and coarse-pointer boundary and
+    // could drift from the other two. Same density, said once in index.css.
+    expect(breadcrumb.match(/text-chrome-dense/g)).toHaveLength(3)
+    expect(breadcrumb).not.toContain('[--text-workspace-chrome:')
+    expect(breadcrumb).toContain(
+      'text-workspace-chrome font-medium whitespace-nowrap @max-[36rem]:hidden',
+    )
+    // Rows and the command input live inside a menu, so they take its rung.
+    // `menuLabel` is shared by all three menus — one of them via a snippet
+    // declared above them in the file — so a size here would outrank whichever
+    // menu rendered it.
+    expect(breadcrumb).toContain(
+      'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+    )
+    expect(breadcrumb).not.toContain('[&_[data-slot=command-input]]:')
+    expect(breadcrumb).not.toContain('class="flex-1 text-sm"')
     expect(breadcrumb).not.toContain('@max-[52rem]:text-xs')
 
     const source = readRendererSource('session/SessionSidebar.svelte')
@@ -63,6 +86,32 @@ describe('persistent panel typography', () => {
     // rail does.
     expect(source).toMatch(/\.menu-trail\s*{[\s\S]*?font-size: var\(--text-xs\);/)
     expect(source).toMatch(/\.menu-hint\s*{[\s\S]*?font-size: var\(--text-xs\);/)
+  })
+
+  test('keeps provider usage rows level with the action rows above them', () => {
+    // WHY: the Claude Code and Codex rows close the Environment card and are
+    // meant to read as menu rows — same glyph column, same size as Files and
+    // Terminal directly above. Pinning them to 12px broke that on a large
+    // desktop display, where MenuRow steps up to 14px and they did not. The
+    // quota windows hanging beneath stay a rung below, as the trail does.
+    const source = readRendererSource('project-panel/UsageMeters.svelte')
+    expect(source).toContain(
+      'class="flex min-h-8 items-center gap-2 px-2 py-[0.3125rem] text-(--solus-text-secondary)"',
+    )
+    expect(source).toContain('class="flex items-baseline gap-1.5 text-xs"')
+  })
+
+  test('lets task rows take the rail rung like every other section row', () => {
+    // WHY: the task card pinned its whole subtree to 12px, so on a large
+    // desktop display its session and linked rows stayed compact while the Git,
+    // Environment and Automations rows beside them stepped up to 14px. Rows
+    // inherit the rail's rung; only trailing readings and the group label sit
+    // one rung below, exactly as MenuRow's trail does.
+    const source = readRendererSource('project-panel/TaskSection.svelte')
+    expect(source).toContain(
+      `<div class="mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">`,
+    )
+    expect(source).toContain('text-xs font-medium text-(--solus-text-tertiary) uppercase')
   })
 
   test('keeps project section labels one rung below their rows', () => {

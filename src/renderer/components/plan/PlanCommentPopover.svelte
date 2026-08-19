@@ -38,12 +38,10 @@
   onkeydown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}
 >
   <span class="plan-comment-popover__arrow" aria-hidden="true"></span>
-  <!-- Same three parts, same order as a margin thread: who, what they said,
-       then the anchor as a caption. A popover and a rail thread are one design. -->
+  <!-- Same parts, same order as a margin thread: what was said, then the anchor
+       as a caption. A popover and a rail thread are one design. -->
   <div class="flex flex-col gap-2 px-3 py-2.5">
     <div class="flex items-center gap-[0.4375rem]">
-      <span class="plan-comment-popover__avatar" aria-hidden="true">You</span>
-      <span class="text-xs font-medium text-(--solus-text-primary)">You</span>
       <div class="ml-auto flex gap-1">
         <Button
           variant="ghost"
@@ -77,17 +75,17 @@
 </div>
 
 <style>
-  /* Amber frame and wash, the same as the margin thread and the mark it hangs
-     off — annotation is amber everywhere, and terracotta stays clickable. */
+  /* The same surface as the margin thread it stands in for, which is the same
+     surface as the diff inline comment: popover fill, accent-tinted edge. */
   .plan-comment-popover {
-    --pc-edge: color-mix(in srgb, var(--solus-art-2) 55%, transparent);
+    --pc-edge: color-mix(in oklab, var(--solus-accent) 22%, var(--solus-container-border));
     transform: translateX(-50%);
     /* The folded layout's stand-in for a margin thread, so it is the width of
        one: 268px, anchored to the run rather than parked at the pane edge. */
     width: 16.75rem;
     border-radius: 1rem;
     border: 0.0625rem solid var(--pc-edge);
-    background: color-mix(in srgb, var(--solus-art-2) 9%, var(--solus-popover-bg));
+    background: var(--solus-popover-bg);
     box-shadow: var(--solus-popover-shadow);
     backdrop-filter: blur(1.5rem) saturate(1.1);
     -webkit-backdrop-filter: blur(1.5rem) saturate(1.1);
@@ -99,23 +97,10 @@
     left: 50%;
     width: 0.5rem;
     height: 0.5rem;
-    background: color-mix(in srgb, var(--solus-art-2) 9%, var(--solus-popover-bg));
+    background: var(--solus-popover-bg);
     border-left: 0.0625rem solid var(--pc-edge);
     border-top: 0.0625rem solid var(--pc-edge);
     transform: translateX(-50%) rotate(45deg);
-  }
-  .plan-comment-popover__avatar {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.1875rem;
-    height: 1.1875rem;
-    border-radius: 9999px;
-    background: var(--solus-accent);
-    color: var(--solus-text-on-accent);
-    font-size: var(--text-xs);
-    font-weight: 500;
   }
   .plan-comment-popover__body {
     font-size: var(--text-sm);

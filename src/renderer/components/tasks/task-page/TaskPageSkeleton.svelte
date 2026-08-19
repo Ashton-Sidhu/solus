@@ -16,9 +16,9 @@
   >
     <Skeleton class="size-4 shrink-0 rounded-[0.25rem] opacity-60" />
     <Skeleton class="h-3 w-20 rounded-[0.1875rem] opacity-65" />
-    <span class="px-0.5 text-sm opacity-15">/</span>
+    <span class="px-0.5 opacity-15">/</span>
     <Skeleton class="h-3 w-10 rounded-[0.1875rem] opacity-55" />
-    <span class="px-0.5 text-sm opacity-15">/</span>
+    <span class="px-0.5 opacity-15">/</span>
     <Skeleton class="h-3 w-[4.5rem] rounded-[0.1875rem] opacity-50" />
 
     <span class="flex-1"></span>

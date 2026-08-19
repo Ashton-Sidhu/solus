@@ -67,7 +67,7 @@
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
       <span class="flex min-w-0 items-center gap-2">
         <span
-          class="truncate text-sm leading-[19px] {row.unread
+          class="truncate leading-[19px] {row.unread
  ? 'font-medium text-foreground'
  : 'font-normal text-[color-mix(in_oklch,var(--foreground)_72%,transparent)]'}"
           title={row.title}

@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { CaretDownIcon } from "phosphor-svelte";
-  import { tick } from "svelte";
+  import { CaretDownIcon, XIcon } from "phosphor-svelte";
+  import { onDestroy, tick } from "svelte";
   import { fly } from "svelte/transition";
   import { serverConnections } from "@client-core/server-connections";
   import { readSessionMeta } from "@client-core/session-meta";
   import { getWorkspaceContext, runtime, serversStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import {
     useKeybinding,
     useScope,
@@ -14,6 +15,8 @@
   import type { SavedMetricsQuery } from "../../../shared/observability-types";
   import { findOpenTabForSession } from "../../lib/sessionUtils";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
+  import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import PaneSwapButton from "../ui/PaneSwapButton.svelte";
   import { formatRowCount } from "./lib/format";
   import { presetsFor, type InsightsPreset } from "./lib/insights-queries";
   import { rangeHeading, type TimeRange } from "./lib/time-range";
@@ -48,6 +51,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import EventList from "./EventList.svelte";
   import InsightsRail from "./InsightsRail.svelte";
+  import InsightsResultSkeleton from "./InsightsResultSkeleton.svelte";
   import QueryConsole from "./QueryConsole.svelte";
   import ResultRankingChart from "./ResultRankingChart.svelte";
   import ResultTable from "./ResultTable.svelte";
@@ -74,9 +78,10 @@
    * `metrics.db` is host-local — each host records its own runs — so the page
    * follows the active host and clears rather than mixing two machines' spans.
    */
-  let { params }: RouteSurfaceProps<"insights"> = $props();
+  let { params, paneId }: RouteSurfaceProps<"insights"> = $props();
 
   const workspace = getWorkspaceContext();
+  const pane = paneActions(paneId);
   const store = insightsStore;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -116,6 +121,14 @@
 
   $effect(() => {
     if (!open) loaded = false;
+  });
+
+  // Closing the page ends the question it was asking: the next entry opens on
+  // the default listing, not on the answer and history of the last visit.
+  // Moving the page to the other pane destroys this surface too, and that is
+  // not a close — the destination still shows insights, so it keeps its query.
+  onDestroy(() => {
+    if (!workspace.router.at("insights")) store.reset();
   });
 
   const rows = $derived(toTurnRows(store.result));
@@ -174,17 +187,32 @@
   const presets = $derived(presetsFor(store.form, store.range));
 
   const resultNote = $derived(
-    store.running
-      ? store.compiling
-        ? "Compiling the question…"
-        : "Running…"
-      : store.error
-        ? "Query failed"
-        : store.result
-          ? `${formatRowCount(store.result.rows.length)} · ${store.lastRunMs} ms${
-              store.answerWindowStale ? " · asked over the previous range — run again" : ""
-            }`
-          : "No query has run yet",
+    store.bootstrapping && !store.running
+      ? "Loading…"
+      : store.running
+        ? store.compiling
+          ? "Compiling the question…"
+          : "Running…"
+        : store.error
+          ? "Query failed"
+          : store.result
+            ? `${formatRowCount(store.result.rows.length)} · ${store.lastRunMs} ms${
+                store.answerWindowStale ? " · asked over the previous range — run again" : ""
+              }`
+            : "No query has run yet",
+  );
+
+  /** A run with no earlier answer to keep on screen — the page's first one, or
+   *  the first after a host change. The chart and the list have nothing to draw
+   *  yet, and an empty listing there would state that the host records nothing
+   *  rather than that the answer is still coming. A re-run keeps its answer, so
+   *  this never flashes over rows the reader is already reading.
+   *
+   *  It starts at the opening load, not at the statement: the registry and the
+   *  saved queries are read first, and gating on `running` alone left that gap
+   *  showing a real empty page between the pane's loading cover and this one. */
+  const awaitingFirstAnswer = $derived(
+    (store.running || store.bootstrapping) && !store.result,
   );
 
   const emptyHint = $derived(
@@ -349,6 +377,11 @@
     workspace.openInsights();
   }
 
+  function closePage(): void {
+    workspace.router.close("insights");
+    requestInputFocus();
+  }
+
   function toggleFullScreen(): void {
     panelFullScreenChoice = !panelFullScreenChoice;
   }
@@ -373,8 +406,7 @@
         else closePanel();
         return;
       }
-      workspace.router.close("insights");
-      requestInputFocus();
+      closePage();
     },
     { enabled: () => open },
   );
@@ -453,6 +485,23 @@
         onclick={resetQuery}>Reset</button
       >
     {/if}
+    <!-- Offered in either list state: reading a turn beside a conversation is
+         exactly when the console wants to be the companion rather than the page. -->
+    {#if pane.inPane}
+      <PaneSwapButton
+        isLeading={pane.isLeading}
+        onMove={pane.moveAcross}
+        iconSize={14}
+      />
+    {/if}
+    <button
+      type="button"
+      class={PAGE_ICON_BTN}
+      onclick={closePage}
+      aria-label="Close insights"
+    >
+      <XIcon size={14} />
+    </button>
   </header>
 
   <!-- Hidden rather than unmounted while the panel is open: the console holds
@@ -501,80 +550,84 @@
       </p>
     {/if}
 
-    {#if showVolume}
-      <VolumeChart
-        points={chartPoints}
-        heading={chartHeading}
-        countLabel={chartCountLabel}
-        from={chartWindow.from}
-        to={chartWindow.to}
-        {selection}
-        onSelectionChange={(next) => (selection = next)}
-      />
-    {/if}
-
-    {#if shape.shape === "turns" || !store.result}
-      <TurnList
-        rows={visibleRows}
-        {sort}
-        onSortChange={(next) => (sort = next)}
-        {statusFilter}
-        onStatusFilterChange={(next) => (statusFilter = next)}
-        {grouped}
-        onGroupedChange={(next) => (grouped = next)}
-        selectedTraceId={openTraceId}
-        onOpenTurn={openTurn}
-        onOpenSession={(sessionId) => void openSession(sessionId)}
-        {emptyHint}
-      />
-    {:else if shape.shape === "events" && eventTable}
-      <EventList
-        table={eventTable}
-        view={shape.view}
-        kind={shape.kind}
-        rows={visibleEventRows}
-        onOpenSpan={openSpan}
-        {emptyHint}
-      />
-    {:else if shape.shape === "trend"}
-      <section
-        class="flex shrink-0 flex-col gap-1.5 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
-        aria-label="Trend"
-      >
-        {@render measureHeading(
-          shape.trend.valueColumn,
-          shape.trend.measures,
-          `by ${shape.trend.timeColumn}${
-            shape.trend.seriesColumn ? `, per ${shape.trend.seriesColumn}` : ""
-          }`,
-        )}
-        <ResultTrendChart
-          lines={shape.trend.lines}
-          mark={shape.trend.mark}
-          valueFormat={shape.trend.valueFormat}
-          hiddenSeries={shape.trend.hiddenSeries}
-        />
-      </section>
-      <ResultTable result={store.result} />
-    {:else if shape.shape === "ranking"}
-      <section
-        class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
-        aria-label="Ranking"
-      >
-        {@render measureHeading(
-          shape.ranking.valueColumn,
-          shape.ranking.measures,
-          `by ${shape.ranking.dimensionColumn}`,
-        )}
-        <ResultRankingChart
-          bars={shape.ranking.bars}
-          valueFormat={shape.ranking.valueFormat}
-          hiddenBars={shape.ranking.hiddenBars}
-        />
-      </section>
-      <ResultTable result={store.result} />
+    {#if awaitingFirstAnswer}
+      <InsightsResultSkeleton />
     {:else}
-      <ResultTable result={store.result} />
+      {#if showVolume}
+        <VolumeChart
+          points={chartPoints}
+          heading={chartHeading}
+          countLabel={chartCountLabel}
+          from={chartWindow.from}
+          to={chartWindow.to}
+          {selection}
+          onSelectionChange={(next) => (selection = next)}
+        />
+      {/if}
+
+      {#if shape.shape === "turns" || !store.result}
+        <TurnList
+          rows={visibleRows}
+          {sort}
+          onSortChange={(next) => (sort = next)}
+          {statusFilter}
+          onStatusFilterChange={(next) => (statusFilter = next)}
+          {grouped}
+          onGroupedChange={(next) => (grouped = next)}
+          selectedTraceId={openTraceId}
+          onOpenTurn={openTurn}
+          onOpenSession={(sessionId) => void openSession(sessionId)}
+          {emptyHint}
+        />
+      {:else if shape.shape === "events" && eventTable}
+        <EventList
+          table={eventTable}
+          view={shape.view}
+          kind={shape.kind}
+          rows={visibleEventRows}
+          onOpenSpan={openSpan}
+          {emptyHint}
+        />
+      {:else if shape.shape === "trend"}
+        <section
+          class="flex shrink-0 flex-col gap-1.5 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
+          aria-label="Trend"
+        >
+          {@render measureHeading(
+            shape.trend.valueColumn,
+            shape.trend.measures,
+            `by ${shape.trend.timeColumn}${
+              shape.trend.seriesColumn ? `, per ${shape.trend.seriesColumn}` : ""
+            }`,
+          )}
+          <ResultTrendChart
+            lines={shape.trend.lines}
+            mark={shape.trend.mark}
+            valueFormat={shape.trend.valueFormat}
+            hiddenSeries={shape.trend.hiddenSeries}
+          />
+        </section>
+        <ResultTable result={store.result} />
+      {:else if shape.shape === "ranking"}
+        <section
+          class="flex shrink-0 flex-col gap-2 rounded-xl bg-card px-4 py-3 shadow-[shadow:var(--insights-card-shadow)]"
+          aria-label="Ranking"
+        >
+          {@render measureHeading(
+            shape.ranking.valueColumn,
+            shape.ranking.measures,
+            `by ${shape.ranking.dimensionColumn}`,
+          )}
+          <ResultRankingChart
+            bars={shape.ranking.bars}
+            valueFormat={shape.ranking.valueFormat}
+            hiddenBars={shape.ranking.hiddenBars}
+          />
+        </section>
+        <ResultTable result={store.result} />
+      {:else}
+        <ResultTable result={store.result} />
+      {/if}
     {/if}
   </div>
 

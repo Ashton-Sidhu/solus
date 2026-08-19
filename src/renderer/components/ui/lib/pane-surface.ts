@@ -17,3 +17,14 @@ export interface PaneSurfaceProps {
 export type RouteSurfaceProps<K extends keyof RouteParams> = PaneSurfaceProps & {
   params: RouteParams[K]
 }
+
+/**
+ * What a page gets when either shell may mount it. Editor mode routes it
+ * through the pane outlet, which hands over a pane id; pill mode renders the
+ * same component inline, where there is no pane at all — so `paneId` is
+ * genuinely absent rather than merely unread, and the pane controls that depend
+ * on it must not be offered.
+ */
+export interface InlinePageProps {
+  paneId?: PaneId
+}

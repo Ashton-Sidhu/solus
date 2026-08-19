@@ -168,7 +168,7 @@
           weight="fill"
           class="flex-shrink-0 text-(--solus-accent)"
         />
-        <span class="text-sm font-medium text-(--solus-text-primary)"
+        <span class="text-workspace-chrome font-medium text-(--solus-text-primary)"
           >Publish to GitHub</span
         >
         <button
@@ -270,13 +270,13 @@
           <Button
             variant="ghost"
             size="sm"
-            class="text-sm max-md:h-11"
+            class="text-workspace-chrome max-md:h-11"
             disabled={publishing}
             onclick={onClose}>Cancel</Button
           >
           <Button
             size="sm"
-            class="gap-1.5 text-sm max-md:h-11"
+            class="gap-1.5 text-workspace-chrome max-md:h-11"
             disabled={publishing || !name.trim()}
             onclick={() => void submit()}
           >

@@ -158,6 +158,10 @@
 <style>
   .diagram-group {
     --group-accent: var(--solus-accent);
+    /* The frame itself is document geometry (GROUP_W/GROUP_H, or whatever the
+       user resized it to), so only the header chip takes the display rung — it
+       is chrome, and it has to stay level with the card titles it frames. */
+    --group-scale: var(--diagram-node-scale, 1);
     --group-radius: 1rem;
     position: relative;
     box-sizing: border-box;
@@ -215,9 +219,9 @@
     left: 0.5rem;
     display: flex;
     align-items: center;
-    gap: 0.4rem;
+    gap: calc(0.4rem * var(--group-scale));
     max-width: calc(100% - 1rem);
-    padding: 0.25rem 0.5rem;
+    padding: calc(0.25rem * var(--group-scale)) calc(0.5rem * var(--group-scale));
     border-radius: 0.5rem;
     background: var(--solus-container-bg);
   }
@@ -275,17 +279,19 @@
     display: grid;
     place-items: center;
     flex-shrink: 0;
-    width: 1.625rem;
-    height: 1.625rem;
+    width: calc(1.625rem * var(--group-scale));
+    height: calc(1.625rem * var(--group-scale));
     border-radius: 0.5rem;
     background: color-mix(in srgb, var(--group-accent) 14%, transparent);
     color: var(--group-accent);
-    font-size: var(--text-sm);
+    font-size: calc(var(--text-caption) * var(--group-scale));
     line-height: 1;
   }
 
+  /* A group frames nodes, so its heading holds the same rung as the card titles
+     inside it — never a step below them. */
   .diagram-group__label {
-    font-size: var(--text-sm);
+    font-size: calc(var(--text-caption) * var(--group-scale));
     font-weight: 500;
     color: var(--solus-text-primary);
     white-space: nowrap;
@@ -301,7 +307,8 @@
     border-bottom: 0.09375rem solid var(--solus-accent-border);
     outline: none;
     color: var(--solus-text-primary);
-    font-size: var(--text-sm);
+    /* Matches the label it replaces while renaming. */
+    font-size: calc(var(--text-caption) * var(--group-scale));
     font-weight: 500;
     padding: 0;
   }

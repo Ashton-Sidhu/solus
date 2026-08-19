@@ -81,8 +81,13 @@
   } from "./lib/pr-inbox-failure";
   import PrDetailPanel from "./PrDetailPanel.svelte";
   import PrContextMenu from "./PrContextMenu.svelte";
+  import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import type { InlinePageProps } from "../ui/lib/pane-surface";
+
+  let { paneId }: InlinePageProps = $props();
 
   const session = getWorkspaceContext();
+  const pane = paneActions(paneId);
   const settings = getSettingsContext();
   const sessionSidebar = getSessionSidebarStore();
   const store = session.prsStore;
@@ -958,7 +963,7 @@
       </span>
       <Button
         type="button"
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-transparent px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-transparent px-2 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         onclick={clearReviewSelection}
         aria-label={`Clear ${selected.length} selected pull requests`}
       >
@@ -966,7 +971,7 @@
       </Button>
       <Button
         type="button"
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-2.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-2.5 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
         disabled={guideEligible.length === 0}
         onclick={generateGuides}
         aria-label={`Generate ${guideEligible.length} review guides in the background`}
@@ -984,7 +989,7 @@
       <Button
         type="button"
         onclick={openReviewMode}
-        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
+        class="inline-flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-2.5 text-workspace-chrome font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
       >
         <PlayIcon size={12} weight="fill" class="shrink-0" />
         <span>Review</span>
@@ -1065,7 +1070,6 @@
       onRemoveProjectHistory={removeProjectHistory}
       onSelectAllProjects={selectAllProjects}
       allProjectsLabel="All projects"
-      compactProjectPickerText
       title="Pull requests"
       {summary}
       {view}
@@ -1076,6 +1080,8 @@
       {unreadCount}
       onRefresh={refreshList}
       refreshing={activeRefreshing}
+      onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
+      isLeading={pane.isLeading}
       onClose={close}
       actions={pageActions}
       filters={filterBar}
@@ -1089,7 +1095,7 @@
                carries the part that didn't. -->
           <div class="px-3 pt-3">
             <div
-              class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-sm"
+              class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-workspace-chrome"
               role="alert"
             >
               {#if inboxFailure.kind === "github-auth"}
@@ -1101,7 +1107,7 @@
                 <Button
                   type="button"
                   variant="ghost"
-                  class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
                   onclick={refreshList}
                 >
                   <ArrowsClockwiseIcon size={12} class="shrink-0" />
@@ -1170,7 +1176,7 @@
             {#snippet actions()}
               <Button
                 type="button"
-                class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-muted px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
                 onclick={refreshList}
               >
                 <ArrowsClockwiseIcon size={13} class="shrink-0" />
@@ -1237,7 +1243,7 @@
             {#snippet actions()}
               <Button
                 type="button"
-                class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
                 onclick={() => {
                   listView.query = "";
                   listView.minesOnly = false;
@@ -1338,7 +1344,7 @@
                 <div use:loadMoreSentinel class="flex items-center justify-center py-3">
                   <Button
                     type="button"
-                    class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+                    class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
                     disabled={isAllProjects ? inboxLoadingMore : store.loadingMore}
                     onclick={() => {
                       if (isAllProjects) {

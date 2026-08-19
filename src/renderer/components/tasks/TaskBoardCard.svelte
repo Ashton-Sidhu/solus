@@ -139,7 +139,7 @@
   <!-- The only full-strength text on the card. It wraps rather than truncates —
        a column is tall, and a half-read title is worth less than a second line. -->
   <span
-    class="text-sm leading-[1.42] font-normal text-pretty {card.dimmed
+    class="text-workspace-chrome leading-[1.42] font-normal text-pretty {card.dimmed
  ? 'text-[color-mix(in_oklch,var(--foreground)_62%,transparent)]'
  : 'text-foreground'}"
   >

@@ -25,7 +25,7 @@ export const DIFFS_THEME_CSS = `
     --diffs-deletion-color-override: var(--solus-diff-removed-text-vivid);
     --diffs-bg-deletion-override: var(--solus-diff-removed-bg-vivid);
     --diffs-bg-deletion-number-override: var(--solus-diff-removed-number-vivid);
-    --diffs-bg-deletion-hover-override: var(--solus-diff-removed-number-vivid);
+    --diffs-bg-deletion-hover-override: var(--solus-diff-removed-number-vivid); 
     --diffs-bg-deletion-emphasis-override: var(--solus-diff-removed-emphasis-vivid);
 
     /* Flat code surface: unchanged lines and the "N unmodified lines" gaps carry
@@ -49,6 +49,12 @@ export const DIFFS_THEME_CSS = `
        !important can out-prioritize it here. */
     --diffs-editor-selection-bg: var(--solus-diff-selection-bg) !important;
 
+    /* Same unlayered style tag as above. github-*-default ship no
+       editor.lineHighlightBackground, so the library falls back to drawing a
+       hard 1px box around the caret line. Solus marks that line with the wash
+       below instead. */
+    --diffs-editor-line-highlight-border: transparent !important;
+
     --diffs-gap-inline: 1px;
     --diffs-gap-block: 8px;
     --diffs-gap-style: none;
@@ -66,12 +72,35 @@ export const DIFFS_THEME_CSS = `
   [data-separator-wrapper] {
     background-color: transparent !important;
   }
+  /* Code text carries no tracking. The editor puts its caret and selection
+     ranges at column x the canvas-measured width of "0", and canvas text
+     measurement cannot see CSS letter-spacing, so any tracking at all walks the
+     caret away from the glyph it sits on, one column at a time — a full
+     character out by roughly column 50. index.css resets code and pre in the
+     light DOM, but that reset stops at the shadow boundary while the app's
+     -0.0115em body tracking inherits straight through it. */
+  :host,
+  pre,
+  code,
+  [data-line],
+  [data-content] {
+    letter-spacing: normal !important;
+  }
   /* Context rows otherwise repaint --diffs-bg over the item surface. That is
      visibly lighter in the light theme and double-composites the translucent
      container colour in dark mode. Only changed/selected/hovered rows should
      paint a fill of their own. */
   [data-line-type='context']:not([data-selected-line]):not([data-hovered]) {
     background-color: transparent !important;
+  }
+  /* Caret line in an editable file. The row and its line number are painted by
+     different things: once the editor attaches, the row's fill moves to an
+     ::after layer and the row itself goes transparent, while the number column
+     keeps painting its own background. Selection and hover still win — both say
+     more than "you are here". */
+  [data-line][data-editor-active-line]:not([data-selected-line]):not([data-hovered])::after,
+  [data-column-number][data-editor-active-line]:not([data-selected-line]):not([data-hovered]) {
+    background-color: var(--solus-diff-active-line-bg) !important;
   }
   /* Annotation rows are layout space for comment cards, not diff lines. Pierre
      carries the anchor line's add/remove tint into these wrappers; blank it so
@@ -89,7 +118,6 @@ export const DIFFS_THEME_CSS = `
     font-family: var(--solus-code-font-family) !important;
     font-size: inherit !important;
     line-height: inherit !important;
-    letter-spacing: -0.005em !important;
     font-feature-settings: 'liga' 0, 'calt' 0 !important;
     -webkit-font-smoothing: antialiased !important;
   }

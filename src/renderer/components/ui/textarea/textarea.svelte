@@ -82,7 +82,7 @@
 			state={field.micState}
 			rmsRef={field.rmsRef}
 			showMic={mic}
-			micTextarea={rows > 1}
+			micTextarea
 			disabled={field.micDisabled}
 			idleTooltip={field.idleMicTooltip}
 			progressPct={field.progressPct}

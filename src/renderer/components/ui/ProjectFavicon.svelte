@@ -1,11 +1,9 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
   import { FolderIcon } from "phosphor-svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { isWorkspaceDir } from "../../lib/paths";
   import {
     faviconCandidates,
-    projectFallbackColor,
     rememberFavicon,
     resolvedFavicon,
   } from "../../lib/project-favicon";
@@ -14,23 +12,19 @@
   let {
     projectRoot,
     class: className = "size-3.5",
-    fallback,
-    coloredFallback = false,
   }: {
     projectRoot: string;
     class?: string;
-    /** Stands in when the project has no favicon of its own. Folder glyph by
-     *  default; the sidebar hands it a lettered mark instead. */
-    fallback?: Snippet;
-    /** Use the project's stable colour when it does not provide a favicon. */
-    coloredFallback?: boolean;
   } = $props();
 
   const session = getWorkspaceContext();
   const isWorkspace = $derived(
     isWorkspaceDir(projectRoot, session.staticInfo?.workspacePath),
   );
-  const candidates = $derived(faviconCandidates(projectRoot));
+  // A session with no repo behind it has no root to look a favicon up in — it
+  // goes straight to the folder glyph rather than spending six failed probes.
+  const hasRoot = $derived(projectRoot.startsWith("/"));
+  const candidates = $derived(hasRoot ? faviconCandidates(projectRoot) : []);
 
   /** Where the probe for the root currently on screen has got to. Replaced
    *  rather than mutated when the root changes, so a component reused for a
@@ -75,26 +69,16 @@
   {#if isWorkspace}
     <WorkspaceMark class="size-full" />
   {:else}
-    <!-- Nothing stands in while the probe runs. Showing the fallback first and
+    <!-- Nothing stands in while the probe runs. Showing the folder first and
          swapping it out is what reads as a stutter — the mark is either the
          project's own or it isn't, and the answer arrives within a frame or
          two off local disk. -->
-    {#if state.settled && !state.url}
-      {#if fallback}
-        {@render fallback()}
-      {:else if coloredFallback}
-        <span
-          class="size-full rounded-[0.1875rem]"
-          style:background={projectFallbackColor(projectRoot)}
-          aria-hidden="true"
-        ></span>
-      {:else}
-        <FolderIcon
-          size="100%"
-          weight="fill"
-          class="text-(--solus-text-tertiary)"
-        />
-      {/if}
+    {#if !hasRoot || (state.settled && !state.url)}
+      <FolderIcon
+        size="100%"
+        weight="fill"
+        class="text-(--solus-text-tertiary)"
+      />
     {:else}
       <img
         {src}

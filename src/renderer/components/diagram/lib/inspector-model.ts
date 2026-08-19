@@ -137,7 +137,7 @@ export function anchorNodeId(doc: DiagramDoc): string | null {
 }
 
 /**
- * The one-word kind shown vertically on the collapsed rail. The node's own
+ * The one-word kind the collapsed rail names on hover. The node's own
  * `subtitle` is the authored kind; the fallbacks describe what the node is
  * structurally when the author left it blank.
  */

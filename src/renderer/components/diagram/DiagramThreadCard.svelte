@@ -3,7 +3,12 @@
   import { fade } from 'svelte/transition'
   import type { PlanComment } from '../../../shared/types'
   import CommentThreadCard from '../comments/CommentThreadCard.svelte'
-  import { anchorToPane, placeThreadCard, type AnchorRect } from './lib/thread-card-position'
+  import {
+    anchorToPane,
+    placeThreadCard,
+    THREAD_CARD_WIDTH,
+    type AnchorRect,
+  } from './lib/thread-card-position'
 
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
@@ -43,8 +48,6 @@
     onDelete,
   }: Props = $props()
 
-  const CARD_WIDTH = 252
-
   // Measured rather than guessed: the card's height is however tall the
   // conversation is, and the clamp needs the real number to keep the composer
   // on screen. One extra frame, no pre-measuring pass.
@@ -61,7 +64,7 @@
       anchor: anchorRect
         ? anchorToPane(anchorRect, viewport.current)
         : { x: -Infinity, y: 0 },
-      card: { width: CARD_WIDTH, height: cardHeight },
+      card: { width: THREAD_CARD_WIDTH, height: cardHeight },
       pane,
       inspectorFootprint,
     }),
@@ -73,7 +76,7 @@
 <div
   class="diagram-thread-card"
   bind:clientHeight={cardHeight}
-  style="left:{placement.left}px;top:{placement.top}px;width:{CARD_WIDTH}px"
+  style="left:{placement.left}px;top:{placement.top}px;width:{THREAD_CARD_WIDTH}px"
   transition:fade|global={{ duration: reduceMotion ? 0 : 120 }}
 >
   <!-- The card always says what it is attached to, because it is not attached
@@ -117,6 +120,13 @@
     gap: 0.375rem;
     /* One step lighter than the inspector's. */
     filter: drop-shadow(0 1rem 2.375rem rgba(60, 40, 25, 0.42));
+  }
+
+  /* No margin rail on the canvas: the thread card floats beside its node, and
+     the anchor chip above it already says what it is attached to. The rail only
+     means something in a document margin, where it points at a line of text. */
+  .diagram-thread-card :global(.ctc__edge) {
+    display: none;
   }
 
   .diagram-thread-card__anchor {

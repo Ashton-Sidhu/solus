@@ -17,7 +17,7 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import { Button } from "../ui/button";
+  import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import SegmentedControl from "../ui/SegmentedControl.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
   import {
@@ -27,21 +27,26 @@
     ListPage,
     ListSkeleton,
     type ListFilterSpec,
+    type ListProjectOption,
     type ListSummaryStat,
   } from "../ui/list-page";
   import { folderLabel, relativeTime } from "./lib/automation-format";
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import AutomationContextMenu from "./AutomationContextMenu.svelte";
   import AutomationLaunchpad from "./AutomationLaunchpad.svelte";
-  import AutomationProjectFilter from "./AutomationProjectFilter.svelte";
   import AutomationRow from "./AutomationRow.svelte";
   import {
     automationProject,
     automationProjects,
     type AutomationProject,
   } from "./lib/automation-projects";
+  import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import type { InlinePageProps } from "../ui/lib/pane-surface";
+
+  let { paneId }: InlinePageProps = $props();
 
   const session = getWorkspaceContext();
+  const pane = paneActions(paneId);
   const windowCtx = getWindowContext();
   const store = session.automationsStore;
   // The full-page catalog has no narrower owner, so the new-work default host
@@ -101,6 +106,19 @@
   });
   const selectedProject = $derived(
     projects.find((project) => project.key === selectedProjectKey) ?? null,
+  );
+  // The page's own project shape, said in the vocabulary the shared scope
+  // switcher speaks. A project the catalog carries with nothing automated on it
+  // yet is the history-only row — the only kind the switcher offers to forget.
+  const projectOptions = $derived(
+    projects.map<ListProjectOption>((project) => ({
+      key: project.key,
+      projectKey: project.projectPath,
+      serverId: project.serverId ?? "",
+      label: project.label,
+      available: true,
+      historyOnly: project.count === 0,
+    })),
   );
 
   // ── Command bar: search + status filter + favourites + sort ──
@@ -361,6 +379,17 @@
   function selectProject(projectKey: string | null) {
     selectedProjectKey = projectKey;
     selectedId = null;
+    // The search was written against the project being left, so it goes with
+    // it — the same trade Tasks, Pull requests and the Workspace make.
+    query = "";
+  }
+
+  function removeProjectHistory(option: ListProjectOption) {
+    if (!option.serverId) return;
+    projectCatalog.remove({
+      serverId: option.serverId,
+      projectRoot: option.projectKey,
+    });
   }
 
   function clearFilters() {
@@ -440,6 +469,7 @@
   <ListFilterBar
     bind:query
     bind:searchEl
+    compactText
     placeholder="Search automations…"
     filters={listFilters}
   >
@@ -456,13 +486,7 @@
         bind:value={sortMode}
         options={SORT_OPTIONS}
         ariaLabel="Sort automations"
-        class="h-7 gap-1.5 rounded-lg px-2.5 text-sm font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
-      />
-      <AutomationProjectFilter
-        {projects}
-        value={selectedProject?.key ?? null}
-        allCount={hostItems.length}
-        onSelect={selectProject}
+        class="h-7 gap-1.5 rounded-lg px-2.5 text-xs font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
       />
     {/snippet}
   </ListFilterBar>
@@ -470,7 +494,7 @@
 
 {#if open}
   <div
-    class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background focus:outline-none"
+    class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-chrome-dense focus:outline-none"
     role="dialog"
     aria-label="Automations"
     tabindex="-1"
@@ -480,11 +504,21 @@
       <AutomationBuilder automation={view.automation} onDone={backToList} />
     {:else}
       <ListPage
+        projects={projectOptions}
+        activeProjectKey={selectedProject?.key ?? ""}
+        emptyProjectLabel="All projects"
+        onSelectProject={(option) => selectProject(option.key)}
+        onSelectAllProjects={() => selectProject(null)}
+        onRemoveProjectHistory={removeProjectHistory}
+        projectSwitchNote="Switching keeps filters, clears search"
         title="Automations"
         {summary}
         primaryAction={showEmpty
           ? undefined
           : { label: "New automation", shortcut: "⌘N", run: startCreate }}
+        compactPrimaryActionText
+        onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
+        isLeading={pane.isLeading}
         onClose={close}
         filters={showEmpty ? undefined : filterBar}
       >
@@ -496,13 +530,13 @@
             <ListEmpty title="No automations match.">
               Try a different search or filter.
               {#snippet actions()}
-                <Button
+                <button
                   type="button"
-                  class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  class={PAGE_SECONDARY_BTN}
                   onclick={clearFilters}
                 >
                   Clear filters
-                </Button>
+                </button>
               {/snippet}
             </ListEmpty>
           {:else}
@@ -563,7 +597,11 @@
           <!-- ── Launchpad: describe it, or start from a template. Shown in both
                states — a workspace with automations still starts new ones here. -->
           {#if !isInitialLoading}
-            <div class={showEmpty ? "pt-[22px]" : "pt-[30px]"}>
+            <div
+              class={showEmpty
+                ? "pt-[22px] [.is-laptop-display_&]:pt-4"
+                : "pt-[30px] [.is-laptop-display_&]:pt-6"}
+            >
               <AutomationLaunchpad
                 projectPath={selectedProject?.projectPath ?? session.galleryProjectPath}
                 onOpen={openSeeded}

@@ -5,6 +5,7 @@
   import { Button } from "../ui/button";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
+  import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import CommentLayer from "../comments/CommentLayer.svelte";
   import { CommentMark } from "../editor/commentMark";
   import { getWorkspaceContext } from "../../contexts";
@@ -25,8 +26,6 @@
     minimizeOutline?: boolean;
     onOpenChat?: (mode: 'resume' | 'new') => void;
     originalSessionMeta?: SessionMeta | null;
-    /** Work kind — gates the Download .md action in the header. */
-    docType?: "doc" | "slides" | "diagram";
     /** Restore the previous snapshot. */
     onRevert?: () => void;
     /** Delete the work (closes the pane + offers undo). */
@@ -34,15 +33,33 @@
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
     workStorage?: WorkStorage;
-    onSaveToProject?: (content: string) => void | Promise<void>;
+    /** Opens the save picker on a chosen format; absent when there is no host. */
+    onExport?: (request: WorkExportRequest) => void;
+    /** The save picker's filesystem is not this device's — see WorkHeaderActions. */
+    hostIsRemote?: boolean;
     /** Rename the work title. */
     onRename?: (title: string) => void;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, docType, onRevert, onDelete, onDuplicate, workStorage, onSaveToProject, onRename }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, workStorage, onExport, hostIsRemote = false, onRename }: DocumentModalProps = $props();
 
   const session = getWorkspaceContext();
   const commentExtensions = [CommentMark];
+
+  // A document is one file: its own markdown. The header still renders it
+  // through the shared format list so Save and Download read the same way here
+  // as they do on a diagram.
+  const exportFormats: WorkExportFormat[] = [
+    {
+      extension: "md",
+      label: "Markdown",
+      mimeType: "text/markdown",
+      produce: () => ({
+        contents: shell?.getCurrentMarkdown() ?? doc.content,
+        encoding: "utf8",
+      }),
+    },
+  ];
 
   /** 252px of thread card, plus the connector gutter it hangs off and the 24px
    *  page gutter after it. Fixed, never fluid — a margin that resized with the
@@ -245,12 +262,13 @@
       title={doc.title}
       currentContent={doc.content}
       getCurrentContent={() => shell?.getCurrentMarkdown() ?? doc.content}
-      {docType}
       {onRevert}
       {onDelete}
       {onDuplicate}
       {workStorage}
-      {onSaveToProject}
+      {exportFormats}
+      {onExport}
+      {hostIsRemote}
       onGoogleUpload={googleUpload}
       {uploading}
       {uploaded}
@@ -318,15 +336,15 @@
   .dm-comment-count {
     display: inline-flex;
     align-items: center;
-    gap: 0.375rem;
+    gap: 0.3125rem;
     flex-shrink: 0;
-    height: 1.75rem;
-    padding: 0 0.625rem;
+    height: 1.5rem;
+    padding: 0 0.4375rem;
     border: none;
-    border-radius: 0.4375rem;
+    border-radius: 0.375rem;
     background: transparent;
     font-family: inherit;
-    font-size: var(--text-sm);
+    font-size: var(--text-chrome-dense);
     font-weight: 400;
     font-variant-numeric: tabular-nums;
     color: var(--solus-text-tertiary);
@@ -343,6 +361,14 @@
   .dm-comment-count:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border);
     outline-offset: 0.0625rem;
+  }
+  /* Mobile puts this in the formatting strip, whose targets are 40px. */
+  @media (max-width: 767px) {
+    .dm-comment-count {
+      height: 2.5rem;
+      padding: 0 0.75rem;
+      border-radius: 0.5rem;
+    }
   }
   .dm-comment-count__swatch {
     width: 0.4375rem;

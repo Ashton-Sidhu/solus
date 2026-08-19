@@ -1,9 +1,14 @@
 <script lang="ts">
-  import { ArrowSquareOutIcon, CircleNotchIcon } from "phosphor-svelte";
+  import {
+    ArrowSquareOutIcon,
+    CircleNotchIcon,
+    FolderIcon,
+  } from "phosphor-svelte";
   import type { Task } from "../../../../shared/task-types";
   import { taskProviderLabel, taskRef } from "./lib/task-page";
   import { syncToneColor, type TaskUpstreamState } from "./lib/task-upstream";
   import CopyButton from "../../ui/CopyButton.svelte";
+  import PaneSwapButton from "../../ui/PaneSwapButton.svelte";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
 
   interface Props {
@@ -22,7 +27,10 @@
     onPrevious?: (() => void) | null;
     onNext?: (() => void) | null;
     onOpenSource?: (() => void) | null;
-    onOpenAsPage?: () => void;
+    /** Move the task between the leading pane and the companion beside it. */
+    onMoveAcross?: () => void;
+    /** Which way `onMoveAcross` sends it. */
+    isLeading?: boolean;
     onOpenList: () => void;
     onClose: () => void;
   }
@@ -37,7 +45,8 @@
     onPrevious,
     onNext,
     onOpenSource,
-    onOpenAsPage,
+    onMoveAcross,
+    isLeading = true,
     onOpenList,
     onClose,
   }: Props = $props();
@@ -76,26 +85,30 @@
 >
   <button
     type="button"
-    class="flex h-7 min-w-0 max-w-40 cursor-pointer items-center gap-[7px] rounded px-[7px] text-sm text-muted-foreground hover:bg-[var(--wash-1)] @max-[42rem]:hidden"
+    class="flex h-7 min-w-0 max-w-40 cursor-pointer items-center gap-[7px] rounded px-[7px] text-muted-foreground hover:bg-[var(--wash-1)] @max-[42rem]:hidden"
     onclick={onOpenList}
   >
     {#if projectRoot}
-      <ProjectFavicon projectRoot={projectRoot} class="size-4" coloredFallback />
+      <ProjectFavicon projectRoot={projectRoot} class="size-4" />
     {:else}
-      <span class="size-4 shrink-0 rounded bg-(--chart-4)" aria-hidden="true"></span>
+      <FolderIcon
+        size={16}
+        weight="fill"
+        class="shrink-0 text-(--solus-text-tertiary)"
+      />
     {/if}
     <span class="truncate">{projectLabel}</span>
   </button>
-  <span class="px-[3px] text-sm opacity-30 @max-[42rem]:hidden" aria-hidden="true">/</span>
+  <span class="px-[3px] opacity-30 @max-[42rem]:hidden" aria-hidden="true">/</span>
   <button
     type="button"
-    class="flex h-7 cursor-pointer items-center rounded px-[7px] text-sm text-muted-foreground hover:bg-[var(--wash-1)]"
+    class="flex h-7 cursor-pointer items-center rounded px-[7px] text-muted-foreground hover:bg-[var(--wash-1)]"
     onclick={onOpenList}
   >
     Tasks
   </button>
-  <span class="px-[3px] text-sm opacity-30" aria-hidden="true">/</span>
-  <span class="flex h-7 min-w-0 max-w-36 items-center truncate rounded px-[7px] text-sm">
+  <span class="px-[3px] opacity-30" aria-hidden="true">/</span>
+  <span class="flex h-7 min-w-0 max-w-36 items-center truncate rounded px-[7px]">
     {taskRef(task)}
   </span>
   <CopyButton text={task.id} title="Copy task ID" iconOnly />
@@ -143,16 +156,13 @@
     </span>
   {/if}
 
-  {#if onOpenAsPage}
-    <button
-      type="button"
+  {#if onMoveAcross}
+    <PaneSwapButton
+      {isLeading}
+      onMove={onMoveAcross}
+      iconSize={13}
       class={ICON_BTN}
-      onclick={onOpenAsPage}
-      title="Open as page"
-      aria-label="Open as page"
-    >
-      <ArrowSquareOutIcon size={13} />
-    </button>
+    />
   {/if}
 
   {#if onOpenSource}

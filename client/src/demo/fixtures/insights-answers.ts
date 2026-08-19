@@ -28,6 +28,11 @@ export function sqlSessionId(sql: string): string | null {
   return sql.match(/session_id\s*=\s*'([^']*)'/i)?.[1] ?? null
 }
 
+/** The task a drill-in statement names, if it names one. */
+export function sqlTaskId(sql: string): string | null {
+  return sql.match(/task_id\s*=\s*'([^']*)'/i)?.[1] ?? null
+}
+
 function grouped(
   turns: DemoTurnRecord[],
   key: (turn: DemoTurnRecord) => string,

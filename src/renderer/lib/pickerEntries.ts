@@ -164,6 +164,35 @@ export function filterEntries(
   return entries.filter((entry) => searchCache.get(entry).includes(q))
 }
 
+/** A rendered picker row: either a section label or one selectable entry.
+ *  `entryIndex` is the row's position in the entry list the keyboard walks,
+ *  so selection never has to account for the headers between them. */
+export type PickerRow =
+  | { kind: 'header'; label: string }
+  | { kind: 'entry'; entry: PickerEntry; entryIndex: number }
+
+/**
+ * Label the ordered entry list into sections for display. The caller supplies
+ * entries already grouped open-first, so a header goes in wherever the kind
+ * changes. A list with only one kind gets no headers: a single section that
+ * names itself tells the reader nothing.
+ */
+export function buildPickerRows(entries: PickerEntry[]): PickerRow[] {
+  const hasOpen = entries.some((entry) => entry.kind === 'open')
+  const hasHistory = entries.some((entry) => entry.kind === 'history')
+  const labelled = hasOpen && hasHistory
+  const rows: PickerRow[] = []
+  let lastKind: PickerEntry['kind'] | null = null
+  entries.forEach((entry, entryIndex) => {
+    if (labelled && entry.kind !== lastKind) {
+      rows.push({ kind: 'header', label: entry.kind === 'open' ? 'Open' : 'Recent' })
+    }
+    lastKind = entry.kind
+    rows.push({ kind: 'entry', entry, entryIndex })
+  })
+  return rows
+}
+
 /**
  * Holds the picker's sort order stable while it's open.
  *

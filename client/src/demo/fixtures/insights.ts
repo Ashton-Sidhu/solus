@@ -40,6 +40,15 @@ const RATELIMIT = 'demo-session-ratelimit'
 const WEBHOOKS = 'demo-session-webhooks'
 const BILLING = 'demo-session-billing'
 
+/** Insights can be asked about a task, whose turns are the turns of every
+ *  session that worked it. The demo has one session per task, and these are the
+ *  same bindings `data/tasks.json` states. */
+export const DEMO_SESSION_BY_TASK: Record<string, string> = {
+  'demo-task-1': RATELIMIT,
+  'demo-task-7': WEBHOOKS,
+  'demo-task-4': BILLING,
+}
+
 const SONNET = 'claude-sonnet-5'
 const OPUS = 'claude-opus-4-8'
 

@@ -117,7 +117,7 @@
 
     <!-- Slot 2 — the only full-strength text in the row. -->
     <span
-      class="min-w-0 truncate text-sm font-normal "
+      class="min-w-0 truncate text-workspace-chrome font-normal"
       title={a.name}
     >
       {a.name}

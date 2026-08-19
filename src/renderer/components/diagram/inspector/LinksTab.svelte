@@ -141,7 +141,7 @@
       >
         {clickLabel}
       </button>
-      <svg class="select__chevron" viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <svg class="select__chevron" class:select__chevron--open={clickMenuOpen} viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
         <path d="M4 6.5l4 4 4-4" />
       </svg>
       <DropdownMenu.Root bind:open={clickMenuOpen}>
@@ -177,36 +177,53 @@
     gap: 0.125rem;
   }
 
+  /* Each row is navigation, so it leans toward the panel edge it will open from
+     rather than lighting up in place. */
   .link {
     display: flex;
     align-items: center;
     gap: 0.5rem;
     width: 100%;
-    padding: 0.375rem 0.5rem;
+    padding: 0.4375rem 0.5rem;
     border: none;
-    border-radius: 0.4375rem;
+    border-radius: 0.625rem;
     background: transparent;
     text-align: left;
     cursor: pointer;
-    transition: background var(--duration-quick) var(--ease-premium);
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      translate var(--duration-base) var(--ease-premium);
   }
 
-  .link:hover { background: var(--solus-surface-hover); }
+  .link:hover {
+    background: var(--solus-surface-hover);
+    translate: 0.125rem 0;
+  }
 
   .link:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: -0.125rem;
   }
 
+  /* The direction glyph rides a tinted disc: outbound in the accent, inbound
+     quiet, so a fan-out is readable without reading a single label. */
   .link__dir {
+    display: grid;
+    place-items: center;
     flex: none;
-    width: 0.75rem;
+    width: 1.25rem;
+    height: 1.25rem;
+    border-radius: 9999px;
+    background: var(--solus-accent-light);
     color: var(--solus-accent);
-    font-size: var(--text-sm);
+    font-size: var(--text-xs);
     line-height: 1;
   }
 
-  .link__dir--in { color: var(--solus-text-tertiary); }
+  .link__dir--in {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-tertiary);
+  }
 
   .link__node {
     flex: 1;
@@ -221,6 +238,9 @@
   .link__label {
     flex: 0 1 auto;
     min-width: 0;
+    padding: 0.0625rem 0.375rem;
+    border-radius: 9999px;
+    background: var(--solus-surface-hover);
     font-size: var(--text-xs);
     color: var(--solus-text-tertiary);
     overflow: hidden;
@@ -228,11 +248,17 @@
     white-space: nowrap;
   }
 
+  /* An empty state is a surface, not a stray sentence: the same dashed outline
+     the Add slots wear, so "nothing here yet" looks deliberate. */
   .empty {
     margin: 0;
+    padding: 0.75rem 0.875rem;
+    border: 0.0625rem dashed var(--solus-tool-border);
+    border-radius: 0.75rem;
     font-size: var(--text-xs);
     line-height: 1.55;
     color: var(--solus-text-tertiary);
+    text-wrap: pretty;
   }
 
   .detail-row {
@@ -246,23 +272,30 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.375rem;
-    padding: 0.4375rem 0.75rem;
-    border: 0.0625rem solid transparent;
-    border-radius: 0.5rem;
+    gap: 0.4375rem;
+    padding: 0.5625rem 0.75rem;
+    border: none;
+    border-radius: 0.625rem;
     background: var(--solus-surface-hover);
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--solus-text-primary) 6%, transparent);
     color: var(--solus-text-secondary);
     font-size: var(--text-xs);
+    font-weight: 500;
     cursor: pointer;
     transition:
-      border-color var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium);
+      background var(--duration-base) var(--ease-premium),
+      box-shadow var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
   }
 
   .detail-btn:hover {
-    border-color: var(--solus-accent-border);
+    background: var(--solus-accent-light);
+    box-shadow: inset 0 0 0 0.0625rem var(--solus-accent-border-medium);
     color: var(--solus-accent);
   }
+
+  .detail-btn:active { scale: 0.985; }
 
   .detail-btn:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
@@ -290,5 +323,25 @@
     transform: translateY(-50%);
     color: var(--solus-text-tertiary);
     pointer-events: none;
+    transition:
+      rotate var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium);
+  }
+
+  /* The menu opens upward (side="top"), so the chevron turns to point at it. */
+  .select__chevron--open {
+    rotate: 180deg;
+    color: var(--solus-accent);
+  }
+
+  .select-wrap:hover .select__chevron { color: var(--solus-text-secondary); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .link,
+    .detail-btn,
+    .select__chevron {
+      transition: none;
+    }
+    .link:hover { translate: none; }
   }
 </style>

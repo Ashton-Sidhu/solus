@@ -1,8 +1,59 @@
+import type { Edge, Node } from '@xyflow/svelte'
+import { absoluteBox } from './graph-layout'
+
+/**
+ * How wide a floating thread card is, in pane pixels. The open thread and the
+ * composer share it so posting a comment swaps one card for another in place,
+ * and it is wide enough that writing a comment does not feel like typing in a
+ * pin.
+ */
+export const THREAD_CARD_WIDTH = 400
+
 /** A node or edge rect in graph coordinates — what the card is anchored to. */
 export interface AnchorRect {
   x: number
   y: number
   width: number
+}
+
+/** The node or edge a thread rides. Neither = a whole-diagram note, which has no rect. */
+export interface ThreadAnchor {
+  nodeId?: string
+  edgeId?: string
+}
+
+/**
+ * The graph-space rect a floating card tracks. Shared by the open thread's card
+ * and the composer, so a thread appears exactly where it was written.
+ *
+ * A node's rect is absolute, not parent-relative — a node inside a group would
+ * otherwise anchor its card near the canvas origin. An edge has no box of its
+ * own, so its thread rides the midpoint between its endpoints' centres.
+ */
+export function anchorRectFor(
+  anchor: ThreadAnchor,
+  nodes: Node[],
+  edges: Edge[],
+): AnchorRect | null {
+  const byId = new Map(nodes.map((n) => [n.id, n]))
+  if (anchor.nodeId) {
+    const node = byId.get(anchor.nodeId)
+    if (!node) return null
+    const box = absoluteBox(node, byId)
+    return { x: box.x, y: box.y, width: box.w }
+  }
+  const edge = edges.find((e) => e.id === anchor.edgeId)
+  if (!edge) return null
+  const source = byId.get(edge.source)
+  const target = byId.get(edge.target)
+  if (!source || !target) return null
+  const a = absoluteBox(source, byId)
+  const b = absoluteBox(target, byId)
+  return {
+    x: (a.x + a.w / 2 + b.x + b.w / 2) / 2,
+    y: (a.y + a.h / 2 + b.y + b.h / 2) / 2,
+    width: 0,
+  }
 }
 
 export interface Viewport {

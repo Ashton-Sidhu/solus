@@ -18,9 +18,16 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
-  import { getWorkspaceContext, connectionsStore } from "../../contexts";
+  import { getWorkspaceContext } from "../../contexts";
   import type { SessionMeta, WorkStorage } from "../../../shared/types";
-  import { serverConnections } from "@client-core/server-connections";
+  import { exportFileName } from "../pickers/lib/export-file-name";
+  import {
+    downloadPayload,
+    type WorkCopyFormat,
+    type WorkExportFormat,
+    type WorkExportRequest,
+  } from "./lib/work-export";
+  import { toasts } from "../../lib/toasts";
 
   interface Props {
     onOpenChat?: (mode: "resume" | "new") => void;
@@ -34,8 +41,20 @@
     title?: string;
     currentContent?: string;
     getCurrentContent?: () => string;
-    /** Work kind — gates the Download .md action (docs/slides only). */
-    docType?: "doc" | "slides" | "diagram";
+    /** Every file the shell can write this work out as, in menu order. */
+    exportFormats?: WorkExportFormat[];
+    /** Clipboard variants beyond the inline Copy verb. */
+    copyFormats?: WorkCopyFormat[];
+    /**
+     * Opens the save picker on the chosen format. Absent when the work has no
+     * host to write to, which also hides the Save group.
+     */
+    onExport?: (request: WorkExportRequest) => void;
+    /**
+     * True when the picker's filesystem is not this device's — the only case
+     * where a browser download is a different outcome from saving.
+     */
+    hostIsRemote?: boolean;
     /** Restore the previous snapshot. When set, the diff modal shows "Restore". */
     onRevert?: () => void;
     /** Delete the work (closes the pane + offers undo). When set, shows a Delete pill. */
@@ -43,7 +62,6 @@
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
     workStorage?: WorkStorage;
-    onSaveToProject?: (content: string) => void | Promise<void>;
     /** Upload to Google Docs (provided by the shell when it has the binding). */
     onGoogleUpload?: () => void;
     uploading?: boolean;
@@ -60,12 +78,14 @@
     title = "Work",
     currentContent = "",
     getCurrentContent,
-    docType,
+    exportFormats = [],
+    copyFormats = [],
+    onExport,
+    hostIsRemote = false,
     onRevert,
     onDelete,
     onDuplicate,
     workStorage,
-    onSaveToProject,
     onGoogleUpload,
     uploading = false,
     uploaded = false,
@@ -79,32 +99,38 @@
   // Overflow (⋯) menu holding the secondary / destructive actions.
   let overflowOpen = $state(false);
 
-  const canDownload = $derived(docType === "doc" || docType === "slides");
-  const canExportToFile = $derived(canDownload && connectionsStore.desktopHandlersAvailable);
-  const canSaveToProject = $derived(!!onSaveToProject);
+  const canSave = $derived(!!onExport && exportFormats.length > 0);
+  // On desktop-local the picker writes to this very machine, so a download
+  // beside it would be two names for one outcome.
+  const canDownload = $derived(hostIsRemote && exportFormats.length > 0);
 
   function resolvedContent() {
     return getCurrentContent?.() ?? currentContent;
   }
 
-  function safeFileName() {
-    return (title || "document").replace(/[^\w.\- ]+/g, "_").trim() || "document";
+  async function encode(format: WorkExportFormat) {
+    try {
+      const payload = await format.produce();
+      // An empty diagram encodes to nothing; silence would be indistinguishable
+      // from a save that quietly failed.
+      if (!payload) toasts.info("Nothing to export — this work is empty");
+      return payload;
+    } catch {
+      toasts.error(`Couldn't build the ${format.label} file`);
+      return null;
+    }
   }
 
-  function downloadMarkdown() {
-    const blob = new Blob([resolvedContent()], { type: "text/markdown" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${safeFileName()}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+  async function save(format: WorkExportFormat) {
+    const payload = await encode(format);
+    if (!payload) return;
+    onExport?.({ fileName: exportFileName(title, format.extension), payload });
   }
 
-  async function exportToFile() {
-    if (!connectionsStore.desktopHandlersAvailable) return;
-    // Export targets the user's client-side file picker, not the work's owner host.
-    await serverConnections.localHostApi()?.saveFileDialog(`${safeFileName()}.md`, resolvedContent());
+  async function download(format: WorkExportFormat) {
+    const payload = await encode(format);
+    if (!payload) return;
+    downloadPayload(exportFileName(title, format.extension), format.mimeType, payload);
   }
 
   function handleRestore() {
@@ -128,9 +154,53 @@
 
   const hasChanges = $derived(!!previous && previous.content !== currentContent);
   const hasOverflow = $derived(
-    !!onStartRename || !!onGoogleUpload || canSaveToProject || !!onDuplicate || canDownload || !!onDelete,
+    !!onStartRename ||
+      !!onGoogleUpload ||
+      !!onDuplicate ||
+      canSave ||
+      canDownload ||
+      copyFormats.length > 0 ||
+      !!onDelete,
   );
+  const hasOutput = $derived(canSave || canDownload || copyFormats.length > 0);
 </script>
+
+<!-- Save and Download offer the same list of formats and differ only in where
+     the file lands, so they render from one shape. A lone format stays a flat
+     row: a submenu holding one item is a click that answers nothing. -->
+{#snippet formatGroup(
+  kind: "save" | "download",
+  verb: string,
+  formats: WorkExportFormat[],
+  run: (format: WorkExportFormat) => Promise<void>,
+)}
+  {#snippet glyph()}
+    {#if kind === "save"}<FolderIcon size={14} />{:else}<DownloadSimpleIcon size={14} />{/if}
+  {/snippet}
+  {#if formats.length === 1}
+    <DropdownMenu.Item data-testid={`${kind}-work`} onSelect={() => void run(formats[0])}>
+      {@render glyph()}
+      <span class="flex-1 text-left">{verb} {formats[0].label}{kind === "save" ? "…" : ""}</span>
+    </DropdownMenu.Item>
+  {:else}
+    <DropdownMenu.Sub>
+      <DropdownMenu.SubTrigger data-testid={`${kind}-work`}>
+        {@render glyph()}
+        <span class="flex-1 text-left">{verb}</span>
+      </DropdownMenu.SubTrigger>
+      <DropdownMenu.SubContent class="w-auto min-w-40">
+        {#each formats as format (format.extension)}
+          <DropdownMenu.Item
+            data-testid={`${kind}-work-${format.extension}`}
+            onSelect={() => void run(format)}
+          >
+            {format.label}{kind === "save" ? "…" : ""}
+          </DropdownMenu.Item>
+        {/each}
+      </DropdownMenu.SubContent>
+    </DropdownMenu.Sub>
+  {/if}
+{/snippet}
 
 <!-- The header's own verbs are unfilled type. The only filled surface in the
      cluster is the way to reach Solus, so the eye finds it first. -->
@@ -154,7 +224,7 @@
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <button {...props} type="button" class="wha-overflow" class:wha-overflow--open={overflowOpen} data-testid="work-actions-menu" title="More actions" aria-label="More actions">
-          <DotsThreeIcon size={16} weight="bold" />
+          <DotsThreeIcon size={14} weight="bold" />
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
@@ -176,33 +246,45 @@
           <span class="ml-auto"><Kbd variant="inline">⌥G</Kbd></span>
         </DropdownMenu.Item>
       {/if}
-      {#if canSaveToProject}
-        <DropdownMenu.Item data-testid="save-work-to-project" onSelect={() => onSaveToProject?.(resolvedContent())}>
-          <FolderIcon size={14} /><span class="flex-1 text-left">Save to project…</span>
-        </DropdownMenu.Item>
-      {/if}
-      {#if (onStartRename || onGoogleUpload || canSaveToProject) && (onDuplicate || canDownload || onDelete)}
-        <DropdownMenu.Separator />
-      {/if}
       {#if onDuplicate}
         <DropdownMenu.Item data-testid="duplicate-work" onSelect={() => onDuplicate?.()}>
           <CopyIcon size={14} /><span class="flex-1 text-left">Duplicate</span>
         </DropdownMenu.Item>
       {/if}
-      {#if canDownload}
-        <DropdownMenu.Item data-testid="download-markdown" onSelect={downloadMarkdown}>
-          <DownloadSimpleIcon size={14} /><span class="flex-1 text-left">Download .md</span>
-        </DropdownMenu.Item>
-        {#if canExportToFile}
-          <DropdownMenu.Item data-testid="export-markdown" onSelect={() => { void exportToFile(); }}>
-            <DownloadSimpleIcon size={14} /><span class="flex-1 text-left">Export to file…</span>
-          </DropdownMenu.Item>
+
+      <!-- Everything that puts this work somewhere else lives in one block, so
+           there is a single place to look for "how do I get this out". -->
+      {#if hasOutput}
+        <DropdownMenu.Separator />
+        <DropdownMenu.Label>Save &amp; export</DropdownMenu.Label>
+        {#if canSave}
+          {@render formatGroup("save", "Save as", exportFormats, save)}
+        {/if}
+        {#if copyFormats.length > 0}
+          {#if copyFormats.length === 1}
+            <DropdownMenu.Item data-testid="copy-work-as" onSelect={() => void copyFormats[0].copy()}>
+              <CopyIcon size={14} /><span class="flex-1 text-left">Copy as {copyFormats[0].label}</span>
+            </DropdownMenu.Item>
+          {:else}
+            <DropdownMenu.Sub>
+              <DropdownMenu.SubTrigger data-testid="copy-work-as">
+                <CopyIcon size={14} /><span class="flex-1 text-left">Copy as</span>
+              </DropdownMenu.SubTrigger>
+              <DropdownMenu.SubContent class="w-auto min-w-40">
+                {#each copyFormats as format (format.id)}
+                  <DropdownMenu.Item onSelect={() => void format.copy()}>{format.label}</DropdownMenu.Item>
+                {/each}
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Sub>
+          {/if}
+        {/if}
+        {#if canDownload}
+          {@render formatGroup("download", "Download", exportFormats, download)}
         {/if}
       {/if}
+
       {#if onDelete}
-        {#if onDuplicate || hasChanges || canDownload}
-          <DropdownMenu.Separator />
-        {/if}
+        <DropdownMenu.Separator />
         <DropdownMenu.Item data-testid="delete-work" variant="destructive" onSelect={() => onDelete?.()}>
           <TrashIcon size={14} /><span class="flex-1 text-left">Delete</span>
         </DropdownMenu.Item>
@@ -223,7 +305,7 @@
       title="Ask Solus about this document"
       aria-label="Ask Solus"
     >
-      <SparkleIcon size={12} weight="fill" />
+      <SparkleIcon size={11} weight="fill" />
       <span class="wha-label">Ask Solus</span>
     </button>
     <button
@@ -237,7 +319,7 @@
       aria-haspopup="menu"
       aria-expanded={chatMenuOpen}
     >
-      <CaretDownIcon size={10} weight="bold" />
+      <CaretDownIcon size={9} weight="bold" />
     </button>
     <WorkChatMenu
       bind:open={chatMenuOpen}
@@ -287,14 +369,21 @@
 <style>
   /* A header verb: unfilled type at the same metrics as the shell's own
      (Markdown/Editor) buttons, so the whole cluster reads as one row of words
-     with a single filled pill at the end of it. */
+     with a single filled surface at the end of it.
+
+     The dense chrome rung, not the standard one: this is a row of secondary
+     verbs over a reading surface, and at the standard rung's 14px they matched
+     the document's own type and read as loud as the prose they sit above. Dense
+     is 12px wherever the pointer is precise — laptop and desktop alike — and
+     returns to 14px on a touch client, so the row does not need a width query
+     of its own to stay right on a laptop. */
   .wha-verb {
     flex-shrink: 0;
-    height: 1.75rem;
-    padding: 0 0.625rem;
-    border-radius: 0.4375rem;
+    height: 1.5rem;
+    padding: 0 0.4375rem;
+    border-radius: 0.375rem;
     font-family: inherit;
-    font-size: var(--text-sm);
+    font-size: var(--text-chrome-dense);
     font-weight: 400;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -315,17 +404,29 @@
   }
 
   /* Reaching Solus is the surface's primary action, so it carries the only
-     filled surface in the cluster — and the only pill. */
+     filled surface in the cluster. Squared off on the input bar's radius: the
+     app's controls are rounded rectangles, and a full pill here read as a
+     different family of button from every other action the user presses. */
   .wha-solus {
     display: inline-flex;
     align-items: stretch;
-    height: 1.75rem;
-    margin-left: 0.3125rem;
-    border-radius: 9999px;
+    height: 1.5rem;
+    /* Set apart from the verbs on its left and from the pane's floating chrome
+       cluster on its right, so the row's one filled surface is not shouldered
+       by either. */
+    margin-left: 0.25rem;
+    margin-right: 0.125rem;
+    border-radius: 0.4375rem;
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     overflow: hidden;
-    transition: background var(--duration-quick) var(--ease-premium);
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      scale var(--duration-quick) var(--ease-premium);
+  }
+  /* The same press response the input bar's pills give. */
+  .wha-solus:active {
+    scale: 0.96;
   }
   .wha-solus:hover,
   .wha-solus:has(.wha-solus-caret--open) {
@@ -334,10 +435,10 @@
   .wha-solus-trigger {
     display: inline-flex;
     align-items: center;
-    gap: 0.4375rem;
-    padding: 0 0.4375rem 0 0.6875rem;
+    gap: 0.3125rem;
+    padding: 0 0.4375rem 0 0.5625rem;
     font-family: inherit;
-    font-size: var(--text-sm);
+    font-size: var(--text-chrome-dense);
     font-weight: 500;
     background: transparent;
     color: inherit;
@@ -349,7 +450,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.125rem;
+    /* Wide enough that the caret has the same air on both sides of it as the
+       label has against the button's left edge. */
+    width: 1.25rem;
     padding: 0;
     background: transparent;
     color: inherit;
@@ -371,9 +474,9 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.75rem;
-    height: 1.75rem;
-    border-radius: 0.4375rem;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: 0.375rem;
     background: transparent;
     color: var(--solus-text-tertiary);
     border: none;
@@ -398,12 +501,33 @@
   .wha-actions {
     display: contents;
   }
+  /* Mobile: the header is the formatting strip, whose buttons are 40px touch
+     targets — these have to match it or they read as a second, smaller row. */
   @media (max-width: 767px) {
     .wha-label {
       display: none;
     }
+    .wha-verb,
+    .wha-solus {
+      height: 2.5rem;
+    }
+    .wha-verb {
+      padding: 0 0.75rem;
+      border-radius: 0.5rem;
+    }
+    .wha-overflow {
+      width: 2.5rem;
+      height: 2.5rem;
+      border-radius: 0.5rem;
+    }
+    .wha-solus {
+      border-radius: 0.5rem;
+    }
     .wha-solus-trigger {
-      padding: 0 0.4375rem 0 0.5rem;
+      padding: 0 0.5rem 0 0.75rem;
+    }
+    .wha-solus-caret {
+      width: 1.75rem;
     }
   }
 

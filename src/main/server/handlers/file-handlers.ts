@@ -447,27 +447,32 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
   server.register('writeFile', async (args) => {
     const [ctx, request] = args
-    const rawRoot = projectRootForRequest(ctx, request?.cwd)
+    // A host-destination write is a destination the user picked themselves in
+    // the directory picker, so it is not anchored to a project at all.
+    const toHost = request?.destination === 'host'
+    const rawRoot = toHost ? null : projectRootForRequest(ctx, request?.cwd)
     const requestedPath = request?.path ?? ''
-    if (!rawRoot) {
+    if (!toHost && !rawRoot) {
       return { ok: false, path: requestedPath, error: 'No project directory is available.' } satisfies WriteFileResult
     }
     if (!requestedPath) {
       return { ok: false, path: requestedPath, error: 'No file path was provided.' } satisfies WriteFileResult
     }
 
-    let root: string
-    try {
-      root = await realpath(rawRoot)
-    } catch (err) {
-      return {
-        ok: false,
-        path: requestedPath,
-        error: err instanceof Error ? err.message : String(err),
-      } satisfies WriteFileResult
+    let root: string | null = null
+    if (rawRoot) {
+      try {
+        root = await realpath(rawRoot)
+      } catch (err) {
+        return {
+          ok: false,
+          path: requestedPath,
+          error: err instanceof Error ? err.message : String(err),
+        } satisfies WriteFileResult
+      }
     }
 
-    const resolved = resolvePreviewPath(requestedPath, root)
+    const resolved = toHost ? expandHome(requestedPath) : resolvePreviewPath(requestedPath, root ?? undefined)
     let target = resolved
 
     try {
@@ -485,7 +490,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       }
     }
 
-    if (!isInsideRoot(root, target)) {
+    if (root && !isInsideRoot(root, target)) {
       return {
         ok: false,
         path: target,
@@ -505,13 +510,17 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
           } satisfies WriteFileResult
         }
       }
-      await writeTextFile(target, request.contents, 'utf8')
-      await refreshFinder(root)
+      const encoding = request.encoding === 'base64' ? 'base64' : 'utf8'
+      const payload = Buffer.from(request.contents, encoding)
+      await writeTextFile(target, payload)
+      if (root) await refreshFinder(root)
       return {
         ok: true,
         path: target,
-        displayPath: pathRelative(root, target) || basename(target),
-        size: Buffer.byteLength(request.contents, 'utf8'),
+        // Relative to the project it belongs to; an export has no project to be
+        // relative to, so it reports where it actually landed.
+        displayPath: root ? pathRelative(root, target) || basename(target) : target,
+        size: payload.byteLength,
       } satisfies WriteFileResult
     } catch (err) {
       return {

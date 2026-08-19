@@ -949,6 +949,20 @@
   useKeybinding("global.new-session", () => {
     session.openSessionDraft({ via: "keybinding" });
   });
+  // Files a task in the active session's project. The tasks page binds this id
+  // too — it knows which project its header is pinned to — so this handler
+  // stands down while that page is up.
+  useKeybinding(
+    "global.create-task",
+    () => {
+      const taskCwd = session.tasksProjectCwd;
+      if (taskCwd) session.openTaskComposer(taskCwd, true);
+    },
+    {
+      enabled: () =>
+        !!session.tasksProjectCwd && !session.router.at("tasks"),
+    },
+  );
 
   function visualTabOrder(tabIds: string[]): string[] {
     return buildTabSections(
@@ -1645,6 +1659,7 @@
         label: `Create task in ${taskProjectName}`,
         group: "Tasks",
         icon: CheckSquareIcon,
+        hint: comboHint("global.create-task"),
         keywords: ["task", "create", "new", "todo", "issue", taskProjectName],
         run: () => session.openTaskComposer(taskCwd, true),
       });

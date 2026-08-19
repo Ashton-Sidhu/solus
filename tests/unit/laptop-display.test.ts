@@ -67,6 +67,18 @@ describe('one shared classification', () => {
     expect(source).toContain('class="doc-outline__item text-workspace-chrome"')
   })
 
+  test('the collapsed diagram inspector rail is compact on laptop displays, and names its selection without turning text on its side', () => {
+    // WHY: the rail floats over the canvas, so its width is drawing area the
+    // user cannot recover by resizing. It is also only 3rem wide, which is why
+    // the name belongs in hover text: at that width every label was either
+    // ellipsised mid-word or rotated 90 degrees to fit.
+    const source = readRendererSource('components/diagram/inspector/DiagramInspectorRail.svelte')
+    expect(source).toContain(':global(html.is-laptop-display) .diagram-rail')
+    expect(source).toContain('width: 2.625rem')
+    expect(source).toContain('title="{label} — {kindWord}"')
+    expect(source).not.toContain('writing-mode')
+  })
+
   test('list search typography uses the shared workspace chrome rung', () => {
     // WHY: search fields must stay on the same laptop, desktop, and touch-client
     // scale as the rest of the persistent workspace controls.

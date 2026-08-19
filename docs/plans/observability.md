@@ -911,6 +911,17 @@ the natural cross-host aggregation point for dispatch.
   the bar becomes the plot's summary line. The corollary is what did *not* move:
   the ranked tool list is a column of short labels, and a rail is the one place
   a ranked list does not have to be stretched to fill its width.
+- **A dispatch step is a destination, so it is named the way the reader will
+  search.** The waterfall used to prettify a step id into a phrase
+  (`worktree_create` → "worktree create") and to head a folded run with its kind
+  label, "Dispatch steps". Dispatch nests, so that label appeared at every level
+  and told a reader nothing about which level they were on, while the phrase
+  greps for nothing. A step row now reads `worktree_create · createWorktree` —
+  the id verbatim, then the function it times — and a step lane names its
+  members. Each step passes `fn` and `file` in its attributes, written by hand:
+  the main process ships bundled, so a captured stack frame would name the
+  bundle, confidently and wrongly. Line numbers are omitted because they would
+  be wrong within a week. Older traces have no `fn` and keep the bare id.
 
 ## Work packages
 
@@ -1532,6 +1543,41 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   the identity line, "Agent" in the Summary card. The attributes rail and the
   SQL result grid are deliberately unmarked: both print stored values, and a
   logo beside `provider = claude` would dress up the record.
+- **WP4.28 — Insights is reachable from the work it records (landed).** The page
+  answered only from its own console: the one way to ask about a session was to
+  open a turn first, and there was no way at all to ask about a task. Insights
+  now opens **scoped to the thing the user right-clicked**. Two seams on the
+  workspace context, beside `openInsightsTurn`: `openInsightsForSession` and
+  `openInsightsForTask`, each running one of Solus's own generated statements
+  (`GeneratedQuery` gains a `task` kind, `taskTurnsSql`) and then showing the
+  page. **The scope is the question, not the route** — the route's params keep
+  naming the open turn and nothing else, because the page already renders
+  whatever the store last asked, and a preset and a drill-in should not be two
+  different kinds of thing. `runGenerated` only runs when the store has resolved
+  a host; asked from off the page it sets the statement and lets the page's
+  opening load run it, so entering does not ask the same question twice.
+  Entry points: `SessionContextMenu` (its five call sites — sidebar rows, pinned
+  rows, the breadcrumb, the tab strip, and the new-tab home), `TaskContextMenu`
+  (sidebar task rows and the tasks page), and an **Insights button in the action
+  row**, beside Fork. A session is scoped by Solus's own session id — the id
+  `spans.session_id` records, not the provider thread's — and a task by its id,
+  so every attempt at one task counts as that task's work.
+  - **A task's turns had to exist first.** Only a first dispatch carries a task
+    in its run options; every later turn resumes a provider conversation and
+    arrived with none, so roughly five in six recorded turns had no `task_id` at
+    all and the question could not be asked. `_turnTask` now falls back to the
+    session's own binding (`Task.forSession`), and records the id even when the
+    title cannot be read — a task shipped from another host without a snapshot
+    is still the id every span should carry. The dispatch step is renamed
+    `task_title` → `task_dimension`, since it now resolves both.
+    Test: the resumed-turn case in `tests/unit/control-plane-observability.test.ts`.
+  - **Known limits, deliberate.** `metrics.db` is host-local and the page follows
+    the active host, so a session recorded on another host answers empty — the
+    same constraint every Insights answer already has. Mobile has no context
+    menus and no action row, so it keeps the read-only page it already had.
+    The demo client answers a task drill-in from its own task↔session bindings
+    and lists nothing for a task it does not know, rather than answering with
+    every turn.
 - **WP4.20 — Dispatch has an interior (landed).** The `setup` bar covered
   everything Solus does before a turn reaches the provider — git context,
   worktree creation, task preparation, instruction composition, agent launch —
@@ -1730,3 +1776,19 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   opens *below* the plot rather than inline under its row, because pushing rows
   apart mid-trace would break the alignment the shared axis exists to provide.
   The design composition shows inline expansion; the shared axis is worth more.
+- **The span detail is a sticky dock, not a block at the end of the plot.** A
+  trace runs to hundreds of rows, so a detail that only lives after the last row
+  costs a scroll to the bottom and back for every pick. The detail card now
+  sticks to the foot of the Insights scroller while any of the plot is in view:
+  the reader picks a row deep in the trace and keeps reading with the detail
+  still on screen. Consequences: the Trace card must not be `overflow-hidden`
+  (that would make it the scroll container and kill the sticky), the dock caps
+  its own height and scrolls internally so it can never own the viewport, and
+  because the detail is no longer beside its own row its head closes on an
+  edge-to-edge position ruler — the span's extent inside the turn — as the only
+  thing left saying when in the turn it ran. The head is monochrome and reads in
+  three descending registers (kind and service, name, then duration with share
+  and start offset); colour appears only on a failed status, and the dock wears
+  no kind rail or status dot, since the row that opened it already carries the
+  hue. Escape from inside the dock closes it; the close control is a real button
+  so the pick is reversible by pointer too.

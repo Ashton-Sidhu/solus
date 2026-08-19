@@ -2085,7 +2085,7 @@ export class ControlPlane extends EventEmitter {
       startedRun = await this.sessionEmitter.runDispatch(
         request.sessionId,
         'launch_run',
-        { promptSource },
+        { promptSource, fn: '_launchRun', file: 'control-plane.ts' },
         () => this._launchRun(request),
       )
     } catch (error) {
@@ -2094,28 +2094,29 @@ export class ControlPlane extends EventEmitter {
       throw error
     }
     const { handle, run } = startedRun
+    // Its own scope: this runs after `launch_run` resolved, so there is no
+    // ambient step left to nest under — but it is still inside the setup
+    // window, being awaited before setup is closed below.
+    const turnTask = await this.sessionEmitter.runDispatch(
+      request.sessionId,
+      'task_dimension',
+      { taskId: run.options.taskId ?? '', fn: '_turnTask', file: 'control-plane.ts' },
+      async (annotate) => {
+        const task = await this._turnTask(run)
+        annotate({ taskId: task?.id ?? '', title: task?.title ?? '' })
+        return task
+      },
+    )
     this.sessionEmitter.completeSetup(request.sessionId, {
       provider: run.input.provider,
       model: run.input.model,
       projectRoot: run.input.projectPath || run.input.workingDirectory,
       origin: promptSource,
       reasoningEffort: run.input.reasoningEffort,
-      taskId: run.options.taskId,
+      taskId: turnTask?.id,
       automationId: run.options.automationId,
       automationName: run.options.automationName,
-      // Its own scope: this runs after `launch_run` resolved, so there is no
-      // ambient step left to nest under — but it is still inside the setup
-      // window, being awaited before setup is closed below.
-      taskTitle: await this.sessionEmitter.runDispatch(
-        request.sessionId,
-        'task_title',
-        { taskId: run.options.taskId ?? '' },
-        async (annotate) => {
-          const title = await this._turnTaskTitle(run.options)
-          annotate({ title: title ?? '' })
-          return title
-        },
-      ),
+      taskTitle: turnTask?.title,
       branch: run.input.gitContext?.branch ?? undefined,
       isResume: !!run.input.agentSessionId,
     })
@@ -2462,7 +2463,7 @@ export class ControlPlane extends EventEmitter {
     if (!effectiveGitCtx?.worktreePath && resolvedProjectPath && resolvedProjectPath !== '~') {
       const statusGitCtx = await dispatchStep(
         'git_state',
-        { projectPath: resolvedProjectPath },
+        { projectPath: resolvedProjectPath, fn: 'computeGitState', file: 'control-plane.ts' },
         async (annotate) => {
           const checkout = gitCheckoutFromState(await computeGitState(resolvedProjectPath).catch(() => null))
           annotate({ branch: checkout?.branch ?? '', worktreePath: checkout?.worktreePath ?? '' })
@@ -2502,7 +2503,12 @@ export class ControlPlane extends EventEmitter {
       try {
         const gitContext: GitCheckout = await dispatchStep(
           'worktree_create',
-          { projectPath: resolvedProjectPath ?? '', baseBranch: worktreeBaseBranch ?? '' },
+          {
+            projectPath: resolvedProjectPath ?? '',
+            baseBranch: worktreeBaseBranch ?? '',
+            fn: 'createWorktree',
+            file: 'control-plane.ts',
+          },
           async (annotate) => {
             // `createWorktree` records its own git commands under this step
             // through the ambient context — it takes no telemetry argument.
@@ -2569,7 +2575,12 @@ export class ControlPlane extends EventEmitter {
     if (pendingHandoff) {
       handoffPayload = await dispatchStep(
         'handoff_build',
-        { fromProvider: pendingHandoff.fromProvider, fromSessionId: pendingHandoff.fromSessionId },
+        {
+          fromProvider: pendingHandoff.fromProvider,
+          fromSessionId: pendingHandoff.fromSessionId,
+          fn: 'handoffBuilder',
+          file: 'control-plane.ts',
+        },
         async (annotate) => {
           const handoff = await this.handoffBuilder(pendingHandoff.fromSessionId, resolvedProjectPath, {
             loadSession: (threadId, loadProjectPath) => this.loadSession(
@@ -2638,7 +2649,10 @@ export class ControlPlane extends EventEmitter {
     // The store returns null for a resumed provider session, which structurally
     // enforces the clean-slate/no-backfill rule.
     if (!options.skipTaskCreation && pendingHandoff && !options.taskId) {
-      const existingTask = await dispatchStep('task_lookup', {}, async (annotate) => {
+      const existingTask = await dispatchStep('task_lookup', {
+        fn: 'tasksForSession',
+        file: 'control-plane.ts',
+      }, async (annotate) => {
         const found = await tasksForSession(sessionId)
         annotate({ taskId: found?.task.id ?? '' })
         return found
@@ -2652,6 +2666,8 @@ export class ControlPlane extends EventEmitter {
         worktreeKey: taskWorktreeKey(resolvedProjectPath, effectiveGitCtx) ?? '',
         branch: effectiveGitCtx?.branch ?? '',
         existingTaskId: options.taskId ?? '',
+        fn: 'sessionTaskPreparer',
+        file: 'control-plane.ts',
       }, async (annotate) => {
         const prepared = await this.sessionTaskPreparer({
         // A provider handoff is a new backend conversation, not a new Solus
@@ -2682,7 +2698,11 @@ export class ControlPlane extends EventEmitter {
     // is rebuilt per run, so the agent sees the task's live status and comments
     // instead of a snapshot taken when the session opened.
     if (options.taskId) {
-      const context = await dispatchStep('task_context', { taskId: options.taskId }, async (annotate) => {
+      const context = await dispatchStep('task_context', {
+        taskId: options.taskId,
+        fn: '_taskSystemContext',
+        file: 'control-plane.ts',
+      }, async (annotate) => {
         const composed = await this._taskSystemContext(options.taskId!, options.taskSnapshot ?? null, sessionId)
         annotate({ contextChars: composed?.length ?? 0 })
         return composed
@@ -2708,7 +2728,12 @@ export class ControlPlane extends EventEmitter {
       if (!dispatchAgentSessionId) {
         await dispatchStep(
           'session_log',
-          { provider: backend.id, cwd: effectiveCwd ?? '' },
+          {
+            provider: backend.id,
+            cwd: effectiveCwd ?? '',
+            fn: '_logNewSessionPrompt',
+            file: 'control-plane.ts',
+          },
           () => this._logNewSessionPrompt(effectiveInput, options, backend.id),
         )
       }
@@ -2744,6 +2769,8 @@ export class ControlPlane extends EventEmitter {
         isFork: !!effectiveInput.forked,
         fastMode: !!effectiveInput.fastMode,
         imageAttachmentCount: options.imageAttachments?.length ?? 0,
+        fn: 'runAgent',
+        file: 'control-plane.ts',
       }, () => this.runAgent({
         provider,
         prompt: options.prompt,
@@ -2784,15 +2811,41 @@ export class ControlPlane extends EventEmitter {
     return { handle, run: activeRun }
   }
 
-  /** The turn's task title for telemetry: the dispatch snapshot when one rode
-   *  along, else one local read. A missing task never blocks the turn. */
-  private async _turnTaskTitle(options: SessionRunRequest['options']): Promise<string | undefined> {
-    if (options.taskSnapshot) return options.taskSnapshot.details.task.title
-    if (!options.taskId) return undefined
+  /**
+   * The task the turn ran under, id and title, for telemetry.
+   *
+   * Only a first dispatch carries a task in its options; every later turn in
+   * the same session resumes a provider conversation and arrives with none. It
+   * is still the same task's work, so the session's own binding answers for it
+   * — otherwise the great majority of turns record no task at all and "how much
+   * did this task cost" cannot be asked.
+   *
+   * The id survives a title that cannot be read: a task shipped from another
+   * host without a snapshot is still the id every span should carry. A missing
+   * task never blocks the turn.
+   */
+  private async _turnTask(
+    run: SessionRunRequest,
+  ): Promise<{ id: string; title?: string } | null> {
+    const { options } = run
+    if (options.taskSnapshot) {
+      const task = options.taskSnapshot.details.task
+      return { id: task.id, title: task.title }
+    }
+    if (options.taskId) {
+      try {
+        return { id: options.taskId, title: (await Task.byId(options.taskId)).title }
+      } catch {
+        return { id: options.taskId }
+      }
+    }
+    const agentSessionId = run.input.agentSessionId
+    if (!agentSessionId) return null
     try {
-      return (await Task.byId(options.taskId)).title
+      const task = await Task.forSession(agentSessionId)
+      return task ? { id: task.id, title: task.title } : null
     } catch {
-      return undefined
+      return null
     }
   }
 

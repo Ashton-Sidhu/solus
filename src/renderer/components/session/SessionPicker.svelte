@@ -28,6 +28,7 @@
     hasSessionStarted,
   } from "../../lib/sessionUtils";
   import {
+    buildPickerRows,
     dedupeHistoryEntries,
     filterEntries,
     FrozenEntryOrder,
@@ -148,38 +149,20 @@
   });
 
   const ENTRY_HEIGHT = 46;
+  const HEADER_HEIGHT = 26;
 
   const entryOrder = new FrozenEntryOrder();
   const searchCache = new SearchTextCache();
 
   const effectiveProjectPath = $derived(statusBar.ctx.workingDirectory);
 
-  // An open tab belongs to the scoped project when its root matches — allowing
-  // either side to be a worktree of the other, the same test the Codex index
-  // watcher uses — so a tab in a worktree of the project still shows. With no
-  // scope (a home with no project chosen), every open tab shows.
-  function inHistoryScope(sess: ReturnType<typeof session.sessionFor>): boolean {
-    if (historyScopeRoots.length === 0) return true;
-    const key = sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory;
-    if (!key) return false;
-    return historyScopeRoots.some(
-      (root) =>
-        key === root ||
-        worktreeProjectRoot(key) === root ||
-        worktreeProjectRoot(root) === key,
-    );
-  }
-
   // The picker offers sessions to return to. A composer that has yet to send
-  // anything is not one, however ordinary its tab is everywhere else.
+  // anything is not one, however ordinary its tab is everywhere else. Every
+  // open tab shows, in or out of the scoped project: the "Open" section mirrors
+  // the sidebar's open sessions, which the project scope does not narrow.
   const openTabEntries: PickerEntry[] = $derived(
     session.tabOrder
-      .filter((id) => {
-        const sess = session.sessionFor(id);
-        return (
-          session.tabs[id] && hasSessionStarted(sess) && inHistoryScope(sess)
-        );
-      })
+      .filter((id) => session.tabs[id] && hasSessionStarted(session.sessionFor(id)))
       .map((id) => ({
         kind: "open" as const,
         tabId: id,
@@ -206,11 +189,14 @@
     );
   }
 
+  // Open tabs sort among themselves and stay ahead of history, so the "Open"
+  // section holds the top of the list however old its sessions are.
   const allEntries: PickerEntry[] = $derived.by(() => {
-    const sorted = entryOrder.sort(
-      [...openTabEntries, ...dedupedHistory],
-      open && !historyLoading,
-    );
+    const settled = open && !historyLoading;
+    const sorted = [
+      ...entryOrder.sort(openTabEntries, settled),
+      ...entryOrder.sort(dedupedHistory, settled),
+    ];
     // Warm the search cache for every entry now, on the empty-query pass,
     // instead of paying for it lazily on the first non-empty keystroke.
     searchCache.prepare(sorted);
@@ -219,6 +205,16 @@
 
   const filteredItems: PickerEntry[] = $derived(
     filterEntries(allEntries, query, searchCache),
+  );
+
+  const rows = $derived(buildPickerRows(filteredItems));
+  const rowSizes = $derived(
+    rows.map((row) => (row.kind === "header" ? HEADER_HEIGHT : ENTRY_HEIGHT)),
+  );
+  const selectedRowIndex = $derived(
+    rows.findIndex(
+      (row) => row.kind === "entry" && row.entryIndex === selectedIndex,
+    ),
   );
 
   const selectedEntry = $derived(
@@ -486,7 +482,7 @@
       placeholder={historyLoading
         ? "Loading sessions…"
         : `Search ${allEntries.length} sessions in ${historyScopeLabel}…`}
-      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent"
+      class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 shadow-none focus-visible:ring-0 dark:bg-transparent"
       onkeydown={(e) => {
         if (e.key === "Enter" && runtime.isMobileViewport) {
           e.stopPropagation();
@@ -563,24 +559,33 @@
           bind:this={virtualList}
           width="100%"
           height={listHeight ? listHeight - 12 : 400}
-          itemCount={filteredItems.length}
-          itemSize={ENTRY_HEIGHT}
-          scrollToIndex={selectedIndex}
+          itemCount={rows.length}
+          itemSize={rowSizes}
+          scrollToIndex={selectedRowIndex}
           scrollToAlignment="auto"
           scrollToBehaviour="instant"
           overscanCount={5}
         >
           {#snippet item({ style, index })}
+            {@const row = rows[index]}
             <div {style}>
-              <SessionPickerItem
-                item={filteredItems[index]}
-                isSelected={index === selectedIndex}
-                {query}
-                onSelect={() => handleSelect(filteredItems[index])}
-                onHover={() => {
-                  selectedIndex = index;
-                }}
-              />
+              {#if row.kind === "header"}
+                <div
+                  class="flex h-full items-end px-5 pb-1 text-xs font-medium uppercase tracking-[0.06em] text-[var(--solus-text-tertiary)]"
+                >
+                  {row.label}
+                </div>
+              {:else}
+                <SessionPickerItem
+                  item={row.entry}
+                  isSelected={row.entryIndex === selectedIndex}
+                  {query}
+                  onSelect={() => handleSelect(row.entry)}
+                  onHover={() => {
+                    selectedIndex = row.entryIndex;
+                  }}
+                />
+              {/if}
             </div>
           {/snippet}
         </VirtualList>
@@ -681,7 +686,7 @@
   >
     <div
       bind:this={popoverEl}
-      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] md:pointer-fine:[.is-laptop-display_&]:w-[85%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
+      class="flex h-3/4 max-h-[75%] w-3/4 origin-top flex-col overflow-hidden overscroll-contain rounded-2xl text-workspace-chrome border border-[var(--solus-popover-border)] bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] dark:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] md:pointer-fine:[.is-laptop-display_&]:w-[85%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:border-none max-md:bg-[var(--solus-container-bg)] max-md:shadow-none max-md:backdrop-filter-none"
       role="dialog"
       aria-label="Session picker"
       tabindex="-1"

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Session, SessionMeta, Tab } from '../../src/shared/types'
 import {
+  buildPickerRows,
   dedupeHistoryEntries,
   filterEntries,
   SearchTextCache,
@@ -201,10 +202,36 @@ describe('filterEntries', () => {
     const open2 = openEntry(tab({ id: 'tab-2' }), session({ agentSessionId: 'agent-2' }))
     const olderHistory = historyEntry(meta({ sessionId: 'h-older', lastTimestamp: new Date(1_000).toISOString() }))
 
-    // FrozenEntryOrder (the caller) already interleaves open/history newest-first
-    // globally; filterEntries must not re-sort or re-partition that order.
+    // FrozenEntryOrder (the caller) decides the order the sections are built
+    // from; filterEntries must not re-sort or re-partition it.
     const result = filterEntries([open1, newerHistory, open2, olderHistory], '', cache)
 
     expect(result).toEqual([open1, newerHistory, open2, olderHistory])
+  })
+})
+
+describe('buildPickerRows', () => {
+  test('labels the open tabs section and keeps entry indices aligned with the keyboard list', () => {
+    // WHY: the header rows exist only for the reader. Selection walks entries,
+    // so every entry row must still report its position in the entry list.
+    const open1 = openEntry(tab({ id: 'tab-1' }), session({ title: 'Ship notes' }))
+    const open2 = openEntry(tab({ id: 'tab-2' }), session({ title: 'Fix login' }))
+    const past = historyEntry(meta({ sessionId: 'h-1' }))
+
+    const rows = buildPickerRows([open1, open2, past])
+
+    expect(rows).toEqual([
+      { kind: 'header', label: 'Open' },
+      { kind: 'entry', entry: open1, entryIndex: 0 },
+      { kind: 'entry', entry: open2, entryIndex: 1 },
+      { kind: 'header', label: 'Recent' },
+      { kind: 'entry', entry: past, entryIndex: 2 },
+    ])
+  })
+
+  test('omits headers when only one kind is present, so a single section never labels itself', () => {
+    const past = historyEntry(meta({ sessionId: 'h-1' }))
+
+    expect(buildPickerRows([past])).toEqual([{ kind: 'entry', entry: past, entryIndex: 0 }])
   })
 })

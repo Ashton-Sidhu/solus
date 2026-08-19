@@ -32,9 +32,11 @@
   <div class="flex flex-col" class:opacity-60={rows.every((row) => row.stale)}>
     {#each rows as row (row.provider)}
       <!-- The provider reads as a menu row — same glyph column, same size and
-           weight as Files and Terminal — and its windows hang beneath it. -->
+           weight as Files and Terminal — and its windows hang beneath it. Size
+           comes from the rail, as MenuRow's does, so the two rows cannot part
+           company when the display changes rung. -->
       <div
-        class="flex min-h-8 items-center gap-2 px-2 py-[0.3125rem] text-xs text-(--solus-text-secondary)"
+        class="flex min-h-8 items-center gap-2 px-2 py-[0.3125rem] text-(--solus-text-secondary)"
       >
         <!-- Same marks as the model picker, in the same treatment: Codex's is
              solid black, so it keeps a white plate to stay legible in dark

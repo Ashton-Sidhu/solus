@@ -104,7 +104,7 @@
   <div class="absolute inset-0 bg-black/20" aria-hidden="true"></div>
   <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
   <div
-    class="relative flex max-h-[60vh] w-[460px] flex-col overflow-hidden rounded-2xl bg-popover shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_14%,transparent),0_28px_50px_-18px_rgba(0,0,0,.24)]"
+    class="relative flex max-h-[60vh] w-[460px] flex-col overflow-hidden rounded-2xl bg-popover text-workspace-chrome shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_14%,transparent),0_28px_50px_-18px_rgba(0,0,0,.24)]"
     onclick={(e) => e.stopPropagation()}
     role="dialog"
     aria-label="Link something to this task"
@@ -112,7 +112,7 @@
     <input
       bind:this={inputEl}
       bind:value={query}
-      class="h-11 shrink-0 border-b border-[var(--hairline)] bg-transparent px-3.5 text-sm outline-none placeholder:text-muted-foreground"
+      class="h-11 shrink-0 border-b border-[var(--hairline)] bg-transparent px-3.5 outline-none placeholder:text-muted-foreground"
       placeholder="Link a doc, plan, automation or PR…"
     />
     <div class="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -125,7 +125,7 @@
         {#each group.items as item (item.id)}
           <button
             type="button"
-            class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 text-sm hover:bg-[var(--wash-2)]"
+            class="flex h-8 w-full cursor-pointer items-center gap-2.5 rounded-md px-2 hover:bg-[var(--wash-2)]"
             onclick={() => pick(item)}
           >
             <svg

@@ -69,26 +69,36 @@
     align-items: center;
     gap: 0.5625rem;
     padding: 0.5rem 0.625rem;
-    border: 0.0625rem solid transparent;
-    border-radius: 0.5rem;
+    border: none;
+    border-radius: 0.625rem;
     background: var(--solus-surface-hover);
+    box-shadow: inset 0 0 0 0.0625rem color-mix(in srgb, var(--solus-text-primary) 6%, transparent);
     text-align: left;
     cursor: pointer;
-    transition: border-color var(--duration-quick) var(--ease-premium);
+    transition:
+      box-shadow var(--duration-base) var(--ease-premium),
+      background var(--duration-base) var(--ease-premium);
   }
 
-  .endpoint:hover { border-color: var(--solus-tool-border); }
+  .endpoint:hover {
+    background: var(--solus-surface-active);
+    box-shadow: inset 0 0 0 0.0625rem var(--solus-tool-border);
+  }
 
   .endpoint:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: 0.125rem;
   }
 
+  /* The role is a label on the row, not a value in it — pinned to a fixed
+     column so source and target line up whatever they are called. */
   .endpoint__role {
     flex: none;
-    width: 2.375rem;
-    font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    width: 2.875rem;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
     color: var(--solus-text-tertiary);
   }
 
@@ -104,26 +114,37 @@
 
   .endpoint__go {
     flex: none;
-    font-size: var(--text-xs);
+    font-size: var(--text-sm);
+    color: var(--solus-text-tertiary);
+    transition:
+      color var(--duration-base) var(--ease-premium),
+      translate var(--duration-base) var(--ease-premium);
+  }
+
+  .endpoint:hover .endpoint__go {
     color: var(--solus-accent);
+    translate: 0.125rem 0;
   }
 
   .reverse {
-    padding: 0.4375rem 0.625rem;
+    padding: 0.5rem 0.625rem;
     border: 0.0625rem dashed var(--solus-tool-border);
-    border-radius: 0.5rem;
+    border-radius: 0.625rem;
     background: transparent;
     color: var(--solus-text-tertiary);
     font-size: var(--text-xs);
+    font-weight: 500;
     text-align: center;
     cursor: pointer;
     transition:
       border-color var(--duration-quick) var(--ease-premium),
+      background var(--duration-quick) var(--ease-premium),
       color var(--duration-quick) var(--ease-premium);
   }
 
   .reverse:hover {
-    border-color: var(--solus-accent-border);
+    border-color: var(--solus-accent-border-medium);
+    background: var(--solus-accent-light);
     color: var(--solus-accent);
   }
 
@@ -133,6 +154,7 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .endpoint, .reverse { transition: none; }
+    .endpoint, .reverse, .endpoint__go { transition: none; }
+    .endpoint:hover .endpoint__go { translate: none; }
   }
 </style>

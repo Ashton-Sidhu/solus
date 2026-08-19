@@ -386,6 +386,10 @@
      above, which is applied directly). @pierre/diffs blends this one into the row
      at ~18%, so it has to start strong to land as a visible band. */
   --solus-diff-line-selection-bg: color-mix(in oklab, var(--solus-accent) 65%, transparent);
+  /* Caret line in the editable file/markdown surfaces. Painted directly (not a
+     mix target), so it must stay faint enough to sit under code without
+     competing with the add/remove tints or the hover wash. */
+  --solus-diff-active-line-bg: rgba(42, 38, 24, 0.045);
   /* Diff (vivid) — diff-view only. Consumed solely by diffTheme.ts; never reuse
      for chrome that must stay on-brand (permission cards, file-write previews).
      Derived from the on-brand sage (--solus-art-3) and stop red, which are
@@ -629,6 +633,8 @@
      block. --solus-diff-line-selection-bg is declared there and resolves through
      the mode-aware accent, so it isn't restated here. */
   --solus-diff-surface: #262522;
+  /* Caret line — see the light block. */
+  --solus-diff-active-line-bg: rgba(240, 237, 229, 0.05);
   /* Diff (vivid) — the added/removed tokens are declared once in the light block
      above; they resolve through --solus-art-3 / --solus-stop-bg, which are
      already mode-aware. Only the neutral gutter text needs a dark value. */
@@ -988,8 +994,22 @@ html.solus-web #root {
    Not `@theme inline`: these must stay `var()` references so a live change to
    --solus-font-scale reflows the type without a rebuild. */
 @theme {
-  --text-workspace-chrome: 0.75rem;
+  --text-workspace-chrome: 0.875rem;
   --text-workspace-chrome--line-height: 1.1875rem;
+  /* The dense chrome rung: list pages, breadcrumbs, builders. 12px wherever a
+     pointer is precise, 14px on touch. It is a *rung*, not a variant of the one
+     above — six surfaces used to reach it by overwriting
+     `--text-workspace-chrome` inline, which made every one of them restate the
+     laptop and coarse-pointer boundary by hand. A rung is named and its value is
+     set here; a surface picks one, and never redefines what one means. */
+  --text-chrome-dense: 0.75rem;
+  --text-chrome-dense--line-height: 1.1875rem;
+  /* The content ladder's annotation rung: the subtitle, field row, badge or
+     metric inside a content card. 12px at the default preference. It exists
+     because a canvas card is content — the user's text setting has to reach it
+     — and the stock 12px chrome class deliberately does not carry the scale. */
+  --text-footnote: calc(0.75rem * var(--solus-font-scale, 1));
+  --text-footnote--line-height: 1.35;
   --text-caption: calc(0.875rem * var(--solus-font-scale, 1));
   --text-caption--line-height: 1.5;
   --text-body: calc(1rem * var(--solus-font-scale, 1));
@@ -1002,14 +1022,36 @@ html.solus-web #root {
   --text-h1--line-height: 1.25;
 }
 
-/* Match the display tiers already used by Action Orb. A 1512px MacBook stays
-   on the compact 12px rung. Large desktop clients gain the 14px rung, while a
-   coarse-pointer mobile client keeps touch-readable labels. These are viewport
-   queries on purpose: pane and rail resizing must never change type size. */
-@media (min-width: 100rem), (max-width: 48rem) and (pointer: coarse) {
-  :root {
-    --text-workspace-chrome: 0.875rem;
+/* The runtime owns the laptop boundary through LAPTOP_SCREEN_MAX_WIDTH and
+   stamps this class on the document. Keep the responsive type decision here,
+   at the canonical rung, so rails do not recreate that boundary themselves.
+   Coarse-pointer clients retain the touch-readable desktop size. */
+@media (pointer: fine) {
+  html.is-laptop-display {
+    --text-workspace-chrome: 0.75rem;
   }
+}
+
+/* Touch keeps the readable size on the dense rung too. */
+@media (pointer: coarse) {
+  html {
+    --text-chrome-dense: 0.875rem;
+  }
+}
+
+/* The floor under every inheriting primitive.
+   Shared controls (button, input, select, …) declare `text-[length:inherit]`
+   rather than pinning a size, so a surface can set type once and have its
+   controls obey. Inheritance needs something to inherit *from*: with no
+   font-size anywhere on the ancestor chain a control resolves against the root,
+   which is the browser's 16px — larger than any chrome rung and worse than the
+   pinned 14px it replaced. This is that guarantee.
+
+   On `#root`, not `html`: `rem` stays anchored to the 16px root (ADR-0010), so
+   every rem-based size in the app keeps its meaning. */
+#root {
+  font-size: var(--text-workspace-chrome);
+  line-height: var(--text-workspace-chrome--line-height);
 }
 
 /* ─── Touch scrolling — native-feel on mobile/touch devices ─── */
@@ -3243,7 +3285,7 @@ button.solus-token {
    title's left edge, and the editor's own letter-spacing/feature set differs
    from the `.prose-cloud` one every other body on this ruleset gets. */
 .task-description-prose .solus-doc-editor .ProseMirror {
-  --prose-pr-size: var(--text-workspace-chrome);
+  --prose-pr-size: var(--text-chrome-dense);
   padding-left: 0;
   padding-right: 0;
   font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1;
@@ -3258,6 +3300,23 @@ button.solus-token {
    ceiling on a wide display; this keeps a narrower pane from setting lines the
    full width of the window. */
 .prose-pr-description { max-width: 104ch; }
+
+/* Descriptions are primary reading content on pointer-precise desktop surfaces,
+   so they take one type step above the denser activity and metadata prose. The
+   coarse-pointer rung stays unchanged for the mobile clients. Descendants that
+   set their own size must follow the same step rather than falling back to the
+   shared PR comment size. */
+@media (pointer: fine) {
+  .prose-pr-description,
+  .task-description-prose .solus-doc-editor .ProseMirror {
+    --prose-pr-size: calc(0.875rem * var(--solus-font-scale, 1));
+  }
+
+  :is(.prose-pr-description, .task-description-prose .solus-doc-editor .ProseMirror)
+    :is(h1, h2, h3, h4, h5, h6, li, blockquote, .markdown-alert) {
+    font-size: var(--prose-pr-size);
+  }
+}
 /* Element margins alone set the rhythm — the generic sibling step would add to
    the asymmetric heading spacing below. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) > * + * { margin-top: 0; }
@@ -3742,6 +3801,15 @@ html.is-mac-editor
   overflow: hidden;
   border: 0;
   border-radius: 1rem;
+  /* A menu is a *portalled* surface: bits-ui mounts it on `document.body`, so it
+     sits outside `#root` and inherits nothing from the page that opened it. Its
+     rows therefore cannot take a rung by inheritance the way in-page controls
+     do — the menu has to declare one, and this is the single place every
+     portalled menu passes through (dropdown, select, context menu, command).
+     Without it, rows that inherit resolve against the bare 16px root.
+     A call site's own `text-*` still wins: utilities compile after this. */
+  font-size: var(--text-workspace-chrome);
+  line-height: var(--text-workspace-chrome--line-height);
   /* One row type everywhere: regular. Weight is spent on the current row and
      the group headings, never on the list at rest. */
   font-weight: 400;

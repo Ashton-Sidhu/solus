@@ -554,12 +554,6 @@ export interface Prompt {
   planRefs: PlanReference[]
   workRefs: WorkReference[]
   sessionRefs: SessionReference[]
-  /**
-   * Set when this draft was restored from a saved prompt. Sending the draft
-   * deletes that saved prompt; emptying the composer, restoring a different one,
-   * or saving a new draft breaks the link. Editing the text keeps it.
-   */
-  savedPromptId: string | null
 }
 
 /**
@@ -2198,8 +2192,17 @@ export type ProjectContentSearchResult =
 export interface WriteFileRequest {
   path: string
   contents: string
+  /** `base64` carries binary payloads — image exports — over a string field. */
+  encoding?: 'utf8' | 'base64'
   cwd?: string
   expectedContents?: string
+  /**
+   * Where the write is allowed to land. `project` (the default) confines the
+   * path to `cwd`'s root, which is what an editor saving a file it opened from
+   * the tree wants. `host` is the user picking a destination themselves in the
+   * directory picker — an export — so the root guard would only get in the way.
+   */
+  destination?: 'project' | 'host'
 }
 
 export type WriteFileResult =

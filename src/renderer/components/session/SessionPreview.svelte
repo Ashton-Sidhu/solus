@@ -42,7 +42,7 @@
     <div class="flex min-w-0 flex-shrink-0 items-center gap-3 px-[1.125rem] pb-2.5 pt-3">
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div
-          class="overflow-hidden text-ellipsis whitespace-nowrap text-sm font-medium leading-[1.3] text-[var(--solus-text-primary)]"
+          class="overflow-hidden text-ellipsis whitespace-nowrap font-medium leading-[1.3] text-[var(--solus-text-primary)]"
           title={title}
         >{#each titleRuns as run, i (i)}{#if run.hit}<mark
               class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"

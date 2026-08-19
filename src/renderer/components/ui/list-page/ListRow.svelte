@@ -26,7 +26,7 @@
     selected?: boolean;
     /** What occupies the lead-avatar slot when this row has no person. */
     fallbackAvatar?: "solus";
-    /** Keep the title compact until the page has wide-display space. */
+    /** Use the canonical responsive type rung for workspace list titles. */
     responsiveTitle?: boolean;
     onSelect?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
@@ -97,7 +97,7 @@
     <span
       class="max-w-[520px] min-w-0 truncate font-normal {responsiveTitle
         ? 'text-workspace-chrome'
-        : 'text-sm'}"
+        : ''}"
       title={row.title}
     >
       {row.title}

@@ -29,7 +29,7 @@
   import { runtime } from "../../contexts";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { ensureIconCollections } from "../diagram/iconify";
-  import DiffCommentForm from "./DiffCommentForm.svelte";
+  import { CommentComposer } from "../ui/comment-composer";
   import DiffInlineComment from "./DiffInlineComment.svelte";
   import DiffThreadComment from "./DiffThreadComment.svelte";
   import { getInlineCommentDraft } from "./diff-comment-draft.store.svelte";
@@ -863,12 +863,14 @@
 -->
 <div bind:this={draftFormWrapper} class="solus-inline-draft-portal">
   {#if draft.filePath && draft.range}
-    <DiffCommentForm
+    <CommentComposer
       onSave={onDraftSave}
       onCancel={onDraftCancel}
-      rangeLabel={draft.rangeLabel}
+      anchorLabel={draft.rangeLabel}
       initialValue={draftInitialValue}
       onFormValueChange={onDraftValueChange}
+      placeholder="What should change here?"
+      submitLabel="Add comment"
     />
   {/if}
 </div>

@@ -58,7 +58,7 @@
         type="button"
         class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 transition-colors duration-150 {compactText
           ? 'text-xs'
-          : 'text-sm'} {showingAll
+          : ''} {showingAll
           ? 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]'
           : 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'}"
         aria-label={ariaLabel}

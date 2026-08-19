@@ -32,7 +32,6 @@
     showResolved: boolean
     onShowResolvedChange: (show: boolean) => void
     onOpenThread: (commentId: string) => void
-    onAddThread: (text: string) => void
     onShowAllThreads: () => void
     now: number
   }
@@ -58,7 +57,6 @@
     showResolved,
     onShowResolvedChange,
     onOpenThread,
-    onAddThread,
     onShowAllThreads,
     now,
   }: Props = $props()
@@ -107,7 +105,6 @@
       {showResolved}
       {onShowResolvedChange}
       {onOpenThread}
-      {onAddThread}
       onShowAll={onShowAllThreads}
       {now}
     />

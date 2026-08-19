@@ -10,11 +10,12 @@
   import type { ListProjectOption } from "./list-page";
 
   /**
-   * The list page's scope control. It sits at the head of the action cluster
-   * rather than on its own row above the title, so the scope stays stated and
-   * changeable without spending a band of vertical space on it. Quiet until
-   * hovered — it is a label first and a button second — and both list pages
-   * share it so Tasks and Pull requests scope the same way.
+   * The scope control every page-level surface uses. It sits at the head of the
+   * action cluster rather than on its own row above the title, so the scope
+   * stays stated and changeable without spending a band of vertical space on
+   * it. Quiet until hovered — it is a label first and a button second — and
+   * Tasks, Pull requests, Automations and the Workspace all share it, so a
+   * person scopes the same way on every page.
    */
   interface Props {
     projects: ListProjectOption[];
@@ -26,10 +27,11 @@
     /** Forgets a catalog-only project. Files and sessions are untouched. */
     onRemoveHistory?: (option: ListProjectOption) => void;
     /** When set, an "All projects" row leads the menu and clears the scope —
-     *  the pull requests inbox uses this; Tasks always needs one project. */
+     *  every page but Tasks uses this; Tasks always needs one project. */
     onSelectAll?: () => void;
     allLabel?: string;
-    compactText?: boolean;
+    /** What the page does to the rest of its controls when the scope changes. */
+    footerNote?: string;
   }
   let {
     projects,
@@ -39,7 +41,7 @@
     onRemoveHistory,
     onSelectAll,
     allLabel = "All projects",
-    compactText = false,
+    footerNote = "Switching clears search and filters",
   }: Props = $props();
 
   let menuOpen = $state(false);
@@ -93,7 +95,7 @@
   }
 </script>
 
-<div class="relative shrink-0 {compactText ? 'text-xs' : 'text-sm'}">
+<div class="relative shrink-0">
   <!-- The scrim closes the menu on the next click anywhere, so the trigger has
        no dismissal logic of its own. -->
   {#if menuOpen}
@@ -108,17 +110,15 @@
  ? 'bg-[var(--wash-2)]'
  : 'bg-transparent'}"
     title="Switch project"
+    aria-label="Switch project"
     aria-haspopup="menu"
     aria-expanded={menuOpen}
+    data-testid="project-switcher"
     onclick={toggle}
   >
     {#if active}
       {#key active.projectKey}
-        <ProjectFavicon
-          projectRoot={active.projectKey}
-          class="size-3.5"
-          coloredFallback
-        />
+        <ProjectFavicon projectRoot={active.projectKey} class="size-3.5" />
       {/key}
     {/if}
     <span
@@ -200,11 +200,7 @@
             disabled={!project.available}
             onclick={() => pick(project)}
           >
-            <ProjectFavicon
-              projectRoot={project.projectKey}
-              class="size-3.5"
-              coloredFallback
-            />
+            <ProjectFavicon projectRoot={project.projectKey} class="size-3.5" />
             <span
               class="min-w-0 flex-1 truncate {isActive
  ? 'font-medium'
@@ -241,7 +237,7 @@
       <div
         class="mt-0.5 flex items-center border-t border-[var(--hairline)] px-[9px] pt-[7px] pb-1 text-xs text-muted-foreground"
       >
-        Switching clears search and filters
+        {footerNote}
       </div>
     </div>
   {/if}

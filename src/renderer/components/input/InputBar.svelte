@@ -9,7 +9,6 @@
     getVoiceModelStore,
     getWindowContext,
     runtime,
-    savedPrompts,
   } from "../../contexts";
   import {
     cycledModelId,
@@ -1071,15 +1070,6 @@
     composerEl?.clearEditor();
     if (mode === "pill") {
       session.isExpanded = true;
-    }
-    const sentSavedPromptId = prompt.savedPromptId;
-    prompt.savedPromptId = null;
-    if (sentSavedPromptId && composerProjectRoot && composerServerId) {
-      void savedPrompts.remove(
-        composerProjectRoot,
-        sentSavedPromptId,
-        composerServerId,
-      );
     }
 
     if (options.refocus !== false) {

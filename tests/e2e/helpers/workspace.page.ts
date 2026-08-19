@@ -64,7 +64,7 @@ export class WorkspacePage {
 
   /** The rail's project scope control — every ledger count is relative to it. */
   projectSwitcher(): Locator {
-    return this.dialog.getByTestId('workspace-project-switcher')
+    return this.dialog.getByTestId('project-switcher')
   }
 
   statusMenu(): Locator {

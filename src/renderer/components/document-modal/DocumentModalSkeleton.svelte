@@ -57,7 +57,7 @@
       {/if}
       {#if title}
         <span
-          class="min-w-0 truncate text-sm font-medium text-(--solus-text-primary)"
+          class="min-w-0 truncate text-workspace-chrome font-medium text-(--solus-text-primary)"
         >
           {title}
         </span>
@@ -66,16 +66,16 @@
       {/if}
       <div class="min-w-4 flex-auto"></div>
       <!-- One ghost per real control, at its real width and radius: the
-           Markdown verb, Copy, the ⋯ menu, and the Ask Solus pill (the only
-           rounded-full thing in the row, offset the same 0.3125rem). -->
+           Markdown verb, Copy, the ⋯ menu, and the Ask Solus button (the row's
+           one filled surface, carrying the same margins that set it apart). -->
       <div
-        class="flex shrink-0 items-center gap-0.75 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
+        class="flex shrink-0 items-center gap-1.5 pr-[max(0.875rem,var(--solus-pane-chrome-inset,3.25rem))]"
         aria-hidden="true"
       >
-        <Skeleton class="h-7 w-[5.375rem] rounded-[0.4375rem]" />
-        <Skeleton class="h-7 w-[3.375rem] rounded-[0.4375rem]" />
-        <Skeleton class="size-7 rounded-[0.4375rem]" />
-        <Skeleton class="ml-[0.3125rem] h-7 w-[7rem] rounded-full" />
+        <Skeleton class="h-6 w-[4.625rem] rounded-[0.375rem]" />
+        <Skeleton class="h-6 w-[2.75rem] rounded-[0.375rem]" />
+        <Skeleton class="size-6 rounded-[0.375rem]" />
+        <Skeleton class="mr-0.5 ml-1 h-6 w-[6.75rem] rounded-[0.4375rem]" />
       </div>
     </header>
 

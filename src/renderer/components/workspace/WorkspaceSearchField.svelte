@@ -68,7 +68,7 @@
 <!-- The field takes the focus ring every other Solus field takes: 45% primary,
      no glow, no offset. -->
 <div
-  class="text-xs flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+  class="text-xs flex h-7 [.is-laptop-display_&]:h-6.5 min-w-0 flex-1 items-center gap-2 rounded-lg px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
 >
   <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
 
@@ -89,7 +89,7 @@
     bind:this={ref}
     value={filter.text}
     type="text"
-    class="w-full min-w-16 border-0 bg-transparent text-sm caret-[var(--primary)] outline-none placeholder:text-muted-foreground [@media(pointer:coarse)]:text-sm"
+    class="w-full min-w-16 border-0 bg-transparent caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
     placeholder={chips.length > 0
       ? "Filter…"
       : `Search ${totalCount > 0 ? `${totalCount} ` : ""}artifacts in ${scopeLabel}…`}

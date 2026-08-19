@@ -268,8 +268,11 @@
 {/if}
 
 {#snippet projectInfo()}
+  <!-- A flat 12px, not a rung: this pair sits beside the action dock, whose
+       labels resolve to ~12px, so it holds that size on every client rather
+       than growing back to 14 on touch the way both chrome rungs do. -->
   <div
-    class="flex items-center gap-2.5 min-w-0 overflow-hidden text-(--solus-text-tertiary)"
+    class="flex items-center gap-2.5 min-w-0 overflow-hidden text-xs text-(--solus-text-tertiary)"
   >
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -321,7 +324,7 @@
             size={9}
             class={`flex-shrink-0 text-(--solus-accent) ${creatingWorktree ? "animate-spin" : ""}`}
           />
-          <span class="flex-shrink-0 text-xs text-(--solus-accent)">Creating…</span>
+          <span class="flex-shrink-0 text-(--solus-accent)">Creating…</span>
         {/if}
       </button>
           {/snippet}

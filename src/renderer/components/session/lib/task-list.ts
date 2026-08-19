@@ -340,7 +340,6 @@ export function sortTasks(tasks: SidebarTask[]): SidebarTask[] {
 export interface TaskGroup {
   projectKey: string
   projectLabel: string
-  initial: string
   tasks: SidebarTask[]
 }
 
@@ -355,7 +354,6 @@ export function groupTasks(tasks: SidebarTask[]): TaskGroup[] {
       group = {
         projectKey: task.projectKey,
         projectLabel: task.projectLabel,
-        initial: projectInitial(task.projectLabel),
         tasks: [],
       }
       groups.set(task.projectKey, group)
@@ -366,19 +364,9 @@ export function groupTasks(tasks: SidebarTask[]): TaskGroup[] {
   return [...groups.values()].sort((a, b) => a.projectLabel.localeCompare(b.projectLabel))
 }
 
-/** 1–2 letters: the initial of each of the first two words, or just the first
- *  letter of a single-word name. "solus" → S, "model-routing" → MR. */
-export function projectInitial(label: string): string {
-  const words = label.split(/[^a-zA-Z0-9]+/).filter(Boolean)
-  if (words.length === 0) return '?'
-  if (words.length === 1) return words[0][0].toUpperCase()
-  return (words[0][0] + words[1][0]).toUpperCase()
-}
-
 export interface ProjectSummary {
   projectKey: string
   label: string
-  initial: string
   count: number
   /** Tasks in this project that stopped and asked, and tasks whose run died.
    *  The picker names them in the same words the list uses. */
@@ -404,7 +392,6 @@ export function buildProjectSummaries(allTasks: SidebarTask[]): ProjectSummary[]
     return {
       projectKey,
       label: tasks[0].projectLabel,
-      initial: projectInitial(tasks[0].projectLabel),
       count: tasks.length,
       waiting: tasks.filter((task) => task.status === 'question' || task.status === 'plan').length,
       failed: tasks.filter((task) => task.status === 'error').length,
@@ -432,7 +419,6 @@ export function resolveProjectFilter(
 export interface ProjectFilterChoice {
   projectKey: string
   label: string
-  initial: string
   /** Active tasks only, so the figure beside a project agrees with the list the
    *  filter produces. Snoozed and completed live on their own shelves. */
   count: number
@@ -452,7 +438,6 @@ export function projectFilterChoices(allTasks: readonly SidebarTask[]): ProjectF
       choices.set(task.projectKey, {
         projectKey: task.projectKey,
         label: task.projectLabel,
-        initial: projectInitial(task.projectLabel),
         count: active,
       })
   }

@@ -111,6 +111,24 @@ function memberDetail(members: RawNode[]): string {
 }
 
 /**
+ * What a lane calls itself.
+ *
+ * The kind label answers "what sort of work is folded here", which is the right
+ * question for tools or thinking — every member is the same sort of thing and
+ * the individual names are already on the bars. A dispatch step is different:
+ * its name is an identifier in Solus's own source, and a reader opening this
+ * fold is on their way to that code. Naming the lane after its kind puts
+ * "Dispatch steps" at every level of the dispatch tree, which distinguishes no
+ * level from any other, so a step lane names its members instead.
+ */
+function laneLabel(kind: string, members: RawNode[]): string {
+  if (kind !== 'internal.dispatch_step') return labelForKind(kind)
+  const names = members.map((member) => member.row.span?.name ?? member.row.kind)
+  const shown = names.slice(0, 3).join(', ')
+  return names.length > 3 ? `${shown}, +${names.length - 3}` : shown
+}
+
+/**
  * Consecutive siblings of one kind, in the order the turn ran them.
  *
  * A run, not every span of that kind under the parent: the waterfall exists to
@@ -149,7 +167,7 @@ function groupChildren(parentSpanId: string, children: RawNode[], totalMs: numbe
       group: {
         id,
         spanKind: kind,
-        label: labelForKind(kind),
+        label: laneLabel(kind, members),
         color: members[0].row.color,
         memberCount: members.length,
         spanCount: members.reduce((total, member) => total + countSpans(member), 0),
@@ -239,6 +257,28 @@ export function flattenTree(
     if (isOpen) lines.push(...flattenTree(node.children, expanded, depth + 1))
   }
   return lines
+}
+
+export interface LineActivation {
+  /** Line to fold or unfold, or null when the line has nothing under it. */
+  toggleId: string | null
+  /** Span whose detail the click opens, or null for a lane. */
+  selectSpanId: string | null
+}
+
+/**
+ * What activating a line does — the one place the caret's promise is kept.
+ *
+ * A line that draws a disclosure caret opens on a click, whether it is a lane
+ * or a span with children: `setup` folds its dispatch steps exactly as a lane
+ * folds its members, and a caret that answers only to the arrow keys is a
+ * control the reader cannot find. A span opens its detail in the same click,
+ * because a span is a measurement as well as a parent; a lane has no detail of
+ * its own, so it only opens.
+ */
+export function activation(line: WaterfallLine): LineActivation {
+  if (line.type === 'group') return { toggleId: line.id, selectSpanId: null }
+  return { toggleId: line.expandable ? line.id : null, selectSpanId: line.row.spanId }
 }
 
 /** Every id that can open. What "Expand all" sets. The turn root is not one:

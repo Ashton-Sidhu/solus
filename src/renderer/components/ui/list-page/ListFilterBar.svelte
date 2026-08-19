@@ -30,7 +30,7 @@
 <div
   class="flex shrink-0 items-center gap-2 pb-3.5 {compactText
     ? 'text-xs'
-    : 'text-sm'}"
+    : ''}"
 >
   <div
     class="flex h-7 min-w-0 flex-1 items-center gap-2 rounded-lg px-[9px] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"

@@ -164,7 +164,14 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
     ".cm-line": { padding: "0" },
     // Colour only: inheriting the line's own metrics is what lands the
     // placeholder's first character exactly where the first typed one goes.
-    ".cm-placeholder": { color: "var(--solus-placeholder)" },
+    //
+    // `inline` overrides CodeMirror's own `inline-block`, which is load-bearing
+    // for the caret. An inline-block that wraps is one box as tall as all its
+    // lines, and the caret on an empty document takes the whole line box — so a
+    // placeholder long enough to wrap drew a caret spanning every wrapped line
+    // and read as several stacked cursors. Inline text wraps into one line box
+    // per line, so the caret stands exactly one line tall wherever the hint runs.
+    ".cm-placeholder": { color: "var(--solus-placeholder)", display: "inline" },
   });
 
   function isCompositionEvent(event: KeyboardEvent): boolean {

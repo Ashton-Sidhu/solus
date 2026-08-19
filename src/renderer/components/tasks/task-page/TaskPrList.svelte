@@ -70,7 +70,7 @@
         <span class="flex h-5 shrink-0 items-center tabular-nums text-muted-foreground opacity-65">
           {row.ref}
         </span>
-        <span class="flex h-5 min-w-0 flex-1 items-center truncate text-workspace-chrome font-normal">
+        <span class="flex h-5 min-w-0 flex-1 items-center truncate font-normal">
           {row.title}
         </span>
 

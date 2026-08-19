@@ -268,7 +268,7 @@ export async function createWorktree(
   const targetBranchStartedAt = Date.now()
   const targetBranch = baseBranch || await dispatchStep<string>(
     'default_branch',
-    { projectPath },
+    { projectPath, fn: 'getDefaultBranch', file: 'worktree-manager.ts' },
     async (annotate) => {
       const resolved = await getDefaultBranch(projectPath)
       annotate({ defaultBranch: resolved })
@@ -280,7 +280,7 @@ export async function createWorktree(
   const startPointStartedAt = Date.now()
   const startPoint = await dispatchStep<string>(
     'start_point',
-    { projectPath, targetBranch },
+    { projectPath, targetBranch, fn: 'resolveWorktreeStartPoint', file: 'worktree-manager.ts' },
     async (annotate) => {
       const resolved = await resolveWorktreeStartPoint(projectPath, targetBranch, options.signal)
       annotate({ startPoint: resolved })
@@ -296,14 +296,22 @@ export async function createWorktree(
   const checkoutArgs = ['worktree', 'add', '-b', branch, worktreePath, startPoint]
   await dispatchStep<string>(
     'git_worktree_add',
-    { argv: `git ${checkoutArgs.join(' ')}`, cwd: projectPath, branch, worktreePath, startPoint },
+    {
+      argv: `git ${checkoutArgs.join(' ')}`,
+      cwd: projectPath,
+      branch,
+      worktreePath,
+      startPoint,
+      fn: 'runAsync',
+      file: 'worktree-manager.ts',
+    },
     () => runAsync('git', checkoutArgs, projectPath, { signal: options.signal }),
   )
   const checkoutMs = Date.now() - checkoutStartedAt
   const copyStartedAt = Date.now()
   await dispatchStep<void>(
     'copy_included_files',
-    { projectPath, worktreePath },
+    { projectPath, worktreePath, fn: 'copyIncludedWorktreeFiles', file: 'worktree-manager.ts' },
     async (annotate) => {
       annotate({ copiedFileCount: await copyIncludedWorktreeFiles(projectPath, worktreePath, options.signal) })
     },

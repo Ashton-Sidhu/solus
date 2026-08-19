@@ -4,8 +4,7 @@
 
   // A local review note the reader has left on a line but not yet sent. Distinct
   // from DiffThreadComment, which renders an existing GitHub conversation pulled
-  // from the host; this one is always the reader's own unsent draft, which is
-  // what the "pending" pill states.
+  // from the host; this one is always the reader's own unsent draft.
   interface Props {
     comment: DiffComment;
     onEdit?: (c: DiffComment) => void;
@@ -41,11 +40,6 @@
       style="font-family:var(--solus-code-font-family)"
     >
       {anchor}
-    </span>
-    <span
-      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-(--solus-accent-light) px-1.5 py-px font-medium text-(--solus-accent)"
-    >
-      <span class="size-1 rounded-full bg-current"></span>pending
     </span>
     {#if age}
       <span class="shrink-0 text-(--solus-text-tertiary)">{age}</span>

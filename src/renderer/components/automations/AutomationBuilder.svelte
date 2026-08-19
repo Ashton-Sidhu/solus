@@ -86,15 +86,17 @@
   // once stacked it would center them *vertically*, so it's reset to start.
   const BODY =
     "flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 overscroll-y-contain " +
+    "[.is-laptop-display_&]:gap-10 [.is-laptop-display_&]:px-9 [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-12 " +
+    "pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 " +
     "@max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 " +
     "@max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9";
   const MAIN_COLUMN =
     "flex w-full min-w-0 max-w-[53.75rem] flex-1 flex-col @max-[65rem]:max-w-none @max-[65rem]:flex-none";
   const RAIL_BLOCK =
     "flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]";
-  const STAT_LABEL =
-    "text-xs font-normal  text-muted-foreground uppercase";
-  const STAT_VALUE = "text-sm font-medium ";
+  // The stat strip reads a value under its label, so it takes the same two rungs
+  // as the rail: EYEBROW for the label, the chrome rung for the value.
+  const STAT_VALUE = "text-workspace-chrome font-medium";
   // Pill actions in the title row. Both sit at 2.0625rem so they read as one
   // pair; only "Run now" carries fill.
   const PILL =
@@ -111,7 +113,7 @@
   // The title, editable in place: same 2.125rem type as the h1 it replaces, so
   // entering edit mode doesn't reflow the page.
   const TITLE_INPUT =
-    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-2xl max-md:text-2xl font-medium leading-[1.1]  " +
+    "h-auto w-full -ml-1.5 rounded-lg border-0 bg-transparent px-1.5 py-0 text-2xl max-md:text-2xl font-medium leading-[1.1] " +
     "text-foreground shadow-none [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
     "placeholder:text-muted-foreground hover:bg-muted focus-visible:bg-transparent focus-visible:ring-0 " +
     "focus-visible:[outline-color:color-mix(in_srgb,var(--solus-accent)_55%,transparent)]";
@@ -121,7 +123,7 @@
     "-ml-2 flex w-full min-h-[16rem] flex-col rounded-lg bg-transparent px-2 [outline:0.0625rem_solid_transparent] transition-[outline-color,background-color] duration-120 " +
     "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:flex-1 [&_[data-testid=message-input]]:min-h-0 " +
     "[&_.cm-editor]:flex-1 [&_.cm-editor]:min-h-0 [&_.cm-scroller]:max-h-none! [&_.cm-content]:min-h-full [&_.cm-content]:![font-weight:400] " +
-    "[&_.cm-content]:![font-size: var(--text-sm)] [&_.cm-content]:![line-height:1.75]";
+    "[&_.cm-content]:![font-size:var(--text-sm)] [&_.cm-content]:![line-height:1.75]";
 
   const session = getWorkspaceContext();
   const store = session.automationsStore;
@@ -611,7 +613,7 @@
     class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
   >
     <Breadcrumb.Root class="min-w-0 flex-1 overflow-hidden">
-      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-sm">
+      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-workspace-chrome">
         <Breadcrumb.Item>
           <Breadcrumb.Link class={CRUMB_LINK}>
             {#snippet child({ props })}
@@ -728,21 +730,21 @@
 <!-- ── Next / Last / Health: the three facts worth reading before the prose ── -->
 {#snippet statStrip()}
   <div
-    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
+    class="mt-6 grid grid-cols-[auto_auto_1fr] items-center gap-x-10 gap-y-3.5 rounded-2xl bg-muted/60 px-4.5 py-4 [.is-laptop-display_&]:mt-5 [.is-laptop-display_&]:gap-x-8 [.is-laptop-display_&]:py-3.5 @max-[43.75rem]:grid-cols-1 @max-[43.75rem]:gap-4"
   >
     <div class="flex min-w-0 flex-col gap-1">
-      <span class={STAT_LABEL}>Next</span>
+      <span class={EYEBROW}>Next</span>
       <span class={STAT_VALUE}>{nextRunLabel}</span>
     </div>
     <div class="flex min-w-0 flex-col gap-1">
-      <span class={STAT_LABEL}>Last</span>
+      <span class={EYEBROW}>Last</span>
       <span class={STAT_VALUE}>{lastRunLabel}</span>
     </div>
     {#if health.total > 0}
       <div
         class="flex min-w-0 flex-col gap-1.5 justify-self-end @max-[43.75rem]:justify-self-start"
       >
-        <span class={STAT_LABEL}>Health</span>
+        <span class={EYEBROW}>Health</span>
         <div class="flex items-center gap-2.5">
           <div class="flex h-3.5 w-26 items-end gap-[0.15625rem]">
             {#each health.bars as bar (bar.id)}
@@ -756,7 +758,7 @@
               ></span>
             {/each}
           </div>
-          <span class="text-sm whitespace-nowrap text-muted-foreground">
+          <span class="text-xs whitespace-nowrap text-muted-foreground">
             {health.clean} of {health.total} clean
           </span>
         </div>
@@ -767,7 +769,7 @@
 
 <!-- ── The reading column: what the agent is told, every run ── -->
 {#snippet instructionsBlock()}
-  <div class="mt-8.5 flex flex-col gap-4.5">
+  <div class="mt-8.5 flex flex-col gap-4.5 [.is-laptop-display_&]:mt-7 [.is-laptop-display_&]:gap-4">
     <div class="flex items-baseline gap-2.5">
       <span class={EYEBROW}>Instructions</span>
       <span class="text-xs text-muted-foreground/80"
@@ -802,7 +804,7 @@
     {:else}
       <button
         type="button"
-        class="-ml-1.5 cursor-pointer self-start rounded-lg border-0 bg-transparent px-1.5 py-1 text-sm text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
+        class="-ml-1.5 cursor-pointer self-start rounded-lg border-0 bg-transparent px-1.5 py-1 text-workspace-chrome text-muted-foreground transition-colors duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
         onclick={beginEdit}>Write what the agent should do each run…</button
       >
     {/if}
@@ -953,8 +955,11 @@
   </div>
 {/snippet}
 
+<!-- The detail view is a reading surface, so it pins the readable chrome rung
+     rather than inheriting the automations list's compact one: the same builder
+     must not change size because pill mode renders it inside that list. -->
 <div
-  class="@container flex min-h-0 flex-1 flex-col {inline
+  class="@container flex min-h-0 flex-1 flex-col text-workspace-chrome {inline
  ? `h-full ${SIDEBAR_PANEL_BG}`
  : ''}"
 >

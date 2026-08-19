@@ -212,7 +212,7 @@
           </span>
           <span class="flex min-w-0 flex-1 flex-col gap-1.5">
             <span class="flex min-h-[25px] flex-wrap items-center gap-2">
-              <span class="text-sm font-medium ">
+              <span class="font-medium">
                 {authorName(comment)}
               </span>
               <span

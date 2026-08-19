@@ -124,7 +124,7 @@
         </span>
 
         <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
-          <span class="truncate text-workspace-chrome font-medium">{row.title}</span>
+          <span class="truncate font-medium">{row.title}</span>
           <span class="flex min-w-0 items-center gap-[7px]">
             {#if row.running}
               <span class="shrink-0 text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]">

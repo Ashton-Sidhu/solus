@@ -2,6 +2,7 @@
   import { tick } from "svelte";
   import {
     SparkleIcon,
+    ChartBarIcon,
     FilesIcon,
     ArrowsClockwiseIcon,
     GitForkIcon,
@@ -60,6 +61,7 @@
     | "files"
     | "terminal"
     | "fork"
+    | "insights"
     | "continueWorktree"
     | "pin"
     | "review";
@@ -151,6 +153,10 @@
     !!sess?.agentSessionId && !isRunning && !sess?.run.gitContext?.worktreePath,
   );
   const showPin = $derived(!!sess?.agentSessionId);
+  // What this session cost and where its time went. It reads the active host's
+  // own telemetry, and a session that never reached the provider has no turns
+  // recorded for it yet.
+  const showInsights = $derived(showDesktopActions && !!sess?.agentSessionId);
   const isPinned = $derived(sidebarStore.isPinned(sess?.agentSessionId, sess?.run.serverId));
   const showInterrupt = $derived(
     isRunning && (sess?.messages.some((m) => m.role === "user") ?? false),
@@ -253,6 +259,7 @@
       files: showOpenFiles ? idx++ : -1,
       terminal: showOpenTerminal ? idx++ : -1,
       fork: showFork ? idx++ : -1,
+      insights: showInsights ? idx++ : -1,
       continueWorktree: showContinueWorktree ? idx++ : -1,
       review: showReview ? idx++ : -1,
     };
@@ -271,6 +278,7 @@
     if (showOpenFiles) ids.push("files");
     if (showOpenTerminal) ids.push("terminal");
     if (showFork) ids.push("fork");
+    if (showInsights) ids.push("insights");
     if (showContinueWorktree) ids.push("continueWorktree");
     if (showReview) ids.push("review");
     return ids;
@@ -409,6 +417,13 @@
       .openInTerminal(session.ctxFor(tabId))
       .then(() => toolsStore.refreshResolvedTerminal(theme.fallbackTerminal));
     requestInputFocus();
+  }
+
+  function openSessionInsights() {
+    const sessionId = sess?.id;
+    if (!sessionId) return;
+    session.openInsightsForSession(sessionId);
+    closeExpanded();
   }
 
   function handleTogglePin() {
@@ -807,6 +822,28 @@
             {/snippet}
           </TooltipUI.Trigger>
           <TooltipUI.Content value={"Fork session into a new tab"} />
+        </TooltipUI.Root>
+      {/if}
+
+      {#if showInsights}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
+          class="dock-btn stagger-item"
+          data-orb-action="insights"
+          tabindex={tabIndexFor("insights")}
+          style="--item-index:{itemIndices.insights}"
+          onclick={openSessionInsights}
+          title="Open session in insights"
+          aria-label="Open session in insights"
+        >
+          <ChartBarIcon size={13} weight="regular" />
+          <span>Insights</span>
+        </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Open session in insights"} />
         </TooltipUI.Root>
       {/if}
 

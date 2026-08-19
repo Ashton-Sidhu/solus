@@ -8,7 +8,11 @@
  * Run with `bun run test:unit`.
  */
 import { describe, expect, test } from 'bun:test'
-import { placeThreadCard } from '../../src/renderer/components/diagram/lib/thread-card-position'
+import type { Edge, Node } from '@xyflow/svelte'
+import {
+  anchorRectFor,
+  placeThreadCard,
+} from '../../src/renderer/components/diagram/lib/thread-card-position'
 
 const pane = { width: 1200, height: 800 }
 const card = { width: 252, height: 200 }
@@ -45,5 +49,49 @@ describe('placeThreadCard', () => {
     expect(at.left).toBe(16)
     expect(at.top).toBe(800 - 16 - 200)
     expect(at.detached).toBe(true)
+  })
+})
+
+function node(id: string, x: number, y: number, extra: Partial<Node> = {}): Node {
+  return {
+    id,
+    position: { x, y },
+    width: 200,
+    height: 80,
+    data: {},
+    ...extra,
+  } as Node
+}
+
+/**
+ * The composer and the open thread's card share this, so a rect that is wrong
+ * here puts a new thread somewhere other than the thing it comments on.
+ */
+describe('anchorRectFor', () => {
+  test('a node anchors to its own top-left and width', () => {
+    const nodes = [node('a', 300, 120)]
+    expect(anchorRectFor({ nodeId: 'a' }, nodes, [])).toEqual({ x: 300, y: 120, width: 200 })
+  })
+
+  test('a node inside a group anchors absolutely, not relative to its parent', () => {
+    // Relative coordinates would drop the card near the canvas origin while the
+    // node itself sits deep inside the group.
+    const nodes = [
+      node('g', 1000, 500, { data: { group: true }, width: 600, height: 400 }),
+      node('a', 40, 60, { parentId: 'g' }),
+    ]
+    expect(anchorRectFor({ nodeId: 'a' }, nodes, [])).toEqual({ x: 1040, y: 560, width: 200 })
+  })
+
+  test('an edge has no box, so its thread rides the midpoint between endpoint centres', () => {
+    const nodes = [node('a', 0, 0), node('b', 400, 200)]
+    const edges = [{ id: 'e', source: 'a', target: 'b' } as Edge]
+    // Centres are (100, 40) and (500, 240); the midpoint is (300, 140).
+    expect(anchorRectFor({ edgeId: 'e' }, nodes, edges)).toEqual({ x: 300, y: 140, width: 0 })
+  })
+
+  test('an anchor on another level has no rect, which is what earns the card its off-screen clamp', () => {
+    expect(anchorRectFor({ nodeId: 'gone' }, [node('a', 0, 0)], [])).toBeNull()
+    expect(anchorRectFor({ edgeId: 'gone' }, [node('a', 0, 0)], [])).toBeNull()
   })
 })

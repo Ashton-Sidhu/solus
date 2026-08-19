@@ -40,6 +40,10 @@ test.describe('Document comments', () => {
     await addComment(page, modal, 'Tighten this section')
     const rail = page.locator('.plan-comments-rail')
     await expect(rail).toContainText('Tighten this section', { timeout: 5_000 })
+    // Visible, not merely present: a card whose anchor has not been measured is
+    // rendered in the margin but hidden, so matching text does not prove the
+    // thread reached the reader. It must land on its line without a scroll.
+    await expect(rail.locator('[data-testid="comment-thread"]').first()).toBeVisible()
 
     // Close and reopen — the comment persists via the annotation sidecar.
     await page.getByTestId('document-modal-close').click()

@@ -24,6 +24,8 @@
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   import SettingsPageSkeleton from "../settings/SettingsPageSkeleton.svelte";
   import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
+  import TasksPageSkeleton from "../tasks/TasksPageSkeleton.svelte";
+  import AutomationsPageSkeleton from "../automations/AutomationsPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { retainedConversationTabIds } from "./lib/workspace-body";
 
@@ -289,7 +291,7 @@
           {#if router.at("automations")}
             <div style="height:var(--pill-body-max);overflow:hidden;display:flex;flex-direction:column">
               {#await import("../automations/AutomationsPage.svelte")}
-                {@render loadingSurface("Loading automations…")}
+                <AutomationsPageSkeleton />
               {:then automationsModule}
                 {@const AutomationsPage = automationsModule.default}
                 <AutomationsPage />
@@ -299,7 +301,7 @@
           {#if router.at("tasks")}
             <div class="flex flex-col overflow-hidden h-[var(--pill-body-max)]">
               {#await import("../tasks/TasksPage.svelte")}
-                {@render loadingSurface("Loading tasks…")}
+                <TasksPageSkeleton />
               {:then tasksModule}
                 {@const TasksPage = tasksModule.default}
                 <TasksPage />

@@ -116,6 +116,12 @@ export class InsightsStore {
   answerWindowStale = $state(false)
 
   running = $state(false)
+  /** True from the moment the page's opening load starts until its first answer
+   *  lands. The registry and the saved queries are read before any statement
+   *  runs, so `running` is still false across two round trips — long enough for
+   *  the page to paint a real empty listing between the pane's loading cover and
+   *  the answer's. */
+  bootstrapping = $state(false)
   /** True while the NL question is with the agent — the slow half of `running`,
    *  named so the console can say "compiling" instead of a generic "running". */
   compiling = $state(false)
@@ -178,6 +184,38 @@ export class InsightsStore {
   }
 
   /**
+   * Returns the surface to a first visit. Insights is a question being asked,
+   * not a document being written: leaving the page ends the question, so the
+   * next entry starts from the default listing instead of resuming yesterday's
+   * answer and its run history.
+   *
+   * The range and the internals toggle are stated preferences, and the saved
+   * queries and the caches are facts about the host — none of them describe
+   * this visit, so all of them survive.
+   */
+  reset(): void {
+    // A load or a histogram read still in flight belongs to the visit that is
+    // ending; bumping the token makes it land on nothing.
+    this.loadToken += 1
+    this.form = 'nl'
+    this.question = ''
+    this.generated = { kind: 'explore' }
+    this.sqlText = defaultExploreSql(this.range)
+    this.answerWindowStale = false
+    this.result = null
+    this.error = null
+    this.compiledSql = ''
+    this.compileAttempts = 0
+    this.lastRunMs = 0
+    this.history = []
+    this.volumeRows = []
+    this.lastRun = null
+    this.running = false
+    this.compiling = false
+    this.bootstrapping = false
+  }
+
+  /**
    * Moves the window. Solus's own statements are rewritten at the new range and
    * re-run; SQL the user wrote or saved is left exactly as typed and re-run
    * unchanged, because a filter that edits someone's query is not a filter.
@@ -203,14 +241,22 @@ export class InsightsStore {
   }
 
   /** Runs one of Solus's own statements, remembering which one so a later range
-   *  change can re-emit it. */
+   *  change can re-emit it.
+   *
+   *  Asked from off the page — "open this session in Insights" — the statement
+   *  is only set, because the page's opening load runs whatever text the editor
+   *  holds against the host it resolves. Running it here as well would ask the
+   *  same question twice on every entry. */
   async runGenerated(query: GeneratedQuery): Promise<void> {
     const sql = generatedSql(query, this.range)
     if (!sql) return
     this.generated = query
     this.form = 'sql'
     this.sqlText = sql
-    await this.runSql(sql)
+    // Named as the run to repeat before it has run, so the page's opening load
+    // and any later refresh re-ask this question rather than the previous one.
+    this.lastRun = { form: 'sql', sql }
+    if (this.serverId) await this.runSql(sql)
   }
 
   /** The editor's text became the user's. From here the range governs the
@@ -224,14 +270,20 @@ export class InsightsStore {
    *  user's saved queries, the histogram, and the default result. */
   async load(): Promise<void> {
     const token = ++this.loadToken
-    const [schema, saved] = await Promise.all([
-      this.api.metricsSchema().catch(() => null),
-      this.api.metricsListSavedQueries().catch(() => [] as SavedMetricsQuery[]),
-    ])
-    if (token !== this.loadToken) return
-    if (schema) this.schema = schema
-    this.savedQueries = saved
-    await this.refresh()
+    this.bootstrapping = true
+    try {
+      const [schema, saved] = await Promise.all([
+        this.api.metricsSchema().catch(() => null),
+        this.api.metricsListSavedQueries().catch(() => [] as SavedMetricsQuery[]),
+      ])
+      if (token !== this.loadToken) return
+      if (schema) this.schema = schema
+      this.savedQueries = saved
+      await this.refresh()
+    } finally {
+      // A newer load owns the flag; this one must not clear it under that one.
+      if (token === this.loadToken) this.bootstrapping = false
+    }
   }
 
   /**

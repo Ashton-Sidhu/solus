@@ -159,6 +159,30 @@ describe.serial('session emitter', () => {
     })
   })
 
+  test('reconstructs a Codex answer from top-level streamed chunks', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'codex-text', prompt: 'ship it', promptSource: 'typed', startedAt: 3_050 })
+    emitter.completeSetup('codex-text', {
+      provider: 'codex', model: 'gpt-5.6-sol', projectRoot: '/repo', origin: 'typed', isResume: false,
+    }, 3_055)
+    emitter.onEvent('codex-text', { type: 'text_chunk', text: 'I changed the files.' }, 3_060)
+    emitter.onEvent('codex-text', {
+      type: 'text_chunk', text: 'nested output', parentToolUseId: 'subagent-1',
+    }, 3_065)
+    emitter.onEvent('codex-text', { type: 'text_chunk', text: '\n\nTests pass.' }, 3_070)
+    emitter.onEvent('codex-text', {
+      type: 'task_complete', result: '', costUsd: 0, durationMs: 20, numTurns: 1,
+      usage: {}, sessionId: 'provider-codex-text',
+    }, 3_075)
+    emitter.recordTerminal('codex-text', 'ok', 3_080)
+    emitter.finishTurn('codex-text', 'completed', 3_080)
+
+    expect(attrs(rows().find((span) => span.kind === 'turn')!)).toMatchObject({
+      response: 'I changed the files.\n\nTests pass.',
+      responseChars: 33,
+    })
+  })
+
   test('a stopped turn still records the answer it had streamed', () => {
     const emitter = new emitterModule.SessionEmitter()
     emitter.beginTurn({ sessionId: 'stopped', prompt: 'long job', promptSource: 'typed', startedAt: 3_100 })

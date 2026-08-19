@@ -53,28 +53,10 @@ export function showsAuthor(shown: PlanCommentReply[], index: number): boolean {
   return shown[index].author !== shown[index - 1].author
 }
 
-export function authorName(author: CommentAuthor): string {
-  return author === 'solus' ? 'Solus' : 'You'
-}
-
-/** The name on a thread message. An agent-written one names the agent that wrote
- *  it — "Solus" cannot say WHICH agent, and several can be reviewing at once. */
+/** The name on a thread message. Only an agent-written one carries a byline, and
+ *  it names the agent that wrote it — "Solus" cannot say WHICH agent, and
+ *  several can be reviewing at once. */
 export function authorLabel(message: Pick<PlanComment, 'author' | 'authorAgent'>): string {
-  const author = commentAuthor(message)
-  if (author !== 'solus') return authorName(author)
+  if (commentAuthor(message) !== 'solus') return 'You'
   return message.authorAgent?.title || 'Solus'
-}
-
-/**
- * A thread in Solus has exactly two possible voices: you, and the agent. You
- * get a terracotta initials circle — the hue that already means "you" on every
- * reply affordance in the document — and Solus gets a ✦ in place of a circle,
- * which tells the two apart without anyone reading a name.
- *
- * (The design's chart-4/chart-5 avatars belong to a document with several
- * human authors. Hashing a name to pick between them here would only ever
- * produce one arbitrary colour for the one human in the room.)
- */
-export function authorInitials(author: CommentAuthor): string {
-  return author === 'solus' ? '✦' : 'You'
 }

@@ -1,12 +1,10 @@
 <script lang="ts">
   import type { PlanComment } from '../../../shared/types'
   import { threadTime } from '../../lib/relative-time'
-  import PlanCommentEditor from '../plan/PlanCommentEditor.svelte'
+  import { CommentComposer } from '../ui/comment-composer'
   import CommentBody from './CommentBody.svelte'
   import {
-    authorInitials,
     authorLabel,
-    authorName,
     commentAuthor,
     isResolved,
     isUnread,
@@ -109,9 +107,7 @@
        conversation is still findable — it never disappears silently. -->
   <div class="ctc-resolved-row" data-comment-id={comment.id}>
     <span class="ctc-resolved-row__dot" aria-hidden="true"></span>
-    <span class="ctc-resolved-row__label"
-      >Resolved · {authorName(comment.resolvedBy ?? 'you')}</span
-    >
+    <span class="ctc-resolved-row__label">Resolved</span>
     <button type="button" class="ctc-text-btn" onclick={() => (showResolved = true)}>Show</button>
   </div>
 {:else}
@@ -140,12 +136,13 @@
 
     <div class="ctc__head">
       {#if unread}<span class="ctc__unread" aria-label="Unread"></span>{/if}
+      <!-- Only the agent names itself. Your own thread carries no byline: in a
+           document with one human reader, "You" is the one thing the card can
+           never tell you that you did not already know. -->
       {#if author === 'solus'}
         <span class="ctc__spark" aria-hidden="true">✦</span>
-      {:else}
-        <span class="ctc__avatar" aria-hidden="true">{authorInitials(author)}</span>
+        <span class="ctc__author">{authorLabel(comment)}</span>
       {/if}
-      <span class="ctc__author">{authorLabel(comment)}</span>
       {#if comment.createdAt}
         <span class="ctc__time">{threadTime(comment.createdAt, now)}</span>
       {/if}
@@ -188,10 +185,14 @@
         <!-- Stop click and keydown reaching the card's activate handler, or
              Space typed in the editor would scroll to the mark instead. -->
         <div onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="presentation">
-          <PlanCommentEditor
+          <CommentComposer
             initialValue={comment.comment}
             onSave={onSaveEdit}
             onCancel={onCancelEdit}
+            placeholder="Edit comment…"
+            submitOn="enter"
+            framed={false}
+            rows={3}
           />
         </div>
       {:else}
@@ -208,12 +209,12 @@
         <div class="ctc__reply">
           {#if reply.author === 'solus'}
             <span class="ctc__spark ctc__spark--reply" aria-hidden="true">✦</span>
-          {:else}
-            <span class="ctc__reply-avatar" aria-hidden="true">{authorInitials(reply.author)}</span>
           {/if}
           <div class="ctc__reply-text">
             {#if showsAuthor(shownReplies, i)}
-              <span class="ctc__reply-author">{authorLabel(reply)}</span>
+              {#if reply.author === 'solus'}
+                <span class="ctc__reply-author">{authorLabel(reply)}</span>
+              {/if}
               <span class="ctc__time">{threadTime(reply.createdAt, now)}</span>
             {/if}
             <CommentBody text={reply.text} />
@@ -225,9 +226,13 @@
     <div class="ctc__footer">
       {#if replying}
         <div class="w-full" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="presentation">
-          <PlanCommentEditor
+          <CommentComposer
             initialValue=""
             placeholder="Reply…"
+            submitLabel="Reply"
+            submitOn="enter"
+            framed={false}
+            rows={3}
             onSave={(text) => {
               onReply(text)
               replying = false
@@ -236,26 +241,26 @@
           />
         </div>
       {:else}
-        <span class="ctc__reply-avatar" aria-hidden="true">You</span>
         <button type="button" class="ctc__reply-open" onclick={() => (replying = true)}>Reply…</button>
-        <span class="ctc__hint">⌘↵</span>
+        <span class="ctc__hint">↵</span>
       {/if}
     </div>
   </div>
 {/if}
 
 <style>
-  /* One thread. Amber wash over --card with a 1px amber edge — never a shadow
-     at rest, because the tint and the edge are what tie it to the highlight. */
+  /* One thread. The same surface the diff inline comment wears — popover fill
+     behind a 1px accent-tinted edge — so a comment box reads the same wherever
+     it is left. Never a shadow at rest; the edge is what ties it to the mark. */
   .ctc {
     position: relative;
     display: flex;
     flex-direction: column;
     gap: 0.5rem;
     padding: 0.6875rem 0.75rem;
-    border: 0.0625rem solid color-mix(in srgb, var(--solus-art-2) 55%, transparent);
+    border: 0.0625rem solid color-mix(in oklab, var(--solus-accent) 22%, var(--solus-container-border));
     border-radius: 1rem;
-    background: color-mix(in srgb, var(--solus-art-2) 9%, var(--solus-container-bg));
+    background: var(--solus-popover-bg);
     text-align: left;
     cursor: pointer;
     outline: none;
@@ -264,11 +269,11 @@
       border-color var(--duration-quick) var(--ease-premium),
       box-shadow var(--duration-quick) var(--ease-premium);
   }
-  /* Focused: deeper fill, a 2px amber edge in the margin, and the one shadow
-     the card is ever allowed. Hover is not a state — it only reveals verbs. */
+  /* Focused: a stronger edge, the amber rail in the margin, and the one shadow
+     the card is ever allowed. The fill stays put, so a focused thread is the
+     same surface as every other comment box. Hover only reveals verbs. */
   .ctc--focused {
-    border-color: color-mix(in srgb, var(--solus-art-2) 75%, transparent);
-    background: color-mix(in srgb, var(--solus-art-2) 16%, var(--solus-container-bg));
+    border-color: color-mix(in oklab, var(--solus-accent) 45%, var(--solus-container-border));
     box-shadow: 0 0.5rem 1.375rem -0.875rem rgba(0, 0, 0, 0.45);
   }
   .ctc__edge {
@@ -280,30 +285,27 @@
     border-radius: 9999px;
     background: var(--solus-art-2);
   }
-  /* Solus: terracotta, and a ✦ where the avatar would be. */
+  /* Who wrote it and where it stands are carried by the edge, the ✦ and the
+     margin rail — never by the fill, which is the one thing every comment box
+     in the app holds in common with the diff's. */
   .ctc--solus {
     border-color: color-mix(in srgb, var(--solus-accent) 30%, transparent);
-    background: color-mix(in srgb, var(--solus-accent) 6%, var(--solus-container-bg));
   }
   .ctc--solus.ctc--focused {
     border-color: color-mix(in srgb, var(--solus-accent) 55%, transparent);
-    background: color-mix(in srgb, var(--solus-accent) 11%, var(--solus-container-bg));
   }
   .ctc--solus .ctc__edge {
     background: var(--solus-accent);
   }
   .ctc--resolved {
     border-color: color-mix(in srgb, var(--solus-art-3) 40%, transparent);
-    background: color-mix(in srgb, var(--solus-art-3) 6%, var(--solus-container-bg));
   }
   /* Resolving: 400ms to sage, and only then does the thread collapse. The card
-     announces where it went instead of blinking out from under the pointer. */
+     announces where it went instead of blinking out from under the pointer —
+     the edge says it, at the pace the fill used to. */
   .ctc--settling {
     border-color: color-mix(in srgb, var(--solus-art-3) 55%, transparent);
-    background: color-mix(in srgb, var(--solus-art-3) 12%, var(--solus-container-bg));
-    transition:
-      background 400ms var(--ease-premium),
-      border-color 400ms var(--ease-premium);
+    transition: border-color 400ms var(--ease-premium);
   }
   /* Stuck to a viewport edge because the thread you are in has scrolled past
      its own line. It is the only card allowed a shadow besides focus, and it
@@ -336,29 +338,6 @@
     height: 0.375rem;
     border-radius: 9999px;
     background: var(--solus-art-2);
-  }
-  /* Terracotta, because in this document there is one human and it is you —
-     the same hue the reply affordance already wears. */
-  .ctc__avatar,
-  .ctc__reply-avatar {
-    flex-shrink: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 9999px;
-    background: var(--solus-accent);
-    color: var(--solus-text-on-accent);
-    font-weight: 500;
-  }
-  .ctc__avatar {
-    width: 1.1875rem;
-    height: 1.1875rem;
-    font-size: var(--text-xs);
-  }
-  .ctc__reply-avatar {
-    width: 1.0625rem;
-    height: 1.0625rem;
-    font-size: var(--text-xs);
   }
   .ctc__spark {
     flex-shrink: 0;

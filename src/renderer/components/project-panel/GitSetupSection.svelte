@@ -85,7 +85,7 @@
     <Button
       variant="outline"
       size="sm"
-      class="w-full justify-center gap-1.5 text-sm"
+      class="w-full justify-center gap-1.5 text-workspace-chrome"
       disabled={initializing}
       onclick={initializeGit}
     >
@@ -101,7 +101,7 @@
     <Button
       variant="outline"
       size="sm"
-      class="w-full justify-center gap-1.5 text-sm"
+      class="w-full justify-center gap-1.5 text-workspace-chrome"
       onclick={() => (publishDialogOpen = true)}
     >
       <GithubLogoIcon size={13} />

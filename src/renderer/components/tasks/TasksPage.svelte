@@ -44,6 +44,7 @@
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
+  import { comboHint } from "../../lib/keybindings/manifest";
   import { requestInputFocus } from "../../lib/inputFocus";
   import SnoozeTaskMenu from "../session/SnoozeTaskMenu.svelte";
   import {
@@ -84,9 +85,9 @@
   import TaskBoardSkeleton from "./TaskBoardSkeleton.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
-  import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
+  import type { InlinePageProps } from "../ui/lib/pane-surface";
 
-  let { paneId }: RouteSurfaceProps<"tasks"> = $props();
+  let { paneId }: InlinePageProps = $props();
 
   const session = getWorkspaceContext();
   const pane = paneActions(paneId);
@@ -183,6 +184,10 @@
     status?: TaskStatus;
     context: NonNullable<typeof taskContext>;
   } | null>(null);
+  // The task the plain "New task" flow just created, handed off to its own page
+  // once the composer closes. The inline flows (adding into a board column, or a
+  // sub-task under an epic header) stay on the list, so they leave this null.
+  let createdForNavigation: string | null = null;
   // Detail view: the task whose full ticket (body, comments, PRs) is open.
   const epics = $derived(projectTasks.filter((t) => t.kind === "epic"));
   // Existing labels across the project, offered as composer suggestions.
@@ -445,6 +450,7 @@
     options: { parentId?: string; status?: TaskStatus } = {},
   ) {
     if (!taskContext) return;
+    createdForNavigation = null;
     composing = { ...options, context: taskContext };
   }
 
@@ -500,6 +506,11 @@
     },
     { enabled: () => open },
   );
+  // The global binding, taken over while this page is up: the composer must
+  // target the project the header is pinned to, not the active session's.
+  useKeybinding("global.create-task", () => beginComposing(), {
+    enabled: () => open && canCreate,
+  });
 
   function close() {
     session.router.close("tasks");
@@ -721,13 +732,15 @@
     labels?: string[];
   }) {
     if (!composing) return;
+    const inline = !!composing.parentId || !!composing.status;
     try {
-      await store.create({
+      const created = await store.create({
         ...input,
         projectKey: composing.context.projectKey,
         branch: composing.context.branch,
         worktreeKey: input.parentId ? undefined : composing.context.worktreeKey,
       });
+      createdForNavigation = inline ? null : created.id;
     } catch (err) {
       toastTaskError("create task", err);
       // Rethrow so the composer keeps the modal (and the user's draft) open; the
@@ -842,7 +855,6 @@
       emptyProjectLabel="No project"
       onSelectProject={selectProject}
       onRemoveProjectHistory={removeProjectHistory}
-      compactProjectPickerText
       title="Tasks"
       {summary}
       {view}
@@ -857,10 +869,15 @@
       onRefresh={refresh}
       {refreshing}
       primaryAction={canCreate
-        ? { label: "New task", shortcut: "⌘N", run: () => beginComposing() }
+        ? {
+            label: "New task",
+            shortcut: comboHint("global.create-task"),
+            run: () => beginComposing(),
+          }
         : undefined}
       compactPrimaryActionText
-      onOpenAsPage={!pane.isLeading ? pane.moveAcross : undefined}
+      onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
+      isLeading={pane.isLeading}
       onClose={close}
       actions={headerActions}
       filters={filterBar}
@@ -1073,7 +1090,7 @@
           role="toolbar"
           aria-label="Bulk actions"
         >
-          <span class="px-1.5 text-sm font-medium tabular-nums">
+     <span class="px-1.5 font-medium tabular-nums">
             {selection.size} selected
           </span>
           <span
@@ -1174,6 +1191,10 @@
         initialParentId={composing.parentId}
         initialStatus={composing.status}
         {onCreate}
+        onCreated={() => {
+          if (createdForNavigation)
+            session.goToTask(createdForNavigation, "click");
+        }}
         onCancel={() => (composing = null)}
       />
     {/if}

@@ -149,7 +149,7 @@
       </span>
       <div class="flex min-w-0 flex-col">
         <span
-          class="truncate text-sm font-medium leading-tight text-(--solus-text-primary)"
+          class="truncate text-workspace-chrome font-medium leading-tight text-(--solus-text-primary)"
           >{heading}</span
         >
         <span

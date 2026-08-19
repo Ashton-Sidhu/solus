@@ -19,7 +19,7 @@
     idleTooltip?: string
     /** field: whether to render the idle mic at all (the host's `mic` prop). */
     showMic?: boolean
-    /** field: top-align the mic for a textarea rather than vertically centering it. */
+    /** field: align the mic on the textarea's first line rather than on the whole box. */
     micTextarea?: boolean
     progressPct?: number | null
   }
@@ -235,9 +235,13 @@
       background var(--duration-base) var(--ease-premium),
       color var(--duration-base) var(--ease-premium);
   }
+  /* A textarea grows as you type, so centring on the box drags the mic down the
+     field. Centre it on the first line instead: `--rc-mic-line-center` is the
+     distance from the field's top edge to that line's middle, and the default
+     matches the stock textarea's `py-2` + `leading-4`. A field that changes its
+     padding or leading sets the variable on any ancestor. */
   .rc-mic--textarea {
-    top: 0.375rem;
-    transform: none;
+    top: var(--rc-mic-line-center, 1rem);
   }
   .rc-mic:hover:not(:disabled) {
     background: var(--solus-mic-bg);

@@ -4,7 +4,7 @@ import type { SettingsContext } from '../app/settings.context.svelte'
 import { LOCAL_SERVER_ID } from '../../../client-core/server-registry'
 
 export function makePrompt(overrides?: Partial<Prompt>): Prompt {
-  return { text: '', attachments: [], planRefs: [], workRefs: [], sessionRefs: [], savedPromptId: null, ...overrides }
+  return { text: '', attachments: [], planRefs: [], workRefs: [], sessionRefs: [], ...overrides }
 }
 
 export function makeRunConfig(overrides?: Partial<RunConfig>): RunConfig {

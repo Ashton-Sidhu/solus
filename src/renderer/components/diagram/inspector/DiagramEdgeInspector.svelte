@@ -54,7 +54,6 @@
     showResolved: boolean
     onShowResolvedChange: (show: boolean) => void
     onOpenThread: (commentId: string) => void
-    onAddThread: (text: string) => void
     onShowAllThreads: () => void
     now: number
   }
@@ -79,7 +78,6 @@
     showResolved,
     onShowResolvedChange,
     onOpenThread,
-    onAddThread,
     onShowAllThreads,
     now,
   }: Props = $props()
@@ -199,25 +197,30 @@
   </div>
 
   <div class="diagram-inspector__body" role="tabpanel" aria-labelledby="diagram-edge-tab-{tab}">
-    {#if tab === 'identity'}
-      <EdgeIdentityTab {edge} {update} />
-    {:else if tab === 'style'}
-      <EdgeStyleTab {edge} {update} />
-    {:else if tab === 'route'}
-      <EdgeRouteTab {edge} {sourceLabel} {targetLabel} {update} {onOpenEndpoint} {onReverse} />
-    {:else}
-      <CommentsTab
-        {threads}
-        anchorKind="edge"
-        {diagramThreadCount}
-        {showResolved}
-        {onShowResolvedChange}
-        {onOpenThread}
-        {onAddThread}
-        onShowAll={onShowAllThreads}
-        {now}
-      />
-    {/if}
+    <!-- Keyed on the tab so each section rises in on its own; the {#if} below
+         already remounts per tab, so the key costs nothing extra. -->
+    {#key tab}
+      <div class="diagram-inspector__panel">
+        {#if tab === 'identity'}
+          <EdgeIdentityTab {edge} {update} />
+        {:else if tab === 'style'}
+          <EdgeStyleTab {edge} {update} />
+        {:else if tab === 'route'}
+          <EdgeRouteTab {edge} {sourceLabel} {targetLabel} {update} {onOpenEndpoint} {onReverse} />
+        {:else}
+          <CommentsTab
+            {threads}
+            anchorKind="edge"
+            {diagramThreadCount}
+            {showResolved}
+            {onShowResolvedChange}
+            {onOpenThread}
+            onShowAll={onShowAllThreads}
+            {now}
+          />
+        {/if}
+      </div>
+    {/key}
   </div>
 
   <div class="diagram-inspector__foot">

@@ -1,14 +1,16 @@
 <script lang="ts">
   import { scaleBand } from "d3-scale";
   import { Axis, Bar, Bars, Chart, Svg } from "layerchart";
-  import { CaretRightIcon } from "phosphor-svelte";
+  import { CaretRightIcon, XIcon } from "phosphor-svelte";
   import { SvelteSet } from "svelte/reactivity";
+  import { fly } from "svelte/transition";
   import { TIME_AXIS_INSET_PX, TIME_AXIS_LABEL_GAP_PX } from "./lib/chart-axis";
   import { formatDuration, formatPercent } from "./lib/format";
   import CopyButton from "../ui/CopyButton.svelte";
-  import { colorForStatus } from "./lib/span-palette";
+  import { colorForStatus, labelForKind } from "./lib/span-palette";
   import { spanAttributes, spanPayload, visibleRows, type TraceView } from "./lib/waterfall";
   import {
+    activation,
     barsForLines,
     buildWaterfallTree,
     expandableIds,
@@ -42,9 +44,14 @@
    * the bar on that same line already wears the kind's hue, so a dot beside the
    * name only spends left margin the name needs.
    *
-   * Selecting a span opens its detail below the plot rather than inline: rows
-   * share one axis here, so pushing them apart mid-trace would break the very
-   * alignment the chart exists to provide.
+   * Selecting a span opens its detail in a dock at the foot of the plot rather
+   * than inline: rows share one axis here, so pushing them apart mid-trace
+   * would break the very alignment the chart exists to provide. The dock is
+   * sticky, so a trace hundreds of rows long can be read from top to bottom
+   * with the open span's detail still on screen — the reader picks a row and
+   * keeps reading instead of scrolling to the end and back for every pick.
+   * Because the detail is no longer beside its own row, the dock carries a
+   * position track showing where in the trace the open span sits.
    */
   interface Props {
     trace: TraceView;
@@ -135,12 +142,13 @@
     openSpanIdOverride = openSpanId === spanId ? null : spanId;
   }
 
-  /** A lane's own row opens it; a span's row opens its detail. A lane has no
-   *  detail of its own — its members do, and they are one click away either
-   *  from the lane's bars or from the rows the lane reveals. */
+  /** A row with a caret unfolds on click; a span's row opens its detail in the
+   *  same click. A lane has no detail of its own — its members do, and they are
+   *  one click away either from the lane's bars or from the rows it reveals. */
   function activate(line: WaterfallLine): void {
-    if (line.type === "group") setExpanded(line.id, !line.expanded);
-    else selectSpan(line.row.spanId);
+    const { toggleId, selectSpanId } = activation(line);
+    if (toggleId) setExpanded(toggleId, !line.expanded);
+    if (selectSpanId) selectSpan(selectSpanId);
   }
 
   function onLineKeydown(event: KeyboardEvent, line: WaterfallLine): void {
@@ -178,6 +186,26 @@
     const share = line.type === "group" ? line.group.share : line.row.share;
     if (line.depth > 0 && share != null && share > 0.25) return "var(--warning)";
     return "var(--muted-foreground)";
+  }
+
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  /** Where the open span sits in the trace, as the dock's position track. The
+   *  detail is at the foot of the plot rather than beside its row, so this is
+   *  the only thing left saying when in the turn the span ran. */
+  const openExtent = $derived(
+    openRow && trace.totalMs > 0
+      ? {
+          left: (openRow.startOffsetMs / trace.totalMs) * 100,
+          width: Math.max((openRow.durationMs ?? 0) / trace.totalMs, 0.006) * 100,
+        }
+      : null,
+  );
+
+  function onDockKeydown(event: KeyboardEvent): void {
+    if (event.key !== "Escape") return;
+    event.stopPropagation();
+    openSpanIdOverride = null;
   }
 
   const extentOf = (bar: WaterfallBar): [number, number] => [bar.from, bar.to];
@@ -330,48 +358,96 @@
 {#if openRow?.span}
   {@const attributes = spanAttributes(openRow.span)}
   {@const payload = spanPayload(openRow.span)}
-  <div
-    class="mt-2 flex flex-col gap-3.5 rounded-lg bg-[var(--wash-1)] px-4 py-3.5 shadow-[shadow:var(--elev-flat)]"
-  >
-    <div class="flex items-baseline gap-3">
-      <span class="text-xs font-medium">{openRow.span.name}</span>
-      <span class="text-[0.6875rem] text-muted-foreground"
-        >{openRow.span.kind} · {openRow.span.service} · starts +{formatDuration(
-          openRow.startOffsetMs,
-        )}</span
-      >
-      <span class="flex-1"></span>
-      <span class="text-[0.6875rem] font-medium" style="color:{colorForStatus(openRow.span.status)}"
-        >{openRow.span.status}</span
-      >
-      <button
-        type="button"
-        class="cursor-pointer text-[0.6875rem] text-muted-foreground transition-colors hover:text-foreground"
-        onclick={() => (openSpanIdOverride = null)}>Close</button
-      >
-    </div>
-    {#if attributes.length > 0}
-      <div class="grid grid-cols-2 gap-x-5 gap-y-3.5 sm:grid-cols-4">
-        {#each attributes as attribute (attribute.key)}
-          <div class="flex min-w-0 flex-col gap-1">
-            <span class="text-[0.6875rem] text-muted-foreground">{attribute.key}</span>
-            <!-- Wraps rather than truncates: a value clipped by CSS cannot be
-                 dragged over, and this block exists to be read and copied. -->
-            <span class="text-xs tabular-nums wrap-anywhere select-text">{attribute.value}</span>
+  <!-- The dock sticks to the foot of the reader's view while any of the plot is
+       still on screen, so picking a row deep in a long trace never costs a
+       round trip to the bottom of the page. `bottom-0` is the scroller's own
+       edge; the card keeps its own inset so it reads as lifted off the page. -->
+  <div class="sticky bottom-0 z-10 pt-3 pb-1">
+    <!-- The dock is a region, not a control; the keydown is only there so Escape
+         dismisses it from anywhere inside it. -->
+    <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+    <div
+      class="flex max-h-[min(24rem,45vh)] flex-col overflow-hidden rounded-xl bg-card shadow-[shadow:var(--elev-lift)]"
+      role="group"
+      aria-label="Span detail"
+      tabindex="-1"
+      onkeydown={onDockKeydown}
+      transition:fly={{ y: 10, duration: reduceMotion ? 0 : 160 }}
+    >
+      <!-- The head states the span in three descending registers — what it is,
+           what it is called, how long it took — and closes on the ruler that
+           says where in the turn it ran. Colour is spent only where it carries
+           a fact: a failed status. -->
+      <div class="shrink-0">
+        <div class="flex items-center gap-3 px-4 pt-3">
+          <span class="min-w-0 truncate text-[0.6875rem] text-muted-foreground"
+            >{labelForKind(openRow.span.kind)} · {openRow.span.service}</span
+          >
+          <span class="flex-1"></span>
+          <button
+            type="button"
+            class="-mr-1 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground outline-none transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary)"
+            title="Close detail"
+            aria-label="Close span detail"
+            onclick={() => (openSpanIdOverride = null)}><XIcon size={12} weight="bold" /></button
+          >
+        </div>
+        <div class="truncate px-4 pt-0.5 text-sm font-medium">{openRow.span.name}</div>
+        <div class="flex items-baseline gap-2.5 px-4 pt-1.5 pb-2.5">
+          <span class="text-sm font-medium tabular-nums">{formatDuration(openRow.durationMs)}</span>
+          {#if openRow.share != null}
+            <span class="text-[0.6875rem] tabular-nums text-muted-foreground"
+              >{formatPercent(openRow.share)} of turn</span
+            >
+          {/if}
+          <span class="text-[0.6875rem] tabular-nums text-muted-foreground"
+            >starts +{formatDuration(openRow.startOffsetMs)}</span
+          >
+          <span class="flex-1"></span>
+          <span
+            class="shrink-0 text-[0.6875rem]"
+            style="color:{openRow.span.status === 'error'
+              ? colorForStatus(openRow.span.status)
+              : 'var(--muted-foreground)'}">{openRow.span.status}</span
+          >
+        </div>
+        <!-- Where in the turn this span ran, drawn edge to edge so the head sits
+             on the trace's own clock. The detail is no longer beside its row,
+             and this is what replaces that adjacency. -->
+        <div class="relative h-0.5 bg-[var(--wash-2)]">
+          {#if openExtent}
+            <span
+              class="absolute inset-y-0 bg-[var(--muted-foreground)]"
+              style="left:{openExtent.left}%;width:{openExtent.width}%"
+            ></span>
+          {/if}
+        </div>
+      </div>
+      <div class="flex min-h-0 flex-col gap-3.5 overflow-y-auto px-4 pt-3.5 pb-3.5" data-sb>
+        {#if attributes.length > 0}
+          <div class="grid grid-cols-2 gap-x-5 gap-y-3.5 sm:grid-cols-4">
+            {#each attributes as attribute (attribute.key)}
+              <div class="flex min-w-0 flex-col gap-1">
+                <span class="text-[0.6875rem] text-muted-foreground">{attribute.key}</span>
+                <!-- Wraps rather than truncates: a value clipped by CSS cannot be
+                     dragged over, and this block exists to be read and copied. -->
+                <span class="text-xs tabular-nums wrap-anywhere select-text">{attribute.value}</span>
+              </div>
+            {/each}
           </div>
-        {/each}
+        {/if}
+        {#if payload}
+          <div class="flex flex-col gap-1.5">
+            <span class="flex items-center gap-1 text-[0.6875rem] text-muted-foreground"
+              >{payload.label}
+              <CopyButton text={payload.text} title="Copy {payload.label.toLowerCase()}" iconOnly />
+            </span>
+            <pre
+              class="overflow-x-auto rounded-md bg-[var(--wash-1)] px-3 py-2 text-[0.6875rem] leading-[1.7] whitespace-pre-wrap select-text shadow-[shadow:var(--elev-flat)]"
+              data-sb>{payload.text}</pre>
+          </div>
+        {/if}
       </div>
-    {/if}
-    {#if payload}
-      <div class="flex flex-col gap-1.5">
-        <span class="flex items-center gap-1 text-[0.6875rem] text-muted-foreground"
-          >{payload.label}
-          <CopyButton text={payload.text} title="Copy {payload.label.toLowerCase()}" iconOnly />
-        </span>
-        <pre
-          class="max-h-56 overflow-auto rounded-md bg-card px-3 py-2 text-[0.6875rem] leading-[1.7] whitespace-pre-wrap select-text shadow-[shadow:var(--elev-flat)]"
-          data-sb>{payload.text}</pre>
-      </div>
-    {/if}
+    </div>
   </div>
 {/if}

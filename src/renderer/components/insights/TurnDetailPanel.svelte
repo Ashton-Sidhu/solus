@@ -24,6 +24,7 @@
   import TraceCoverage from "./TraceCoverage.svelte";
   import TraceWaterfall from "./TraceWaterfall.svelte";
   import TurnAttributes from "./TurnAttributes.svelte";
+  import TurnDetailSkeleton from "./TurnDetailSkeleton.svelte";
   import TurnToolTotals from "./TurnToolTotals.svelte";
   import TurnTranscript from "./TurnTranscript.svelte";
 
@@ -119,8 +120,13 @@
   const taskId = $derived(
     String(attr(root, "taskId") ?? "") || session?.taskId || boundTask?.id || null,
   );
+  // The telemetry title is a dispatch-time snapshot. A session-born task still
+  // has its first-prompt title then and receives its generated title after the
+  // opening turn. Resolve the recorded task id against the live task store so
+  // Insights shows the task's current name rather than that stale prompt.
+  const task = $derived((taskId ? workspace.tasksStore.taskForId(taskId) : null) ?? boundTask);
   const taskTitle = $derived(
-    String(attr(root, "taskTitle") ?? "") || session?.taskTitle || boundTask?.title || null,
+    task?.title || session?.taskTitle || String(attr(root, "taskTitle") ?? "") || null,
   );
 
   const statusTone = $derived(
@@ -190,8 +196,7 @@
 
   function queryThisSession(): void {
     if (!sessionId) return;
-    void insightsStore.runGenerated({ kind: "session", sessionId });
-    workspace.openInsights();
+    workspace.openInsightsForSession(sessionId);
   }
 </script>
 
@@ -284,7 +289,7 @@
        inside it opt out again so a drag over a row still activates it. -->
   <div class="@container min-h-0 flex-1 overflow-y-auto px-6 select-text" data-sb>
     {#if loading && !view}
-      <p class="py-16 text-center text-xs text-muted-foreground">Loading the turn’s spans…</p>
+      <TurnDetailSkeleton />
     {:else if !view || !root}
       <div class="flex flex-col items-center gap-2 py-16 text-muted-foreground">
         <span class="text-xs">No spans recorded for this trace</span>
@@ -382,8 +387,12 @@
                  measurement of the exchange this card holds. -->
             <TurnTranscript panes={transcript} />
 
+            <!-- No `overflow-hidden` here: it would make this card a scroll
+                 container and the waterfall's sticky detail dock would stop
+                 sticking. Nothing inside paints past the radius — the header's
+                 rule is an inset shadow — so the corners stay clean without it. -->
             <section
-              class="overflow-hidden rounded-xl bg-card shadow-[shadow:var(--insights-card-shadow)]"
+              class="rounded-xl bg-card shadow-[shadow:var(--insights-card-shadow)]"
               aria-label="Trace"
             >
               <header

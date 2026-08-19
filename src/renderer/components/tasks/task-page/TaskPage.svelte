@@ -385,7 +385,7 @@
 </script>
 
 <div
-  class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-sm"
+  class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-background text-chrome-dense"
   role="dialog"
   aria-label="Task"
   tabindex="-1"
@@ -409,7 +409,8 @@
       onOpenSource={task.url
         ? () => void localApi.openExternal(task.url!)
         : null}
-      onOpenAsPage={!pane.isLeading ? pane.moveAcross : undefined}
+      onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
+      isLeading={pane.isLeading}
       onOpenList={() => session.openTasks("click")}
       onClose={() => pane.close()}
     />
@@ -525,7 +526,7 @@
     <TaskPageSkeleton />
   {:else}
     <div
-      class="flex flex-1 items-center justify-center text-sm text-muted-foreground"
+      class="flex flex-1 items-center justify-center text-muted-foreground"
     >
       {store.loaded ? "That task no longer exists." : "Loading…"}
     </div>

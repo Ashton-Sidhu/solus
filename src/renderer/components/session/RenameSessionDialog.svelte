@@ -50,13 +50,13 @@
   }}
 >
   <div
-    class="w-[clamp(18rem,38vw,26rem)] max-w-[calc(100vw-3rem)] flex flex-col gap-3 rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-[1.125rem] shadow-[var(--solus-popover-shadow)]"
+    class="w-[clamp(18rem,38vw,26rem)] max-w-[calc(100vw-3rem)] flex flex-col gap-3 rounded-2xl text-workspace-chrome border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-[1.125rem] shadow-[var(--solus-popover-shadow)]"
     role="dialog"
     aria-label="Rename session"
     aria-modal="true"
   >
     <div class="flex flex-col gap-1">
-      <span class="text-sm font-medium">Rename session</span>
+      <span class="font-medium">Rename session</span>
       <span class="text-xs text-(--solus-text-tertiary)">
         Leave empty to fall back to the first prompt.
       </span>

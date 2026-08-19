@@ -128,7 +128,7 @@
                 {row.ref}
               </span>
             {/if}
-            <span class="min-w-0 truncate text-workspace-chrome">{row.label}</span>
+            <span class="min-w-0 truncate">{row.label}</span>
           </span>
           <span class="w-[92px] shrink-0 whitespace-nowrap text-muted-foreground opacity-70">
             {row.kindLabel}

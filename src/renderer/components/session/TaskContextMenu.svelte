@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     ArrowSquareOutIcon,
+    ChartBarIcon,
     ChatCircleDotsIcon,
     ChatsIcon,
     CheckIcon,
@@ -18,6 +19,7 @@
     DotOutlineIcon,
   } from "phosphor-svelte";
   import type { Task, TaskStatus } from "../../../shared/task-types";
+  import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
@@ -96,6 +98,16 @@
     onClose,
   }: Props = $props();
 
+  const session = getWorkspaceContext();
+
+  /** Every turn the task's sessions ran, in Insights. A task nothing has worked
+   *  on yet has no turns to show, so the item appears once one attempt exists. */
+  function openInInsights() {
+    const taskId = task.id;
+    onClose();
+    session.openInsightsForTask(taskId);
+  }
+
   async function copyTaskId() {
     const id = task.id;
     onClose();
@@ -164,6 +176,12 @@
       <ContextMenu.Item onSelect={() => select(onOpenSource)}>
         <ArrowSquareOutIcon />
         Open source ticket
+      </ContextMenu.Item>
+    {/if}
+    {#if hasLinkedSession}
+      <ContextMenu.Item onSelect={openInInsights}>
+        <ChartBarIcon />
+        Open in Insights
       </ContextMenu.Item>
     {/if}
 

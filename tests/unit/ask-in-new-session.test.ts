@@ -85,7 +85,6 @@ describe('Ask in New Session', () => {
           planRefs: [],
           workRefs: [],
           sessionRefs: [],
-          savedPromptId: null,
         },
       } as unknown as Session
       return 'fork-tab'

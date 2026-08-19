@@ -232,9 +232,14 @@ function rowLabel(span: MetricsSpan): string {
     return detail ? `${span.name} · ${detail}` : span.name
   }
   if (span.kind === 'setup') return 'Solus setup'
-  // A dispatch step's name is its identifier — `worktree_create`, `task_prepare`.
-  // Read as a phrase it is a plain description of what Solus was doing.
-  if (span.kind === 'internal.dispatch_step') return span.name.replace(/_/g, ' ')
+  // A dispatch step is a piece of Solus's own code, so it is named the way the
+  // reader will search for it: the step id verbatim — `worktree_create`, not
+  // "worktree create" — followed by the function it times, when the step
+  // recorded one. A prettified phrase reads well and greps for nothing.
+  if (span.kind === 'internal.dispatch_step') {
+    const fn = span.attrs.fn
+    return typeof fn === 'string' && fn ? `${span.name} · ${fn}` : span.name
+  }
   return span.name
 }
 

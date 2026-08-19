@@ -1,13 +1,11 @@
 <script lang="ts">
   import { tick, type Snippet } from "svelte";
   import { fly } from "svelte/transition";
-  import { XIcon } from "phosphor-svelte";
   import type { Editor } from "@tiptap/core";
   import type { PlanComment, PlanCommentReply } from "../../../shared/types";
   import { uuid } from "../../../shared/uuid";
   import { portal } from "../portal";
-  import { MarkdownTextarea } from "../ui/markdown-field";
-  import { Button } from "../ui/button";
+  import { CommentComposer } from "../ui/comment-composer";
   import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
@@ -89,9 +87,7 @@
     left: number;
     right: number;
   } | null>(null);
-  let commentInput = $state("");
   let commentFormAnchor = $state<{ left: number; top: number; width: number } | null>(null);
-  let commentInputEl: HTMLTextAreaElement | null = $state(null);
 
   // Published to the host, which owns the selection bubble the Comment action
   // now lives on. The rules for what can carry a comment stay here.
@@ -172,9 +168,10 @@
   }
 
   $effect(() => {
-    // Re-read on every change that can move a mark. `comments` and the editor's
-    // doc are both tracked so a rewrite re-anchors without a scroll.
-    void comments;
+    // Re-read on every change that can move a mark. The count, not the array:
+    // a thread is added by pushing into the same array, so reading `comments`
+    // alone never re-runs this and the new card is left without an anchor.
+    void comments.length;
     void editor?.state.doc;
     void scrollContainer;
     void tick().then(remeasure);
@@ -277,15 +274,9 @@
     };
   });
 
-  $effect(() => {
-    if (commentFormAnchor === null) return;
-    void tick().then(() => commentInputEl?.focus());
-  });
-
   function clearCommentDraft() {
     selectionRange = null;
     commentFormAnchor = null;
-    commentInput = "";
   }
 
   /** Called by the host when the selection bubble's Comment action is used. */
@@ -299,11 +290,10 @@
       top: selectionRange.bottom + 8,
       width,
     };
-    commentInput = "";
   }
 
-  async function handleSaveComment() {
-    if (!selectionRange || !commentInput.trim() || !editor) return;
+  async function handleSaveComment(text: string) {
+    if (!selectionRange || !editor) return;
     const container = scrollContainer;
     const savedScroll = container?.scrollTop ?? 0;
 
@@ -313,7 +303,7 @@
     const newComment: PlanComment = {
       id: uuid(),
       selectedText: selectionRange.selectedText,
-      comment: commentInput.trim(),
+      comment: text,
       textOffset,
       author: "you",
       createdAt: Date.now(),
@@ -463,38 +453,12 @@
     class="fixed cl-form-position"
     style="--cf-left:{commentFormAnchor.left}px;--cf-top:{commentFormAnchor.top}px;--cf-width:{commentFormAnchor.width}px;z-index:10001"
   >
-    <div class="cl-form">
-      <MarkdownTextarea
-        bind:ref={commentInputEl}
-        bind:value={commentInput}
-        bare
-        mic
-        placeholder="Add comment…"
-        rows={1}
-        submitOn="enter"
-        onSubmit={handleSaveComment}
-        onkeydown={(e: KeyboardEvent) => {
-          if (e.key === "Enter" && !e.shiftKey) e.stopPropagation();
-          if (e.key === "Escape") {
-            e.stopPropagation();
-            clearCommentDraft();
-          }
-        }}
-      />
-      <div class="cl-form__actions">
-        <Button variant="ghost" size="icon-xs" onclick={clearCommentDraft} class="text-(--solus-text-tertiary) hover:text-(--solus-text-primary)" title="Cancel (Esc)">
-          <XIcon size={13} />
-        </Button>
-        <Button
-          size="sm"
-          onclick={handleSaveComment}
-          disabled={!commentInput.trim()}
-          data-testid="submit-comment"
-        >
-          Comment
-        </Button>
-      </div>
-    </div>
+    <CommentComposer
+      onSave={handleSaveComment}
+      onCancel={clearCommentDraft}
+      placeholder="Add comment…"
+      submitOn="enter"
+    />
   </div>
 {/if}
 
@@ -545,27 +509,6 @@
     left: var(--cf-left);
     top: var(--cf-top);
     width: var(--cf-width);
-  }
-  /* Composing: dashed terracotta until it is posted. Dashed because the thread
-     does not exist yet — the moment it does it becomes a solid amber card, and
-     amber is what human annotation looks like everywhere else in the page. */
-  .cl-form {
-    display: flex;
-    flex-direction: column;
-    gap: 0.375rem;
-    padding: 0.5rem 0.625rem;
-    border-radius: 1rem;
-    border: 0.0625rem dashed color-mix(in srgb, var(--solus-accent) 45%, transparent);
-    background: color-mix(in srgb, var(--solus-accent) 5%, var(--solus-popover-bg));
-    box-shadow: var(--solus-popover-shadow);
-    backdrop-filter: blur(1.25rem);
-    -webkit-backdrop-filter: blur(1.25rem);
-  }
-  .cl-form__actions {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 0.375rem;
   }
   /* Threads live in the margin of the same page, so the sleeve is a plain
      track — no frame, no fill, and no rule between it and the text column. */

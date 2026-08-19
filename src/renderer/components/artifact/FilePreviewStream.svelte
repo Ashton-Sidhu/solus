@@ -23,7 +23,7 @@
     useKeybinding,
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
-  import DiffCommentForm from "../diff/DiffCommentForm.svelte";
+  import { CommentComposer } from "../ui/comment-composer";
   import DiffInlineComment from "../diff/DiffInlineComment.svelte";
   import DiffActionBar from "../diff/DiffActionBar.svelte";
   import { InlineCommentDraft } from "../diff/diff-comment-draft.store.svelte";
@@ -305,7 +305,7 @@
 
   let rootEl: HTMLDivElement | null = $state(null);
   let draftFormWrapper: HTMLDivElement | null = $state(null);
-  let draftForm: ReturnType<typeof DiffCommentForm> | null = $state(null);
+  let draftForm: ReturnType<typeof CommentComposer> | null = $state(null);
   let fileInstance: PierreFile<AnnotationMeta> | null = null;
   let editor: Editor<AnnotationMeta> | null = null;
   let detachEditor: (() => void) | null = null;
@@ -803,13 +803,15 @@
 
   <div bind:this={draftFormWrapper} class="solus-inline-draft-portal">
     {#if draft.filePath === commentPath && draft.range}
-      <DiffCommentForm
+      <CommentComposer
         bind:this={draftForm}
         onSave={saveComment}
         onCancel={resetDraft}
-        rangeLabel={draft.rangeLabel}
+        anchorLabel={draft.rangeLabel}
         initialValue={draft.value}
         onFormValueChange={updateDraftValue}
+        placeholder="What should change here?"
+        submitLabel="Add comment"
       />
     {/if}
   </div>

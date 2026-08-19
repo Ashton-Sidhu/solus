@@ -17,6 +17,8 @@
   import "@xyflow/svelte/dist/style.css";
   import { CheckIcon } from "phosphor-svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
+  import type { WorkCopyFormat, WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
+  import { dataUrlToPayload, renderDiagramPng, renderDiagramSvg } from "./lib/diagram-export";
   import type { PlanComment, SessionMeta, WorkStorage } from "../../shared/types";
   import { getWorkspaceContext, getSettingsContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -32,6 +34,7 @@
   import DiagramEdgeInspector from "./inspector/DiagramEdgeInspector.svelte";
   import DiagramCommentsPanel from "./DiagramCommentsPanel.svelte";
   import DiagramThreadCard from "./DiagramThreadCard.svelte";
+  import DiagramThreadComposer from "./DiagramThreadComposer.svelte";
   import DiagramSearch from "./DiagramSearch.svelte";
   import CanvasToolbar from "./CanvasToolbar.svelte";
   import ContextMenu from "./ContextMenu.svelte";
@@ -46,6 +49,7 @@
     DiagramDoc,
     DiagramAction,
   } from "../../../shared/diagram-types";
+  import { serializeMermaid } from "../../../shared/diagram-mermaid";
   import { isSafeUrl } from "../../../shared/diagram-sanitize";
   import { flowNodeToDiagram, flowEdgeToDiagram } from "./diagram-flow-map";
   import {
@@ -92,6 +96,7 @@
     threadCounts,
     threadsByAnchor,
   } from "./lib/comment-threads";
+  import { anchorRectFor, type ThreadAnchor } from "./lib/thread-card-position";
   import { isResolved, isUnread } from "../comments/lib/thread";
   import {
     applyLayout,
@@ -124,7 +129,10 @@
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
     workStorage?: WorkStorage;
-    onSaveToProject?: (content: string) => void | Promise<void>;
+    /** Opens the save picker on a chosen format; absent when there is no host. */
+    onExport?: (request: WorkExportRequest) => void;
+    /** The save picker's filesystem is not this device's — see WorkHeaderActions. */
+    hostIsRemote?: boolean;
     /** Rename the work title. */
     onRename?: (title: string) => void;
   }
@@ -158,7 +166,8 @@
     onDelete,
     onDuplicate,
     workStorage,
-    onSaveToProject,
+    onExport,
+    hostIsRemote = false,
     onRename,
   }: Props = $props();
 
@@ -229,7 +238,7 @@
   function openComments(nodeId: string | null, autoFocus: boolean) {
     activeDrawerNodeId = null;
     activeDrawerEdgeId = null;
-    closeThreadCard();
+    closeFloatingThread();
     commentDraftNodeId = nodeId;
     commentsAutoFocus = autoFocus;
     commentsOpen = true;
@@ -285,6 +294,7 @@
     if (!comment) return;
     openThreadId = commentId;
     editingThreadId = null;
+    composerAnchor = null;
     if (workId) {
       session.worksStore.markAnnotationRead(workId, commentId);
       persistComments();
@@ -298,12 +308,30 @@
     }
   }
 
-  function closeThreadCard() {
+  // One dismissal for both floating surfaces — the card and the composer are
+  // never up together, and every caller here means "clear the canvas overlay".
+  function closeFloatingThread() {
     openThreadId = null;
     editingThreadId = null;
+    composerAnchor = null;
   }
 
-  function addThreadOn(anchor: { nodeId?: string; edgeId?: string }, text: string) {
+  // Starts a thread where it will live. The panel stays for the diagram-wide
+  // list and whole-diagram notes; anything anchored begins on the canvas.
+  function openThreadComposer(anchor: ThreadAnchor) {
+    if (!workId) return;
+    commentsOpen = false;
+    openThreadId = null;
+    editingThreadId = null;
+    // Select the anchor so the inspector agrees with the composer, exactly as
+    // opening an existing thread does.
+    if (anchor.nodeId) openNodeDrawer(anchor.nodeId, false);
+    else if (anchor.edgeId) openEdgeDrawer(anchor.edgeId, false);
+    // Last: the drawer openers clear the overlay on their way through.
+    composerAnchor = anchor;
+  }
+
+  function addThreadOn(anchor: ThreadAnchor, text: string) {
     if (!workId) return;
     const id = uuid();
     session.worksStore.addAnnotationComment(workId, {
@@ -319,7 +347,7 @@
     openThreadId = id;
   }
 
-  function anchorLabelFor(anchor: { nodeId?: string; edgeId?: string }): string | null {
+  function anchorLabelFor(anchor: ThreadAnchor): string | null {
     if (anchor.nodeId) return nodeLabelFor(anchor.nodeId);
     if (!anchor.edgeId) return null;
     const edge = edges.find((e) => e.id === anchor.edgeId);
@@ -345,7 +373,7 @@
     session.worksStore.setAnnotationResolved(workId, commentId, resolved ? "you" : null);
     persistComments();
     applyTransientState();
-    if (resolved && openThreadId === commentId) closeThreadCard();
+    if (resolved && openThreadId === commentId) closeFloatingThread();
   }
 
   // The threads pill scopes the canvas to the first thread Solus has spoken in.
@@ -394,6 +422,8 @@
   }
   let flowControls:
     | {
+        /** The graph's live nodes — what an image export is framed around. */
+        getNodes: () => Node[];
         getViewport: () => { x: number; y: number; zoom: number };
         setViewport: (
           viewport: { x: number; y: number; zoom: number },
@@ -477,6 +507,9 @@
   // first. Closes on Resolve, on outside click, and on a level change.
   let openThreadId = $state<string | null>(null);
   let editingThreadId = $state<string | null>(null);
+  // The anchor a floating composer is writing a new thread on; null = closed.
+  // Mutually exclusive with `openThreadId` — the composer becomes the card.
+  let composerAnchor = $state<ThreadAnchor | null>(null);
   // Off by default: resolved work should not add dots to the graph. Resolved
   // threads keep their collapsed row in the Comments tab either way.
   let showResolvedThreads = $state(false);
@@ -568,34 +601,16 @@
     openThreadId === null ? null : (comments.find((c) => c.id === openThreadId) ?? null),
   );
 
-  // The card floats in pane space but tracks a rect in graph space, so it needs
-  // the anchor's box. An edge has no box of its own — its thread rides the
-  // midpoint of the segment between its endpoints.
-  const openThreadAnchor = $derived.by(() => {
-    if (!openThread) return null;
-    const byId = new Map(nodes.map((n) => [n.id, n]));
-    if (openThread.nodeId) {
-      const node = byId.get(openThread.nodeId);
-      if (!node) return null;
-      const box = absoluteBox(node, byId);
-      return { label: openThread.selectedText, rect: { x: box.x, y: box.y, width: box.w } };
-    }
-    const edge = edges.find((e) => e.id === openThread.edgeId);
-    if (!edge) return null;
-    const source = byId.get(edge.source);
-    const target = byId.get(edge.target);
-    if (!source || !target) return null;
-    const a = absoluteBox(source, byId);
-    const b = absoluteBox(target, byId);
-    return {
-      label: openThread.selectedText,
-      rect: {
-        x: (a.x + a.w / 2 + b.x + b.w / 2) / 2,
-        y: (a.y + a.h / 2 + b.y + b.h / 2) / 2,
-        width: 0,
-      },
-    };
-  });
+  const openThreadAnchorRect = $derived(
+    openThread === null ? null : anchorRectFor(openThread, nodes, edges),
+  );
+
+  const composerAnchorRect = $derived(
+    composerAnchor === null ? null : anchorRectFor(composerAnchor, nodes, edges),
+  );
+  const composerAnchorLabel = $derived(
+    composerAnchor === null ? "" : (anchorLabelFor(composerAnchor) ?? title),
+  );
 
   // Every floating overlay's offset is derived from one value — the inspector's
   // footprint (its width plus the inset it keeps from the board edge). The
@@ -696,6 +711,82 @@
 
   const exportBgColor = $derived(theme.isDark ? "#1a1916" : "#fefefc");
   let fullDiagramExports = $state(0);
+
+  function imageOptions() {
+    if (!flowControls) return null;
+    return { flow: flowControls, backgroundColor: exportBgColor, prepare: prepareImageExport };
+  }
+
+  // Every format the diagram writes out as, in the order the menu lists them.
+  const exportFormats: WorkExportFormat[] = [
+    {
+      extension: "png",
+      label: "PNG",
+      mimeType: "image/png",
+      produce: async () => {
+        const options = imageOptions();
+        const url = options && (await renderDiagramPng(options));
+        return url ? dataUrlToPayload(url) : null;
+      },
+    },
+    {
+      extension: "svg",
+      label: "SVG",
+      mimeType: "image/svg+xml",
+      produce: async () => {
+        const options = imageOptions();
+        const url = options && (await renderDiagramSvg(options));
+        return url ? dataUrlToPayload(url) : null;
+      },
+    },
+    {
+      extension: "json",
+      label: "JSON",
+      mimeType: "application/json",
+      produce: () => ({ contents: serializeDiagram(fullDoc()), encoding: "utf8" }),
+    },
+    {
+      extension: "mmd",
+      label: "Mermaid",
+      mimeType: "text/vnd.mermaid",
+      produce: () => ({ contents: serializeMermaid(fullDoc()), encoding: "utf8" }),
+    },
+  ];
+
+  // JSON is the inline Copy verb already, so it is not repeated here.
+  const copyFormats: WorkCopyFormat[] = [
+    {
+      id: "image",
+      label: "Image",
+      copy: async () => {
+        try {
+          const options = imageOptions();
+          const url = options && (await renderDiagramPng(options));
+          if (!url) {
+            toasts.info("Nothing to copy — the diagram is empty");
+            return;
+          }
+          const blob = await (await fetch(url)).blob();
+          await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+          toasts.success("Image copied");
+        } catch {
+          toasts.error("Copy failed");
+        }
+      },
+    },
+    {
+      id: "mermaid",
+      label: "Mermaid",
+      copy: async () => {
+        try {
+          await navigator.clipboard.writeText(serializeMermaid(fullDoc()));
+          toasts.success("Mermaid copied");
+        } catch {
+          toasts.error("Copy failed");
+        }
+      },
+    },
+  ];
 
   async function prepareImageExport(): Promise<() => void> {
     if (nodes.length + edges.length <= 150) return () => {};
@@ -970,7 +1061,7 @@
     contextMenu = null;
     // Pins belong to a level, so a card left open over the level we just left
     // would point at a node that is no longer mounted.
-    closeThreadCard();
+    closeFloatingThread();
     nodes = buildFlowNodes(view.nodes);
     edges = buildFlowEdges(view.edges);
     recomputeHidden();
@@ -1571,12 +1662,12 @@
     }
     // Selecting something else is an outside click as far as the thread card is
     // concerned. The pin stops propagation, so opening a thread never lands here.
-    closeThreadCard();
+    closeFloatingThread();
     openNodeDrawer(nodeId, false);
   }
 
   function handleEdgeClick(edgeId: string) {
-    closeThreadCard();
+    closeFloatingThread();
     openEdgeDrawer(edgeId, false);
   }
 
@@ -1584,7 +1675,7 @@
   function handlePaneClick() {
     activeDrawerNodeId = null;
     activeDrawerEdgeId = null;
-    closeThreadCard();
+    closeFloatingThread();
   }
 
   // Remove a set of nodes and edges together: nodes drop with their incident
@@ -2231,9 +2322,9 @@
       paneMenu = null;
       return;
     }
-    // The thread card goes before the inspector is touched at all.
-    if (openThreadId !== null) {
-      closeThreadCard();
+    // The floating card or composer goes before the inspector is touched at all.
+    if (openThreadId !== null || composerAnchor !== null) {
+      closeFloatingThread();
       return;
     }
     if (commentsOpen) {
@@ -2377,12 +2468,14 @@
       {title}
       currentContent={content}
       getCurrentContent={() => serializeDiagram(fullDoc())}
-      docType="diagram"
       {onRevert}
       {onDelete}
       {onDuplicate}
       {workStorage}
-      {onSaveToProject}
+      {exportFormats}
+      {copyFormats}
+      {onExport}
+      {hostIsRemote}
     />
   </div>
 
@@ -2453,9 +2546,6 @@
           onDeleteSelected={deleteSelected}
           {hasSelection}
           getDoc={fullDoc}
-          {exportBgColor}
-          exportTitle={title}
-          {prepareImageExport}
           {minimapVisible}
           onToggleMinimap={() => {
             minimapVisible = !minimapVisible;
@@ -2567,13 +2657,31 @@
             </div>
           </Panel>
         {/if}
+        {#if composerAnchor}
+          <!-- Same layer and geometry as the thread card below: posting swaps
+               the composer for the card without moving it. -->
+          <DiagramThreadComposer
+            anchorLabel={composerAnchorLabel}
+            anchorRect={composerAnchorRect}
+            pane={{ width: boardWidth, height: boardHeight }}
+            {inspectorFootprint}
+            onSubmit={(text) => {
+              if (composerAnchor) addThreadOn(composerAnchor, text);
+              composerAnchor = null;
+            }}
+            onCancel={() => {
+              composerAnchor = null;
+              shellEl?.focus();
+            }}
+          />
+        {/if}
         {#if openThread}
           <!-- Mounted inside the flow so it can read the viewport and ride its
                anchor through a pan, without scaling with the zoom. -->
           <DiagramThreadCard
             comment={openThread}
-            anchorLabel={openThreadAnchor?.label ?? openThread.selectedText}
-            anchorRect={openThreadAnchor?.rect ?? null}
+            anchorLabel={openThread.selectedText}
+            anchorRect={openThreadAnchorRect}
             pane={{ width: boardWidth, height: boardHeight }}
             {inspectorFootprint}
             now={threadClockNow}
@@ -2588,7 +2696,7 @@
             onCancelEdit={() => (editingThreadId = null)}
             onDelete={() => {
               deleteComment(openThread.id);
-              closeThreadCard();
+              closeFloatingThread();
             }}
           />
         {/if}
@@ -2649,16 +2757,13 @@
           onAddComment={workId
             ? () => {
                 if (!contextMenu) return;
-                // A thread rides the thing you right-clicked, so this opens
-                // that thing's Comments tab rather than the diagram-wide list.
-                if (contextMenu.type === "edge") {
-                  openEdgeDrawer(contextMenu.targetId, false);
-                  edgeInspectorTab = "comments";
-                } else {
-                  openNodeDrawer(contextMenu.targetId, false);
-                  inspectorTab = "comments";
-                }
-                inspectorOpen = true;
+                // A thread rides the thing you right-clicked, so it is written
+                // on the canvas beside it rather than in a panel across the pane.
+                openThreadComposer(
+                  contextMenu.type === "edge"
+                    ? { edgeId: contextMenu.targetId }
+                    : { nodeId: contextMenu.targetId },
+                );
               }
             : undefined}
           showRemoveFromGroup={contextTargetHasParent}
@@ -2731,9 +2836,6 @@
             applyTransientState();
           }}
           onOpenThread={openThreadCard}
-          onAddThread={(text) => {
-            if (activeDrawerNodeId) addThreadOn({ nodeId: activeDrawerNodeId }, text);
-          }}
           onShowAllThreads={() => openComments(null, false)}
           now={threadClockNow}
         />
@@ -2772,9 +2874,6 @@
             applyTransientState();
           }}
           onOpenThread={openThreadCard}
-          onAddThread={(text) => {
-            if (activeDrawerEdgeId) addThreadOn({ edgeId: activeDrawerEdgeId }, text);
-          }}
           onShowAllThreads={() => openComments(null, false)}
           now={threadClockNow}
         />

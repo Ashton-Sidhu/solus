@@ -1,6 +1,6 @@
 {
   "name": "solus",
-  "version": "0.24.2",
+  "version": "0.25.0",
   "description": "Solus — Command Line User Interface for Coding Agents.",
   "license": "BUSL-1.1",
   "homepage": "https://solus.sh",
@@ -20,7 +20,7 @@
     "premake": "electron-vite build",
     "make": "NODE_TLS_REJECT_UNAUTHORIZED=0 dotenv electron-forge make",
     "build-native": "cd node_modules/macos-alias && node-gyp rebuild && cd ../fs-xattr && node-gyp rebuild && cd ../..",
-    "test": "bun run lint && bun run build:test && bun run playwright test",
+    "test": "bun run lint && bun run test:unit && bun run build:test && bun run playwright test",
     "lint": "oxlint src client/src",
     "lint:fix": "oxlint src client/src --fix",
     "test:unit": "bun test tests/unit",

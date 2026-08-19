@@ -37,14 +37,18 @@
     PAGE_PRIMARY_BTN,
     PAGE_SECONDARY_BTN,
   } from "../../lib/page-chrome";
-  import { statTintColor, type ListIcon } from "../ui/list-page/list-page";
+  import {
+    ListProjectSwitcher,
+    statTintColor,
+    type ListIcon,
+    type ListProjectOption,
+  } from "../ui/list-page";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import SortMenu from "../ui/SortMenu.svelte";
   import WorkspaceRow from "./WorkspaceRow.svelte";
   import WorkspaceItemContextMenu from "./WorkspaceItemContextMenu.svelte";
   import WorkspacePeek from "./WorkspacePeek.svelte";
-  import WorkspaceProjectSwitcher from "./WorkspaceProjectSwitcher.svelte";
   import WorkspaceSearchField from "./WorkspaceSearchField.svelte";
   import { PeekHover } from "./lib/peek-hover.svelte";
   import { SessionLabels } from "./lib/session-labels.svelte";
@@ -146,13 +150,11 @@
       ],
       (serverId) => serversStore.statusFor(serverId) !== "offline",
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
-    ).map((option) => ({
+    ).map<ListProjectOption>((option) => ({
       key: option.key,
       projectKey: option.projectRoot,
       serverId: option.serverId,
       label: option.label,
-      count: allItems.filter((item) => item.projectKey === option.projectRoot)
-        .length,
       available: option.available,
       historyOnly: !openProjects.some(
         (project) => project.key === option.projectRoot,
@@ -427,7 +429,7 @@
    *  colour carries the `color:` hint so tailwind-merge classifies it and drops
    *  the trigger's own default rather than leaving both in the sheet. */
   const FILTER_CHIP =
-    "h-7 shrink-0 gap-1.5 rounded-lg bg-transparent px-2.5 py-0 text-sm font-normal text-[color:var(--muted-foreground)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground";
+    "h-7 [.is-laptop-display_&]:h-6.5 shrink-0 gap-1.5 rounded-lg bg-transparent px-2.5 py-0 font-normal text-[color:var(--muted-foreground)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground";
 
   // ── Selection bookkeeping ──
   $effect(() => {
@@ -728,7 +730,7 @@
 )}
   <button
     type="button"
-    class="flex h-7 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 text-sm transition-colors duration-150 {active
+    class="flex h-7 [.is-laptop-display_&]:h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 px-2.5 transition-colors duration-150 {active
  ? 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'bg-transparent text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:bg-[var(--wash-2)] hover:text-foreground'}"
     {onclick}
@@ -779,7 +781,7 @@
 
 {#if open}
   <div
-    class="workspace-root relative flex min-h-0 flex-1 flex-col bg-background text-sm text-foreground"
+    class="workspace-root relative flex min-h-0 flex-1 flex-col bg-background text-workspace-chrome text-foreground"
     style={isEditorMode ? "" : "max-height:var(--pill-body-max)"}
     role="dialog"
     aria-label="Workspace"
@@ -790,7 +792,7 @@
         <!-- ── Head: title block + the two actions. It keeps one fixed top
              measure when the session sidebar opens or closes. ── -->
         <div
-          class="workspace-titlebar flex shrink-0 items-end justify-between gap-6 pt-[42px] pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
+          class="workspace-titlebar flex shrink-0 items-end justify-between gap-6 pt-[42px] pb-3.5 [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
         >
           <div class="flex min-w-0 flex-col gap-[7px]">
             <h1 class="m-0 text-2xl font-medium ">
@@ -827,15 +829,22 @@
             </div>
           </div>
 
-          <div class="flex shrink-0 items-center gap-2">
+          <!-- The action cluster runs one step below the ledger it heads — the
+               same compact rung Tasks and Automations put their header controls
+               on — while a coarse-pointer client keeps the touch-readable size. -->
+          <div
+            class="flex shrink-0 items-center gap-2 text-chrome-dense"
+          >
             <!-- The scope control heads the action cluster, exactly where Tasks
                  and Pull requests keep theirs. -->
-            <WorkspaceProjectSwitcher
-              options={projectOptions}
-              value={activeProjectOptionKey}
-              allCount={allItems.length}
-              onSelect={(option) => selectProject(option ? option.projectKey : null)}
+            <ListProjectSwitcher
+              projects={projectOptions}
+              activeKey={activeProjectOptionKey ?? ""}
+              emptyLabel="All projects"
+              onSelect={(option) => selectProject(option.projectKey)}
+              onSelectAll={() => selectProject(null)}
               onRemoveHistory={removeProjectHistory}
+              footerNote="Switching keeps facets, clears search"
             />
             <DropdownMenu.Root>
               <DropdownMenu.Trigger>
@@ -843,7 +852,7 @@
                   <button
                     {...props}
                     type="button"
-                    class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-sm font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
+                    class="flex h-[30px] [.is-laptop-display_&]:h-[26px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] [.is-laptop-display_&]:px-2.5 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)]"
                     data-testid="workspace-new"
                   >
                     <PlusIcon size={12} weight="bold" class="shrink-0" />
@@ -882,7 +891,7 @@
 
         <!-- ── Filter bar: search · type · time · status · saved views · sort ── -->
         <div
-          class="flex shrink-0 flex-wrap items-center gap-2 pb-3.5 mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
+          class="flex shrink-0 flex-wrap items-center gap-2 pb-3.5 [.is-laptop-display_&]:pb-2.5 text-chrome-dense mx-auto w-full max-w-[72rem] @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] px-8 @max-[44rem]:px-5 @max-[34rem]:px-4"
         >
           <WorkspaceSearchField
             {filter}

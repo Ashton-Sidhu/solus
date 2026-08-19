@@ -3,7 +3,6 @@
     ArrowUUpLeftIcon,
     AlarmIcon,
     CheckIcon,
-    GlobeIcon,
     LaptopIcon,
     MoonIcon,
     SunIcon,
@@ -13,7 +12,8 @@
   import { attentionLabel } from "../../lib/sessionUtils";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
-  import ProjectMark from "./ProjectMark.svelte";
+  import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import PrChip from "./PrChip.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
@@ -29,7 +29,6 @@
     aggregateReviewGuideStatus,
     hasDisclosure,
     hasGlyph,
-    projectInitial,
     showsUnreadIndicator,
     type PrChip as PrChipModel,
     type SidebarTask,
@@ -116,6 +115,9 @@
   const host = $derived(serversStore.hostFor(task.serverId));
   // A task with no server on it has nothing open, and nothing open runs here.
   const isRemote = $derived(!!host && !host.local);
+  // A host Solus no longer has a saved entry for names no operating system;
+  // the icon falls back to a globe in that case.
+  const remoteOs = $derived(host && "os" in host ? host.os : undefined);
 
   // With no session rows on screen this row stands in for the session you are
   // reading, so it carries the current-session weight and terracotta clock
@@ -289,12 +291,7 @@
  : ''}"
         aria-hidden="true"
       >
-        <ProjectMark
-          projectKey={task.projectKey}
-          initial={projectInitial(task.projectLabel)}
-          active={false}
-          class="size-4"
-        />
+        <ProjectFavicon projectRoot={task.projectKey} class="size-4" />
       </span>
     {/if}
 
@@ -519,10 +516,8 @@
                 onFilterProject();
               }}
             >
-              <ProjectMark
-                projectKey={task.projectKey}
-                initial={projectInitial(task.projectLabel)}
-                active={false}
+              <ProjectFavicon
+                projectRoot={task.projectKey}
                 class="size-4 @max-[15rem]:size-[0.875rem]"
               />
               <span
@@ -535,16 +530,21 @@
                    narrow column can spend: the separator is pure decoration,
                    and local is the default every row would otherwise repeat.
                    Both stay in the row's tooltip, and a remote host — the
-                   answer worth interrupting a name for — keeps its globe at
-                   every width. -->
+                   answer worth interrupting a name for — keeps its operating
+                   system mark at every width. -->
               <span class="shrink-0 @max-[15rem]:hidden">·</span>
               {#if isRemote}
-                <GlobeIcon size={14} class="shrink-0" aria-label={host?.label} />
+                <HostOperatingSystemIcon
+                  os={remoteOs}
+                  size={14}
+                  class="shrink-0"
+                  aria-label={host?.label}
+                />
               {:else}
                 <LaptopIcon
                   size={14}
                   class="shrink-0 @max-[15rem]:hidden"
-                  aria-label="This machine"
+                  aria-label="Local"
                 />
               {/if}
             {/if}

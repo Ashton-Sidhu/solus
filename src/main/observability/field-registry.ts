@@ -281,6 +281,8 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
     description: 'one step of the Solus work that runs before a turn reaches the provider; nests under the turn\'s setup span',
     fields: [
       attr('step', 'step', 'string', 'Dot path of the step inside dispatch, e.g. launch_run.worktree_create'),
+      attr('fn', 'fn', 'string', 'Function the step times, e.g. createWorktree'),
+      attr('file', 'file', 'string', 'Source file the step is measured from, e.g. control-plane.ts'),
       attr('error', 'error', 'string', 'Failure message when the step threw'),
     ],
   },

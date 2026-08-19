@@ -172,12 +172,13 @@
   }
 </script>
 
-<div class="text-xs text-sm flex flex-col">
+<div class="flex flex-col">
   <!-- Same 30px heading line the list's groups use, so the launchpad reads as
        the next section of the page rather than a panel bolted underneath it. -->
   <div class="flex h-[30px] items-center gap-2.5 px-1.5">
-    <span
-      class="font-normal text-muted-foreground uppercase"
+    <!-- The list's group headings are metadata, so this one matches them on
+         every client rather than following the surrounding chrome rung. -->
+    <span class="text-xs font-normal text-muted-foreground uppercase"
       >Describe it, or start from a template</span
     >
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
@@ -206,7 +207,7 @@
         </span>
         <span class="flex min-w-0 flex-1 flex-col gap-[5px] pt-px">
           <span class="flex flex-wrap items-center gap-2.5">
-            <span class="text-sm font-medium ">
+            <span class="font-medium">
               {savedDraft
                 ? "Automation drafted in a session"
                 : "Creating this automation in a session…"}
@@ -216,7 +217,7 @@
                    id stays the way back into the session that wrote it. -->
               <button
                 type="button"
-                class="cursor-pointer border-0 bg-transparent p-0  text-muted-foreground opacity-80 transition-colors duration-150 hover:text-foreground"
+                class="cursor-pointer border-0 bg-transparent p-0 text-muted-foreground opacity-80 transition-colors duration-150 hover:text-foreground"
                 onclick={() => void openDraftingSession()}
                 title="Open the drafting session"
                 >{draftingSessionId.slice(0, 8)}</button
@@ -304,7 +305,7 @@
     </div>
   {:else}
     <div
-      class="mt-2 flex h-[46px] w-full items-center gap-2.5 rounded-2xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)]"
+      class="mt-2 flex h-10 w-full items-center gap-2.5 rounded-2xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)] pointer-coarse:h-[46px]"
     >
       <PencilSimpleIcon size={14} class="shrink-0 text-[var(--primary)]" />
       <input
@@ -322,7 +323,7 @@
       />
       <button
         type="button"
-        class="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45"
+        class="flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-2.5 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45 pointer-coarse:h-[30px] pointer-coarse:px-[13px]"
         onclick={submitDescription}
         disabled={!description.trim()}
       >
@@ -335,20 +336,20 @@
     {#each AUTOMATION_TEMPLATES as template, i (template.id)}
       <button
         type="button"
-        class="group flex cursor-pointer items-center gap-4 rounded-lg border-x-0 border-t-0 border-b border-[var(--hairline)] bg-transparent px-2.5 py-[13px] text-left transition-colors duration-150 hover:bg-[var(--wash-1)] disabled:cursor-wait disabled:opacity-60"
+        class="group flex cursor-pointer items-center gap-4 rounded-lg border-x-0 border-t-0 border-b border-[var(--hairline)] bg-transparent px-2.5 py-[13px] text-left [.is-laptop-display_&]:py-2.5 transition-colors duration-150 hover:bg-[var(--wash-1)] disabled:cursor-wait disabled:opacity-60"
         onclick={() => seedTemplate(template)}
         disabled={seedingId !== null}
       >
         <span
-          class="w-5 shrink-0 text-right  tabular-nums text-muted-foreground opacity-55"
+          class="w-5 shrink-0 text-right tabular-nums text-muted-foreground opacity-55"
           >{String(i + 1).padStart(2, "0")}</span
         >
         <span
-          class="w-[236px] shrink-0 font-normal text-pretty @max-[56rem]:w-auto"
+          class="w-[236px] shrink-0 text-workspace-chrome font-normal text-pretty @max-[56rem]:w-auto"
           >{template.name}</span
         >
         <span
-          class="min-w-0 flex-1  leading-[1.55] text-pretty text-muted-foreground @max-[56rem]:hidden"
+          class="min-w-0 flex-1 leading-[1.55] text-pretty text-muted-foreground @max-[56rem]:hidden"
           >{template.description}</span
         >
         <!-- The trigger sits at the right edge, and the Use affordance takes its
@@ -357,7 +358,7 @@
           class="relative flex h-6 w-[150px] shrink-0 items-center justify-end @max-[56rem]:hidden"
         >
           <span
-            class="flex items-center gap-1.5  whitespace-nowrap text-muted-foreground opacity-80 transition-opacity duration-150 group-hover:opacity-0"
+            class="flex items-center gap-1.5 whitespace-nowrap text-muted-foreground opacity-80 transition-opacity duration-150 group-hover:opacity-0"
           >
             {#if template.trigger.type === "manual"}
               <PlayIcon size={14} weight="fill" class="shrink-0" />
@@ -367,7 +368,7 @@
             {triggerSummary(template.trigger)}
           </span>
           <span
-            class="absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-lg px-2.5  text-muted-foreground opacity-0 shadow-[0_0_0_.5px_var(--hairline-strong)] transition-opacity duration-150 group-hover:opacity-100"
+            class="absolute inset-y-0 right-0 flex items-center gap-1.5 rounded-lg px-2.5 text-muted-foreground opacity-0 shadow-[0_0_0_.5px_var(--hairline-strong)] transition-opacity duration-150 group-hover:opacity-100"
             aria-hidden="true"
           >
             Use
@@ -380,7 +381,7 @@
 
   <div class="flex items-center gap-3 px-2.5 pt-3.5">
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
-      <span class="text-sm font-normal "
+      <span class="text-workspace-chrome font-normal"
         >Start from scratch</span
       >
       <span class="text-muted-foreground"

@@ -10,6 +10,7 @@
   } from "phosphor-svelte";
   import type { Snippet } from "svelte";
   import CopyButton from "../ui/CopyButton.svelte";
+  import PaneSwapButton from "../ui/PaneSwapButton.svelte";
 
   /**
    * The chrome band of the review panel that slides out beside the list.
@@ -35,6 +36,8 @@
     fullScreen,
     onStep,
     onToggleFullScreen,
+    onMoveAcross,
+    isLeading = true,
     onClose,
     tabs,
     actions,
@@ -50,6 +53,12 @@
     /** Absent when the surface is too narrow to hold a split at all — there is
      *  no smaller state to go back to, so the control is not offered. */
     onToggleFullScreen?: () => void;
+    /** Move the review between the leading pane and the companion beside it.
+     *  Absent when this band belongs to the list's own detail panel, which has
+     *  no pane of its own. */
+    onMoveAcross?: () => void;
+    /** Which way `onMoveAcross` sends it. */
+    isLeading?: boolean;
     onClose: () => void;
     /** Which view of the change is showing. Centred, so it stays in one place
      *  while the identity on its left grows and shrinks with the branch name. */
@@ -136,6 +145,15 @@
     class="mx-1 h-[18px] w-px shrink-0 bg-[var(--hairline-strong)]"
     aria-hidden="true"
   ></span>
+
+  {#if onMoveAcross}
+    <PaneSwapButton
+      {isLeading}
+      onMove={onMoveAcross}
+      iconSize={13}
+      class={roundButton}
+    />
+  {/if}
 
   {#if onToggleFullScreen}
     <button

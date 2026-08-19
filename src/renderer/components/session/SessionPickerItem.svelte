@@ -7,6 +7,7 @@
     entryByline,
     formatTimeAgo,
     getStatusIcon,
+    getStatusLabel,
     type PickerEntry,
     type StatusIcon,
   } from "../../lib/sessionUtils";
@@ -40,16 +41,18 @@
 
   const bylineRuns = $derived(highlightRuns(entryByline(item), query));
 
-  const statusIcon = $derived.by<StatusIcon | null>(() => {
-    if (item.kind === "open") {
-      return getStatusIcon(item.session.status);
-    }
-    if (item.kind === "history" && item.meta.status)
-      return getStatusIcon(item.meta.status);
-    return null;
-  });
+  // What the session is doing. The "Open" section of the picker already says
+  // which rows are open tabs, so the status icon takes that spot beside the
+  // title instead of riding on the provider logo. The label names the icon for
+  // a screen reader and on hover.
+  const status = $derived(
+    item.kind === "open" ? item.session.status : item.meta.status,
+  );
+  const statusLabel = $derived(status ? getStatusLabel(status) : null);
+  const statusIcon = $derived<StatusIcon | null>(
+    status ? getStatusIcon(status) : null,
+  );
 
-  const isOpen = $derived(item.kind === "open");
   const provider = $derived<AgentId>(
     item.kind === "open"
       ? (item.session.run.provider ?? settings.activeAgent)
@@ -109,9 +112,7 @@
  : 'group-hover:bg-(--solus-surface-hover)'}"
   >
     <span
-      class="relative mr-[0.5625rem] inline-flex h-[1.375rem] w-[1.375rem] flex-shrink-0 items-center justify-center rounded-lg {statusIcon
- ? 'opacity-100'
- : 'opacity-[0.92]'} {iconClass}"
+      class="relative mr-[0.5625rem] inline-flex h-[1.375rem] w-[1.375rem] flex-shrink-0 items-center justify-center rounded-lg opacity-[0.92] {iconClass}"
       aria-label={providerLabel}
       title={providerLabel}
     >
@@ -123,23 +124,12 @@
           weight={provider === "codex" ? "regular" : "fill"}
         />
       {/if}
-      {#if statusIcon}
-        {@const Icon = statusIcon.component}
-        <span
-          class="absolute -bottom-1 -right-1 inline-flex h-[0.8125rem] w-[0.8125rem] items-center justify-center rounded-full bg-[var(--solus-popover-bg)] shadow-[0_0_0_0.0625rem_var(--solus-popover-border)] {statusIcon.spin
- ? 'animate-spin'
- : ''}"
-          style="color:{statusIcon.color}"
-        >
-          <Icon size={12} weight="regular" />
-        </span>
-      {/if}
     </span>
 
     <div class="flex min-w-0 flex-1 flex-col justify-center gap-0.5">
       <div class="flex min-w-0 items-center gap-2">
         <span
-          class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-sm leading-[1.3] text-[var(--solus-text-primary)] {isSelected
+          class="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap leading-[1.3] text-[var(--solus-text-primary)] {isSelected
  ? 'font-medium'
  : 'font-normal'}"
           >{#each titleRuns as run, i (i)}{#if run.hit}<mark
@@ -147,11 +137,18 @@
                 >{run.text}</mark
               >{:else}{run.text}{/if}{/each}</span
         >
-        {#if isOpen}
+        {#if statusIcon}
+          {@const Icon = statusIcon.component}
           <span
-            class="h-[0.3125rem] w-[0.3125rem] flex-shrink-0 rounded-full bg-[var(--solus-accent)] opacity-85"
-            aria-label="Open tab"
-          ></span>
+            class="inline-flex flex-shrink-0 items-center justify-center {statusIcon.spin
+ ? 'animate-spin'
+ : ''}"
+            style="color:{statusIcon.color}"
+            aria-label={statusLabel}
+            title={statusLabel}
+          >
+            <Icon size={13} weight="regular" />
+          </span>
         {/if}
         {#if remoteHost}
           <span

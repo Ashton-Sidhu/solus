@@ -152,6 +152,67 @@ describe('Insights window refresh', () => {
     expect(volumeSpecs.at(-1)?.timeRange).toEqual({ from: 1_000, to: 2_000 })
   })
 
+  test('the opening load says it is busy before the first statement runs', async () => {
+    // WHY: the registry and the saved queries are read before any statement, so
+    // `running` is still false across those round trips. The page gated its
+    // loading cover on `running` alone and painted a real empty listing in the
+    // gap — the reader saw a skeleton, an empty page, then a skeleton again.
+    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const store = new InsightsStore()
+    store.useHost('local')
+
+    let releaseSchema: () => void = () => {}
+    const held = new Promise<void>((resolve) => (releaseSchema = resolve))
+    const solus = (globalThis.window as unknown as { solus: { metricsSchema: () => Promise<unknown> } }).solus
+    solus.metricsSchema = async () => {
+      await held
+      return { views: [] }
+    }
+
+    const loading = store.load()
+    expect(store.bootstrapping).toBe(true)
+    expect(store.running).toBe(false)
+    expect(store.result).toBe(null)
+
+    releaseSchema()
+    await loading
+
+    expect(store.bootstrapping).toBe(false)
+    expect(store.result?.rows.length).toBe(1)
+  })
+
+  test('leaving the page drops the visit, so the next entry asks the default question', async () => {
+    // WHY: the store outlives the surface, so a closed and reopened page used to
+    // resume the previous visit's answer, editor text, and run history. Entering
+    // Insights must state what the host is doing now, not what was asked last.
+    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const store = new InsightsStore()
+    store.useHost('local')
+    await store.load()
+
+    await store.setRange({ kind: 'absolute', from: 1_000, to: 2_000 })
+    const own = "select trace_id from turns where status = 'error'"
+    store.form = 'sql'
+    store.setUserSql(own)
+    await store.runSql(own)
+    expect(store.history.length).toBeGreaterThan(0)
+
+    store.reset()
+
+    expect(store.form).toBe('nl')
+    expect(store.result).toBe(null)
+    expect(store.history).toEqual([])
+    expect(store.sqlText).not.toBe(own)
+    // The window is a stated preference, not this visit's state.
+    expect(store.range).toEqual({ kind: 'absolute', from: 1_000, to: 2_000 })
+    expect(store.sqlText).toContain('started_at >= 1000 and started_at < 2000')
+
+    // The re-entry re-asks Solus's own statement rather than the closed one.
+    await store.load()
+    expect(sqlRuns.at(-1)).toBe(store.sqlText)
+    expect(sqlRuns.at(-1)).not.toBe(own)
+  })
+
   test('an NL compile enters the editor and executor as formatted SQL', async () => {
     // WHY: generated SQL is the editable explanation of the answer. A dense
     // agent response is hard to audit even when the database can execute it.

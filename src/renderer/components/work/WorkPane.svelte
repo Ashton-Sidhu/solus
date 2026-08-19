@@ -9,8 +9,9 @@
   // boundary, so they cannot sit behind one themselves.
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
-  import SaveToProjectPicker from "../pickers/SaveToProjectPicker.svelte";
-  import { projectSourceFileName } from "../pickers/lib/project-source-file";
+  import SaveFilePicker from "../pickers/SaveFilePicker.svelte";
+  import { hostPolicy } from "@client-core/host-policy";
+  import type { WorkExportRequest } from "./lib/work-export";
 
   let { params, paneId }: RouteSurfaceProps<"work"> = $props();
 
@@ -55,7 +56,7 @@
   // signal (edge-glow + ephemeral pill). Cleared on a timer so the animation
   // runs once per agent update.
   let justUpdated = $state(false);
-  let saveToProjectDraft = $state<{ fileName: string; content: string } | null>(null);
+  let exportDraft = $state<WorkExportRequest | null>(null);
   let justUpdatedTimer: ReturnType<typeof setTimeout> | null = null;
   let trackedWorkId: string | null = null;
   let trackedAgentRev = 0;
@@ -95,9 +96,14 @@
     if (justUpdatedTimer) clearTimeout(justUpdatedTimer);
   });
 
-  const promoteTargetRoot = $derived(
+  /** Where the save picker opens: the work's own project, when it has one. */
+  const exportStartPath = $derived(
     sess?.run.gitContext?.worktreePath ?? sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? "",
   );
+  // Saving writes to the host's filesystem. When that host is this very machine
+  // there is nothing a browser download would add; when it is not, downloading
+  // is the only way to get the file onto the device the user is holding.
+  const hostIsRemote = $derived(!!sess && !hostPolicy.isClientMachine(sess.run.serverId));
 
   function refreshFromAgent() {
     conflict = false;
@@ -138,12 +144,9 @@
     requestInputFocus();
   }
 
-  function handleSaveToProject(content: string) {
-    if (!work || !promoteTargetRoot) return;
-    saveToProjectDraft = {
-      fileName: projectSourceFileName(work.title, work.type),
-      content,
-    };
+  function handleExport(request: WorkExportRequest) {
+    if (!work || !exportStartPath) return;
+    exportDraft = request;
   }
 </script>
 
@@ -203,7 +206,8 @@
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
               workStorage={work.storage}
-              onSaveToProject={promoteTargetRoot ? handleSaveToProject : undefined}
+              onExport={exportStartPath ? handleExport : undefined}
+              {hostIsRemote}
             />
           {/await}
         {:else}
@@ -220,7 +224,6 @@
             <DocumentModal
               document={{ title: work.title, content: work.content }}
               workId={work?.id}
-              docType={work.type}
               onSave={async (c) => {
                 await session.worksStore.save(work.id, { content: c });
               }}
@@ -237,7 +240,8 @@
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
               workStorage={work.storage}
-              onSaveToProject={promoteTargetRoot ? handleSaveToProject : undefined}
+              onExport={exportStartPath ? handleExport : undefined}
+              {hostIsRemote}
             />
           {/await}
         {/if}
@@ -258,19 +262,20 @@
   </div>
 {/if}
 
-{#if saveToProjectDraft && promoteTargetRoot && sess}
-  <SaveToProjectPicker
+{#if exportDraft && exportStartPath && sess}
+  <SaveFilePicker
     open
     onClose={() => {
-      saveToProjectDraft = null;
+      exportDraft = null;
       requestInputFocus();
     }}
     api={serverConnections.apiFor(sess.run.serverId)}
     serverId={sess.run.serverId}
-    ctx={session.ctxForDirectory(promoteTargetRoot)}
-    projectRoot={promoteTargetRoot}
-    fileName={saveToProjectDraft.fileName}
-    content={saveToProjectDraft.content}
+    ctx={session.ctxForDirectory(exportStartPath)}
+    initialPath={exportStartPath}
+    fileName={exportDraft.fileName}
+    content={exportDraft.payload.contents}
+    encoding={exportDraft.payload.encoding}
   />
 {/if}
 

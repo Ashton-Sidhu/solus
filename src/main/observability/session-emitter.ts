@@ -82,6 +82,14 @@ function activeDispatchScope(): DispatchScope | undefined {
  *
  * `annotate` records what the step turned out to be doing — the branch it
  * created, the task it bound — once the step knows.
+ *
+ * Every step passes `fn` and `file` in `attrs`: the function it times and the
+ * file it is measured from. A step is a piece of Solus's own code, and a reader
+ * looking at one in the waterfall is on their way to that code. They are
+ * written by hand rather than taken from a stack frame because the main process
+ * ships bundled — a captured frame would name the bundle, confidently and
+ * wrongly. Line numbers are left out for the same reason they would be wrong
+ * within a week.
  */
 export function dispatchStep<T>(
   name: string,
@@ -175,6 +183,11 @@ interface TurnState {
    *  one that failed, never reaches `task_complete`, and its answer so far is
    *  still what the reader is looking at in the transcript. */
   lastAssistantText?: string
+  /** Top-level streamed text, retained only up to the response attribute cap.
+   *  Codex reports an empty task-complete result in regular mode, so its
+   *  visible answer must be reconstructed from these deltas. */
+  streamedAssistantText?: string
+  streamedAssistantChars?: number
   firstProviderEventAt?: number
   lastProviderEventAt?: number
   providerCompletedAt?: number
@@ -478,6 +491,11 @@ export class SessionEmitter {
         if (!event.parentToolUseId) {
           const timeToFirstTextMs = Math.max(0, arrivedAt - state.startedAt)
           state.rootAttrs.timeToFirstTextMs ??= timeToFirstTextMs
+          state.streamedAssistantChars = (state.streamedAssistantChars ?? 0) + event.text.length
+          const retained = state.streamedAssistantText ?? ''
+          if (retained.length < RESPONSE_LIMIT) {
+            state.streamedAssistantText = retained + event.text.slice(0, RESPONSE_LIMIT - retained.length)
+          }
         }
         this.observeResponseChunk(state, event.parentToolUseId, arrivedAt)
         return
@@ -652,12 +670,15 @@ export class SessionEmitter {
 
     // The provider's own final result is the answer when the turn reached one;
     // otherwise the last message it streamed is what the user is looking at.
-    const response = state.taskComplete?.result || state.lastAssistantText
+    const response = state.taskComplete?.result || state.lastAssistantText || state.streamedAssistantText
     if (response) {
       const text = capped(response, RESPONSE_LIMIT)
       state.rootAttrs.response = text.value
-      state.rootAttrs.responseChars = response.length
-      if (text.truncated) state.rootAttrs.responseTruncated = true
+      const responseChars = state.taskComplete?.result || state.lastAssistantText
+        ? response.length
+        : state.streamedAssistantChars ?? response.length
+      state.rootAttrs.responseChars = responseChars
+      if (text.truncated || responseChars > text.value.length) state.rootAttrs.responseTruncated = true
     }
 
     state.rootAttrs.toolCallCount = state.toolSpans.size

@@ -2,13 +2,13 @@
   import type { Snippet } from "svelte";
   import {
     ArrowClockwiseIcon,
-    ArrowSquareOutIcon,
     ListIcon,
     PlusIcon,
     TrayIcon,
     XIcon,
   } from "phosphor-svelte";
   import { PAGE_ICON_BTN } from "../../../lib/page-chrome";
+  import PaneSwapButton from "../PaneSwapButton.svelte";
   import {
     statTintColor,
     type ListPageView,
@@ -49,7 +49,8 @@
     /** Leads the switcher with an "All projects" row that clears the scope. */
     onSelectAllProjects?: () => void;
     allProjectsLabel?: string;
-    compactProjectPickerText?: boolean;
+    /** What the page does to its other controls when the scope changes. */
+    projectSwitchNote?: string;
     title: string;
     /** The first stat is the lead and the only coloured text in the header. */
     summary: ListSummaryStat[];
@@ -66,8 +67,12 @@
     /** The page's one creating action. */
     primaryAction?: { label: string; shortcut?: string; run: () => void };
     compactPrimaryActionText?: boolean;
-    /** Promote a page shown in a companion pane into the leading pane. */
-    onOpenAsPage?: () => void;
+    /** Move the page between the leading pane and the companion beside it.
+     *  Absent where there is no pane to move to — pill mode renders these pages
+     *  inline. */
+    onMoveAcross?: () => void;
+    /** Which way `onMoveAcross` sends the page. */
+    isLeading?: boolean;
     onClose?: () => void;
     /** Extra controls between the view switch and refresh (project switchers, bulk actions). */
     actions?: Snippet;
@@ -93,7 +98,7 @@
     onRemoveProjectHistory,
     onSelectAllProjects,
     allProjectsLabel,
-    compactProjectPickerText = false,
+    projectSwitchNote,
     title,
     summary,
     view = "global",
@@ -106,7 +111,8 @@
     refreshing = false,
     primaryAction,
     compactPrimaryActionText = false,
-    onOpenAsPage,
+    onMoveAcross,
+    isLeading = true,
     onClose,
     actions,
     filters,
@@ -117,7 +123,14 @@
     split = false,
   }: Props = $props();
 
-  const headTop = $derived(split ? "26px" : "42px");
+  // The head's own measure. A laptop display gives up the generous desktop top
+  // band so the first row lands higher on a short screen; the type on the head
+  // still comes from the shared chrome rung, never from this boundary.
+  const headPad = $derived(
+    split
+      ? "pt-[26px] [.is-laptop-display_&]:pt-5"
+      : "pt-[42px] [.is-laptop-display_&]:pt-8",
+  );
 
   const isInbox = $derived(view === "inbox");
   // A segment is either the raised card chip or plain muted text; there is no
@@ -129,7 +142,7 @@
 </script>
 
 <div
-  class="text-sm relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-sm text-foreground"
+  class="text-chrome-dense relative flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background text-foreground"
 >
   <div
     class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
@@ -138,10 +151,9 @@
   >
     <!-- ── Head: title block + action cluster ── -->
     <div
-      class="workspace-titlebar flex shrink-0 items-end justify-between gap-8 {split
- ? 'flex-wrap gap-y-3 pb-[18px]'
- : 'pb-[22px]'}"
-      style="padding-top: {headTop}"
+      class="workspace-titlebar flex shrink-0 items-end justify-between gap-8 {headPad} {split
+ ? 'flex-wrap gap-y-3 pb-[18px] [.is-laptop-display_&]:pb-3.5'
+ : 'pb-[22px] [.is-laptop-display_&]:pb-4'}"
     >
       {#if !split}
         <div class="flex min-w-0 flex-col gap-[9px]">
@@ -178,7 +190,7 @@
             onRemoveHistory={onRemoveProjectHistory}
             onSelectAll={onSelectAllProjects}
             allLabel={allProjectsLabel}
-            compactText={compactProjectPickerText}
+            footerNote={projectSwitchNote}
           />
         {/if}
 
@@ -186,7 +198,7 @@
           <div
             class="flex items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)] {compactViewSwitcherText
               ? 'text-xs'
-              : 'text-sm'}"
+              : ''}"
             role="group"
             aria-label="View"
           >
@@ -243,9 +255,9 @@
         {#if primaryAction}
           <button
             type="button"
-            class="flex h-[30px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] {compactPrimaryActionText
+            class="flex h-[30px] [.is-laptop-display_&]:h-[26px] cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] [.is-laptop-display_&]:px-2.5 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] {compactPrimaryActionText
               ? 'text-xs'
-              : 'text-sm'}"
+              : ''}"
             onclick={primaryAction.run}
           >
             <PlusIcon size={12} weight="bold" class="shrink-0" />
@@ -258,16 +270,8 @@
           </button>
         {/if}
 
-        {#if onOpenAsPage}
-          <button
-            type="button"
-            class={PAGE_ICON_BTN}
-            onclick={onOpenAsPage}
-            title="Open as page"
-            aria-label="Open as page"
-          >
-            <ArrowSquareOutIcon size={14} />
-          </button>
+        {#if onMoveAcross}
+          <PaneSwapButton {isLeading} onMove={onMoveAcross} iconSize={14} />
         {/if}
 
         {#if onClose}

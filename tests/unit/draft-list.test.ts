@@ -9,7 +9,6 @@ function promptWith(fields: Partial<Prompt>): Prompt {
     planRefs: [],
     workRefs: [],
     sessionRefs: [],
-    savedPromptId: null,
     ...fields,
   } as Prompt
 }

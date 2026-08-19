@@ -15,7 +15,7 @@
 	bind:value
 	data-slot="command-input"
 	class={cn(
-		"h-10 w-full bg-transparent text-sm outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+		"h-10 w-full bg-transparent text-[length:inherit] outline-hidden placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
 		className,
 	)}
 	{...restProps}

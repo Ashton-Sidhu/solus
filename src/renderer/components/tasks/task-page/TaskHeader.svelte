@@ -50,7 +50,7 @@
   }
 </script>
 
-<div class="flex items-center gap-[13px] pb-[11px] text-workspace-chrome">
+<div class="flex items-center gap-[13px] pb-[11px]">
   <span
     class="inline-flex items-center gap-1.5  font-normal "
     style="color:{statusTextColor(task.status)}"
@@ -88,7 +88,7 @@
 
 {#if canEdit}
   <input
-    class="text-sm m-0 w-full bg-transparent text-2xl leading-[1.25] font-medium text-pretty outline-none"
+    class="m-0 w-full bg-transparent text-2xl leading-[1.25] font-medium text-pretty outline-none"
     bind:value={titleDraft}
     onblur={commitTitle}
     onkeydown={(e) => {
@@ -101,12 +101,12 @@
     aria-label="Task title"
   />
 {:else}
-  <h1 class="text-sm m-0 text-2xl leading-[1.25] font-medium text-pretty">
+  <h1 class="m-0 text-2xl leading-[1.25] font-medium text-pretty">
     {task.title}
   </h1>
 {/if}
 
-<div class="task-description-prose pt-[18px] text-workspace-chrome">
+<div class="task-description-prose pt-[18px]">
   <DocumentPromptEditor
     value={bodyDraft}
     onValueChange={(v) => (bodyDraft = v)}

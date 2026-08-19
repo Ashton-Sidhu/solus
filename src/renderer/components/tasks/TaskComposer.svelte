@@ -6,19 +6,21 @@
     XIcon,
     CircleNotchIcon,
     CalendarBlankIcon,
-    FlagIcon,
     CheckIcon,
     TagIcon,
     ArrowsOutSimpleIcon,
     ArrowsInSimpleIcon,
   } from "phosphor-svelte";
-  import Kbd from "../ui/Kbd.svelte";
   import Dropdown from "../ui/Dropdown.svelte";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import { Input } from "../ui/input";
   import { getWorkspaceContext } from "../../contexts";
   import type { AgentId } from "../../../shared/types";
   import { PRIORITY_META, STATUS_META, dueDateMeta } from "./lib/tasks-api";
+  import {
+    priorityBars,
+    statusTextColor,
+  } from "./task-page/lib/task-page";
   import {
     loadDraft,
     saveDraft,
@@ -70,6 +72,10 @@
       status?: TaskStatus;
       labels?: string[];
     }) => Promise<void> | void;
+    /** Fires after a successful create, once the composer has dismissed — so a
+     *  caller can hand off to another surface. Not called while "Create more"
+     *  keeps the composer open. */
+    onCreated?: () => void;
     onCancel: () => void;
   }
   let {
@@ -82,6 +88,7 @@
     initialParentId,
     initialStatus,
     onCreate,
+    onCreated,
     onCancel,
   }: Props = $props();
 
@@ -155,6 +162,8 @@
         ? epics.find((e) => e.id === parentId)
         : undefined,
   );
+  // Names the dialog for assistive technology. Nothing renders it: on screen the
+  // title field and the Create button already say what is being made.
   const heading = $derived(
     initialParentId
       ? "New sub-task"
@@ -165,6 +174,8 @@
   const dueLabel = $derived(
     dueDate ? (dueDateMeta(dueDate)?.label ?? dueDate) : null,
   );
+  // Suggestions only while the user is typing a label: with an empty draft the
+  // rail would sprout a list of every known label under the input.
   const suggestions = $derived(
     labelSuggestions(knownLabels, labels, labelDraft),
   );
@@ -262,8 +273,14 @@
     }
     clearDraft();
     saving = false;
-    if (createAnother) resetForAnother();
-    else onCancel();
+    if (createAnother) {
+      resetForAnother();
+      return;
+    }
+    // Dismiss before the hand-off so the modal is gone by the time the caller
+    // navigates away.
+    onCancel();
+    onCreated?.();
   }
 
   /** Rapid-entry reset: clear the content fields but keep the chosen properties
@@ -331,41 +348,65 @@
     }
   }
 
-  const segBtn = (active: boolean) =>
-    "inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 px-2.5 py-1 text-xs font-medium transition-colors duration-100 " +
-    (active
-      ? "bg-(--solus-accent-light) text-(--solus-accent)"
-      : "bg-transparent text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary)");
-
-  // Shared property-pill trigger styling (neutral chip, accent on hover/focus).
-  const PILL =
-    "inline-flex items-center gap-1.5 min-h-[1.75rem] cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 text-xs font-secondary text-(--solus-text-secondary) outline-none transition-colors duration-100 hover:border-[color-mix(in_srgb,var(--solus-accent)_35%,transparent)] hover:text-(--solus-text-primary) focus-visible:border-(--solus-accent) disabled:opacity-50";
+  // One property, stated plainly. No border, no fill, no track — a property is
+  // a word until you reach for it, and only then does it take a surface. Every
+  // control in the footer row shares this shape, so nothing competes.
+  const PROP =
+    "inline-flex min-w-0 items-center gap-1.5 cursor-pointer rounded-lg border-0 bg-transparent px-1.5 py-1 text-(--solus-text-tertiary) outline-none transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-primary) disabled:cursor-default disabled:opacity-50 disabled:hover:bg-transparent";
   // Square ghost icon button in the header (expand / close).
   const ICON_BTN =
     "inline-flex items-center justify-center size-6 flex-shrink-0 border-none rounded-md bg-transparent text-(--solus-text-tertiary) cursor-pointer transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) disabled:opacity-50";
+  // Every picker portals out of the panel, so it cannot inherit the panel's
+  // rung. Each popover states the chrome rung once on its own root and its rows
+  // and fields inherit from there (ADR-0013: type is declared on a surface).
+  const MENU_SURFACE = "text-workspace-chrome";
   // Shared option-row styling inside a picker popover.
   const OPT =
-    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left text-sm font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-medium data-[selected=true]:text-(--solus-text-primary)";
+    "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-medium data-[selected=true]:text-(--solus-text-primary)";
   // Layout-only prompt wrapper: the editor reads like AutomationBuilder's unboxed
   // prompt area — the plain-text editor ships no border/background of its own, so the
   // wrapper only needs a transparent base plus flex sizing.
+  //
+  // The editor's own default is the content rung (--text-body, 16px) because its
+  // home is the transcript composer. This is a chrome surface, so the two vars
+  // below put the description on the same rung and the same left edge as the
+  // title input above it, and trade the composer's tall resting well for padding
+  // that suits a modal field.
+  //
+  // The collapsed field claims a real writing area rather than growing from one
+  // line: a description is usually a paragraph, and a field that starts as a
+  // single line asks for a sentence. The editor fills that area in both states,
+  // so clicking anywhere in the well puts the caret in the text.
   const DESCRIPTION_FIELD = $derived(
     "flex flex-col min-h-0 w-full bg-transparent " +
-      "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:min-h-0 " +
-      "[&_.cm-editor]:flex [&_.cm-editor]:min-h-0 [&_.cm-content]:![font-weight:400] " +
+      "[--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-padding:0.25rem_0_0.5rem_0] " +
+      "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:min-h-0 [&_[data-testid=message-input]]:flex-1 " +
+      "[&_.cm-editor]:flex [&_.cm-editor]:min-h-0 [&_.cm-editor]:flex-1 [&_.cm-content]:![font-weight:400] " +
       (expanded
-        ? "flex-1 overflow-y-auto [&_[data-testid=message-input]]:flex-1 [&_.cm-editor]:flex-1 [&_.cm-content]:min-h-full [&_.cm-scroller]:max-h-none!"
-        : ""),
+        ? "flex-1 overflow-y-auto [&_.cm-content]:min-h-full [&_.cm-scroller]:max-h-none!"
+        : "min-h-[9rem]"),
   );
 </script>
+
+<!-- The task page's priority mark: four bars, filled to the level. -->
+{#snippet priorityGlyph(level: TaskPriority | undefined)}
+  <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
+    {#each priorityBars(level) as bar (bar.height)}
+      <span
+        class="w-[2.5px] rounded-[0.0625rem]"
+        style="height:{bar.height};background:{bar.background}"
+      ></span>
+    {/each}
+  </span>
+{/snippet}
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <div
   data-solus-ui
-  class="text-xs fixed inset-0 z-[10008] flex items-start justify-center {expanded
+  class="fixed inset-0 z-[10008] flex items-start justify-center {expanded
  ? 'pt-[7vh]'
- : 'pt-[13vh]'} pointer-events-auto bg-transparent [animation:task-modal-backdrop-in_160ms_ease_both]"
+ : 'pt-[13vh]'} pointer-events-auto bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] [animation:backdrop-fade_160ms_ease_both]"
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget && !saving) onCancel();
@@ -374,40 +415,52 @@
 >
   <div
     class="{expanded
- ? 'w-[clamp(20rem,76vw,54rem)] h-[min(44rem,84vh)]'
- : 'w-[clamp(20rem,52vw,34rem)]'} max-w-[calc(100vw-3rem)] outline-none flex flex-col rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] [.dark_&]:shadow-[var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06)] overflow-hidden origin-top transition-[width,height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [animation:task-modal-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
+ ? 'w-[clamp(20rem,72vw,48rem)] h-[min(42rem,82vh)]'
+ : 'w-[clamp(20rem,54vw,36rem)]'} max-w-[calc(100vw-3rem)] outline-none flex flex-col text-workspace-chrome rounded-[1.125rem] border-[0.0625rem] border-(--solus-popover-border) bg-(--solus-popover-bg) shadow-[var(--solus-popover-shadow)] overflow-hidden origin-top transition-[width,height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] [animation:task-modal-enter_200ms_cubic-bezier(0.22,1,0.36,1)_backwards]"
     role="dialog"
     aria-label={heading}
     aria-modal="true"
   >
-    <!-- Header -->
-    <div
-      class="flex items-center gap-2 px-[1.125rem] h-[2.875rem] flex-shrink-0 relative after:content-[''] after:absolute after:left-[1.125rem] after:right-[1.125rem] after:bottom-0 after:h-[0.0625rem] after:bg-(--solus-popover-border) after:opacity-[0.35]"
-    >
-      {#if initialParentId}
-        <StackIcon
-          size={14}
-          weight="fill"
-          class="flex-shrink-0 text-(--solus-accent)"
-        />
-      {:else}
-        <CheckSquareIcon
-          size={14}
-          weight="fill"
-          class="flex-shrink-0 text-(--solus-accent)"
-        />
-      {/if}
-      <span
-        class="text-sm font-medium text-(--solus-text-primary)"
-        >{heading}</span
-      >
-      {#if initialParentId && parentEpic}
-        <span class="text-(--solus-text-tertiary)">›</span>
-        <span
-          class="min-w-0 truncate text-sm font-secondary text-(--solus-text-secondary)"
+    <!-- A sub-task's parent, on its own line above the title. Nothing else in
+         the panel names it, and it belongs with the title rather than beside
+         the window controls. -->
+    {#if initialParentId && parentEpic}
+      <div class="px-[1.375rem] pt-3 flex-shrink-0">
+        <span class="block truncate text-xs text-(--solus-text-tertiary)"
           >{parentEpic.title}</span
         >
-      {/if}
+      </div>
+    {/if}
+
+    <!-- Header: the title IS the header. The panel's own name was noise, so the
+         field the user types into takes that line, with the window controls on
+         its right.
+
+         The `!` on the placeholder colour is load-bearing: index.css sets
+         `input::placeholder` unlayered, and an unlayered declaration outranks
+         every layered utility, so the plain class was silently dead and the
+         title's prompt rendered in the same grey as the description's. -->
+    <div
+      class="flex items-center gap-2 px-[1.375rem] {initialParentId &&
+      parentEpic
+        ? 'pt-0.5'
+        : 'pt-3.5'} flex-shrink-0"
+    >
+      <input
+        bind:this={titleEl}
+        bind:value={title}
+        type="text"
+        placeholder="Task title"
+        aria-label="Task title"
+        disabled={saving}
+        class="min-w-0 flex-1 border-0 border-none outline-none shadow-none appearance-none bg-transparent text-base leading-[1.3] font-semibold tracking-[-0.016em] text-(--solus-text-primary) placeholder:font-semibold placeholder:text-(--solus-text-secondary)! disabled:opacity-60"
+        onkeydown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+      />
       <button
         type="button"
         class="ml-auto {ICON_BTN}"
@@ -444,27 +497,13 @@
       </button>
     </div>
 
-    <!-- Body -->
+    <!-- Body: the description, then the properties — what the task says, then
+         what it is. -->
     <div
-      class="flex flex-col gap-1.5 px-[1.125rem] pt-3.5 pb-2 {expanded
+      class="flex min-w-0 flex-col px-[1.375rem] pt-1.5 pb-2 {expanded
  ? 'flex-1 min-h-0'
  : ''}"
     >
-      <input
-        bind:this={titleEl}
-        bind:value={title}
-        type="text"
-        placeholder="Task title"
-        aria-label="Task title"
-        disabled={saving}
-        class="w-full border-0 border-none outline-none shadow-none appearance-none bg-transparent text-sm font-medium text-(--solus-text-primary) placeholder:text-(--solus-text-tertiary) disabled:opacity-60"
-        onkeydown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-            e.preventDefault();
-            void submit();
-          }
-        }}
-      />
       <div class={DESCRIPTION_FIELD}>
         <PromptEditor
           value={body}
@@ -484,9 +523,9 @@
           menuPlacement="down"
           useRelativeFilePaths
           readOnly={saving}
-          maxHeight={expanded ? undefined : 170}
+          maxHeight={expanded ? undefined : 280}
           enterInsertsNewline
-          placeholder="Add a description… Use @ for files, # for plans, % for docs, ! for PRs, / to format."
+          placeholder="Describe the work…"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
@@ -498,25 +537,62 @@
       </div>
     </div>
 
-    <!-- Property row -->
-    <div class="flex items-center gap-2 flex-wrap px-[1.125rem] pb-3 shrink-0">
-      <!-- Status (local only — new GitHub issues always start open/todo) -->
-      {#if allowEpics}
+      <!-- Properties: one quiet line under the description. Each is a word until
+           you reach for it — no chips, no track, no rail. -->
+      <div
+        class="flex flex-wrap items-center gap-x-0.5 gap-y-1 px-[1.25rem] pt-1 pb-3.5 shrink-0"
+      >
+      <!-- Type — absent when the parent is preset (always a sub-task) or the
+           provider has no epics. One control that names what it is now and
+           swaps on click, rather than a segmented control shouting both. -->
+      {#if !initialParentId && allowEpics}
         <button
           type="button"
-          bind:this={statusTrigger}
-          class={PILL}
-          onclick={() => togglePicker("status", statusOpen)}
-          aria-haspopup="listbox"
-          aria-expanded={statusOpen}
+          class={PROP}
+          onclick={() => (kind = kind === "task" ? "epic" : "task")}
           disabled={saving}
-          aria-label="Status"
-          title="Status (⌥S)"
+          aria-label="Type"
+          title={kind === "epic"
+            ? "Epic — switch to task (⌥E)"
+            : "Task — switch to epic (⌥E)"}
         >
-          <span class="block size-2 rounded-full {STATUS_META[status].dotClass}"
-          ></span>
-          {STATUS_META[status].label}
+          {#if kind === "epic"}
+            <StackIcon size={13} class="shrink-0" />
+          {:else}
+            <CheckSquareIcon size={13} class="shrink-0" />
+          {/if}
+          {kind === "epic" ? "Epic" : "Task"}
         </button>
+      {/if}
+
+      <!-- Status (local only — new GitHub issues always start open/todo) -->
+      {#if allowEpics}
+          <button
+            type="button"
+            bind:this={statusTrigger}
+            class={PROP}
+            onclick={() => togglePicker("status", statusOpen)}
+            aria-haspopup="listbox"
+            aria-expanded={statusOpen}
+            disabled={saving}
+            aria-label="Status"
+            title="Status (⌥S)"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.45"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              class="shrink-0"
+              style="color:{statusTextColor(status)}"
+              aria-hidden="true"><path d={STATUS_META[status].glyph} /></svg
+            >
+            {STATUS_META[status].label}
+          </button>
         <Dropdown
           bind:open={statusOpen}
           triggerEl={statusTrigger}
@@ -526,7 +602,7 @@
         >
           <div
             bind:this={statusPanel}
-            class="py-1"
+            class="{MENU_SURFACE} py-1"
             role="listbox"
             tabindex="-1"
             aria-label="Set status"
@@ -540,9 +616,19 @@
                 class={OPT}
                 onclick={() => commit(() => (status = opt))}
               >
-                <span
-                  class="block size-2 rounded-full {STATUS_META[opt].dotClass}"
-                ></span>
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.45"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="shrink-0"
+                  style="color:{statusTextColor(opt)}"
+                  aria-hidden="true"><path d={STATUS_META[opt].glyph} /></svg
+                >
                 {STATUS_META[opt].label}
               </button>
             {/each}
@@ -550,28 +636,22 @@
         </Dropdown>
       {/if}
 
-      <!-- Priority + due date — only when the provider persists them on create -->
+      <!-- Priority + target date — only when the provider persists them on create -->
       {#if canPlan}
-      <button
-        type="button"
-        bind:this={priorityTrigger}
-        class={PILL}
-        onclick={() => togglePicker("priority", priorityOpen)}
-        aria-haspopup="listbox"
-        aria-expanded={priorityOpen}
-        disabled={saving}
-        aria-label="Priority"
-        title="Priority (⌥P)"
-      >
-        <FlagIcon
-          size={14}
-          weight={priority ? "fill" : "regular"}
-          class={priority
-            ? PRIORITY_META[priority].flagClass
-            : "text-(--solus-text-tertiary)"}
-        />
-        {priority ? PRIORITY_META[priority].label : "Priority"}
-      </button>
+        <button
+          type="button"
+          bind:this={priorityTrigger}
+          class={PROP}
+          onclick={() => togglePicker("priority", priorityOpen)}
+          aria-haspopup="listbox"
+          aria-expanded={priorityOpen}
+          disabled={saving}
+          aria-label="Priority"
+          title="Priority (⌥P)"
+        >
+          {@render priorityGlyph(priority || undefined)}
+          {priority ? PRIORITY_META[priority].label : "Priority"}
+        </button>
       <Dropdown
         bind:open={priorityOpen}
         triggerEl={priorityTrigger}
@@ -581,7 +661,7 @@
       >
         <div
           bind:this={priorityPanel}
-          class="py-1"
+          class="{MENU_SURFACE} py-1"
           role="listbox"
           tabindex="-1"
           aria-label="Set priority"
@@ -594,7 +674,7 @@
             class={OPT}
             onclick={() => commit(() => (priority = ""))}
           >
-            <FlagIcon size={14} class="text-(--solus-text-tertiary)" />
+            {@render priorityGlyph(undefined)}
             No priority
           </button>
           {#each PRIORITY_OPTIONS as p (p)}
@@ -605,32 +685,28 @@
               class={OPT}
               onclick={() => commit(() => (priority = p))}
             >
-              <FlagIcon
-                size={14}
-                weight="fill"
-                class={PRIORITY_META[p].flagClass}
-              />
+              {@render priorityGlyph(p)}
               {PRIORITY_META[p].label}
             </button>
           {/each}
         </div>
       </Dropdown>
 
-      <!-- Due date -->
-      <button
-        type="button"
-        bind:this={dueTrigger}
-        class={PILL}
-        onclick={() => togglePicker("due", dueOpen)}
-        aria-haspopup="dialog"
-        aria-expanded={dueOpen}
-        disabled={saving}
-        aria-label="Due date"
-        title="Due date (⌥D)"
-      >
-        <CalendarBlankIcon size={14} class="text-(--solus-text-tertiary)" />
-        {dueLabel ?? "Due date"}
-      </button>
+      <!-- Target date -->
+        <button
+          type="button"
+          bind:this={dueTrigger}
+          class={PROP}
+          onclick={() => togglePicker("due", dueOpen)}
+          aria-haspopup="dialog"
+          aria-expanded={dueOpen}
+          disabled={saving}
+          aria-label="Target date"
+          title="Target date (⌥D)"
+        >
+          <CalendarBlankIcon size={13} class="shrink-0" />
+          {dueLabel ?? "Target"}
+        </button>
       <Dropdown
         bind:open={dueOpen}
         triggerEl={dueTrigger}
@@ -640,7 +716,7 @@
       >
         <div
           bind:this={duePanel}
-          class="py-1"
+          class="{MENU_SURFACE} py-1"
           role="listbox"
           tabindex="-1"
           aria-label="Set due date"
@@ -669,7 +745,7 @@
               type="date"
               bind:value={dueDate}
               aria-label="Custom due date"
-              class="w-full cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-sm font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent) [color-scheme:light] [.dark_&]:[color-scheme:dark]"
+              class="w-full cursor-pointer rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent) [color-scheme:light] [.dark_&]:[color-scheme:dark]"
             />
           </div>
           {#if dueDate}
@@ -686,11 +762,12 @@
       </Dropdown>
       {/if}
 
-      <!-- Labels -->
+      <!-- Labels: the chosen ones ARE the label of the control, so a filled row
+           reads without opening anything. -->
       <button
         type="button"
         bind:this={labelsTrigger}
-        class={PILL}
+        class="max-w-[14rem] {PROP}"
         onclick={() => togglePicker("labels", labelsOpen)}
         aria-haspopup="dialog"
         aria-expanded={labelsOpen}
@@ -698,24 +775,22 @@
         aria-label="Labels"
         title="Labels (⌥L)"
       >
-        <TagIcon size={14} class="text-(--solus-text-tertiary)" />
-        {labels.length
-          ? `${labels.length} label${labels.length > 1 ? "s" : ""}`
-          : "Labels"}
+        <TagIcon size={13} class="shrink-0" />
+        <span class="truncate">{labels.join(", ") || "Labels"}</span>
       </button>
       <Dropdown
         bind:open={labelsOpen}
         triggerEl={labelsTrigger}
         align="bottom"
         anchor="left"
-        width={220}
+        width={224}
       >
-        <div class="flex flex-col gap-1.5 p-2">
+        <div class="{MENU_SURFACE} flex flex-col gap-1.5 p-2">
           {#if labels.length}
             <div class="flex flex-wrap gap-1">
               {#each labels as label (label)}
                 <span
-                  class="inline-flex items-center gap-1 rounded bg-(--solus-surface-hover) px-1.5 py-0.5  font-medium text-(--solus-text-secondary)"
+                  class="inline-flex items-center gap-1 rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 text-(--solus-text-secondary)"
                 >
                   {label}
                   <button
@@ -724,19 +799,19 @@
                     onclick={() => removeLabel(label)}
                     aria-label={`Remove ${label}`}
                   >
-                    <XIcon size={14} weight="bold" />
+                    <XIcon size={12} weight="bold" />
                   </button>
                 </span>
               {/each}
             </div>
           {/if}
-          <Input
-            bind:ref={labelInputEl}
+          <input
+            bind:this={labelInputEl}
             bind:value={labelDraft}
             type="text"
             placeholder="Add a label…"
             aria-label="Add a label"
-            class="w-full rounded-md border border-(--solus-container-border) bg-(--solus-input-bg-soft) px-2 py-1 text-sm font-secondary text-(--solus-text-secondary) outline-none focus:border-(--solus-accent)"
+            class="w-full appearance-none rounded-md border-0 bg-(--solus-surface-hover) px-2 py-1 text-(--solus-text-secondary) shadow-none outline-none placeholder:text-(--solus-text-tertiary)"
             onkeydown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();
@@ -760,7 +835,7 @@
                     labelInputEl?.focus();
                   }}
                 >
-                  <TagIcon size={14} class="text-(--solus-text-tertiary)" />
+                  <TagIcon size={13} class="text-(--solus-text-tertiary)" />
                   {s}
                 </button>
               {/each}
@@ -770,53 +845,22 @@
       </Dropdown>
 
       {#if !initialParentId && allowEpics}
-        <div
-          class="flex gap-0.5 rounded-lg bg-(--solus-surface-hover)/40 p-0.5"
-        >
-          <button
-            type="button"
-            class={segBtn(kind === "task")}
-            onclick={() => (kind = "task")}
-            aria-pressed={kind === "task"}
-            disabled={saving}
-          >
-            <CheckSquareIcon
-              size={14}
-              weight={kind === "task" ? "fill" : "regular"}
-            />
-            Task
-          </button>
-          <button
-            type="button"
-            class={segBtn(kind === "epic")}
-            onclick={() => (kind = "epic")}
-            aria-pressed={kind === "epic"}
-            disabled={saving}
-          >
-            <StackIcon
-              size={14}
-              weight={kind === "epic" ? "fill" : "regular"}
-            />
-            Epic
-          </button>
-        </div>
-
         {#if kind === "task" && epics.length}
-          <button
-            type="button"
-            bind:this={parentTrigger}
-            class={PILL}
-            onclick={() => togglePicker("parent", parentOpen)}
-            aria-haspopup="listbox"
-            aria-expanded={parentOpen}
-            disabled={saving}
-            aria-label="Parent epic"
-          >
-            <StackIcon size={14} class="text-(--solus-text-tertiary)" />
-            <span class="max-w-[10rem] truncate"
-              >{parentEpic ? parentEpic.title : "No epic"}</span
+            <button
+              type="button"
+              bind:this={parentTrigger}
+              class="max-w-[12rem] {PROP}"
+              onclick={() => togglePicker("parent", parentOpen)}
+              aria-haspopup="listbox"
+              aria-expanded={parentOpen}
+              disabled={saving}
+              aria-label="Parent epic"
             >
-          </button>
+              <StackIcon size={13} class="shrink-0" />
+              <span class="truncate"
+                >{parentEpic ? parentEpic.title : "No epic"}</span
+              >
+            </button>
           <Dropdown
             bind:open={parentOpen}
             triggerEl={parentTrigger}
@@ -826,7 +870,7 @@
           >
             <div
               bind:this={parentPanel}
-              class="py-1"
+              class="{MENU_SURFACE} py-1"
               role="listbox"
               tabindex="-1"
               aria-label="Set parent epic"
@@ -864,27 +908,31 @@
 
     <!-- Footer -->
     <div
-      class="flex items-center justify-between gap-3 px-[1.125rem] h-[3.25rem] flex-shrink-0 relative before:content-[''] before:absolute before:left-[1.125rem] before:right-[1.125rem] before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35]"
+      class="flex items-center justify-between gap-3 px-[1.375rem] h-[3.375rem] flex-shrink-0 relative before:content-[''] before:absolute before:left-0 before:right-0 before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35]"
     >
+      <!-- Ticked is neutral-strong rather than accent: the accent belongs to
+           Create, and a terracotta box here outweighed the button it sits
+           beside. -->
       <button
         type="button"
-        class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-transparent px-1.5 py-1  text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
+        class="inline-flex items-center gap-2 cursor-pointer rounded-lg border-0 bg-transparent px-1.5 py-1 text-(--solus-text-tertiary) outline-none transition-colors duration-150 hover:text-(--solus-text-secondary) focus-visible:text-(--solus-text-secondary) disabled:opacity-50"
         onclick={toggleCreateAnother}
-        aria-pressed={createAnother}
+        role="checkbox"
+        aria-checked={createAnother}
         disabled={saving}
         title="Keep this open to add another after creating"
       >
         <span
-          class="grid size-3.5 place-items-center rounded-[0.25rem] border transition-colors duration-100 {createAnother
- ? 'border-(--solus-accent) bg-(--solus-accent) text-white'
- : 'border-(--solus-container-border)'}"
+          class="grid size-[0.875rem] shrink-0 place-items-center rounded-[0.3125rem] border transition-[background-color,border-color] duration-150 {createAnother
+            ? 'border-(--solus-text-primary) bg-(--solus-text-primary) text-(--solus-popover-bg)'
+            : 'border-(--solus-container-border) bg-transparent'}"
         >
           <CheckIcon
-            size={14}
+            size={10}
             weight="bold"
-            class="transition-[opacity,scale,filter] duration-300 ease-[cubic-bezier(0.2,0,0,1)] {createAnother
- ? 'opacity-100 scale-100 blur-none'
- : 'opacity-0 scale-[0.25] blur-[4px]'}"
+            class="transition-opacity duration-150 {createAnother
+              ? 'opacity-100'
+              : 'opacity-0'}"
           />
         </span>
         Create more
@@ -892,15 +940,20 @@
       <div class="flex items-center gap-1.5">
         <button
           type="button"
-          class="cursor-pointer rounded-md border-0 bg-transparent px-2.5 py-[0.3125rem]  font-medium text-(--solus-text-tertiary) transition-colors duration-100 hover:text-(--solus-text-secondary) disabled:opacity-50"
+          class="cursor-pointer rounded-lg border-0 bg-transparent px-2.5 py-[0.375rem] font-medium text-(--solus-text-tertiary) transition-[background-color,color,scale] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) active:scale-[0.96] disabled:pointer-events-none disabled:opacity-50"
           onclick={onCancel}
           disabled={saving}
         >
           Cancel
         </button>
+        <!-- The shortcut is set inside the button as plain dimmed text: two
+             loose keycaps at the panel's edge read as leftovers, and a chip
+             inside a filled button is one surface too many. Disabled goes
+             inert-neutral — a half-faded accent reads as a broken button
+             rather than an unmet condition. -->
         <button
           type="button"
-          class="inline-flex items-center gap-1.5 cursor-pointer rounded-md border-0 bg-(--solus-accent) px-3 py-[0.3125rem]  font-medium text-white transition-[opacity,scale] duration-100 hover:opacity-90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-50"
+          class="inline-flex items-center gap-2 cursor-pointer rounded-lg border-0 bg-(--solus-accent) py-[0.375rem] pl-3 pr-2.5 font-medium text-white transition-[background-color,color,filter] duration-150 hover:brightness-[1.06] disabled:cursor-default disabled:bg-(--solus-surface-hover) disabled:text-(--solus-text-tertiary) disabled:hover:brightness-100"
           disabled={!canSubmit}
           onclick={submit}
         >
@@ -916,31 +969,26 @@
               : kind === "epic"
                 ? "epic"
                 : "task"}
+            <span class="opacity-55 tabular-nums">⌘↵</span>
           {/if}
         </button>
-        <span
-          class="mr-1 inline-flex items-center gap-1.5  text-(--solus-text-tertiary)"
-        >
-          <Kbd variant="hint">⌘</Kbd>
-          <Kbd variant="hint">↵</Kbd>
-        </span>
       </div>
     </div>
   </div>
 </div>
 
 <style>
-  /* Keyframes can't be expressed as Tailwind utilities; referenced via
-     [animation:…] on the backdrop and panel above. */
-  @keyframes task-modal-backdrop-in {
-    from {
-      opacity: 0;
-    }
-    to {
-      opacity: 1;
+  /* Scoped, unlayered, and therefore ahead of the utility classes that carry
+     these animations: a reduced-motion reader gets the finished dialog. */
+  @media (prefers-reduced-motion: reduce) {
+    div {
+      animation: none !important;
     }
   }
 
+  /* The backdrop uses the app-wide `backdrop-fade`; only the panel's own entry
+     is local. Keyframes can't be expressed as Tailwind utilities, so it is
+     referenced via [animation:…] on the panel above. */
   @keyframes task-modal-enter {
     from {
       opacity: 0;

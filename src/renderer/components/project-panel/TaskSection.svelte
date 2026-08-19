@@ -213,8 +213,12 @@ anything the header already says.
 Every row here is the rail's row, not the mock's: full width of the card's
 inner edge with 8px of its own padding, exactly like MenuRow in Environment
 and Git. That 8px is the card's text measure, so the group labels and every
-row label set on the same left edge. -->
-<div class="mb-2 flex flex-col text-xs {task.status === 'done' ? 'opacity-[.62]' : ''}">
+row label set on the same left edge.
+
+Type comes from the rail, which declares the display's chrome rung once, so a
+row label here reads at the same size as a Git or Environment row. Only the
+quiet trailing readings and the group label pin themselves a rung below. -->
+<div class="mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">
   <div class="mt-0.5 flex flex-col gap-px">
     <!-- Six attempts stay visible at once. Older attempts scroll inside this
          group so a long history cannot take over the project rail; New session
@@ -263,7 +267,7 @@ row label set on the same left edge. -->
           hover to trade on, so it takes the action side at rest — otherwise the
           split has no way in at all on a tablet. -->
           <span
-            class="shrink-0 truncate text-(--solus-text-tertiary) group-hover:hidden pointer-coarse:hidden {row.valueMono
+            class="shrink-0 truncate text-xs text-(--solus-text-tertiary) group-hover:hidden pointer-coarse:hidden {row.valueMono
             ? 'tabular-nums'
             : ''}"
           >
@@ -314,11 +318,11 @@ row label set on the same left edge. -->
       ></div>
       <div class="flex items-center gap-2 px-2">
         <span
-          class="font-medium text-(--solus-text-tertiary) uppercase"
+          class="text-xs font-medium text-(--solus-text-tertiary) uppercase"
         >
           Linked
         </span>
-        <span class="tabular-nums text-(--solus-text-tertiary) opacity-70">
+        <span class="text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">
           {linkList.total}
         </span>
       </div>
@@ -345,7 +349,7 @@ row label set on the same left edge. -->
             </span>
             {#if row.ref}
               <span
-                class="shrink-0 text-(--solus-text-tertiary)"
+                class="shrink-0 text-xs text-(--solus-text-tertiary)"
               >
                 {row.ref}
               </span>
@@ -353,7 +357,7 @@ row label set on the same left edge. -->
             <span class="min-w-0 flex-1 truncate text-left">{row.label}</span>
             {#if row.value}
               <span
-                class="shrink-0 text-(--solus-text-tertiary) {row.valueMono
+                class="shrink-0 text-xs text-(--solus-text-tertiary) {row.valueMono
                 ? 'tabular-nums'
                 : ''}"
               >
@@ -366,7 +370,7 @@ row label set on the same left edge. -->
         {#if linkList.moreLabel}
           <button
             type="button"
-            class="flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] px-2 py-1.5 text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
+            class="flex w-full cursor-pointer items-center gap-1 rounded-[0.4375rem] px-2 py-1.5 text-xs text-(--solus-text-tertiary) transition-colors duration-150 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none"
             onclick={() => (expanded = true)}
           >
             <span class="flex-1 text-left">{linkList.moreLabel}</span>

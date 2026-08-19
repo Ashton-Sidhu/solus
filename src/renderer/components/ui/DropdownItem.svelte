@@ -61,7 +61,7 @@
     height: 2rem;
     padding: 0 0.625rem;
     border-radius: 0.5rem;
-    font-size: var(--text-sm);
+    font-size: var(--text-workspace-chrome);
     font-family: inherit;
     color: var(--solus-text-secondary);
     /* One row type everywhere: regular. Weight is spent on the current row

@@ -34,7 +34,7 @@
     type="text"
     {placeholder}
     {onkeydown}
-    class="h-auto rounded-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 dark:bg-transparent [@media(pointer:coarse)]:text-sm"
+    class="h-auto rounded-none border-0 bg-transparent p-0 text-[length:inherit] shadow-none focus-visible:ring-0 dark:bg-transparent [@media(pointer:coarse)]:text-[length:inherit]"
   />
   {#if value}
     <button

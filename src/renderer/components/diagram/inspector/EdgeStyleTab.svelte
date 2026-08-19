@@ -1,15 +1,6 @@
 <script lang="ts">
   import type { DiagramEdge } from '../../../../shared/diagram-types'
-  import { getSettingsContext } from '../../../contexts'
-  import {
-    DIAGRAM_GREEN,
-    DIAGRAM_AMBER,
-    DIAGRAM_RED,
-    DIAGRAM_BLUE,
-    DIAGRAM_PURPLE,
-    DIAGRAM_GRAY,
-    diagramAccent,
-  } from '../diagram-colors'
+  import AccentField from './AccentField.svelte'
   import { effectiveEdgeDash } from '../lib/flow-builders'
   import type { EdgeUpdates } from '../lib/inspector-model'
 
@@ -21,8 +12,6 @@
   }
 
   let { edge, update }: Props = $props()
-
-  const theme = getSettingsContext()
 
   // Bounds and step for the weight slider. The default mirrors the base CSS
   // stroke, so an untouched edge sits mid-low.
@@ -56,28 +45,12 @@
     { value: 'none', label: 'None', hint: 'Plain line, no arrows', start: false, end: false },
   ]
 
-  // Accent defaults to the neutral stroke — an edge only takes a tint when it
-  // means something, otherwise the graph turns into bunting.
-  const COLORS: { value: string | undefined; label: string; swatch: string }[] = [
-    { value: undefined, label: 'Neutral', swatch: 'var(--diagram-edge-stroke)' },
-    { value: DIAGRAM_GREEN, label: 'Green', swatch: DIAGRAM_GREEN },
-    { value: DIAGRAM_AMBER, label: 'Amber', swatch: DIAGRAM_AMBER },
-    { value: DIAGRAM_RED, label: 'Red', swatch: DIAGRAM_RED },
-    { value: DIAGRAM_BLUE, label: 'Blue', swatch: DIAGRAM_BLUE },
-    { value: DIAGRAM_PURPLE, label: 'Purple', swatch: DIAGRAM_PURPLE },
-    { value: DIAGRAM_GRAY, label: 'Gray', swatch: DIAGRAM_GRAY },
-  ]
-
   // Resolved through the shared helper rather than a second copy of the rule,
   // so an untouched async edge shows Dashed as active.
   const activeDash = $derived(effectiveEdgeDash(edge.kind, edge.dash))
   const kindDash = $derived(effectiveEdgeDash(edge.kind, undefined))
   const activeArrows = $derived(edge.arrows ?? 'end')
-  const activeColor = $derived(edge.color)
   const activeWidth = $derived(edge.width ?? WIDTH_DEFAULT)
-  // A colour outside the presets came from the custom picker, so the custom
-  // swatch owns the active ring and seeds the native input with it.
-  const isCustomColor = $derived(activeColor != null && !COLORS.some((c) => c.value === activeColor))
 </script>
 
 <div class="inspector-field">
@@ -124,39 +97,13 @@
   </div>
 </div>
 
-<div class="inspector-field">
-  <span class="inspector-label">Accent</span>
-  <div class="inspector-swatches" role="group" aria-label="Edge accent">
-    {#each COLORS as { value, label, swatch } (label)}
-      <button
-        type="button"
-        class="inspector-swatch"
-        class:inspector-swatch--active={activeColor === value}
-        style="--swatch: {swatch}"
-        aria-pressed={activeColor === value}
-        aria-label={label}
-        title={label}
-        onclick={() => update.color(edge.id, value)}
-      ></button>
-    {/each}
-
-    <!-- Shows a spectrum until a custom colour is picked, then mirrors it. -->
-    <label
-      class="inspector-swatch inspector-swatch--custom"
-      class:inspector-swatch--active={isCustomColor}
-      style="--swatch: {isCustomColor ? activeColor : 'transparent'}"
-      title="Custom colour"
-    >
-      <input
-        type="color"
-        class="inspector-swatch__input"
-        value={activeColor ?? diagramAccent(theme.isDark)}
-        oninput={(e) => update.color(edge.id, e.currentTarget.value)}
-        aria-label="Custom colour"
-      />
-    </label>
-  </div>
-</div>
+<AccentField
+  value={edge.color}
+  defaultLabel="Neutral"
+  defaultSwatch="var(--diagram-edge-stroke)"
+  groupLabel="Edge accent"
+  onSelect={(color) => update.color(edge.id, color)}
+/>
 
 <div class="inspector-field">
   <span class="inspector-label">Weight</span>
@@ -198,9 +145,64 @@
     height: var(--weight);
     border-radius: 9999px;
     background: var(--diagram-edge-stroke);
+    transition: height var(--duration-quick) var(--ease-premium);
   }
 
-  .weight__slider { flex: 1; min-width: 0; accent-color: var(--solus-accent); }
+  /* Drawn rather than left to `accent-color`: the stock control is the one thing
+     in the panel that would still look like a browser default. */
+  .weight__slider {
+    flex: 1;
+    min-width: 0;
+    appearance: none;
+    -webkit-appearance: none;
+    height: 0.875rem;
+    margin: 0;
+    background: transparent;
+    cursor: pointer;
+  }
+
+  .weight__slider::-webkit-slider-runnable-track {
+    height: 0.25rem;
+    border-radius: 9999px;
+    background: var(--solus-surface-active);
+  }
+
+  .weight__slider::-moz-range-track {
+    height: 0.25rem;
+    border-radius: 9999px;
+    background: var(--solus-surface-active);
+  }
+
+  .weight__slider::-webkit-slider-thumb {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 0.875rem;
+    height: 0.875rem;
+    margin-top: -0.3125rem;
+    border: none;
+    border-radius: 9999px;
+    background: var(--solus-accent);
+    box-shadow:
+      0 0 0 0.125rem var(--solus-container-bg),
+      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.25);
+  }
+
+  .weight__slider::-moz-range-thumb {
+    width: 0.875rem;
+    height: 0.875rem;
+    border: none;
+    border-radius: 9999px;
+    background: var(--solus-accent);
+    box-shadow:
+      0 0 0 0.125rem var(--solus-container-bg),
+      0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.25);
+  }
+
+  .weight__slider:focus-visible {
+    outline: 0.125rem solid var(--solus-accent);
+    outline-offset: 0.25rem;
+    border-radius: 9999px;
+  }
 
   .weight__value {
     flex: none;
@@ -208,5 +210,9 @@
     font-size: var(--text-xs);
     font-variant-numeric: tabular-nums;
     color: var(--solus-text-tertiary);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .weight__preview { transition: none; }
   }
 </style>

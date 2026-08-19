@@ -148,7 +148,9 @@ describe('panel sizing across displays', () => {
   test('a session draft keeps one compact composer measure in every pane', () => {
     // WHY: Ask Solus moves the draft beside the document. Its input bar must
     // not resize only because its pane role changed; max-width still lets the
-    // bar contract if the pane itself is narrower than the fixed measure.
+    // bar contract if the pane itself is narrower than the fixed measure. The
+    // measure varies with the display class only — wider on a desktop, the
+    // original compact measure on a laptop.
     const source = readFileSync(
       new URL(
         '../../src/renderer/components/session-draft/SessionDraftPane.svelte',
@@ -157,7 +159,10 @@ describe('panel sizing across displays', () => {
       'utf8',
     )
     expect(source).toContain('class="draft-column ')
-    expect(source).toContain('--solus-reading-max: 52rem')
+    expect(source).toContain('--solus-reading-max: 56rem')
+    expect(source).toContain(
+      ':global(html.is-laptop-display) .draft-column {\n    --solus-reading-max: 52rem;',
+    )
     expect(source).not.toContain('draft-column--aside')
   })
 

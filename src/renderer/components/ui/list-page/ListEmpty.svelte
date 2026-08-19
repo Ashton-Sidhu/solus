@@ -14,7 +14,7 @@
 <div
   class="mt-2.5 flex flex-col items-center gap-1.5 rounded-2xl bg-[var(--wash-1)] py-[70px]"
 >
-  <span class="text-sm font-medium ">{title}</span>
+  <span class="font-medium">{title}</span>
   {#if children}
     <span class="text-xs text-muted-foreground">{@render children()}</span>
   {/if}

@@ -4,6 +4,7 @@
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Breadcrumb from "../ui/breadcrumb";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { prGroups, type PrRowContext } from "../prs/lib/prs-list-view";
   import { statusDotColor } from "./lib/pr-status";
 
@@ -69,9 +70,8 @@
     ),
   );
 
-  const project = $derived(
-    session.router.params("prReview")?.cwd?.split("/").filter(Boolean).pop() ?? "",
-  );
+  const projectRoot = $derived(session.router.params("prReview")?.cwd ?? "");
+  const project = $derived(projectRoot.split("/").filter(Boolean).pop() ?? "");
 
   function open(next: number) {
     menuOpen = false;
@@ -102,10 +102,7 @@
           <Breadcrumb.Link class="{crumbButton} gap-[7px]">
             {#snippet child({ props })}
               <button {...props} type="button" onclick={onExit}>
-                <span
-                  class="size-4 shrink-0 rounded bg-[color-mix(in_oklch,var(--chart-4)_55%,transparent)]"
-                  aria-hidden="true"
-                ></span>
+                <ProjectFavicon {projectRoot} class="size-4" />
                 <span class="max-w-[14ch] truncate">{project}</span>
               </button>
             {/snippet}

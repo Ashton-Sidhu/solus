@@ -1,7 +1,6 @@
 <script lang="ts">
   import {
     CheckIcon,
-    GlobeIcon,
     LaptopIcon,
     MoonIcon,
     XIcon,
@@ -10,6 +9,7 @@
   import { attentionLabel } from "../../lib/sessionUtils";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
   import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
@@ -95,6 +95,9 @@
   // rather than inferred from the absence of a mark.
   const host = $derived(serversStore.hostFor(session.serverId));
   const isRemote = $derived(!!host && !host.local);
+  // A host Solus no longer has a saved entry for names no operating system;
+  // the icon falls back to a globe in that case.
+  const remoteOs = $derived(host && "os" in host ? host.os : undefined);
 
   const iconButton =
     "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[color,background] duration-[120ms] hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground";
@@ -200,7 +203,7 @@
       {#if renaming}
         <SessionNameInput
           value={session.label}
-          class="text-sm {titleIsEmphasized
+          class="text-workspace-chrome {titleIsEmphasized
             ? 'font-medium '
             : ''}"
           onCommit={onRename}
@@ -208,7 +211,7 @@
         />
       {:else}
         <span
-          class="min-w-0 flex-1 overflow-hidden text-sm leading-[1.125rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
+          class="min-w-0 flex-1 overflow-hidden text-workspace-chrome leading-[1.125rem] text-ellipsis whitespace-nowrap transition-colors duration-150 {titleIsEmphasized
             ? 'font-medium '
             : ''} {titleLeads
             ? 'text-foreground'
@@ -346,7 +349,7 @@
          width the title above it gets. One step down in size and gap, and the
          separator and the local-machine mark dropped, hand those characters
          back; both marks stay in the row's tooltip, and a remote host keeps its
-         globe at every width. -->
+         operating system mark at every width. -->
     <span
       class="mt-1 flex max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1"
     >
@@ -357,12 +360,17 @@
         <span class="shrink-0 @max-[15rem]:hidden">·</span>
       {/if}
       {#if isRemote}
-        <GlobeIcon size={11} class="shrink-0" aria-label={host?.label} />
+        <HostOperatingSystemIcon
+          os={remoteOs}
+          size={11}
+          class="shrink-0"
+          aria-label={host?.label}
+        />
       {:else}
         <LaptopIcon
           size={11}
           class="shrink-0 @max-[15rem]:hidden"
-          aria-label="This machine"
+          aria-label="Local"
         />
       {/if}
     </span>

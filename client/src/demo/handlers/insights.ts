@@ -13,9 +13,10 @@ import {
   demoTurnRecords,
   demoTurnTrace,
   turnListingResult,
+  DEMO_SESSION_BY_TASK,
   type DemoTurnRecord,
 } from '../fixtures/insights'
-import { answerFor, compiledSqlFor, sqlSessionId, sqlWindow } from '../fixtures/insights-answers'
+import { answerFor, compiledSqlFor, sqlSessionId, sqlTaskId, sqlWindow } from '../fixtures/insights-answers'
 import type { DemoServer } from '../fixtures/types'
 
 /**
@@ -61,7 +62,7 @@ export function registerInsightsHandlers(backend: DemoServer): void {
   })
 
   // Anything else the page runs is a turn listing: the explore statement and
-  // the session drill-in both select from `turns`.
+  // the session and task drill-ins all select from `turns`.
   const isTurnListing = (sql: string): boolean => /\bfrom\s+turns\b/i.test(sql)
   const canRun = (sql: string): boolean => !!answerFor(sql) || isTurnListing(sql)
 
@@ -76,9 +77,16 @@ export function registerInsightsHandlers(backend: DemoServer): void {
       )
     }
     const sessionId = sqlSessionId(sql)
-    return turnListingResult(
-      within(window).filter((turn) => !sessionId || turn.sessionId === sessionId),
-    )
+    const taskId = sqlTaskId(sql)
+    const listed = within(window)
+    // A task's turns are the turns of the sessions that worked it. A task the
+    // fixture does not know lists nothing, which is the truth here — answering
+    // it with every turn would be worse than answering it with none.
+    if (sessionId !== null) return turnListingResult(listed.filter((turn) => turn.sessionId === sessionId))
+    if (taskId !== null) {
+      return turnListingResult(listed.filter((turn) => turn.sessionId === DEMO_SESSION_BY_TASK[taskId]))
+    }
+    return turnListingResult(listed)
   })
 
   backend.register('metricsValidateSql', (args) =>

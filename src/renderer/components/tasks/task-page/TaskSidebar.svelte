@@ -5,7 +5,11 @@
     TaskStatus,
     TaskUpdatePatch,
   } from "../../../../shared/task-types";
-  import { ArrowsClockwiseIcon, CircleNotchIcon } from "phosphor-svelte";
+  import {
+    ArrowsClockwiseIcon,
+    CircleNotchIcon,
+    FolderIcon,
+  } from "phosphor-svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import CopyButton from "../../ui/CopyButton.svelte";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
@@ -113,7 +117,7 @@
 {/snippet}
 
 <div
-  class="sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card text-workspace-chrome shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)] [.is-laptop-display_&]:[--task-rail-width:260px] @max-[60rem]:static @max-[60rem]:w-full"
+  class="sticky top-0 flex w-[var(--task-rail-width)] [--task-rail-width:308px] shrink-0 flex-col rounded-2xl bg-card shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent),0_1px_2px_-1px_rgba(0,0,0,.05),0_12px_28px_-12px_rgba(0,0,0,.14)] [.is-laptop-display_&]:[--task-rail-width:260px] @max-[60rem]:static @max-[60rem]:w-full"
 >
   <div class={GROUP}>
     <div class={ROW}>
@@ -218,13 +222,13 @@
       <span class={ROW_LABEL}>Project</span>
       <span class="flex h-[34px] min-w-0 flex-1 items-center gap-2 px-2">
         {#if projectRoot}
-          <ProjectFavicon
-            projectRoot={projectRoot}
-            class="size-3"
-            coloredFallback
-          />
+          <ProjectFavicon projectRoot={projectRoot} class="size-3" />
         {:else}
-          <span class="size-3 shrink-0 rounded-[0.1875rem] bg-(--chart-4)" aria-hidden="true"></span>
+          <FolderIcon
+            size={12}
+            weight="fill"
+            class="shrink-0 text-(--solus-text-tertiary)"
+          />
         {/if}
         <span class="truncate">{projectLabel}</span>
       </span>

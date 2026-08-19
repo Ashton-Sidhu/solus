@@ -223,6 +223,20 @@ export function getStatusIcon(status: SessionStatus): StatusIcon | null {
   return null
 }
 
+/** The status in words, for a row that states it rather than drawing it.
+ *  Null for `idle`: a session that is simply sitting there has nothing to say. */
+export function getStatusLabel(status: SessionStatus): string | null {
+  if (status === 'awaiting_input') return 'Waiting'
+  if (status === 'awaiting_plan') return 'Plan review'
+  if (status === 'rate_limited') return 'Rate limited'
+  if (status === 'connecting') return 'Connecting'
+  if (status === 'running') return 'Running'
+  if (status === 'failed' || status === 'dead') return 'Error'
+  if (status === 'completed') return 'Completed'
+  if (status === 'interrupted') return 'Stopped'
+  return null
+}
+
 export type StatusGroupKey = 'waiting' | 'rate-limited' | 'running' | 'completed' | 'error' | 'idle'
 
 export const STATUS_GROUP_ORDER: StatusGroupKey[] = [

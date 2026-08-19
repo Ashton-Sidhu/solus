@@ -3,7 +3,7 @@
   import * as Popover from "../ui/popover";
   import { menuRowVariants } from "../ui/menu/menu-row";
   import { cn } from "@renderer/lib/tw";
-  import ProjectMark from "./ProjectMark.svelte";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import type { ProjectFilterChoice } from "./lib/task-list";
 
   interface Props {
@@ -73,10 +73,8 @@
           class={cn(menuRowVariants(), "w-full")}
           onclick={() => onFilter(choice.projectKey)}
         >
-          <ProjectMark
-            projectKey={choice.projectKey}
-            initial={choice.initial}
-            active={false}
+          <ProjectFavicon
+            projectRoot={choice.projectKey}
             class="size-[0.875rem]"
           />
           <span class="min-w-0 flex-1 truncate text-left">{choice.label}</span>

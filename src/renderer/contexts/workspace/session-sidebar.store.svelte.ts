@@ -473,8 +473,6 @@ export class SessionSidebarStore {
     return filter ? tasks.filter((task) => task.projectKey === filter) : tasks
   }
 
-  headerCount: number = $derived(this.visibleTasks.length)
-
   /** Prompts written and set aside, in the order they were opened. Two things
    *  keep a draft out: nothing has been written in it — every ⌘N opens one and
    *  boot seeds one, so listing those would fill the section with rows nobody
@@ -1041,6 +1039,21 @@ export class SessionSidebarStore {
     for (const tabId of tabIds) this.session.closeTab(tabId)
   }
 
+  /** Ending the column's last live task must not drop the pane onto a shelved
+   *  one: closing a tab falls through to whichever tab sits beside it, and a
+   *  completed or snoozed task can still hold one. With no active task left the
+   *  next thing the user does is write a prompt, so compose it.
+   *
+   *  Only ending live work does this. Tidying a row that was already shelved
+   *  changes nothing about what the user is working on, and closing the
+   *  workspace's final tab already lands on a draft — which is why a pane no
+   *  longer showing a conversation is left where it is. */
+  private composeNextPromptIfNoActiveTask(endedTask: SidebarTask): void {
+    if (endedTask.lifecycle !== 'active' || this.activeTasks.length) return
+    if (!this.session.showsConversation) return
+    this.session.openSessionDraft({ via: 'click' })
+  }
+
   /** The checkmark: completing says "I am finished with this", so it also
    *  unloads the mounted conversation, exactly as the row's close control
    *  does. A durable task moves to the Completed shelf and stays resumable
@@ -1051,7 +1064,10 @@ export class SessionSidebarStore {
     if (durable) {
       const reopening = durable.status === 'done'
       await this.session.tasksStore.setStatus(durable.id, reopening ? 'todo' : 'done')
-      if (!reopening) this.closeTabs(task.tabIds)
+      if (!reopening) {
+        this.closeTabs(task.tabIds)
+        this.composeNextPromptIfNoActiveTask(task)
+      }
       return
     }
     if (task.status === 'done') this.toggleTaskDone(task.id)
@@ -1083,6 +1099,7 @@ export class SessionSidebarStore {
       persistOpenSidebarTaskIds(this.openTaskIds)
     }
     this.closeTabs(task.tabIds)
+    this.composeNextPromptIfNoActiveTask(task)
   }
 
   /** Close every task a project has in the sidebar, which takes the project's

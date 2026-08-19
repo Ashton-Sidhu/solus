@@ -61,6 +61,12 @@
     initialPath?: string;
     title?: string;
     actionLabel?: string;
+    /**
+     * Present ⇒ the picker saves a file rather than choosing a folder: the
+     * footer gains an editable name seeded with this, and `onSelect` receives
+     * the full file path instead of the directory.
+     */
+    fileName?: string;
     /** RPC surface of the host being browsed. */
     api: HostApi;
     /** Shown as a chip when browsing a host other than the active server. */
@@ -76,6 +82,7 @@
     initialPath,
     title = "Choose folder",
     actionLabel = "Select",
+    fileName = undefined,
     api: host,
     hostLabel = undefined,
     serverId,
@@ -114,6 +121,8 @@
   let sidebarLocations = $state<
     Array<{ label: string; path: string; icon: PlaceIcon }>
   >([]);
+  /** File mode only: the name being saved, edited independently of the folder. */
+  let nameDraft = $state("");
   let popoverEl: HTMLDivElement | null = $state(null);
   let pathInputEl: HTMLInputElement | HTMLTextAreaElement | null = $state(null);
   let pathBarEl: HTMLElement | null = $state(null);
@@ -164,11 +173,36 @@
       path.trim().length > 0 &&
       (leaf ? exactEntry === null : !!loadError),
   );
-  const submitLabel = $derived(willCreate ? `Create & ${actionLabel}` : actionLabel);
+  const savingFile = $derived(fileName !== undefined);
+  /** A name of only whitespace, or with separators in it, is not a file name. */
+  const trimmedName = $derived(nameDraft.trim());
+  const nameIsValid = $derived(
+    trimmedName.length > 0 && !trimmedName.includes("/") && !trimmedName.includes("\\"),
+  );
+  /**
+   * Only decidable while the browsed folder *is* the target — a name typed into
+   * the filter points at a folder whose contents were never listed. The label
+   * stays "Save" there, which is never a lie, just less specific.
+   */
+  const willReplace = $derived(
+    savingFile && !leaf && entries.some((e) => !e.isDir && e.name === trimmedName),
+  );
+  const submitLabel = $derived.by(() => {
+    if (!savingFile) return willCreate ? `Create & ${actionLabel}` : actionLabel;
+    if (willCreate) return `Create & ${actionLabel}`;
+    return willReplace ? "Replace" : actionLabel;
+  });
   const targetName = $derived(inferFolderName(resolvedPath || path, hostPlatform));
 
   /** Footer readout: what Enter commits, in the shorthand the user typed it in. */
   const displayPath = $derived(abbreviateHome(resolvedPath || path));
+
+  // The name belongs to the file the caller asked to save, so re-opening the
+  // picker on a different target starts from that target's name.
+  $effect(() => {
+    if (!open) return;
+    nameDraft = fileName ?? "";
+  });
 
   const shouldAutofocus = $derived(!runtime.shouldSuppressFocus);
   /** Must track DirectoryRow's height — the virtual list positions on this number. */
@@ -374,10 +408,16 @@
     else navigateTo(appendPathSegment(path, row.entry.name, hostPlatform));
   }
 
+  /** In file mode the chosen folder is only half the answer; the name is the rest. */
+  function commit(directory: string) {
+    onSelect(savingFile ? joinBrowsePath(directory, trimmedName, hostPlatform) : directory);
+  }
+
   async function submit() {
     if (loading || creating || !resolvedPath) return;
+    if (savingFile && !nameIsValid) return;
     if (!willCreate) {
-      onSelect(resolvedPath);
+      commit(resolvedPath);
       return;
     }
     creating = true;
@@ -387,7 +427,7 @@
         loadError = result.error;
         return;
       }
-      onSelect(result.path);
+      commit(result.path);
     } catch {
       loadError = "Couldn’t create this folder. Check the connection and try again.";
     } finally {
@@ -508,7 +548,7 @@
       transition:fly={{ y: 10, duration: 220, easing: expoOut }}
     >
       <header class="flex h-14 shrink-0 items-center gap-3 px-5 max-md:h-auto max-md:px-4 max-md:pb-2 max-md:pt-3">
-        <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-sm font-medium ">
+        <span id="directory-picker-title" class="min-w-0 flex-1 truncate text-workspace-chrome font-medium ">
           {title}
         </span>
         {#if hostLabel}
@@ -723,7 +763,34 @@
 
       <footer class="flex h-14 shrink-0 items-center gap-3 border-t border-border px-4
         max-md:h-auto max-md:flex-wrap max-md:gap-2 max-md:py-2.5 max-md:pb-[max(0.625rem,env(safe-area-inset-bottom,0))]">
-        {#if fileManagerError}
+        {#if savingFile}
+          <!-- The name of the file, not a filter: the crumbs above already say
+               which folder it lands in, so this replaces the path readout. -->
+          <label class="flex min-w-0 flex-1 items-center gap-2 max-md:order-first max-md:basis-full">
+            <span class="shrink-0 text-xs text-muted-foreground">Name</span>
+            <Input
+              bind:value={nameDraft}
+              type="text"
+              class="h-8 min-w-0 flex-1 text-[0.8125rem] max-md:h-10"
+              placeholder="File name"
+              spellcheck={false}
+              autocomplete="off"
+              autocapitalize="off"
+              dictation={false}
+              aria-label="File name"
+              aria-invalid={!nameIsValid}
+              onkeydown={(e) => {
+                // The dialog's own handler treats ↑↓←/Backspace as folder
+                // navigation, which would eat ordinary text editing here.
+                e.stopPropagation();
+                if (e.key === "Escape") onClose();
+                if (e.key !== "Enter") return;
+                e.preventDefault();
+                void submit();
+              }}
+            />
+          </label>
+        {:else if fileManagerError}
           <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground max-md:hidden">{fileManagerError}</span>
         {:else}
           <!-- What Enter commits, spelled out — the typed path can be a prefix,
@@ -756,11 +823,14 @@
         {/if}
         <Button
           class="shrink-0 px-3.5 text-[0.8125rem] max-md:h-11 max-md:flex-1"
-          disabled={loading || creating || !resolvedPath}
+          disabled={loading || creating || !resolvedPath || (savingFile && !nameIsValid)}
           onclick={() => void submit()}
         >
           {creating ? "Creating" : submitLabel}
-          <span class="inline-block max-w-36 truncate align-bottom">“{targetName}”</span>
+          <!-- In file mode the name is right there in the field beside it. -->
+          {#if !savingFile}
+            <span class="inline-block max-w-36 truncate align-bottom">“{targetName}”</span>
+          {/if}
         </Button>
       </footer>
     </div>

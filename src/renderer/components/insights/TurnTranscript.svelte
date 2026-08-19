@@ -116,12 +116,13 @@
     {#if pane.role === "prompt"}
       <!-- The ask is typed text, not markdown: it is set as it was sent, with
            its own line breaks kept. -->
-      <p class="m-0 text-sm leading-[1.65] whitespace-pre-wrap text-pretty select-text">
+      <p class="transcript-text m-0 whitespace-pre-wrap text-pretty select-text">
         {pane.text}
       </p>
     {:else}
       <div
-        class="prose-cloud prose-reading prose-transcript min-w-0 {pane.role === 'system'
+        class="transcript-text prose-cloud prose-reading prose-transcript min-w-0 {pane.role ===
+        'system'
           ? 'text-muted-foreground'
           : ''}"
       >
@@ -280,6 +281,33 @@
 </section>
 
 <style>
+  /* The three texts drop one rung, to the annotation size the rest of this
+     analytics surface reads at. The conversation sets its transcript at the
+     reading size because the transcript is the page; here the exchange is one
+     card beside a waterfall, a coverage band and a table, and at the reading
+     size it shouted over all of them. `--text-footnote` still carries the
+     user's own text-size preference, so a reader who scales prose up keeps it.
+
+     Written here, not as a utility: `.prose-transcript` and `.prose-reading`
+     are unlayered, so a `text-*` utility in `@layer utilities` never wins. */
+  .transcript-text {
+    font-size: var(--text-footnote);
+    line-height: 1.7;
+  }
+  /* Headings inside a recorded answer follow the text down; left alone they
+     would sit two rungs above their own paragraphs. */
+  .transcript-text :global(h1) {
+    font-size: var(--text-caption);
+  }
+  .transcript-text :global(h2),
+  .transcript-text :global(h3),
+  .transcript-text :global(h4),
+  .transcript-text :global(h5),
+  .transcript-text :global(h6),
+  .transcript-text :global(table) {
+    font-size: var(--text-footnote);
+  }
+
   /* Fades the last lines of a clipped text so a cut never reads as a text that
      happens to end mid-sentence. A mask rather than an overlaid gradient: the
      texts sit on the card, on the ask's bubble, and on the reader's own theme,
