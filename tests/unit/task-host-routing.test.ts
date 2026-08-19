@@ -149,7 +149,6 @@ describe('what the Run on picker says about each state', () => {
     hostLabel: 'Studio',
     taskHostLabel: 'This Mac',
     stayLabel: 'Local',
-    isolated: false,
     canBranchWorktree: true,
   }
 
@@ -175,18 +174,22 @@ describe('what the Run on picker says about each state', () => {
     expect(target.taskNote).toBe('Runs and files tasks on Studio')
   })
 
-  test('local work names the checkout shape and says nothing about hosts', () => {
+  test('local work keeps naming its host, whatever checkout it starts in', () => {
     const plain = runTarget({ ...base, run: runOn('local', 'local'), hostIsLocal: true })
     expect(plain.kind).toBe('local')
     expect(plain.label).toBe('Local')
     expect(plain.taskNote).toBeNull()
 
+    // WHY: choosing a new worktree does not move the work to another machine, so
+    // this chip must not rename itself. The branch chip beside it is what says
+    // "New worktree"; both saying it reads as two separate worktrees.
     const branching = runTarget({
       ...base,
       run: runOn('local', 'local', { worktree: { baseBranch: 'main' } }),
       hostIsLocal: true,
     })
-    expect(branching.label).toBe('New worktree')
+    expect(branching.label).toBe('Local')
+    expect(branching.startsWorktree).toBe(true)
   })
 
   test('a checkout with no base branch says why the worktree rows are off', () => {

@@ -877,13 +877,13 @@
     {#if showNewSessionAction}
       <button
         type="button"
-        class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded pr-2.5 pl-2 transition-[background] duration-150 hover:bg-accent @max-[36rem]:size-[1.875rem] @max-[36rem]:justify-center @max-[36rem]:gap-0 @max-[36rem]:p-0"
+        class="flex h-[1.6875rem] shrink-0 cursor-pointer items-center gap-1 rounded pr-2 pl-1.5 transition-[background] duration-150 hover:bg-accent @max-[36rem]:size-[1.6875rem] @max-[36rem]:justify-center @max-[36rem]:gap-0 @max-[36rem]:p-0"
         style="box-shadow:0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent)"
         title="New session in this task"
         aria-label="New session in this task"
         onclick={newSession}
       >
-        <PlusIcon size={14} class="text-muted-foreground" />
+        <PlusIcon size={12} class="text-muted-foreground" />
         <span
           class="text-workspace-chrome font-medium whitespace-nowrap @max-[36rem]:hidden"
           >New Task</span

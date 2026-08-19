@@ -36,7 +36,7 @@
 <div class="text-caption">
   {#if fold.folded.length > 0}
     <button
-      class="flex items-center gap-2 w-full py-2.5 text-left text-xs text-muted-foreground cursor-pointer hover:text-foreground"
+      class="flex items-center gap-2 w-full py-2.5 text-left text-transcript-meta text-muted-foreground cursor-pointer hover:text-foreground"
       onclick={() => (foldOpenByUser = !foldOpenByUser)}
     >
       <svg

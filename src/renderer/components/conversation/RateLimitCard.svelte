@@ -110,7 +110,7 @@
 
     {#snippet meta()}
       <span class="shrink-0">Resets at</span>
-      <span class="text-xs font-medium text-(--foreground)"
+      <span class="text-transcript-meta font-medium text-(--foreground)"
         >{releaseClock}</span
       >
     {/snippet}
@@ -123,7 +123,7 @@
     {/snippet}
 
     <div
-      class="flex items-center gap-2 px-[1.125rem] py-[0.875rem] text-xs text-(--muted-foreground)"
+      class="flex items-center gap-2 px-[1.125rem] py-[0.875rem] text-transcript-meta text-(--muted-foreground) pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:py-2.5"
     >
       <ClockIcon size={14} class="shrink-0 opacity-50" />
       <span
@@ -166,7 +166,7 @@
   }
   .limit-clock-caption {
     margin-top: 0.1875rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
 
     text-transform: uppercase;

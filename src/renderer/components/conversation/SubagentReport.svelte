@@ -56,7 +56,7 @@
   let briefOpen = $state(false);
 </script>
 
-<div class="text-xs px-[1.125rem] pt-4 pb-8">
+<div class="text-transcript-meta px-[1.125rem] pt-4 pb-8">
   {#if brief}
     <!-- The brief keeps a chassis because it is the one thing on this tab the
          agent didn't write. Collapsed it states what it asked for and what the
@@ -88,7 +88,7 @@
                the prompt, not a heading over it: once the prompt is open it
                would print the same sentence twice. -->
           {#if !briefOpen}
-            <span class="block truncate text-sm font-medium">{briefTitle}</span>
+            <span class="block truncate text-transcript-card font-medium">{briefTitle}</span>
           {/if}
           {#if meta.length > 0}
             <span
@@ -131,7 +131,7 @@
   {/if}
 
   {#if !report}
-    <div class="text-sm text-(--muted-foreground)">
+    <div class="text-transcript-card text-(--muted-foreground)">
       {running ? "Still working — the answer lands here." : "This agent returned no answer."}
     </div>
   {:else if !outline}

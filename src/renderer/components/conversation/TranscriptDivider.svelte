@@ -104,7 +104,7 @@
     background: color-mix(in oklch, var(--foreground) 4%, transparent);
     padding: 0.1875rem 0.625rem;
     color: var(--solus-text-tertiary);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     line-height: 1rem;
     text-align: center;
     text-wrap: pretty;
@@ -113,7 +113,7 @@
   .divider.is-emphasized .divider-pill {
     gap: 0.4375rem;
     padding: 0.25rem 0.75rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     line-height: 1.125rem;
   }
 
@@ -180,7 +180,7 @@
     background: transparent;
     padding: 0.125rem 0.5625rem;
     color: var(--solus-text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);

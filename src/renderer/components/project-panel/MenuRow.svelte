@@ -31,6 +31,7 @@
 
 <script lang="ts">
   import { CaretRightIcon, CheckIcon, SpinnerGapIcon } from "phosphor-svelte";
+  import Kbd from "@renderer/components/ui/Kbd.svelte";
   import * as TooltipUI from "@renderer/components/ui/tooltip";
 
   interface Props {
@@ -79,8 +80,8 @@
         </span>
         <span class="menu-right">
           {#if item.badge}<span class="menu-trail">{item.badge}</span>{/if}
-          {#if item.hint && !item.disclosure}<span class="menu-hint"
-              >{item.hint}</span
+          {#if item.hint && !item.disclosure}<Kbd variant="inline"
+              >{item.hint}</Kbd
             >{/if}
           {#if item.disclosure}<span class="menu-caret"
               ><CaretRightIcon size={11} /></span
@@ -213,15 +214,6 @@
   }
   .menu-row.is-open .menu-icon {
     color: var(--solus-text-primary);
-  }
-
-  /* Key hints are mono and quieter than the metric, so the two never compete. */
-  .menu-hint {
-    flex-shrink: 0;
-    color: var(--solus-text-tertiary);
-    font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
-    opacity: 0.7;
   }
 
   .menu-row.is-danger,

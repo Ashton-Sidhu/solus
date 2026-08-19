@@ -65,21 +65,23 @@
   </svg>
 {/snippet}
 
-<div class="mx-auto w-[88%] py-2 {skipMotion ? '' : 'animate-msg-in-side'}">
+<div class="mx-auto w-[88%] py-2 pointer-fine:[.is-laptop-display_&]:py-1.5 {skipMotion ? '' : 'animate-msg-in-side'}">
   <div
-    class="setup-card overflow-hidden rounded-2xl"
+    class="setup-card overflow-hidden rounded-2xl pointer-fine:[.is-laptop-display_&]:rounded-xl"
     class:is-error={isError}
     role="status"
     aria-live="polite"
     data-testid="status-card"
   >
-    <div class="flex items-center gap-3 px-[1.0625rem] pt-[0.9375rem] pb-3">
+    <div
+      class="flex items-center gap-3 px-[1.0625rem] pt-[0.9375rem] pb-3 pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5 pointer-fine:[.is-laptop-display_&]:pb-2"
+    >
       <div class="min-w-0 flex-1">
         <div class="setup-kicker">Setup</div>
-        <div class="truncate text-sm leading-tight font-medium ">
+        <div class="truncate text-transcript-card leading-tight font-medium ">
           {card.title}
         </div>
-        <div class="mt-0.5 truncate text-xs text-(--muted-foreground)">{meta}</div>
+        <div class="mt-0.5 truncate text-transcript-meta text-(--muted-foreground)">{meta}</div>
       </div>
       <TranscriptChip state={chip.state}>{chip.label}</TranscriptChip>
       {#if isDone}
@@ -98,16 +100,16 @@
     {#if !collapsed}
       <!-- The progress bar reads as the card's own state, so it sits as a rule
            directly under the header rather than floating in it. -->
-      <div class="mx-3.5 h-[0.1875rem] overflow-hidden rounded-full setup-track">
+      <div class="mx-3.5 pointer-fine:[.is-laptop-display_&]:mx-3 h-[0.1875rem] overflow-hidden rounded-full setup-track">
         <div class="h-full rounded-full setup-track-fill" style="width:{progressPercent}%"></div>
       </div>
 
       <!-- 28px rows on an 8px inset; no dividers, no filled discs. -->
-      <ul class="flex flex-col px-2 py-2.5" role="list">
+      <ul class="flex flex-col px-2 py-2.5 pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:py-1.5" role="list">
         {#each card.steps as step (step.id)}
           {@const stepMs = timing.msFor(step.id)}
           <li
-            class="setup-step flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem]"
+            class="setup-step flex min-h-7 items-center gap-2.5 rounded-md px-2 py-[0.3125rem] pointer-fine:[.is-laptop-display_&]:min-h-6 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:py-[0.1875rem]"
             class:is-active={step.status === "active"}
           >
             {#if step.status === "done"}
@@ -123,7 +125,7 @@
             {/if}
 
             <span
-              class="min-w-0 flex-1 truncate text-sm"
+              class="min-w-0 flex-1 truncate text-transcript-card"
               class:setup-label--done={step.status === "done"}
               class:setup-label--active={step.status === "active"}
               class:setup-label--pending={step.status === "pending"}
@@ -139,7 +141,9 @@
             {/if}
           </li>
           {#if step.detail && step.status === "error"}
-            <li class="setup-detail px-2 pb-1.5">{step.detail}</li>
+            <li class="setup-detail px-2 pb-1.5 pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:pb-1">
+              {step.detail}
+            </li>
           {/if}
         {/each}
       </ul>
@@ -162,12 +166,21 @@
 
   .setup-kicker {
     margin-bottom: 0.3125rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
 
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.7;
+  }
+
+  /* The kicker sits above a two-line stack, so its lead is the header's tallest
+     compressible gap on a laptop. Coarse-pointer clients keep the open spacing,
+     the same guard the responsive type rungs use. */
+  @media (pointer: fine) {
+    :global(html.is-laptop-display) .setup-kicker {
+      margin-bottom: 0.125rem;
+    }
   }
 
   .setup-disclosure {
@@ -184,6 +197,13 @@
     cursor: pointer;
     opacity: 0.5;
     transition: background var(--duration-quick) var(--ease-premium);
+  }
+  /* Only where a precise pointer can hit it — touch keeps the larger target. */
+  @media (pointer: fine) {
+    :global(html.is-laptop-display) .setup-disclosure {
+      width: 1.125rem;
+      height: 1.125rem;
+    }
   }
   .setup-disclosure:hover {
     background: color-mix(in oklch, var(--foreground) 7%, transparent);
@@ -255,13 +275,13 @@
   }
 
   .setup-elapsed {
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.7;
   }
 
   .setup-detail {
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     line-height: 1.5;
     color: var(--muted-foreground);
     text-wrap: pretty;

@@ -233,9 +233,17 @@
     padding: 0.9375rem 1.0625rem 0.8125rem;
   }
 
+  /* Geometry only: the type rungs already follow the display, and touch keeps
+     the open spacing. */
+  @media (pointer: fine) {
+    :global(html.is-laptop-display) .conversation-ref-card__header {
+      padding: 0.6875rem 0.875rem 0.625rem;
+    }
+  }
+
   .conversation-ref-card__kicker {
     margin-bottom: 0.3125rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -244,14 +252,14 @@
   }
 
   .conversation-ref-card__title {
-    font-size: var(--text-sm);
+    font-size: var(--text-transcript-card);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
 
   .conversation-ref-card__subtitle {
     margin-top: 0.125rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     text-wrap: pretty;
   }
@@ -264,7 +272,7 @@
     background: transparent;
     padding: 0 0.75rem;
     color: var(--muted-foreground);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
     transition:
       background var(--duration-quick) var(--ease-premium),
@@ -309,7 +317,7 @@
     position: relative;
     padding: 0.875rem 1rem 0;
     border-top: 0.0625rem solid var(--solus-tx-rule);
-    font-size: var(--text-sm);
+    font-size: var(--text-transcript-card);
     line-height: 1.6;
     color: var(--muted-foreground);
     text-wrap: pretty;

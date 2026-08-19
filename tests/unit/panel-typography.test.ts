@@ -79,13 +79,13 @@ describe('persistent panel typography', () => {
     expect(source).not.toMatch(
       /@container \(max-width: 17rem\)[\s\S]*?\.menu-row/,
     )
-    // WHY: the trail and the hint used to sit at 11px, a rung that existed only
-    // to optically match monospace keycaps against 12px sans. Chrome no longer
-    // sets type in mono, so the compensation has nothing left to compensate for
-    // and both drop onto the 12px rung, separating by colour as the rest of the
-    // rail does.
+    // WHY: the trail remains fixed metadata, while the hint is a shared keycap
+    // that follows the compact shortcut rung on laptop displays. MenuRow must
+    // not recreate either the component or its laptop branch locally.
     expect(source).toMatch(/\.menu-trail\s*{[\s\S]*?font-size: var\(--text-xs\);/)
-    expect(source).toMatch(/\.menu-hint\s*{[\s\S]*?font-size: var\(--text-xs\);/)
+    expect(source).toContain('import Kbd from "@renderer/components/ui/Kbd.svelte";')
+    expect(source).toContain('<Kbd variant="inline"')
+    expect(source).not.toContain('.menu-hint')
   })
 
   test('keeps provider usage rows level with the action rows above them', () => {

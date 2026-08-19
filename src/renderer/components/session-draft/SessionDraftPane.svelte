@@ -57,8 +57,11 @@
     projectDirLabel(projectRoot, session.staticInfo?.workspacePath),
   );
   // No project chosen yet — "build in ~?" names nothing, so the question drops
-  // its object and the chip below does the choosing.
+  // its object and only the chip below is left to do the choosing.
   const hasProject = $derived(projectName !== "~");
+  // The headline names the project, so it opens the same list the chip below
+  // does — one menu, anchored where project choices always appear.
+  let projectPickerOpen = $state(false);
 
   // A draft has no session command cache. Load against the run selected in its
   // own model picker instead of borrowing commands from the active tab.
@@ -176,19 +179,29 @@
   <div
     class="draft-column relative flex h-full min-h-0 w-full flex-col items-center justify-center gap-5 px-6 py-3"
   >
+    <!-- The headline is display type, not chrome, so it has no responsive rung.
+         A laptop display carries the same 36px at 0.9 zoom and the question
+         crowds the composer, so step it down there. Viewport breakpoints cannot
+         make this call: the zoom factor inflates the CSS viewport past `lg`. -->
     <h1
-      class="max-w-[40rem] text-center text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary) lg:max-w-[52rem] lg:text-4xl"
+      class="max-w-[40rem] text-center text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary) lg:max-w-[52rem] lg:text-4xl [.is-laptop-display_&]:text-3xl"
     >
       {#if hasProject}
         What should we build in
-        <span class="whitespace-nowrap"
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={projectPickerOpen}
+          aria-label="Change project — currently {projectName}"
+          onclick={() => (projectPickerOpen = true)}
+          class="group inline whitespace-nowrap focus-visible:outline-none"
           ><ProjectFavicon
             {projectRoot}
             class="mr-[0.22em] size-[0.8em] translate-y-[0.05em]"
           /><span
-            class="underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.28em]"
+            class="underline decoration-dotted decoration-[color:var(--solus-text-tertiary)] underline-offset-[0.28em] transition-[text-decoration-color] duration-[var(--duration-quick)] ease-(--ease-premium) group-hover:decoration-[color:var(--solus-text-secondary)] group-focus-visible:decoration-[color:var(--solus-accent)]"
             >{projectName}</span
-          ></span
+          ></button
         >?
       {:else}
         What should we build?
@@ -198,7 +211,11 @@
     <div class="w-full max-w-(--solus-reading-max)">
       <!-- The same destination strip a pre-flight tab draws — project, where it
            runs, branch, task — addressed by the draft's id. -->
-      <InputBarHeader sourceId={current.id} {paneId} />
+      <InputBarHeader
+        sourceId={current.id}
+        {paneId}
+        bind:projectPickerOpen
+      />
 
       <div
         class={cn(

@@ -277,7 +277,7 @@
                    so the row you are reading states its own state in one
                    colour. -->
               <span
-                class="shrink-0 text-xs tabular-nums {selected
+                class="shrink-0 text-chrome-shelf tabular-nums {selected
                   ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
                   : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
               >

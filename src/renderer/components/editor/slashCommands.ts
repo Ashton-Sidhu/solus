@@ -172,6 +172,16 @@ export function filterCommands(query: string, extra: EditorBlockCommand[] = []):
   )
 }
 
+/**
+ * Whether the block menu is on screen. A "/" token that matches no command
+ * shows nothing, so the key handlers must gate on this rather than on the
+ * token alone — otherwise an invisible menu eats Enter, Tab, and the arrows
+ * while the user types a path or a bare slash.
+ */
+export function slashMenuIsOpen(tokenActive: boolean, matchCount: number): boolean {
+  return tokenActive && matchCount > 0
+}
+
 export function executeSlashCommand(editor: Editor, cmd: EditorBlockCommand, from: number, to: number) {
   editor.chain().focus().deleteRange({ from, to }).run()
   cmd.action(editor)

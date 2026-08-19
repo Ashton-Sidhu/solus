@@ -34,8 +34,6 @@ export interface RunTargetInput {
   /** Whether the execution host is this client's own. The registry answers it —
    *  on web no host is truly local, so the id alone cannot. */
   hostIsLocal: boolean
-  /** The run already sits inside a worktree, rather than about to branch one. */
-  isolated: boolean
   /** This checkout has a base branch a worktree could be branched from. */
   canBranchWorktree: boolean
 }
@@ -57,7 +55,7 @@ export interface RunTarget {
 }
 
 export function runTarget(input: RunTargetInput): RunTarget {
-  const { run, hostLabel, taskHostLabel, stayLabel, hostIsLocal, isolated, canBranchWorktree } = input
+  const { run, hostLabel, taskHostLabel, stayLabel, hostIsLocal, canBranchWorktree } = input
   // A picker choice is already the next run target even though the host move
   // waits for Send. Render that pending dispatch with the same worktree and task
   // ownership semantics as a dispatch that has finished preparation.
@@ -86,13 +84,10 @@ export function runTarget(input: RunTargetInput): RunTarget {
 
   return {
     kind,
-    // A remote project is named for its host; a local one is named for the
-    // shape of the checkout, which is the only thing that varies there.
-    label: kind === 'remote'
-      ? hostLabel
-      : worktree && !isolated
-        ? 'New worktree'
-        : stayLabel,
+    // Both name the host the work runs on. Choosing a new worktree does not move
+    // it, so this label does not change: the branch chip beside it is what names
+    // the checkout, and two chips saying "New worktree" reads as two worktrees.
+    label: kind === 'remote' ? hostLabel : stayLabel,
     startsWorktree: worktree,
     worktreeForced: false,
     worktreeBlockedNote: worktreeBlockedReason(canBranchWorktree),

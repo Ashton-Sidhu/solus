@@ -32,7 +32,7 @@
   import { portal } from "../portal";
   import { extractHeadings, type PlanHeading } from "./headings";
   import { countThreadsByHeading } from "../comments/lib/anchors";
-  import { sectionJumpIndex } from "./lib/outline";
+  import { hasOutlineMarginRoom, sectionJumpIndex } from "./lib/outline";
   import { bylineContent } from "./lib/byline";
   import { formatSavedAgo } from "./saveStatus";
   import { isActive, cmd } from "./toolbar";
@@ -322,6 +322,10 @@
   // narrow pane's visual space; hover, pinning, and keyboard jumps can still
   // reveal it on demand.
   let outlineAtTop = $state(true);
+  // A narrow pane on a wide monitor has no margin for the panel to unfold into.
+  const outlineHasMarginRoom = $derived(
+    hasOutlineMarginRoom(shellWidth, runtime.isLaptopDisplay),
+  );
   // The reading viewport's height. The margin rail sticks to the top of the
   // scroll region, so it needs the viewport's height rather than the
   // document's — a sticky element cannot get that from its own parent.
@@ -825,7 +829,7 @@
             {threadCounts}
             pinned={outlinePinned}
             jumping={outlineJumping}
-            atTop={minimizeOutline ? false : outlineAtTop}
+            atTop={minimizeOutline || !outlineHasMarginRoom ? false : outlineAtTop}
             onScrollTo={scrollToHeading}
           />
         </div>

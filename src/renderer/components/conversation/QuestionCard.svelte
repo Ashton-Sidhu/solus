@@ -262,14 +262,14 @@
 
   {#snippet meta()}
     {#if sessionId}
-      <span class="shrink-0">{assistantName} <span class="text-xs">{sessionId}</span></span>
+      <span class="shrink-0">{assistantName} <span class="text-transcript-meta">{sessionId}</span></span>
       <span class="shrink-0 opacity-60">·</span>
     {/if}
     {#if total > 1}
       <span class="shrink-0 text-(--solus-text-primary)">{ordinal(currentIndex + 1)} of {total}</span>
       <span class="shrink-0 opacity-60">·</span>
     {/if}
-    <span class="shrink-0 text-xs">waiting {waiting}</span>
+    <span class="shrink-0 text-transcript-meta">waiting {waiting}</span>
   {/snippet}
 
   {#snippet headerAside()}
@@ -314,11 +314,11 @@
               >
                 <span class="trail-index">{entry.index + 1}</span>
                 <CheckIcon size={14} weight="bold" class="trail-check" />
-                <span class="min-w-0 flex-1 truncate text-xs text-(--muted-foreground)">
+                <span class="min-w-0 flex-1 truncate text-transcript-meta text-(--muted-foreground)">
                   {entry.question.question}
                 </span>
-                <span class="shrink-0 text-xs opacity-40" aria-hidden="true">→</span>
-                <span class="max-w-[45%] min-w-0 truncate text-xs font-medium">
+                <span class="shrink-0 text-transcript-meta opacity-40" aria-hidden="true">→</span>
+                <span class="max-w-[45%] min-w-0 truncate text-transcript-meta font-medium">
                   {entry.answer}
                 </span>
                 <span class="trail-change">Change</span>
@@ -330,7 +330,7 @@
         <!-- The question is a sentence, not a heading: the header's title stays
              the card's only bold line. -->
         <div
-          class="prose-cloud prose-reading prose-transcript prose-interrupt min-w-0 px-[1.125rem] pt-[0.9375rem] pb-3 text-sm font-normal"
+          class="prose-cloud prose-reading prose-transcript prose-interrupt min-w-0 px-[1.125rem] pt-[0.9375rem] pb-3 text-transcript-card font-normal pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-3 pointer-fine:[.is-laptop-display_&]:pb-2.5"
         >
           <SvelteMarkdown
             source={currentQuestion.question}
@@ -341,13 +341,13 @@
         </div>
 
         {#if request.kind === "mcp_url" && request.url}
-          <div class="px-[1.125rem] pb-2 font-mono text-xs leading-relaxed break-all text-(--muted-foreground)">
+          <div class="px-[1.125rem] pb-2 font-mono text-transcript-meta leading-relaxed break-all text-(--muted-foreground)">
             {request.url}
           </div>
         {/if}
 
         {#if currentQuestion.multiSelect && hasOptions}
-          <div class="px-[1.125rem] pb-2 text-xs uppercase text-(--muted-foreground)">
+          <div class="px-[1.125rem] pb-2 text-transcript-meta uppercase text-(--muted-foreground)">
             Select all that apply
           </div>
         {/if}
@@ -368,7 +368,7 @@
               >
                 <span class="option-index">{i + 1}</span>
                 <span class="flex min-w-0 flex-1 flex-col gap-px">
-                  <span class="text-sm font-medium">
+                  <span class="text-transcript-card font-medium">
                     {#each inlineCodeParts(label.text) as part, p (p)}
                       {#if part.code}<code class="option-code">{part.text}</code
                         >{:else}{part.text}{/if}
@@ -377,7 +377,7 @@
                       >{/if}
                   </span>
                   {#if opt.description}
-                    <span class="text-xs leading-[1.5] text-pretty text-(--muted-foreground)">
+                    <span class="text-transcript-meta leading-[1.5] text-pretty text-(--muted-foreground)">
                       {#each inlineCodeParts(opt.description) as part, p (p)}
                         {#if part.code}<code class="option-code">{part.text}</code
                           >{:else}{part.text}{/if}
@@ -418,7 +418,7 @@
             {#if previewOpen}
               <div
                 in:fly={{ y: -2, duration: 140 }}
-                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] text-xs leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
+                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] text-transcript-meta leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
               >
                 <SvelteMarkdown
                   source={activeOption.preview ?? ""}
@@ -441,7 +441,7 @@
               placeholder={hasOptions ? "Or answer in your own words…" : "Type your answer…"}
               disabled={responded}
               rows={1}
-              class="min-h-0 rounded-none border-0 bg-transparent p-0 text-sm font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
+              class="min-h-0 rounded-none border-0 bg-transparent p-0 text-transcript-card font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
               oninput={(e) => {
                 ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
               }}
@@ -470,11 +470,11 @@
       </button>
     {/if}
     <div class="flex-1"></div>
-    <span class="shrink-0 text-xs text-(--muted-foreground)">
+    <span class="shrink-0 text-transcript-meta text-(--muted-foreground)">
       {#if responded}
         Answered
       {:else}
-        Holding · <span class="text-xs">{waiting}</span>
+        Holding · <span class="text-transcript-meta">{waiting}</span>
       {/if}
     </span>
     <button
@@ -514,7 +514,7 @@
   }
   .interrupt-pager-count {
     padding: 0 0.1875rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-variant-numeric: tabular-nums;
     color: var(--muted-foreground);
   }
@@ -537,7 +537,7 @@
   .trail-index {
     width: 0.875rem;
     flex-shrink: 0;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.5;
   }
@@ -551,7 +551,7 @@
     flex-shrink: 0;
     border-radius: 0.375rem;
     padding: 0.125rem 0.4375rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
     color: var(--muted-foreground);
     transition: background var(--duration-quick) var(--ease-premium);
@@ -563,7 +563,7 @@
   /* "recommended" is a note about the option, never part of its name. */
   .option-note {
     margin-left: 0.25rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 400;
     color: var(--muted-foreground);
   }
@@ -615,7 +615,7 @@
     border: 0.0625rem solid var(--border);
     border-radius: 0.25rem;
     color: var(--muted-foreground);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
   }
 
   .option-mark {
@@ -661,7 +661,7 @@
     border-radius: 0.25rem;
     padding: 0 0.25rem;
     color: var(--muted-foreground);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     line-height: 1.5;
   }
 </style>

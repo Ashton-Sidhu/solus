@@ -43,14 +43,16 @@
 
 <div
   transition:fly={{ y: 8, duration: 200 }}
-  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-2xl border border-border bg-card text-sm shadow-[shadow:var(--solus-tx-raised-shadow)]"
+  class="mx-auto my-2 w-full max-w-[47.5rem] overflow-hidden rounded-2xl border border-border bg-card text-transcript-card shadow-[shadow:var(--solus-tx-raised-shadow)] pointer-fine:[.is-laptop-display_&]:my-1.5 pointer-fine:[.is-laptop-display_&]:rounded-xl"
   data-testid={testId}
 >
-  <div class="interrupt-head flex items-start gap-3 px-[1.125rem] pt-[0.875rem] pb-[0.8125rem]">
+  <div
+    class="interrupt-head flex items-start gap-3 px-[1.125rem] pt-[0.875rem] pb-[0.8125rem] pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5 pointer-fine:[.is-laptop-display_&]:pb-2.5"
+  >
     <div class="flex min-w-0 flex-1 flex-col gap-[0.125rem]">
       <span class="interrupt-eyebrow">{eyebrow}</span>
       <div class="flex min-w-0 items-center gap-2.5">
-        <h2 class="m-0 min-w-0 truncate text-sm leading-[1.3] font-medium ">
+        <h2 class="m-0 min-w-0 truncate font-medium">
           {title}
         </h2>
         {@render chip?.()}
@@ -75,7 +77,9 @@
 
   <!-- Escape hatch left, scope-broadening in the middle, the one filled default
        on the right. Never the reverse, on any interrupt. -->
-  <div class="interrupt-footer flex items-center gap-2 py-[0.6875rem] pr-[0.875rem] pl-[1.125rem]">
+  <div
+    class="interrupt-footer flex items-center gap-2 py-[0.6875rem] pr-[0.875rem] pl-[1.125rem] pointer-fine:[.is-laptop-display_&]:py-2 pointer-fine:[.is-laptop-display_&]:pr-3 pointer-fine:[.is-laptop-display_&]:pl-3.5"
+  >
     {@render footer()}
   </div>
 </div>
@@ -86,7 +90,7 @@
   }
 
   .interrupt-eyebrow {
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -96,14 +100,14 @@
   /* The meta line sets the size and colour its spans inherit; a card emphasises
      one segment by moving it to foreground/500, never by enlarging it. */
   .interrupt-meta {
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
   }
 
   .interrupt-danger {
     background: color-mix(in oklch, var(--destructive) 10%, transparent);
     color: color-mix(in oklch, var(--destructive) 72%, var(--foreground));
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
   }
 
   .interrupt-footer {
@@ -126,12 +130,26 @@
     background: transparent;
     padding: 0 0.5rem;
     color: var(--muted-foreground);
-    font-size: var(--text-sm);
+    font-size: var(--text-transcript-card);
     font-weight: 400;
     cursor: pointer;
     transition:
       background var(--duration-quick) var(--ease-premium),
       color var(--duration-quick) var(--ease-premium);
+  }
+  /* The chassis is transcript content, so its height is reading column the user
+     cannot recover. Geometry only — the type rungs above already follow the
+     display, and touch keeps the larger hit target. */
+  @media (pointer: fine) {
+    :global(html.is-laptop-display .interrupt-btn) {
+      height: 1.625rem;
+    }
+    :global(html.is-laptop-display .interrupt-payload-body) {
+      padding: 0.5rem 0.6875rem 0.5625rem;
+    }
+    :global(html.is-laptop-display .interrupt-detail-table) {
+      padding: 0.5rem 0.625rem;
+    }
   }
   :global(.interrupt-btn):hover:not(:disabled) {
     background: var(--muted);
@@ -170,11 +188,11 @@
   /* A key hint lives inside the button it fires, never in a separate legend. */
   :global(.interrupt-key) {
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     opacity: 0.75;
   }
   :global(.interrupt-btn--primary .interrupt-key) {
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     opacity: 0.8;
   }
 
@@ -200,7 +218,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -212,7 +230,7 @@
     margin: 0;
     padding: 0.6875rem 0.8125rem 0.75rem;
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     line-height: 1.75;
     color: var(--foreground);
     white-space: pre;
@@ -228,7 +246,7 @@
     background: transparent;
     padding: 0.25rem 0;
     color: var(--muted-foreground);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     cursor: pointer;
     transition: color var(--duration-quick) var(--ease-premium);
   }
@@ -253,7 +271,7 @@
     padding: 0.625rem 0.75rem;
     background: color-mix(in oklch, var(--muted) 24%, var(--card));
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     overflow-wrap: anywhere;
   }
 </style>

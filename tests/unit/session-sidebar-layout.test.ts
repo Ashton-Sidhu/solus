@@ -69,6 +69,19 @@ describe('session sidebar layout', () => {
     expect(prChipSource).not.toContain('CaretRightIcon')
   })
 
+  test('keeps sidebar times at the old desktop size and shrinks them on laptops', () => {
+    // WHY: timestamps are supporting metadata. They must remain 12px on a large
+    // desktop instead of growing with row labels, while the responsive shelf
+    // rung reduces them to 10px on a laptop display.
+    const taskSource = readSessionSource('TaskRow.svelte')
+    const sessionSource = readSessionSource('TaskSessionRow.svelte')
+
+    expect(taskSource.match(/text-chrome-shelf[^\n]*tabular-nums/g)).toHaveLength(3)
+    expect(sessionSource.match(/text-chrome-shelf[^\n]*tabular-nums/g)).toHaveLength(1)
+    expect(taskSource).not.toMatch(/text-workspace-chrome[^\n]*tabular-nums/)
+    expect(sessionSource).not.toMatch(/text-workspace-chrome[^\n]*tabular-nums/)
+  })
+
   test('gives two-line task rows a clear title-to-metadata gap', () => {
     // WHY: title and project metadata are separate scan targets. A 10px gap
     // and a 56px row keep them distinct without crowding the row edges.

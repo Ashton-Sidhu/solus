@@ -43,16 +43,19 @@
 </script>
 
 <section
-  class="return-card mx-auto text-xs w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg)"
+  class="return-card mx-auto text-transcript-meta w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg) pointer-fine:[.is-laptop-display_&]:rounded-xl"
   class:is-open={isOpen}
   aria-label="Sub-agent"
   data-testid="subagent-group"
 >
-  <div class="flex items-start gap-3 px-[1.0625rem] pt-4" data-testid="subagent-card">
+  <div
+    class="flex items-start gap-3 px-[1.0625rem] pt-4 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-3"
+    data-testid="subagent-card"
+  >
     <div class="min-w-0 flex-1">
       <div class="mb-1.5 flex items-center gap-2">
         <span
-          class="text-[0.6875rem] font-medium text-(--muted-foreground) uppercase opacity-60"
+          class="font-medium text-(--muted-foreground) uppercase opacity-60"
           >Subagent</span
         >
         <span
@@ -60,7 +63,7 @@
           aria-hidden="true"
         ></span>
         <span
-          class="flex items-center gap-1.5 text-[0.6875rem] font-medium text-(--muted-foreground) uppercase opacity-60"
+          class="flex items-center gap-1.5 font-medium text-(--muted-foreground) uppercase opacity-60"
         >
           <svg
             width="8"
@@ -76,7 +79,7 @@
           Returned
         </span>
       </div>
-      <h3 class="m-0 text-[0.9375rem] leading-[1.3] font-medium">
+      <h3 class="m-0 text-transcript-card font-medium">
         {row.name}
       </h3>
     </div>
@@ -110,7 +113,7 @@
           class="border-t border-[color-mix(in_oklch,var(--foreground)_7%,transparent)] py-2.5"
         >
           <div
-            class="text-[0.6875rem] font-medium text-(--muted-foreground) uppercase opacity-70"
+            class="font-medium text-(--muted-foreground) uppercase opacity-70"
           >
             {highlight.heading}
           </div>

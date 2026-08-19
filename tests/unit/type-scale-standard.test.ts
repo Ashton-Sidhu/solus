@@ -44,6 +44,8 @@ const RUNGS = [
   'text-2xl',
   'text-menu',
   'text-workspace-chrome',
+  'text-transcript-card',
+  'text-transcript-meta',
   'text-footnote',
   'text-caption',
   'text-body',

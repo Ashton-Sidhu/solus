@@ -41,8 +41,11 @@
     /** The pane this pre-flight header sits in, so its run picker can answer the
      *  open shortcut aimed at that composer. Unset for the workspace dock. */
     paneId?: string;
+    /** Bound where a surface above this strip names the project as well — the
+     *  draft headline opens the chip's own list instead of a second menu. */
+    projectPickerOpen?: boolean;
   }
-  let { sourceId, paneId }: Props = $props();
+  let { sourceId, paneId, projectPickerOpen = $bindable(false) }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -344,6 +347,7 @@
     onSelect={selectProject}
     onBrowse={browseProjects}
     onDismiss={() => requestInputFocus(focusTarget)}
+    bind:open={projectPickerOpen}
   />
 
   {#if hasGitRepository}

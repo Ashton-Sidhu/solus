@@ -87,6 +87,34 @@ describe('one shared classification', () => {
     expect(source).not.toContain('md:text-sm')
   })
 
+  test('keyboard shortcuts compact once for fine-pointer laptop displays', () => {
+    // WHY: shortcut keycaps appear across persistent and transient surfaces.
+    // Their shared primitive must own the laptop adjustment so individual
+    // callers cannot drift or shrink coarse-pointer touch targets.
+    const source = readRendererSource('components/ui/Kbd.svelte')
+    expect(source).toContain("size === 'md' ? 'text-workspace-chrome' : 'text-chrome-shelf'")
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:h-3.5')
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:h-[0.9375rem]')
+    expect(source).not.toMatch(/\[\.is-laptop-display_&\]:text-/)
+  })
+
+  test('project-panel sections use the shared keyboard shortcut component', () => {
+    // WHY: Git and Environment are the shortcut-bearing project sections. Both
+    // render through MenuRow, so the laptop behavior must enter at that shared
+    // row instead of being copied into each section.
+    const menuRow = readRendererSource('components/project-panel/MenuRow.svelte')
+    expect(menuRow).toContain('import Kbd from "@renderer/components/ui/Kbd.svelte";')
+    expect(menuRow).toContain('<Kbd variant="inline"')
+    expect(menuRow).not.toContain('class="menu-hint"')
+
+    for (const section of ['EnvironmentSection', 'GitSection']) {
+      const source = readRendererSource(`components/project-panel/${section}.svelte`)
+      expect(source).toContain('hint: comboHint(')
+      expect(source).toContain('<MenuRow')
+      expect(source).not.toContain('<kbd')
+    }
+  })
+
   test('session picker uses more laptop width without changing mobile or large desktop defaults', () => {
     // WHY: the session preview needs more horizontal room on a laptop, but the
     // picker must remain full-screen on narrow clients and 75% on large displays.
@@ -94,6 +122,66 @@ describe('one shared classification', () => {
     expect(source).toContain('w-3/4')
     expect(source).toContain('md:pointer-fine:[.is-laptop-display_&]:w-[85%]')
     expect(source).toContain('max-md:w-full')
+  })
+
+  test('the transcript-card rungs step down on a laptop and hold their gap', () => {
+    // WHY: a card in the reading column costs the user height they cannot
+    // recover by resizing, and its text used to sit at a fixed 14/12 while the
+    // chrome around it had already stepped down. The pair moves together so the
+    // label line always stays one step above the meta line, and the fine-pointer
+    // guard keeps touch clients on the readable size.
+    const source = readRendererSource('index.css')
+    expect(source).toMatch(/--text-transcript-card:\s*0\.875rem/)
+    expect(source).toMatch(/--text-transcript-meta:\s*0\.75rem/)
+    const laptopBlock = source.slice(source.indexOf('html.is-laptop-display {'))
+    expect(laptopBlock).toMatch(/--text-transcript-card:\s*0\.75rem/)
+    expect(laptopBlock).toMatch(/--text-transcript-meta:\s*0\.6875rem/)
+    expect(source.slice(0, source.indexOf('html.is-laptop-display {'))).toContain(
+      '@media (pointer: fine)',
+    )
+  })
+
+  test('every transcript card picks the rungs rather than pinning a fixed size', () => {
+    // WHY: one card left on `text-sm`/`text-xs` is the whole defect coming back
+    // on one surface, which is exactly how it read before — a permission card at
+    // 14px beside a rail that had already dropped to 12px.
+    const cards = [
+      'InterruptCard',
+      'PermissionCard',
+      'QuestionCard',
+      'RateLimitCard',
+      'StatusCard',
+      'DiffSummaryCard',
+      'ConversationRefCard',
+      'SubagentRunCard',
+      'SubagentReturnCard',
+      'SubagentGroup',
+      'SubagentRow',
+    ]
+    const offenders: string[] = []
+    for (const card of cards) {
+      const source = readRendererSource(`components/conversation/${card}.svelte`)
+      if (!source.includes('text-transcript-')) offenders.push(`${card} picks no transcript rung`)
+      // Both the utility and the CSS variable form: half these cards size their
+      // leaves from a `<style>` block, so checking classes alone misses them.
+      for (const fixed of [/(?<![\w:-])text-sm(?![\w-])/, /(?<![\w:-])text-xs(?![\w-])/, /var\(--text-(sm|xs)\)/]) {
+        if (fixed.test(source)) offenders.push(`${card} still pins ${fixed.source}`)
+      }
+      // A card must not fork the rung with its own laptop font size — that is
+      // the branch `index.css` owns for every surface at once.
+      if (/\[\.is-laptop-display_&\]:text-/.test(source)) offenders.push(`${card} forks the rung`)
+    }
+    expect(offenders).toEqual([])
+  })
+
+  test('the setup card tightens its geometry on laptop displays without touching the type rungs', () => {
+    // WHY: the card is transcript content, so its padding is reading column the
+    // user cannot recover. Only geometry moves — a `.is-laptop-display` font
+    // size would fork the rung the rest of the app shares.
+    const source = readRendererSource('components/conversation/StatusCard.svelte')
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:pt-2.5')
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:min-h-6')
+    expect(source).not.toMatch(/\[\.is-laptop-display_&\]:text-/)
   })
 
   test('runtime publishes the classification to CSS on every client', () => {

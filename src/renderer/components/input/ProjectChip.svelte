@@ -23,8 +23,19 @@
     onBrowse: () => void;
     /** Return focus to the composer once the menu closes. */
     onDismiss: () => void;
+    /** Bound where another control opens the same list — the draft headline names
+     *  the project too, and one menu answers for both. */
+    open?: boolean;
   }
-  let { run, projectDir, label, onSelect, onBrowse, onDismiss }: Props = $props();
+  let {
+    run,
+    projectDir,
+    label,
+    onSelect,
+    onBrowse,
+    onDismiss,
+    open = $bindable(false),
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
@@ -42,7 +53,6 @@
     hostIsLocal && run.pendingHostDispatch?.intent !== "open-project",
   );
 
-  let open = $state(false);
   let tooltipOpen = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let query = $state("");
@@ -71,15 +81,15 @@
     }
   }
 
-  function handleOpenChange(next: boolean) {
-    open = next;
-    if (next) {
-      tooltipOpen = false;
-      query = "";
-      void loadRecents();
-      return;
-    }
-  }
+  // The chip is no longer the only way in, so the list loads off the open state
+  // itself rather than off this trigger's click. Reads `hostId` through the
+  // load, which keeps an open menu on the host the run-on picker now names.
+  $effect(() => {
+    if (!open) return;
+    tooltipOpen = false;
+    query = "";
+    void loadRecents();
+  });
 
   function handleCloseAutoFocus(event: Event) {
     event.preventDefault();
@@ -106,7 +116,7 @@
   }
 </script>
 
-<Popover.Root bind:open onOpenChange={handleOpenChange}>
+<Popover.Root bind:open>
   <Popover.Trigger>
     {#snippet child({ props })}
       <TooltipUI.Root

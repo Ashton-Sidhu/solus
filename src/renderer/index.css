@@ -1012,6 +1012,18 @@ html.solus-web #root {
      chrome rung shrank to 12px and closed the gap. Touch keeps 12px. */
   --text-chrome-shelf: 0.75rem;
   --text-chrome-shelf--line-height: 1rem;
+  /* The transcript-card rungs: the setup, permission, question, rate-limit,
+     diff-summary and subagent cards that interrupt the reading column. They are
+     a surface of their own — not rails, not prose — so they get a rung pair
+     rather than borrowing the chrome one: a card carries a label line and a
+     meta line, and the two must stay one step apart at every width. Both follow
+     the display for the same reason the chrome rung does, because a laptop
+     spends the card's height on reading column it cannot recover. Touch keeps
+     the larger size, the same guard every rung above uses. */
+  --text-transcript-card: 0.875rem;
+  --text-transcript-card--line-height: 1.3;
+  --text-transcript-meta: 0.75rem;
+  --text-transcript-meta--line-height: 1.35;
   /* The content ladder's annotation rung: the subtitle, field row, badge or
      metric inside a content card. 12px at the default preference. It exists
      because a canvas card is content — the user's text setting has to reach it
@@ -1038,6 +1050,8 @@ html.solus-web #root {
   html.is-laptop-display {
     --text-workspace-chrome: 0.75rem;
     --text-chrome-shelf: 0.625rem;
+    --text-transcript-card: 0.75rem;
+    --text-transcript-meta: 0.6875rem;
   }
 }
 
@@ -1775,6 +1789,15 @@ button.solus-token {
   /* Left gutter the hanging section numerals and the block drag handle share. */
   --solus-doc-gutter: 3.25rem;
 }
+/* A laptop display has no spare width to give the outline, so the measure gives
+   it instead: a slightly narrower column, and the margin beside it is deep
+   enough for the contents to unfold into rather than over the first lines. The
+   column still tracks the pane — this only lowers the share it takes and the
+   ceiling it stops at. Peek sets its own measure and is excluded, because a
+   19rem preview column has no margin to win back. */
+html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
+  --solus-doc-measure: clamp(66ch, 58cqi, 96ch);
+}
 .doc-shell-root .solus-doc-editor .ProseMirror {
   --doc-pad-x: 3.5rem;
   font-size: var(--solus-doc-size);
@@ -1953,7 +1976,8 @@ button.solus-token {
 /* Code blocks are a rule and a caption, not a filled card — nothing in the
    document sits on a fill or a shadow. The left rule turns terracotta while
    the caret is inside the block (see .doc-code-block below). */
-.doc-shell-root .solus-doc-editor .ProseMirror pre {
+.doc-shell-root .solus-doc-editor .ProseMirror pre,
+.markdown-file-document-editor .ProseMirror pre {
   margin: 0 0 1.6em;
   padding: 0 0 0 1rem;
   border: none;
@@ -1968,7 +1992,8 @@ button.solus-token {
 }
 /* Focused code block: the caption row is already the control strip, so the
    only thing focus adds is the rule turning terracotta. No new furniture. */
-.doc-shell-root .solus-doc-editor .doc-code-block--focused pre {
+.doc-shell-root .solus-doc-editor .doc-code-block--focused pre,
+.markdown-file-document-editor .doc-code-block--focused pre {
   border-left-color: var(--solus-accent);
   border-left-width: 0.09375rem;
 }
@@ -1978,8 +2003,16 @@ button.solus-token {
 .solus-doc-editor .ProseMirror .doc-code-block {
   margin: 0 0 1.6em;
 }
-.doc-shell-root .solus-doc-editor .ProseMirror .doc-code-block pre {
+.doc-shell-root .solus-doc-editor .ProseMirror .doc-code-block pre,
+.markdown-file-document-editor .ProseMirror .doc-code-block pre {
   margin: 0;
+}
+/* The files panel mounts the same editor outside the document shell, so the
+   two faces the code block reads with have to come from its own host. Only the
+   code block is adopted — the file view keeps the base editor's prose scale. */
+.markdown-file-document-editor {
+  --solus-doc-mono: 'Geist Mono', var(--solus-code-font-family);
+  --solus-doc-ink-strong: color-mix(in srgb, var(--solus-text-primary) 88%, var(--solus-text-tertiary));
 }
 .doc-code-block__caption {
   display: flex;

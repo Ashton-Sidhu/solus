@@ -152,7 +152,7 @@
 </script>
 
 <div
-  class="text-xs group/agent-card bg-card rounded-2xl overflow-hidden {stateRing} {state ===
+  class="text-transcript-meta group/agent-card bg-card rounded-2xl overflow-hidden {stateRing} {state ===
  'closed'
  ? 'opacity-70'
  : ''} {skipMotion ? '' : 'animate-msg-in-side'}"
@@ -321,7 +321,7 @@
                an empty block plus its separator is worse than neither. -->
           {#if provenance}
             <div
-              class="text-xs px-2.5 pt-1 pb-2 break-words text-(--solus-text-tertiary)"
+              class="text-transcript-meta px-2.5 pt-1 pb-2 break-words text-(--solus-text-tertiary)"
             >
               {provenance}
             </div>

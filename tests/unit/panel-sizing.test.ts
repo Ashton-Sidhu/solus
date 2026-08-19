@@ -164,6 +164,10 @@ describe('panel sizing across displays', () => {
       ':global(html.is-laptop-display) .draft-column {\n    --solus-reading-max: 52rem;',
     )
     expect(source).not.toContain('draft-column--aside')
+    // The headline steps down on a laptop for the same reason the measure does.
+    // The display class is the only accurate signal: laptops render at 0.9 zoom,
+    // which pushes the CSS viewport past every desktop breakpoint.
+    expect(source).toContain('lg:text-4xl [.is-laptop-display_&]:text-3xl')
   })
 
   test('a laptop lands inside the band rather than on either bound', () => {

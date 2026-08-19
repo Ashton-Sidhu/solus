@@ -184,9 +184,17 @@
     padding: 0.875rem 1rem 0.75rem;
   }
 
+  /* Geometry only: the type rungs already follow the display, and touch keeps
+     the open spacing. */
+  @media (pointer: fine) {
+    :global(html.is-laptop-display) .subagent-group__header {
+      padding: 0.6875rem 0.8125rem 0.625rem;
+    }
+  }
+
   .subagent-group__kicker {
     margin-bottom: 0.3125rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
 
     text-transform: uppercase;
@@ -199,7 +207,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-sm);
+    font-size: var(--text-transcript-card);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
@@ -211,7 +219,7 @@
     gap: 0.375rem;
     border-radius: 9999px;
     padding: 0.125rem 0.5rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
     color: var(--muted-foreground);
     background: color-mix(in oklch, var(--foreground) 6%, transparent);
@@ -237,7 +245,7 @@
     align-items: center;
     gap: 0.5rem;
     margin-top: 0.125rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
   }
 
@@ -258,7 +266,7 @@
     background: transparent;
     padding: 0.375rem;
     text-align: left;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
@@ -299,7 +307,7 @@
   }
 
   .subagent-fold__label {
-    font-size: var(--text-sm);
+    font-size: var(--text-transcript-card);
     color: var(--muted-foreground);
   }
 
@@ -309,7 +317,7 @@
 
   .subagent-fold__rail {
     flex-shrink: 0;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.55;
     font-variant-numeric: tabular-nums;

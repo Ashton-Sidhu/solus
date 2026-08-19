@@ -34,6 +34,39 @@ export function isOutlineVisible(
   return isOutlineOpen(reasons)
 }
 
+/**
+ * The at-top reveal is a margin note: the panel unfolds over the gutter beside
+ * the prose, never over the prose itself. It is anchored to the rail's left
+ * edge and overhangs the rail, so it only stays clear of the text while the
+ * shell leaves that much slack beside the centered page.
+ *
+ * The geometry, in rem, comes from DocumentShell and DocumentOutline:
+ *
+ *   rail sleeve   5.5  (`basis-22`) plus 0.75 (`ml-3`)
+ *   page block    min(column, measure + 7), measure = clamp(66ch, 68cqi, 112ch)
+ *   text gutter   3.5  (half of the page block's 7rem of side gutters)
+ *   panel         16.375, or 14.5 on a laptop display
+ *
+ * Room left of the prose is rail + (column − page) / 2 + gutter, which is
+ * 0.16 × shell + 2.375rem while the 68cqi step of the measure binds. Narrower
+ * steps give less (the page fills the column) and the 112ch step gives more, so
+ * the cqi step is the safe bound — and it needs no `ch`, which is font-relative
+ * and cannot be resolved here. Solving it for the panel width gives 88rem.
+ *
+ * A laptop display holds a narrower measure (58cqi, index.css) precisely so the
+ * margin can carry the outline, so the same solution there gives 62rem — where
+ * the measure's 66ch floor takes over and the margin stops growing.
+ *
+ * Below that the reveal would land on the first lines of the document, so it
+ * waits for a hover, a pin, or a keyboard jump instead.
+ */
+const OUTLINE_ROOM_MIN_PX = { standard: 1408, laptop: 992 }
+
+export function hasOutlineMarginRoom(shellWidth: number, isLaptopDisplay: boolean): boolean {
+  const min = isLaptopDisplay ? OUTLINE_ROOM_MIN_PX.laptop : OUTLINE_ROOM_MIN_PX.standard
+  return shellWidth >= min
+}
+
 /** Reasons that keep it open with no dwell timer — they end explicitly. */
 const STICKY: OutlineReason[] = ['top', 'pinned', 'focus']
 

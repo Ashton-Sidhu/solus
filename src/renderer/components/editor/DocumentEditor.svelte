@@ -26,6 +26,7 @@
     SlashCommandExtension,
     filterCommands,
     executeSlashCommand,
+    slashMenuIsOpen,
     askSolusCommand,
     embedDiagramCommand,
     type EditorBlockCommand,
@@ -148,6 +149,7 @@
     ...(onAskSolus ? [askSolusCommand(onAskSolus)] : []),
   ]);
   const slashFiltered = $derived(filterCommands(slashQuery, slashExtras));
+  const slashMenuOpen = $derived(slashMenuIsOpen(slashActive, slashFiltered.length));
 
   function getMd(editor: Editor): string {
     return editor.getMarkdown();
@@ -386,28 +388,27 @@
     editor.on("focus", () => onFocus?.());
     editor.on("blur", () => onBlur?.());
 
+    // Every handler gates on the *menu*, not on the "/" token: a token that
+    // matches nothing renders no menu, so Enter must still break the line.
     editor.storage.slashCommand.onArrowDown = () => {
-      if (!slashActive) return false;
-      const len = slashFiltered.length;
-      if (len > 0) slashIndex = (slashIndex + 1) % len;
+      if (!slashMenuOpen) return false;
+      slashIndex = (slashIndex + 1) % slashFiltered.length;
       return true;
     };
     editor.storage.slashCommand.onArrowUp = () => {
-      if (!slashActive) return false;
+      if (!slashMenuOpen) return false;
       const len = slashFiltered.length;
-      if (len > 0) slashIndex = (slashIndex - 1 + len) % len;
+      slashIndex = (slashIndex - 1 + len) % len;
       return true;
     };
     editor.storage.slashCommand.onEnter = () => {
-      if (!slashActive) return false;
+      if (!slashMenuOpen) return false;
       const filtered = slashFiltered;
-      if (filtered.length > 0 && slashIndex < filtered.length) {
-        handleSlashSelect(filtered[slashIndex]);
-      }
+      if (slashIndex < filtered.length) handleSlashSelect(filtered[slashIndex]);
       return true;
     };
     editor.storage.slashCommand.onEscape = () => {
-      if (!slashActive) return false;
+      if (!slashMenuOpen) return false;
       slashActive = false;
       slashDismissed = true;
       return true;
@@ -690,7 +691,7 @@
     class={mode === "rich" ? "doc-mode-hidden" : ""}
   />
 
-  {#if slashActive && slashFiltered.length > 0 && slashCoords}
+  {#if slashMenuOpen && slashCoords}
     <EditorSlashMenu
       commands={slashFiltered}
       selectedIndex={slashIndex}

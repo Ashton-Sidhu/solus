@@ -216,7 +216,6 @@ describe('choosing a remote host', () => {
       taskHostLabel: 'Local',
       stayLabel: 'Local',
       hostIsLocal: false,
-      isolated: false,
       canBranchWorktree: true,
     })
     expect(target.kind).toBe('dispatched')
@@ -263,7 +262,6 @@ describe('choosing a remote host', () => {
       taskHostLabel: 'Local',
       stayLabel: 'Local',
       hostIsLocal: false,
-      isolated: false,
       canBranchWorktree: true,
     })
     expect(target.startsWorktree).toBeFalse()

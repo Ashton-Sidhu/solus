@@ -84,7 +84,7 @@
      the count, the cause, the live clock and the escape. The block owns its own
      top margin so the held prompts read as one object, not as n messages. -->
 {#if prompts.length > 0}
-  <div class="text-xs flex flex-col pt-[0.8125rem] pb-1.5">
+  <div class="text-transcript-meta flex flex-col pt-[0.8125rem] pb-1.5">
     {#each prompts as prompt, index (`outbound-${prompt.clientPromptId}`)}
       <UserMessageBubble
         content={prompt.text}

@@ -40,7 +40,7 @@
 </script>
 
 <section
-  class="text-xs run-card mx-auto w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg)"
+  class="text-transcript-meta run-card mx-auto w-[88%] overflow-hidden rounded-2xl bg-(--solus-tx-card-bg) pointer-fine:[.is-laptop-display_&]:rounded-xl"
   class:is-failed={failed}
   class:is-open={isOpen}
   aria-label="Sub-agent"
@@ -48,7 +48,7 @@
 >
   <button
     type="button"
-    class="flex w-full cursor-pointer items-center gap-3.5 border-none bg-transparent pt-3 pr-3.5 pb-[0.8125rem] pl-4 text-left"
+    class="flex w-full cursor-pointer items-center gap-3.5 border-none bg-transparent pt-3 pr-3.5 pb-[0.8125rem] pl-4 text-left pointer-fine:[.is-laptop-display_&]:gap-3 pointer-fine:[.is-laptop-display_&]:pt-2.5 pointer-fine:[.is-laptop-display_&]:pr-3 pointer-fine:[.is-laptop-display_&]:pb-2.5 pointer-fine:[.is-laptop-display_&]:pl-3.5"
     aria-label={`${row.name}, ${row.activity}`}
     aria-current={isOpen ? "true" : undefined}
     data-testid="subagent-card"
@@ -75,7 +75,7 @@
     {/if}
     <span class="min-w-0 max-w-[27.5rem]">
       <span
-        class="block truncate text-sm leading-[1.25] font-medium "
+        class="block truncate text-transcript-card leading-[1.25] font-medium "
         >{row.name}</span
       >
       <!-- One slot, not a fixed field: the live tool while it runs, the reason it

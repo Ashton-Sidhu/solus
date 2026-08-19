@@ -134,7 +134,7 @@
      truncates — the activity beside it gives way instead. */
   .subagent-row__name {
     flex-shrink: 0;
-    font-size: var(--text-sm);
+    font-size: var(--text-transcript-card);
     font-weight: 500;
     color: var(--solus-text-primary);
   }
@@ -144,7 +144,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
   }
 
   .subagent-row__activity.is-muted {
@@ -156,7 +156,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.7;
   }
@@ -165,7 +165,7 @@
      reads what the agent is doing before what it was dispatched with. */
   .subagent-row__meta {
     flex-shrink: 0;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.5;
     white-space: nowrap;
@@ -173,7 +173,7 @@
 
   .subagent-row__rail {
     flex-shrink: 0;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.55;
     font-variant-numeric: tabular-nums;

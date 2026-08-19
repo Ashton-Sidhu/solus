@@ -331,7 +331,7 @@
           <span class="ml-auto flex shrink-0 items-center gap-[0.5625rem] @max-[15rem]:gap-1.5">
             {#if completedAge}
               <span
-                class="shrink-0 text-xs text-muted-foreground tabular-nums"
+                class="shrink-0 text-chrome-shelf text-muted-foreground tabular-nums"
                 title={`Completed ${new Date(task.completedAt).toLocaleString()}`}
                 >{completedAge}</span
               >
@@ -371,7 +371,9 @@
               </span>
             {/if}
             {#if snoozeReturn}
-              <span class="shrink-0 text-xs tabular-nums text-muted-foreground">{snoozeReturn}</span>
+              <span class="shrink-0 text-chrome-shelf tabular-nums text-muted-foreground"
+                >{snoozeReturn}</span
+              >
             {/if}
             <!-- State marks vary slightly in silhouette and optical size, but
                  their centres share one column down the tree. -->
@@ -403,7 +405,7 @@
                      clock joins the selected elbow in terracotta — the same rule
                      one level down. -->
                 <span
-                  class="shrink-0 text-xs tabular-nums {isCurrentSession
+                  class="shrink-0 text-chrome-shelf tabular-nums {isCurrentSession
  ? 'text-[color-mix(in_oklch,var(--primary)_68%,var(--foreground))]'
  : 'text-[color-mix(in_oklch,var(--foreground)_64%,transparent)]'}">{elapsed}</span
                 >

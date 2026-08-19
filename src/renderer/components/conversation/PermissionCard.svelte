@@ -115,7 +115,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#snippet loadingDiff()}
-  <div class="grid min-h-16 place-items-center text-xs text-(--muted-foreground)" role="status">
+  <div class="grid min-h-16 place-items-center text-transcript-meta text-(--muted-foreground)" role="status">
     Loading preview…
   </div>
 {/snippet}
@@ -136,7 +136,7 @@
     <span class="shrink-0">{permission.toolTitle}</span>
     {#if cwdParts}
       <span class="shrink-0 opacity-60">·</span>
-      <span class="min-w-0 truncate text-xs"
+      <span class="min-w-0 truncate text-transcript-meta"
         >{cwdParts.head}<span class="font-medium text-(--foreground)">{cwdParts.tail}</span></span
       >
     {/if}
@@ -146,7 +146,9 @@
     {/if}
   {/snippet}
 
-  <div class="flex flex-col gap-2.5 px-[1.125rem] pt-[0.875rem] pb-4">
+  <div
+    class="flex flex-col gap-2.5 px-[1.125rem] pt-[0.875rem] pb-4 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5 pointer-fine:[.is-laptop-display_&]:pb-3"
+  >
     {#if argv}
       <div class="interrupt-payload">
         <div class="interrupt-payload-bar">
@@ -164,7 +166,7 @@
           <div class="interrupt-payload-bar">
             <span class="interrupt-payload-label">{change.path}</span>
             <div class="flex-1"></div>
-            <span class="shrink-0 text-xs text-(--muted-foreground)">{change.kind}</span>
+            <span class="shrink-0 text-transcript-meta text-(--muted-foreground)">{change.kind}</span>
           </div>
           <div class="max-h-[11.25rem] overflow-auto">
             {#await import('../diff/Diff.svelte')}
@@ -267,11 +269,11 @@
         {option.label}
       </button>
     {/each}
-    <span class="shrink-0 text-xs text-(--muted-foreground)">
+    <span class="shrink-0 text-transcript-meta text-(--muted-foreground)">
       {#if responded}
         Answered
       {:else}
-        Holding · <span class="text-xs">{waiting}</span>
+        Holding · <span class="text-transcript-meta">{waiting}</span>
       {/if}
     </span>
     {#if actions.affirmative}

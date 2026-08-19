@@ -160,7 +160,6 @@
       taskHostLabel: hostLabel(serversStore.hostFor(run.taskServerId)),
       stayLabel,
       hostIsLocal: !onRemoteHost,
-      isolated: inWorktree,
       canBranchWorktree: gitHome.canToggleWorktree,
     }),
   );

@@ -218,7 +218,7 @@
   }
 
   .turn-survived {
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.7;
   }
@@ -226,7 +226,7 @@
   .turn-error {
     max-width: 100%;
     color: var(--solus-text-primary);
-    font-size: var(--text-sm);
+    font-size: var(--text-transcript-card);
     line-height: 1.5;
     white-space: pre-wrap;
     overflow-wrap: anywhere;
@@ -245,7 +245,7 @@
     background: color-mix(in oklch, var(--foreground) 6%, transparent);
     padding: 0.1875rem 0.5625rem;
     color: var(--solus-text-primary);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
     cursor: pointer;
     transition:

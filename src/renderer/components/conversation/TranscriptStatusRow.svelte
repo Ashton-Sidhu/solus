@@ -78,7 +78,7 @@
     background: transparent;
     padding: 0.1875rem 0.5rem;
     color: var(--muted-foreground);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -103,7 +103,7 @@
   }
 
   .status-row-text {
-    font-size: var(--text-sm);
+    font-size: var(--text-transcript-card);
     color: var(--solus-text-primary);
     white-space: nowrap;
   }
@@ -131,7 +131,7 @@
   }
 
   .status-row-clears {
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.55;
   }

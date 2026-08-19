@@ -36,7 +36,7 @@
 </script>
 
 <div
-  class="flex items-center gap-2.5 px-3.5 py-2 text-xs border-t-[0.5px] border-(--solus-agent-card-rule) {needsYou
+  class="flex items-center gap-2.5 px-3.5 py-2 text-transcript-meta border-t-[0.5px] border-(--solus-agent-card-rule) {needsYou
     ? 'bg-[color-mix(in_oklch,var(--chart-2)_7%,transparent)]'
     : 'bg-[color-mix(in_oklch,var(--foreground)_2.5%,transparent)]'}"
 >

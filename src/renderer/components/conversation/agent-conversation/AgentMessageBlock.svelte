@@ -77,7 +77,7 @@
 >
   {#if !message.pending}
     <div
-      class="text-xs mb-[7px] {message.from === 'you'
+      class="text-transcript-meta mb-[7px] {message.from === 'you'
         ? 'font-medium text-muted-foreground'
         : 'font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]'}"
     >
@@ -92,7 +92,7 @@
            is speaking, and the switchboard's tabs make that ambiguous. -->
       <span class="flex items-center gap-2">
         <span
-          class="text-xs font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
+          class="text-transcript-meta font-medium text-[color-mix(in_oklch,var(--agent-accent)_74%,var(--foreground))]"
         >
           {agentName} is responding
         </span>
@@ -117,7 +117,7 @@
       <span class="flex-1"></span>
       {#if onOpen}
         <button
-          class="shrink-0 rounded-md px-2 py-0.5 text-xs text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
+          class="shrink-0 rounded-md px-2 py-0.5 text-transcript-meta text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_7%,transparent)] hover:text-foreground"
           onclick={onOpen}
         >
           Open session
@@ -158,7 +158,7 @@
     </div>
     {#if overflows}
       <button
-        class="flex items-center gap-[7px] mt-2.5 text-xs text-muted-foreground cursor-pointer hover:text-foreground"
+        class="flex items-center gap-[7px] mt-2.5 text-transcript-meta text-muted-foreground cursor-pointer hover:text-foreground"
         onclick={() => (expanded = !expanded)}
       >
         <svg

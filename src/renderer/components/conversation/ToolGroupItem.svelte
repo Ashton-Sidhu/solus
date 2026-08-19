@@ -227,7 +227,7 @@
 
   .tool-stderr {
     padding: 0.125rem 0 0.3125rem;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     line-height: 1.65;
     color: var(--muted-foreground);
     white-space: pre-wrap;
@@ -270,7 +270,7 @@
     white-space: nowrap;
     text-align: left;
     text-overflow: ellipsis;
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     opacity: 0.8;
     cursor: pointer;
   }
@@ -287,7 +287,7 @@
   }
 
   .tool-step-duration {
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.55;
   }

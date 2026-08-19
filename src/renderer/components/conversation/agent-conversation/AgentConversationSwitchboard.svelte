@@ -202,7 +202,7 @@
     <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[252px]">
       {#if provenanceFor(ref)}
         <div
-          class="text-xs px-2.5 pt-1 pb-2 break-words text-(--solus-text-tertiary)"
+          class="text-transcript-meta px-2.5 pt-1 pb-2 break-words text-(--solus-text-tertiary)"
         >
           {provenanceFor(ref)}
         </div>
@@ -219,7 +219,7 @@
 {/snippet}
 
 <div
-  class="text-xs bg-card rounded-2xl overflow-hidden shadow-[shadow:var(--solus-agent-card-shadow)] {skipMotion
+  class="text-transcript-meta bg-card rounded-2xl overflow-hidden shadow-[shadow:var(--solus-agent-card-shadow)] {skipMotion
     ? ''
     : 'animate-msg-in-side'}"
   data-testid="agent-conversation-switchboard"
