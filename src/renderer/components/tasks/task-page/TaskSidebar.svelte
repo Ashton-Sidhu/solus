@@ -224,11 +224,7 @@
         {#if projectRoot}
           <ProjectFavicon projectRoot={projectRoot} class="size-3" />
         {:else}
-          <FolderIcon
-            size={12}
-            weight="fill"
-            class="shrink-0 text-(--solus-text-tertiary)"
-          />
+          <FolderIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
         {/if}
         <span class="truncate">{projectLabel}</span>
       </span>

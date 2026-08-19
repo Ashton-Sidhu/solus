@@ -17,6 +17,7 @@
     serversStore,
   } from "../../contexts";
   import { hostSyncNotes } from "./lib/host-sync-notes";
+  import { isCompletedTaskSession } from "./lib/task-list";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import { getPopoverLayer, useClickOutside } from "../popoverLayer.svelte";
   import { portal } from "../portal";
@@ -157,25 +158,36 @@
   const effectiveProjectPath = $derived(statusBar.ctx.workingDirectory);
 
   // The picker offers sessions to return to. A composer that has yet to send
-  // anything is not one, however ordinary its tab is everywhere else. Every
-  // open tab shows, in or out of the scoped project: the "Open" section mirrors
-  // the sidebar's open sessions, which the project scope does not narrow.
-  const openTabEntries: PickerEntry[] = $derived(
-    session.tabOrder
-      .filter((id) => session.tabs[id] && hasSessionStarted(session.sessionFor(id)))
-      .map((id) => ({
-        kind: "open" as const,
-        tabId: id,
-        tab: session.tabs[id],
-        session: session.sessionFor(id)!,
-      })),
+  // anything is not one, however ordinary its tab is everywhere else, and
+  // neither is a session whose task the user has finished — the sidebar files
+  // that row under Completed, so "Open" must not contradict it. What remains
+  // shows in or out of the scoped project, which the sidebar does not narrow
+  // either.
+  const openTabIds: string[] = $derived(
+    session.tabOrder.filter((id) => {
+      const tabSession = session.sessionFor(id);
+      if (!session.tabs[id] || !tabSession || !hasSessionStarted(tabSession)) return false;
+      return !isCompletedTaskSession(tabSession, session.tasksStore);
+    }),
   );
 
+  const openTabEntries: PickerEntry[] = $derived(
+    openTabIds.map((id) => ({
+      kind: "open" as const,
+      tabId: id,
+      tab: session.tabs[id],
+      session: session.sessionFor(id)!,
+    })),
+  );
+
+  // Only the tabs the "Open" section actually lists suppress their history row.
+  // A finished session still has a mounted tab, and dropping it from both
+  // sections would leave the picker with no way back to it at all.
   const dedupedHistory: PickerEntry[] = $derived(
     dedupeHistoryEntries(historySessions, {
       tabs: session.tabs,
       sessions: session.sessions,
-      tabOrder: session.tabOrder,
+      tabOrder: openTabIds,
     }),
   );
 

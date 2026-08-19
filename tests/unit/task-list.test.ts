@@ -18,6 +18,7 @@ import {
   shouldCompleteTaskForPr,
   shouldShowDurableSidebarTask,
   showsUnreadIndicator,
+  isCompletedTaskSession,
   projectFilterChoices,
   resolveProjectFilter,
   sortTasks,
@@ -549,6 +550,44 @@ describe('sidebarChildLabel', () => {
       durableTask('in_progress', { title: 'Ship the release' }),
       'Second attempt',
     )).toBe('Second attempt')
+  })
+})
+
+describe('open sessions the picker offers', () => {
+  const lookupOf = (byId: Record<string, Task>) => ({
+    taskForSession: (sessionId: string | null | undefined) =>
+      (sessionId ? byId[sessionId] : null) ?? null,
+  })
+  const taskWith = (status: Task['status']): Task => ({ status } as Task)
+
+  it('drops a session whose task the user finished, matching the Completed shelf', () => {
+    // WHY: the picker's "Open" section and the sidebar list the same work. A
+    // done task leaves the sidebar list, so its mounted tab must stop counting
+    // as an open session, or the picker reports sessions the sidebar denies.
+    const lookup = lookupOf({ 'agent-1': taskWith('done') })
+    expect(isCompletedTaskSession({ id: 'sess-1', agentSessionId: 'agent-1' }, lookup)).toBe(true)
+  })
+
+  it('keeps a snoozed or unfinished session, and one with no task at all', () => {
+    // Snooze defers work rather than ending it, and a session that predates
+    // task minting has nothing to be finished by.
+    expect(isCompletedTaskSession(
+      { id: 'sess-1', agentSessionId: 'agent-1' },
+      lookupOf({ 'agent-1': taskWith('in_progress') }),
+    )).toBe(false)
+    expect(isCompletedTaskSession(
+      { id: 'sess-1', agentSessionId: null },
+      lookupOf({}),
+    )).toBe(false)
+  })
+
+  it('reads the handoff chain\'s task, not the replaced session\'s', () => {
+    // A handed-off session keeps its own id; the task follows the chain.
+    const lookup = lookupOf({ 'handoff-1': taskWith('done'), 'sess-1': taskWith('in_progress') })
+    expect(isCompletedTaskSession(
+      { id: 'sess-1', agentSessionId: null, handoffId: 'handoff-1' },
+      lookup,
+    )).toBe(true)
   })
 })
 

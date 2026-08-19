@@ -318,11 +318,13 @@ quiet trailing readings and the group label pin themselves a rung below. -->
       ></div>
       <div class="flex items-center gap-2 px-2">
         <span
-          class="text-xs font-medium text-(--solus-text-tertiary) uppercase"
+          class="text-chrome-shelf font-medium text-(--solus-text-tertiary) uppercase"
         >
           Linked
         </span>
-        <span class="text-xs tabular-nums text-(--solus-text-tertiary) opacity-70">
+        <span
+          class="text-chrome-shelf tabular-nums text-(--solus-text-tertiary) opacity-70"
+        >
           {linkList.total}
         </span>
       </div>

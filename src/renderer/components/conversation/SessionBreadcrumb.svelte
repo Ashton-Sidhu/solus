@@ -319,7 +319,7 @@
   const crumbButton =
     "flex h-[1.875rem] cursor-pointer items-center rounded px-[0.46875rem] transition-[background] duration-150 hover:bg-accent";
   const menuRow =
-    "flex h-[2.125rem] [.is-laptop-display_&]:h-[1.9375rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent";
+    "flex h-[2.125rem] [.is-laptop-display_&]:h-[1.75rem] w-full cursor-pointer items-center gap-[0.5625rem] [.is-laptop-display_&]:gap-2 rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent";
   const menuLabel =
     "min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap";
   // The Projects and Sessions headings take the same laptop step as the task
@@ -457,7 +457,7 @@
                  which swallows the pointer over anything that is not a control
                  and reads as a mouseleave that closes the menu. -->
             <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(16.5rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
+              <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(15.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={menuHeading}>Projects</div>
                 {#each sidebarStore.projectSummaries as project (project.projectKey)}
                   {@const note = projectNote(project.waiting, project.failed)}
@@ -564,14 +564,14 @@
             </Breadcrumb.Link>
             {#if menu === "task"}
               <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(17.5rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
+                <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(16.25rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
                       bind:value={taskQuery}
                       placeholder="Search tasks in {projectLabel}"
                     />
                     <Command.List
-                      class="max-h-[min(24rem,calc(100vh-8rem))] [.is-laptop-display_&]:max-h-[min(19rem,calc(100vh-7rem))] overflow-y-auto p-[0.3125rem]"
+                      class="max-h-[min(24rem,calc(100vh-8rem))] [.is-laptop-display_&]:max-h-[min(17.5rem,calc(100vh-7rem))] overflow-y-auto p-[0.3125rem]"
                     >
                       {#if filteredTasksInProject.length === 0}
                         <div
@@ -736,7 +736,7 @@
           {/if}
           {#if menu === "session"}
             <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
-              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(16.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
+              <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(15rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={menuHeading}>Sessions</div>
                 {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}
                   {@const status = taskStatusFor(child.attention)}

@@ -135,6 +135,7 @@ export class SessionSidebarStore {
   private liveSessionStatuses?: SidebarSessionStatusFeed
   private openTaskIds: SvelteSet<string>
   private hasSeededOpenTasks: boolean
+  private hasSettledBootLocation = false
 
   private sessionStatusFeed(): SidebarSessionStatusFeed {
     return this.liveSessionStatuses ??= new SidebarSessionStatusFeed()
@@ -604,6 +605,12 @@ export class SessionSidebarStore {
       if (openTasksChanged) persistOpenSidebarTaskIds(this.openTaskIds)
     })
     $effect(() => {
+      // Depend on the answer arriving, not on the rows it produces: this is a
+      // one-shot boot decision, not a rule that keeps re-running as tasks move.
+      void this.session.tasksStore.loaded
+      untrack(() => this.settleBootLocation())
+    })
+    $effect(() => {
       for (const task of this.session.tasksStore.tasks) {
         const pr = this.prByTaskId.get(task.id) ?? this.session.prsStore.items.find((candidate) =>
           (task.branch && candidate.headRef === task.branch)
@@ -1052,6 +1059,18 @@ export class SessionSidebarStore {
     if (endedTask.lifecycle !== 'active' || this.activeTasks.length) return
     if (!this.session.showsConversation) return
     this.session.openSessionDraft({ via: 'click' })
+  }
+
+  /** The same rule at launch: the snapshot restores whichever conversation was
+   *  last on screen, and its task can have finished since. Only the task store
+   *  can say, so its first answer is the one chance to decide — after that,
+   *  opening a completed task is deliberate. Nothing is revealed, so this never
+   *  pops the pill open on launch. */
+  private settleBootLocation(): void {
+    if (this.hasSettledBootLocation || !this.session.tasksStore.loaded) return
+    this.hasSettledBootLocation = true
+    if (this.activeTasks.length || !this.session.showsConversation) return
+    this.session.openSessionDraft({ reveal: false })
   }
 
   /** The checkmark: completing says "I am finished with this", so it also

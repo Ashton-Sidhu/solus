@@ -74,11 +74,7 @@
          project's own or it isn't, and the answer arrives within a frame or
          two off local disk. -->
     {#if !hasRoot || (state.settled && !state.url)}
-      <FolderIcon
-        size="100%"
-        weight="fill"
-        class="text-(--solus-text-tertiary)"
-      />
+      <FolderIcon size="100%" class="text-(--solus-text-tertiary)" />
     {:else}
       <img
         {src}

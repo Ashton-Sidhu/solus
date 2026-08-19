@@ -1004,6 +1004,14 @@ html.solus-web #root {
      set here; a surface picks one, and never redefines what one means. */
   --text-chrome-dense: 0.75rem;
   --text-chrome-dense--line-height: 1.1875rem;
+  /* The shelf-label rung: the collapsible section headings that sit above a list
+     of chrome rows ("Snoozed", "Completed"). It has to stay a step under
+     `--text-workspace-chrome` at every width, because that is the whole cue —
+     a heading the same size as its rows can only separate itself by weight, and
+     a bolder-than-its-contents heading is what a laptop used to show once the
+     chrome rung shrank to 12px and closed the gap. Touch keeps 12px. */
+  --text-chrome-shelf: 0.75rem;
+  --text-chrome-shelf--line-height: 1rem;
   /* The content ladder's annotation rung: the subtitle, field row, badge or
      metric inside a content card. 12px at the default preference. It exists
      because a canvas card is content — the user's text setting has to reach it
@@ -1029,6 +1037,7 @@ html.solus-web #root {
 @media (pointer: fine) {
   html.is-laptop-display {
     --text-workspace-chrome: 0.75rem;
+    --text-chrome-shelf: 0.625rem;
   }
 }
 

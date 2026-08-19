@@ -77,11 +77,14 @@
       onpointerdown={onResizePointerDown}
     ></span>
   {/if}
+  <!-- The header line declares the shelf rung once, so the title, its detail and
+       whatever the section hangs beside them all step down together on a laptop
+       display rather than each pinning its own size. -->
   <Sidebar.GroupLabel
-    class="group/header h-auto min-h-6 justify-between gap-1 px-1.5 py-0"
+    class="group/header h-auto min-h-6 justify-between gap-1 px-1.5 py-0 text-chrome-shelf"
   >
     <button
-      class="flex min-h-6 min-w-0 cursor-pointer items-center border-none bg-transparent text-xs font-medium text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {titlebar
+      class="flex min-h-6 min-w-0 cursor-pointer items-center border-none bg-transparent font-medium text-(--solus-text-tertiary) uppercase transition-[color,transform] duration-150 hover:text-(--solus-text-primary) active:scale-[0.996] focus-visible:rounded-md focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)] focus-visible:outline-none {titlebar
         ? ''
         : 'flex-1'}"
       type="button"
@@ -95,7 +98,7 @@
         {/if}
         {#if headerDetail}
           <span
-            class="min-w-0 truncate text-xs font-normal text-(--solus-text-tertiary) normal-case"
+            class="min-w-0 truncate font-normal text-(--solus-text-tertiary) normal-case"
             aria-live="polite"
           >
             {headerDetail}

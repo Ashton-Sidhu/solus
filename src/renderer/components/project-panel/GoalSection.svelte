@@ -117,7 +117,7 @@
            micro-caps so the header line stays one rhythm, and takes the status
            colour rather than trailing a separate indicator. -->
       <span
-        class="mr-1 min-w-0 truncate text-xs font-medium uppercase"
+        class="mr-1 min-w-0 truncate font-medium uppercase"
         style:color={goalStatusColor(goalStatus ?? goal.status)}
       >
         {goalStatusLabel(goalStatus ?? goal.status)}

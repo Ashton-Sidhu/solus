@@ -15,6 +15,9 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' 
   catalogTasks: SidebarTask[]
   activeTasks: SidebarTask[]
   openedDraftCount: number
+  openedDraftOptions: Array<{ via?: string; reveal?: boolean }>
+  hasSettledBootLocation: boolean
+  settleBootLocation: () => void
   session: unknown
   tabIdBySessionId: Map<string, string>
   renameSession: (tabId: string) => Promise<void>
@@ -29,12 +32,16 @@ function sidebarStoreForDismissal(): SidebarStoreHarness {
   store.unloadedCompletedTaskIds = new Set<string>()
   store.activeTasks = []
   store.openedDraftCount = 0
+  store.openedDraftOptions = []
+  store.hasSettledBootLocation = false
   // A conversation on screen is the case the composer fallback exists for; a
   // pane already showing a draft or a page needs nothing.
   store.session = {
     showsConversation: false,
-    openSessionDraft: () => {
+    tasksStore: { loaded: true },
+    openSessionDraft: (options: { via?: string; reveal?: boolean } = {}) => {
       store.openedDraftCount += 1
+      store.openedDraftOptions.push(options)
     },
   }
   store.closeTabs = (tabIds: string[]) => {
@@ -186,6 +193,75 @@ describe('session sidebar dismissal', () => {
 
     expect([...(store.dismissedRowKeys as Set<string>)]).toEqual(['unrelated'])
     expect([...store.openTaskIds]).toEqual(['root'])
+  })
+})
+
+describe('session sidebar boot location', () => {
+  const bootStore = (): SidebarStoreHarness => {
+    const store = sidebarStoreForDismissal()
+    ;(store.session as { showsConversation: boolean }).showsConversation = true
+    return store
+  }
+
+  test('launching with every task finished composes a prompt instead', () => {
+    // WHY: the snapshot restores whichever conversation was last on screen, and
+    // its task can have been completed since. Launching into finished work is
+    // the same wrong landing that ending the last task avoids.
+    const store = bootStore()
+    store.activeTasks = []
+
+    store.settleBootLocation()
+
+    expect(store.openedDraftCount).toBe(1)
+  })
+
+  test('the boot composer never pops the pill open', () => {
+    // WHY: launch must not steal the screen. Seeding a draft on an empty
+    // workspace already opens quietly; landing on one has to match.
+    const store = bootStore()
+    store.activeTasks = []
+
+    store.settleBootLocation()
+
+    expect(store.openedDraftOptions).toEqual([{ reveal: false }])
+  })
+
+  test('launching with live work restores that conversation', () => {
+    // WHY: the restored location is what the user left open. An active row
+    // means it is still live work, so boot must leave them in it.
+    const store = bootStore()
+    store.activeTasks = [{ id: 'live' } as SidebarTask]
+
+    store.settleBootLocation()
+
+    expect(store.openedDraftCount).toBe(0)
+  })
+
+  test('nothing is decided until the task store has answered', () => {
+    // WHY: rows are empty while the snapshot loads, so deciding then would send
+    // every launch to a draft and drop the restored conversation.
+    const store = bootStore()
+    ;(store.session as { tasksStore: { loaded: boolean } }).tasksStore.loaded = false
+    store.activeTasks = []
+
+    store.settleBootLocation()
+
+    expect(store.openedDraftCount).toBe(0)
+    expect(store.hasSettledBootLocation).toBe(false)
+  })
+
+  test('completing the last task later still lands on a draft', () => {
+    // WHY: boot decides once. Opening a completed task afterwards is a
+    // deliberate choice, and the run-time rule — not this one — owns what
+    // happens when live work ends.
+    const store = bootStore()
+    store.activeTasks = [{ id: 'live' } as SidebarTask]
+    store.settleBootLocation()
+
+    store.activeTasks = []
+    store.settleBootLocation()
+
+    expect(store.openedDraftCount).toBe(0)
   })
 })
 

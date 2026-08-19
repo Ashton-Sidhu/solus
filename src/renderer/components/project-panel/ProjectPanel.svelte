@@ -341,7 +341,7 @@
     <!-- Read-only: the host is chosen before the session starts and locked
          after, so the chip states a fact rather than offering a picker. -->
     <span
-      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 text-xs font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
+      class="inline-flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_srgb,var(--solus-text-primary)_6%,transparent)] px-1.5 py-0.5 font-medium tracking-normal text-(--solus-text-secondary) normal-case dark:bg-[color-mix(in_srgb,var(--solus-text-primary)_10%,transparent)]"
       title={remoteHostAffinity.tooltip}
     >
       <HostIcon size={11} class={remoteHostAffinity.className} />
@@ -408,7 +408,7 @@
        Snooze follow it as glyphs, then the section's own disclosure caret. -->
   <span class="header-extra">
     <button
-      class="cursor-pointer text-xs underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
+      class="cursor-pointer underline decoration-[color-mix(in_oklch,var(--foreground)_22%,transparent)] underline-offset-[3px] opacity-85 transition-colors hover:text-(--solus-text-primary) hover:opacity-100"
       type="button"
       title={panelTask ? taskRefTooltip(panelTask) : "Open task page"}
       onclick={(e) => {

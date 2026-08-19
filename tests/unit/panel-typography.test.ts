@@ -111,16 +111,24 @@ describe('persistent panel typography', () => {
     expect(source).toContain(
       `<div class="mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">`,
     )
-    expect(source).toContain('text-xs font-medium text-(--solus-text-tertiary) uppercase')
+    // The Linked label is a group heading inside the card, so it takes the same
+    // shelf rung the card's own header does rather than the row rung it names.
+    expect(source).toContain(
+      'text-chrome-shelf font-medium text-(--solus-text-tertiary) uppercase',
+    )
   })
 
   test('keeps project section labels one rung below their rows', () => {
-    // WHY: a section label names the group; the rows are what you read. The
-    // label was 11px against 12px rows — a difference nobody could see. It now
-    // sits at 12px and separates by weight and colour, and must not drift up to
-    // the 14px row rung, which would make the label compete with its contents.
+    // WHY: a section label names the group; the rows are what you read. A fixed
+    // 12px label held that gap on a large display and lost it on a laptop, where
+    // the rows step down to 12px themselves and the label can only separate by
+    // weight. It now takes the shelf rung, which is a step under the row rung at
+    // every width, and the header line declares it once so the title, its detail
+    // and the section's own header controls all move together.
     const source = readRendererSource('project-panel/PanelSection.svelte')
-    expect(source).toContain('bg-transparent text-xs font-medium')
+    expect(source).toContain('px-1.5 py-0 text-chrome-shelf')
+    expect(source).toContain('bg-transparent font-medium')
+    expect(source).not.toContain('bg-transparent text-xs font-medium')
     expect(source).not.toContain('bg-transparent text-sm font-medium')
   })
 

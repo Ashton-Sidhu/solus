@@ -1,4 +1,5 @@
 import type { PullRequestSummary } from '../../../../shared/providers'
+import type { Session } from '../../../../shared/types'
 import type { Task } from '../../../../shared/task-types'
 import type { AttentionState } from '../../../lib/sessionUtils'
 
@@ -219,6 +220,24 @@ export function shouldShowDurableSidebarTask(
   isOpenOnClient: boolean,
 ): boolean {
   return !task.parentId && ((!isDismissed && isOpenOnClient) || hasOpenSession)
+}
+
+/** A session whose task is done is finished work, whatever its tab is doing.
+ * The sidebar keeps that row behind the Completed shelf, so the picker must not
+ * offer the same session under "Open" beside sessions still being worked on.
+ * A snoozed task is deliberately deferred, not finished, and keeps its place. */
+export function isCompletedTaskSession(
+  session: Pick<Session, 'id' | 'agentSessionId' | 'handoffId'>,
+  tasks: TaskBySessionLookup,
+): boolean {
+  const task = tasks.taskForSession(session.handoffId ?? session.id)
+    ?? tasks.taskForSession(session.agentSessionId)
+  return task?.status === 'done'
+}
+
+/** The task store's answer for one session, narrowed to what this rule reads. */
+export interface TaskBySessionLookup {
+  taskForSession(sessionId: string | null | undefined): Task | null
 }
 
 /** Same rule one level down: a dismissed child returns with a reopened tab. */
