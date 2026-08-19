@@ -7,7 +7,10 @@
   import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
   import TranscriptChip from "../conversation/TranscriptChip.svelte";
   import WorkGeneratingSkeleton from "../work/WorkGeneratingSkeleton.svelte";
-  import { summarizeDiagram, parseDiagram } from "../../../shared/diagram-types";
+  import {
+    summarizeDiagram,
+    parseDiagram,
+  } from "../../../shared/diagram-types";
   import type { PlanMessageRef } from "../../../shared/types";
 
   interface Props {
@@ -48,14 +51,26 @@
   );
   const diagramSummary = $derived(
     isDiagram && ref.content
-      ? (() => { try { return summarizeDiagram(parseDiagram(ref.content!)) } catch { return "" } })()
+      ? (() => {
+          try {
+            return summarizeDiagram(parseDiagram(ref.content!));
+          } catch {
+            return "";
+          }
+        })()
       : "",
   );
-  const documentMeta = $derived(compactMeta(ref.updatedAt ? `Edited ${formatDate(ref.updatedAt)}` : ""));
-  const planMeta = $derived(compactMeta(
-    ref.timestamp ? formatDate(ref.timestamp) : "",
-    comments.length > 0 ? `${comments.length} comment${comments.length === 1 ? "" : "s"}` : "",
-  ));
+  const documentMeta = $derived(
+    compactMeta(ref.updatedAt ? `Edited ${formatDate(ref.updatedAt)}` : ""),
+  );
+  const planMeta = $derived(
+    compactMeta(
+      ref.timestamp ? formatDate(ref.timestamp) : "",
+      comments.length > 0
+        ? `${comments.length} comment${comments.length === 1 ? "" : "s"}`
+        : "",
+    ),
+  );
 
   function openWork() {
     void session.openWorkModal(ref.id!, ref.title);
@@ -70,7 +85,8 @@
   }
 
   function openPlanSecondary() {
-    if (ref.id) void session.openPlanModal(ref.id, undefined, { secondary: true });
+    if (ref.id)
+      void session.openPlanModal(ref.id, undefined, { secondary: true });
   }
 
   function formatDate(value: string | number): string {
@@ -79,7 +95,9 @@
     return date.toLocaleDateString([], { month: "short", day: "numeric" });
   }
 
-  function compactMeta(...parts: Array<string | undefined>): string | undefined {
+  function compactMeta(
+    ...parts: Array<string | undefined>
+  ): string | undefined {
     const text = parts.filter((part) => part && part.trim()).join(" · ");
     return text || undefined;
   }
@@ -91,7 +109,10 @@
   <ConversationRefCard
     kicker="Diagram"
     title={ref.title ?? "Untitled diagram"}
-    subtitle={compactMeta(ref.updatedAt ? `Updated ${formatDate(ref.updatedAt)}` : "", diagramSummary)}
+    subtitle={compactMeta(
+      ref.updatedAt ? `Updated ${formatDate(ref.updatedAt)}` : "",
+      diagramSummary,
+    )}
     actionLabel="Open"
     ariaLabel={`Open diagram: ${ref.title ?? "Untitled diagram"}`}
     onOpen={openWork}
@@ -132,36 +153,17 @@
     {skipMotion}
   >
     {#snippet footer()}
-      <button type="button" class="ref-card-rail-action" onclick={(e) => { e.stopPropagation(); openWorkSecondary(); }}>
+      <button
+        type="button"
+        class="ref-card-rail-action"
+        onclick={(e) => {
+          e.stopPropagation();
+          openWorkSecondary();
+        }}
+      >
         Open in split
       </button>
     {/snippet}
-
-    {#if workPreviewLines}
-      <div class="work-ref-preview" aria-hidden="true">
-        <div class="work-ref-preview__content prose-cloud">
-          <SvelteMarkdown
-            source={workPreviewLines}
-            renderers={{ link: MarkdownLink }}
-            sanitizeUrl={markdownSanitizeUrl}
-          />
-        </div>
-      </div>
-    {:else}
-      <button
-        type="button"
-        class="plan-card-placeholder"
-        onclick={(e) => {
-          e.stopPropagation();
-          openWork();
-        }}
-      >
-        <span class="plan-card-placeholder-icon">
-          <FileTextIcon size={16} weight="regular" />
-        </span>
-        <span class="plan-card-placeholder-text">Open to preview</span>
-      </button>
-    {/if}
   </ConversationRefCard>
 {:else}
   <ConversationRefCard
@@ -177,11 +179,20 @@
     {skipMotion}
   >
     {#snippet chip()}
-      <TranscriptChip state={statusChip.state}>{statusChip.label}</TranscriptChip>
+      <TranscriptChip state={statusChip.state}
+        >{statusChip.label}</TranscriptChip
+      >
     {/snippet}
 
     {#snippet footer()}
-      <button type="button" class="ref-card-rail-action" onclick={(e) => { e.stopPropagation(); openPlanSecondary(); }}>
+      <button
+        type="button"
+        class="ref-card-rail-action"
+        onclick={(e) => {
+          e.stopPropagation();
+          openPlanSecondary();
+        }}
+      >
         Open in split
       </button>
       <span class="flex-1"></span>
@@ -189,14 +200,6 @@
         <span class="ref-card-rail-id">{ref.id.slice(0, 8)}</span>
       {/if}
     {/snippet}
-
-    <div class="plan-card-body prose-cloud">
-      <SvelteMarkdown
-        source={hasMore ? previewLines : content}
-        renderers={{ link: MarkdownLink }}
-        sanitizeUrl={markdownSanitizeUrl}
-      />
-    </div>
   </ConversationRefCard>
 {/if}
 
@@ -219,7 +222,11 @@
     padding: 0.625rem 0.75rem;
     border: 0.0625rem dashed var(--solus-tool-border);
     border-radius: 0.5rem;
-    background: color-mix(in srgb, var(--solus-surface-primary) 30%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--solus-surface-primary) 30%,
+      transparent
+    );
     color: var(--solus-text-tertiary);
     text-align: left;
     cursor: pointer;

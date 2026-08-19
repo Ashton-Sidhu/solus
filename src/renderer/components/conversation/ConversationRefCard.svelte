@@ -99,7 +99,7 @@
     data-testid={dataTestId}
     onclick={handleClick}
     role="button"
-    tabindex="0"
+    tabindex={0}
     aria-label={ariaLabel ?? title}
     aria-expanded={expandable ? expanded : undefined}
     onkeydown={handleKeydown}
@@ -168,27 +168,7 @@
     </div>
     {#if children}
       {#if expandable}
-        {#if expanded}
-          <div
-            transition:slide={{
-              duration: reduceMotion ? 0 : 180,
-              easing: cubicOut,
-            }}
-          >
-            <div class="conversation-ref-card__body" class:is-bleed={bleedBody}>
-              {@render children()}
-            </div>
-          </div>
-        {/if}
-      {:else}
-        <div class="conversation-ref-card__body" class:is-bleed={bleedBody}>
-          {@render children()}
-          <!-- Three lines then a fade — a card is a reference to a page, not the
-               page. -->
-          {#if !bleedBody}
-            <div class="conversation-ref-card__fade" aria-hidden="true"></div>
-          {/if}
-        </div>
+        {@render children()}
       {/if}
     {/if}
     {#if footer}
@@ -329,7 +309,11 @@
 
   .conversation-ref-card__fade {
     height: 1.875rem;
-    background: linear-gradient(to bottom, transparent, var(--solus-tx-card-bg));
+    background: linear-gradient(
+      to bottom,
+      transparent,
+      var(--solus-tx-card-bg)
+    );
   }
 
   .conversation-ref-card__rail {

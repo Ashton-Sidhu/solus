@@ -1,6 +1,15 @@
 <script lang="ts">
   import { scaleBand } from "d3-scale";
-  import { Axis, Bars, Chart, Highlight, Svg, Text, Tooltip, type TextProps } from "layerchart";
+  import {
+    Axis,
+    Bars,
+    Chart,
+    Highlight,
+    Svg,
+    Text,
+    Tooltip,
+    type TextProps,
+  } from "layerchart";
   import { XIcon } from "phosphor-svelte";
   import { TIME_AXIS_INSET_PX, TIME_AXIS_LABEL_GAP_PX } from "./lib/chart-axis";
   import {
@@ -53,7 +62,15 @@
     onSelectionChange: (selection: TimeSelection | null) => void;
   }
 
-  let { points, heading, countLabel, from, to, selection, onSelectionChange }: Props = $props();
+  let {
+    points,
+    heading,
+    countLabel,
+    from,
+    to,
+    selection,
+    onSelectionChange,
+  }: Props = $props();
 
   /** The plot's own width, so the bucket count — and with it the bar width —
    *  follows the space the card was given rather than a constant. */
@@ -70,39 +87,65 @@
     ),
   );
   const bucketWidthMs = $derived(
-    buckets.length > 1 ? buckets[1].at - buckets[0].at : viewport.to - viewport.from,
+    buckets.length > 1
+      ? buckets[1].at - buckets[0].at
+      : viewport.to - viewport.from,
   );
   const selectedPoints = $derived(pointsWithinSelection(points, selection));
   const stats = $derived(volumeStats(selectedPoints));
   // One label per ~190px. A wide plot with five labels leaves the reader
   // measuring by eye across a quarter of a week.
   const ticks = $derived(
-    bucketAxisTicks(buckets, Math.min(9, Math.max(3, Math.round(plotWidth / 190)))),
+    bucketAxisTicks(
+      buckets,
+      Math.min(9, Math.max(3, Math.round(plotWidth / 190))),
+    ),
   );
-  const yMax = $derived(Math.max(1, ...buckets.map((bucket) => bucket.total)) * 1.12);
+  const yMax = $derived(
+    Math.max(1, ...buckets.map((bucket) => bucket.total)) * 1.12,
+  );
 
   /** Each backend's bar carries that backend's own colour — the ramp's terracotta
    * is Claude's accent already, and Codex takes the violet-blue of its own app
    * icon — so the same two hues name the backends here and in `ProviderMark`.
    * The ramp's dusty blue named neither of them. Mixing toward the card keeps
    * both themes soft. */
-  const CLAUDE_FILL = "color-mix(in oklch, var(--solus-art-1) 72%, var(--card))";
+  const CLAUDE_FILL =
+    "color-mix(in oklch, var(--solus-art-1) 72%, var(--card))";
   const CODEX_FILL = "color-mix(in oklch, var(--brand-codex) 72%, var(--card))";
-  const UNKNOWN_FILL = "color-mix(in oklch, var(--muted-foreground) 38%, var(--card))";
+  const UNKNOWN_FILL =
+    "color-mix(in oklch, var(--muted-foreground) 38%, var(--card))";
 
   const summary = $derived([
-    { label: countLabel, value: String(stats.counted), tone: "var(--foreground)" },
+    {
+      label: countLabel,
+      value: String(stats.counted),
+      tone: "var(--foreground)",
+    },
     ...(stats.totalCostUsd == null
       ? []
-      : [{ label: "Spend", value: formatCost(stats.totalCostUsd), tone: "var(--foreground)" }]),
-    { label: "p50", value: formatDuration(stats.p50DurationMs), tone: "var(--foreground)" },
-    { label: "p95", value: formatDuration(stats.p95DurationMs), tone: "var(--foreground)" },
+      : [
+          {
+            label: "Spend",
+            value: formatCost(stats.totalCostUsd),
+            tone: "var(--foreground)",
+          },
+        ]),
+    {
+      label: "p50",
+      value: formatDuration(stats.p50DurationMs),
+      tone: "var(--foreground)",
+    },
+    {
+      label: "p95",
+      value: formatDuration(stats.p95DurationMs),
+      tone: "var(--foreground)",
+    },
   ]);
 
   const hasUnknownProvider = $derived(
     selectedPoints.some((point) => providerMark(point.provider) === null),
   );
-
 
   /** Past a day, a bare clock repeats across the axis and names no instant. */
   const spansDays = $derived(to - from > 24 * 60 * 60 * 1000);
@@ -112,7 +155,9 @@
   const formatTick = $derived(axisInstantFormat(to - from));
 
   const selectionLabel = $derived(
-    selection ? `${formatInstant(selection.from)}–${formatInstant(selection.to)}` : "",
+    selection
+      ? `${formatInstant(selection.from)}–${formatInstant(selection.to)}`
+      : "",
   );
 
   /** The instants one bar covers, for its tooltip header. */
@@ -133,7 +178,12 @@
   // last bucket so a one-bar selection still covers that bar's turns.
   function applyBrush(state: BrushSelectionState): void {
     const [first, last] = state.x;
-    if (first == null || last == null || first instanceof Date || last instanceof Date) {
+    if (
+      first == null ||
+      last == null ||
+      first instanceof Date ||
+      last instanceof Date
+    ) {
       onSelectionChange(null);
       return;
     }
@@ -180,41 +230,64 @@
         </button>
       </span>
     {:else}
-      <span class="text-[0.6875rem] text-muted-foreground">Drag across the chart to zoom</span>
+      <span class="text-[0.6875rem] text-muted-foreground"
+        >Drag across the chart to zoom</span
+      >
     {/if}
     <span class="flex-1"></span>
-    <div class="flex items-center gap-3 text-[0.6875rem] text-muted-foreground" aria-label="Providers">
+    <div
+      class="flex items-center gap-3 text-[0.6875rem] text-muted-foreground"
+      aria-label="Providers"
+    >
       <!-- The swatch is the whole mark here: it keys the name to a bar, and now
            carries that backend's own colour, so a logo beside it would say the
            same thing twice. -->
       <span class="flex items-center gap-1.5">
-        <span class="h-1.5 w-3 rounded-sm" style="background:{CLAUDE_FILL}" aria-hidden="true"></span>
+        <span
+          class="h-1.5 w-3 rounded-sm"
+          style="background:{CLAUDE_FILL}"
+          aria-hidden="true"
+        ></span>
         Claude Code
       </span>
       <span class="flex items-center gap-1.5">
-        <span class="h-1.5 w-3 rounded-sm" style="background:{CODEX_FILL}" aria-hidden="true"></span>
+        <span
+          class="h-1.5 w-3 rounded-sm"
+          style="background:{CODEX_FILL}"
+          aria-hidden="true"
+        ></span>
         Codex
       </span>
       {#if hasUnknownProvider}
         <span class="flex items-center gap-1.5">
-          <span class="h-1.5 w-3 rounded-sm" style="background:{UNKNOWN_FILL}" aria-hidden="true"></span>
+          <span
+            class="h-1.5 w-3 rounded-sm"
+            style="background:{UNKNOWN_FILL}"
+            aria-hidden="true"
+          ></span>
           Unknown
         </span>
       {/if}
     </div>
-    <span class="h-3.5 w-px shrink-0 bg-[var(--hairline)]" aria-hidden="true"></span>
+    <span class="h-3.5 w-px shrink-0 bg-[var(--hairline)]" aria-hidden="true"
+    ></span>
     <!-- Value first, label after: a stat strip is read for its numbers, and a
          row of same-weight label/value pairs makes the eye read the words. -->
     <div class="flex items-center gap-3.5">
       {#each summary as stat, index (stat.label)}
         {#if index > 0}
-          <span class="h-3.5 w-px shrink-0 bg-[var(--hairline)]" aria-hidden="true"></span>
+          <span
+            class="h-3.5 w-px shrink-0 bg-[var(--hairline)]"
+            aria-hidden="true"
+          ></span>
         {/if}
         <span class="flex items-baseline gap-1.5">
-          <span class="text-[0.8125rem] font-semibold tabular-nums" style="color:{stat.tone}"
+          <span class="text-[0.8125rem] tabular-nums" style="color:{stat.tone}"
             >{stat.value}</span
           >
-          <span class="text-[0.6875rem] text-muted-foreground">{stat.label}</span>
+          <span class="text-[0.6875rem] text-muted-foreground"
+            >{stat.label}</span
+          >
         </span>
       {/each}
     </div>
@@ -231,7 +304,12 @@
         xScale={scaleBand().padding(0.18)}
         y={(bucket: VolumeBucket) => bucket.total}
         yDomain={[0, yMax]}
-        padding={{ left: AXIS_GUTTER_PX, bottom: TIME_AXIS_INSET_PX, right: 12, top: 4 }}
+        padding={{
+          left: AXIS_GUTTER_PX,
+          bottom: TIME_AXIS_INSET_PX,
+          right: 12,
+          top: 4,
+        }}
         tooltipContext={{ mode: "band" }}
         brush={{
           axis: "x",
@@ -257,7 +335,10 @@
             ticks={3}
             tickMarks={false}
             format={(value: unknown) => String(Math.round(Number(value)))}
-            classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
+            classes={{
+              tickLabel:
+                "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]",
+            }}
           />
           <!-- Bucket starts, not evenly-spaced instants: a band scale only
                places a tick that is one of its own categories. -->
@@ -268,13 +349,22 @@
             tickLength={0}
             tickLabelProps={{ dy: TIME_AXIS_LABEL_GAP_PX }}
             format={(value: unknown) => formatTick(Number(value))}
-            classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
+            classes={{
+              tickLabel:
+                "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]",
+            }}
           >
             <!-- The end labels are centred on their bar, which for the first and
                  last bar hangs half a timestamp off the plot and gets cut by the
                  card. Anchoring them inward keeps the window's own bounds
                  readable, which is the pair the reader most needs. -->
-            {#snippet tickLabel({ props, index }: { props: TextProps; index: number })}
+            {#snippet tickLabel({
+              props,
+              index,
+            }: {
+              props: TextProps;
+              index: number;
+            })}
               <Text
                 {...props}
                 textAnchor={index === 0
@@ -293,7 +383,10 @@
             fill={CLAUDE_FILL}
           />
           <Bars
-            y={(bucket: VolumeBucket) => [bucket.claudeCode, bucket.claudeCode + bucket.codex]}
+            y={(bucket: VolumeBucket) => [
+              bucket.claudeCode,
+              bucket.claudeCode + bucket.codex,
+            ]}
             rounded="top"
             radius={2}
             fill={CODEX_FILL}
@@ -320,27 +413,49 @@
                 >{bucketLabel(data)}</span
               >
               <span class="flex items-baseline gap-1.5">
-                <span class="text-xs font-medium tabular-nums">{data.total}</span>
-                <span class="text-muted-foreground">{countLabel.toLowerCase()}</span>
+                <span class="text-xs font-medium tabular-nums"
+                  >{data.total}</span
+                >
+                <span class="text-muted-foreground"
+                  >{countLabel.toLowerCase()}</span
+                >
               </span>
               {#if data.claudeCode > 0}
                 <span class="flex items-center gap-1.5">
-                  <span class="h-1.5 w-2.5 rounded-sm" style="background:{CLAUDE_FILL}" aria-hidden="true"></span>
-                  <span class="text-xs font-medium tabular-nums">{data.claudeCode}</span>
+                  <span
+                    class="h-1.5 w-2.5 rounded-sm"
+                    style="background:{CLAUDE_FILL}"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="text-xs font-medium tabular-nums"
+                    >{data.claudeCode}</span
+                  >
                   <span class="text-muted-foreground">Claude Code</span>
                 </span>
               {/if}
               {#if data.codex > 0}
                 <span class="flex items-center gap-1.5">
-                  <span class="h-1.5 w-2.5 rounded-sm" style="background:{CODEX_FILL}" aria-hidden="true"></span>
-                  <span class="text-xs font-medium tabular-nums">{data.codex}</span>
+                  <span
+                    class="h-1.5 w-2.5 rounded-sm"
+                    style="background:{CODEX_FILL}"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="text-xs font-medium tabular-nums"
+                    >{data.codex}</span
+                  >
                   <span class="text-muted-foreground">Codex</span>
                 </span>
               {/if}
               {#if data.unknownProvider > 0}
                 <span class="flex items-center gap-1.5">
-                  <span class="h-1.5 w-2.5 rounded-sm" style="background:{UNKNOWN_FILL}" aria-hidden="true"></span>
-                  <span class="text-xs font-medium tabular-nums">{data.unknownProvider}</span>
+                  <span
+                    class="h-1.5 w-2.5 rounded-sm"
+                    style="background:{UNKNOWN_FILL}"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="text-xs font-medium tabular-nums"
+                    >{data.unknownProvider}</span
+                  >
                   <span class="text-muted-foreground">Unknown</span>
                 </span>
               {/if}

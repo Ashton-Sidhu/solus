@@ -102,7 +102,8 @@
   <div
     use:portal={layer.el}
     class="fixed z-30"
-    style="pointer-events:auto;left:{left}px;width:{width}px;{placement === 'down'
+    style="pointer-events:auto;left:{left}px;width:{width}px;{placement ===
+    'down'
       ? `top:${anchorRect.bottom + 4}px`
       : `bottom:${window.innerHeight - anchorRect.top + 4}px`}"
   >
@@ -132,10 +133,18 @@
         class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem] text-xs text-(--solus-text-tertiary) select-none"
       >
         <span class="flex items-center gap-[0.6875rem]">
-          <span><span class="font-mono text-(--solus-text-primary)">↑↓</span> move</span>
-          <span><span class="font-mono text-(--solus-text-primary)">⏎</span> {enterVerb}</span>
+          <span
+            ><span class="font-mono text-(--solus-text-primary)">↑↓</span> move</span
+          >
+          <span
+            ><span class="font-mono text-(--solus-text-primary)">⏎</span>
+            {enterVerb}</span
+          >
           {#if showTabHint}
-            <span><span class="font-mono text-(--solus-text-primary)">⇥</span> {tabVerb}</span>
+            <span
+              ><span class="font-mono text-(--solus-text-primary)">⇥</span>
+              {tabVerb}</span
+            >
           {/if}
         </span>
         {#if footer}
@@ -161,9 +170,10 @@
 {/snippet}
 
 {#snippet label(text: string, hint: string)}
-  <div class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem]">
-    <span
-      class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
+  <div
+    class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem]"
+  >
+    <span class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
       >{text}</span
     >
     <span class="h-px flex-1 bg-(--wash-rule)"></span>
@@ -186,7 +196,9 @@
     <span class="flex w-4 shrink-0 items-center justify-center"
       >{@render glyph(icon)}</span
     >
-    <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)">{text}</span>
+    <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)"
+      >{text}</span
+    >
     <span class="text-xs text-(--solus-text-tertiary)">{meta}</span>
     <span class="flex-1"></span>
     <span class="font-mono text-xs text-(--solus-text-tertiary) opacity-70"
@@ -231,8 +243,7 @@
         class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.8125rem] font-medium text-(--solus-text-tertiary)"
         >{entry.title}</span
       >
-      <span
-        class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary)"
+      <span class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary)"
         >{entry.meta}</span
       >
     {:else}
@@ -240,25 +251,24 @@
       {@const mono = entry.type === "item" && entry.item.mono}
       <span
         class="block max-w-[20rem] shrink-0 truncate text-[0.8125rem] text-(--solus-text-primary) {isFileEntry
- ? 'font-[450]'
- : 'font-medium'} {mono
- ? 'font-mono'
- : ''}"
+          ? 'font-[450]'
+          : 'font-medium'} {mono ? 'font-mono' : ''}"
       >
         <!-- Matched characters light up in every row; a metadata-only match
              lights nothing, because none of the title matched. -->
         {#each parts as part, i (i)}<span
             class="whitespace-pre"
-            style={part.hit ? "color:var(--solus-accent)" : ""}>{part.text}</span
+            style={part.hit ? "color:var(--solus-accent)" : ""}
+            >{part.text}</span
           >{/each}
       </span>
 
       {#if entry.type === "item"}
         <span
           class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary) {entry
- .item.monoMeta
- ? 'font-mono text-xs'
- : ''}">{rowMeta(entry.item, entry.showKind)}</span
+            .item.monoMeta
+            ? 'font-mono text-xs'
+            : ''}">{rowMeta(entry.item, entry.showKind)}</span
         >
         {#if entry.item.when}
           <span
@@ -269,7 +279,9 @@
       {:else}
         <span class="flex-1"></span>
         <!-- A category's trailing slot is its count, and nothing else. -->
-        <span class="flex shrink-0 items-center gap-2 text-(--solus-text-tertiary)">
+        <span
+          class="flex shrink-0 items-center gap-2 text-(--solus-text-tertiary)"
+        >
           <span class="font-mono text-xs tabular-nums opacity-55"
             >{entry.count}</span
           >

@@ -980,7 +980,7 @@
           </button>
           <button
             type="button"
-            class="status-row-action"
+            class="status-row-action text-"
             onclick={() => serversStore.useLocalHost()}
           >
             Run locally
