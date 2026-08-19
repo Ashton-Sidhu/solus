@@ -3,8 +3,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import { encodePathAsFolder, SOLUS_WORKTREE_PATH_MARKER } from '../../src/shared/types'
-import type { SessionLoadMessage } from '../../src/shared/session-history'
+import { encodePathAsFolder, SOLUS_WORKTREE_PATH_MARKER } from '@solus/contracts/types'
+import type { SessionLoadMessage } from '@solus/contracts/session-history'
 
 // The production DB layer imports `node:sqlite` (available in Electron/Node),
 // which Bun's test runtime does not provide. bun:sqlite is API-compatible for
@@ -13,8 +13,8 @@ import type { SessionLoadMessage } from '../../src/shared/session-history'
 // the modules under test are imported dynamically in beforeAll, after this runs.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type IndexerModule = typeof import('../../src/main/db/session-indexer')
-type DbModule = typeof import('../../src/main/db')
+type IndexerModule = typeof import('@solus/server/db/session-indexer')
+type DbModule = typeof import('@solus/server/db')
 let indexer: IndexerModule
 let closeDb: DbModule['closeDb']
 let getDb: DbModule['getDb']
@@ -26,8 +26,8 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-idx-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  indexer = await import('../../src/main/db/session-indexer')
-  ;({ closeDb, getDb } = await import('../../src/main/db'))
+  indexer = await import('@solus/server/db/session-indexer')
+  ;({ closeDb, getDb } = await import('@solus/server/db'))
 })
 afterAll(() => {
   closeDb?.()

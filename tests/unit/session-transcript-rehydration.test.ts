@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { WorkspaceContext } from '../../src/renderer/contexts/workspace/workspace.context.svelte'
-import type { IpcContext } from '../../src/shared/types'
+import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
+import type { IpcContext } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 
-mock.module('@client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: connections,
 }))
 
@@ -13,7 +13,7 @@ const {
   loadRestoredSessionTranscript,
   loadSessionTranscript,
   RESTORED_TRANSCRIPT_LIMIT,
-} = await import('../../src/renderer/contexts/workspace/session-transcript')
+} = await import('@solus/workspace-ui/contexts/workspace/session-transcript')
 
 afterEach(() => connections.reset())
 

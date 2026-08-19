@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { stripInjectedContext } from '../../src/main/agents/utils'
-import { formatTaskContext } from '../../src/main/tasks/task-context'
-import type { TaskDetails } from '../../src/shared/task-types'
+import { stripInjectedContext } from '@solus/server/agents/utils'
+import { formatTaskContext } from '@solus/server/tasks/task-context'
+import type { TaskDetails } from '@solus/contracts/task-types'
 
 const details = {
   task: {

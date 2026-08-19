@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { AttentionNotificationTracker } from '../../src/renderer/contexts/notifications/notifications-core'
-import type { AttentionEntry } from '../../src/shared/attention-types'
+import { AttentionNotificationTracker } from '@solus/workspace-ui/contexts/notifications/notifications-core'
+import type { AttentionEntry } from '@solus/contracts/attention-types'
 
 function entry(sessionId: string, kind: AttentionEntry['kind'] = 'question'): AttentionEntry {
   return { sessionId, kind, since: 1000, summary: 'Needs attention' }

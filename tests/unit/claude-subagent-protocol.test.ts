@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   claudeToolResultText,
   parseClaudeTaskNotification,
-} from '../../src/main/agents/claude/claude-subagent-protocol'
-import { parseJsonlLine } from '../../src/main/agents/claude/claude-session-helpers'
+} from '@solus/server/agents/claude/claude-subagent-protocol'
+import { parseJsonlLine } from '@solus/server/agents/claude/claude-session-helpers'
 
 describe('Claude subagent protocol', () => {
   test('normalizes string and block tool results through one path', () => {

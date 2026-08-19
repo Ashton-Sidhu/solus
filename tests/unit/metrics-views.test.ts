@@ -6,10 +6,10 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SpanTableModule = typeof import('../../src/main/observability/span-table')
-type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
-type FieldRegistryModule = typeof import('../../src/main/observability/field-registry')
-type RegistriesModule = typeof import('../../src/main/observability/registries')
+type SpanTableModule = typeof import('@solus/server/observability/span-table')
+type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
+type FieldRegistryModule = typeof import('@solus/server/observability/field-registry')
+type RegistriesModule = typeof import('@solus/server/observability/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -21,10 +21,10 @@ let registries: RegistriesModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-views-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  spanTable = await import('../../src/main/observability/span-table')
-  metricsDb = await import('../../src/main/observability/metrics-db')
-  fieldRegistry = await import('../../src/main/observability/field-registry')
-  registries = await import('../../src/main/observability/registries')
+  spanTable = await import('@solus/server/observability/span-table')
+  metricsDb = await import('@solus/server/observability/metrics-db')
+  fieldRegistry = await import('@solus/server/observability/field-registry')
+  registries = await import('@solus/server/observability/registries')
   metricsDb.closeMetricsDb()
 })
 

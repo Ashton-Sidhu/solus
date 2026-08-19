@@ -5,8 +5,8 @@ import {
   normalizeHostCapabilities,
   supportsEditor,
   supportsSettingsSurface,
-} from '../../src/client-core/host-capabilities'
-import type { HostCapabilities } from '../../src/shared/types'
+} from '@solus/client-core/host-capabilities'
+import type { HostCapabilities } from '@solus/contracts/types'
 
 describe('host capability gates', () => {
   test('uses absence as unsupported for attachment and asset families', () => {

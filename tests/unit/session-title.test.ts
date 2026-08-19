@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentRun, AgentRunRequest } from '../../src/main/agents/agent-runner'
-import { generateMetadataWith, sanitizeTitle } from '../../src/main/sessions/session-title'
+import type { AgentRun, AgentRunRequest } from '@solus/server/agents/agent-runner'
+import { generateMetadataWith, sanitizeTitle } from '@solus/server/sessions/session-title'
 
 /** A dispatcher that answers the way a backend would: `submitted` is the title
  *  handed to the capture tool (omitted = the tool is never called), `prose` is

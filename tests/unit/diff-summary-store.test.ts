@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import type { ChangedFileStat, DiffScope } from '../../src/shared/git-types'
-import { buildDiffSummaryTree } from '../../src/renderer/components/conversation/lib/diff-summary-tree'
+import type { ChangedFileStat, DiffScope } from '@solus/contracts/git-types'
+import { buildDiffSummaryTree } from '@solus/workspace-ui/components/conversation/lib/diff-summary-tree'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
-let DiffSummaryStore: typeof import('../../src/renderer/components/conversation/diff-summary.store.svelte').DiffSummaryStore
+let DiffSummaryStore: typeof import('@solus/workspace-ui/components/conversation/diff-summary.store.svelte').DiffSummaryStore
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
   ;({ DiffSummaryStore } = await import(
-    '../../src/renderer/components/conversation/diff-summary.store.svelte'
+    '@solus/workspace-ui/components/conversation/diff-summary.store.svelte'
   ))
 })
 

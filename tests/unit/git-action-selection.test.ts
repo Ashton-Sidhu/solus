@@ -4,8 +4,8 @@ import {
   gitReadiness,
   isPullRequestRunning,
   type GitRepositorySetup,
-} from '../../src/renderer/components/project-panel/lib/git-action-selection'
-import type { GitRepositoryStatus, GitState } from '../../src/shared/types'
+} from '@solus/workspace-ui/components/project-panel/lib/git-action-selection'
+import type { GitRepositoryStatus, GitState } from '@solus/contracts/types'
 
 function status(overrides: Partial<GitState> = {}): GitState {
   return {

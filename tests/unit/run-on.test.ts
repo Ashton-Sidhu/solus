@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Session } from '../../src/shared/types'
-import { LOCAL_SERVER_ID } from '../../src/client-core/server-registry'
+import type { Session } from '@solus/contracts/types'
+import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import {
   isRunOnHostLocked,
   isNewWorktreeStartSelected,
@@ -10,10 +10,10 @@ import {
   shouldShowRunOnPicker,
   withLocalStart,
   withRemoteDispatch,
-} from '../../src/renderer/components/servers/run-on'
-import type { RunConfig } from '../../src/shared/types'
-import { runTarget } from '../../src/renderer/components/servers/lib/run-target'
-import { withDispatchBaseBranch, withDispatchWorktree } from '../../src/renderer/contexts/workspace/run-config'
+} from '@solus/workspace-ui/components/servers/run-on'
+import type { RunConfig } from '@solus/contracts/types'
+import { runTarget } from '@solus/workspace-ui/components/servers/lib/run-target'
+import { withDispatchBaseBranch, withDispatchWorktree } from '@solus/workspace-ui/contexts/workspace/run-config'
 
 type VisibilityInput = Parameters<typeof shouldShowRunOnPicker>[0]
 

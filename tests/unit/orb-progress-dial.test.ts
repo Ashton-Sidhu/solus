@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { dialCountFontRem } from "../../src/renderer/components/layout/lib/orb-progress-dial";
+import { dialCountFontRem } from "@solus/workspace-ui/components/layout/lib/orb-progress-dial";
 
 // The dial text must never be wider than the ring it sits inside, or the count
 // spills over the circle. Widest safe text box is ~1.55rem at the 2.25rem button.

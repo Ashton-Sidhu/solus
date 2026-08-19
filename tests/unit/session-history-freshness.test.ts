@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import type { DomainSyncState } from '../../src/client-core/freshness'
-import { SessionSnapshotCache } from '../../src/client-core/session-snapshot-cache'
-import { SessionHistoryLoader, type SessionHistorySource } from '../../src/renderer/lib/sessionPickerHistory'
-import type { SessionMeta } from '../../src/shared/types'
+import type { DomainSyncState } from '@solus/client-core/freshness'
+import { SessionSnapshotCache } from '@solus/client-core/session-snapshot-cache'
+import { SessionHistoryLoader, type SessionHistorySource } from '@solus/workspace-ui/lib/sessionPickerHistory'
+import type { SessionMeta } from '@solus/contracts/types'
 
 const previousLocalStorage = globalThis.localStorage
 const store = new Map<string, string>()

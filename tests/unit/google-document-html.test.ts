@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { buildGoogleDocHtml } from '../../src/main/google/document-html'
-import { serializeDiagramEmbed } from '../../src/shared/diagram-embed'
+import { buildGoogleDocHtml } from '@solus/server/google/document-html'
+import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 
 const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB'
 

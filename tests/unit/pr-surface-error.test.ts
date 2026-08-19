@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { prSurfaceError } from '../../src/renderer/components/prs/lib/pr-surface-error'
+import { prSurfaceError } from '@solus/workspace-ui/components/prs/lib/pr-surface-error'
 
 describe('PR surface errors', () => {
   test('maps the existing missing-credential error to the GitHub connect action', () => {

@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { asHostApi } from '../../src/client-core/host-api'
+import { asHostApi } from '@solus/client-core/host-api'
 import {
   SLASH_COMMANDS,
   type SlashCommandRunContext,
-} from '../../src/renderer/components/input/slash-commands'
+} from '@solus/workspace-ui/components/input/slash-commands'
 
 describe('Solus slash commands', () => {
   test('/clear clears the current conversation', () => {

@@ -3,8 +3,8 @@ import {
   remoteHistorySourceBatches,
   remoteHistorySources,
   type RemoteHistoryHosts,
-} from '../../src/renderer/components/session/lib/remote-history-sources'
-import type { ProjectIdentity } from '../../src/shared/types'
+} from '@solus/workspace-ui/components/session/lib/remote-history-sources'
+import type { ProjectIdentity } from '@solus/contracts/types'
 
 const SOLUS_REPO = 'github.com/sidhu/solus'
 

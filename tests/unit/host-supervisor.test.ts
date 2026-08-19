@@ -4,7 +4,7 @@ import {
   ladderDelayMs,
   OFFLINE_AFTER_ATTEMPTS,
   type HostPhase,
-} from '../../src/client-core/host-supervisor'
+} from '@solus/client-core/host-supervisor'
 
 function harness() {
   const dials: number[] = []

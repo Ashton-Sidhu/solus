@@ -2,8 +2,8 @@ import { afterEach, describe, expect, mock, setSystemTime, test } from 'bun:test
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { resolveEffectiveServerOptions } from '../../src/main/server/bind-policy'
-import { createTokenBucketRateLimiter } from '../../src/main/server/rate-limit'
+import { resolveEffectiveServerOptions } from '@solus/server/server/bind-policy'
+import { createTokenBucketRateLimiter } from '@solus/server/server/rate-limit'
 
 mock.module('electron', () => ({
   app: {
@@ -12,7 +12,7 @@ mock.module('electron', () => ({
   },
 }))
 
-const auth = await import('../../src/main/server/auth')
+const auth = await import('@solus/server/server/auth')
 
 describe('server bind/auth coupling', () => {
   const originalHost = process.env.SOLUS_HOST

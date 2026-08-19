@@ -3,12 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import { hostOperatingSystem } from '../../src/main/platform/host-operating-system'
+import { hostOperatingSystem } from '@solus/server/platform/host-operating-system'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SessionEmitterModule = typeof import('../../src/main/observability/session-emitter')
-type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
+type SessionEmitterModule = typeof import('@solus/server/observability/session-emitter')
+type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -18,8 +18,8 @@ let metricsDb: MetricsDbModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-session-emitter-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  emitterModule = await import('../../src/main/observability/session-emitter')
-  metricsDb = await import('../../src/main/observability/metrics-db')
+  emitterModule = await import('@solus/server/observability/session-emitter')
+  metricsDb = await import('@solus/server/observability/metrics-db')
 })
 
 afterEach(() => {

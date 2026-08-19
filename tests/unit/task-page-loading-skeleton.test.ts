@@ -3,19 +3,19 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const paneSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/ui/Pane.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/ui/Pane.svelte'),
   'utf8',
 )
 const taskPageSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/tasks/task-page/TaskPage.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/tasks/task-page/TaskPage.svelte'),
   'utf8',
 )
 const skeletonSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/tasks/task-page/TaskPageSkeleton.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/tasks/task-page/TaskPageSkeleton.svelte'),
   'utf8',
 )
 const sidebarSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/tasks/task-page/TaskSidebar.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/tasks/task-page/TaskSidebar.svelte'),
   'utf8',
 )
 

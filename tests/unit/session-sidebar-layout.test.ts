@@ -4,7 +4,7 @@ import { describe, expect, test } from 'bun:test'
 
 const readSessionSource = (file: string) =>
   readFileSync(
-    join(import.meta.dir, '../../src/renderer/components/session', file),
+    join(import.meta.dir, '../../packages/workspace-ui/src/components/session', file),
     'utf8',
   )
 

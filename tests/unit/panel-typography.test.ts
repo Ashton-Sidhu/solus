@@ -3,10 +3,10 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const readRendererSource = (path: string) =>
-  readFileSync(join(import.meta.dir, '../../src/renderer/components', path), 'utf8')
+  readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components', path), 'utf8')
 
 const rendererCss = readFileSync(
-  join(import.meta.dir, '../../src/renderer/index.css'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/index.css'),
   'utf8',
 )
 
@@ -83,7 +83,7 @@ describe('persistent panel typography', () => {
     // that follows the compact shortcut rung on laptop displays. MenuRow must
     // not recreate either the component or its laptop branch locally.
     expect(source).toMatch(/\.menu-trail\s*{[\s\S]*?font-size: var\(--text-xs\);/)
-    expect(source).toContain('import Kbd from "@renderer/components/ui/Kbd.svelte";')
+    expect(source).toContain('import Kbd from "@solus/workspace-ui/components/ui/Kbd.svelte";')
     expect(source).toContain('<Kbd variant="inline"')
     expect(source).not.toContain('.menu-hint')
   })

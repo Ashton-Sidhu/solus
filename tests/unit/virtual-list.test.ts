@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { virtualGroupItems } from '../../src/renderer/components/ui/list-page/virtualized-groups'
+import { virtualGroupItems } from '@solus/workspace-ui/components/ui/list-page/virtualized-groups'
 
 describe('virtualized grouped lists', () => {
   test('flattens a thousand rows for the shared virtual-list library', () => {

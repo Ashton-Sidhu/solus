@@ -5,11 +5,11 @@ import {
   bucketAxisTicks,
   bucketCountForWidth,
   bucketPoints,
-} from '../../src/renderer/components/insights/lib/volume'
-import { axisInstantFormat } from '../../src/renderer/components/insights/lib/format'
+} from '@solus/workspace-ui/components/insights/lib/volume'
+import { axisInstantFormat } from '@solus/workspace-ui/components/insights/lib/format'
 
 const source = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/insights/VolumeChart.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/VolumeChart.svelte'),
   'utf8',
 )
 

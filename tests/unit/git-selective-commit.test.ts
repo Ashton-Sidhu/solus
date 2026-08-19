@@ -3,9 +3,9 @@ import { spawnSync } from 'child_process'
 import { mkdirSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { runGitAction, type GitActionManagerOptions } from '../../src/main/git/git-action-manager'
-import type { GitActionRequest, GitCheckout } from '../../src/shared/types'
-import type { TextGenerator } from '../../src/main/agents/text-generator'
+import { runGitAction, type GitActionManagerOptions } from '@solus/server/git/git-action-manager'
+import type { GitActionRequest, GitCheckout } from '@solus/contracts/types'
+import type { TextGenerator } from '@solus/server/agents/text-generator'
 
 let roots: string[] = []
 

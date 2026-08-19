@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { IpcContext, Session } from '../../src/shared/types'
+import type { IpcContext, Session } from '@solus/contracts/types'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -39,7 +39,7 @@ describe('SessionConfigController provider switching', () => {
     }
 
     let switchCount = 0
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: settings as any,
       registry: {
@@ -130,7 +130,7 @@ describe('SessionConfigController provider switching', () => {
     }
 
     let switchCount = 0
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: settings as any,
       registry: { activeTabId: 'tab-1', activeSession: session, sessionFor: () => session } as any,
@@ -177,7 +177,7 @@ describe('SessionConfigController provider switching', () => {
         if (patch.activeAgent) this.activeAgent = patch.activeAgent
       },
     }
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: settings as any,
       registry: {} as any,
@@ -224,7 +224,7 @@ describe('SessionConfigController worktree selection', () => {
       pluginCommands: { global: [], project: [] },
     } as unknown as Session
     const refreshedPluginDirectories: string[] = []
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: {
@@ -272,7 +272,7 @@ describe('SessionConfigController worktree selection', () => {
       } as Session['run'],
       agentSessionId: 'live-session',
     } as unknown as Session
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: { activeTabId: 'live-tab', activeSession: session, sessionFor: () => session } as any,
@@ -317,7 +317,7 @@ describe('SessionConfigController branch switching', () => {
         },
       } as Session['run'],
     }
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat', worktreeEnabled: false } as any,
       registry: { activeSession: undefined, activeTabId: '', sessionFor: () => undefined } as any,
@@ -411,7 +411,7 @@ describe('SessionConfigController branch switching', () => {
       },
     })
 
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat' } as any,
       registry: registry as any,
@@ -466,8 +466,8 @@ describe('SessionConfigController branch switching', () => {
       },
     })
 
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
-    const { toasts } = await import('../../src/renderer/lib/toasts')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
+    const { toasts } = await import('@solus/workspace-ui/lib/toasts')
     const messages: string[] = []
     const originalError = toasts.error
     toasts.error = (message: string) => { messages.push(message) }
@@ -520,7 +520,7 @@ describe('SessionConfigController PR repo checkout activation', () => {
     const sessions: Record<string, Session> = { 'tab-live': liveSession, 'tab-match': matchingSession }
     const selected: string[] = []
     let draftedCwd: string | undefined
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat' } as any,
       registry: {
@@ -561,7 +561,7 @@ describe('SessionConfigController PR repo checkout activation', () => {
     } as unknown as Session
     const selected: string[] = []
     let draftedCwd: string | undefined
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const controller = new SessionConfigController({
       settings: { activeAgent: 'codex', defaultModels: {}, tabGroupMode: 'flat' } as any,
       registry: {
@@ -618,7 +618,7 @@ describe('SessionConfigController session start target', () => {
       },
     })
 
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const session = {
       run: {
         workingDirectory: '/repo',
@@ -677,7 +677,7 @@ describe('SessionConfigController session start target', () => {
       },
     })
 
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     let createdCwd: string | undefined
     let startsFreshTask = false
     const controller = new SessionConfigController({
@@ -726,7 +726,7 @@ describe('SessionConfigController session start target', () => {
       },
     })
 
-    const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+    const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
     const session = {
       run: {
         workingDirectory: '/old-project',

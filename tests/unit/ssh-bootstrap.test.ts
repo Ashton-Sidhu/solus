@@ -2,15 +2,15 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { issueSshBootstrapCredential, getOwnershipState, resetAuthStateForTests, verifySessionToken } from '../../src/main/server/auth'
+import { issueSshBootstrapCredential, getOwnershipState, resetAuthStateForTests, verifySessionToken } from '@solus/server/server/auth'
 import {
   bootstrapDiscoveredServerOverSsh,
   isSshAuthFailure,
   parseSshTarget,
   resolveSshBootstrapTarget,
   type SshRunOptions,
-} from '../../src/main/server/ssh-bootstrap'
-import type { DiscoveredServer } from '../../src/shared/types'
+} from '@solus/server/server/ssh-bootstrap'
+import type { DiscoveredServer } from '@solus/contracts/types'
 
 const originalDataDir = process.env.SOLUS_DATA_DIR
 

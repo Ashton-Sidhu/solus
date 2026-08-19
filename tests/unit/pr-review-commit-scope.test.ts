@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import type { PrCommit, PrDiffRequest, PrDiffSlice, PrReviewTarget } from '../../src/shared/providers'
-import type { PrReviewDeps } from '../../src/renderer/components/pr-review/lib/pr-review.store.svelte'
+import type { PrCommit, PrDiffRequest, PrDiffSlice, PrReviewTarget } from '@solus/contracts/providers'
+import type { PrReviewDeps } from '@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte'
 
 // PrReviewState is a runes class; outside the Svelte compiler `$state` and
 // `$derived` are identity functions (same shim as the PrsStore tests).
@@ -79,7 +79,7 @@ describe('PR review commit scope', () => {
     // WHY: leaving the commit must return to an intact review — reloading the
     // whole PR diff on every commit visit would make the feature feel broken.
     const requests: PrDiffRequest[] = []
-    const { PrReviewState } = await import('../../src/renderer/components/pr-review/lib/pr-review.store.svelte')
+    const { PrReviewState } = await import('@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte')
     const state = new PrReviewState(7, makeDeps(async (request) => {
       requests.push(request)
       return { patch: request.commitSha ? 'commit-patch' : 'full-patch', truncated: false, nextCursor: null }
@@ -109,7 +109,7 @@ describe('PR review commit scope', () => {
   test('a moved head clears the commit scope instead of stranding the reader', async () => {
     // WHY: after a force push the scoped commit may no longer exist on the PR;
     // the diff surface must fall back to the full diff, which always exists.
-    const { PrReviewState } = await import('../../src/renderer/components/pr-review/lib/pr-review.store.svelte')
+    const { PrReviewState } = await import('@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte')
     const state = new PrReviewState(7, makeDeps(async () => ({ patch: 'commit-patch', truncated: false, nextCursor: null })))
     state.setTarget(target('head-sha'))
     state.viewCommit(commit)

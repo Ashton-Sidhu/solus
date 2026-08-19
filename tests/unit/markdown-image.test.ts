@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { markdownImageUrl } from "../../src/renderer/components/conversation/lib/markdown-image";
+import { markdownImageUrl } from "@solus/workspace-ui/components/conversation/lib/markdown-image";
 
 describe("markdown image URLs", () => {
   test("resolves a relative image from the session working directory", () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
-import { MemoryCache } from '../../src/shared/cache'
+import { MemoryCache } from '@solus/contracts/cache'
 
 afterEach(() => setSystemTime())
 

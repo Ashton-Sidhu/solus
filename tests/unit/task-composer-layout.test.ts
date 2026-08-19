@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const composer = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/tasks/TaskComposer.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/tasks/TaskComposer.svelte'),
   'utf8',
 )
 

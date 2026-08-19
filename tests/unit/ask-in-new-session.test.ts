@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Session, Tab } from '../../src/shared/types'
-import { quotedReplyDraft } from '../../src/renderer/lib/quoted-reply'
+import type { Session, Tab } from '@solus/contracts/types'
+import { quotedReplyDraft } from '@solus/workspace-ui/lib/quoted-reply'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -51,7 +51,7 @@ describe('Ask in New Session', () => {
   test('forks the source context into the split and leaves the question unsent', async () => {
     installRendererGlobals()
     const { WorkspaceContext } = await import(
-      '../../src/renderer/contexts/workspace/workspace.context.svelte'
+      '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
     )
 
     const sourceSession = {

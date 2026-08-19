@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { tooltipDisplay } from "../../src/renderer/components/ui/tooltip/content";
+import { tooltipDisplay } from "@solus/workspace-ui/components/ui/tooltip/content";
 
 describe("tooltip display content", () => {
   test("separates parenthesized keyboard shortcuts into a scannable keycap", () => {

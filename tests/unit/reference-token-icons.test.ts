@@ -2,8 +2,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { JSDOM } from "jsdom";
-import { serializeReferenceToken } from "../../src/renderer/components/editor/reference-tokens";
-import { createReferenceDecorations } from "../../src/renderer/components/ui/plain-text-editor/lib/reference-decorations";
+import { serializeReferenceToken } from "@solus/workspace-ui/components/editor/reference-tokens";
+import { createReferenceDecorations } from "@solus/workspace-ui/components/ui/plain-text-editor/lib/reference-decorations";
 
 const SVG_NAMESPACE = "http://www.w3.org/2000/svg";
 const dom = new JSDOM("<div id=\"editor\"></div>");

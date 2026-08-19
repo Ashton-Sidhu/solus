@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   removeChecksClientActivity,
   type ClientChecksActivity,
-} from '../../src/main/server/handlers/checks-handlers'
+} from '@solus/server/server/handlers/checks-handlers'
 
 describe('PR checks activity ownership', () => {
   test('disconnecting the final active client releases its polling repository', () => {

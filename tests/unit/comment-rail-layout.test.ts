@@ -3,7 +3,7 @@ import {
   CONNECTOR_THRESHOLD,
   MIN_GAP,
   layoutThreads,
-} from '../../src/renderer/components/comments/lib/rail-layout'
+} from '@solus/workspace-ui/components/comments/lib/rail-layout'
 
 // A thread card is a margin note: it means "this, here". These tests pin the
 // three properties that keep it saying that — a card sits on its anchor's line

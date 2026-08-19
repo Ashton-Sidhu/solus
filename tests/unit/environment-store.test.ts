@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { HostApi } from '../../src/client-core/host-api'
-import { hostKey } from '../../src/client-core/host-key'
-import { serverConnections } from '../../src/client-core/server-connections'
-import type { GitCheckout, GitState, Session } from '../../src/shared/types'
+import type { HostApi } from '@solus/client-core/host-api'
+import { hostKey } from '@solus/client-core/host-key'
+import { serverConnections } from '@solus/client-core/server-connections'
+import type { GitCheckout, GitState, Session } from '@solus/contracts/types'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -17,7 +17,7 @@ afterEach(() => {
 describe('Git state initialization', () => {
   test('keeps the same path distinct on two hosts', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const cwd = '/workspace'
     const apiA: HostApi = {} as never
@@ -45,7 +45,7 @@ describe('Git state initialization', () => {
   })
 
   test('starts new windows in the server workspace instead of its projects root', async () => {
-    const { startDirectoryForServer } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')
+    const { startDirectoryForServer } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')
     const startInfo = {
       version: 'test',
       projectPath: '/var/lib/solus',
@@ -85,7 +85,7 @@ describe('Git state initialization', () => {
     )
     let finishRefresh!: () => void
     const refresh = new Promise<void>((resolve) => { finishRefresh = resolve })
-    const { WorkspaceLifecycleStore } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')
+    const { WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')
     const globalDefaults = {
       permissionMode: 'auto' as const,
       workingDirectory: '~',
@@ -119,14 +119,14 @@ describe('Git state initialization', () => {
     expect(globalDefaults.workingDirectory).toBe('/my-workspace')
     expect(refreshedDirectory).toBe('/my-workspace')
     expect(globalDefaults.gitContext?.targetBranch).toBe('main')
-    const { homeGitDetails } = await import('../../src/renderer/lib/git-context')
+    const { homeGitDetails } = await import('@solus/workspace-ui/lib/git-context')
     const home = homeGitDetails(
       globalDefaults.workingDirectory,
       undefined,
       globalDefaults.gitContext,
     )
     expect(home.canToggleWorktree).toBe(true)
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const environmentStore = new SessionEnvironmentStore()
     environmentStore.bindWorkspace({
       activeTabId: '',
@@ -142,7 +142,7 @@ describe('Git state initialization', () => {
   })
 
   test('keeps new-worktree mode available from an existing worktree', async () => {
-    const { homeGitDetails } = await import('../../src/renderer/lib/git-context')
+    const { homeGitDetails } = await import('@solus/workspace-ui/lib/git-context')
     const home = homeGitDetails(
       '/project/.solus-worktrees/current',
       {
@@ -191,7 +191,7 @@ describe('Git state initialization', () => {
         gitRegisterEnvironment: async (_ctx: unknown, _cwd: string, gitContext: GitCheckout | null) => { registered = gitContext },
       } },
     })
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const workspace = {
       activeTabId: 'tab-1',
@@ -247,7 +247,7 @@ describe('Git state initialization', () => {
         gitRegisterEnvironment: async () => {},
       } },
     })
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const workspace = {
       activeTabId: 'tab-1',
@@ -295,7 +295,7 @@ describe('Git state initialization', () => {
         gitRefreshState: async () => state,
       } },
     })
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const primaryApi: HostApi = serverConnections.registerPrimary(
       'test-primary',
@@ -376,7 +376,7 @@ describe('Git state initialization', () => {
         gitRegisterEnvironment: async () => { registered = true },
       } },
     })
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const workspace = {
       activeTabId: 'tab-1',
@@ -432,7 +432,7 @@ describe('Git state initialization', () => {
         },
       } },
     })
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const workspace = {
       activeTabId: 'tab-1',
@@ -481,7 +481,7 @@ describe('Git state initialization', () => {
       SessionEnvironmentStore,
       environmentBranchKey,
       environmentProjectKey,
-    } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     store.bindWorkspace({
       activeTabId: 'tab-1',
@@ -532,7 +532,7 @@ describe('Git state initialization', () => {
       writable: true,
       value: { solus: { gitRefreshState: async () => null } },
     })
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     store.bindCwd('test-host', '/not-a-repo', window.solus as never)
 

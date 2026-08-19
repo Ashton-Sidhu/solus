@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Message } from '../../src/shared/types'
+import type { Message } from '@solus/contracts/types'
 import {
   buildTurns,
   groupMessages,
@@ -9,7 +9,7 @@ import {
   runIsLive,
   shouldAnimateTurnEntry,
   stabilizeTurns,
-} from '../../src/renderer/components/conversation/lib/turns'
+} from '@solus/workspace-ui/components/conversation/lib/turns'
 
 let clock = 1_000
 

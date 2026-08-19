@@ -3,9 +3,9 @@ import {
   addDiffComment,
   submitDiffFeedback,
   submitDiffFeedbackToNewSession,
-} from '../../src/renderer/contexts/workspace/session-diff-feedback'
-import type { WorkspaceContext } from '../../src/renderer/contexts/workspace/workspace.context.svelte'
-import type { DiffComment } from '../../src/shared/types'
+} from '@solus/workspace-ui/contexts/workspace/session-diff-feedback'
+import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
+import type { DiffComment } from '@solus/contracts/types'
 
 function comment(filePath: string): DiffComment {
   return {

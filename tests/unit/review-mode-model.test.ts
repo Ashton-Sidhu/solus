@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { ReviewEffort } from '../../src/shared/effort-types'
-import type { ReviewSessionCoreEntry } from '../../src/renderer/components/review-mode/lib/review-session-core'
+import type { ReviewEffort } from '@solus/contracts/effort-types'
+import type { ReviewSessionCoreEntry } from '@solus/workspace-ui/components/review-mode/lib/review-session-core'
 import {
   defaultReviewModeView,
   deriveQueueRows,
-} from '../../src/renderer/components/review-mode/lib/review-mode-model'
+} from '@solus/workspace-ui/components/review-mode/lib/review-mode-model'
 
 function effort(band: ReviewEffort['band'], minutes: number): ReviewEffort {
   return { band, minutes, signals: [`${band} review`] }

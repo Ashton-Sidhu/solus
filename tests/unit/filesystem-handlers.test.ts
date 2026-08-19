@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { expandHome } from '../../src/main/server/handlers/lib/host-path'
+import { expandHome } from '@solus/server/server/handlers/lib/host-path'
 
 describe('filesystem handler paths', () => {
   test('expands home shorthand with the browsed host separator', () => {

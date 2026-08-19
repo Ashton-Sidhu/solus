@@ -12,8 +12,8 @@ import {
   subagentTail,
   subagentTimeline,
   writesClause,
-} from '../../src/renderer/components/conversation/lib/subagent-view'
-import type { Message, TodoItem } from '../../src/shared/types'
+} from '@solus/workspace-ui/components/conversation/lib/subagent-view'
+import type { Message, TodoItem } from '@solus/contracts/types'
 
 const NOW = 100_000
 const FALLBACK = { model: 'Sonnet 5', effort: 'medium' }

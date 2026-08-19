@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { selectionRect } from "../../src/renderer/components/document-shell/lib/selection-bubble";
+import { selectionRect } from "@solus/workspace-ui/components/document-shell/lib/selection-bubble";
 
 function editorWithSelection(type: string, isSameParent: boolean) {
   return {

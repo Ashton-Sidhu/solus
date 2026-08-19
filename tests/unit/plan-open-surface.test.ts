@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Plan } from '../../src/shared/types'
-import { openPlanModal } from '../../src/renderer/contexts/workspace/session-plan-operations'
+import type { Plan } from '@solus/contracts/types'
+import { openPlanModal } from '@solus/workspace-ui/contexts/workspace/session-plan-operations'
 
 /**
  * Opening a plan reads its body off disk. The surface has to be revealed on the

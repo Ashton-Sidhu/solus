@@ -5,7 +5,7 @@ import { describe, expect, test } from 'bun:test'
 const source = readFileSync(
   join(
     import.meta.dir,
-    '../../src/renderer/components/ui/list-page/ListPage.svelte',
+    '@solus/workspace-ui/components/ui/list-page/ListPage.svelte',
   ),
   'utf8',
 )

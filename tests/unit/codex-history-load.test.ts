@@ -50,15 +50,15 @@ class FakeCodexClient extends EventEmitter {
 
 const client = new FakeCodexClient()
 
-mock.module('../../src/main/agents/codex/codex-agent', () => ({
+mock.module('@solus/server/agents/codex/codex-agent', () => ({
   CodexRpcError: FakeCodexRpcError,
   getCodexAppServerClient: () => client,
 }))
 
-let CodexBackend: typeof import('../../src/main/agents/codex/codex-backend')['CodexBackend']
+let CodexBackend: typeof import('@solus/server/agents/codex/codex-backend')['CodexBackend']
 
 beforeAll(async () => {
-  ;({ CodexBackend } = await import('../../src/main/agents/codex/codex-backend'))
+  ;({ CodexBackend } = await import('@solus/server/agents/codex/codex-backend'))
 })
 
 beforeEach(() => {

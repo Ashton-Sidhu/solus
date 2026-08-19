@@ -3,10 +3,10 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let solusToolbox: typeof import('../../src/main/agents/tools/solus-toolbox')['solusToolbox']
+let solusToolbox: typeof import('@solus/server/agents/tools/solus-toolbox')['solusToolbox']
 
 beforeAll(async () => {
-  ;({ solusToolbox } = await import('../../src/main/agents/tools/solus-toolbox'))
+  ;({ solusToolbox } = await import('@solus/server/agents/tools/solus-toolbox'))
 })
 
 describe('Solus toolbox', () => {

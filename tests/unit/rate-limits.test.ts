@@ -5,8 +5,8 @@ import {
   normalizeResetNumber,
   rateLimitEventFromMessage,
   RateLimitState,
-} from '../../src/main/rate-limits'
-import type { NormalizedEvent } from '../../src/shared/types'
+} from '@solus/server/rate-limits'
+import type { NormalizedEvent } from '@solus/contracts/types'
 
 type RateLimitEvent = Extract<NormalizedEvent, { type: 'rate_limit' }>
 

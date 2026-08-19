@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import type { MetricsQueryResult, MetricsSchema } from '../../src/shared/observability-types'
+import type { MetricsQueryResult, MetricsSchema } from '@solus/contracts/observability-types'
 import {
   MAX_RANKING_BARS,
   MAX_TREND_SERIES,
   rankingChart,
   trendChart,
-} from '../../src/renderer/components/insights/lib/chart-shape'
-import { resultShape } from '../../src/renderer/components/insights/lib/result-shape'
+} from '@solus/workspace-ui/components/insights/lib/chart-shape'
+import { resultShape } from '@solus/workspace-ui/components/insights/lib/result-shape'
 
 // The two chart forms (docs/plans/observability.md). These tests encode what
 // the chart is allowed to claim: a line may not join rows that differ in a

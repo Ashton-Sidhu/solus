@@ -8,8 +8,8 @@ import {
   placeholderEntryPath,
   removeTreePath,
   renameTreePath,
-} from '../../src/renderer/components/files/lib/file-tree-mutations'
-import { directoriesHoldingFiles } from '../../src/main/server/handlers/lib/project-listing'
+} from '@solus/workspace-ui/components/files/lib/file-tree-mutations'
+import { directoriesHoldingFiles } from '@solus/server/server/handlers/lib/project-listing'
 
 describe('where a new entry goes', () => {
   test('a folder takes the new entry inside itself', () => {

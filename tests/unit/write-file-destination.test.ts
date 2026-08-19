@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, realpath, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { Database } from 'bun:sqlite'
-import type { IpcContext, WriteFileRequest, WriteFileResult } from '../../src/shared/types'
+import type { IpcContext, WriteFileRequest, WriteFileResult } from '@solus/contracts/types'
 
 mock.module('electron', () => ({
   app: { isPackaged: false, getPath: () => tmpdir() },
@@ -16,7 +16,7 @@ mock.module('electron', () => ({
 // though these tests never open it.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-const { registerFileHandlers } = await import('../../src/main/server/handlers/file-handlers')
+const { registerFileHandlers } = await import('@solus/desktop-main/server/handlers/file-handlers')
 
 /**
  * The picker lets a user browse anywhere, so the write behind it has to be able

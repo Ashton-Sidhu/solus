@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   githubPullRequestAccess,
   updateGithubPullRequestLifecycle,
-} from '../../src/main/providers/github/pull-request-actions'
-import type { GitHubClient } from '../../src/main/providers/github/octokit'
+} from '@solus/server/providers/github/pull-request-actions'
+import type { GitHubClient } from '@solus/server/providers/github/octokit'
 
 describe('GitHub pull request capabilities', () => {
   test('separates repository support from the viewer permission set', () => {

@@ -3,25 +3,25 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { TaskSnapshot } from '../../src/shared/task-types'
+import type { TaskSnapshot } from '@solus/contracts/task-types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let createTask: typeof import('../../src/main/tasks/task-store')['createTask']
-let TaskModule: typeof import('../../src/main/tasks/task')
-let outbox: typeof import('../../src/main/outbox/outbox-store')
-let foreignTasks: typeof import('../../src/main/tasks/foreign-tasks')
-let taskApplier: typeof import('../../src/main/tasks/task-applier')
-let taskTools: typeof import('../../src/main/tasks/task-tools')
-let workTools: typeof import('../../src/main/folio/work-tools')
-let works: typeof import('../../src/main/folio/works')
-let commentTools: typeof import('../../src/main/annotations/comment-tools')
-let prTools: typeof import('../../src/main/providers/pr-tools')
-let automationTools: typeof import('../../src/main/automations/automation-tools')
-let linkedContent: typeof import('../../src/main/tasks/linked-content')
-let workApplier: typeof import('../../src/main/folio/work-applier')
-let closeDb: typeof import('../../src/main/db')['closeDb']
-let serverSettings: typeof import('../../src/main/server/settings')
+let createTask: typeof import('@solus/server/tasks/task-store')['createTask']
+let TaskModule: typeof import('@solus/server/tasks/task')
+let outbox: typeof import('@solus/server/outbox/outbox-store')
+let foreignTasks: typeof import('@solus/server/tasks/foreign-tasks')
+let taskApplier: typeof import('@solus/server/tasks/task-applier')
+let taskTools: typeof import('@solus/server/tasks/task-tools')
+let workTools: typeof import('@solus/server/folio/work-tools')
+let works: typeof import('@solus/server/folio/works')
+let commentTools: typeof import('@solus/server/annotations/comment-tools')
+let prTools: typeof import('@solus/server/providers/pr-tools')
+let automationTools: typeof import('@solus/server/automations/automation-tools')
+let linkedContent: typeof import('@solus/server/tasks/linked-content')
+let workApplier: typeof import('@solus/server/folio/work-applier')
+let closeDb: typeof import('@solus/server/db')['closeDb']
+let serverSettings: typeof import('@solus/server/server/settings')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
@@ -29,20 +29,20 @@ let dataDir = ''
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-dispatch-parity-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  ;({ createTask } = await import('../../src/main/tasks/task-store'))
-  TaskModule = await import('../../src/main/tasks/task')
-  outbox = await import('../../src/main/outbox/outbox-store')
-  foreignTasks = await import('../../src/main/tasks/foreign-tasks')
-  taskApplier = await import('../../src/main/tasks/task-applier')
-  taskTools = await import('../../src/main/tasks/task-tools')
-  workTools = await import('../../src/main/folio/work-tools')
-  works = await import('../../src/main/folio/works')
-  commentTools = await import('../../src/main/annotations/comment-tools')
-  prTools = await import('../../src/main/providers/pr-tools')
-  automationTools = await import('../../src/main/automations/automation-tools')
-  linkedContent = await import('../../src/main/tasks/linked-content')
-  workApplier = await import('../../src/main/folio/work-applier')
-  serverSettings = await import('../../src/main/server/settings')
+  ;({ createTask } = await import('@solus/server/tasks/task-store'))
+  TaskModule = await import('@solus/server/tasks/task')
+  outbox = await import('@solus/server/outbox/outbox-store')
+  foreignTasks = await import('@solus/server/tasks/foreign-tasks')
+  taskApplier = await import('@solus/server/tasks/task-applier')
+  taskTools = await import('@solus/server/tasks/task-tools')
+  workTools = await import('@solus/server/folio/work-tools')
+  works = await import('@solus/server/folio/works')
+  commentTools = await import('@solus/server/annotations/comment-tools')
+  prTools = await import('@solus/server/providers/pr-tools')
+  automationTools = await import('@solus/server/automations/automation-tools')
+  linkedContent = await import('@solus/server/tasks/linked-content')
+  workApplier = await import('@solus/server/folio/work-applier')
+  serverSettings = await import('@solus/server/server/settings')
   taskApplier.registerTaskOutboxApplier()
   workApplier.registerWorkOutboxApplier()
 })
@@ -55,7 +55,7 @@ afterAll(() => {
 })
 
 beforeAll(async () => {
-  ;({ closeDb } = await import('../../src/main/db'))
+  ;({ closeDb } = await import('@solus/server/db'))
 })
 
 beforeEach(() => {
@@ -313,7 +313,7 @@ describe('task tools on a dispatched session (foreign task)', () => {
 
 describe('the shipped snapshot renders the packet without a local row', () => {
   test('formatTaskContext consumes a TaskSnapshot verbatim', async () => {
-    const { formatTaskContext } = await import('../../src/main/tasks/task-context')
+    const { formatTaskContext } = await import('@solus/server/tasks/task-context')
     const snapshot = shippedSnapshot('01JSNAPSHOTONLYXXXXXXXXXXX')
     const packet = formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions)
     expect(packet).toContain('[Working On Task — "Fix the scroll bug"')
@@ -324,7 +324,7 @@ describe('the shipped snapshot renders the packet without a local row', () => {
   test('the packet names every linked item and the tool that reads it', async () => {
     // WHY: links rendered nowhere agent-visible, so a dispatched agent had no
     // way to discover the design doc its task pointed at.
-    const { formatTaskContext } = await import('../../src/main/tasks/task-context')
+    const { formatTaskContext } = await import('@solus/server/tasks/task-context')
     const snapshot = shippedSnapshot('01JSNAPSHOTLINKSXXXXXXXXXX')
     snapshot.details.links = [{
       taskId: snapshot.details.task.id,

@@ -43,7 +43,7 @@ afterEach(() => {
 describe('onScreenTabId gates the sidebar active highlight', () => {
   async function makeWorkspace() {
     installRendererGlobals()
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const leadingPane = { id: 'pane_1', base: { name: 'chat' } as { name: string } }
     // A companion pane holding a conversation, resolved through `chatTabIn` — the
     // same hop the real `splitChatTabId` makes.

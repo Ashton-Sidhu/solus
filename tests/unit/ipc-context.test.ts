@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { runInputFromContext } from '../../src/main/agents/run-input'
-import { IpcContextBuilder, type IpcContextBuilderDeps } from '../../src/renderer/contexts/workspace/ipc-context'
-import type { StatusBarCtx } from '../../src/shared/types'
+import { runInputFromContext } from '@solus/server/agents/run-input'
+import { IpcContextBuilder, type IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspace/ipc-context'
+import type { StatusBarCtx } from '@solus/contracts/types'
 
 function statusBar(model: string, reasoningEffort: StatusBarCtx['reasoningEffort']): StatusBarCtx {
   return {

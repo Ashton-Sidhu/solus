@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { parseTailscalePeerCandidates, tailnetEndpointFromStatus } from '../../src/main/server/endpoints'
-import { isLanDiscoveryDisabled, parseLanDiscoveryMessage } from '../../src/main/server/lan-discovery'
+import { parseTailscalePeerCandidates, tailnetEndpointFromStatus } from '@solus/server/server/endpoints'
+import { isLanDiscoveryDisabled, parseLanDiscoveryMessage } from '@solus/server/server/lan-discovery'
 import {
   filterUnsavedDiscoveredServers,
   mergeNearbyHosts,
   NEARBY_HOST_TTL_MS,
   unannouncedDiscoveredServers,
-} from '../../src/renderer/contexts/connections/discovery'
-import type { DiscoveredServer } from '../../src/shared/types'
+} from '@solus/workspace-ui/contexts/connections/discovery'
+import type { DiscoveredServer } from '@solus/contracts/types'
 
 describe('server discovery', () => {
   test('disables LAN discovery for tests and explicitly isolated app runs', () => {
@@ -185,7 +185,7 @@ describe('host operating system', () => {
   test('maps Node platform names to the persisted host values', async () => {
     // WHY: stored values are a durable client contract, not Node-specific
     // platform strings. Unknown future platforms must keep the globe fallback.
-    const { hostOperatingSystem } = await import('../../src/main/platform/host-operating-system')
+    const { hostOperatingSystem } = await import('@solus/server/platform/host-operating-system')
     expect(hostOperatingSystem('darwin')).toBe('macos')
     expect(hostOperatingSystem('win32')).toBe('windows')
     expect(hostOperatingSystem('linux')).toBe('linux')

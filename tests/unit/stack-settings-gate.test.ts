@@ -3,11 +3,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { registerStackHandlers } from '../../src/main/server/handlers/stack-handlers'
-import type { SolusServer } from '../../src/main/server/server'
-import type { IpcContext } from '../../src/shared/types'
-import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
-import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
+import { registerStackHandlers } from '@solus/server/server/handlers/stack-handlers'
+import type { SolusServer } from '@solus/server/server/server'
+import type { IpcContext } from '@solus/contracts/types'
+import { ClientEventRegistry } from '@solus/server/events/client-event-registry'
+import { HostEventPublisher } from '@solus/server/events/host-event-publisher'
 
 const temporaryDirectories: string[] = []
 

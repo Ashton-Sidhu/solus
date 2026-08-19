@@ -3,8 +3,8 @@ import {
   HOLD_MS,
   ReviewSessionCore,
   type DispositionPoster,
-} from '../../src/renderer/components/review-mode/lib/review-session-core'
-import type { PendingDisposition } from '../../src/shared/review-session-types'
+} from '@solus/workspace-ui/components/review-mode/lib/review-session-core'
+import type { PendingDisposition } from '@solus/contracts/review-session-types'
 
 function harness(failingPrs: number[] = []) {
   let time = 0

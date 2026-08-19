@@ -2,10 +2,10 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { shortId } from "../../src/renderer/components/insights/lib/format";
+import { shortId } from "@solus/workspace-ui/components/insights/lib/format";
 
 const turnDetailSource = readFileSync(
-  join(import.meta.dir, "../../src/renderer/components/insights/TurnDetailPanel.svelte"),
+  join(import.meta.dir, "../../packages/workspace-ui/src/components/insights/TurnDetailPanel.svelte"),
   "utf8",
 );
 

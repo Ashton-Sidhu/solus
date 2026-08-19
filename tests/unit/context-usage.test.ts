@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { CodexTurnNormalizer } from '../../src/main/agents/codex/codex-event-normalizer'
-import { ClaudeTurnNormalizer } from '../../src/main/agents/claude/claude-event-normalizer'
+import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
+import { ClaudeTurnNormalizer } from '@solus/server/agents/claude/claude-event-normalizer'
 import {
   contextLimit,
   contextTokensUsed,
   contextUsedFraction,
-} from '../../src/renderer/lib/contextUsage'
-import { defaultContextWindowFor } from '../../src/shared/types'
-import type { ContextUsage, NormalizedEvent, Session } from '../../src/shared/types'
+} from '@solus/workspace-ui/lib/contextUsage'
+import { defaultContextWindowFor } from '@solus/contracts/types'
+import type { ContextUsage, NormalizedEvent, Session } from '@solus/contracts/types'
 
 /**
  * The context meter answers one question: how much room is left before this

@@ -7,7 +7,7 @@ import {
   ZOOM_FACTOR_DEFAULT,
   ZOOM_FACTOR_MAX,
   ZOOM_FACTOR_MIN,
-} from '../../src/shared/zoom'
+} from '@solus/contracts/zoom'
 
 // Zoom replaced the fluid root font-size (ADR-0010): the factor is the one
 // whole-UI scale knob, persisted across restarts and applied to webContents.

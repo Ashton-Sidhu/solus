@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildSystemPrompt } from '../../src/main/agents/system-hint'
+import { buildSystemPrompt } from '@solus/server/agents/system-hint'
 
 describe('diagram agent guidance', () => {
   test('teaches both creation and preservation of live embeds', () => {

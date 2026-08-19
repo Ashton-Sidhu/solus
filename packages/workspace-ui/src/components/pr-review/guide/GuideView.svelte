@@ -1,0 +1,251 @@
+<script lang="ts">
+  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import type { FileDiffContentsLoader } from "@pierre/diffs";
+  import { ArrowsClockwiseIcon, ClockIcon } from "phosphor-svelte";
+  import type { ReviewGuide, ReviewLedger } from "@solus/contracts/review";
+  import type { DiffComment } from "@solus/contracts/types";
+  import {
+    formatAbsoluteTimestamp,
+    formatTimeAgoFromTimestamp,
+  } from "../../../lib/sessionUtils";
+  import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
+  import CodeSpan from "../../ui/CodeSpan.svelte";
+  import { splitPatchByFile, type GuideDiffCommentSave } from "./lib/guide-data";
+  import GuideSection from "./GuideSection.svelte";
+  import GuideRail from "./GuideRail.svelte";
+
+  const markdownRenderers = { codespan: CodeSpan };
+
+  // The native guided-review surface: a centered walkthrough where each section
+  // pairs a sticky "why" summary on the left with its scrolling diffs on the
+  // right. The guide opens with a title + overview summary, then each section's
+  // diffs scroll past until the next section comes up. Low-signal concerns
+  // collapse into a single group, closed by default.
+  let {
+    guide,
+    ledger,
+    patch,
+    loadDiffFiles,
+    meta,
+    guideCurrent = true,
+    onRegenerate,
+    regenerating = false,
+    onFileJump,
+    comments = [],
+    onCommentSave,
+    onCommentDelete,
+  }: {
+    guide: ReviewGuide;
+    ledger: ReviewLedger | null;
+    patch: string;
+    loadDiffFiles?: FileDiffContentsLoader;
+    /** PR identity for the intro header's metadata line (`repo#number · base ←
+     *  branch`). Absent for standalone local-branch reviews. */
+    meta?: { repo?: string; number?: number; baseRef: string; branch: string };
+    /** Whether the cached guide describes the checkout's current HEAD. */
+    guideCurrent?: boolean;
+    /** Rewrite the guide against the current HEAD. Absent where the host has no
+     *  way to regenerate, which leaves the new-commits marker inert but honest. */
+    onRegenerate?: () => void;
+    /** A regeneration already in flight, so the marker can say so. */
+    regenerating?: boolean;
+    /** Forwarded to each section so file chips can route to a host Diff tab. */
+    onFileJump?: (path: string) => void;
+    /** Review-draft comments + handlers, forwarded to every section's diff cards.
+     *  Absent for the read-only standalone local-branch companion. */
+    comments?: DiffComment[];
+    onCommentSave?: (comment: GuideDiffCommentSave) => void;
+    onCommentDelete?: (id: string) => void;
+  } = $props();
+
+  const patchByPath = $derived(splitPatchByFile(patch));
+  const records = $derived(ledger?.records ?? []);
+
+  const mainSections = $derived(guide.sections.filter((s) => s.significance !== "low-signal"));
+  const lowSignalSections = $derived(guide.sections.filter((s) => s.significance === "low-signal"));
+  const generatedTimestamp = $derived(
+    guide.generatedAt ? new Date(guide.generatedAt).getTime() : 0,
+  );
+  const generatedTime = $derived(
+    formatTimeAgoFromTimestamp(generatedTimestamp),
+  );
+  const generatedTitle = $derived(
+    formatAbsoluteTimestamp(generatedTimestamp),
+  );
+
+  // The guide owns its own scroller so the rail can pin to its viewport.
+  let scrollEl = $state<HTMLElement | null>(null);
+  const railItems = $derived(mainSections.map((s) => ({ id: s.id, title: s.title })));
+</script>
+
+<div class="text-sm relative min-h-0 flex-1">
+  <GuideRail items={railItems} {scrollEl} />
+
+  <div bind:this={scrollEl} class="h-full overflow-y-auto">
+    {#if guide.sections.length > 0}
+      <div class="mx-auto flex w-full max-w-[92rem] flex-col 2xl:max-w-[104rem]">
+        <!-- Guide overview: a large title with PR identity + summary, given room
+             to read before the diffs. -->
+        <!-- The chrome band and the masthead already sit above this title; a
+             deep top pad on top of them read as a hole rather than as air. The
+             weight stays below the header, where the guide starts. -->
+        <header class="guide-intro border-b border-(--solus-art-border) pt-6 pr-8 pb-10 pl-14">
+          <h1 class="text-2xl leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
+            {guide.title}
+          </h1>
+
+          {#if meta || guide.generatedAt}
+            <div
+              class="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-(--solus-text-tertiary)"
+            >
+              {#if meta?.repo}
+                <span class="font-medium text-(--solus-text-secondary)">{meta.repo}#{meta.number}</span>
+                <span class="opacity-50">·</span>
+              {/if}
+              {#if meta}
+                <span class="inline-flex items-center gap-1.5 font-mono text-xs">
+                  <span>{meta.baseRef}</span>
+                  <span aria-hidden="true">←</span>
+                  <span class="font-secondary text-(--solus-text-secondary)">{meta.branch}</span>
+                </span>
+              {/if}
+              {#if meta && guide.generatedAt}
+                <span class="opacity-50">·</span>
+              {/if}
+              {#if guide.generatedAt}
+                <span
+                  class="inline-flex items-center gap-1 tabular-nums"
+                  title={generatedTitle ? `Generated ${generatedTitle}` : undefined}
+                >
+                  <ClockIcon size={12} weight="bold" />
+                  Generated {generatedTime ?? "recently"}
+                </span>
+                <span class="opacity-50">·</span>
+                {#if guideCurrent}
+                  <span class="font-secondary font-medium text-(--solus-text-secondary)">
+                    Current
+                  </span>
+                {:else if onRegenerate}
+                  <!-- The new-commits marker *is* the fix: rather than a full-width
+                       strip above the guide announcing new commits, the line that
+                       already dates the guide carries the one action it implies. -->
+                  <button
+                    type="button"
+                    class="inline-flex h-[1.375rem] cursor-pointer items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 font-medium text-amber-700 transition-colors duration-150 hover:bg-amber-500/20 disabled:cursor-progress dark:text-amber-300"
+                    title="New commits since this guide was written"
+                    disabled={regenerating}
+                    onclick={onRegenerate}
+                  >
+                    <ArrowsClockwiseIcon
+                      size={11}
+                      class={regenerating
+                        ? "shrink-0 animate-spin [animation-duration:1.2s] motion-reduce:animate-none"
+                        : "shrink-0"}
+                    />
+                    {regenerating ? "Regenerating…" : "New commits since guide"}
+                  </button>
+                {:else}
+                  <span class="font-medium text-amber-700 dark:text-amber-400">New commits since guide</span>
+                {/if}
+              {/if}
+            </div>
+          {/if}
+
+          {#if guide.summary}
+            <div class="prose-cloud prose-reading mt-4 max-w-[54rem] font-secondary text-(--solus-text-secondary)">
+              <SvelteMarkdown source={guide.summary} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
+            </div>
+          {/if}
+        </header>
+
+        <div class="flex flex-col">
+          {#each mainSections as section, i (section.id)}
+            <GuideSection
+              {section}
+              {records}
+              {patchByPath}
+              {loadDiffFiles}
+              {onFileJump}
+              {comments}
+              {onCommentSave}
+              {onCommentDelete}
+              index={i + 1}
+              total={mainSections.length}
+            />
+          {/each}
+        </div>
+
+        {#if lowSignalSections.length > 0}
+          <details class="group border-t border-(--solus-art-border)">
+            <summary
+              class="flex cursor-pointer list-none items-center gap-1.5 py-3.5 pr-8 pl-14 font-medium text-(--solus-text-tertiary) select-none hover:text-(--solus-text-secondary)"
+            >
+              <span
+                class="inline-block size-1.5 rotate-45 border-r-[1.5px] border-b-[1.5px] border-current transition-transform duration-150 group-open:rotate-[225deg]"
+              ></span>
+              Low-signal changes ({lowSignalSections.length})
+            </summary>
+            <div class="lowsig-body">
+              {#each lowSignalSections as section (section.id)}
+                <GuideSection
+                  {section}
+                  {records}
+                  {patchByPath}
+                  {loadDiffFiles}
+                  {onFileJump}
+                  {comments}
+                  {onCommentSave}
+                  {onCommentDelete}
+                />
+              {/each}
+            </div>
+          </details>
+        {/if}
+      </div>
+    {/if}
+  </div>
+</div>
+
+<style>
+  /* Stagger the overview title + summary in on load, so the guide resolves
+     instead of appearing all at once after the generation spinner. */
+  .guide-intro > :global(*) {
+    animation: guide-intro-in 0.4s ease-out backwards;
+  }
+  .guide-intro > :global(*:nth-child(2)) {
+    animation-delay: 0.08s;
+  }
+
+  /* Fade the low-signal group in when the disclosure opens. */
+  details[open] .lowsig-body {
+    animation: lowsig-body-in 0.22s ease-out;
+  }
+
+  @keyframes guide-intro-in {
+    from {
+      opacity: 0;
+      transform: translateY(0.375rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes lowsig-body-in {
+    from {
+      opacity: 0;
+      transform: translateY(-0.25rem);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .guide-intro > :global(*),
+    details[open] .lowsig-body {
+      animation: none;
+    }
+  }
+</style>

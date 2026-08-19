@@ -8,11 +8,11 @@ import {
   isOutlineVisible,
   sectionJumpIndex,
   type OutlineReason,
-} from '../../src/renderer/components/document-shell/lib/outline'
+} from '@solus/workspace-ui/components/document-shell/lib/outline'
 import {
   commentMarkPositions,
   countThreadsByHeading,
-} from '../../src/renderer/components/comments/lib/anchors'
+} from '@solus/workspace-ui/components/comments/lib/anchors'
 
 // The outline holds itself open for several independent reasons at once. That
 // is the whole reason it is a set and not a boolean: releasing one hold must

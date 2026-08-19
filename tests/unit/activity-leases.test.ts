@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { ActivityLeases } from '../../src/main/server/activity-leases'
+import { ActivityLeases } from '@solus/server/server/activity-leases'
 
 describe('activity leases', () => {
   test('a foreground lease expires on its own clock', () => {

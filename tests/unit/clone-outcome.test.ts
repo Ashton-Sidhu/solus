@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   classifyCloneFailure,
   pushCapabilityNote,
-} from '../../src/renderer/components/servers/lib/clone-outcome'
+} from '@solus/workspace-ui/components/servers/lib/clone-outcome'
 
 describe('clone failure classification', () => {
   test('an occupied destination is offered as a folder to use, not an error to read', () => {

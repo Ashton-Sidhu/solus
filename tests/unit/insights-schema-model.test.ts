@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { MetricsFieldDescriptor, MetricsSchema } from '../../src/shared/observability-types'
+import type { MetricsFieldDescriptor, MetricsSchema } from '@solus/contracts/observability-types'
 import {
   advancedSources,
   enumeratedValues,
@@ -7,7 +7,7 @@ import {
   queryTables,
   schemaSources,
   searchColumns,
-} from '../../src/renderer/components/insights/lib/schema-model'
+} from '@solus/workspace-ui/components/insights/lib/schema-model'
 
 // The schema panel renders the two-table model structurally. These tests encode
 // the presentation rules: sources keep their roles and order, columns group by

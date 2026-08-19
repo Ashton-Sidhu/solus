@@ -4,15 +4,15 @@ import { EventEmitter } from 'events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
-import type { AgentRunRequest } from '../../src/main/agents/agent-runner'
-import type { AgentId, AgentMetadata, IpcContext, NormalizedEvent } from '../../src/shared/types'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
+import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
+import type { AgentId, AgentMetadata, IpcContext, NormalizedEvent } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
-let createTask: typeof import('../../src/main/tasks/task-store')['createTask']
-let closeDb: typeof import('../../src/main/db')['closeDb']
+let ControlPlane: typeof import('@solus/server/control-plane')['ControlPlane']
+let createTask: typeof import('@solus/server/tasks/task-store')['createTask']
+let closeDb: typeof import('@solus/server/db')['closeDb']
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
@@ -20,9 +20,9 @@ let dataDir = ''
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-system-context-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  ;({ ControlPlane } = await import('../../src/main/control-plane'))
-  ;({ createTask } = await import('../../src/main/tasks/task-store'))
-  ;({ closeDb } = await import('../../src/main/db'))
+  ;({ ControlPlane } = await import('@solus/server/control-plane'))
+  ;({ createTask } = await import('@solus/server/tasks/task-store'))
+  ;({ closeDb } = await import('@solus/server/db'))
 })
 
 afterAll(() => {

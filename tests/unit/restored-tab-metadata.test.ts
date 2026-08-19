@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { SessionMeta } from '../../src/shared/types'
-import { getAttentionState } from '../../src/renderer/lib/sessionUtils'
-import { makeSession, makeTab } from '../../src/renderer/contexts/workspace/session.factories'
-import { applyRestoredSessionMeta } from '../../src/renderer/contexts/workspace/session-bootstrap'
-import { snapshotPersistedTabs } from '../../src/renderer/contexts/workspace/tab-snapshot'
+import type { SessionMeta } from '@solus/contracts/types'
+import { getAttentionState } from '@solus/workspace-ui/lib/sessionUtils'
+import { makeSession, makeTab } from '@solus/workspace-ui/contexts/workspace/session.factories'
+import { applyRestoredSessionMeta } from '@solus/workspace-ui/contexts/workspace/session-bootstrap'
+import { snapshotPersistedTabs } from '@solus/workspace-ui/contexts/workspace/tab-snapshot'
 
 function restoredSession() {
   return makeSession({ rateLimitBehavior: 'ask' } as never, {

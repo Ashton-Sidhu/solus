@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { prNavigationTarget } from '../../src/renderer/components/session/lib/pr-navigation'
+import { prNavigationTarget } from '@solus/workspace-ui/components/session/lib/pr-navigation'
 
 describe('PR chip navigation', () => {
   it('always opens through the client host in the secondary pane', () => {

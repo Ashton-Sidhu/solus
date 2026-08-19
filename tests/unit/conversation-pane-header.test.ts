@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const breadcrumbSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/conversation/SessionBreadcrumb.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/conversation/SessionBreadcrumb.svelte'),
   'utf8',
 )
 const asideShellSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/layout/AsidePaneShell.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/layout/AsidePaneShell.svelte'),
   'utf8',
 )
 

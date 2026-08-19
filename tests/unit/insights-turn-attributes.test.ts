@@ -1,14 +1,14 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
-import type { MetricsSpan } from '../../src/shared/observability-types'
+import type { MetricsSpan } from '@solus/contracts/observability-types'
 import {
   attributeCount,
   attributesAsText,
   isPrimaryGroup,
   PRIMARY_GROUP_LABELS,
   turnAttributes,
-} from '../../src/renderer/components/insights/lib/turn-attributes'
-import { buildTraceView } from '../../src/renderer/components/insights/lib/waterfall'
+} from '@solus/workspace-ui/components/insights/lib/turn-attributes'
+import { buildTraceView } from '@solus/workspace-ui/components/insights/lib/waterfall'
 
 function span(overrides: Partial<MetricsSpan> & Pick<MetricsSpan, 'spanId' | 'kind'>): MetricsSpan {
   return {
@@ -60,7 +60,7 @@ describe('turn attributes', () => {
     // Applying that cap only after the click made the state change invisible:
     // the card stayed the same height and the new groups landed below its fold.
     const component = readFileSync(
-      new URL('../../src/renderer/components/insights/TurnAttributes.svelte', import.meta.url),
+      new URL('@solus/workspace-ui/components/insights/TurnAttributes.svelte', import.meta.url),
       'utf8',
     )
 
@@ -74,7 +74,7 @@ describe('turn attributes', () => {
     // the value, while explanatory notes stay available without adding a
     // second line to every affected row.
     const component = readFileSync(
-      new URL('../../src/renderer/components/insights/TurnAttributes.svelte', import.meta.url),
+      new URL('@solus/workspace-ui/components/insights/TurnAttributes.svelte', import.meta.url),
       'utf8',
     )
 
@@ -155,11 +155,11 @@ describe('turn attributes', () => {
     // Insights must remain visible while the task opens beside it, matching
     // other contextual task links rather than replacing the leading pane.
     const panel = readFileSync(
-      new URL('../../src/renderer/components/insights/TurnDetailPanel.svelte', import.meta.url),
+      new URL('@solus/workspace-ui/components/insights/TurnDetailPanel.svelte', import.meta.url),
       'utf8',
     )
     const attributes = readFileSync(
-      new URL('../../src/renderer/components/insights/TurnAttributes.svelte', import.meta.url),
+      new URL('@solus/workspace-ui/components/insights/TurnAttributes.svelte', import.meta.url),
       'utf8',
     )
 

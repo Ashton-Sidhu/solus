@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { AUTOMATION_TEMPLATES } from '../../src/renderer/components/automations/lib/automation-templates'
+import { AUTOMATION_TEMPLATES } from '@solus/workspace-ui/components/automations/lib/automation-templates'
 
 describe('automation templates', () => {
   test('keeps template ids unique', () => {

@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { MetricsFieldDescriptor, MetricsSchema } from '../../src/shared/observability-types'
+import type { MetricsFieldDescriptor, MetricsSchema } from '@solus/contracts/observability-types'
 import {
   SQL_COMPLETIONS,
   schemaCompletionsAtCursor,
   schemaTableCompletions,
-} from '../../src/renderer/components/insights/lib/sql-editor-extensions'
+} from '@solus/workspace-ui/components/insights/lib/sql-editor-extensions'
 
 const column = (name: string, type: MetricsFieldDescriptor['type'] = 'string'): MetricsFieldDescriptor => ({
   name,

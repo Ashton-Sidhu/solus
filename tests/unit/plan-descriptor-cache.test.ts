@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { PlanComment, PlanDescriptor, Work, WorkMeta } from '../../src/shared/types'
+import type { PlanComment, PlanDescriptor, Work, WorkMeta } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 
-mock.module('@client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: connections,
 }))
 
@@ -96,7 +96,7 @@ describe('plan descriptor cache', () => {
       value: { solus: { listPlans: () => Promise.resolve(warmed) } },
     })
 
-    const { PlanStore } = await import('../../src/renderer/contexts/plans/plan.store.svelte')
+    const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
     const store = new PlanStore()
     store.preloadAllDescriptors()
     await Bun.sleep(0)
@@ -123,7 +123,7 @@ describe('plan descriptor cache', () => {
       value: { solus: { listPlans: () => refresh } },
     })
 
-    const { PlanStore } = await import('../../src/renderer/contexts/plans/plan.store.svelte')
+    const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
     const store = new PlanStore()
     const key = store.descriptorCacheKey(undefined, true)
     const stale = [descriptor('Cached plan', 1)]
@@ -151,7 +151,7 @@ describe('works federation', () => {
     // host deleted every work it owns.
     connections.registerPrimary('host-a', { listWorks: async () => [workMeta(work('work-a'))] })
     connections.registerHost('host-b', { listWorks: async () => [workMeta(work('work-b'))] })
-    const { WorksStore } = await import('../../src/renderer/contexts/works/works.store.svelte')
+    const { WorksStore } = await import('@solus/workspace-ui/contexts/works/works.store.svelte')
     const store = new WorksStore()
     await store.loadAll('/repo')
 
@@ -167,7 +167,7 @@ describe('works federation', () => {
     // make a failed peer's rows disappear.
     connections.registerPrimary('host-a', { listWorks: async () => [workMeta(work('work-a'))] })
     connections.registerHost('host-b', { listWorks: async () => [workMeta(work('work-b'))] })
-    const { WorksStore } = await import('../../src/renderer/contexts/works/works.store.svelte')
+    const { WorksStore } = await import('@solus/workspace-ui/contexts/works/works.store.svelte')
     const store = new WorksStore()
     await store.loadAll('/repo')
 
@@ -191,7 +191,7 @@ describe('works federation', () => {
       listWorks: async () => [workMeta(work('work-b'))],
       saveWork: async () => { calls.push('host-b'); return work('work-b', 'Saved') },
     })
-    const { WorksStore } = await import('../../src/renderer/contexts/works/works.store.svelte')
+    const { WorksStore } = await import('@solus/workspace-ui/contexts/works/works.store.svelte')
     const store = new WorksStore()
     await store.loadAll('/repo')
 
@@ -205,7 +205,7 @@ describe('works federation', () => {
     // edge must place the owner immediately.
     connections.registerPrimary('host-a', {})
     connections.registerHost('host-b', {})
-    const { WorksStore } = await import('../../src/renderer/contexts/works/works.store.svelte')
+    const { WorksStore } = await import('@solus/workspace-ui/contexts/works/works.store.svelte')
     const store = new WorksStore()
 
     store.finalizeProvisional(null, 'stream-work', 'Remote work', 'doc', 'Body', 'host-b')
@@ -221,7 +221,7 @@ describe('plans federation', () => {
     const calls: string[] = []
     connections.registerPrimary('host-a', { savePlanAnnotations: async () => calls.push('host-a') })
     connections.registerHost('host-b', { savePlanAnnotations: async () => calls.push('host-b') })
-    const { PlanStore } = await import('../../src/renderer/contexts/plans/plan.store.svelte')
+    const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
     const store = new PlanStore()
     const planId = store.upsertFromStream({
       serverId: 'host-b',
@@ -244,7 +244,7 @@ describe('plans federation', () => {
     // descriptor identity must retain both gallery rows.
     connections.registerPrimary('host-a', { listPlans: async () => [samePathDescriptor('session-a', 'Plan A')] })
     connections.registerHost('host-b', { listPlans: async () => [samePathDescriptor('session-b', 'Plan B')] })
-    const { PlanStore } = await import('../../src/renderer/contexts/plans/plan.store.svelte')
+    const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
     const store = new PlanStore()
 
     const plans = await store.getDescriptors(undefined, true)

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { renderDiagramSvg } from '../../src/shared/diagram-svg'
+import { renderDiagramSvg } from '@solus/contracts/diagram-svg'
 
 describe('diagram SVG export', () => {
   test('renders a stable light-theme architecture image', () => {

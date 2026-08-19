@@ -4,7 +4,7 @@ import {
   cloneUrlForIntent,
   cloneUrlForProtocol,
   matchesRepoQuery,
-} from '../../src/renderer/components/servers/lib/clone-url'
+} from '@solus/workspace-ui/components/servers/lib/clone-url'
 
 describe('new project omnibox classification', () => {
   test('an empty box lists what the host already has rather than demanding a URL', () => {

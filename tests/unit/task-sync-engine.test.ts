@@ -10,12 +10,12 @@ import type {
   NormalizedTicket,
   TaskCandidateOptions,
   TicketPatch,
-} from '../../src/shared/task-types'
-import { TASKS_AUTH_ERROR_PREFIX } from '../../src/shared/task-types'
-import type { TaskSyncAdapter } from '../../src/main/tasks/adapters/types'
+} from '@solus/contracts/task-types'
+import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
+import type { TaskSyncAdapter } from '@solus/server/tasks/adapters/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-mock.module('../../src/main/tasks/adapters/registry', () => ({
+mock.module('@solus/server/tasks/adapters/registry', () => ({
   taskSyncAdapter: () => adapter,
   resolveTaskPublishTarget: async () => null,
 }))
@@ -100,11 +100,11 @@ function ticket(overrides: Partial<NormalizedTicket> = {}): NormalizedTicket {
   }
 }
 
-type DbModule = typeof import('../../src/main/db')
-type TaskStoreModule = typeof import('../../src/main/tasks/task-store')
-type TaskModule = typeof import('../../src/main/tasks/task')
-type SyncStoreModule = typeof import('../../src/main/tasks/task-sync-store')
-type SyncEngineModule = typeof import('../../src/main/tasks/sync-engine')
+type DbModule = typeof import('@solus/server/db')
+type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
+type TaskModule = typeof import('@solus/server/tasks/task')
+type SyncStoreModule = typeof import('@solus/server/tasks/task-sync-store')
+type SyncEngineModule = typeof import('@solus/server/tasks/sync-engine')
 
 let dataDir: string
 let db: DbModule
@@ -118,11 +118,11 @@ const previousDataDir = process.env.SOLUS_DATA_DIR
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-sync-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  db = await import('../../src/main/db')
-  taskStore = await import('../../src/main/tasks/task-store')
-  tasks = await import('../../src/main/tasks/task')
-  syncStore = await import('../../src/main/tasks/task-sync-store')
-  syncEngine = await import('../../src/main/tasks/sync-engine')
+  db = await import('@solus/server/db')
+  taskStore = await import('@solus/server/tasks/task-store')
+  tasks = await import('@solus/server/tasks/task')
+  syncStore = await import('@solus/server/tasks/task-sync-store')
+  syncEngine = await import('@solus/server/tasks/sync-engine')
 })
 
 beforeEach(() => {

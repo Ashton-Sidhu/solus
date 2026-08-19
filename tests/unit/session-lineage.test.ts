@@ -3,12 +3,12 @@ import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type LineageRepository = typeof import('../../src/main/sessions/session-lineage')
+type LineageRepository = typeof import('@solus/server/sessions/session-lineage')
 let repository: LineageRepository
 let db: Database
 
 beforeAll(async () => {
-  repository = await import('../../src/main/sessions/session-lineage')
+  repository = await import('@solus/server/sessions/session-lineage')
 })
 
 beforeEach(() => {

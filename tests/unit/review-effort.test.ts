@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { estimateReviewEffort } from '../../src/main/review/effort'
-import type { EffortInput } from '../../src/shared/effort-types'
+import { estimateReviewEffort } from '@solus/server/review/effort'
+import type { EffortInput } from '@solus/contracts/effort-types'
 
 function input(
   fileStats: EffortInput['fileStats'],

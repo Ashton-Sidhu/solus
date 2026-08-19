@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { registerSessionHandlers } from '../../src/main/server/handlers/session-handlers'
-import { automationDraftSessionRequest } from '../../src/renderer/contexts/automations/automation-draft-session'
+import { registerSessionHandlers } from '@solus/server/server/handlers/session-handlers'
+import { automationDraftSessionRequest } from '@solus/workspace-ui/contexts/automations/automation-draft-session'
 
 describe('automation draft sessions', () => {
   test('builds a low-reasoning headless request from the configured provider defaults', () => {

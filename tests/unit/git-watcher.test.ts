@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildGitWatchTargets } from '../../src/main/git/git-watcher'
+import { buildGitWatchTargets } from '@solus/server/git/git-watcher'
 
 describe('GitWatcher targets', () => {
   test('watches a linked worktree HEAD and index outside the common git directory', () => {

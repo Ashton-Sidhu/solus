@@ -6,10 +6,10 @@ import {
   PushNotificationService,
   attentionEntryKey,
   diffNewPushAttentionEntries,
-} from '../../src/main/notifications/push-service'
-import type { PushSender } from '../../src/main/notifications/push-service'
-import type { AttentionEntry } from '../../src/shared/attention-types'
-import type { WebPushSubscriptionJSON } from '../../src/shared/types'
+} from '@solus/server/notifications/push-service'
+import type { PushSender } from '@solus/server/notifications/push-service'
+import type { AttentionEntry } from '@solus/contracts/attention-types'
+import type { WebPushSubscriptionJSON } from '@solus/contracts/types'
 
 function subscription(endpoint: string): WebPushSubscriptionJSON {
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { defaultDataDir, healthUrl, parseLockFile, parsePidFile } from '../../src/cli/lib/runtime'
+import { defaultDataDir, healthUrl, parseLockFile, parsePidFile } from '../../apps/cli/src/lib/runtime'
 
 describe('solus CLI runtime parsing', () => {
   test('parses the server lock shape used to locate the daemon health endpoint', () => {

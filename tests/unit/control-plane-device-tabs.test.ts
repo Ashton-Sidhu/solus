@@ -4,25 +4,25 @@ import { EventEmitter } from 'events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
-import type { AgentRunRequest, AgentRunSessionState } from '../../src/main/agents/agent-runner'
-import type { BuiltHandoff, BuildHandoffDeps } from '../../src/main/agents/session-handoff'
-import type { AgentId, AgentMetadata, BackendSession, IpcContext, NormalizedEvent, PromptOptions, SessionRunInput, SessionStatus } from '../../src/shared/types'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/agents/agent-runner'
+import type { BuiltHandoff, BuildHandoffDeps } from '@solus/server/agents/session-handoff'
+import type { AgentId, AgentMetadata, BackendSession, IpcContext, NormalizedEvent, PromptOptions, SessionRunInput, SessionStatus } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
-let solusToolbox: typeof import('../../src/main/agents/tools/solus-toolbox')['solusToolbox']
-let closeDb: typeof import('../../src/main/db')['closeDb']
-type ControlPlaneInstance = import('../../src/main/control-plane').ControlPlane
+let ControlPlane: typeof import('@solus/server/control-plane')['ControlPlane']
+let solusToolbox: typeof import('@solus/server/agents/tools/solus-toolbox')['solusToolbox']
+let closeDb: typeof import('@solus/server/db')['closeDb']
+type ControlPlaneInstance = import('@solus/server/control-plane').ControlPlane
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir = ''
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-control-plane-device-tabs-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  ;({ ControlPlane } = await import('../../src/main/control-plane'))
-  ;({ solusToolbox } = await import('../../src/main/agents/tools/solus-toolbox'))
-  ;({ closeDb } = await import('../../src/main/db'))
+  ;({ ControlPlane } = await import('@solus/server/control-plane'))
+  ;({ solusToolbox } = await import('@solus/server/agents/tools/solus-toolbox'))
+  ;({ closeDb } = await import('@solus/server/db'))
 })
 
 afterAll(() => {

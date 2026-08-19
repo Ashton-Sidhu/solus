@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, test } from 'bun:test'
-import type { RouteRef } from '../../src/renderer/contexts/workspace/routing/route-registry'
+import type { RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
 const rendererRoot = join(import.meta.dir, '../../src/renderer')
 
@@ -9,11 +9,11 @@ function readRendererFile(path: string): string {
   return readFileSync(join(rendererRoot, path), 'utf8')
 }
 
-let RouterStore: typeof import('../../src/renderer/contexts/workspace/routing/router.store.svelte').RouterStore
+let RouterStore: typeof import('@solus/workspace-ui/contexts/workspace/routing/router.store.svelte').RouterStore
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  ;({ RouterStore } = await import('../../src/renderer/contexts/workspace/routing/router.store.svelte'))
+  ;({ RouterStore } = await import('@solus/workspace-ui/contexts/workspace/routing/router.store.svelte'))
 })
 
 const TASKS: RouteRef = { name: 'tasks', params: {} }

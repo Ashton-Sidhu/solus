@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { BrowserRouteHistory } from '../../src/renderer/contexts/workspace/routing/route-history'
+import { BrowserRouteHistory } from '@solus/workspace-ui/contexts/workspace/routing/route-history'
 import {
   applyLocation,
   closeOverlay,
@@ -11,8 +11,8 @@ import {
   visibleRef,
   MAX_PANES,
   type Location,
-} from '../../src/renderer/contexts/workspace/routing/location'
-import { CHAT_ROUTE, chatRoute, type RouteRef } from '../../src/renderer/contexts/workspace/routing/route-registry'
+} from '@solus/workspace-ui/contexts/workspace/routing/location'
+import { CHAT_ROUTE, chatRoute, type RouteRef } from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
 // The placement rules used to be spread across openPage / setArtifact /
 // moveToSecondary / dockPrReview / closeSlot, where none of them could be

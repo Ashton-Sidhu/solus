@@ -4,7 +4,7 @@ import {
   RESPONSE_RECEIPT_TTL_MS,
   ResponseReceiptBudget,
   ResponseReceiptCache,
-} from '../../src/main/transports/response-receipt-cache'
+} from '@solus/server/transports/response-receipt-cache'
 
 afterEach(() => jest.useRealTimers())
 

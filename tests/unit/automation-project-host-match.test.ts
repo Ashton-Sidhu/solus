@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Automation } from '../../src/shared/types'
-import { automationMatchesProject } from '../../src/renderer/components/project-panel/lib/automation-board'
+import type { Automation } from '@solus/contracts/types'
+import { automationMatchesProject } from '@solus/workspace-ui/components/project-panel/lib/automation-board'
 
 const item: Automation = {
   id: 'automation-1',

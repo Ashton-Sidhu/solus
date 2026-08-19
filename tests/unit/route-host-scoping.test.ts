@@ -3,7 +3,7 @@ import {
   parseRef,
   serializeRef,
   type RouteRef,
-} from '../../src/renderer/contexts/workspace/routing/route-registry'
+} from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
 function roundTrip(ref: RouteRef): RouteRef | null {
   return parseRef(serializeRef(ref))

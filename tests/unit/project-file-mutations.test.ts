@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { applyProjectFileMutation } from '../../src/main/server/handlers/lib/project-mutations'
+import { applyProjectFileMutation } from '@solus/server/server/handlers/lib/project-mutations'
 
 let root: string
 

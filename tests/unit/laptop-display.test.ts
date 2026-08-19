@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { isLaptopDisplay } from '../../src/renderer/contexts/app/viewport'
-import { LAPTOP_SCREEN_MAX_WIDTH } from '../../src/shared/zoom'
+import { isLaptopDisplay } from '@solus/workspace-ui/contexts/app/viewport'
+import { LAPTOP_SCREEN_MAX_WIDTH } from '@solus/contracts/zoom'
 
 const readRendererSource = (path: string) =>
   readFileSync(join(import.meta.dir, '../../src/renderer', path), 'utf8')
@@ -103,7 +103,7 @@ describe('one shared classification', () => {
     // render through MenuRow, so the laptop behavior must enter at that shared
     // row instead of being copied into each section.
     const menuRow = readRendererSource('components/project-panel/MenuRow.svelte')
-    expect(menuRow).toContain('import Kbd from "@renderer/components/ui/Kbd.svelte";')
+    expect(menuRow).toContain('import Kbd from "@solus/workspace-ui/components/ui/Kbd.svelte";')
     expect(menuRow).toContain('<Kbd variant="inline"')
     expect(menuRow).not.toContain('class="menu-hint"')
 

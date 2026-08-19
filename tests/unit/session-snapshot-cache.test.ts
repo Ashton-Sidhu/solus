@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { SessionSnapshotCache } from '../../src/client-core/session-snapshot-cache'
-import type { SessionMeta } from '../../src/shared/types'
+import { SessionSnapshotCache } from '@solus/client-core/session-snapshot-cache'
+import type { SessionMeta } from '@solus/contracts/types'
 
 const previousLocalStorage = globalThis.localStorage
 const store = new Map<string, string>()

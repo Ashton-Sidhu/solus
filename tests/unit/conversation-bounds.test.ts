@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { centringPadding } from '../../src/renderer/components/pickers/lib/conversation-bounds'
+import { centringPadding } from '@solus/workspace-ui/components/pickers/lib/conversation-bounds'
 
 // The directory picker's scrim covers the whole window, but the dialog belongs to
 // the conversation it was opened from. These tests pin that relationship: the

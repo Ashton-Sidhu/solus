@@ -7,8 +7,8 @@ import {
   createAssetUrl,
   serveAssetToken,
   verifyAssetToken,
-} from '../../src/main/server/assets'
-import type { IpcContext } from '../../src/shared/types'
+} from '@solus/server/server/assets'
+import type { IpcContext } from '@solus/contracts/types'
 
 describe('signed host asset URLs', () => {
   let sandbox = ''

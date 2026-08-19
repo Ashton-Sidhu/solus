@@ -3,10 +3,10 @@ import {
   HistorySessionOrder,
   SessionHistoryLoader,
   sortedDedupedHistorySessions,
-} from '../../src/renderer/lib/sessionPickerHistory'
-import { updateSessionHistoryStatus } from '../../src/renderer/contexts/workspace/session-history.store.svelte'
-import { takeSessionScanBatch } from '../../src/main/server/session-scan'
-import type { SessionMeta, SessionScanEvent } from '../../src/shared/types'
+} from '@solus/workspace-ui/lib/sessionPickerHistory'
+import { updateSessionHistoryStatus } from '@solus/workspace-ui/contexts/workspace/session-history.store.svelte'
+import { takeSessionScanBatch } from '@solus/server/server/session-scan'
+import type { SessionMeta, SessionScanEvent } from '@solus/contracts/types'
 
 function session(index: number): SessionMeta {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { sep } from 'path'
-import { isInsideRoot, toRootRelativePath } from '../../src/main/paths'
+import { isInsideRoot, toRootRelativePath } from '@solus/server/paths'
 
 describe('isInsideRoot', () => {
   test('accepts the root itself and paths beneath it', () => {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Session, Tab } from '../../src/shared/types'
+import type { Session, Tab } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -11,7 +11,7 @@ afterEach(() => {
 describe('tab registry selection', () => {
   test('marks a tab as read whenever it becomes active', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { TabRegistry } = await import('../../src/renderer/contexts/workspace/tab-registry.svelte')
+    const { TabRegistry } = await import('@solus/workspace-ui/contexts/workspace/tab-registry.svelte')
     const registry = new TabRegistry()
     registry.tabs['tab-a'] = {
       id: 'tab-a',

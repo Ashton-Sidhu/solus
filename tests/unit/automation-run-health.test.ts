@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { countdown, runHealth } from '../../src/renderer/components/automations/lib/automation-format'
-import type { AutomationRun, AutomationRunStatus } from '../../src/shared/types'
+import { countdown, runHealth } from '@solus/workspace-ui/components/automations/lib/automation-format'
+import type { AutomationRun, AutomationRunStatus } from '@solus/contracts/types'
 
 /** A finished run `seconds` long, started at a fixed instant. */
 function run(id: string, seconds: number, status: AutomationRunStatus = 'succeeded'): AutomationRun {

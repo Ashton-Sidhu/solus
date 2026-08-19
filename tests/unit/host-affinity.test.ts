@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   hostAffinityGlyph,
   hostStatusLabel,
-} from '../../src/renderer/contexts/connections/host-affinity'
+} from '@solus/workspace-ui/contexts/connections/host-affinity'
 import { AppleLogoIcon, GlobeSimpleIcon, LinuxLogoIcon, WindowsLogoIcon } from 'phosphor-svelte'
 
 describe('host affinity badge', () => {

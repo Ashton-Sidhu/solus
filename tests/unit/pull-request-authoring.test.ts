@@ -3,7 +3,7 @@ import {
   buildPullRequestAuthoringPrompt,
   fallbackPullRequestDraft,
   type PullRequestAuthoringContext,
-} from '../../src/main/git/pull-request-authoring'
+} from '@solus/server/git/pull-request-authoring'
 
 function context(overrides: Partial<PullRequestAuthoringContext> = {}): PullRequestAuthoringContext {
   return {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { orderReviewQueue, type ReviewQueueItem } from '../../src/renderer/components/review-mode/lib/review-queue-order'
-import type { ReviewEffort } from '../../src/shared/effort-types'
-import type { StackGraph } from '../../src/shared/stack-types'
+import { orderReviewQueue, type ReviewQueueItem } from '@solus/workspace-ui/components/review-mode/lib/review-queue-order'
+import type { ReviewEffort } from '@solus/contracts/effort-types'
+import type { StackGraph } from '@solus/contracts/stack-types'
 
 function effort(minutes: number): ReviewEffort {
   return { minutes, band: 'standard', signals: [`${minutes} minute estimate`] }

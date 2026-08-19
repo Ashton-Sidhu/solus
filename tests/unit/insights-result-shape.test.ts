@@ -1,14 +1,14 @@
 import { describe, expect, test } from 'bun:test'
-import type { MetricsQueryResult, MetricsSchema } from '../../src/shared/observability-types'
+import type { MetricsQueryResult, MetricsSchema } from '@solus/contracts/observability-types'
 import {
   eventPoints,
   eventsWithinSelection,
   resultShape,
   toEventTable,
   type EventRow,
-} from '../../src/renderer/components/insights/lib/result-shape'
-import { isTurnResult } from '../../src/renderer/components/insights/lib/turn-rows'
-import { volumeStats } from '../../src/renderer/components/insights/lib/volume'
+} from '@solus/workspace-ui/components/insights/lib/result-shape'
+import { isTurnResult } from '@solus/workspace-ui/components/insights/lib/turn-rows'
+import { volumeStats } from '@solus/workspace-ui/components/insights/lib/volume'
 
 // The result-shape model (docs/plans/observability.md): the server declares the
 // grain, the client maps it to one of five renderings. These tests encode the

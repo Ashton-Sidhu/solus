@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { TextGenerationSettingsSnapshot } from '../../src/shared/types'
-import { TextGenerationSettingsStore } from '../../src/renderer/contexts/projects/text-generation-settings.store.svelte'
+import type { TextGenerationSettingsSnapshot } from '@solus/contracts/types'
+import { TextGenerationSettingsStore } from '@solus/workspace-ui/contexts/projects/text-generation-settings.store.svelte'
 
 function snapshot(model: string): TextGenerationSettingsSnapshot {
   const selection = { provider: 'codex' as const, model }

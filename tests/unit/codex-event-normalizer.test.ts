@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
-import { CodexTurnNormalizer } from '../../src/main/agents/codex/codex-event-normalizer'
-import { codexItemToMessage, codexTurnToMessages, codexTurnsToMessages } from '../../src/main/agents/codex/codex-utils'
-import type { NormalizedEvent } from '../../src/shared/types'
+import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
+import { codexItemToMessage, codexTurnToMessages, codexTurnsToMessages } from '@solus/server/agents/codex/codex-utils'
+import type { NormalizedEvent } from '@solus/contracts/types'
 
 type RawCodexEvent = { method: string; params: any }
 

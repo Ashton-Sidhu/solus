@@ -26,7 +26,7 @@ function run(script: string): { calls: Array<{ bin: string; args: string[] }>; r
 describe('computeGitRepositoryStatus', () => {
   test('reports no repository for a plain folder', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -36,7 +36,7 @@ describe('computeGitRepositoryStatus', () => {
           return ''
         },
       }))
-      const { computeGitRepositoryStatus } = await import('./src/main/git/git-init')
+      const { computeGitRepositoryStatus } = await import('./packages/server/src/git/git-init')
       const result = await computeGitRepositoryStatus('/tmp/plain-folder')
       console.log(JSON.stringify({ calls, result }))
     `)
@@ -51,7 +51,7 @@ describe('computeGitRepositoryStatus', () => {
 
   test('reports commits, branch and the primary remote for an ordinary repository', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -64,7 +64,7 @@ describe('computeGitRepositoryStatus', () => {
           return ''
         },
       }))
-      const { computeGitRepositoryStatus } = await import('./src/main/git/git-init')
+      const { computeGitRepositoryStatus } = await import('./packages/server/src/git/git-init')
       const result = await computeGitRepositoryStatus('/repo')
       console.log(JSON.stringify({ calls, result }))
     `)
@@ -81,7 +81,7 @@ describe('computeGitRepositoryStatus', () => {
     // WHY: `GitState`/`GitIdentity` both go null for this exact case — the
     // empty state this RPC exists to distinguish from "no repository at all".
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -94,7 +94,7 @@ describe('computeGitRepositoryStatus', () => {
           return ''
         },
       }))
-      const { computeGitRepositoryStatus } = await import('./src/main/git/git-init')
+      const { computeGitRepositoryStatus } = await import('./packages/server/src/git/git-init')
       const result = await computeGitRepositoryStatus('/repo')
       console.log(JSON.stringify({ calls, result }))
     `)
@@ -111,7 +111,7 @@ describe('computeGitRepositoryStatus', () => {
 describe('initRepository', () => {
   test('initializes on main when no default branch is configured', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -121,7 +121,7 @@ describe('initRepository', () => {
           return ''
         },
       }))
-      const { initRepository } = await import('./src/main/git/git-init')
+      const { initRepository } = await import('./packages/server/src/git/git-init')
       const result = await initRepository('/repo')
       console.log(JSON.stringify({ calls, result }))
     `)
@@ -133,7 +133,7 @@ describe('initRepository', () => {
 
   test('uses a valid configured default branch instead of main', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -144,7 +144,7 @@ describe('initRepository', () => {
           return ''
         },
       }))
-      const { initRepository } = await import('./src/main/git/git-init')
+      const { initRepository } = await import('./packages/server/src/git/git-init')
       const result = await initRepository('/repo')
       console.log(JSON.stringify({ calls, result }))
     `)
@@ -154,7 +154,7 @@ describe('initRepository', () => {
 
   test('falls back to main when the configured default branch is invalid', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -165,7 +165,7 @@ describe('initRepository', () => {
           return ''
         },
       }))
-      const { initRepository } = await import('./src/main/git/git-init')
+      const { initRepository } = await import('./packages/server/src/git/git-init')
       const result = await initRepository('/repo')
       console.log(JSON.stringify({ calls, result }))
     `)

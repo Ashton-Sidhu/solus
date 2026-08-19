@@ -6,11 +6,11 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type DbModule = typeof import('../../src/main/db')
-type TaskStoreModule = typeof import('../../src/main/tasks/task-store')
-type TaskLifecycleModule = typeof import('../../src/main/tasks/task-lifecycle')
-type TaskEventsModule = typeof import('../../src/main/tasks/task-events')
-type TaskModule = typeof import('../../src/main/tasks/task')
+type DbModule = typeof import('@solus/server/db')
+type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
+type TaskLifecycleModule = typeof import('@solus/server/tasks/task-lifecycle')
+type TaskEventsModule = typeof import('@solus/server/tasks/task-events')
+type TaskModule = typeof import('@solus/server/tasks/task')
 
 let dataDir: string
 let db: DbModule
@@ -23,11 +23,11 @@ const previousDataDir = process.env.SOLUS_DATA_DIR
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-lifecycle-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  db = await import('../../src/main/db')
-  taskStore = await import('../../src/main/tasks/task-store')
-  lifecycle = await import('../../src/main/tasks/task-lifecycle')
-  taskEvents = await import('../../src/main/tasks/task-events')
-  tasks = await import('../../src/main/tasks/task')
+  db = await import('@solus/server/db')
+  taskStore = await import('@solus/server/tasks/task-store')
+  lifecycle = await import('@solus/server/tasks/task-lifecycle')
+  taskEvents = await import('@solus/server/tasks/task-events')
+  tasks = await import('@solus/server/tasks/task')
 })
 
 afterEach(() => {

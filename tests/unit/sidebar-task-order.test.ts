@@ -5,7 +5,7 @@ import {
   sortTasksByCreation,
   type SidebarTask,
   type TaskStatus,
-} from '../../src/renderer/components/session/lib/task-list'
+} from '@solus/workspace-ui/components/session/lib/task-list'
 
 function sidebarTask(
   id: string,

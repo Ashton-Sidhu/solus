@@ -3,12 +3,12 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const pageSource = readFileSync(
-  join(import.meta.dir, "../../src/renderer/components/insights/InsightsPage.svelte"),
+  join(import.meta.dir, "../../packages/workspace-ui/src/components/insights/InsightsPage.svelte"),
   "utf8",
 );
 
 const dialogSource = readFileSync(
-  join(import.meta.dir, "../../src/renderer/components/insights/SaveQueryDialog.svelte"),
+  join(import.meta.dir, "../../packages/workspace-ui/src/components/insights/SaveQueryDialog.svelte"),
   "utf8",
 );
 

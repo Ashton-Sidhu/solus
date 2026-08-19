@@ -3,7 +3,7 @@ import { IncrementalParser } from "../../node_modules/@humanspeak/svelte-markdow
 import {
   assistantMarkdownOptions,
   codeFileLinkLabel,
-} from "../../src/renderer/components/conversation/lib/assistant-markdown";
+} from "@solus/workspace-ui/components/conversation/lib/assistant-markdown";
 
 describe("assistant markdown", () => {
   test("keeps parser hooks disabled so append-only streams can use the tail window", () => {

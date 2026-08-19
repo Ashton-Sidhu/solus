@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { prInboxFailure } from '../../src/renderer/components/prs/lib/pr-inbox-failure'
+import { prInboxFailure } from '@solus/workspace-ui/components/prs/lib/pr-inbox-failure'
 
 const ok = { serverId: 'local', label: 'solus', error: null }
 const noAuth = {

@@ -1,12 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import { HostEventSubscriber } from '../../src/client-core/host-event-subscriber'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
-let AgentConversationStatusStore: typeof import('../../src/renderer/components/conversation/agent-conversation/agent-conversation-status.store.svelte')['AgentConversationStatusStore']
+let AgentConversationStatusStore: typeof import('@solus/workspace-ui/components/conversation/agent-conversation/agent-conversation-status.store.svelte')['AgentConversationStatusStore']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  ;({ AgentConversationStatusStore } = await import('../../src/renderer/components/conversation/agent-conversation/agent-conversation-status.store.svelte'))
+  ;({ AgentConversationStatusStore } = await import('@solus/workspace-ui/components/conversation/agent-conversation/agent-conversation-status.store.svelte'))
 })
 
 afterAll(() => {

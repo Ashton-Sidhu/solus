@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { Message } from "../../src/shared/types";
+import type { Message } from "@solus/contracts/types";
 import {
   conversationFindTopInset,
   findConversationMatches,
   isSearchableConversationMessage,
-} from "../../src/renderer/components/conversation/lib/find";
+} from "@solus/workspace-ui/components/conversation/lib/find";
 
 function message(
   id: string,

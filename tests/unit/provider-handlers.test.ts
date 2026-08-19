@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { registerProviderHandlers } from '../../src/main/server/handlers/provider-handlers'
-import { SolusServer } from '../../src/main/server/server'
+import { registerProviderHandlers } from '@solus/server/server/handlers/provider-handlers'
+import { SolusServer } from '@solus/server/server/server'
 
 describe('provider credential export', () => {
   test('refuses to export the host credential to a paired remote device', async () => {

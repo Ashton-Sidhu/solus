@@ -5,19 +5,19 @@ import {
   metricsSchema,
   registeredViewNames,
   schemaForPrompt,
-} from '../../src/main/observability/field-registry'
-import { presetsFor } from '../../src/renderer/components/insights/lib/insights-queries'
-import type { TimeRange } from '../../src/renderer/components/insights/lib/time-range'
+} from '@solus/server/observability/field-registry'
+import { presetsFor } from '@solus/workspace-ui/components/insights/lib/insights-queries'
+import type { TimeRange } from '@solus/workspace-ui/components/insights/lib/time-range'
 
 // `declaredSourceView` is pure, but its module reaches the metrics database at
 // import time, which is not a built-in under the test runtime.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SqlGuardModule = typeof import('../../src/main/observability/sql-guard')
+type SqlGuardModule = typeof import('@solus/server/observability/sql-guard')
 let sqlGuard: SqlGuardModule
 
 beforeAll(async () => {
-  sqlGuard = await import('../../src/main/observability/sql-guard')
+  sqlGuard = await import('@solus/server/observability/sql-guard')
 })
 
 // A user cannot write a cross-kind question from a flat list of column names:

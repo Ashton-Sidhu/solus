@@ -3,7 +3,7 @@ import {
   moveCommandSelection,
   retainCommandSelection,
   type Command,
-} from '../../src/renderer/components/command-palette/lib/commands'
+} from '@solus/workspace-ui/components/command-palette/lib/commands'
 
 describe('retainCommandSelection', () => {
   const commands: Command[] = [

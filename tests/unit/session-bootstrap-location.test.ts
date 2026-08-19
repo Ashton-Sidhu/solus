@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   reconcileReloadLocation,
   restoreLocation,
-} from '../../src/renderer/contexts/workspace/session-bootstrap'
+} from '@solus/workspace-ui/contexts/workspace/session-bootstrap'
 
 describe('restored workspace location', () => {
   test('drops a route for an empty draft that was not restored', () => {

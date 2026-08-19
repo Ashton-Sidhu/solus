@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import { uploadHtmlAsDoc } from '../../src/main/google/drive'
+import { uploadHtmlAsDoc } from '@solus/server/google/drive'
 
 const originalFetch = globalThis.fetch
 

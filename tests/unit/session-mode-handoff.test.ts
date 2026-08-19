@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 
-mock.module('../../src/client-core/local-api', () => ({
+mock.module('@solus/client-core/local-api', () => ({
   localApi: { getPlatform: () => 'darwin' },
 }))
 
 const {
   consumeSessionHandoff,
   writeSessionHandoff,
-} = await import('../../src/renderer/contexts/workspace/active-session-pointer')
+} = await import('@solus/workspace-ui/contexts/workspace/active-session-pointer')
 
 const HANDOFF_KEY = 'solus-session-handoff'
 const previousLocalStorage = globalThis.localStorage

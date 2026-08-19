@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const readRendererSource = (path: string) =>
-  readFileSync(join(import.meta.dir, '../../src/renderer/components', path), 'utf8')
+  readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components', path), 'utf8')
 
 describe('draft hero project', () => {
   test('the headline project opens the chip list rather than naming it inertly', () => {

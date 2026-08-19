@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { isPackagedRuntime } from '../../src/main/platform/paths'
+import { isPackagedRuntime } from '@solus/server/platform/paths'
 
 const originalInstallDir = process.env.SOLUS_INSTALL_DIR
 

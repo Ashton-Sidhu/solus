@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { ReviewGuideStatusEvent } from '../../src/shared/review'
-import { HostEventSubscriber } from '../../src/client-core/host-event-subscriber'
+import type { ReviewGuideStatusEvent } from '@solus/contracts/review'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -27,7 +27,7 @@ describe('ReviewGuideStore', () => {
   test('rehydrates a cached branch guide independently of its view component', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(
-      '../../src/renderer/components/review/review-guide.store.svelte'
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
     )
     const cached = status()
     const api = { reviewGuideStatus: async () => cached } as unknown as typeof window.solus
@@ -49,7 +49,7 @@ describe('ReviewGuideStore', () => {
   test('does not expose a cached guide after the checkout head changes', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(
-      '../../src/renderer/components/review/review-guide.store.svelte'
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
     )
     const store = new ReviewGuideStore(() => new HostEventSubscriber(), oneHost)
     const api = {} as typeof window.solus
@@ -66,7 +66,7 @@ describe('ReviewGuideStore', () => {
   test('a late cache probe cannot replace the newer checkout state', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(
-      '../../src/renderer/components/review/review-guide.store.svelte'
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
     )
     const resolvers = new Map<string, (event: ReviewGuideStatusEvent) => void>()
     const api = {
@@ -101,7 +101,7 @@ describe('ReviewGuideStore', () => {
   test('keeps generation progress after the initiating component unmounts', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(
-      '../../src/renderer/components/review/review-guide.store.svelte'
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
     )
     const events = new HostEventSubscriber()
     const queued = status({ status: 'queued' })
@@ -127,7 +127,7 @@ describe('ReviewGuideStore', () => {
   test('notifies once when a live generation becomes ready, but not for cached guides', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(
-      '../../src/renderer/components/review/review-guide.store.svelte'
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
     )
     const events = new HostEventSubscriber()
     const cached = status()
@@ -161,7 +161,7 @@ describe('ReviewGuideStore', () => {
   test('clears only the opened ready indicator and restores it for a regenerated guide', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(
-      '../../src/renderer/components/review/review-guide.store.svelte'
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
     )
     const store = new ReviewGuideStore(() => new HostEventSubscriber(), oneHost)
     const api = {} as typeof window.solus
@@ -182,7 +182,7 @@ describe('ReviewGuideStore', () => {
   test('retains guide state when a released connection is recreated', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(
-      '../../src/renderer/components/review/review-guide.store.svelte'
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
     )
     const firstApi = {} as typeof window.solus
     const recreatedApi = {} as typeof window.solus

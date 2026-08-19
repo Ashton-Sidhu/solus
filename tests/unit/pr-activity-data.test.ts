@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { PrCommit, PrConversationItem, ReviewThread } from '../../src/shared/providers'
-import { buildActivityTimeline } from '../../src/renderer/components/pr-review/lib/activity-data'
+import type { PrCommit, PrConversationItem, ReviewThread } from '@solus/contracts/providers'
+import { buildActivityTimeline } from '@solus/workspace-ui/components/pr-review/lib/activity-data'
 
 describe('PR activity timeline conversation', () => {
   test('interleaves durable issue comments and review bodies with commits and threads', () => {

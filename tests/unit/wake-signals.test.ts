@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { classifyVisibilityReturn, MEANINGFUL_SUSPENSION_MS } from '../../src/client-core/wake-signals'
-import { HostSupervisor } from '../../src/client-core/host-supervisor'
+import { classifyVisibilityReturn, MEANINGFUL_SUSPENSION_MS } from '@solus/client-core/wake-signals'
+import { HostSupervisor } from '@solus/client-core/host-supervisor'
 
 function harness() {
   const dials: string[] = []

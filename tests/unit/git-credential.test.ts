@@ -7,10 +7,10 @@ import {
   credentialFor,
   runGitCredentialHelper,
   type GitCredentialAction,
-} from '../../src/main/providers/github/git-credential'
-import { delegatedGithubToken, hostGithubToken } from '../../src/main/providers/github/credentials'
-import { saveDelegation } from '../../src/main/providers/github/delegation-store'
-import { persistToken } from '../../src/main/providers/github/token-store'
+} from '@solus/server/providers/github/git-credential'
+import { delegatedGithubToken, hostGithubToken } from '@solus/server/providers/github/credentials'
+import { saveDelegation } from '@solus/server/providers/github/delegation-store'
+import { persistToken } from '@solus/server/providers/github/token-store'
 
 const originalDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string

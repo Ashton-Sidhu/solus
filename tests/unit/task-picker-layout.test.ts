@@ -5,7 +5,7 @@ import { describe, expect, test } from "bun:test";
 const taskPicker = readFileSync(
   join(
     import.meta.dir,
-    "../../src/renderer/components/session/TaskPicker.svelte",
+    "@solus/workspace-ui/components/session/TaskPicker.svelte",
   ),
   "utf8",
 );

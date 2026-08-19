@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
-import { runTarget } from '../../src/renderer/components/servers/lib/run-target'
-import { environmentProjectKey, type SessionEnvironment } from '../../src/renderer/contexts/git/session-environment.store.svelte'
-import { isDispatch, startsWorktree, withCheckout, withHost, withProjectHost, withWorktreeToggled } from '../../src/renderer/contexts/workspace/run-config'
-import type { RunConfig } from '../../src/shared/types'
+import { runTarget } from '@solus/workspace-ui/components/servers/lib/run-target'
+import { environmentProjectKey, type SessionEnvironment } from '@solus/workspace-ui/contexts/git/session-environment.store.svelte'
+import { isDispatch, startsWorktree, withCheckout, withHost, withProjectHost, withWorktreeToggled } from '@solus/workspace-ui/contexts/workspace/run-config'
+import type { RunConfig } from '@solus/contracts/types'
 
 function runOn(serverId: string, taskServerId: string, overrides: Partial<RunConfig> = {}): RunConfig {
   return {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { providerUsage } from '../../src/renderer/components/project-panel/lib/usage-meters'
-import type { AgentMetadata, AgentUsageLimits } from '../../src/shared/types'
+import { providerUsage } from '@solus/workspace-ui/components/project-panel/lib/usage-meters'
+import type { AgentMetadata, AgentUsageLimits } from '@solus/contracts/types'
 
 const NOW = 1_700_000_000_000
 

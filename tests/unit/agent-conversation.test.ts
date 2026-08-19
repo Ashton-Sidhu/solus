@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentConversationRef, AgentExchange, Message } from '../../src/shared/types'
-import { AgentConversationTranscriptBuilder, isAgentConversationTool, parseSessionReport } from '../../src/renderer/contexts/workspace/agent-conversation-transcript'
-import { AgentConversationTracker } from '../../src/renderer/contexts/workspace/agent-conversation-tracker.svelte'
+import type { AgentConversationRef, AgentExchange, Message } from '@solus/contracts/types'
+import { AgentConversationTranscriptBuilder, isAgentConversationTool, parseSessionReport } from '@solus/workspace-ui/contexts/workspace/agent-conversation-transcript'
+import { AgentConversationTracker } from '@solus/workspace-ui/contexts/workspace/agent-conversation-tracker.svelte'
 import {
   agentAccent,
   agentConversationCardState,
@@ -14,7 +14,7 @@ import {
   isPendingAgent,
   replyArtefact,
   waitingOnLabel,
-} from '../../src/renderer/components/conversation/agent-conversation/lib/agent-conversation'
+} from '@solus/workspace-ui/components/conversation/agent-conversation/lib/agent-conversation'
 
 function exchange(overrides: Partial<AgentExchange> = {}): AgentExchange {
   return {

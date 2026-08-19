@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { MetricsSpan } from '../../src/shared/observability-types'
-import { buildTraceView, type WaterfallRow } from '../../src/renderer/components/insights/lib/waterfall'
+import type { MetricsSpan } from '@solus/contracts/observability-types'
+import { buildTraceView, type WaterfallRow } from '@solus/workspace-ui/components/insights/lib/waterfall'
 import {
   activation,
   barsForLines,
@@ -8,7 +8,7 @@ import {
   expandableIds,
   flattenTree,
   pathToSpan,
-} from '../../src/renderer/components/insights/lib/waterfall-tree'
+} from '@solus/workspace-ui/components/insights/lib/waterfall-tree'
 
 // A turn's spans are long and mostly repetition: a dozen tool calls, one
 // thinking span per segment. Folding a run of consecutive siblings into a lane

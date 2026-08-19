@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { DiagramDoc } from "../../src/shared/diagram-types";
-import { summarizeDiagram } from "../../src/shared/diagram-types";
+import type { DiagramDoc } from "@solus/contracts/diagram-types";
+import { summarizeDiagram } from "@solus/contracts/diagram-types";
 
 /** The one sentence describing a diagram's size — it reaches the ledger row,
  *  the transcript card and the Workspace peek through `workPreview`, so a

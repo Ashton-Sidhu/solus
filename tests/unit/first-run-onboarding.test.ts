@@ -12,8 +12,8 @@ import {
   surfaceFor,
   type OnboardingStage,
   type OnboardingSurface,
-} from '../../src/renderer/components/onboarding/lib/onboarding-model'
-import { KEYBINDINGS } from '../../src/renderer/lib/keybindings/manifest'
+} from '@solus/workspace-ui/components/onboarding/lib/onboarding-model'
+import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
 
 const SURFACES: OnboardingSurface[] = ['pointer', 'touch']
 

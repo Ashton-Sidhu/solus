@@ -3,7 +3,7 @@ import {
   clearPatchMetadataCache,
   parsePatchMetadata,
   patchMetadataCacheStats,
-} from '../../src/renderer/lib/diff'
+} from '@solus/workspace-ui/lib/diff'
 
 afterEach(clearPatchMetadataCache)
 

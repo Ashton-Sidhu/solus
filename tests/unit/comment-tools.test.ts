@@ -3,15 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { PlanAnnotations, SessionMeta } from '../../src/shared/types'
+import type { PlanAnnotations, SessionMeta } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type CommentToolsModule = typeof import('../../src/main/annotations/comment-tools')
-type SessionToolsModule = typeof import('../../src/main/sessions/session-tools')
-type PlanAnnotationsModule = typeof import('../../src/main/plans/annotations')
-type WorkAnnotationsModule = typeof import('../../src/main/folio/work-annotations')
-type WorksModule = typeof import('../../src/main/folio/works')
+type CommentToolsModule = typeof import('@solus/server/annotations/comment-tools')
+type SessionToolsModule = typeof import('@solus/server/sessions/session-tools')
+type PlanAnnotationsModule = typeof import('@solus/server/plans/annotations')
+type WorkAnnotationsModule = typeof import('@solus/server/folio/work-annotations')
+type WorksModule = typeof import('@solus/server/folio/works')
 let commentTools: CommentToolsModule
 let sessionTools: SessionToolsModule
 let planAnnotations: PlanAnnotationsModule
@@ -45,12 +45,12 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-comments-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  commentTools = await import('../../src/main/annotations/comment-tools')
-  sessionTools = await import('../../src/main/sessions/session-tools')
-  planAnnotations = await import('../../src/main/plans/annotations')
-  workAnnotations = await import('../../src/main/folio/work-annotations')
-  works = await import('../../src/main/folio/works')
-  ;({ closeDb } = await import('../../src/main/db'))
+  commentTools = await import('@solus/server/annotations/comment-tools')
+  sessionTools = await import('@solus/server/sessions/session-tools')
+  planAnnotations = await import('@solus/server/plans/annotations')
+  workAnnotations = await import('@solus/server/folio/work-annotations')
+  works = await import('@solus/server/folio/works')
+  ;({ closeDb } = await import('@solus/server/db'))
 })
 afterAll(() => {
   closeDb?.()

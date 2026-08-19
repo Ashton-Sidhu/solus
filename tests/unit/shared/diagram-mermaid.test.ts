@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test'
-import { serializeMermaid } from '../../../src/shared/diagram-mermaid'
-import type { DiagramDoc } from '../../../src/shared/diagram-types'
+import { serializeMermaid } from '@solus/contracts/diagram-mermaid'
+import type { DiagramDoc } from '@solus/contracts/diagram-types'
 
 const DOC: DiagramDoc = {
   nodes: [

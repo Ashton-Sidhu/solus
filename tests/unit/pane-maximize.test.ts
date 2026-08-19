@@ -1,10 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { maximizeTargetPaneId } from '../../src/renderer/components/layout/lib/workspace-body'
-import { KEYBINDINGS, bindingsForScope } from '../../src/renderer/lib/keybindings/manifest'
-import { KeybindingsContext } from '../../src/renderer/lib/keybindings/dispatcher.svelte'
-import type { BindingDef } from '../../src/renderer/lib/keybindings/types'
+import { maximizeTargetPaneId } from '@solus/workspace-ui/components/layout/lib/workspace-body'
+import { KEYBINDINGS, bindingsForScope } from '@solus/workspace-ui/lib/keybindings/manifest'
+import { KeybindingsContext } from '@solus/workspace-ui/lib/keybindings/dispatcher.svelte'
+import type { BindingDef } from '@solus/workspace-ui/lib/keybindings/types'
 
 describe('which pane the maximize key acts on', () => {
   test('follows focus into a companion pane', () => {
@@ -143,7 +143,7 @@ describe('the maximize key across the whole secondary pane', () => {
     // WHY: a surviving diff-panel entry would shadow the shared key in exactly
     // the pane the generalization started from.
     const diffPanel = readFileSync(
-      join(import.meta.dir, '../../src/renderer/components/diff/DiffPanel.svelte'),
+      join(import.meta.dir, '../../packages/workspace-ui/src/components/diff/DiffPanel.svelte'),
       'utf8',
     )
     expect(diffPanel).not.toContain('onToggleMaximize')

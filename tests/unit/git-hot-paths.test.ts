@@ -4,9 +4,9 @@ import { spawnSync } from 'child_process'
 import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { computeGitState, parseStatus } from '../../src/main/git/git-helpers'
-import { getDiff, getDiffFileContents, getDiffStats, initSessionBase, parseChangedFileStats, snapshotTurn } from '../../src/main/git/session-snapshots'
-import type { GitState } from '../../src/shared/types'
+import { computeGitState, parseStatus } from '@solus/server/git/git-helpers'
+import { getDiff, getDiffFileContents, getDiffStats, initSessionBase, parseChangedFileStats, snapshotTurn } from '@solus/server/git/session-snapshots'
+import type { GitState } from '@solus/contracts/types'
 
 let repos: string[] = []
 
@@ -59,7 +59,7 @@ describe('git status hot path', () => {
     })
 
     try {
-      const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+      const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
       const store = new SessionEnvironmentStore()
       store.bindCwd('test-host', '/repo', window.solus as never)
       expect(await store.resolveSessionStartTarget('/repo', { worktreeRequested: true })).toEqual({
@@ -145,7 +145,7 @@ describe('git status hot path', () => {
     })
 
     try {
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
       store.bindCwd('test-host', '/repo', window.solus as never)
       const detailsRequest = store.refresh('/repo', { force: true, details: true })
@@ -201,7 +201,7 @@ describe('git status hot path', () => {
     })
 
     try {
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
       store.bindCwd('test-host', '/repo', window.solus as never)
       expect(await store.refresh('/repo', { force: true })).toBe(true)

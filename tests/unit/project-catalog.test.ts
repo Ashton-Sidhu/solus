@@ -3,9 +3,9 @@ import {
   mergeProjectOptions,
   normalizeProjectRoot,
   projectRefKey,
-} from '../../src/renderer/contexts/projects/project-catalog'
-import { ProjectCatalogStore } from '../../src/renderer/contexts/projects/project-catalog.store.svelte'
-import { SOLUS_WORKTREE_PATH_MARKER } from '../../src/shared/types'
+} from '@solus/workspace-ui/contexts/projects/project-catalog'
+import { ProjectCatalogStore } from '@solus/workspace-ui/contexts/projects/project-catalog.store.svelte'
+import { SOLUS_WORKTREE_PATH_MARKER } from '@solus/contracts/types'
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()

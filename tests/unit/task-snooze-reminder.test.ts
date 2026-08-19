@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { resolveTaskSnoozeReminder } from '../../src/renderer/contexts/tasks/task-snooze'
+import { resolveTaskSnoozeReminder } from '@solus/workspace-ui/contexts/tasks/task-snooze'
 
 describe('task snooze reminder', () => {
   test('shows a generic conversation reminder when the optional note is empty', () => {

@@ -3,15 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { MetricsQuerySpec } from '../../src/shared/observability-types'
+import type { MetricsQuerySpec } from '@solus/contracts/observability-types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SpanTableModule = typeof import('../../src/main/observability/span-table')
-type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
-type CompilerModule = typeof import('../../src/main/observability/query-compiler')
-type SqlGuardModule = typeof import('../../src/main/observability/sql-guard')
-type RegistriesModule = typeof import('../../src/main/observability/registries')
+type SpanTableModule = typeof import('@solus/server/observability/span-table')
+type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
+type CompilerModule = typeof import('@solus/server/observability/query-compiler')
+type SqlGuardModule = typeof import('@solus/server/observability/sql-guard')
+type RegistriesModule = typeof import('@solus/server/observability/registries')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -31,11 +31,11 @@ function run(spec: MetricsQuerySpec) {
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-compiler-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  spanTable = await import('../../src/main/observability/span-table')
-  metricsDb = await import('../../src/main/observability/metrics-db')
-  compiler = await import('../../src/main/observability/query-compiler')
-  sqlGuard = await import('../../src/main/observability/sql-guard')
-  registries = await import('../../src/main/observability/registries')
+  spanTable = await import('@solus/server/observability/span-table')
+  metricsDb = await import('@solus/server/observability/metrics-db')
+  compiler = await import('@solus/server/observability/query-compiler')
+  sqlGuard = await import('@solus/server/observability/sql-guard')
+  registries = await import('@solus/server/observability/registries')
   metricsDb.closeMetricsDb()
 
   // Day 1 (epoch hour 0-2): turns and tool calls across two models.

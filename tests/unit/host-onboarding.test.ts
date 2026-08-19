@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { HostReadiness } from '../../src/shared/types'
+import type { HostReadiness } from '@solus/contracts/types'
 import {
   codingProviderRows,
   gitHostRows,
@@ -8,7 +8,7 @@ import {
   hostReadinessSummary,
   onboardingRailModel,
   providerSetupActions,
-} from '../../src/renderer/components/servers/lib/host-onboarding'
+} from '@solus/workspace-ui/components/servers/lib/host-onboarding'
 
 function readiness(overrides: Partial<HostReadiness> = {}): HostReadiness {
   return {
@@ -330,7 +330,7 @@ describe('host setup sessions', () => {
       { snapshot: <T>(value: T) => value },
     )
     const { hostSetupStore } = await import(
-      '../../src/renderer/components/servers/host-setup.store.svelte'
+      '@solus/workspace-ui/components/servers/host-setup.store.svelte'
     )
 
     expect(hostSetupStore.sessionFor('gpu-01')).toBe(hostSetupStore.sessionFor('gpu-01'))
@@ -363,7 +363,7 @@ describe('host setup sessions', () => {
       { snapshot: <T>(value: T) => value },
     )
     const { HostSetupSession } = await import(
-      '../../src/renderer/components/servers/host-setup.store.svelte'
+      '@solus/workspace-ui/components/servers/host-setup.store.svelte'
     )
     let installCalls = 0
     const legacyReadiness = readiness({

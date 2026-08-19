@@ -3,11 +3,11 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let CodexBackend: typeof import('../../src/main/agents/codex/codex-backend')['CodexBackend']
-let CodexRpcError: typeof import('../../src/main/agents/codex/codex-agent')['CodexRpcError']
+let CodexBackend: typeof import('@solus/server/agents/codex/codex-backend')['CodexBackend']
+let CodexRpcError: typeof import('@solus/server/agents/codex/codex-agent')['CodexRpcError']
 beforeAll(async () => {
-  ;({ CodexBackend } = await import('../../src/main/agents/codex/codex-backend'))
-  ;({ CodexRpcError } = await import('../../src/main/agents/codex/codex-agent'))
+  ;({ CodexBackend } = await import('@solus/server/agents/codex/codex-backend'))
+  ;({ CodexRpcError } = await import('@solus/server/agents/codex/codex-agent'))
 })
 
 describe('CodexBackend steering', () => {

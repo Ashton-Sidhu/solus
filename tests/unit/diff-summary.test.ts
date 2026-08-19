@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
-import { parseChangedFileStats } from '../../src/main/git/session-snapshots'
+import { parseChangedFileStats } from '@solus/server/git/session-snapshots'
 import {
   NESTED_ROWS,
   buildDiffSummaryTree,
   changeRatio,
   flattenDiffTree,
-} from '../../src/renderer/components/conversation/lib/diff-summary-tree'
+} from '@solus/workspace-ui/components/conversation/lib/diff-summary-tree'
 
 const ALL = new Set<string>()
 

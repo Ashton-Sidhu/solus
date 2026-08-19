@@ -4,7 +4,7 @@ import { realpathSync, writeFileSync } from 'fs'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { createWorktree, ensureBranchWorktree } from '../../src/main/git/worktree-manager'
+import { createWorktree, ensureBranchWorktree } from '@solus/server/git/worktree-manager'
 
 const temporaryDirectories: string[] = []
 

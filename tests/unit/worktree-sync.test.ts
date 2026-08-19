@@ -3,7 +3,7 @@ import { spawnSync } from 'child_process'
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { syncWithOrigin } from '../../src/main/git/worktree-manager'
+import { syncWithOrigin } from '@solus/server/git/worktree-manager'
 
 let roots: string[] = []
 

@@ -8,8 +8,8 @@ import {
   primaryProjectPanelOpen,
   retainedConversationTabIds,
   visibleWorkspaceTabIds,
-} from '../../src/renderer/components/layout/lib/workspace-body'
-import { hasSessionStarted } from '../../src/renderer/lib/sessionUtils'
+} from '@solus/workspace-ui/components/layout/lib/workspace-body'
+import { hasSessionStarted } from '@solus/workspace-ui/lib/sessionUtils'
 
 describe('primary project rail visibility', () => {
   test('treats a tab-backed empty session as an unstarted draft', () => {

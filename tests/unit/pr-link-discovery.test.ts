@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   prLinkDiscoveryKey,
   type PrLinkDiscoveryInput,
-} from '../../src/renderer/contexts/workspace/pr-link-discovery'
+} from '@solus/workspace-ui/contexts/workspace/pr-link-discovery'
 
 function input(overrides: Partial<PrLinkDiscoveryInput> = {}): PrLinkDiscoveryInput {
   return {

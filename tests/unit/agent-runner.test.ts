@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
-import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
-import { AgentRunner, type AgentRunRequest } from '../../src/main/agents/agent-runner'
-import type { AgentId, AgentMetadata, NormalizedEvent } from '../../src/shared/types'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
+import { AgentRunner, type AgentRunRequest } from '@solus/server/agents/agent-runner'
+import type { AgentId, AgentMetadata, NormalizedEvent } from '@solus/contracts/types'
 
 class FakePermissions implements PermissionResponder {
   getPendingInfo(): undefined { return undefined }

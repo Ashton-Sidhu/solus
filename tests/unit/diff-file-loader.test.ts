@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import { hydratePartialDiff, processFile, type FileDiffMetadata } from '@pierre/diffs'
-import { loadDiffFiles } from '../../src/renderer/lib/diff-file-loader'
+import { loadDiffFiles } from '@solus/workspace-ui/lib/diff-file-loader'
 import type {
   DiffFileContentsRequest,
   DiffFileContentsResult,
   IpcContext,
-} from '../../src/shared/types'
+} from '@solus/contracts/types'
 
 const ctx = {} as IpcContext
 

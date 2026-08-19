@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const readComponent = (path: string) =>
-  readFileSync(join(import.meta.dir, '../../src/renderer/components', path), 'utf8')
+  readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components', path), 'utf8')
 
 describe('pull request branch copy controls', () => {
   test('copies the full branch from the list context menu', () => {

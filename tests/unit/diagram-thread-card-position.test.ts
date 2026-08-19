@@ -12,7 +12,7 @@ import type { Edge, Node } from '@xyflow/svelte'
 import {
   anchorRectFor,
   placeThreadCard,
-} from '../../src/renderer/components/diagram/lib/thread-card-position'
+} from '@solus/workspace-ui/components/diagram/lib/thread-card-position'
 
 const pane = { width: 1200, height: 800 }
 const card = { width: 252, height: 200 }

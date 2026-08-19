@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createAppContext } from '../../src/renderer/contexts/app/create-app-context'
+import { createAppContext } from '@solus/workspace-ui/contexts/app/create-app-context'
 
 describe('createAppContext', () => {
   test('reuses Svelte context accessors when a module is evaluated again', () => {

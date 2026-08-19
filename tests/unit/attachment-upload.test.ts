@@ -2,12 +2,12 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, readFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { isAbsolute, join, relative } from 'path'
-import { writeAttachmentUpload } from '../../src/main/server/handlers/attachment-handlers'
+import { writeAttachmentUpload } from '@solus/server/server/handlers/attachment-handlers'
 import {
   MAX_ATTACHMENT_UPLOAD_BYTES,
   MAX_ATTACHMENT_UPLOAD_COUNT,
-} from '../../src/shared/rpc'
-import type { IpcContext } from '../../src/shared/types'
+} from '@solus/contracts/rpc'
+import type { IpcContext } from '@solus/contracts/types'
 
 function context(sessionId: string): IpcContext {
   return { session: { sessionId } } as IpcContext

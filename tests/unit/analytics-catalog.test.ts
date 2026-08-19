@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 import { describe, expect, test } from 'bun:test'
-import { sanitizeCommandId } from '../../src/shared/analytics-events'
-import { track } from '../../src/renderer/lib/analytics'
+import { sanitizeCommandId } from '@solus/contracts/analytics-events'
+import { track } from '@solus/workspace-ui/lib/analytics'
 
 describe('analytics event catalog privacy', () => {
   test('sanitizes dynamic palette command details', () => {

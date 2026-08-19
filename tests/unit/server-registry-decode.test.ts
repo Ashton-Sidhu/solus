@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { loadServers } from '../../src/client-core/server-registry'
+import { loadServers } from '@solus/client-core/server-registry'
 
 const KEY = 'solus.servers'
 const previousLocalStorage = globalThis.localStorage

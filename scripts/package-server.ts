@@ -118,7 +118,7 @@ async function buildServerBundle(staging: string): Promise<void> {
   const outdir = join(staging, 'libexec', 'server')
   mkdirSync(outdir, { recursive: true })
   await run(esbuildBin(), [
-    join(repoRoot, 'src', 'main', 'standalone.ts'),
+    join(repoRoot, 'apps', 'standalone-server', 'src', 'index.ts'),
     '--bundle',
     '--platform=node',
     '--target=node24',
@@ -139,7 +139,7 @@ async function buildCliBundle(staging: string): Promise<void> {
   const outdir = join(staging, 'libexec', 'cli')
   mkdirSync(outdir, { recursive: true })
   await run(esbuildBin(), [
-    join(repoRoot, 'src', 'cli', 'index.ts'),
+    join(repoRoot, 'apps', 'cli', 'src', 'index.ts'),
     '--bundle',
     '--platform=node',
     '--target=node24',

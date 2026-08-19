@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import type { Task } from '../../src/shared/task-types'
-import { orderColumn } from '../../src/renderer/components/tasks/lib/board-order'
+import type { Task } from '@solus/contracts/task-types'
+import { orderColumn } from '@solus/workspace-ui/components/tasks/lib/board-order'
 
 /**
  * Manual card order on the kanban board.

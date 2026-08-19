@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { GitActionResult, GitSyncResult, Session } from '../../src/shared/types'
+import type { GitActionResult, GitSyncResult, Session } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const previousWindow = globalThis.window
@@ -7,7 +7,7 @@ const previousDocument = globalThis.document
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const testServerConnections = singleHostServerConnections()
 
-mock.module('@client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: testServerConnections,
 }))
 
@@ -68,7 +68,7 @@ describe('GitActions sync', () => {
       },
     })
 
-    const { GitActions } = await import('../../src/renderer/lib/git-actions.svelte')
+    const { GitActions } = await import('@solus/workspace-ui/lib/git-actions.svelte')
     const run = sessionRun()
     const refreshes: Array<{ sourceId?: string; cwd?: string; level?: string }> = []
     const actions = new GitActions(
@@ -110,7 +110,7 @@ describe('GitActions unified action', () => {
       },
     })
     testServerConnections.registerPrimary('local', solus)
-    const { GitActions } = await import('../../src/renderer/lib/git-actions.svelte')
+    const { GitActions } = await import('@solus/workspace-ui/lib/git-actions.svelte')
     const run = sessionRun()
     const refreshes: unknown[] = []
     const actions = new GitActions(
@@ -158,7 +158,7 @@ describe('GitActions unified action', () => {
       },
     })
     testServerConnections.registerPrimary('local', solus)
-    const { GitActions } = await import('../../src/renderer/lib/git-actions.svelte')
+    const { GitActions } = await import('@solus/workspace-ui/lib/git-actions.svelte')
     const checkout = {
       repoRoot: '/repo',
       worktreePath: '/repo/.solus-worktrees/feature',
@@ -215,7 +215,7 @@ describe('GitActions unified action', () => {
       },
     })
     testServerConnections.registerPrimary('local', solus)
-    const { GitActions } = await import('../../src/renderer/lib/git-actions.svelte')
+    const { GitActions } = await import('@solus/workspace-ui/lib/git-actions.svelte')
     const run = sessionRun()
     const actions = new GitActions(
       {

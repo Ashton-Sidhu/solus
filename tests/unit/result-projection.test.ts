@@ -3,7 +3,7 @@ import {
   ERROR_HEAD_MAX_BYTES,
   projectSessionEvent,
   projectSessionHistory,
-} from '../../src/main/server/result-projection'
+} from '@solus/server/server/result-projection'
 
 describe('session result projection', () => {
   test('keeps a subagent report whole', () => {

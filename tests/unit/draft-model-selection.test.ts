@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentId, RunConfig } from '../../src/shared/types'
-import type { SessionDraft } from '../../src/renderer/contexts/workspace/session-draft.svelte'
-import { draftModelSelection } from '../../src/renderer/components/session-draft/lib/draft-selection'
+import type { AgentId, RunConfig } from '@solus/contracts/types'
+import type { SessionDraft } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
+import { draftModelSelection } from '@solus/workspace-ui/components/session-draft/lib/draft-selection'
 
 function draft(provider: AgentId | null = null): SessionDraft {
   return {

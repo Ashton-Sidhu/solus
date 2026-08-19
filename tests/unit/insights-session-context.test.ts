@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { sessionContextBuckets } from '../../src/renderer/components/insights/lib/session-context'
+import { sessionContextBuckets } from '@solus/workspace-ui/components/insights/lib/session-context'
 import {
   promptsByTrace,
   sessionSummaryView,
-} from '../../src/renderer/components/insights/lib/session-summary'
-import type { TurnRow } from '../../src/renderer/components/insights/lib/turn-rows'
-import type { MetricsSessionSummary } from '../../src/shared/observability-types'
+} from '@solus/workspace-ui/components/insights/lib/session-summary'
+import type { TurnRow } from '@solus/workspace-ui/components/insights/lib/turn-rows'
+import type { MetricsSessionSummary } from '@solus/contracts/observability-types'
 
 const FROM = 1_000_000
 const TO = FROM + 10_000
@@ -202,23 +202,23 @@ describe('Insights session summary', () => {
 })
 
 const chart = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/insights/SessionContextChart.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/SessionContextChart.svelte'),
   'utf8',
 )
 const summary = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/insights/SessionSummary.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/SessionSummary.svelte'),
   'utf8',
 )
 const transcript = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/insights/TurnTranscript.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TurnTranscript.svelte'),
   'utf8',
 )
 const toolTotals = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/insights/TurnToolTotals.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TurnToolTotals.svelte'),
   'utf8',
 )
 const panel = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/insights/TurnDetailPanel.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TurnDetailPanel.svelte'),
   'utf8',
 )
 

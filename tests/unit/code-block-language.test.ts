@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { codeBlockPickerLanguage } from "../../src/renderer/components/editor/lib/code-block-language";
+import { codeBlockPickerLanguage } from "@solus/workspace-ui/components/editor/lib/code-block-language";
 
 describe("code block language picker", () => {
   test("common Markdown fence aliases still select a visible picker label", () => {

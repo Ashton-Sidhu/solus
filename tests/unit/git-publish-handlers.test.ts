@@ -2,9 +2,9 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { SolusServer } from '../../src/main/server/server'
-import { registerGitPublishHandlers } from '../../src/main/server/handlers/git-publish-handlers'
-import type { IpcContext } from '../../src/shared/types'
+import { SolusServer } from '@solus/server/server/server'
+import { registerGitPublishHandlers } from '@solus/server/server/handlers/git-publish-handlers'
+import type { IpcContext } from '@solus/contracts/types'
 
 const temporaryDirectories: string[] = []
 

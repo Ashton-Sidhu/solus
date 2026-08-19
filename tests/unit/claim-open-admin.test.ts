@@ -3,8 +3,8 @@ import type { Server } from 'http'
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { buildHttpServer } from '../../src/main/server/http'
-import * as auth from '../../src/main/server/auth'
+import { buildHttpServer } from '@solus/server/server/http'
+import * as auth from '@solus/server/server/auth'
 
 const NOW = new Date('2026-03-01T00:00:00Z')
 

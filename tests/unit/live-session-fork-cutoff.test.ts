@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { findClaudeForkResumeId } from '../../src/main/agents/claude/claude-session-helpers'
-import { codexForkCutoffTurnId } from '../../src/main/agents/codex/codex-utils'
+import { findClaudeForkResumeId } from '@solus/server/agents/claude/claude-session-helpers'
+import { codexForkCutoffTurnId } from '@solus/server/agents/codex/codex-utils'
 
 function claudeLine(
   type: 'user' | 'assistant',

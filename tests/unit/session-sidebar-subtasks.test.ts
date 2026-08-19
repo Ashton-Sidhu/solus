@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { Task } from '../../src/shared/task-types'
-import type { SidebarTask } from '../../src/renderer/components/session/lib/task-list'
-import { SessionSidebarStore } from '../../src/renderer/contexts/workspace/session-sidebar.store.svelte'
+import type { Task } from '@solus/contracts/task-types'
+import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
+import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
 type SidebarStoreHarness = Pick<SessionSidebarStore, 'sessionsFor'> & {
   session: unknown

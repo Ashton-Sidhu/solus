@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { Schema, type Node } from '@tiptap/pm/model'
 import { EditorState } from '@tiptap/pm/state'
-import { transactionChangesTrackedRefs } from '../../src/renderer/components/editor/references'
+import { transactionChangesTrackedRefs } from '@solus/workspace-ui/components/editor/references'
 
 const schema = new Schema({
   nodes: {

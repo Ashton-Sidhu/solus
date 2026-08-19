@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { IpcContext } from '../../src/shared/types'
+import type { IpcContext } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -25,7 +25,7 @@ async function makeController(settings: ReturnType<typeof makeSettings>) {
     <T>(value: T) => value,
     { snapshot: <T>(value: T) => value },
   )
-  const { SessionConfigController } = await import('../../src/renderer/contexts/workspace/session-config.svelte')
+  const { SessionConfigController } = await import('@solus/workspace-ui/contexts/workspace/session-config.svelte')
   return new SessionConfigController({
     settings: settings as any,
     registry: { activeTabId: null, activeSession: null, sessionFor: () => null } as any,

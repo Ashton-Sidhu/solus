@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { decodeHtmlEntities } from '../../src/renderer/components/conversation/lib/html-entities'
+import { decodeHtmlEntities } from '@solus/workspace-ui/components/conversation/lib/html-entities'
 
 describe('HTML entity decoding', () => {
   test('restores common entities emitted as markdown text', () => {

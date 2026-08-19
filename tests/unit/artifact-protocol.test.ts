@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { handleArtifactRequest } from '../../src/main/artifact-protocol'
+import { handleArtifactRequest } from '@solus/desktop-main/artifact-protocol'
 
 let fixtureDir = ''
 let imagePath = ''

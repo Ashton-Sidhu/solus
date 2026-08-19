@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const skeletonSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/diff/DiffLoadingSkeleton.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/diff/DiffLoadingSkeleton.svelte'),
   'utf8',
 )
 

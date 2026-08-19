@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { cleanVoiceTranscript } from '../../src/main/transcription/clean-transcript'
+import { cleanVoiceTranscript } from '@solus/server/transcription/clean-transcript'
 
 describe('voice transcript cleanup', () => {
   test.each([

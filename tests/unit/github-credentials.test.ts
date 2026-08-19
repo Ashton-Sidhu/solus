@@ -22,19 +22,19 @@ function resolveTokens(): {
 } {
   const script = String.raw`
     import { mock } from 'bun:test'
-    mock.module('./src/main/providers/github/token-store', () => ({
+    mock.module('./packages/server/src/providers/github/token-store', () => ({
       loadToken: () => ({ accessToken: 'host-token', scope: 'repo', login: 'host-login' }),
       persistToken: () => {},
       clearToken: () => {},
       EncryptionUnavailableError: class EncryptionUnavailableError extends Error {},
     }))
-    mock.module('./src/main/providers/github/delegation-store', () => ({
+    mock.module('./packages/server/src/providers/github/delegation-store', () => ({
       loadDelegation: (deviceId) => deviceId === 'phone-1'
         ? { accessToken: 'delegated-token', login: 'client-login' }
         : null,
     }))
 
-    const { githubTokenForCheckout } = await import('./src/main/providers/github/credentials')
+    const { githubTokenForCheckout } = await import('./packages/server/src/providers/github/credentials')
     const DISPATCH = '/Users/host/projects/solus-remote/phone-1/github.com/acme/widgets'
 
     console.log(JSON.stringify({

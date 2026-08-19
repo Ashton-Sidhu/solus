@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { AssetUrlCache, type SignedAssetUrlRequest } from '../../src/renderer/components/artifact/lib/asset-url'
-import type { IpcContext } from '../../src/shared/types'
+import { AssetUrlCache, type SignedAssetUrlRequest } from '@solus/workspace-ui/components/artifact/lib/asset-url'
+import type { IpcContext } from '@solus/contracts/types'
 
 describe('asset URL cache', () => {
   test('reuses a URL until it enters the refresh window', async () => {

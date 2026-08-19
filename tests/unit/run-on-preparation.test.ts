@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { serverConnections } from '../../src/client-core/server-connections'
-import { LOCAL_SERVER_ID } from '../../src/client-core/server-registry'
-import { cloneUrlForRepoKey, prepareHostCheckout } from '../../src/renderer/components/servers/run-on'
+import { serverConnections } from '@solus/client-core/server-connections'
+import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
+import { cloneUrlForRepoKey, prepareHostCheckout } from '@solus/workspace-ui/components/servers/run-on'
 
 describe('automatic Run on repository preparation', () => {
   test('delegates the caller credential when preparing a different host', async () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { treeKeyIntent } from '../../src/renderer/components/session/lib/task-tree-keys'
+import { treeKeyIntent } from '@solus/workspace-ui/components/session/lib/task-tree-keys'
 
 const leaf = { index: 1, expanded: undefined, parentIndex: null }
 const collapsed = { index: 1, expanded: false, parentIndex: null }

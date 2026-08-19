@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   parseSubagentInput,
   subagentInputText,
-} from '../../src/renderer/components/conversation/lib/subagent'
+} from '@solus/workspace-ui/components/conversation/lib/subagent'
 
 describe('sub-agent input', () => {
   test('extracts the Solus MCP prompt', () => {

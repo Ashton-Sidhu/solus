@@ -22,7 +22,7 @@ async function loadSettings(name: string, persisted?: PersistedSettingsFixture) 
   dataDir = mkdtempSync(join(tmpdir(), 'solus-server-settings-'))
   process.env.SOLUS_DATA_DIR = dataDir
   if (persisted) writeFileSync(join(dataDir, 'server-settings.json'), JSON.stringify(persisted))
-  return import(`../../src/main/server/settings.ts?${name}`)
+  return import(`../../packages/server/src/server/settings.ts?${name}`)
 }
 
 describe.serial('server settings defaults', () => {

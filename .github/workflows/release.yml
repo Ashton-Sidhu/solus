@@ -56,7 +56,7 @@ jobs:
           SOLUS_GITHUB_CLIENT_ID: ${{ secrets.SOLUS_GITHUB_CLIENT_ID }}
         run: |
           bun run electron-vite build --mode production
-          cd client && bun install --frozen-lockfile && bun run build && cd ..
+          cd apps/client && bun install --frozen-lockfile && bun run build && cd ..
           bun run electron-builder --mac --publish never
 
       - name: Upload to Cloudflare R2

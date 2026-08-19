@@ -1,15 +1,15 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import type { Message, Session } from '../../src/shared/types'
+import type { Message, Session } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
-let WorkspaceLifecycleStore: typeof import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')['WorkspaceLifecycleStore']
+let WorkspaceLifecycleStore: typeof import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')['WorkspaceLifecycleStore']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
     <T>(value: T) => value,
     { snapshot: <T>(value: T) => value },
   )
-  ;({ WorkspaceLifecycleStore } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte'))
+  ;({ WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte'))
 })
 
 afterAll(() => {

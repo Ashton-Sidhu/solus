@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import type { Session, SessionMeta, Tab } from '../../src/shared/types'
+import type { Session, SessionMeta, Tab } from '@solus/contracts/types'
 import {
   buildPickerRows,
   dedupeHistoryEntries,
   filterEntries,
   SearchTextCache,
-} from '../../src/renderer/lib/pickerEntries'
-import type { PickerEntry } from '../../src/renderer/lib/sessionUtils'
+} from '@solus/workspace-ui/lib/pickerEntries'
+import type { PickerEntry } from '@solus/workspace-ui/lib/sessionUtils'
 
 function meta(overrides: Partial<SessionMeta> = {}): SessionMeta {
   return {

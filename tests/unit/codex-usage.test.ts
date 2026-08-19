@@ -3,10 +3,10 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let CodexBackend: typeof import('../../src/main/agents/codex/codex-backend')['CodexBackend']
+let CodexBackend: typeof import('@solus/server/agents/codex/codex-backend')['CodexBackend']
 
 beforeAll(async () => {
-  ;({ CodexBackend } = await import('../../src/main/agents/codex/codex-backend'))
+  ;({ CodexBackend } = await import('@solus/server/agents/codex/codex-backend'))
 })
 
 describe('Codex usage', () => {

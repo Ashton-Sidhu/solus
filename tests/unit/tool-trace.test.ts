@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { subagentTranscriptText } from '../../src/renderer/components/conversation/lib/tool-trace'
-import type { Message } from '../../src/shared/types'
+import { subagentTranscriptText } from '@solus/workspace-ui/components/conversation/lib/tool-trace'
+import type { Message } from '@solus/contracts/types'
 
 function tool(overrides: Partial<Message> = {}): Message {
   return {

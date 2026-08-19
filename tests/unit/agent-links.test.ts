@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { routeForHref } from '../../src/renderer/lib/agent-links'
+import { routeForHref } from '@solus/workspace-ui/lib/agent-links'
 
 describe('agent link routes', () => {
   test('opens Solus PR references as PR review routes', () => {

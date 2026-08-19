@@ -4,8 +4,8 @@ import {
   parseReferenceTokens,
   serializeReferenceToken,
   type ReferenceToken,
-} from "../../src/renderer/components/editor/reference-tokens";
-import { referenceTokenClassName } from "../../src/renderer/components/ui/plain-text-editor/lib/reference-decorations";
+} from "@solus/workspace-ui/components/editor/reference-tokens";
+import { referenceTokenClassName } from "@solus/workspace-ui/components/ui/plain-text-editor/lib/reference-decorations";
 
 const tokens: ReferenceToken[] = [
   { kind: "file", path: "src/renderer/App.svelte", name: "App.svelte" },

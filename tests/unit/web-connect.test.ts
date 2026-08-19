@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { classifyConnectInput, pairTokenFromLocation, probeServer } from '../../client/src/lib/connect'
+import { classifyConnectInput, pairTokenFromLocation, probeServer } from '../../apps/client/src/lib/connect'
 
 describe('classifyConnectInput', () => {
   test('a full pairing link pairs directly, with the token from the fragment', () => {

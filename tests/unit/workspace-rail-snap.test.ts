@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const source = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/layout/WorkspaceBody.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/layout/WorkspaceBody.svelte'),
   'utf8',
 )
 

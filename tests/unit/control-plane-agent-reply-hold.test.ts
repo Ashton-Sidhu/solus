@@ -1,23 +1,23 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
-import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
-import type { AgentRunRequest, AgentRunSessionState } from '../../src/main/agents/agent-runner'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
+import type { AgentRunRequest, AgentRunSessionState } from '@solus/server/agents/agent-runner'
 import type {
   AgentMetadata,
   IpcContext,
   NormalizedEvent,
   SessionRunInput,
   SessionStatus,
-} from '../../src/shared/types'
+} from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
-type ControlPlaneInstance = import('../../src/main/control-plane').ControlPlane
+let ControlPlane: typeof import('@solus/server/control-plane')['ControlPlane']
+type ControlPlaneInstance = import('@solus/server/control-plane').ControlPlane
 
 beforeAll(async () => {
-  ;({ ControlPlane } = await import('../../src/main/control-plane'))
+  ;({ ControlPlane } = await import('@solus/server/control-plane'))
 })
 
 class FakePermissions implements PermissionResponder {

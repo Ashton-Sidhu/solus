@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, setSystemTime, test } from 'bun:test'
-import { ClaudeTurnNormalizer } from '../../src/main/agents/claude/claude-event-normalizer'
-import type { ClaudeEvent } from '../../src/shared/claude-types'
-import type { NormalizedEvent } from '../../src/shared/types'
+import { ClaudeTurnNormalizer } from '@solus/server/agents/claude/claude-event-normalizer'
+import type { ClaudeEvent } from '@solus/contracts/claude-types'
+import type { NormalizedEvent } from '@solus/contracts/types'
 
 async function readClaudeFixture(name: string): Promise<ClaudeEvent[]> {
   const text = await Bun.file(new URL(`./__fixtures__/${name}`, import.meta.url)).text()

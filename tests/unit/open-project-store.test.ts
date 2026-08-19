@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { HostReadiness, RecentProject } from '../../src/shared/types'
-import type { HostOption } from '../../src/renderer/components/servers/lib/open-project-flow'
+import type { HostReadiness, RecentProject } from '@solus/contracts/types'
+import type { HostOption } from '@solus/workspace-ui/components/servers/lib/open-project-flow'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const previousLocalStorage = (globalThis as unknown as { localStorage?: unknown }).localStorage
@@ -117,8 +117,8 @@ async function newStore(options: FakeOptions = {}) {
     getItem: () => null,
     setItem: () => {},
   }
-  const { OpenProjectStore } = await import('../../src/renderer/components/servers/open-project.store.svelte')
-  const { HostSetupSession } = await import('../../src/renderer/components/servers/host-setup.store.svelte')
+  const { OpenProjectStore } = await import('@solus/workspace-ui/components/servers/open-project.store.svelte')
+  const { HostSetupSession } = await import('@solus/workspace-ui/components/servers/host-setup.store.svelte')
   const { calls, resolveApi } = fakeConnections(options)
   const apiFor = resolveApi as unknown as (serverId: string) => {
     setupHostReadiness: () => Promise<HostReadiness>

@@ -9,7 +9,7 @@
  */
 import { describe, expect, test } from 'bun:test'
 import { Time } from '@internationalized/date'
-import { formatClock, parseClock } from '../../src/renderer/components/ui/time-field/clock'
+import { formatClock, parseClock } from '@solus/workspace-ui/components/ui/time-field/clock'
 
 describe('parseClock', () => {
   test('reads a stored clock time', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { taskTabTarget } from '../../src/renderer/contexts/workspace/session-sidebar-selection'
+import { taskTabTarget } from '@solus/workspace-ui/contexts/workspace/session-sidebar-selection'
 
 describe('session sidebar task selection', () => {
   test('does not reuse another task\'s last-active tab on a shared branch', () => {

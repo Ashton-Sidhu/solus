@@ -1,7 +1,7 @@
 /// <reference types="bun-types" />
 import { afterEach, describe, expect, test } from 'bun:test'
-import { captureBridgedLogEvent } from '../../src/main/analytics'
-import { createLogger, setLogEventSink } from '../../src/main/logger'
+import { captureBridgedLogEvent } from '@solus/server/analytics'
+import { createLogger, setLogEventSink } from '@solus/server/logger'
 
 afterEach(() => {
   setLogEventSink(null)

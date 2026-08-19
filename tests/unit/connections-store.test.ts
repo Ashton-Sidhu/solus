@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import { asHostApi } from '../../src/client-core/host-api'
+import { asHostApi } from '@solus/client-core/host-api'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const mockedServerConnections = singleHostServerConnections()
 
-mock.module('@client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: mockedServerConnections,
 }))
 
@@ -47,7 +47,7 @@ describe('remote access settings', () => {
         connectionsListSessions: async () => [],
       } },
     })
-    const { ConnectionsStore } = await import('../../src/renderer/contexts/connections/connections.store.svelte')
+    const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
     const store = new ConnectionsStore()
     store.serverInfo = {
       installationId: 'test',
@@ -91,7 +91,7 @@ describe('agent task lifecycle settings', () => {
         agentTaskLifecyclePolicy: 'moderate' as const,
       }),
     })
-    const { ConnectionsStore } = await import('../../src/renderer/contexts/connections/connections.store.svelte')
+    const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
     const store = new ConnectionsStore()
 
     await store.refreshCapabilities({ serverId: 'remote-host', api })
@@ -111,7 +111,7 @@ describe('agent task lifecycle settings', () => {
         setAgentTaskLifecyclePolicy: async () => ({ agentTaskLifecyclePolicy: 'autonomous' }),
       } },
     })
-    const { ConnectionsStore } = await import('../../src/renderer/contexts/connections/connections.store.svelte')
+    const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
     const store = new ConnectionsStore()
     store.capabilities = {
       headless: false,
@@ -145,7 +145,7 @@ describe('provider host routing', () => {
     mockedServerConnections.registerHost('studio', {
       providerStatus: async () => ({ connected: true, login: 'studio-user' }),
     })
-    const { ConnectionsStore } = await import('../../src/renderer/contexts/connections/connections.store.svelte')
+    const { ConnectionsStore } = await import('@solus/workspace-ui/contexts/connections/connections.store.svelte')
     const store = new ConnectionsStore()
 
     await Reflect.apply(store.refreshProviderStatus, store, ['studio', {}])

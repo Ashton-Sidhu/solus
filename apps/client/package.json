@@ -1,0 +1,25 @@
+{
+  "name": "solus-web-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Standalone web client for the Solus server.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "build": "vite build",
+    "preview": "vite preview --port 4173"
+  },
+  "dependencies": {
+    "@solus/client-core": "workspace:*",
+    "@solus/contracts": "workspace:*",
+    "@solus/workspace-ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@sveltejs/vite-plugin-svelte": "^5.1.1",
+    "@tailwindcss/vite": "^4.2.2",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.2"
+  }
+}

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { orderedChecks } from '../../src/renderer/components/prs/lib/checks'
-import type { CheckConclusion, CheckItem, PrChecksSummary } from '../../src/shared/checks-types'
+import { orderedChecks } from '@solus/workspace-ui/components/prs/lib/checks'
+import type { CheckConclusion, CheckItem, PrChecksSummary } from '@solus/contracts/checks-types'
 
 function check(
   name: string,

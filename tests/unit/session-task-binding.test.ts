@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { Prompt, Session } from '../../src/shared/types'
-import type { TasksStore } from '../../src/renderer/contexts/tasks/tasks.store.svelte'
-import type { PlanStore } from '../../src/renderer/contexts/plans/plan.store.svelte'
-import type { WorksStore } from '../../src/renderer/contexts/works/works.store.svelte'
-import { PromptComposer } from '../../src/renderer/contexts/workspace/prompt-composer'
-import { taskBindingSessionId } from '../../src/renderer/contexts/workspace/session-draft.svelte'
+import type { Prompt, Session } from '@solus/contracts/types'
+import type { TasksStore } from '@solus/workspace-ui/contexts/tasks/tasks.store.svelte'
+import type { PlanStore } from '@solus/workspace-ui/contexts/plans/plan.store.svelte'
+import type { WorksStore } from '@solus/workspace-ui/contexts/works/works.store.svelte'
+import { PromptComposer } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
+import { taskBindingSessionId } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 
 describe('session task binding identity', () => {
   test('a handoff keeps its stable Solus id when the provider thread changes', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { PlanDescriptor } from "../../src/shared/types";
-import { filterPlanAutocompleteDescriptors } from "../../src/renderer/components/editor/autocomplete.svelte";
+import type { PlanDescriptor } from "@solus/contracts/types";
+import { filterPlanAutocompleteDescriptors } from "@solus/workspace-ui/components/editor/autocomplete.svelte";
 
 function descriptor(
   title: string,

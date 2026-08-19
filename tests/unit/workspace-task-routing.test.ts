@@ -69,7 +69,7 @@ describe('workspace task routing', () => {
     // WHY: task links in conversation chrome must preserve the conversation
     // that gives the task context instead of replacing it in the leading pane.
     installRendererGlobals()
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const navigations: unknown[] = []
     const workspace = Object.create(WorkspaceContext.prototype) as any
     workspace.tasksStore = { hostFor: () => 'host-a' }
@@ -92,7 +92,7 @@ describe('workspace task routing', () => {
     // WHY: board, palette, and task-to-task navigation remain full-page flows;
     // only the contextual breadcrumb and project-panel links request a split.
     installRendererGlobals()
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const navigations: unknown[] = []
     const workspace = Object.create(WorkspaceContext.prototype) as any
     workspace.tasksStore = { hostFor: () => null }

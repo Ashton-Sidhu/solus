@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { validateOAuthStateNonce } from '../../src/main/google/oauth'
+import { validateOAuthStateNonce } from '@solus/server/google/oauth'
 
 describe('Google OAuth state nonce validation', () => {
   test('accepts only the expected nonce before expiry', () => {

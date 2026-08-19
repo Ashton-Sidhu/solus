@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { MODEL_PROFILES, REASONING_EFFORT_LABELS } from '../../src/shared/types'
+import { MODEL_PROFILES, REASONING_EFFORT_LABELS } from '@solus/contracts/types'
 
 describe('Codex model profiles', () => {
   test('exposes Ultra only on the GPT-5.6 models that support it', () => {

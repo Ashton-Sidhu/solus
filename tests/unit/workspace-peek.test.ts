@@ -4,8 +4,8 @@ import {
   peekBody,
   peekBox,
   peekOutline,
-} from '../../src/renderer/components/workspace/lib/workspace-peek'
-import type { WorkspaceItem } from '../../src/renderer/components/workspace/lib/workspace-items'
+} from '@solus/workspace-ui/components/workspace/lib/workspace-peek'
+import type { WorkspaceItem } from '@solus/workspace-ui/components/workspace/lib/workspace-items'
 
 function item(over: Partial<WorkspaceItem> = {}): WorkspaceItem {
   return {

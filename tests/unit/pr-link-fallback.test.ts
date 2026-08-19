@@ -4,11 +4,11 @@ import { join } from 'node:path'
 
 const root = join(import.meta.dir, '../..')
 const markdownLink = readFileSync(
-  join(root, 'src/renderer/components/conversation/MarkdownLink.svelte'),
+  join(root, 'packages/workspace-ui/src/components/conversation/MarkdownLink.svelte'),
   'utf8',
 )
 const workspace = readFileSync(
-  join(root, 'src/renderer/contexts/workspace/workspace.context.svelte.ts'),
+  join(root, 'packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts'),
   'utf8',
 )
 

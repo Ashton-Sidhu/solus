@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { parseByteRange } from '../../src/main/server/byte-range'
+import { parseByteRange } from '@solus/server/server/byte-range'
 
 describe('artifact byte ranges', () => {
   test('resolves bounded, open-ended, and suffix ranges', () => {

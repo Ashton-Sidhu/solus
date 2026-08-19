@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { claimServer, pairServer } from '../../src/client-core/pairing'
+import { claimServer, pairServer } from '@solus/client-core/pairing'
 
 const originalFetch = globalThis.fetch
 

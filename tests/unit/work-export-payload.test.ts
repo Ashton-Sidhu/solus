@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { dataUrlToPayload } from '../../src/renderer/components/diagram/lib/diagram-export'
-import { exportFileName } from '../../src/renderer/components/pickers/lib/export-file-name'
+import { dataUrlToPayload } from '@solus/workspace-ui/components/diagram/lib/diagram-export'
+import { exportFileName } from '@solus/workspace-ui/components/pickers/lib/export-file-name'
 
 /**
  * `html-to-image` hands back a different data-URL encoding per format, and the

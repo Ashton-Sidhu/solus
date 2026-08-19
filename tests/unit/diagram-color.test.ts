@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { hexToHsv, hsvToHex, normalizeHex } from '../../src/renderer/components/diagram/lib/color'
+import { hexToHsv, hsvToHex, normalizeHex } from '@solus/workspace-ui/components/diagram/lib/color'
 
 describe('diagram colour picker maths', () => {
   test('accepts the shorthand and unprefixed hex a user can type into the field', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { shouldResetTaskForProjectChange } from '../../src/renderer/components/input/lib/task-project-scope'
+import { shouldResetTaskForProjectChange } from '@solus/workspace-ui/components/input/lib/task-project-scope'
 
 describe('input bar task project scope', () => {
   test('resets the task when the same composer changes folders', () => {

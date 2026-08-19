@@ -5,17 +5,17 @@ import {
   linkedTableLinks,
   taskPageCapabilities,
   taskProviderLabel,
-} from '../../src/renderer/components/tasks/task-page/lib/task-page'
+} from '@solus/workspace-ui/components/tasks/task-page/lib/task-page'
 import {
   commentSyncState,
   heldBackCommentIds,
   taskPublishTarget,
   taskUpstreamState,
-} from '../../src/renderer/components/tasks/task-page/lib/task-upstream'
-import { taskPrRows } from '../../src/renderer/components/tasks/task-page/lib/task-prs'
-import { taskRow } from '../../src/renderer/components/tasks/lib/tasks-list-view'
-import { upstreamTaskDetails } from '../../src/renderer/contexts/tasks/upstream-task-details'
-import type { Task, TaskComment, TaskExternalLink, TaskLink, TaskSessionLink } from '../../src/shared/task-types'
+} from '@solus/workspace-ui/components/tasks/task-page/lib/task-upstream'
+import { taskPrRows } from '@solus/workspace-ui/components/tasks/task-page/lib/task-prs'
+import { taskRow } from '@solus/workspace-ui/components/tasks/lib/tasks-list-view'
+import { upstreamTaskDetails } from '@solus/workspace-ui/contexts/tasks/upstream-task-details'
+import type { Task, TaskComment, TaskExternalLink, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
 
 // Attempt naming is `sessionDisplayName`, shared by every surface that lists a
 // session — see session-utils.test.ts.

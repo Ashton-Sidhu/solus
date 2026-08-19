@@ -12,7 +12,7 @@ describe('Git action manager', () => {
       const calls = []
       const events = []
       let generatedSubjects = 0
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         runAsync: async (bin, args) => {
           calls.push({ bin, args })
           if (bin === 'gh') return JSON.stringify({
@@ -29,7 +29,7 @@ describe('Git action manager', () => {
         },
       }))
 
-      const { runGitAction } = await import('./src/main/git/git-action-manager')
+      const { runGitAction } = await import('./packages/server/src/git/git-action-manager')
       const result = await runGitAction(
         {
           actionId: 'action-branch',

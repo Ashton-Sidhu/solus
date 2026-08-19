@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import {
   subagentGroupSummary,
   subagentRow,
-} from '../../src/renderer/components/conversation/lib/subagent-group'
-import type { Message } from '../../src/shared/types'
+} from '@solus/workspace-ui/components/conversation/lib/subagent-group'
+import type { Message } from '@solus/contracts/types'
 
 const NOW = 100_000
 

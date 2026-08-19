@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { HostEventSubscriber } from '../../src/client-core/host-event-subscriber'
-import { serverConnections } from '../../src/client-core/server-connections'
-import { bindAgentEventSubscriptions } from '../../src/renderer/hooks/agentEvents.svelte'
-import type { WorkspaceContext } from '../../src/renderer/contexts'
-import type { EnrichedError, WireNormalizedEvent } from '../../src/shared/types'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
+import { serverConnections } from '@solus/client-core/server-connections'
+import { bindAgentEventSubscriptions } from '@solus/workspace-ui/hooks/agentEvents.svelte'
+import type { WorkspaceContext } from '@solus/workspace-ui/contexts'
+import type { EnrichedError, WireNormalizedEvent } from '@solus/contracts/types'
 
 describe('agent event host routing', () => {
   test('receives a session event from a secondary host that already exists', () => {

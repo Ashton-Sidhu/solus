@@ -3,8 +3,8 @@ import {
   readSessionMeta,
   stampSessionMeta,
   stampSessionMetas,
-} from '../../src/client-core/session-meta'
-import type { SessionMeta } from '../../src/shared/types'
+} from '@solus/client-core/session-meta'
+import type { SessionMeta } from '@solus/contracts/types'
 
 function meta(sessionId: string): SessionMeta {
   return {

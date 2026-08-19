@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { resampleLinear, StreamingLinearResampler } from '../../src/renderer/lib/audio-utils'
-import { disposePcmCaptureResources, PcmCapture } from '../../src/renderer/lib/pcm-capture'
-import { encodePcm16Wav } from '../../src/shared/voice-audio'
-import { readWav } from '../../src/main/transcription/wav'
+import { resampleLinear, StreamingLinearResampler } from '@solus/workspace-ui/lib/audio-utils'
+import { disposePcmCaptureResources, PcmCapture } from '@solus/workspace-ui/lib/pcm-capture'
+import { encodePcm16Wav } from '@solus/contracts/voice-audio'
+import { readWav } from '@solus/server/transcription/wav'
 
 describe('voice audio resampling', () => {
   test('encodes transport audio as 16 kHz mono 16-bit WAV', () => {

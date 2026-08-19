@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
-import type { SecretStore } from '../../src/main/platform/secrets'
+import type { SecretStore } from '@solus/server/platform/secrets'
 
 const records = new Map<string, unknown>()
 let canSave = true
@@ -10,16 +10,16 @@ const store: SecretStore = {
   canSave: () => canSave,
 }
 
-mock.module('../../src/main/platform/secrets', () => ({ secretStore: () => store }))
+mock.module('@solus/server/platform/secrets', () => ({ secretStore: () => store }))
 
-let clearToken: typeof import('../../src/main/cloudflare/token-store')['clearToken']
-let loadToken: typeof import('../../src/main/cloudflare/token-store')['loadToken']
-let persistToken: typeof import('../../src/main/cloudflare/token-store')['persistToken']
-let EncryptionUnavailableError: typeof import('../../src/main/providers/github/token-store')['EncryptionUnavailableError']
+let clearToken: typeof import('@solus/server/cloudflare/token-store')['clearToken']
+let loadToken: typeof import('@solus/server/cloudflare/token-store')['loadToken']
+let persistToken: typeof import('@solus/server/cloudflare/token-store')['persistToken']
+let EncryptionUnavailableError: typeof import('@solus/server/providers/github/token-store')['EncryptionUnavailableError']
 
 beforeAll(async () => {
-  ;({ clearToken, loadToken, persistToken } = await import('../../src/main/cloudflare/token-store'))
-  ;({ EncryptionUnavailableError } = await import('../../src/main/providers/github/token-store'))
+  ;({ clearToken, loadToken, persistToken } = await import('@solus/server/cloudflare/token-store'))
+  ;({ EncryptionUnavailableError } = await import('@solus/server/providers/github/token-store'))
 })
 
 describe('Cloudflare token store', () => {

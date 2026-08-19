@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { PullRequestSummary } from '../../src/shared/providers'
+import type { PullRequestSummary } from '@solus/contracts/providers'
 import {
   OPEN_PR_STATUS_KEYS,
   prFetchScope,
@@ -8,7 +8,7 @@ import {
   prStatusOf,
   shortBranch,
   type PrRowContext,
-} from '../../src/renderer/components/prs/lib/prs-list-view'
+} from '@solus/workspace-ui/components/prs/lib/prs-list-view'
 
 const NOW = Date.parse('2026-08-04T13:00:00Z')
 const AUTHOR_AVATAR = 'https://avatars.githubusercontent.com/u/1?v=4'

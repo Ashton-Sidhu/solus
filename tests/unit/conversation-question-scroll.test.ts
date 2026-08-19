@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { questionAnchorScrollTop } from '../../src/renderer/components/conversation/lib/question-scroll'
+import { questionAnchorScrollTop } from '@solus/workspace-ui/components/conversation/lib/question-scroll'
 
 describe('conversation question scroll anchoring', () => {
   test('keeps preceding turn context visible above a newly mounted question', () => {

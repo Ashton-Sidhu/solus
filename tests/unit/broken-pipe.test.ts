@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { EventEmitter } from 'events'
-import { installBrokenPipeGuard } from '../../src/main/broken-pipe'
+import { installBrokenPipeGuard } from '@solus/server/broken-pipe'
 
 describe('development console pipe', () => {
   test('treats an asynchronous EPIPE as normal launcher shutdown', () => {

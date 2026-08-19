@@ -12,12 +12,12 @@
  */
 import { inspect } from 'node:util'
 import { z } from 'zod'
-import { estimateRetainedBytes } from '../src/main/transports/response-receipt-cache'
-import { parseToolInput } from '../src/renderer/components/conversation/lib/activity-summary'
-import { parseSubagentInput } from '../src/renderer/components/conversation/lib/subagent'
-import { buildTurns, groupMessages, stabilizeTurns } from '../src/renderer/components/conversation/lib/turns'
-import { dedupeHistoryEntries, FrozenEntryOrder } from '../src/renderer/lib/pickerEntries'
-import type { Message, Session, SessionMeta, Tab } from '../src/shared/types'
+import { estimateRetainedBytes } from '@solus/server/transports/response-receipt-cache'
+import { parseToolInput } from '../packages/workspace-ui/src/components/conversation/lib/activity-summary'
+import { parseSubagentInput } from '../packages/workspace-ui/src/components/conversation/lib/subagent'
+import { buildTurns, groupMessages, stabilizeTurns } from '../packages/workspace-ui/src/components/conversation/lib/turns'
+import { dedupeHistoryEntries, FrozenEntryOrder } from '../packages/workspace-ui/src/lib/pickerEntries'
+import type { Message, Session, SessionMeta, Tab } from '@solus/contracts/types'
 
 interface BenchResult {
   name: string

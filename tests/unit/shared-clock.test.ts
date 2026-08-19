@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test'
-import { SharedClock } from '../../src/renderer/lib/shared-clock'
+import { SharedClock } from '@solus/workspace-ui/lib/shared-clock'
 
 let originalDocument: PropertyDescriptor | undefined
 let fakeDocument: EventTarget & { visibilityState: DocumentVisibilityState }

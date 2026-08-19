@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 // The fixture barrel resolves its JSON through `import.meta.glob`, which only
 // exists under Vite — the files are read directly here.
-import type { DemoFixtures, ReplayStep } from '../../client/src/demo/fixtures/types'
-import persistedTabs from '../../client/src/demo/fixtures/data/persisted-tabs.json'
-import diffs from '../../client/src/demo/fixtures/data/diffs.json'
-import tasks from '../../client/src/demo/fixtures/data/tasks.json'
-import replayScript from '../../client/src/demo/fixtures/data/replay-script.json'
-import { demoTurnRecords, turnListingResult } from '../../client/src/demo/fixtures/insights'
-import { answerFor, sqlSessionId, sqlWindow } from '../../client/src/demo/fixtures/insights-answers'
-import { defaultExploreSql, sessionTurnsSql, sqlPresets } from '../../src/renderer/components/insights/lib/insights-queries'
-import { DEFAULT_TIME_RANGE, resolveRange } from '../../src/renderer/components/insights/lib/time-range'
-import { toTurnRows } from '../../src/renderer/components/insights/lib/turn-rows'
+import type { DemoFixtures, ReplayStep } from '../../apps/client/src/demo/fixtures/types'
+import persistedTabs from '../../apps/client/src/demo/fixtures/data/persisted-tabs.json'
+import diffs from '../../apps/client/src/demo/fixtures/data/diffs.json'
+import tasks from '../../apps/client/src/demo/fixtures/data/tasks.json'
+import replayScript from '../../apps/client/src/demo/fixtures/data/replay-script.json'
+import { demoTurnRecords, turnListingResult } from '../../apps/client/src/demo/fixtures/insights'
+import { answerFor, sqlSessionId, sqlWindow } from '../../apps/client/src/demo/fixtures/insights-answers'
+import { defaultExploreSql, sessionTurnsSql, sqlPresets } from '@solus/workspace-ui/components/insights/lib/insights-queries'
+import { DEFAULT_TIME_RANGE, resolveRange } from '@solus/workspace-ui/components/insights/lib/time-range'
+import { toTurnRows } from '@solus/workspace-ui/components/insights/lib/turn-rows'
 
 // The demo backend is the only implementation of the RPC surface that no
 // integration test exercises: it runs in a page the visitor cannot report from.

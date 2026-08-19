@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   filterCommands,
   slashMenuIsOpen,
-} from '../../src/renderer/components/editor/slashCommands'
+} from '@solus/workspace-ui/components/editor/slashCommands'
 
 // The block menu and the editor's Enter/Tab/arrow handlers must agree on one
 // condition. When they disagree, a "/" token that matches no command hides the

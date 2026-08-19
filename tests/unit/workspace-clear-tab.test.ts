@@ -62,7 +62,7 @@ describe('clearing a conversation tab', () => {
       },
     })
     const { WorkspaceContext } = await import(
-      '../../src/renderer/contexts/workspace/workspace.context.svelte'
+      '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
     )
     const calls: string[] = []
     const workspace = {

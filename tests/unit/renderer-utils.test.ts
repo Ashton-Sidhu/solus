@@ -10,9 +10,9 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { Glob } from 'bun'
-import { cn } from '../../src/renderer/lib/utils'
+import { cn } from '@solus/workspace-ui/lib/utils'
 
-const RENDERER = join(import.meta.dir, '../../src/renderer')
+const RENDERER = join(import.meta.dir, '../../packages/workspace-ui/src')
 const indexCss = await Bun.file(join(RENDERER, 'index.css')).text()
 
 /** Body of every `@theme`/`@utility` block, brace-matched so nested `@keyframes` don't end it early. */

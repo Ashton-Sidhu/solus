@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { createShutdownCoordinator } from '../../src/main/shutdown-coordinator'
+import { createShutdownCoordinator } from '@solus/desktop-main/shutdown-coordinator'
 
 describe('shutdown coordinator', () => {
   test('cleanup gets a chance to finish before Electron quits', async () => {

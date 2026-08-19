@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const activityRow = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/conversation/ActivityRow.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/conversation/ActivityRow.svelte'),
   'utf8',
 )
 describe('conversation activity row', () => {

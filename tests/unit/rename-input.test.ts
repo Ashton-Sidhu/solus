@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test'
 import {
   committedRenameValue,
   focusRenameInputText,
-} from '../../src/renderer/lib/rename-input'
+} from '@solus/workspace-ui/lib/rename-input'
 
 describe('focusRenameInputText', () => {
   it('owns focus and selects the current title for replacement', () => {

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { attentionEntryKey } from '../../src/main/notifications/push-service'
-import { countDesktopAttentionEntries, diffDesktopAttentionSnapshot } from '../../src/main/desktop-notifications-core'
-import type { AttentionEntry } from '../../src/shared/attention-types'
+import { attentionEntryKey } from '@solus/server/notifications/push-service'
+import { countDesktopAttentionEntries, diffDesktopAttentionSnapshot } from '@solus/server/desktop-notifications-core'
+import type { AttentionEntry } from '@solus/contracts/attention-types'
 
 function entry(sessionId: string, kind: AttentionEntry['kind'], summary = 'Needs attention'): AttentionEntry {
   return { sessionId, kind, summary, since: 1000 }

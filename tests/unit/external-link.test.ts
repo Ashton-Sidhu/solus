@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { faviconUrlForHref } from "../../src/renderer/components/conversation/lib/external-link";
+import { faviconUrlForHref } from "@solus/workspace-ui/components/conversation/lib/external-link";
 
 describe("external link favicons", () => {
   test("uses the website origin instead of the linked page path", () => {

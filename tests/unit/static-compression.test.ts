@@ -7,7 +7,7 @@ import { join } from 'path'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-const { buildHttpServer } = await import('../../src/main/server/http')
+const { buildHttpServer } = await import('@solus/server/server/http')
 
 const cleanups: Array<() => void> = []
 

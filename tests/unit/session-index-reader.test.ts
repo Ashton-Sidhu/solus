@@ -6,7 +6,7 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type IndexerModule = typeof import('../../src/main/db/session-indexer')
+type IndexerModule = typeof import('@solus/server/db/session-indexer')
 type ReadTailRecordBatches = IndexerModule['readTailRecordBatches']
 let readTailRecordBatches: ReadTailRecordBatches
 let maxIndexedLineBytes: number
@@ -14,7 +14,7 @@ let maxIndexedLineBytes: number
 const tempDirs: string[] = []
 
 beforeAll(async () => {
-  const indexer = await import('../../src/main/db/session-indexer')
+  const indexer = await import('@solus/server/db/session-indexer')
   readTailRecordBatches = indexer.readTailRecordBatches
   maxIndexedLineBytes = indexer.MAX_INDEXED_SESSION_LINE_BYTES
 })

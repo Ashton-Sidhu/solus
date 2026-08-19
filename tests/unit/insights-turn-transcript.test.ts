@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import type { MetricsSpan } from '../../src/shared/observability-types'
+import type { MetricsSpan } from '@solus/contracts/observability-types'
 import {
   exchangeMeta,
   transcriptAsText,
   transcriptIsEmpty,
   turnTranscript,
   type TranscriptRole,
-} from '../../src/renderer/components/insights/lib/turn-transcript'
+} from '@solus/workspace-ui/components/insights/lib/turn-transcript'
 
 // The turn's three texts are one exchange, and the panel used to print them as
 // three interchangeable cards. These tests hold the reading the model exists to

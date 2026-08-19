@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { solusDir } from '../../src/main/platform/paths'
+import { solusDir } from '@solus/server/platform/paths'
 
 describe('Solus state paths', () => {
   const originalDataDir = process.env.SOLUS_DATA_DIR

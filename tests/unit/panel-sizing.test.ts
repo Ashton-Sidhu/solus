@@ -1,16 +1,16 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'bun:test'
-import { gutterWidth } from '../../src/renderer/components/conversation/lib/minimap'
+import { gutterWidth } from '@solus/workspace-ui/components/conversation/lib/minimap'
 import {
   defaultWorkspaceRailWidth,
   MIN_PRIMARY_PANE_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
-} from '../../src/renderer/components/layout/lib/workspace-body'
+} from '@solus/workspace-ui/components/layout/lib/workspace-body'
 import {
   isProjectRailOpen,
   projectRailWidth,
-} from '../../src/renderer/components/project-panel/lib/rail-width'
+} from '@solus/workspace-ui/components/project-panel/lib/rail-width'
 
 // Both rails are a share of the window rather than one fixed width, and they are
 // the same share — the sidebar on the left and the project rail on the right are
@@ -115,7 +115,7 @@ describe('panel sizing across displays', () => {
     // two drift silently — the column just resizes and the rail keeps using the
     // old numbers — so the token is read back here rather than trusted.
     const css = readFileSync(
-      new URL('../../src/renderer/index.css', import.meta.url),
+      new URL('../../packages/workspace-ui/src/index.css', import.meta.url),
       'utf8',
     )
     const token = css.match(
@@ -153,7 +153,7 @@ describe('panel sizing across displays', () => {
     // original compact measure on a laptop.
     const source = readFileSync(
       new URL(
-        '../../src/renderer/components/session-draft/SessionDraftPane.svelte',
+        '../../packages/workspace-ui/src/components/session-draft/SessionDraftPane.svelte',
         import.meta.url,
       ),
       'utf8',

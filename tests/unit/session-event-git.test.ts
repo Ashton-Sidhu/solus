@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { GitState, Session, Tab } from '../../src/shared/types'
+import type { GitState, Session, Tab } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -11,7 +11,7 @@ afterEach(() => {
 describe('SessionEventReducer Git events', () => {
   test('applies environment changes while a session is interrupted', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { SessionEventReducer } = await import('../../src/renderer/contexts/workspace/session-event-reducer.svelte')
+    const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
     const session = {
       status: 'interrupted',
       run: {
@@ -55,7 +55,7 @@ describe('SessionEventReducer Git events', () => {
     // second write, refresh restores a branchless task attempt and cannot match
     // its pull request.
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-    const { SessionEventReducer } = await import('../../src/renderer/contexts/workspace/session-event-reducer.svelte')
+    const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
     const session = {
       agentSessionId: 'provider-session',
       status: 'idle',

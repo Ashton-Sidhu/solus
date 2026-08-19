@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { DraftReview } from '../../src/shared/providers'
-import type { IpcContext, PrReviewContext } from '../../src/shared/types'
-import { createReviewDispositionPoster } from '../../src/renderer/components/review-mode/lib/review-disposition-poster'
+import type { DraftReview } from '@solus/contracts/providers'
+import type { IpcContext, PrReviewContext } from '@solus/contracts/types'
+import { createReviewDispositionPoster } from '@solus/workspace-ui/components/review-mode/lib/review-disposition-poster'
 
 const ctx = {} as IpcContext
 const pr = {

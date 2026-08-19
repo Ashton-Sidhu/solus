@@ -3,7 +3,7 @@ import {
   paneBoundsPercent,
   percentToPixels,
   pixelsToPercent,
-} from "../../src/renderer/lib/resizablePane";
+} from "@solus/workspace-ui/lib/resizablePane";
 
 describe("resizable pane geometry", () => {
   test("converts persisted pixel widths without changing their physical size", () => {

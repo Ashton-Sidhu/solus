@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
-import { EDITOR_APPS } from '../../src/main/editor-apps'
-import { TERMINAL_APPS } from '../../src/main/terminal-apps'
-import { APP_LOGOS } from '../../src/renderer/components/settings/lib/app-logos'
-import { normalizeHostCapabilities } from '../../src/client-core/host-capabilities'
+import { EDITOR_APPS } from '@solus/desktop-main/editor-apps'
+import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
+import { APP_LOGOS } from '@solus/workspace-ui/components/settings/lib/app-logos'
+import { normalizeHostCapabilities } from '@solus/client-core/host-capabilities'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { EDITOR_IDS, TERMINAL_APP_IDS } from '../../src/shared/types'
+import { EDITOR_IDS, TERMINAL_APP_IDS } from '@solus/contracts/types'
 
 describe('terminal catalog', () => {
   test('every terminal can be told to run a command on launch', () => {
@@ -76,7 +76,7 @@ describe('editor and terminal ids', () => {
 })
 
 describe('committed app icons', () => {
-  const ICON_DIRECTORY = join(import.meta.dirname, '../../src/renderer/components/settings/app-icons')
+  const ICON_DIRECTORY = join(import.meta.dirname, '../../packages/workspace-ui/src/components/settings/app-icons')
 
   test('every file is named for an app in a catalog', () => {
     // WHY: the renderer looks icons up by id. A misnamed file is never read and

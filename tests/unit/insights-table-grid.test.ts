@@ -3,7 +3,7 @@ import {
   columnEmphasis,
   columnGrows,
   columnTrack,
-} from '../../src/renderer/components/insights/lib/table-grid'
+} from '@solus/workspace-ui/components/insights/lib/table-grid'
 
 // `select *` returns twenty columns of wildly different content. These tests
 // encode the rules that keep such a result readable: a column's width starts

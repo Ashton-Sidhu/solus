@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import type { QuestionRequest, Session } from '../../src/shared/types'
+import type { QuestionRequest, Session } from '@solus/contracts/types'
 import {
   answersForQuestionNote,
   pendingQuestionForPrompt,
-} from '../../src/renderer/components/input/lib/pending-question'
-import { toQuestionRequest } from '../../src/renderer/contexts/workspace/session.utils'
+} from '@solus/workspace-ui/components/input/lib/pending-question'
+import { toQuestionRequest } from '@solus/workspace-ui/contexts/workspace/session.utils'
 
 function request(overrides: Partial<QuestionRequest> = {}): QuestionRequest {
   return {

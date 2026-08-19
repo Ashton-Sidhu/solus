@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const workspaceSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/contexts/workspace/workspace.context.svelte.ts'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts'),
   'utf8',
 )
 const reviewPaneSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/review/ReviewPane.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/review/ReviewPane.svelte'),
   'utf8',
 )
 

@@ -3,7 +3,7 @@ import {
   fileFindPosition,
   isFileFindShortcut,
   shouldRestoreFileEditorFocus,
-} from "../../src/renderer/components/artifact/lib/file-find";
+} from "@solus/workspace-ui/components/artifact/lib/file-find";
 
 describe("file editor find", () => {
   test("uses the same 8px top inset as the conversation find bar", () => {

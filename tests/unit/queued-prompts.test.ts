@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import { formatClock, formatLimitWindow, formatWaited, queuedCaption } from '../../src/renderer/components/conversation/lib/queued-prompts'
-import type { OutboundPrompt } from '../../src/shared/types'
+import { formatClock, formatLimitWindow, formatWaited, queuedCaption } from '@solus/workspace-ui/components/conversation/lib/queued-prompts'
+import type { OutboundPrompt } from '@solus/contracts/types'
 
 const NOW = 1_700_000_000_000
 

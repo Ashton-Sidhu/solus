@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Task } from '../../src/shared/task-types'
-import { buildBoard, STATUS_META } from '../../src/renderer/components/tasks/lib/tasks-api'
+import type { Task } from '@solus/contracts/task-types'
+import { buildBoard, STATUS_META } from '@solus/workspace-ui/components/tasks/lib/tasks-api'
 
 function task(id: string, status: Task['status'], providerId: Task['providerId']): Task {
   return {

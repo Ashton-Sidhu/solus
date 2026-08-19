@@ -4,7 +4,7 @@ import {
   getToolDescriptionFromParsed,
   liveActivityLabel,
   parseToolInput,
-} from '../../src/renderer/components/conversation/lib/activity-summary'
+} from '@solus/workspace-ui/components/conversation/lib/activity-summary'
 
 describe('liveActivityLabel', () => {
   test('keeps fast startup phases visible before the agent begins thinking', () => {

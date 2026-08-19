@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { claudeParentToolUseId } from '../../src/main/agents/claude/claude-tool-adapter'
+import { claudeParentToolUseId } from '@solus/server/agents/claude/claude-tool-adapter'
 
 describe('claudeParentToolUseId', () => {
   test('recovers the streamed tool-use id from the MCP request _meta', () => {

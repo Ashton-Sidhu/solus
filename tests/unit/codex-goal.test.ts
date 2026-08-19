@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
-import { normalizeThreadGoal } from '../../src/main/agents/codex/codex-event-normalizer'
-import { codexSlashCommands } from '../../src/renderer/components/input/slash-commands'
-import { GoalSync } from '../../src/renderer/contexts/workspace/goal-sync'
-import type { Session, ThreadGoal } from '../../src/shared/types'
+import { normalizeThreadGoal } from '@solus/server/agents/codex/codex-event-normalizer'
+import { codexSlashCommands } from '@solus/workspace-ui/components/input/slash-commands'
+import { GoalSync } from '@solus/workspace-ui/contexts/workspace/goal-sync'
+import type { Session, ThreadGoal } from '@solus/contracts/types'
 
 function deferred<T>() {
   let resolve!: (value: T) => void

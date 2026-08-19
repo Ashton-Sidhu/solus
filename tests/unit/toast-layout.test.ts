@@ -3,11 +3,11 @@ import { readFileSync } from "node:fs"
 import { join } from "node:path"
 
 const source = readFileSync(
-  join(import.meta.dir, "../../src/renderer/components/ui/sonner/sonner.svelte"),
+  join(import.meta.dir, "../../packages/workspace-ui/src/components/ui/sonner/sonner.svelte"),
   "utf8",
 )
 const appSource = readFileSync(
-  join(import.meta.dir, "../../src/renderer/App.svelte"),
+  join(import.meta.dir, "../../packages/workspace-ui/src/App.svelte"),
   "utf8",
 )
 

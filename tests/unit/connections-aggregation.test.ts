@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { aggregateConnectionSessionsByDevice } from '../../src/main/server/handlers/connections-handlers'
+import { aggregateConnectionSessionsByDevice } from '@solus/server/server/handlers/connections-handlers'
 
 describe('connection session aggregation', () => {
   test('groups multiple sockets from one trusted device into one row', () => {

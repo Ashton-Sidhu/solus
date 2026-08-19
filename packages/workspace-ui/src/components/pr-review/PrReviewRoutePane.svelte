@@ -1,0 +1,75 @@
+<script lang="ts">
+  import type { PrReviewTarget } from "@solus/contracts/providers";
+  import { getWorkspaceContext } from "../../contexts";
+  import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
+  import { paneActions } from "../ui/lib/pane-actions.svelte";
+  import PrReviewPane from "./PrReviewPane.svelte";
+  import { serverConnections } from "@solus/client-core/server-connections";
+  import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
+
+  // The review surface's route adapter. The surface itself is also mounted
+  // headless by Review Mode, so it keeps a plain prop contract; everything
+  // route-shaped is resolved here.
+  //
+  // `pr` is null between the click and the worktree being fetched and checked
+  // out: the route is entered immediately so the click gets a real page, and the
+  // router's payload cache fills this same mounted surface in place when the
+  // fetch lands. Re-entering a PR already in the cache skips the fetch entirely.
+  let { params, paneId }: RouteSurfaceProps<"prReview"> = $props();
+
+  const session = getWorkspaceContext();
+  const pane = paneActions(paneId);
+  const embedded = $derived(!pane.isLeading);
+  // The workspace binds the maximize key to the companion pane, which is where
+  // this route usually sits. Leading it — a review with the workspace to itself —
+  // is the one case with no companion to act on, and full screen is this
+  // surface's own maximize, so the key keeps meaning the same thing.
+  useKeybinding("pane.maximize", () => pane.toggleMaximize(), {
+    enabled: () => pane.isLeading && session.router.asidePanes.length === 0,
+  });
+
+  const ref = $derived({ name: "prReview" as const, params });
+  const pr = $derived(session.router.resolvedFor(ref));
+  // A parsed link can omit the host; then the pane keeps the same API the
+  // route's `resolve` used — the workspace's for this PR's directory.
+  const api = $derived(
+    params.serverId
+      ? serverConnections.apiFor(params.serverId)
+      : session.apiForContext(
+          params.cwd ? session.ctxForDirectory(params.cwd) : session.ctx,
+        ),
+  );
+  const serverId = $derived(
+    params.serverId ?? serverConnections.serverIdForApi(api),
+  );
+
+  async function refreshTarget(): Promise<void> {
+    const ctx = params.cwd ? session.ctxForDirectory(params.cwd) : session.ctx;
+    const next = await api.prOpenReview(ctx, params.number);
+    session.router.setResolved(ref, next);
+  }
+
+  // The review's chat is whichever open tab is rooted in this PR's worktree —
+  // derived rather than stored, so nothing has to be attached or torn down.
+  const chatTabId = $derived(
+    session.tabOrder.find((tabId) => session.sessionFor(tabId)?.prReview?.number === params.number) ??
+      null,
+  );
+</script>
+
+<PrReviewPane
+  {pr}
+  {api}
+  {serverId}
+  target={{ number: params.number, title: params.title ?? "" }}
+  targetCtx={params.cwd ? session.ctxForDirectory(params.cwd) : session.ctx}
+  {chatTabId}
+  maximized={pane.maximized}
+  onToggleMaximize={pane.toggleMaximize}
+  onRefreshTarget={refreshTarget}
+  {embedded}
+  fullScreen={pane.maximized}
+  onToggleFullScreen={pane.toggleMaximize}
+  onMoveAcross={pane.moveAcross}
+  onExit={embedded ? pane.close : undefined}
+/>

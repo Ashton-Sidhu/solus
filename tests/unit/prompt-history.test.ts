@@ -4,7 +4,7 @@ import {
   MAX_PROMPT_HISTORY,
   PROMPT_HISTORY_KEY,
   savePromptToHistory,
-} from "../../src/renderer/components/input/lib/prompt-history";
+} from "@solus/workspace-ui/components/input/lib/prompt-history";
 
 function memoryStorage(): Storage {
   const values = new Map<string, string>();

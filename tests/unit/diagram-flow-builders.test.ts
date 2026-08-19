@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import type { DiagramEdge } from "../../src/shared/diagram-types";
+import type { DiagramEdge } from "@solus/contracts/diagram-types";
 import {
   DEFAULT_ARROW_COLOR,
   effectiveEdgeDash,
   toFlowEdges,
-} from "../../src/renderer/components/diagram/lib/flow-builders";
+} from "@solus/workspace-ui/components/diagram/lib/flow-builders";
 
 describe("diagram flow edge styling", () => {
   test("keeps async meaning in the dash style without forcing ambient motion", () => {

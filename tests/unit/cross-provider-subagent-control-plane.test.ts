@@ -1,8 +1,8 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import type { AgentDispatcher, AgentRun, AgentRunRequest } from '../../src/main/agents/agent-runner'
-import type { AgentTool, AgentToolContext } from '../../src/main/agents/tools/agent-tool'
-import type { NormalizedEvent } from '../../src/shared/types'
+import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/agents/agent-runner'
+import type { AgentTool, AgentToolContext } from '@solus/server/agents/tools/agent-tool'
+import type { NormalizedEvent } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -10,8 +10,8 @@ let createClaudeSubagentAgentTool: (dispatcher: AgentDispatcher) => AgentTool
 let createCodexSubagentAgentTool: (dispatcher: AgentDispatcher) => AgentTool
 
 beforeAll(async () => {
-  ;({ createClaudeSubagentAgentTool } = await import('../../src/main/agents/claude/claude-subagent-tool'))
-  ;({ createCodexSubagentAgentTool } = await import('../../src/main/agents/codex/codex-subagent-tool'))
+  ;({ createClaudeSubagentAgentTool } = await import('@solus/server/agents/claude/claude-subagent-tool'))
+  ;({ createCodexSubagentAgentTool } = await import('@solus/server/agents/codex/codex-subagent-tool'))
 })
 
 class ChildDispatcher implements AgentDispatcher {

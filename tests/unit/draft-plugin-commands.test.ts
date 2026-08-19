@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { IpcContext, RunConfig } from '../../src/shared/types'
-import { draftPluginCommandScope } from '../../src/renderer/components/session-draft/lib/plugin-command-scope'
+import type { IpcContext, RunConfig } from '@solus/contracts/types'
+import { draftPluginCommandScope } from '@solus/workspace-ui/components/session-draft/lib/plugin-command-scope'
 
 function run(provider: RunConfig['provider'], modelId: string): RunConfig {
   return {

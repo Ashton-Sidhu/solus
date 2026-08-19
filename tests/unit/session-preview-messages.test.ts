@@ -3,7 +3,7 @@ import {
   extractPreviewMessages,
   truncateAtWord,
   type PreviewMessage,
-} from '../../src/renderer/lib/sessionPreviewMessages'
+} from '@solus/workspace-ui/lib/sessionPreviewMessages'
 
 function msg(overrides: Partial<PreviewMessage> & { role: string; content: string }): PreviewMessage {
   return { toolName: undefined, ...overrides } as PreviewMessage

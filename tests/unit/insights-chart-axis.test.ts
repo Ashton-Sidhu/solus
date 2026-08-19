@@ -4,7 +4,7 @@ import { join } from "node:path";
 import {
   TIME_AXIS_INSET_PX,
   TIME_AXIS_LABEL_GAP_PX,
-} from "../../src/renderer/components/insights/lib/chart-axis";
+} from "@solus/workspace-ui/components/insights/lib/chart-axis";
 
 const ROOT = join(import.meta.dir, "../..");
 

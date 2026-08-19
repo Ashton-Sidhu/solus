@@ -3,20 +3,20 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import { encodePathAsFolder } from '../../src/shared/types'
-import type { AgentTarget, SessionMeta, SessionStatus } from '../../src/shared/types'
-import type { SessionCreateRequest } from '../../src/main/sessions/session-tools'
+import { encodePathAsFolder } from '@solus/contracts/types'
+import type { AgentTarget, SessionMeta, SessionStatus } from '@solus/contracts/types'
+import type { SessionCreateRequest } from '@solus/server/sessions/session-tools'
 
 // session-tools imports the indexer, which imports node:sqlite (absent under
 // Bun's test runtime). Shim with bun:sqlite before dynamically importing the SUT.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type ToolsModule = typeof import('../../src/main/sessions/session-tools')
-type IndexerModule = typeof import('../../src/main/db/session-indexer')
-type DelegationsModule = typeof import('../../src/main/sessions/session-delegations')
-type DbModule = typeof import('../../src/main/db')
-type TaskStoreModule = typeof import('../../src/main/tasks/task-store')
-type TaskSessionsModule = typeof import('../../src/main/tasks/task-sessions')
+type ToolsModule = typeof import('@solus/server/sessions/session-tools')
+type IndexerModule = typeof import('@solus/server/db/session-indexer')
+type DelegationsModule = typeof import('@solus/server/sessions/session-delegations')
+type DbModule = typeof import('@solus/server/db')
+type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
+type TaskSessionsModule = typeof import('@solus/server/tasks/task-sessions')
 let tools: ToolsModule
 let indexer: IndexerModule
 let delegations: DelegationsModule
@@ -31,12 +31,12 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-tools-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  tools = await import('../../src/main/sessions/session-tools')
-  indexer = await import('../../src/main/db/session-indexer')
-  delegations = await import('../../src/main/sessions/session-delegations')
-  ;({ closeDb } = await import('../../src/main/db'))
-  taskStore = await import('../../src/main/tasks/task-store')
-  taskSessions = await import('../../src/main/tasks/task-sessions')
+  tools = await import('@solus/server/sessions/session-tools')
+  indexer = await import('@solus/server/db/session-indexer')
+  delegations = await import('@solus/server/sessions/session-delegations')
+  ;({ closeDb } = await import('@solus/server/db'))
+  taskStore = await import('@solus/server/tasks/task-store')
+  taskSessions = await import('@solus/server/tasks/task-sessions')
 })
 afterAll(() => {
   closeDb?.()

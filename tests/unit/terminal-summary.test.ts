@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { terminalRowDescription } from '../../src/renderer/components/settings/lib/terminal-summary'
+import { terminalRowDescription } from '@solus/workspace-ui/components/settings/lib/terminal-summary'
 
 describe('terminalRowDescription', () => {
   test('names the attached terminal as the one that will be reused', () => {

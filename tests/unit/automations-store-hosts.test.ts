@@ -1,17 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { Automation } from '../../src/shared/types'
+import type { Automation } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 
-mock.module('@client-core/server-connections', () => ({ serverConnections: connections }))
+mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
-let AutomationsStore: typeof import('../../src/renderer/contexts/automations/automations.store.svelte')['AutomationsStore']
+let AutomationsStore: typeof import('@solus/workspace-ui/contexts/automations/automations.store.svelte')['AutomationsStore']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  ;({ AutomationsStore } = await import('../../src/renderer/contexts/automations/automations.store.svelte'))
+  ;({ AutomationsStore } = await import('@solus/workspace-ui/contexts/automations/automations.store.svelte'))
 })
 
 beforeEach(() => connections.reset())

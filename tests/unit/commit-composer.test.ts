@@ -1,21 +1,21 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
-import type { ChangedFileStat } from '../../src/shared/git-types'
+import type { ChangedFileStat } from '@solus/contracts/git-types'
 import {
   filterFiles,
   orderedSelection,
   splitPath,
-} from '../../src/renderer/components/project-panel/commit-composer/lib/commit-composer'
-import { changedFileTotals } from '../../src/renderer/lib/diff-stats'
+} from '@solus/workspace-ui/components/project-panel/commit-composer/lib/commit-composer'
+import { changedFileTotals } from '@solus/workspace-ui/lib/diff-stats'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 let CommitComposerState: typeof import(
-  '../../src/renderer/components/project-panel/commit-composer/lib/commit-composer.svelte'
+  '@solus/workspace-ui/components/project-panel/commit-composer/lib/commit-composer.svelte'
 ).CommitComposerState
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
   ;({ CommitComposerState } = await import(
-    '../../src/renderer/components/project-panel/commit-composer/lib/commit-composer.svelte'
+    '@solus/workspace-ui/components/project-panel/commit-composer/lib/commit-composer.svelte'
   ))
 })
 

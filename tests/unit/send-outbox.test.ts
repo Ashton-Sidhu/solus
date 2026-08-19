@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { classifySendFailure, SendOutbox, type OutboxRecord } from '../../src/client-core/send-outbox'
-import { TransportDisconnectedError } from '../../src/client-core/ws-transport'
+import { classifySendFailure, SendOutbox, type OutboxRecord } from '@solus/client-core/send-outbox'
+import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 
 const previousLocalStorage = globalThis.localStorage
 const store = new Map<string, string>()

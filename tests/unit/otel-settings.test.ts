@@ -2,12 +2,12 @@ import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { OtelSettingsStore } from '../../src/renderer/contexts/projects/otel-settings.store.svelte'
-import type { OtelSettings, OtelSettingsSnapshot } from '../../src/shared/types'
+import { OtelSettingsStore } from '@solus/workspace-ui/contexts/projects/otel-settings.store.svelte'
+import type { OtelSettings, OtelSettingsSnapshot } from '@solus/contracts/types'
 
 // A disposable data dir: these tests persist server settings, and the live
 // ~/.solus holds the developer's real host configuration.
-type SettingsModule = typeof import('../../src/main/server/settings')
+type SettingsModule = typeof import('@solus/server/server/settings')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -16,7 +16,7 @@ let settings: SettingsModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-otel-settings-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  settings = await import('../../src/main/server/settings')
+  settings = await import('@solus/server/server/settings')
 })
 
 afterAll(() => {

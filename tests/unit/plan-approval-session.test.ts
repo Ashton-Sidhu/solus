@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Plan, RunConfig, Session, Tab } from '../../src/shared/types'
-import { approvePlanWithModel, rejectPlan } from '../../src/renderer/contexts/workspace/session-plan-operations'
+import type { Plan, RunConfig, Session, Tab } from '@solus/contracts/types'
+import { approvePlanWithModel, rejectPlan } from '@solus/workspace-ui/contexts/workspace/session-plan-operations'
 
 const previousWindow = globalThis.window
 

@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   providerMark,
   providerName,
-} from '../../src/renderer/components/insights/lib/provider'
+} from '@solus/workspace-ui/components/insights/lib/provider'
 
 // Every Insights surface that shows a backend — the histogram legend and its
 // band tooltip, the turn's identity line, the Summary card's captions — used to

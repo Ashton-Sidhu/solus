@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { buildGoogleDiagramAssets } from '../../src/renderer/components/document-shell/lib/google-diagrams'
-import { serializeDiagramEmbed } from '../../src/shared/diagram-embed'
-import type { Work } from '../../src/shared/types'
+import { buildGoogleDiagramAssets } from '@solus/workspace-ui/components/document-shell/lib/google-diagrams'
+import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
+import type { Work } from '@solus/contracts/types'
 
 const diagram: Work = {
   id: 'diagram-1',

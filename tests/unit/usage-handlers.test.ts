@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { AgentUsageLimits } from '../../src/shared/types'
-import { registerUsageHandlers } from '../../src/main/server/handlers/usage-handlers'
-import { SolusServer } from '../../src/main/server/server'
+import type { AgentUsageLimits } from '@solus/contracts/types'
+import { registerUsageHandlers } from '@solus/server/server/handlers/usage-handlers'
+import { SolusServer } from '@solus/server/server/server'
 
 describe('usage handlers', () => {
   test('one shared refresh emits one limits event for concurrent callers', async () => {

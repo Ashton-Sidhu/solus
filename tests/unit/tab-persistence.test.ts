@@ -13,7 +13,7 @@ import {
   removePersistedTab,
   savePersistedTabsDebounced,
   type PersistedTabs,
-} from '../../src/renderer/contexts/workspace/tab-persistence'
+} from '@solus/workspace-ui/contexts/workspace/tab-persistence'
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>()

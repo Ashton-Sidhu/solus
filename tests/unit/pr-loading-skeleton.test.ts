@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const paneSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/ui/Pane.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/ui/Pane.svelte'),
   'utf8',
 )
 const pillLayoutSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/layout/PillLayout.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/layout/PillLayout.svelte'),
   'utf8',
 )
 

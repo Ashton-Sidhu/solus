@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { projectScopeOf } from '../../src/shared/types'
+import { projectScopeOf } from '@solus/contracts/types'
 
 /**
  * `projectScopeOf` is the key that task `targetScope`, the `projectRoot` on PR

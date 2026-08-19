@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldCollapseUserMessage } from "../../src/renderer/components/conversation/lib/user-message";
+import { shouldCollapseUserMessage } from "@solus/workspace-ui/components/conversation/lib/user-message";
 
 describe("user message truncation", () => {
   test("keeps routine prompts fully visible", () => {

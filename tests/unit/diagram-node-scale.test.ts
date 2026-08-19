@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const readDiagramSource = (path: string) =>
-  readFileSync(join(import.meta.dir, '../../src/renderer/components/diagram', path), 'utf8')
+  readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components/diagram', path), 'utf8')
 
 const shellCss = readDiagramSource('DiagramShell.css')
 const nodeSource = readDiagramSource('nodes/DiagramNode.svelte')

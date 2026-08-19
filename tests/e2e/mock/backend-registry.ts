@@ -1,6 +1,6 @@
 import { MockAgentBackend } from './mock-backend'
-import type { AgentBackend } from '../../../src/main/agents/agent-backend'
-import type { AgentId } from '../../../src/shared/types'
+import type { AgentBackend } from '@solus/server/agents/agent-backend'
+import type { AgentId } from '@solus/contracts/types'
 
 /**
  * Test-build replacement for src/main/agents/backend-registry.ts. Aliased in

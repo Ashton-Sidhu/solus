@@ -1,14 +1,14 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { GoalSync } from '../../src/renderer/contexts/workspace/goal-sync'
-import type { Session } from '../../src/shared/types'
+import { GoalSync } from '@solus/workspace-ui/contexts/workspace/goal-sync'
+import type { Session } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let ClaudeGoalStore: typeof import('../../src/main/sessions/claude-goal-store')['ClaudeGoalStore']
+let ClaudeGoalStore: typeof import('@solus/server/sessions/claude-goal-store')['ClaudeGoalStore']
 
 beforeAll(async () => {
-  ;({ ClaudeGoalStore } = await import('../../src/main/sessions/claude-goal-store'))
+  ;({ ClaudeGoalStore } = await import('@solus/server/sessions/claude-goal-store'))
 })
 
 function goalStore() {

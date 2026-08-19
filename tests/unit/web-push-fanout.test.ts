@@ -3,15 +3,15 @@ import {
   fanOutPushHosts,
   planPushReconciliation,
   pushHostRefs,
-} from '../../client/src/lib/web-push-core'
-import { routeForPushClick, serverIdForInstallation } from '../../client/src/lib/push-click'
+} from '../../apps/client/src/lib/web-push-core'
+import { routeForPushClick, serverIdForInstallation } from '../../apps/client/src/lib/push-click'
 import {
   loadServers,
   onServerRemoving,
   removeServer,
   saveServers,
   type SavedServer,
-} from '../../src/client-core/server-registry'
+} from '@solus/client-core/server-registry'
 
 function saved(id: string, installationId: string): SavedServer {
   return {

@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { MODEL_PROFILES } from '../../src/shared/types'
+import { MODEL_PROFILES } from '@solus/contracts/types'
 import {
   CODEX_TOKEN_PRICING,
   codexTokenCostUsd,
-} from '../../src/main/observability/model-pricing'
+} from '@solus/server/observability/model-pricing'
 
 describe('Codex token pricing', () => {
   test('has a static price entry for every supported Codex model', () => {

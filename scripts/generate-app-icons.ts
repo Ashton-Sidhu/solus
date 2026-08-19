@@ -13,11 +13,11 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { EDITOR_APPS } from '../src/main/editor-apps'
-import { TERMINAL_APPS } from '../src/main/terminal-apps'
-import { findAppBundle } from '../src/main/mac-apps'
+import { EDITOR_APPS } from '@solus/desktop-main/editor-apps'
+import { TERMINAL_APPS } from '@solus/desktop-main/terminal-apps'
+import { findAppBundle } from '@solus/desktop-main/mac-apps'
 
-const OUTPUT_DIRECTORY = join(import.meta.dirname, '../src/renderer/components/settings/app-icons')
+const OUTPUT_DIRECTORY = join(import.meta.dirname, '../packages/workspace-ui/src/components/settings/app-icons')
 /** Four times the largest slot these render in, so they stay crisp on any display. */
 const ICON_PIXELS = 128
 

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { SvelteMap } from 'svelte/reactivity'
-import type { Session, Tab } from '../../src/shared/types'
+import type { Session, Tab } from '@solus/contracts/types'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -75,7 +75,7 @@ async function makeWorkspace(options: { runtimeTabCreations?: { count: number } 
     trackRecentProject: async () => {},
   })
 
-  const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+  const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
   const sourceSession = {
     id: 'source-session',
     agentSessionId: 'agent-session',
@@ -316,7 +316,7 @@ describe('session drafts', () => {
   test('a fresh task takes the app defaults, not the current session tuning', async () => {
     const { workspace, sourceSession } = await makeWorkspace()
 
-    const { startsWorktree } = await import('../../src/renderer/contexts/workspace/run-config')
+    const { startsWorktree } = await import('@solus/workspace-ui/contexts/workspace/run-config')
     const fresh = workspace.openSessionDraft({ freshTask: true })
 
     // WHY: "new task" means new work on the project, so it starts from the
@@ -347,7 +347,7 @@ describe('session drafts', () => {
     // root is a path that only exists there.
     sourceSession.run.serverId = 'studio'
 
-    const { startsWorktree } = await import('../../src/renderer/contexts/workspace/run-config')
+    const { startsWorktree } = await import('@solus/workspace-ui/contexts/workspace/run-config')
     const fresh = workspace.openSessionDraft({ freshTask: true })
 
     // WHY: "new task" is new work on the *same project*, which lives on that

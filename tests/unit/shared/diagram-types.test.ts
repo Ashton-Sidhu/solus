@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test'
-import { parseDiagram, serializeDiagram, findParentCycleBreaks } from '../../../src/shared/diagram-types'
-import { isSafeUrl } from '../../../src/shared/diagram-sanitize'
+import { parseDiagram, serializeDiagram, findParentCycleBreaks } from '@solus/contracts/diagram-types'
+import { isSafeUrl } from '@solus/contracts/diagram-sanitize'
 
 const RICH_NODE_DOC = {
   nodes: [

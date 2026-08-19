@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'bun:test'
-import { KEYBINDINGS, bindingsForScope, comboHint } from '../../../src/renderer/lib/keybindings/manifest'
-import { defaultCombo } from '../../../src/renderer/lib/keybindings/match'
-import { KeybindingsContext } from '../../../src/renderer/lib/keybindings/dispatcher.svelte'
-import type { BindingId } from '../../../src/renderer/lib/keybindings/manifest'
+import { KEYBINDINGS, bindingsForScope, comboHint } from '@solus/workspace-ui/lib/keybindings/manifest'
+import { defaultCombo } from '@solus/workspace-ui/lib/keybindings/match'
+import { KeybindingsContext } from '@solus/workspace-ui/lib/keybindings/dispatcher.svelte'
+import type { BindingId } from '@solus/workspace-ui/lib/keybindings/manifest'
 
 // Actions that are otherwise pointer- or palette-only. They ship unassigned so
 // they claim no key from anyone, but they must still be registrable — the whole

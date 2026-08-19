@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, test } from 'bun:test'
-import { PAGE_ICON_BTN } from '../../src/renderer/lib/page-chrome'
+import { PAGE_ICON_BTN } from '@solus/workspace-ui/lib/page-chrome'
 
 // The pane's chrome cluster (PaneChrome) floats over the top-right of the pane
 // content, so nothing below it knows it is there. Every in-content top strip —
@@ -13,11 +13,11 @@ import { PAGE_ICON_BTN } from '../../src/renderer/lib/page-chrome'
 const REM = 16
 
 const workspaceBody = readFileSync(
-  new URL('../../src/renderer/components/layout/WorkspaceBody.svelte', import.meta.url),
+  new URL('@solus/workspace-ui/components/layout/WorkspaceBody.svelte', import.meta.url),
   'utf8',
 )
 const paneChrome = readFileSync(
-  new URL('../../src/renderer/components/ui/PaneChrome.svelte', import.meta.url),
+  new URL('@solus/workspace-ui/components/ui/PaneChrome.svelte', import.meta.url),
   'utf8',
 )
 

@@ -36,7 +36,7 @@ const FAKE_CLIENT = `
 describe('publishRepositoryToGithub', () => {
   test('creates the repository, adds the remote, and pushes existing commits', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -51,7 +51,7 @@ describe('publishRepositoryToGithub', () => {
         },
       }))
       ${FAKE_CLIENT}
-      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const { publishRepositoryToGithub } = await import('./packages/server/src/git/github-publish')
       const result = await publishRepositoryToGithub({
         client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
         remoteName: 'origin', protocol: 'https', token: 'gh-token',
@@ -74,7 +74,7 @@ describe('publishRepositoryToGithub', () => {
 
   test('publishes a remote-only checkout when there are no commits yet', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -88,7 +88,7 @@ describe('publishRepositoryToGithub', () => {
         },
       }))
       ${FAKE_CLIENT}
-      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const { publishRepositoryToGithub } = await import('./packages/server/src/git/github-publish')
       const result = await publishRepositoryToGithub({
         client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
         remoteName: 'origin', protocol: 'https', token: 'gh-token',
@@ -106,7 +106,7 @@ describe('publishRepositoryToGithub', () => {
 
   test('retries idempotently: reuses a matching existing repository and remote', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -129,7 +129,7 @@ describe('publishRepositoryToGithub', () => {
           users: { getAuthenticated: async () => ({ data: { login: 'acme' } }) },
         },
       }
-      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const { publishRepositoryToGithub } = await import('./packages/server/src/git/github-publish')
       const result = await publishRepositoryToGithub({
         client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
         remoteName: 'origin', protocol: 'https', token: 'gh-token',
@@ -147,7 +147,7 @@ describe('publishRepositoryToGithub', () => {
 
   test('rejects a remote that already points at a different repository, without overwriting it', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -158,7 +158,7 @@ describe('publishRepositoryToGithub', () => {
         },
       }))
       ${FAKE_CLIENT}
-      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const { publishRepositoryToGithub } = await import('./packages/server/src/git/github-publish')
       const result = await publishRepositoryToGithub({
         client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
         remoteName: 'origin', protocol: 'https', token: 'gh-token',
@@ -180,7 +180,7 @@ describe('publishRepositoryToGithub', () => {
     // WHY: gitlab.com/acme/widgets is not github.com/acme/widgets. Comparing
     // owner/repo alone would silently publish over another host's remote.
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         git: () => '',
         runAsync: async (bin, args) => {
           calls.push({ bin, args })
@@ -189,7 +189,7 @@ describe('publishRepositoryToGithub', () => {
         },
       }))
       ${FAKE_CLIENT}
-      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const { publishRepositoryToGithub } = await import('./packages/server/src/git/github-publish')
       const result = await publishRepositoryToGithub({
         client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
         remoteName: 'origin', protocol: 'https', token: 'gh-token',
@@ -202,7 +202,7 @@ describe('publishRepositoryToGithub', () => {
 
   test('builds an SSH remote from the repository clone URL when SSH is chosen', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         git: () => '',
         runAsync: async (bin, args) => {
           calls.push({ bin, args })
@@ -213,7 +213,7 @@ describe('publishRepositoryToGithub', () => {
         },
       }))
       ${FAKE_CLIENT}
-      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const { publishRepositoryToGithub } = await import('./packages/server/src/git/github-publish')
       const result = await publishRepositoryToGithub({
         client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
         remoteName: 'origin', protocol: 'ssh', token: 'gh-token',
@@ -228,7 +228,7 @@ describe('publishRepositoryToGithub', () => {
 
   test('surfaces a push failure while keeping the created repository URL', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -243,7 +243,7 @@ describe('publishRepositoryToGithub', () => {
         },
       }))
       ${FAKE_CLIENT}
-      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const { publishRepositoryToGithub } = await import('./packages/server/src/git/github-publish')
       const result = await publishRepositoryToGithub({
         client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
         remoteName: 'origin', protocol: 'https', token: 'gh-token',
@@ -260,7 +260,7 @@ describe('publishRepositoryToGithub', () => {
 
   test('never deletes anything: repository creation failure leaves nothing to clean up', () => {
     const output = run(`
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         // Loaded transitively via git-helpers -> worktree-manager, which
         // needs a same-named export even though these tests never call it.
         git: () => '',
@@ -280,7 +280,7 @@ describe('publishRepositoryToGithub', () => {
           users: { getAuthenticated: async () => ({ data: { login: 'acme' } }) },
         },
       }
-      const { publishRepositoryToGithub } = await import('./src/main/git/github-publish')
+      const { publishRepositoryToGithub } = await import('./packages/server/src/git/github-publish')
       const result = await publishRepositoryToGithub({
         client, cwd: '/repo', owner: 'acme', name: 'widgets', private: true,
         remoteName: 'origin', protocol: 'https', token: 'gh-token',

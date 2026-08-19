@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Session, Tab } from '../../src/shared/types'
+import type { Session, Tab } from '@solus/contracts/types'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -44,7 +44,7 @@ describe('WorkspaceContext tab closing', () => {
   test('preserves tab-order identity so unaffected strip items stay mounted', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const remainingSession = {
       run: {
         workingDirectory: '/repo',

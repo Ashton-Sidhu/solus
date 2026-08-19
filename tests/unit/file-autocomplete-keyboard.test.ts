@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { shouldUnwrapFileReferenceOnBackspace } from "../../src/renderer/components/editor/autocomplete.svelte";
+import { shouldUnwrapFileReferenceOnBackspace } from "@solus/workspace-ui/components/editor/autocomplete.svelte";
 
 function keyboardEvent(key: string) {
   return {

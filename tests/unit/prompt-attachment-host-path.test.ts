@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { composeAttachmentContext } from '../../src/renderer/contexts/workspace/prompt-composer'
+import { composeAttachmentContext } from '@solus/workspace-ui/contexts/workspace/prompt-composer'
 
 describe('remote prompt attachment paths', () => {
   test('uses the uploaded host path and never the client-local path', () => {

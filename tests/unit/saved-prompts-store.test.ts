@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { SavedPrompt } from '../../src/shared/types'
+import type { SavedPrompt } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 
-mock.module('@client-core/server-connections', () => ({ serverConnections: connections }))
+mock.module('@solus/client-core/server-connections', () => ({ serverConnections: connections }))
 
 const previousStateDescriptor = Object.getOwnPropertyDescriptor(globalThis, '$state')
-let SavedPromptsStore: typeof import('../../src/renderer/contexts/saved-prompts/saved-prompts.store.svelte')['SavedPromptsStore']
+let SavedPromptsStore: typeof import('@solus/workspace-ui/contexts/saved-prompts/saved-prompts.store.svelte')['SavedPromptsStore']
 
 beforeAll(async () => {
   Object.defineProperty(globalThis, '$state', {
@@ -15,7 +15,7 @@ beforeAll(async () => {
     writable: true,
     value: Object.assign(<T>(value: T) => value, { snapshot: <T>(value: T) => value }),
   })
-  ;({ SavedPromptsStore } = await import('../../src/renderer/contexts/saved-prompts/saved-prompts.store.svelte'))
+  ;({ SavedPromptsStore } = await import('@solus/workspace-ui/contexts/saved-prompts/saved-prompts.store.svelte'))
 })
 
 beforeEach(() => connections.reset())

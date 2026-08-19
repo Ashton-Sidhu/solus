@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'bun:test'
-import type { ProjectConfig } from '../../src/shared/types'
+import type { ProjectConfig } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
-let ProjectConfigStore: typeof import('../../src/renderer/contexts/projects/project-config.store.svelte')['ProjectConfigStore']
+let ProjectConfigStore: typeof import('@solus/workspace-ui/contexts/projects/project-config.store.svelte')['ProjectConfigStore']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  ;({ ProjectConfigStore } = await import('../../src/renderer/contexts/projects/project-config.store.svelte'))
+  ;({ ProjectConfigStore } = await import('@solus/workspace-ui/contexts/projects/project-config.store.svelte'))
 })
 
 beforeEach(() => connections.reset())

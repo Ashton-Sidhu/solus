@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { PullRequestSummary } from '../../src/shared/providers'
-import { prInboxFacts } from '../../src/renderer/components/prs/lib/pr-utils'
-import type { ReviewEffort } from '../../src/shared/effort-types'
+import type { PullRequestSummary } from '@solus/contracts/providers'
+import { prInboxFacts } from '@solus/workspace-ui/components/prs/lib/pr-utils'
+import type { ReviewEffort } from '@solus/contracts/effort-types'
 
 const NOW = Date.parse('2026-01-01T12:00:00Z')
 

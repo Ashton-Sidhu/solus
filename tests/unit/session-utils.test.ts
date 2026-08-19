@@ -1,16 +1,16 @@
 import { describe, expect, test } from 'bun:test'
-import type { TaskSessionLink } from '../../src/shared/task-types'
-import type { DiffComment, Session, SessionStatus } from '../../src/shared/types'
+import type { TaskSessionLink } from '@solus/contracts/task-types'
+import type { DiffComment, Session, SessionStatus } from '@solus/contracts/types'
 import {
   computeCurrentActivity,
   formatDiffInlineComments,
-} from '../../src/renderer/contexts/workspace/session.utils'
+} from '@solus/workspace-ui/contexts/workspace/session.utils'
 import {
   attemptServerId,
   findOpenTabForSession,
   getStatusLabel,
   sessionDisplayName,
-} from '../../src/renderer/lib/sessionUtils'
+} from '@solus/workspace-ui/lib/sessionUtils'
 
 function diffComment(selectedCode: string): DiffComment {
   return {

@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { MetricsQueryResult, MetricsQuerySpec } from '../../src/shared/observability-types'
+import type { MetricsQueryResult, MetricsQuerySpec } from '@solus/contracts/observability-types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const serverConnectionsMock = singleHostServerConnections()
-mock.module('@client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: serverConnectionsMock,
 }))
 
@@ -81,7 +81,7 @@ describe('Insights window refresh', () => {
     // WHY: the histogram and the list under it must describe the same window.
     // Advancing the chart alone showed a failed turn as a bar with no row
     // beneath it to explain — the list still held the pre-failure answer.
-    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
     const store = new InsightsStore()
     store.useHost('local')
 
@@ -99,7 +99,7 @@ describe('Insights window refresh', () => {
   test('a refresh re-runs the question on screen, not the default query', async () => {
     // WHY: refreshing must not silently replace what the user asked with the
     // default explore query — the answer would change without them asking.
-    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
     const store = new InsightsStore()
     store.useHost('local')
 
@@ -116,7 +116,7 @@ describe('Insights window refresh', () => {
     // and the preset chips — so the list and the histogram describe the same
     // window. SQL the user typed is theirs: a filter that edits someone's query
     // behind their back is worse than one that admits it cannot.
-    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
     const store = new InsightsStore()
     store.useHost('local')
     await store.load()
@@ -140,7 +140,7 @@ describe('Insights window refresh', () => {
   test('the histogram is read over the selected window', async () => {
     // WHY: the chart's own query is independent of the question, so the range
     // is the only thing that can move it.
-    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
     const store = new InsightsStore()
     store.useHost('local')
     await store.load()
@@ -157,7 +157,7 @@ describe('Insights window refresh', () => {
     // `running` is still false across those round trips. The page gated its
     // loading cover on `running` alone and painted a real empty listing in the
     // gap — the reader saw a skeleton, an empty page, then a skeleton again.
-    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
     const store = new InsightsStore()
     store.useHost('local')
 
@@ -185,7 +185,7 @@ describe('Insights window refresh', () => {
     // WHY: the store outlives the surface, so a closed and reopened page used to
     // resume the previous visit's answer, editor text, and run history. Entering
     // Insights must state what the host is doing now, not what was asked last.
-    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
     const store = new InsightsStore()
     store.useHost('local')
     await store.load()
@@ -216,7 +216,7 @@ describe('Insights window refresh', () => {
   test('an NL compile enters the editor and executor as formatted SQL', async () => {
     // WHY: generated SQL is the editable explanation of the answer. A dense
     // agent response is hard to audit even when the database can execute it.
-    const { InsightsStore } = await import('../../src/renderer/components/insights/insights.store.svelte')
+    const { InsightsStore } = await import('@solus/workspace-ui/components/insights/insights.store.svelte')
     const store = new InsightsStore()
     store.useHost('local')
 

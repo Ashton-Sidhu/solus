@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { Server as HttpServer } from 'http'
-import { issueSessionToken, resetAuthStateForTests } from '../../src/main/server/auth'
-import { encodePcm16Wav } from '../../src/shared/voice-audio'
+import { issueSessionToken, resetAuthStateForTests } from '@solus/server/server/auth'
+import { encodePcm16Wav } from '@solus/contracts/voice-audio'
 
-mock.module('../../src/main/project-config/projects-manifest', () => ({
+mock.module('@solus/server/project-config/projects-manifest', () => ({
   listProjects: async () => [],
 }))
 
@@ -26,7 +26,7 @@ afterEach(async () => {
 
 describe('long-form voice HTTP transport', () => {
   test('authenticates and transcribes a PCM16 WAV upload', async () => {
-    const { buildHttpServer } = await import('../../src/main/server/http')
+    const { buildHttpServer } = await import('@solus/server/server/http')
     dataDir = mkdtempSync(join(tmpdir(), 'solus-voice-http-'))
     process.env.SOLUS_DATA_DIR = dataDir
     resetAuthStateForTests()
@@ -69,7 +69,7 @@ describe('long-form voice HTTP transport', () => {
   })
 
   test('rejects a concurrent upload before decoding another body', async () => {
-    const { buildHttpServer } = await import('../../src/main/server/http')
+    const { buildHttpServer } = await import('@solus/server/server/http')
     dataDir = mkdtempSync(join(tmpdir(), 'solus-voice-http-'))
     process.env.SOLUS_DATA_DIR = dataDir
     resetAuthStateForTests()

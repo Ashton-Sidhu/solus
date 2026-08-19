@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { verifyCloudflareToken } from '../../src/main/cloudflare/api'
+import { verifyCloudflareToken } from '@solus/server/cloudflare/api'
 
 const originalFetch = globalThis.fetch
 

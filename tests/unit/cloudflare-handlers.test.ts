@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { SecretStore } from '../../src/main/platform/secrets'
+import type { SecretStore } from '@solus/server/platform/secrets'
 
 const records = new Map<string, unknown>()
 const store: SecretStore = {
@@ -12,14 +12,14 @@ const originalFetch = globalThis.fetch
 const originalApiToken = process.env.CLOUDFLARE_API_TOKEN
 const originalAccountId = process.env.CLOUDFLARE_ACCOUNT_ID
 
-mock.module('../../src/main/platform/secrets', () => ({ secretStore: () => store }))
+mock.module('@solus/server/platform/secrets', () => ({ secretStore: () => store }))
 
-let SolusServer: typeof import('../../src/main/server/server')['SolusServer']
-let registerCloudflareHandlers: typeof import('../../src/main/server/handlers/cloudflare-handlers')['registerCloudflareHandlers']
+let SolusServer: typeof import('@solus/server/server/server')['SolusServer']
+let registerCloudflareHandlers: typeof import('@solus/server/server/handlers/cloudflare-handlers')['registerCloudflareHandlers']
 
 beforeAll(async () => {
-  ;({ SolusServer } = await import('../../src/main/server/server'))
-  ;({ registerCloudflareHandlers } = await import('../../src/main/server/handlers/cloudflare-handlers'))
+  ;({ SolusServer } = await import('@solus/server/server/server'))
+  ;({ registerCloudflareHandlers } = await import('@solus/server/server/handlers/cloudflare-handlers'))
 })
 
 beforeEach(() => {

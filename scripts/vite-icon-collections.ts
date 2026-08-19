@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import type { IconifyIcon, IconifyJSON } from '@iconify/types'
 import type { Plugin } from 'vite'
-import { CURATED_ICONIFY_NAMES } from '../src/renderer/components/diagram/diagram-icons'
-import { FILE_TYPE_ICON_NAMES } from '../src/renderer/lib/fileTypeIcon'
-import { APP_LOGO_NAMES } from '../src/renderer/components/settings/lib/app-logos'
+import { CURATED_ICONIFY_NAMES } from '../packages/workspace-ui/src/components/diagram/diagram-icons'
+import { FILE_TYPE_ICON_NAMES } from '../packages/workspace-ui/src/lib/fileTypeIcon'
+import { APP_LOGO_NAMES } from '../packages/workspace-ui/src/components/settings/lib/app-logos'
 
 const require = createRequire(import.meta.url)
 const VIRTUAL_ID = 'virtual:solus-icons'

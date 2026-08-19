@@ -6,13 +6,13 @@ import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type DbModule = typeof import('../../src/main/db')
-type MigrationsModule = typeof import('../../src/main/db/migrations')
-type TaskStoreModule = typeof import('../../src/main/tasks/task-store')
-type TaskModule = typeof import('../../src/main/tasks/task')
-type TaskSessionsModule = typeof import('../../src/main/tasks/task-sessions')
-type TaskLinksModule = typeof import('../../src/main/tasks/task-links')
-type UlidModule = typeof import('../../src/main/tasks/ulid')
+type DbModule = typeof import('@solus/server/db')
+type MigrationsModule = typeof import('@solus/server/db/migrations')
+type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
+type TaskModule = typeof import('@solus/server/tasks/task')
+type TaskSessionsModule = typeof import('@solus/server/tasks/task-sessions')
+type TaskLinksModule = typeof import('@solus/server/tasks/task-links')
+type UlidModule = typeof import('@solus/server/tasks/ulid')
 
 let dataDir: string
 let db: DbModule
@@ -27,13 +27,13 @@ const previousDataDir = process.env.SOLUS_DATA_DIR
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-store-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  db = await import('../../src/main/db')
-  migrations = await import('../../src/main/db/migrations')
-  taskStore = await import('../../src/main/tasks/task-store')
-  tasks = await import('../../src/main/tasks/task')
-  taskSessions = await import('../../src/main/tasks/task-sessions')
-  taskLinks = await import('../../src/main/tasks/task-links')
-  ids = await import('../../src/main/tasks/ulid')
+  db = await import('@solus/server/db')
+  migrations = await import('@solus/server/db/migrations')
+  taskStore = await import('@solus/server/tasks/task-store')
+  tasks = await import('@solus/server/tasks/task')
+  taskSessions = await import('@solus/server/tasks/task-sessions')
+  taskLinks = await import('@solus/server/tasks/task-links')
+  ids = await import('@solus/server/tasks/ulid')
 })
 
 afterEach(() => {
@@ -659,10 +659,10 @@ describe('session minting and durable links', () => {
       'second-session', 'codex', 'Second prompt', 'Second session name', 2,
     )
 
-    const { SolusServer } = await import('../../src/main/server/server')
-    const { registerHistoryHandlers } = await import('../../src/main/server/handlers/history-handlers')
-    const { HostEventPublisher } = await import('../../src/main/events/host-event-publisher')
-    const { ClientEventRegistry } = await import('../../src/main/events/client-event-registry')
+    const { SolusServer } = await import('@solus/server/server/server')
+    const { registerHistoryHandlers } = await import('@solus/server/server/handlers/history-handlers')
+    const { HostEventPublisher } = await import('@solus/server/events/host-event-publisher')
+    const { ClientEventRegistry } = await import('@solus/server/events/client-event-registry')
     const server = new SolusServer()
     // SAFETY: this test invokes only setSessionTitle, whose handler does not
     // read ControlPlane. The empty object prevents unrelated handler work.

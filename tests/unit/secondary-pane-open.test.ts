@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
-const rendererRoot = join(import.meta.dir, '../../src/renderer/components')
+const rendererRoot = join(import.meta.dir, '../../packages/workspace-ui/src/components')
 
 function readRendererFile(path: string): string {
   return readFileSync(join(rendererRoot, path), 'utf8')

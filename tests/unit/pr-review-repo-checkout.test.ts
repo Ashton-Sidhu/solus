@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import type { GitCheckout, PrRepoCheckoutResult } from '../../src/shared/types'
-import type { PrReviewTarget } from '../../src/shared/providers'
-import type { PrReviewDeps } from '../../src/renderer/components/pr-review/lib/pr-review.store.svelte'
-import { TransportDisconnectedError } from '../../src/client-core/ws-transport'
+import type { GitCheckout, PrRepoCheckoutResult } from '@solus/contracts/types'
+import type { PrReviewTarget } from '@solus/contracts/providers'
+import type { PrReviewDeps } from '@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte'
+import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 
 // PrReviewState is a runes class; outside the Svelte compiler `$state` is an
 // identity function (same shim as the other pr-review store tests).
@@ -72,7 +72,7 @@ const gitContext: GitCheckout = { branch: 'feature', targetBranch: 'main', repoR
 
 describe('PrReviewState.checkoutInRepo', () => {
   test('reports success and the resulting git context', async () => {
-    const { PrReviewState } = await import('../../src/renderer/components/pr-review/lib/pr-review.store.svelte')
+    const { PrReviewState } = await import('@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte')
     const state = new PrReviewState(7, makeDeps(async () => ({ success: true, gitContext })))
     state.setTarget(target())
 
@@ -84,7 +84,7 @@ describe('PrReviewState.checkoutInRepo', () => {
   })
 
   test('surfaces a structured block reason without throwing', async () => {
-    const { PrReviewState } = await import('../../src/renderer/components/pr-review/lib/pr-review.store.svelte')
+    const { PrReviewState } = await import('@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte')
     const blocked: PrRepoCheckoutResult = {
       success: false,
       reason: 'branch-in-use',
@@ -107,7 +107,7 @@ describe('PrReviewState.checkoutInRepo', () => {
   })
 
   test('marks a disconnected host distinctly from a server-reported failure', async () => {
-    const { PrReviewState } = await import('../../src/renderer/components/pr-review/lib/pr-review.store.svelte')
+    const { PrReviewState } = await import('@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte')
     const state = new PrReviewState(7, makeDeps(async () => {
       throw new TransportDisconnectedError()
     }))
@@ -120,7 +120,7 @@ describe('PrReviewState.checkoutInRepo', () => {
   })
 
   test('does not start a second checkout while one is already in flight', async () => {
-    const { PrReviewState } = await import('../../src/renderer/components/pr-review/lib/pr-review.store.svelte')
+    const { PrReviewState } = await import('@solus/workspace-ui/components/pr-review/lib/pr-review.store.svelte')
     let calls = 0
     let resolve!: (result: PrRepoCheckoutResult) => void
     const pending = new Promise<PrRepoCheckoutResult>((r) => { resolve = r })

@@ -3,7 +3,7 @@ import {
   fuzzyIndices,
   highlightSegments,
   splitFilePath,
-} from '../../src/renderer/components/search/lib/file-picker'
+} from '@solus/workspace-ui/components/search/lib/file-picker'
 
 // The picker's ranking comes from the native index; these highlights only
 // explain it. A highlight that lands on the wrong characters makes a correct

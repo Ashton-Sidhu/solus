@@ -3,7 +3,7 @@ import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const mockedServerConnections = singleHostServerConnections()
 
-mock.module('../../src/client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: mockedServerConnections,
 }))
 
@@ -27,7 +27,7 @@ test('Cloudflare status follows the host selected in settings', async () => {
   mockedServerConnections.registerHost('studio', {
     cloudflareStatus: async () => ({ connected: true, accountName: 'Studio account' }),
   })
-  const { CloudflareStore } = await import('../../src/renderer/contexts/cloudflare/cloudflare.store.svelte')
+  const { CloudflareStore } = await import('@solus/workspace-ui/contexts/cloudflare/cloudflare.store.svelte')
   const store = new CloudflareStore()
 
   await store.ensureStatus('studio')

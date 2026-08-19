@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Plan, Session } from '../../src/shared/types'
-import { pendingPlanForPrompt } from '../../src/renderer/components/input/lib/pending-plan'
+import type { Plan, Session } from '@solus/contracts/types'
+import { pendingPlanForPrompt } from '@solus/workspace-ui/components/input/lib/pending-plan'
 
 function plan(overrides: Partial<Plan> = {}): Plan {
   return {

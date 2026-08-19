@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const insights = join(import.meta.dir, '../../src/renderer/components/insights')
+const insights = join(import.meta.dir, '../../packages/workspace-ui/src/components/insights')
 const read = (path: string): string => readFileSync(join(insights, path), 'utf8')
 
 describe('Insights data-table foundation', () => {

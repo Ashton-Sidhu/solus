@@ -3,13 +3,13 @@ import {
   isProjectRailOpen,
   PROJECT_RAIL_MIN_CONTAINER_WIDTH,
   projectRailWidth,
-} from '../../src/renderer/components/project-panel/lib/rail-width'
+} from '@solus/workspace-ui/components/project-panel/lib/rail-width'
 import {
   defaultWorkspaceRailWidth,
   MIN_PRIMARY_PANE_WIDTH,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
-} from '../../src/renderer/components/layout/lib/workspace-body'
+} from '@solus/workspace-ui/components/layout/lib/workspace-body'
 
 // The rail starts as the session sidebar's twin, then accepts a manually chosen
 // width from any card border. These tests pin both modes and the shared safety

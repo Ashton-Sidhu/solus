@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { isInlineTaskImageUrl } from "../../src/renderer/components/tasks/task-page/lib/task-image";
+import { isInlineTaskImageUrl } from "@solus/workspace-ui/components/tasks/task-page/lib/task-image";
 
 describe("task markdown images", () => {
   test("recognizes pasted raster screenshots", () => {

@@ -14,7 +14,7 @@ import {
   joinBrowsePath,
   normalizeBrowsePath,
   resolveRelativePath,
-} from '../../src/renderer/components/pickers/lib/browse-path'
+} from '@solus/workspace-ui/components/pickers/lib/browse-path'
 
 // The picker keeps a single typed path as its only state. Every navigation
 // decision below is derived from that string, so these tests pin the

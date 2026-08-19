@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { registerCapabilityHandlers } from '../../src/main/server/handlers/capability-handlers'
-import { SolusServer } from '../../src/main/server/server'
+import { registerCapabilityHandlers } from '@solus/server/server/handlers/capability-handlers'
+import { SolusServer } from '@solus/server/server/server'
 
 describe('host capability handler', () => {
   test('advertises registered features and caches editor detection', async () => {

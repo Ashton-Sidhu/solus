@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
-import type { Task } from '../../src/shared/task-types'
+import type { Task } from '@solus/contracts/task-types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const taskServerConnections = singleHostServerConnections()
@@ -9,7 +9,7 @@ let connectionCreatedListener: ((connection: { serverId: string }) => void) | un
 // installs. Tasks are host-scoped now, so the store reaches them through the
 // connection registry rather than the global — the single-host case has to keep
 // behaving exactly as it did.
-mock.module('@client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     ...taskServerConnections,
     onConnectionCreated: (listener: (connection: { serverId: string }) => void) => {
@@ -99,7 +99,7 @@ describe('renderer task hydration', () => {
       value: { solus: api },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
     await store.loadDetails('visible')
@@ -149,7 +149,7 @@ describe('renderer task hydration', () => {
       value: { solus: api },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
     const first = store.loadDetails('task-1')
@@ -198,7 +198,7 @@ describe('renderer task hydration', () => {
       value: { solus: localApi },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     const firstLoad = store.ensureLoaded()
     await Promise.resolve()
@@ -254,7 +254,7 @@ describe('renderer task hydration', () => {
       value: { solus: primaryApi },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
 
@@ -287,7 +287,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     const hydration = store.ensureLoaded()
     await Promise.resolve()
@@ -337,7 +337,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
 
@@ -372,7 +372,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureSessionBinding('resumed-session')
 
@@ -428,7 +428,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureSessionBinding('selected-session')
 
@@ -458,7 +458,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
 
@@ -485,7 +485,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
     store.trackSessionStart('task-1', 'provider-session')
@@ -519,7 +519,7 @@ describe('renderer task hydration', () => {
       value: { solus: api },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
     store.trackSessionStart('task-1', 'provider-session')
@@ -556,7 +556,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     const firstSync = store.loadUpstream(projectKey, { refresh: true })
     const duplicateSync = store.loadUpstream(projectKey, { refresh: true })
@@ -586,7 +586,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.loadUpstream(projectKey)
 
@@ -613,7 +613,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     const hydration = store.ensureLoaded()
     await Promise.resolve()
@@ -658,7 +658,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
 
@@ -703,7 +703,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
 
@@ -746,7 +746,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.ensureLoaded()
     const pending = store.softRemove(tasks.map(({ id }) => id))
@@ -800,7 +800,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     await store.load()
     await store.loadUpstream(projectKey)
@@ -850,7 +850,7 @@ describe('renderer task hydration', () => {
       },
     })
 
-    const { TasksStore } = await import('../../src/renderer/contexts/tasks/tasks.store.svelte')
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
     const details = await store.loadDetails(issue.id, projectKey)
 

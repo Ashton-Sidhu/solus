@@ -6,7 +6,7 @@ import {
   heatIntensity,
   heatNodeAtPath,
   layoutTreemap,
-} from '../../src/renderer/components/diff/lib/heat-map'
+} from '@solus/workspace-ui/components/diff/lib/heat-map'
 
 function patchFor(entries: Array<{ path: string; added: number }>): FileDiffMetadata[] {
   const patch = entries

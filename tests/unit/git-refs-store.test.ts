@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { hostKey } from '../../src/client-core/host-key'
-import { serverConnections } from '../../src/client-core/server-connections'
-import type { HostApi } from '../../src/client-core/host-api'
-import type { IpcContext } from '../../src/shared/types'
+import { hostKey } from '@solus/client-core/host-key'
+import { serverConnections } from '@solus/client-core/server-connections'
+import type { HostApi } from '@solus/client-core/host-api'
+import type { IpcContext } from '@solus/contracts/types'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -35,7 +35,7 @@ describe('SessionEnvironmentStore refs', () => {
       },
     })
 
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     store.bindCwd('test-host', '/repo', window.solus as never)
     store.refsByRoot[hostKey('test-host', '/repo')] = {
@@ -69,7 +69,7 @@ describe('SessionEnvironmentStore refs', () => {
       worktreeListProject: async () => [],
       worktreeBranches: async () => branchLoad,
     }
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     store.bindCwd('loading-host', '/repo', api as never)
 
@@ -115,7 +115,7 @@ describe('SessionEnvironmentStore refs', () => {
         local: false,
       },
     )
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     const run = {
       serverId: 'dispatch-test-host',
@@ -164,7 +164,7 @@ describe('SessionEnvironmentStore detail watches', () => {
         return null
       },
     }
-    const { SessionEnvironmentStore } = await import('../../src/renderer/contexts/git/session-environment.store.svelte')
+    const { SessionEnvironmentStore } = await import('@solus/workspace-ui/contexts/git/session-environment.store.svelte')
     const store = new SessionEnvironmentStore()
     // SAFETY: this test exercises only gitRefreshState; the fake implements that
     // exact HostApi method and no other store path can reach the omitted methods.

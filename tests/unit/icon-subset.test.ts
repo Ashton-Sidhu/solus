@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { buildLocalIconSubset } from '../../scripts/vite-icon-collections'
-import { CURATED_ICONIFY_NAMES } from '../../src/renderer/components/diagram/diagram-icons'
-import { FILE_TYPE_ICON_NAMES, fileTypeIcon } from '../../src/renderer/lib/fileTypeIcon'
+import { CURATED_ICONIFY_NAMES } from '@solus/workspace-ui/components/diagram/diagram-icons'
+import { FILE_TYPE_ICON_NAMES, fileTypeIcon } from '@solus/workspace-ui/lib/fileTypeIcon'
 
 describe('file type icons', () => {
   test('selects distinct icons for autocomplete file rows', () => {

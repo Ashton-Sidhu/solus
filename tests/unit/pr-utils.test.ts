@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { PullRequestSummary } from '../../src/shared/providers'
-import { filterPrs, prStatusBadge, reviewEffortSummary, sortPrs } from '../../src/renderer/components/prs/lib/pr-utils'
-import type { ReviewEffort } from '../../src/shared/effort-types'
+import type { PullRequestSummary } from '@solus/contracts/providers'
+import { filterPrs, prStatusBadge, reviewEffortSummary, sortPrs } from '@solus/workspace-ui/components/prs/lib/pr-utils'
+import type { ReviewEffort } from '@solus/contracts/effort-types'
 
 function pr(number: number, state: PullRequestSummary['state'], effort?: ReviewEffort): PullRequestSummary {
   return {

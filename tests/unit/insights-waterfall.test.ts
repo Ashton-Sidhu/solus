@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { MetricsGapSegment, MetricsSpan, MetricsTurnTrace } from '../../src/shared/observability-types'
+import type { MetricsGapSegment, MetricsSpan, MetricsTurnTrace } from '@solus/contracts/observability-types'
 import {
   barExtent,
   buildTraceView,
@@ -13,8 +13,8 @@ import {
   spanPayload,
   unionLength,
   WATERFALL_MIN_BAR_FRACTION,
-} from '../../src/renderer/components/insights/lib/waterfall'
-import { valueColumnAtCursor } from '../../src/renderer/components/insights/lib/sql-editor-extensions'
+} from '@solus/workspace-ui/components/insights/lib/waterfall'
+import { valueColumnAtCursor } from '@solus/workspace-ui/components/insights/lib/sql-editor-extensions'
 
 // Child spans may overlap — parallel tools, a tool nested inside another — so
 // every rollup here has to union intervals. Summing durations would report more
@@ -350,11 +350,11 @@ describe('SQL value completion', () => {
 
 describe('Trace surface composition', () => {
   const waterfall = readFileSync(
-    join(import.meta.dir, '../../src/renderer/components/insights/TraceWaterfall.svelte'),
+    join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TraceWaterfall.svelte'),
     'utf8',
   )
   const coverage = readFileSync(
-    join(import.meta.dir, '../../src/renderer/components/insights/TraceCoverage.svelte'),
+    join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TraceCoverage.svelte'),
     'utf8',
   )
 
@@ -377,7 +377,7 @@ describe('Trace surface composition', () => {
   // stops following the reader with no error anywhere.
   test('the Trace card does not clip itself into a scroll container', () => {
     const panel = readFileSync(
-      join(import.meta.dir, '../../src/renderer/components/insights/TurnDetailPanel.svelte'),
+      join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TurnDetailPanel.svelte'),
       'utf8',
     )
     expect(panel).not.toMatch(/overflow-hidden rounded-xl bg-card/)

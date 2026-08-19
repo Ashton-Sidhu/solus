@@ -3,27 +3,27 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const paneSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/ui/Pane.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/ui/Pane.svelte'),
   'utf8',
 )
 const reviewSurfaceSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/review/ReviewSurface.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/review/ReviewSurface.svelte'),
   'utf8',
 )
 const reviewPaneSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/review/ReviewPane.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/review/ReviewPane.svelte'),
   'utf8',
 )
 const workspaceBodySource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/layout/WorkspaceBody.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/layout/WorkspaceBody.svelte'),
   'utf8',
 )
 const diffPanelSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/diff/DiffPanel.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/diff/DiffPanel.svelte'),
   'utf8',
 )
 const reviewLoadingSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/review/ReviewLoadingSurface.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/review/ReviewLoadingSurface.svelte'),
   'utf8',
 )
 

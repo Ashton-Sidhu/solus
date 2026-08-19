@@ -1,7 +1,7 @@
-import { HostEventSubscriber } from '../../../src/client-core/host-event-subscriber'
-import { asHostApi, type HostApi } from '../../../src/client-core/host-api'
-import type { HostEventMap, HostEventName } from '../../../src/shared/host-events'
-import type { HostCapabilities } from '../../../src/shared/types'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
+import { asHostApi, type HostApi } from '@solus/client-core/host-api'
+import type { HostEventMap, HostEventName } from '@solus/contracts/host-events'
+import type { HostCapabilities } from '@solus/contracts/types'
 
 const capabilities: HostCapabilities = {
   attachUpload: true,

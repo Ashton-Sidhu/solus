@@ -1,0 +1,20 @@
+<script lang="ts">
+  import { cn, type WithElementRef } from "@solus/workspace-ui/lib/utils.js";
+  import type { HTMLAttributes } from "svelte/elements";
+
+  let {
+    ref = $bindable(null),
+    class: className,
+    children,
+    ...restProps
+  }: WithElementRef<HTMLAttributes<HTMLParagraphElement>> = $props();
+</script>
+
+<p
+  bind:this={ref}
+  data-slot="card-description"
+  class={cn("text-[length:inherit] text-muted-foreground", className)}
+  {...restProps}
+>
+  {@render children?.()}
+</p>

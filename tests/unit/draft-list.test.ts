@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Prompt } from '../../src/shared/types'
-import { draftTitle } from '../../src/renderer/components/session/lib/draft-list'
+import type { Prompt } from '@solus/contracts/types'
+import { draftTitle } from '@solus/workspace-ui/components/session/lib/draft-list'
 
 function promptWith(fields: Partial<Prompt>): Prompt {
   return {

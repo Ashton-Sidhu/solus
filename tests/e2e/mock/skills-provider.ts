@@ -1,4 +1,4 @@
-import type { AgentId, RemoteSkill, SkillInstallResult } from '../../../src/shared/types'
+import type { AgentId, RemoteSkill, SkillInstallResult } from '@solus/contracts/types'
 
 /**
  * Test-build replacement for src/main/skills/skills-provider.ts (aliased in

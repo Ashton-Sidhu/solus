@@ -2,8 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { readGuideByKey } from '../../src/main/review/ledger'
-import { reviewGuideKeyForBase } from '../../src/shared/review'
+import { readGuideByKey } from '@solus/server/review/ledger'
+import { reviewGuideKeyForBase } from '@solus/contracts/review'
 
 describe('reviewGuideKeyForBase', () => {
   test('two real bases must never coalesce onto one cache entry', () => {

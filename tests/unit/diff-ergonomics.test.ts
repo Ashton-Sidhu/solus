@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 import { parsePatchFiles, type FileDiffMetadata } from '@pierre/diffs'
-import { detectMovedBlocks } from '../../src/renderer/lib/diff-moves'
+import { detectMovedBlocks } from '@solus/workspace-ui/lib/diff-moves'
 import {
   analyzeDiffNoise,
   collapseFormatOnlyHunks,
   isFormatOnlyHunk,
-} from '../../src/renderer/lib/diff-noise'
-import { orderDiffFiles } from '../../src/renderer/lib/diff-order'
+} from '@solus/workspace-ui/lib/diff-noise'
+import { orderDiffFiles } from '@solus/workspace-ui/lib/diff-order'
 
 function parse(patch: string): FileDiffMetadata[] {
   return parsePatchFiles(patch).flatMap((part) => part.files)

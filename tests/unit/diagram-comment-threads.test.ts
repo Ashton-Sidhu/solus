@@ -7,14 +7,14 @@
  * Run with `bun run test:unit`.
  */
 import { describe, expect, test } from 'bun:test'
-import type { PlanComment } from '../../src/shared/types'
+import type { PlanComment } from '@solus/contracts/types'
 import {
   firstUnreadThread,
   pinSummary,
   threadCounts,
   threadsByAnchor,
   threadTone,
-} from '../../src/renderer/components/diagram/lib/comment-threads'
+} from '@solus/workspace-ui/components/diagram/lib/comment-threads'
 
 const thread = (extra: Partial<PlanComment>): PlanComment => ({
   id: 'c1',

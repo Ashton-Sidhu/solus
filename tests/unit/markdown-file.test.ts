@@ -4,7 +4,7 @@ import {
   initialMarkdownFileViewMode,
   MARKDOWN_FILE_VIEW_OPTIONS,
   markdownFileDirectory,
-} from "../../src/renderer/components/files/lib/markdown-file";
+} from "@solus/workspace-ui/components/files/lib/markdown-file";
 
 describe("Markdown file rendering", () => {
   test("recognizes Markdown files without treating MDX as executable Markdown", () => {

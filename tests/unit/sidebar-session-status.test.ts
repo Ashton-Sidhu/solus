@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { SidebarSessionStatusFeed } from '../../src/renderer/components/session/lib/sidebar-session-status'
+import { SidebarSessionStatusFeed } from '@solus/workspace-ui/components/session/lib/sidebar-session-status'
 
 describe('sidebar session status feed', () => {
   test('keeps provider and stable session aliases on one timer', () => {

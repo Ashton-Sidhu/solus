@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import {
   buildHandoff,
   composeHandoffSeed,
-} from '../../src/main/agents/session-handoff'
+} from '@solus/server/agents/session-handoff'
 
 describe('session handoff', () => {
   let handoffRoot: string

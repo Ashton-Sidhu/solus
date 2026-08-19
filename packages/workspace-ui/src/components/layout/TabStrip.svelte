@@ -1,0 +1,701 @@
+<script lang="ts">
+  import "./TabStrip.css";
+
+  import { flip } from "svelte/animate";
+  import { tick } from "svelte";
+  import { comboHint } from "../../lib/keybindings/manifest";
+  import { scale } from "svelte/transition";
+  import { quintOut } from "svelte/easing";
+  import {
+    PlusIcon,
+    XIcon,
+    BooksIcon,
+    ClockIcon,
+    CaretLeftIcon,
+    CaretRightIcon,
+    ChatsIcon,
+    FunnelSimpleIcon,
+    ChatTeardropIcon,
+    SpinnerGapIcon,
+    CheckCircleIcon,
+    XCircleIcon,
+    CircleDashedIcon,
+    CircleIcon,
+  } from "phosphor-svelte";
+  import { serversStore } from "../../contexts/connections/servers.store.svelte";
+  import {
+    getWorkspaceContext,
+    getPlanStore,
+    runtime,
+    type TabGroupMode,
+  } from "../../contexts";
+  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import { createTabScroll } from "../../lib/tabScroll.svelte";
+  import SessionProgressRing from "./SessionProgressRing.svelte";
+  import ContextMeter from "../ContextMeter.svelte";
+  import SettingsPopover from "../SettingsPopover.svelte";
+  import { shouldShowSessionProgressRing } from "./lib/session-progress-ring";
+  import SessionContextMenu from "../session/SessionContextMenu.svelte";
+  import * as Tabs from "../ui/tabs";
+  import {
+    getAttentionState,
+    attentionLabel,
+    getStatusIcon,
+    buildTabSections,
+    STATUS_GROUP_LABELS,
+    UNREAD_GROUP_LABELS,
+    projectByline,
+    type StatusGroupKey,
+    type UnreadGroupKey,
+  } from "../../lib/sessionUtils";
+  import type { Tab, Session } from "@solus/contracts/types";
+
+  // Pill mode's tab bar. The editor conversation has no strip at all — it names
+  // where you are with the SessionBreadcrumb band instead, so this takes no
+  // props at all.
+  const session = getWorkspaceContext();
+  const planStore = getPlanStore();
+  const renderedTabIds = $derived(session.tabOrder);
+  // The session being composed right now. It has no tab, so the strip would
+  // otherwise show nothing at all for it — and with `onScreenTabId` empty while
+  // a draft leads, no tab reads as selected either, leaving ⌘T and ⌘N with no
+  // visible answer. The chip is that answer, and the way to abandon it.
+  const composingDraft = $derived.by(() => {
+    const base = session.router.leadingPane.base;
+    return base?.name === "draft"
+      ? (session.sessionDrafts.get(base.params.draftId) ?? null)
+      : null;
+  });
+  const splitTabId = $derived(session.splitChatTabId);
+  const splitFocused = $derived(
+    session.router.focusedPaneId !== session.router.leadingPane.id,
+  );
+
+  // Per-group binder-divider lead: a representative status icon, accent color,
+  // and whether it spins. Grouped mode shows this glyph on the divider and hides
+  // it on the individual tabs, so the status reads once per section.
+  type GroupVisual = {
+    icon: any;
+    color: string;
+    spin: boolean;
+    weight?: "fill";
+  };
+
+  const GROUP_VISUAL = {
+    waiting: {
+      icon: ChatTeardropIcon,
+      color: "var(--solus-status-permission)",
+      spin: false,
+    },
+    "rate-limited": {
+      icon: ClockIcon,
+      color: "var(--solus-status-permission)",
+      spin: false,
+    },
+    running: {
+      icon: SpinnerGapIcon,
+      color: "var(--solus-status-running-icon)",
+      spin: true,
+    },
+    completed: {
+      icon: CheckCircleIcon,
+      color: "var(--solus-status-complete)",
+      spin: false,
+    },
+    error: {
+      icon: XCircleIcon,
+      color: "var(--solus-status-error)",
+      spin: false,
+    },
+    idle: {
+      icon: CircleDashedIcon,
+      color: "var(--solus-text-tertiary)",
+      spin: false,
+    },
+  } satisfies Record<StatusGroupKey, GroupVisual>;
+
+  const UNREAD_VISUAL = {
+    unread: {
+      icon: CircleIcon,
+      color: "var(--solus-unread-ink)",
+      spin: false,
+      weight: "fill",
+    },
+    read: {
+      icon: CircleDashedIcon,
+      color: "var(--solus-text-tertiary)",
+      spin: false,
+    },
+  } satisfies Record<UnreadGroupKey, GroupVisual>;
+
+  // Section label + binder glyph per grouping mode, looked up by section key.
+  const GROUP_PRESENTATION = {
+    status: { labels: STATUS_GROUP_LABELS, visual: GROUP_VISUAL },
+    unread: { labels: UNREAD_GROUP_LABELS, visual: UNREAD_VISUAL },
+  };
+
+  // Tooltip names the CURRENT grouping plus the mode the toggle switches INTO
+  // (it cycles flat → status → unread).
+  const GROUP_TOOLTIPS = {
+    flat: "Tabs: ungrouped · group by status (⌥⇧U)",
+    status: "Tabs: grouped by status · group by unread (⌥⇧U)",
+    unread: "Tabs: grouped by unread · ungroup (⌥⇧U)",
+  } satisfies Record<TabGroupMode, string>;
+
+  const isGrouped = $derived(session.tabGroupMode !== "flat");
+  const groupToggleTooltip = $derived(GROUP_TOOLTIPS[session.tabGroupMode]);
+  // Unread mode splits into just two sections (unread / read), so each tab keeps
+  // its own status glyph — the binder only marks the read/unread boundary. Status
+  // mode owns the glyph on the binder instead, so tabs drop it.
+  const showTabStatusInGroup = $derived(session.tabGroupMode === "unread");
+
+  type TabSection = {
+    key: string;
+    label: string;
+    tabIds: string[];
+    visual: GroupVisual;
+  };
+
+  const groupedSections = $derived.by<TabSection[] | null>(() => {
+    const mode = session.tabGroupMode;
+    if (mode === "flat") return null;
+    const pres = GROUP_PRESENTATION[mode];
+    return buildTabSections(
+      renderedTabIds,
+      mode,
+      (tabId) => session.resolveTab(tabId),
+      planStore.plans,
+    ).map(({ key, tabIds }) => ({
+      key,
+      tabIds,
+      label: pres.labels[key],
+      visual: pres.visual[key],
+    }));
+  });
+
+  function projectName(sess: Session | undefined): string {
+    const dir = sess?.run.workingDirectory;
+    if (!dir || dir === "~") return "Home";
+    const parts = dir.replace(/\/$/, "").split("/");
+    return parts[parts.length - 1] || "Home";
+  }
+
+  function tabLabel(sess: Session | undefined): string {
+    const title = sess?.title;
+    if (!title || title === "Resumed Session") return projectName(sess);
+    return title;
+  }
+
+  // One controller owns scroll metrics, edge flags, wheel + paging. (The
+  // active-tab seam cut-out it used to refresh belonged to the editor bar,
+  // which the conversation capsule replaced.)
+  const tabScroll = createTabScroll();
+
+  // Flip duration for tab reorder/close, shared so the post-animation gap
+  // refresh can't drift out of sync with the actual animation. Kept tight so the
+  // neighbours snap into the closed tab's gap rather than drifting.
+  const TAB_FLIP_MS = 150;
+
+  // Drag-to-reorder (flat mode only — grouped order is computed, not manual).
+  let dragTabId = $state<string | null>(null);
+  let dragOverTabId = $state<string | null>(null);
+
+  function onTabDragStart(e: DragEvent, tabId: string) {
+    dragTabId = tabId;
+    if (e.dataTransfer) {
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", tabId);
+    }
+  }
+  function onTabDragOver(e: DragEvent, tabId: string) {
+    if (!dragTabId || dragTabId === tabId) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+    dragOverTabId = tabId;
+  }
+  function onTabDrop(e: DragEvent, tabId: string) {
+    e.preventDefault();
+    if (dragTabId && dragTabId !== tabId) session.reorderTab(dragTabId, tabId);
+    dragTabId = null;
+    dragOverTabId = null;
+  }
+  function onTabDragEnd() {
+    dragTabId = null;
+    dragOverTabId = null;
+  }
+
+  let contextMenu = $state<{ tabId: string; x: number; y: number } | null>(
+    null,
+  );
+
+  function openContextMenu(e: MouseEvent, tabId: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    contextMenu = { tabId, x: e.clientX, y: e.clientY };
+  }
+
+  function closeContextMenu() {
+    contextMenu = null;
+  }
+
+  // Edge fades appear only on the side that can actually scroll, so the masked
+  // edge always sits under the arrow overlay (and the strip reads as flush when
+  // nothing is hidden in that direction).
+  const maskImage = $derived.by(() => {
+    const left = tabScroll.canLeft ? "transparent 0, #000 3.5rem" : "#000 0";
+    const right = tabScroll.canRight
+      ? "#000 calc(100% - 3.5rem), transparent 100%"
+      : "#000 100%";
+    return `linear-gradient(to right, ${left}, ${right})`;
+  });
+
+  // Stable signature of the tab order this effect actually lays out. groupedSections
+  // is a fresh array on ANY status/queue/hasUnread/plan change on any tab, so reading
+  // it directly re-ran the whole tick→scrollIntoView→forced-layout→setTimeout pass on
+  // every stream tick. Folding the laid-out ids into a string lets an unchanged layout
+  // short-circuit — Svelte skips dependents when a $derived value is === its previous.
+  const layoutKey = $derived.by(() => {
+    const sections = groupedSections;
+    if (!sections) return renderedTabIds.join("|");
+    return sections.map((g) => `${g.key}:${g.tabIds.join(",")}`).join("|");
+  });
+
+  function alignActiveTab(
+    scroller: HTMLElement,
+    activeEl: HTMLElement,
+    behavior: ScrollBehavior,
+  ) {
+    const tabs = scroller.querySelectorAll<HTMLElement>('[role="tab"]');
+    if (activeEl === tabs[0]) {
+      scroller.scrollTo({ left: 0, behavior });
+    } else if (activeEl === tabs[tabs.length - 1]) {
+      scroller.scrollTo({
+        left: scroller.scrollWidth - scroller.clientWidth,
+        behavior,
+      });
+    } else {
+      activeEl.scrollIntoView({ behavior, block: "nearest", inline: "nearest" });
+    }
+  }
+
+  // Keep the active tab in view + seam gap synced when the active tab, order, or
+  // grouping changes. A single tick→measure pass replaces the old
+  // tick→rAF→scrollIntoView→setTimeout chain.
+  let lastActiveId = "";
+  $effect(() => {
+    const activeId = session.onScreenTabId;
+    // Re-run on active-tab change or a real reorder/group-move — not on every
+    // background status tick (see layoutKey).
+    void layoutKey;
+    const sc = tabScroll.el;
+    if (!sc) return;
+    const activeChanged = activeId !== lastActiveId;
+    lastActiveId = activeId;
+    void tick().then(() => {
+      const activeEl = sc.querySelector<HTMLElement>(
+        '[aria-selected="true"]',
+      );
+      // Bring a freshly-selected tab into view, but don't yank the strip back
+      // just because a background status change re-ran this effect mid-scroll.
+      if (activeEl && (activeChanged || !tabScroll.recentlyManual())) {
+        // Boundary tabs align to the true scroll endpoints so the row padding
+        // cannot keep an edge fade active over an otherwise visible tab.
+        alignActiveTab(sc, activeEl, activeChanged ? "smooth" : "auto");
+      }
+      tabScroll.remeasure();
+    });
+    // A close can both move the tabs via flip and widen the newly active tab.
+    // Re-align after those transitions settle: the first scrollIntoView above
+    // measures the tab at its old width, which can leave its trailing edge just
+    // outside the viewport when the rightmost active tab is closed.
+    const t = setTimeout(() => {
+      if (activeChanged && session.onScreenTabId === activeId) {
+        const settledActiveEl = sc.querySelector<HTMLElement>(
+          '[aria-selected="true"]',
+        );
+        if (settledActiveEl) alignActiveTab(sc, settledActiveEl, "auto");
+      }
+      tabScroll.remeasure();
+    }, TAB_FLIP_MS + 40);
+    return () => clearTimeout(t);
+  });
+</script>
+
+<!-- Inner content of a tab — shared by the grouped and flat layouts so the row,
+     status glyph, label and close button live in one place. The outer tab <div>
+     stays per-layout because only the flat list animates/reorders. -->
+{#snippet tabInner(tabId: string, showStatus: boolean)}
+  {@const tab = session.tabs[tabId]}
+  {@const sess = session.sessionFor(tabId)}
+  {@const statusIcon =
+    showStatus && tab && sess ? getStatusIcon(sess.status) : null}
+  {@const hostAffinity = serversStore.affinityFor(sess?.run.serverId)}
+  {@const showProgressRing =
+    !!sess &&
+    shouldShowSessionProgressRing(
+      sess.progress,
+      sess.status,
+      tabId === session.activeTabId,
+    )}
+  {#if tab}
+    <div class="flex min-w-0 items-center gap-[0.3125rem]">
+      {#if hostAffinity}
+        {@const HostIcon = hostAffinity.icon}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}
+          class="flex size-3 shrink-0 items-center justify-center {hostAffinity.className}"
+        >
+          <HostIcon size={14} />
+        </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={hostAffinity.tooltip} />
+        </TooltipUI.Root>
+      {/if}
+      {#if showProgressRing && sess?.progress}
+        <SessionProgressRing progress={sess.progress} />
+      {:else if statusIcon}
+        {@const Icon = statusIcon.component}
+        <Icon
+          size={14}
+          data-testid="tab-status-icon"
+          data-status={sess?.status}
+          style="color:{statusIcon.color};flex-shrink:0"
+          class={statusIcon.spin ? "tab-status-spin" : ""}
+        />
+      {/if}
+      {#if tabId === splitTabId}
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <span {...tooltipProps}
+          class="tab-split-icon flex shrink-0 items-center"
+        >
+          <ChatsIcon size={14} />
+        </span>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={"Open in split pane"} />
+        </TooltipUI.Root>
+      {/if}
+      <span
+        class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+        >{tabLabel(sess)}</span
+      >
+      <button
+        onclick={(e) => {
+          e.stopPropagation();
+          session.closeTab(tabId);
+          requestInputFocus();
+        }}
+        class="tab-close"
+        aria-label="Close tab"
+        title="Close tab"
+      >
+        <XIcon size={14} />
+      </button>
+    </div>
+  {/if}
+{/snippet}
+
+<Tabs.Root
+  value={session.onScreenTabId}
+  onValueChange={(value) => {
+    session.selectTab(value);
+    requestInputFocus();
+  }}
+  activationMode="manual"
+  class="contents"
+>
+  <div class="no-drag flex flex-col">
+  <div class="tab-bar-row flex items-center">
+    <div class="relative min-w-0 flex-1">
+      {#if tabScroll.overflowing}
+        <button
+          class="tab-scroll-btn tab-scroll-btn--left"
+          data-active={tabScroll.canLeft}
+          tabindex={tabScroll.canLeft ? 0 : -1}
+          onclick={() => tabScroll.page(-1)}
+          aria-label="Scroll tabs left"
+        >
+          <CaretLeftIcon size={14} />
+        </button>
+      {/if}
+      <Tabs.List class="contents">
+        <div
+          class="tab-scroll-row flex items-center gap-0.5 overflow-x-auto min-w-0"
+          use:tabScroll.attach
+          style="scrollbar-width:none; padding-left:0.5rem; padding-right:0.875rem; mask-image:{maskImage}; -webkit-mask-image:{maskImage};"
+        >
+        {#if isGrouped && groupedSections}
+          {#each groupedSections as group, gi (group.key)}
+            {@const gv = group.visual}
+            {@const GIcon = gv.icon}
+            {@const count = group.tabIds.length}
+            <!-- Binder divider — an index tab leading each status section: a flat
+                 status-colored spine, a faint tinted body, and a rounded outer
+                 edge, so the section's tabs read as hanging off the divider. The
+                 status glyph lives here, so the tabs below drop their own icon. -->
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <span {...tooltipProps}
+              class="tab-group-binder"
+              class:tab-group-lead={gi > 0}
+              style="--gc:{gv.color}"
+            >
+              <GIcon
+                size={14}
+                weight={gv.weight ?? "regular"}
+                style="color:{gv.color}"
+                class={gv.spin ? "tab-status-spin" : ""}
+              />
+            </span>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={`${group.label} · ${count}`} />
+            </TooltipUI.Root>
+            {#each group.tabIds as tabId (tabId)}
+              {@const tab = session.tabs[tabId]}
+              {@const sess = session.sessionFor(tabId)}
+              {@const isActive = tabId === session.onScreenTabId}
+              {@const attention =
+                tab && sess
+                  ? getAttentionState(sess, tab, planStore.plans)
+                  : null}
+              {@const needsAttention = !!attention && attention !== "running"}
+              {@const isUnread = attention === "unread"}
+              <Tabs.Trigger value={tabId} class="contents">
+                {#snippet child({ props })}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div
+                    {...props}
+                    aria-controls={undefined}
+                    oncontextmenu={(e) => openContextMenu(e, tabId)}
+                    data-testid="tab-item"
+                    data-status={sess?.status ?? "idle"}
+                    data-pill-active={isActive}
+                    class="tab-item data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
+                      ? 'needs-attention'
+                      : ''} {isUnread ? 'unread' : ''} {tabId === splitTabId && splitFocused
+                      ? 'split-focused'
+                      : ''}"
+                    aria-label={tab
+                      ? needsAttention
+                        ? `${tabLabel(sess)} — ${attentionLabel(attention)}`
+                        : tabLabel(sess)
+                      : undefined}
+                    title={tab
+                      ? `${tabLabel(sess)} — ${projectByline(sess)}`
+                      : undefined}
+                  >
+                    {@render tabInner(tabId, showTabStatusInGroup)}
+                  </div>
+                {/snippet}
+              </Tabs.Trigger>
+            {/each}
+          {/each}
+        {:else}
+          {#each renderedTabIds as tabId (tabId)}
+            {@const tab = session.tabs[tabId]}
+            {@const sess = session.sessionFor(tabId)}
+            {@const isActive = tabId === session.onScreenTabId}
+            {@const attention =
+              tab && sess
+                ? getAttentionState(sess, tab, planStore.plans)
+                : null}
+            {@const needsAttention = !!attention && attention !== "running"}
+            {@const isUnread = attention === "unread"}
+            <div
+              animate:flip={{ duration: TAB_FLIP_MS }}
+              in:scale={{ start: 0.92, duration: 130 }}
+              out:scale={{ start: 0.96, duration: 90, easing: quintOut }}
+              class="flex shrink-0"
+            >
+              <Tabs.Trigger value={tabId} class="contents">
+                {#snippet child({ props })}
+                  <!-- svelte-ignore a11y_no_static_element_interactions -->
+                  <div
+                    {...props}
+                    aria-controls={undefined}
+                    draggable="true"
+                    ondragstart={(e) => onTabDragStart(e, tabId)}
+                    ondragover={(e) => onTabDragOver(e, tabId)}
+                    ondrop={(e) => onTabDrop(e, tabId)}
+                    ondragend={onTabDragEnd}
+                    oncontextmenu={(e) => openContextMenu(e, tabId)}
+                    data-testid="tab-item"
+                    data-status={sess?.status ?? "idle"}
+                    data-pill-active={isActive}
+                    class="tab-item data-[pill-active=true]:bg-[color-mix(in_srgb,var(--solus-accent)_9%,var(--solus-container-bg))] data-[pill-active=true]:shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-accent)_18%,transparent),0_0.0625rem_0.1875rem_rgba(0,0,0,0.08)] {isActive ? 'active' : ''} {needsAttention
+                      ? 'needs-attention'
+                      : ''} {isUnread ? 'unread' : ''} {dragTabId === tabId
+                      ? 'dragging'
+                      : ''} {dragOverTabId === tabId ? 'drag-over' : ''} {tabId === splitTabId && splitFocused
+                      ? 'split-focused'
+                      : ''}"
+                    aria-label={tab
+                      ? needsAttention
+                        ? `${tabLabel(sess)} — ${attentionLabel(attention)}`
+                        : tabLabel(sess)
+                      : undefined}
+                    title={tab
+                      ? `${tabLabel(sess)} — ${projectByline(sess)}`
+                      : undefined}
+                  >
+                    {@render tabInner(tabId, true)}
+                  </div>
+                {/snippet}
+              </Tabs.Trigger>
+            </div>
+          {/each}
+        {/if}
+        <!-- Nothing has started here yet, so this is not a tab: it names the
+             session being composed and goes away the moment Send mints the real
+             one. Dashed, and never `aria-selected`, so it never competes with a
+             conversation for what the strip says is current. -->
+        {#if composingDraft}
+          {@const draftId = composingDraft.id}
+          <div
+            class="flex shrink-0"
+            in:scale={{ start: 0.92, duration: 130 }}
+            out:scale={{ start: 0.96, duration: 90, easing: quintOut }}
+          >
+            <div
+              class="tab-item tab-item-draft border border-dashed border-(--solus-container-border)"
+              data-testid="tab-draft"
+              title="New session — nothing sent yet"
+            >
+              <div class="flex min-w-0 items-center gap-[0.3125rem]">
+                <CircleDashedIcon
+                  size={14}
+                  style="color:var(--solus-text-tertiary);flex-shrink:0"
+                />
+                <span
+                  class="tab-label min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+                  >New session</span
+                >
+                <button
+                  onclick={() => {
+                    session.discardSessionDraft(draftId);
+                    requestInputFocus();
+                  }}
+                  class="tab-close"
+                  aria-label="Discard new session"
+                  title="Discard new session"
+                >
+                  <XIcon size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+        {/if}
+        </div>
+      </Tabs.List>
+      {#if tabScroll.overflowing}
+        <button
+          class="tab-scroll-btn tab-scroll-btn--right"
+          data-active={tabScroll.canRight}
+          tabindex={tabScroll.canRight ? 0 : -1}
+          onclick={() => tabScroll.page(1)}
+          aria-label="Scroll tabs right"
+        >
+          <CaretRightIcon size={14} />
+        </button>
+      {/if}
+    </div>
+
+    <div class="tab-sep flex-shrink-0" aria-hidden="true"></div>
+
+    <div class="tab-actions flex items-center gap-1 flex-shrink-0 ml-1 pr-2">
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
+        onclick={async () => {
+          session.openSessionDraft({ via: "click" });
+          requestInputFocus();
+        }}
+        data-testid="new-tab-button"
+        class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+      >
+        <PlusIcon size={14} />
+      </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"New tab"} />
+      </TooltipUI.Root>
+
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
+        onclick={() => {
+          session.toggleTabGroupMode();
+          requestInputFocus();
+        }}
+        data-testid="tab-group-toggle"
+        class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors {isGrouped
+          ? 'text-(--solus-accent)'
+          : 'text-(--solus-text-tertiary) hover:text-(--solus-text-primary)'}"
+      >
+        <FunnelSimpleIcon size={14} weight={isGrouped ? "fill" : "regular"} />
+      </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={groupToggleTooltip} />
+      </TooltipUI.Root>
+
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
+          onclick={() =>
+            window.dispatchEvent(
+              new CustomEvent("solus:toggle-session-picker"),
+            )}
+          class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+        >
+          <ClockIcon size={14} />
+        </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={`Resume a previous session (${comboHint("global.session-picker")})`} />
+        </TooltipUI.Root>
+
+        <TooltipUI.Root>
+          <TooltipUI.Trigger>
+            {#snippet child({ props: tooltipProps })}
+              <button {...tooltipProps}
+          onclick={() => session.toggleFolio()}
+          class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full transition-colors text-(--solus-text-tertiary) hover:text-(--solus-text-primary)"
+        >
+          <BooksIcon size={14} />
+        </button>
+            {/snippet}
+          </TooltipUI.Trigger>
+          <TooltipUI.Content value={`Workspace — plans, docs and diagrams (${comboHint("global.toggle-workspace")})`} />
+        </TooltipUI.Root>
+
+        <ContextMeter tabId={session.activeTabId} />
+        {#if !runtime.isMobileViewport}
+          <SettingsPopover />
+        {/if}
+    </div>
+  </div>
+  <div class="tab-strip-divider"></div>
+  </div>
+</Tabs.Root>
+
+{#if contextMenu}
+  <SessionContextMenu
+    x={contextMenu.x}
+    y={contextMenu.y}
+    tabId={contextMenu.tabId}
+    showSplit={false}
+    onClose={closeContextMenu}
+  />
+{/if}

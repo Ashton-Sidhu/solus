@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { PermissionManager } from '../../src/main/agents/claude/claude-permissions'
+import { PermissionManager } from '@solus/server/agents/claude/claude-permissions'
 
 describe('Claude unattended permissions', () => {
   test.each(['AskUserQuestion', 'ExitPlanMode', 'EnterPlanMode'])(

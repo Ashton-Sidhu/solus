@@ -3,13 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { PlanAnnotations } from '../../src/shared/types'
+import type { PlanAnnotations } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type PlanIndexModule = typeof import('../../src/main/plans/plan-index')
-type DbModule = typeof import('../../src/main/db')
-type AnnotationsModule = typeof import('../../src/main/plans/annotations')
+type PlanIndexModule = typeof import('@solus/server/plans/plan-index')
+type DbModule = typeof import('@solus/server/db')
+type AnnotationsModule = typeof import('@solus/server/plans/annotations')
 
 let planIndex: PlanIndexModule
 let closeDb: DbModule['closeDb']
@@ -19,9 +19,9 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-plan-index-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  planIndex = await import('../../src/main/plans/plan-index')
-  ;({ closeDb } = await import('../../src/main/db'))
-  ;({ saveAnnotations } = await import('../../src/main/plans/annotations'))
+  planIndex = await import('@solus/server/plans/plan-index')
+  ;({ closeDb } = await import('@solus/server/db'))
+  ;({ saveAnnotations } = await import('@solus/server/plans/annotations'))
 })
 
 afterAll(() => {

@@ -1,8 +1,8 @@
 import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
-import { adaptClaudeTools } from '../../src/main/agents/claude/claude-tool-adapter'
-import { adaptCodexTools, CodexToolDispatcher } from '../../src/main/agents/codex/codex-tool-adapter'
-import { assertUniqueAgentTools, executeAgentTool, type AgentTool, type AgentToolContext } from '../../src/main/agents/tools/agent-tool'
+import { adaptClaudeTools } from '@solus/server/agents/claude/claude-tool-adapter'
+import { adaptCodexTools, CodexToolDispatcher } from '@solus/server/agents/codex/codex-tool-adapter'
+import { assertUniqueAgentTools, executeAgentTool, type AgentTool, type AgentToolContext } from '@solus/server/agents/tools/agent-tool'
 
 const context: AgentToolContext = {
   provider: 'codex',

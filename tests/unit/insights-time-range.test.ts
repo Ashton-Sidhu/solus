@@ -3,7 +3,7 @@ import {
   generatedSql,
   presetsFor,
   sqlPresets,
-} from '../../src/renderer/components/insights/lib/insights-queries'
+} from '@solus/workspace-ui/components/insights/lib/insights-queries'
 import {
   fromLocalInput,
   isApplicableAbsolute,
@@ -16,7 +16,7 @@ import {
   sameRange,
   toLocalInput,
   type TimeRange,
-} from '../../src/renderer/components/insights/lib/time-range'
+} from '@solus/workspace-ui/components/insights/lib/time-range'
 
 const DAY = 24 * 60 * 60 * 1000
 const RELATIVE: TimeRange = { kind: 'relative', ms: DAY }

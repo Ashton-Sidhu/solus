@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { cn, tv } from '../../src/renderer/lib/tw'
+import { cn, tv } from '@solus/workspace-ui/lib/tw'
 
-const RENDERER = join(import.meta.dir, '../../src/renderer')
+const RENDERER = join(import.meta.dir, '../../packages/workspace-ui/src')
 const THEME_CSS = readFileSync(join(RENDERER, 'index.css'), 'utf8')
 
 /**

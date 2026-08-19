@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildRemoteDispatchCard,
   mergeRemoteDispatchProgress,
-} from '../../src/renderer/lib/remote-dispatch-card'
+} from '@solus/workspace-ui/lib/remote-dispatch-card'
 
 describe('remote dispatch conversation card', () => {
   test('shows host-owned repository preparation as a session startup stage', () => {

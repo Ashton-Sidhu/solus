@@ -50,20 +50,26 @@ export default defineConfig(({ mode }) => {
   main: {
     define: oauthDefines,
     resolve: {
-      alias: testMainAliases
+      alias: {
+        ...testMainAliases,
+        '@solus/contracts': resolve(__dirname, 'packages/contracts/src'),
+        '@solus/server': resolve(__dirname, 'packages/server/src'),
+        '@solus/desktop-main': resolve(__dirname, 'apps/desktop/src/main'),
+        '@solus/workspace-ui': resolve(__dirname, 'packages/workspace-ui/src'),
+      }
     },
     server: {
       watch: {
-        ignored: ['**/client/**']
+        ignored: ['**/apps/client/**']
       }
     },
     build: {
       outDir: 'dist/main',
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/main/index.ts'),
-          standalone: resolve(__dirname, 'src/main/standalone.ts'),
-          'transcription-worker': resolve(__dirname, 'src/main/transcription/worker.ts')
+          index: resolve(__dirname, 'apps/desktop/src/main/index.ts'),
+          standalone: resolve(__dirname, 'apps/standalone-server/src/index.ts'),
+          'transcription-worker': resolve(__dirname, 'packages/server/src/transcription/worker.ts')
         },
         external: [
           'electron',
@@ -80,14 +86,14 @@ export default defineConfig(({ mode }) => {
   preload: {
     server: {
       watch: {
-        ignored: ['**/client/**']
+        ignored: ['**/apps/client/**']
       }
     },
     build: {
       outDir: 'dist/preload',
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/preload/index.ts')
+          index: resolve(__dirname, 'apps/desktop/src/preload/index.ts')
         },
         external: [
           'electron',
@@ -97,11 +103,12 @@ export default defineConfig(({ mode }) => {
     }
   },
   renderer: {
-    root: resolve(__dirname, 'src/renderer'),
+    root: resolve(__dirname, 'apps/desktop/src/renderer'),
     resolve: {
       alias: {
-        '@client-core': resolve(__dirname, 'src/client-core'),
-        '@renderer': resolve(__dirname, 'src/renderer'),
+        '@solus/client-core': resolve(__dirname, 'packages/client-core/src'),
+        '@solus/workspace-ui': resolve(__dirname, 'packages/workspace-ui/src'),
+        '@solus/contracts': resolve(__dirname, 'packages/contracts/src'),
         '@geist-fonts': geistFontsDir
       },
       // prosemirror-tables can resolve its own prosemirror-view copy. Its
@@ -111,7 +118,7 @@ export default defineConfig(({ mode }) => {
     },
     server: {
       watch: {
-        ignored: ['**/web/**', '**/client/**']
+        ignored: ['**/apps/site/**', '**/apps/client/**']
       }
     },
     // The @pierre/diffs highlighter worker dynamically imports its Shiki/WASM
@@ -130,7 +137,7 @@ export default defineConfig(({ mode }) => {
       chunkSizeWarningLimit: 13000,
       rollupOptions: {
         input: {
-          index: resolve(__dirname, 'src/renderer/index.html')
+          index: resolve(__dirname, 'apps/desktop/src/renderer/index.html')
         },
         output: {
           manualChunks: rendererManualChunks

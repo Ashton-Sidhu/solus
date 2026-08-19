@@ -2,11 +2,11 @@ import { expect, mock, test } from 'bun:test'
 
 const bootstrapRuntimeTabs = mock(async () => {})
 
-mock.module('../../src/renderer/contexts/workspace/session-bootstrap', () => ({
+mock.module('@solus/workspace-ui/contexts/workspace/session-bootstrap', () => ({
   bootstrapRuntimeTabs,
 }))
 
-const { initializeRuntime } = await import('../../src/renderer/contexts/app/runtime-boot')
+const { initializeRuntime } = await import('@solus/workspace-ui/contexts/app/runtime-boot')
 
 test('restores persisted sessions without waiting for static host metadata', async () => {
   // WHY: start() can be slow or fail while a host connection is coming up. The

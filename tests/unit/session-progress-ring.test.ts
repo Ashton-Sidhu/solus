@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import type { SessionProgress } from "../../src/shared/types";
+import type { SessionProgress } from "@solus/contracts/types";
 import {
   buildSessionProgressRing,
   shouldShowSessionProgressRing,
-} from "../../src/renderer/components/layout/lib/session-progress-ring";
+} from "@solus/workspace-ui/components/layout/lib/session-progress-ring";
 
 function progress(
   statuses: SessionProgress["todos"][number]["status"][],

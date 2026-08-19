@@ -7,16 +7,16 @@
  * Run with `bun run test:unit`.
  */
 import { describe, expect, test } from 'bun:test'
-import type { DiagramNode } from '../../src/shared/diagram-types'
+import type { DiagramNode } from '@solus/contracts/diagram-types'
 import {
   nodeDegree,
   nodeLinks,
   railKindWord,
-} from '../../src/renderer/components/diagram/lib/inspector-model'
+} from '@solus/workspace-ui/components/diagram/lib/inspector-model'
 import {
   cardFields,
   CARD_FIELD_LIMIT,
-} from '../../src/renderer/components/diagram/lib/node-card'
+} from '@solus/workspace-ui/components/diagram/lib/node-card'
 
 const label = (id: string) => `Label ${id}`
 

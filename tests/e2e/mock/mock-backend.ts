@@ -1,10 +1,10 @@
 import { writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { BaseAgentBackend } from '../../../src/main/agents/base-backend'
-import { agentSaveWork, createWork } from '../../../src/main/folio/works'
-import { workPreview } from '../../../src/shared/work-preview'
-import type { AgentBackend, PermissionResponder, RunHandle } from '../../../src/main/agents/agent-backend'
+import { BaseAgentBackend } from '@solus/server/agents/base-backend'
+import { agentSaveWork, createWork } from '@solus/server/folio/works'
+import { workPreview } from '@solus/contracts/work-preview'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
 import type {
   AgentId,
   AgentMetadata,
@@ -13,9 +13,9 @@ import type {
   PluginCommandsResult,
   SessionMeta,
   UsageData,
-} from '../../../src/shared/types'
-import type { SessionLoadMessage } from '../../../src/shared/session-history'
-import type { AgentRunRequest } from '../../../src/main/agents/agent-runner'
+} from '@solus/contracts/types'
+import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
 
 const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'

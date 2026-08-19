@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { ProjectConfig } from '../../src/shared/types'
-import type { Task } from '../../src/shared/task-types'
+import type { ProjectConfig } from '@solus/contracts/types'
+import type { Task } from '@solus/contracts/task-types'
 
 let config: ProjectConfig | null = { version: 1, taskProvider: 'github' }
 let listCalls = 0
@@ -62,22 +62,22 @@ const upstreamTask: Task = {
   updatedAt: 1_785_000_000_000,
 }
 
-mock.module('../../src/main/logger', () => ({
+mock.module('@solus/server/logger', () => ({
   createLogger: () => ({ info() {}, warn() {}, error() {}, child() { return this } }),
 }))
-mock.module('../../src/main/db', () => ({ getDb: () => db }))
-mock.module('../../src/main/project-config/project-config', () => ({
+mock.module('@solus/server/db', () => ({ getDb: () => db }))
+mock.module('@solus/server/project-config/project-config', () => ({
   loadProjectConfig: async () => config,
   resolveProjectKey: (cwd: string) => cwd,
 }))
-mock.module('../../src/main/git/git-helpers', () => ({ resolveRepoRef: async () => null }))
-mock.module('../../src/main/providers/github/auth', () => ({
+mock.module('@solus/server/git/git-helpers', () => ({ resolveRepoRef: async () => null }))
+mock.module('@solus/server/providers/github/auth', () => ({
   GitHubAuth: class { async status() { return { connected: true, scopes: [] } } },
 }))
-mock.module('../../src/main/providers/github/octokit', () => ({
+mock.module('@solus/server/providers/github/octokit', () => ({
   GitHubReauthRequiredError: class extends Error {},
 }))
-mock.module('../../src/main/tasks/providers/github', () => ({
+mock.module('@solus/server/tasks/providers/github', () => ({
   makeGitHubTaskProvider: async () => ({
     id: 'github',
     repo: { host: 'github.com', owner: 'example', repo: 'repo' },
@@ -98,10 +98,10 @@ mock.module('../../src/main/tasks/providers/github', () => ({
   }),
 }))
 
-let service: typeof import('../../src/main/tasks/upstream')
+let service: typeof import('@solus/server/tasks/upstream')
 
 beforeAll(async () => {
-  service = await import('../../src/main/tasks/upstream')
+  service = await import('@solus/server/tasks/upstream')
 })
 
 beforeEach(() => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { KEYBINDINGS } from '../../src/renderer/lib/keybindings/manifest'
+import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
 
 describe('session task shortcuts', () => {
   test('keeps new tasks distinct from sessions created under the active task', () => {

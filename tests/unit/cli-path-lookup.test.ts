@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { chmodSync, mkdirSync, mkdtempSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { findOnPath } from '../../src/main/cli-env'
+import { findOnPath } from '@solus/server/cli-env'
 
 function pathWith(...dirs: string[]): string {
   return dirs.join(':')

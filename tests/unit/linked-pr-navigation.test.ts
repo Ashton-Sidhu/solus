@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import { linkedPrNavigationTarget } from '../../src/renderer/components/tasks/task-page/lib/linked-pr-navigation'
+import { linkedPrNavigationTarget } from '@solus/workspace-ui/components/tasks/task-page/lib/linked-pr-navigation'
 
 describe('linked task PR navigation', () => {
   it('keeps the task project path on the host that owns the task', () => {

@@ -1,6 +1,6 @@
 import { describe, expect, jest, mock, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
-import { MAX_VOICE_SAMPLES } from '../../src/shared/voice-audio'
+import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 
 const posted: unknown[] = []
 let forkCount = 0
@@ -34,13 +34,13 @@ mock.module('electron', () => ({
   },
 }))
 
-mock.module('../../src/main/model-downloader', () => ({
+mock.module('@solus/server/model-downloader', () => ({
   ensureParakeetModel: async () => '/tmp/model',
   getVoiceModelStatus: () => ({ state: 'ready' as const }),
   isParakeetModelReady: async () => true,
 }))
 
-mock.module('../../src/main/logger', () => ({
+mock.module('@solus/server/logger', () => ({
   createLogger: () => ({
     debug() {}, info() {}, warn() {}, error() {}, metric() {}, child() { return this },
   }),
@@ -53,7 +53,7 @@ describe('transcription worker lifecycle', () => {
       prepareTranscriptionModel,
       transcribeAudio,
       transcriptionRequestTimeoutMs,
-    } = await import('../../src/main/transcription')
+    } = await import('@solus/desktop-main/transcription')
 
     await prepareTranscriptionModel()
     expect(forkCount).toBe(0)
@@ -144,7 +144,7 @@ describe('transcription worker lifecycle', () => {
   })
 
   test('record-start warm pre-forks the worker the following transcription reuses', async () => {
-    const { warmTranscription, transcribeAudio } = await import('../../src/main/transcription')
+    const { warmTranscription, transcribeAudio } = await import('@solus/desktop-main/transcription')
 
     // Retire the worker left over from the previous test so the warm below is
     // provably what forks the process the transcription reuses.

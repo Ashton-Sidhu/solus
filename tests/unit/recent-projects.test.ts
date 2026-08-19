@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { Database } from 'bun:sqlite'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-mock.module('../../src/main/project-config/projects-manifest', () => ({ recordProject: async () => {} }))
+mock.module('@solus/server/project-config/projects-manifest', () => ({ recordProject: async () => {} }))
 
-type DbModule = typeof import('../../src/main/db')
-type RecentProjectsModule = typeof import('../../src/main/recent-projects')
+type DbModule = typeof import('@solus/server/db')
+type RecentProjectsModule = typeof import('@solus/server/recent-projects')
 
 let dataDir: string
 let db: DbModule
@@ -17,8 +17,8 @@ let recentProjects: RecentProjectsModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-recents-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  db = await import('../../src/main/db')
-  recentProjects = await import('../../src/main/recent-projects')
+  db = await import('@solus/server/db')
+  recentProjects = await import('@solus/server/recent-projects')
 })
 
 afterEach(() => {

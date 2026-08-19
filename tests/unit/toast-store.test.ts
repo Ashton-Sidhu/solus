@@ -37,7 +37,7 @@ const toast = Object.assign(
 
 mock.module("svelte-sonner", () => ({ toast }))
 
-const { toasts } = await import("../../src/renderer/lib/toasts")
+const { toasts } = await import("@solus/workspace-ui/lib/toasts")
 
 describe("toast service", () => {
   beforeEach(() => {

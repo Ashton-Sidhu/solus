@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { RunConfig, Session, Tab } from '../../src/shared/types'
+import type { RunConfig, Session, Tab } from '@solus/contracts/types'
 
-type WorkspaceContextInstance = InstanceType<typeof import('../../src/renderer/contexts/workspace/workspace.context.svelte')['WorkspaceContext']>
+type WorkspaceContextInstance = InstanceType<typeof import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')['WorkspaceContext']>
 type CreateTabOptions = NonNullable<Parameters<WorkspaceContextInstance['createTab']>[1]>
 
 const previousWindow = globalThis.window
@@ -66,7 +66,7 @@ describe('WorkspaceContext tab clearing', () => {
   test('removes provider handoff lineage from the cleared session', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const session = {
       agentSessionId: null,
       run: {
@@ -114,8 +114,8 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('seeds the first prompt tab from the cached Git environment', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
-    const { serverConnections } = await import('../../src/client-core/server-connections')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
+    const { serverConnections } = await import('@solus/client-core/server-connections')
     const originalConnectionFor = serverConnections.connectionFor
     serverConnections.connectionFor = (() => ({
       serverId: 'remote-server',
@@ -192,7 +192,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('uses the saved worktree default for a fresh session even when its source session is direct', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       run: {
@@ -260,7 +260,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('waits for the shared Git environment boundary', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       run: {
@@ -337,7 +337,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('resolves an explicitly selected project without inheriting the active worktree', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       run: {
@@ -431,7 +431,7 @@ describe('WorkspaceContext new-tab Git initialization', () => {
   test('reveals an attached PR chat without waiting for Git initialization', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       run: {
@@ -512,7 +512,7 @@ describe('WorkspaceContext task-bound tab creation', () => {
   test('passes the subtask id into a session draft', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const workspace = Object.create(WorkspaceContext.prototype) as any
     let draftOptions: CreateTabOptions | undefined
     workspace.openSessionDraft = (options: CreateTabOptions, cwd: string) => {
@@ -529,7 +529,7 @@ describe('WorkspaceContext task-bound tab creation', () => {
   test('publishes the task relationship with the new tab', async () => {
     installRendererGlobals()
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       run: {
@@ -597,7 +597,7 @@ describe('WorkspaceContext resumed-session tab creation', () => {
     ;(window.solus as any).loadSession = async () => []
     ;(window.solus as any).worktreeRestore = async () => null
 
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const sourceSession = {
       id: 'source-session',
       agentSessionId: 'source-agent-session',
@@ -723,7 +723,7 @@ describe('WorkspaceContext resumed-session tab creation', () => {
     // otherwise the two hold different addresses for one session and every
     // publish reaches only one of them.
     installRendererGlobals()
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const workspace = Object.create(WorkspaceContext.prototype) as any
     const session = { id: 'local-uuid', agentSessionId: null } as unknown as Session
     workspace.registry = {
@@ -764,7 +764,7 @@ describe('Session bootstrap Git ordering', () => {
       },
     })
 
-    const { resyncRuntime } = await import('../../src/renderer/contexts/workspace/session-bootstrap')
+    const { resyncRuntime } = await import('@solus/workspace-ui/contexts/workspace/session-bootstrap')
     const session = {
       agentSessionId: 'agent-1',
       run: {

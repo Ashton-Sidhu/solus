@@ -13,9 +13,9 @@ import {
   registerSetupHandlers,
   setupProjectsRoot,
   type SpawnProcess,
-} from '../../src/main/server/handlers/setup-handlers'
-import { dispatchCheckoutPath, resolveDispatchWorktree } from '../../src/main/project-config/dispatch-checkouts'
-import { listBranches } from '../../src/main/git/worktree-manager'
+} from '@solus/server/server/handlers/setup-handlers'
+import { dispatchCheckoutPath, resolveDispatchWorktree } from '@solus/server/project-config/dispatch-checkouts'
+import { listBranches } from '@solus/server/git/worktree-manager'
 import {
   agentInstallCompatibilityError,
   applyCloneProtocol,
@@ -23,11 +23,11 @@ import {
   buildPackageInstallCommand,
   resolveCloneDestination,
   validateCloneUrl,
-} from '../../src/main/server/handlers/setup-commands'
-import { SolusServer } from '../../src/main/server/server'
-import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
-import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
-import type { SetupCloneProjectResult, SetupPrepareProjectResult, SetupStatusEvent, SetupStepResult } from '../../src/shared/types'
+} from '@solus/server/server/handlers/setup-commands'
+import { SolusServer } from '@solus/server/server/server'
+import { ClientEventRegistry } from '@solus/server/events/client-event-registry'
+import { HostEventPublisher } from '@solus/server/events/host-event-publisher'
+import type { SetupCloneProjectResult, SetupPrepareProjectResult, SetupStatusEvent, SetupStepResult } from '@solus/contracts/types'
 
 const temporaryDirectories: string[] = []
 const resolveTestProjectKey = (path: string) => `project:${path}`

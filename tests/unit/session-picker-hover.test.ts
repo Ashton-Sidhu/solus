@@ -6,7 +6,7 @@ import { join } from "node:path";
 const source = readFileSync(
   join(
     import.meta.dir,
-    "../../src/renderer/components/session/SessionPickerItem.svelte",
+    "../../packages/workspace-ui/src/components/session/SessionPickerItem.svelte",
   ),
   "utf8",
 );

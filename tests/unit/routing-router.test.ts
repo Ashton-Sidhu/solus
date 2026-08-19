@@ -3,16 +3,16 @@ import {
   parseRef,
   serializeRef,
   type RouteRef,
-} from '../../src/renderer/contexts/workspace/routing/route-registry'
-import { MemoryRouteHistory } from '../../src/renderer/contexts/workspace/routing/route-history'
+} from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
+import { MemoryRouteHistory } from '@solus/workspace-ui/contexts/workspace/routing/route-history'
 
-let RouterStore: typeof import('../../src/renderer/contexts/workspace/routing/router.store.svelte').RouterStore
+let RouterStore: typeof import('@solus/workspace-ui/contexts/workspace/routing/router.store.svelte').RouterStore
 
 beforeAll(async () => {
   // `.svelte.ts` runes are compiled away outside the Svelte build; the store's
   // reactivity is not what these assertions are about.
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  ;({ RouterStore } = await import('../../src/renderer/contexts/workspace/routing/router.store.svelte'))
+  ;({ RouterStore } = await import('@solus/workspace-ui/contexts/workspace/routing/router.store.svelte'))
 })
 
 const TASKS: RouteRef = { name: 'tasks', params: {} }

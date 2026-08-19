@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { shouldShowSidebarChild } from '../../src/renderer/components/session/lib/task-list'
+import { shouldShowSidebarChild } from '@solus/workspace-ui/components/session/lib/task-list'
 
 describe('sidebar child visibility', () => {
   test('removes a dismissed subtask once its mounted tab closes', () => {

@@ -9,9 +9,9 @@ import { Database } from 'bun:sqlite'
 // though these tests never open it. Same seam pinned-sessions.test.ts uses.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-const { buildHttpServer } = await import('../../src/main/server/http')
+const { buildHttpServer } = await import('@solus/server/server/http')
 type HttpServerOptions = NonNullable<Parameters<typeof buildHttpServer>[0]>
-const auth = await import('../../src/main/server/auth')
+const auth = await import('@solus/server/server/auth')
 
 // The web client connects to its serving origin with no pairing ceremony only
 // when /health explicitly advertises `requireAuth: false`. These tests pin the

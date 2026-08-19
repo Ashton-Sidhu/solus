@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { optionLabelParts } from '../../src/renderer/components/conversation/lib/interrupt'
+import { optionLabelParts } from '@solus/workspace-ui/components/conversation/lib/interrupt'
 
 /**
  * §11 — an option label is one line the reader chooses by, so a recommendation is

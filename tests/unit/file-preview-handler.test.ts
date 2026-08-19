@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { readFilePreview } from '../../src/main/server/handlers/lib/file-preview'
-import { isInsideRoot } from '../../src/main/paths'
-import type { IpcContext } from '../../src/shared/types'
+import { readFilePreview } from '@solus/server/server/handlers/lib/file-preview'
+import { isInsideRoot } from '@solus/server/paths'
+import type { IpcContext } from '@solus/contracts/types'
 
 describe('file preview paths', () => {
   let sandbox = ''

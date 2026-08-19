@@ -1,15 +1,15 @@
 import { describe, expect, test } from 'bun:test'
-import { localApi } from '../../src/client-core/local-api'
-import { mergeNativeOnlySolusApi } from '../../src/client-core/native-api-overlay'
-import { createNoHostSolusApi } from '../../src/client-core/no-host-api'
-import { claimServer, defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '../../src/client-core/pairing'
-import { base64UrlToUint8Array } from '../../src/client-core/push'
-import { encodeQrByteMode } from '../../src/client-core/qr'
+import { localApi } from '@solus/client-core/local-api'
+import { mergeNativeOnlySolusApi } from '@solus/client-core/native-api-overlay'
+import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
+import { claimServer, defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '@solus/client-core/pairing'
+import { base64UrlToUint8Array } from '@solus/client-core/push'
+import { encodeQrByteMode } from '@solus/client-core/qr'
 import {
   shouldRejectQueuedRequest,
   TransportDisconnectedError,
   WsTransport,
-} from '../../src/client-core/ws-transport'
+} from '@solus/client-core/ws-transport'
 
 describe('client core transport helpers', () => {
   test('loads before the client bridge and follows the bridge installed later', () => {

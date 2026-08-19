@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { buildPrReviewTarget } from '../../src/main/providers/pr-review-target'
-import type { PullRequestDetail } from '../../src/shared/providers'
+import { buildPrReviewTarget } from '@solus/server/providers/pr-review-target'
+import type { PullRequestDetail } from '@solus/contracts/providers'
 
 describe('pull request review target', () => {
   test('contains the exact host revision and no checkout state', () => {

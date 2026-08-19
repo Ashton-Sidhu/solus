@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { dispatchAvailability } from '../../src/renderer/components/servers/lib/dispatch-availability'
+import { dispatchAvailability } from '@solus/workspace-ui/components/servers/lib/dispatch-availability'
 
 describe('dispatch availability', () => {
   test('a checkout with no remote cannot be dispatched', () => {

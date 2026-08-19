@@ -1,0 +1,253 @@
+<script lang="ts">
+  import { MicrophoneIcon, SpinnerGapIcon, XIcon, CheckIcon } from 'phosphor-svelte'
+  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import WaveformVisualizer from './WaveformVisualizer.svelte'
+  import type { VoiceState } from '../../lib/voice-recorder.svelte'
+
+  interface Props {
+    /** 'bar' = 30px composer controls (InputBar, prompt composer); 'field' = 24px in-field overlay (Input). */
+    variant: 'bar' | 'field'
+    state: VoiceState
+    rmsRef: { current: number }
+    onCancel: () => void
+    onConfirm: () => void
+    onToggle: () => void
+    disabled?: boolean
+    /** bar: render the idle mic with the "voice mode waiting" accent treatment. */
+    waiting?: boolean
+    /** bar: tooltip for the idle mic. */
+    idleTooltip?: string
+    /** field: whether to render the idle mic at all (the host's `mic` prop). */
+    showMic?: boolean
+    /** field: align the mic on the textarea's first line rather than on the whole box. */
+    micTextarea?: boolean
+    progressPct?: number | null
+  }
+
+  let {
+    variant,
+    state,
+    rmsRef,
+    onCancel,
+    onConfirm,
+    onToggle,
+    disabled = false,
+    waiting = false,
+    idleTooltip = 'Voice input (⌥⇧Space)',
+    showMic = true,
+    micTextarea = false,
+    progressPct = null,
+  }: Props = $props()
+</script>
+
+{#if variant === 'bar'}
+  {#if state === 'recording'}
+    <div class="flex items-center gap-1">
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
+        type="button"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={onCancel}
+        aria-label="Cancel recording"
+        class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
+      ><XIcon size={14} weight="bold" /></button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"Cancel recording"} />
+      </TooltipUI.Root>
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <button {...tooltipProps}
+        type="button"
+        onmousedown={(e) => e.preventDefault()}
+        onclick={onConfirm}
+        aria-label="Finish recording"
+        class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-accent) text-(--solus-text-on-accent) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
+      ><CheckIcon size={14} weight="bold" /></button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={"Finish recording (⌥⇧Space)"} />
+      </TooltipUI.Root>
+    </div>
+  {:else if state === 'transcribing'}
+    <button
+      type="button"
+      disabled
+      aria-label="Finishing transcription"
+      class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-(--solus-mic-color)"
+    ><SpinnerGapIcon size={14} class="animate-spin" /></button>
+  {:else}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
+      type="button"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={onToggle}
+      {disabled}
+      aria-label="Voice input"
+      class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:hover:bg-(--solus-surface-hover) enabled:active:scale-[0.96]"
+      style="{waiting
+        ? 'background:var(--solus-accent);'
+        : progressPct !== null
+          ? `background:conic-gradient(var(--solus-accent) ${progressPct * 3.6}deg, var(--solus-mic-bg) 0deg);`
+          : ''}color:{disabled
+        ? 'var(--solus-mic-disabled)'
+        : waiting
+          ? 'var(--solus-text-on-accent)'
+          : 'var(--solus-mic-color)'};opacity:{disabled ? 0.4 : 1}"
+    >{#if progressPct !== null}<span class="flex size-[1.625rem] items-center justify-center rounded-md bg-(--solus-input-pill-bg)"><MicrophoneIcon size={14} /></span>{:else}<MicrophoneIcon size={14} />{/if}</button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={idleTooltip} />
+    </TooltipUI.Root>
+  {/if}
+{:else if state === 'recording'}
+  <span class="rc-row">
+    <span class="rc-waveform">
+      <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
+    </span>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
+      type="button"
+      class="rc-action-btn"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={onCancel}
+      aria-label="Cancel recording"
+    ><XIcon size={13} weight="bold" /></button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Cancel recording"} />
+    </TooltipUI.Root>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
+      type="button"
+      class="rc-action-btn rc-action-btn--confirm"
+      onmousedown={(e) => e.preventDefault()}
+      onclick={onConfirm}
+      aria-label="Confirm recording"
+    ><CheckIcon size={13} weight="bold" /></button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Finish recording (⌥⇧Space)"} />
+    </TooltipUI.Root>
+  </span>
+{:else if state === 'transcribing'}
+  <button
+    type="button"
+    class="rc-mic"
+    class:rc-mic--textarea={micTextarea}
+    disabled
+    aria-label="Transcribing…"
+  ><SpinnerGapIcon size={14} class="animate-spin" /></button>
+{:else if showMic}
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
+    type="button"
+    class="rc-mic"
+    class:rc-mic--textarea={micTextarea}
+    {disabled}
+    onmousedown={(e) => e.preventDefault()}
+    onclick={onToggle}
+    aria-label="Voice input"
+    style={progressPct !== null
+      ? `background:conic-gradient(var(--solus-accent) ${progressPct * 3.6}deg, transparent 0deg)`
+      : undefined}
+  ><MicrophoneIcon size={14} /></button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={idleTooltip} />
+  </TooltipUI.Root>
+{/if}
+
+<style>
+  /* field variant: absolute overlay row shown while recording, positioned
+     against the host's relative .inp-mic-wrap. */
+  .rc-row {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0 0.375rem;
+    overflow: hidden;
+  }
+  .rc-waveform {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+  }
+
+  /* field action buttons (X / ✓) shown while recording */
+  .rc-action-btn {
+    flex-shrink: 0;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium);
+  }
+  .rc-action-btn:hover {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .rc-action-btn--confirm {
+    background: var(--solus-accent);
+    color: var(--solus-text-on-accent);
+  }
+  .rc-action-btn--confirm:hover {
+    opacity: 0.88;
+  }
+
+  /* field idle / transcribing mic button */
+  .rc-mic {
+    position: absolute;
+    right: 0.25rem;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.5rem;
+    height: 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    background: transparent;
+    color: var(--solus-mic-color);
+    cursor: pointer;
+    transition:
+      background var(--duration-base) var(--ease-premium),
+      color var(--duration-base) var(--ease-premium);
+  }
+  /* A textarea grows as you type, so centring on the box drags the mic down the
+     field. Centre it on the first line instead: `--rc-mic-line-center` is the
+     distance from the field's top edge to that line's middle, and the default
+     matches the stock textarea's `py-2` + `leading-4`. A field that changes its
+     padding or leading sets the variable on any ancestor. */
+  .rc-mic--textarea {
+    top: var(--rc-mic-line-center, 1rem);
+  }
+  .rc-mic:hover:not(:disabled) {
+    background: var(--solus-mic-bg);
+  }
+  .rc-mic:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+</style>

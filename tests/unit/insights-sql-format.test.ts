@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { formatGeneratedSql } from '../../src/renderer/components/insights/lib/sql-format'
+import { formatGeneratedSql } from '@solus/workspace-ui/components/insights/lib/sql-format'
 
 describe('Insights generated SQL formatting', () => {
   test('formats an NL-generated statement before it enters the editor', () => {

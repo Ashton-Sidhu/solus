@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import type { PullRequestSummary } from '../../src/shared/providers'
-import { attachReviewAttention } from '../../src/main/server/handlers/review-attention'
-import { needsReviewSearchTerms } from '../../src/main/providers/github/provider'
+import type { PullRequestSummary } from '@solus/contracts/providers'
+import { attachReviewAttention } from '@solus/server/server/handlers/review-attention'
+import { needsReviewSearchTerms } from '@solus/server/providers/github/provider'
 
 function pr(overrides: Partial<PullRequestSummary> = {}): PullRequestSummary {
   return {

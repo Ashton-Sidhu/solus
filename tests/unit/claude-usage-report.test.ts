@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { parseClaudeUsageReport } from '../../src/main/agents/claude/claude-usage'
+import { parseClaudeUsageReport } from '@solus/server/agents/claude/claude-usage'
 
 // Verbatim `claude -p "/usage" --output-format json` result text. The trailing
 // breakdown and the per-model week line are what make position-based parsing

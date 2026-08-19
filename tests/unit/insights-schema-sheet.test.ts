@@ -2,10 +2,10 @@ import { describe, expect, test } from 'bun:test'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { enumeratedValues } from '../../src/renderer/components/insights/lib/schema-model'
+import { enumeratedValues } from '@solus/workspace-ui/components/insights/lib/schema-model'
 
 const SHEET = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/insights/SchemaSheet.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/SchemaSheet.svelte'),
   'utf8',
 )
 

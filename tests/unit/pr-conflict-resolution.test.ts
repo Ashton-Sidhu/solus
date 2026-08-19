@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildConflictResolutionPrompt } from '../../src/renderer/lib/pr-conflict-resolution'
+import { buildConflictResolutionPrompt } from '@solus/workspace-ui/lib/pr-conflict-resolution'
 
 describe('individual PR conflict resolution', () => {
   test('hands the resolver the prepared merge and leaves final PR merging to the user', () => {

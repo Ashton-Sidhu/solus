@@ -4,7 +4,7 @@ import {
   isolateFileCommentEvents,
   rangeFromRemappedAnchor,
   selectedTextForFileRange,
-} from '../../src/renderer/components/artifact/lib/file-comments'
+} from '@solus/workspace-ui/components/artifact/lib/file-comments'
 
 describe('file editor comments', () => {
   test('captures the current inclusive line range for agent context', () => {

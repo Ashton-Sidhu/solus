@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { DIFFS_THEME_CSS } from '../../src/renderer/lib/diffTheme'
+import { DIFFS_THEME_CSS } from '@solus/workspace-ui/lib/diffTheme'
 
 /**
  * ADR-0013 — type is declared on a *surface* and inherited, from one of two
@@ -21,7 +21,7 @@ import { DIFFS_THEME_CSS } from '../../src/renderer/lib/diffTheme'
 
 const roots = [
   join(import.meta.dir, '../../src/renderer'),
-  join(import.meta.dir, '../../client/src'),
+  join(import.meta.dir, '../../apps/client/src'),
 ]
 
 /**
@@ -88,7 +88,7 @@ const pending: string[] = JSON.parse(
 )
 const PENDING = new Set(pending)
 const repoPath = (path: string) =>
-  `${path.includes('/client/src/') ? 'client/src' : 'src/renderer'}/${sourcePath(path)}`
+  `${path.includes('/apps/client/src/') ? 'apps/client/src' : 'packages/workspace-ui/src'}/${sourcePath(path)}`
 
 function* sourceFiles(dir: string): Generator<string> {
   for (const entry of readdirSync(dir)) {

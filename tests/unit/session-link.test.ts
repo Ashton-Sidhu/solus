@@ -3,8 +3,8 @@ import {
   parseSessionHref,
   resolveSessionLinkMeta,
   type SessionLinkParams,
-} from "../../src/renderer/components/conversation/lib/session-link";
-import type { SessionMeta } from "../../src/shared/types";
+} from "@solus/workspace-ui/components/conversation/lib/session-link";
+import type { SessionMeta } from "@solus/contracts/types";
 
 const params: SessionLinkParams = {
   provider: "codex",

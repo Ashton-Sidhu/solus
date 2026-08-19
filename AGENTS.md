@@ -56,7 +56,7 @@ Solus has three primary client surfaces:
 
 - **Desktop** — the macOS Electron app, including native window behavior, tray and global
   shortcuts, local IPC, and the ability to host the server.
-- **Web** — the standalone client in `client/`, served by the headless Solus server and
+- **Web** — the standalone client in `apps/client/`, served by the headless Solus server and
   connected through WebSockets.
 - **Mobile** — the iOS and Android client for controlling agent work remotely from a
   phone or tablet.
@@ -204,7 +204,7 @@ applied:
   Provider-shaped features need an explicit decision for each backend, even when the
   decision is “unsupported.”
 - **Contracts.** Data crossing a process or network boundary is declared in
-  `src/shared/rpc.ts` and shared types. Update the server handler, preload bridge, clients,
+  `packages/contracts/src/rpc.ts` and shared types. Update the server handler, preload bridge, clients,
   and event topic together.
 - **Reverse states.** If you add a way in, add the way out and a way to see the current
   state. Pause needs resume; pin needs unpin; open needs close or restore.
@@ -259,7 +259,7 @@ applied:
   Do not hide them in TypeScript constants or CSS variables merely to shorten markup.
   Extract only when the choice is real component state or shared by unrelated importers.
 - Colocate feature utilities under that feature's `lib/`. Only cross-feature utilities
-  belong in `src/renderer/lib/`.
+  belong in `packages/workspace-ui/src/lib/`.
 - Flag files over 600 lines during review. Files over 1000 lines must be split.
 - Use `SvelteMap` and `SvelteSet` for reactive maps and sets.
 - Use `$effect` only when `$derived` genuinely cannot express the relationship.
@@ -437,9 +437,10 @@ client shell
   → native bridge or browser equivalent
 ```
 
-The desktop preload in `src/preload/index.ts` exposes the renderer-safe API. RPC methods
-and topics are declared in `src/shared/rpc.ts`. `src/main/server/server.ts` routes requests
-to one handler per domain under `src/main/server/handlers/`. The `ControlPlane` owns
+The desktop preload in `apps/desktop/src/preload/index.ts` exposes the renderer-safe API.
+RPC methods and topics are declared in `packages/contracts/src/rpc.ts`.
+`packages/server/src/server/server.ts` routes requests to one handler per domain under
+`packages/server/src/server/handlers/`. The `ControlPlane` owns
 session and tab orchestration; focused managers own git, runs, tasks, automations, works,
 reviews, and other domains.
 
@@ -457,30 +458,17 @@ API-widening casts.
 **Read this before searching.** Locate the feature or region, open the named files, then
 use a narrow Grep.
 
-### `src/main/` — Electron main process and backend
+### `apps/` — deployable entries
 
 | Path | Owns |
 |---|---|
-| `index.ts` | App bootstrap, windows, tray, global shortcuts, and custom protocols |
-| `control-plane.ts` | Central session orchestrator, prompt dispatch, and event normalization; large and performance-sensitive. Keyed by Solus's `sessionId` throughout — it has never heard of a tab, and publishes to the clients watching a session |
-| `agents/` | Agent backends under `claude/` and `codex/`, backend registry, run input, and text generation |
-| `server/` | HTTP/WebSocket server plus one file per domain under `handlers/` |
-| `transports/` | Electron IPC and WebSocket RPC transports |
-| `git/` | Worktrees, status, snapshots, watcher, and PR drafts |
-| `run/` | Development process management for the Run feature |
-| `review/` | Review guide producer, ledger, and review agent |
-| `tasks/` | Local-first task store, agent tools, and the GitHub upstream provider |
-| `automations/` | Saved automations, scheduler, runner, store, and tools |
-| `folio/` | Works: documents, slides, diagrams, annotations, and related tools |
-| `plans/` | Plan-mode annotations and state |
-| `skills/` | Skills CLI integration and provider |
-| `sessions/` | Pinned sessions and session tools |
-| `project-config/` | Per-project configuration and project manifests |
-| `providers/` | Git host providers, currently including GitHub |
-| `google/` | Google OAuth and Drive integration |
-| `platform/` | Platform-specific paths and host behavior |
+| `apps/desktop/` | Electron main, preload, desktop renderer bootstrap, native windows, tray, shortcuts, and optional file handlers |
+| `apps/standalone-server/` | Headless server process entry |
+| `apps/client/` | Standalone web and mobile-responsive client shell, service worker, and demo |
+| `apps/site/` | SvelteKit and Cloudflare site |
+| `apps/cli/` | Installed command-line process |
 
-### `src/shared/` — contracts shared across processes
+### `packages/contracts/src/` — contracts shared across processes
 
 - `types.ts` — broad shared domain surface.
 - `rpc.ts` — RPC method and event-topic registry.
@@ -489,9 +477,25 @@ use a narrow Grep.
 - `diagram-*.ts` — diagram domain contracts and helpers.
 - `model-profiles.json` — supported model profiles.
 
-### `src/renderer/` — Svelte 5 desktop renderer
+### `packages/server/src/` — server and backend
 
-- **Entry:** `App.svelte`, `main.ts`.
+- `control-plane.ts` — central session orchestrator, prompt dispatch, and event normalization.
+- `agents/` — Claude and Codex adapters, normalization, permissions, and tools.
+- `server/` and `transports/` — RPC handlers and network transports.
+- `git/`, `review/`, `tasks/`, `automations/`, `folio/`, `plans/`, `skills/`,
+  `sessions/`, `project-config/`, `providers/`, and `google/` — focused domains.
+- `platform/` — injected host paths, opener, secrets, and operating-system behavior.
+
+### `packages/client-core/src/` — transport-neutral client core
+
+- Host connections, WebSocket transport, capabilities, pairing, registry, and
+  session caches.
+- `local-api.ts` owns client-local capabilities. It does not call Electron.
+
+### `packages/workspace-ui/src/` — Svelte 5 workspace UI
+
+- **Entry:** `App.svelte`. Desktop bootstrap is in `apps/desktop/src/renderer/main.ts`;
+  the web client bootstrap is in `apps/client/src/main.ts`.
 - **`contexts/`:** state stores and contexts.
   - `workspace.context.svelte.ts` — core tab/session workspace state; large and
     performance-sensitive.
@@ -502,7 +506,7 @@ use a narrow Grep.
   changed files, context usage, and input focus.
 - **`hooks/`:** renderer integration hooks such as `agentEvents.svelte.ts`.
 
-### `src/renderer/components/<feature>/`
+### `packages/workspace-ui/src/components/<feature>/`
 
 | Feature | Owns |
 |---|---|
@@ -524,8 +528,6 @@ use a narrow Grep.
 
 ### Other top-level regions
 
-- `client/` — standalone web client and Vite build.
-- `src/preload/index.ts` — desktop renderer RPC bridge.
 - `tests/unit/` — focused behavior tests.
 - `tests/e2e/` — integrated Playwright setup and tests.
 - `scripts/` — build, packaging, generation, and development utilities.

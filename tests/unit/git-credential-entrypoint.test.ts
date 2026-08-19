@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { extractGitCredentialAction } from '../../src/shared/entrypoint'
+import { extractGitCredentialAction } from '@solus/contracts/entrypoint'
 
 type Action = 'get' | 'store' | 'erase'
 

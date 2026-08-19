@@ -6,7 +6,7 @@ import {
   completedSectionExpanded,
   projectNote,
   statusColor,
-} from '../../src/renderer/components/conversation/lib/session-breadcrumb'
+} from '@solus/workspace-ui/components/conversation/lib/session-breadcrumb'
 
 describe('breadcrumbTaskGroups', () => {
   it('puts unfinished work before completed work without changing either order', () => {

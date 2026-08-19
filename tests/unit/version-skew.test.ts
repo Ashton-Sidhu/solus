@@ -5,7 +5,7 @@ import {
   isSkewDismissed,
   skewDismissalKey,
   versionSkewNotice,
-} from '../../src/client-core/version-skew'
+} from '@solus/client-core/version-skew'
 
 const previousLocalStorage = globalThis.localStorage
 const store = new Map<string, string>()

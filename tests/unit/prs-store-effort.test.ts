@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
-import type { PullRequestDetail, PullRequestSummary } from '../../src/shared/providers'
-import type { IpcContext } from '../../src/shared/types'
+import type { PullRequestDetail, PullRequestSummary } from '@solus/contracts/providers'
+import type { IpcContext } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const serverConnectionsMock = singleHostServerConnections()
-mock.module('@client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: serverConnectionsMock,
 }))
 
@@ -87,7 +87,7 @@ describe('PR list effort metadata', () => {
         effort: { band: 'involved', minutes: 60, signals: ['large'] },
       }]
     })
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
 
     await store.loadAll(api(), serverId, ctx)
@@ -117,7 +117,7 @@ describe('PR list effort metadata', () => {
             effort: { band: 'quick', minutes: 4, signals: ['tiny'] },
           }]
     })
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
 
     await store.loadAll(api(), serverId, ctx)
@@ -147,7 +147,7 @@ describe('PR list effort metadata', () => {
         },
       },
     })
-    const { PR_CACHE_MAX_ENTRIES, PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const { PR_CACHE_MAX_ENTRIES, PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
 
     for (let index = 0; index <= PR_CACHE_MAX_ENTRIES; index++) {
@@ -183,7 +183,7 @@ describe('PR list effort metadata', () => {
         },
       },
     })
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
     await store.loadAll(api(), serverId, ctx)
 
@@ -214,7 +214,7 @@ describe('PR list effort metadata', () => {
     serverConnectionsMock.registerHost('host-b', {
       prGetDetail: async () => ({ number: 33, title: `Host B ${++hostBCalls}` }),
     })
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
 
     const hostA = await store.loadDetail(serverConnectionsMock.apiFor('host-a'), 'host-a', ctx, 33)
@@ -256,7 +256,7 @@ describe('PR list effort metadata', () => {
       writable: true,
       value: { visibilityState: 'hidden' },
     })
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
     const hostAApi = serverConnectionsMock.apiFor('host-a')
     const hostBApi = serverConnectionsMock.apiFor('host-b')
@@ -280,7 +280,7 @@ describe('PR mutation results', () => {
     // later cache hit must not restore the old draft value.
     installStateRune()
     installWindow(async () => [])
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
     await store.loadAll(api(), serverId, ctx)
     const unsubscribe = store.subscribeLifecycleChanges()
@@ -368,7 +368,7 @@ describe('PR mutation results', () => {
       },
       prUpdateLifecycle: async () => detail,
     })
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
     await store.loadAll(api(), serverId, ctx)
 

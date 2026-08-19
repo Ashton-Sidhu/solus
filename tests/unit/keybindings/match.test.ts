@@ -6,8 +6,8 @@ import {
   comboFromEvent,
   comboEquals,
   comboToAccelerator,
-} from '../../../src/renderer/lib/keybindings/match'
-import type { BindingDef, KeyCombo } from '../../../src/renderer/lib/keybindings/types'
+} from '@solus/workspace-ui/lib/keybindings/match'
+import type { BindingDef, KeyCombo } from '@solus/workspace-ui/lib/keybindings/types'
 
 // In the bun runtime navigator.platform is "MacIntel" (isMac === true) and there
 // is no `document` (IS_WEB === false). The assertions below are written against

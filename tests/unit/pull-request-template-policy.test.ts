@@ -10,7 +10,7 @@ describe('pull-request template policy', () => {
       import { mock } from 'bun:test'
 
       const calls = []
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         runAsync: async (_bin, args) => {
           calls.push(args)
           if (args[0] === 'show') return '## Repository template'
@@ -20,7 +20,7 @@ describe('pull-request template policy', () => {
       }))
 
       const { readPullRequestAuthoringContext } = await import(
-        './src/main/git/pull-request-authoring'
+        './packages/server/src/git/pull-request-authoring'
       )
       const context = await readPullRequestAuthoringContext(
         '/tmp/repo',

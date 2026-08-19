@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Message, Session, Tab, UsageData } from '../../src/shared/types'
+import type { Message, Session, Tab, UsageData } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -10,7 +10,7 @@ afterEach(() => {
 
 async function createReducer() {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  const { SessionEventReducer } = await import('../../src/renderer/contexts/workspace/session-event-reducer.svelte')
+  const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
   const parent: Message = {
     id: 'parent-message',
     role: 'tool',
@@ -230,7 +230,7 @@ const taskCompleteEvent = () => ({
 
 async function createNotifyReducer() {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  const { SessionEventReducer } = await import('../../src/renderer/contexts/workspace/session-event-reducer.svelte')
+  const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
   const session = {
     status: 'running',
     messages: [],

@@ -3,11 +3,11 @@ import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
 const bootstrapSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/contexts/workspace/session-bootstrap.ts'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/contexts/workspace/session-bootstrap.ts'),
   'utf8',
 )
 const workspaceSource = readFileSync(
-  join(import.meta.dir, '../../src/renderer/contexts/workspace/workspace.context.svelte.ts'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts'),
   'utf8',
 )
 

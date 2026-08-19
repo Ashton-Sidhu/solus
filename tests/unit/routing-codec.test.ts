@@ -1,13 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { parseLocation, parseRoute, serializeLocation, serializeRoute } from '../../src/renderer/contexts/workspace/routing/codec'
-import { makePane, type Location } from '../../src/renderer/contexts/workspace/routing/location'
+import { parseLocation, parseRoute, serializeLocation, serializeRoute } from '@solus/workspace-ui/contexts/workspace/routing/codec'
+import { makePane, type Location } from '@solus/workspace-ui/contexts/workspace/routing/location'
 import {
   CHAT_ROUTE,
   ROUTES,
   ROUTE_NAMES,
   serializeRef,
   type RouteRef,
-} from '../../src/renderer/contexts/workspace/routing/route-registry'
+} from '@solus/workspace-ui/contexts/workspace/routing/route-registry'
 
 // One codec serves the address bar, the in-memory history, the persisted
 // snapshot, agent links, and notification payloads — so a route that does not

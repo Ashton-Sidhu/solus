@@ -13,12 +13,12 @@ describe('text-generation model resolution', () => {
       import { join } from 'path'
 
       process.env.SOLUS_DATA_DIR = mkdtempSync(join(tmpdir(), 'solus-model-resolution-'))
-      mock.module('./src/main/cli-env', () => ({
+      mock.module('./packages/server/src/cli-env', () => ({
         getCliPath: () => '/bin',
         findOnPath: (bin) => bin === 'codex' ? '/bin/codex' : null,
       }))
 
-      const settings = await import('./src/main/server/settings')
+      const settings = await import('./packages/server/src/server/settings')
       settings.setTextGenerationSettings({
         textGenerationModel: { provider: 'codex', model: 'gpt-5.5' },
         sourceControlWriterModel: { provider: 'claude-code', model: 'claude-sonnet-5' },
@@ -55,12 +55,12 @@ describe('text-generation model resolution', () => {
       import { join } from 'path'
 
       process.env.SOLUS_DATA_DIR = mkdtempSync(join(tmpdir(), 'solus-model-resolution-'))
-      mock.module('./src/main/cli-env', () => ({
+      mock.module('./packages/server/src/cli-env', () => ({
         getCliPath: () => '/bin',
         findOnPath: (bin) => bin === 'claude' ? '/bin/claude' : null,
       }))
 
-      const settings = await import('./src/main/server/settings')
+      const settings = await import('./packages/server/src/server/settings')
       settings.setTextGenerationSettings({
         textGenerationModel: { provider: 'codex', model: 'gpt-5.5' },
         backupTextGenerationModel: { provider: 'claude-code', model: 'claude-haiku-4-5-20251001' },

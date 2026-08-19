@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { taskSnoozeAnchorTarget } from "../../src/renderer/components/session/lib/task-snooze";
+import { taskSnoozeAnchorTarget } from "@solus/workspace-ui/components/session/lib/task-snooze";
 
 const dom = new JSDOM("<button id=\"snooze\"></button>");
 Object.assign(globalThis, {

@@ -3,15 +3,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import { formatAnswer, questionKey } from '../../src/shared/question-answer'
-import type { AgentConversationUpdate, NormalizedEvent, QuestionItem, SessionMeta } from '../../src/shared/types'
+import { formatAnswer, questionKey } from '@solus/contracts/question-answer'
+import type { AgentConversationUpdate, NormalizedEvent, QuestionItem, SessionMeta } from '@solus/contracts/types'
 
 // The SUT reaches the plan-annotation store, which imports node:sqlite (absent
 // under Bun's test runtime). Shim before dynamically importing it.
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type ReviewToolsModule = typeof import('../../src/main/sessions/session-review-tools')
-type SessionToolsModule = typeof import('../../src/main/sessions/session-tools')
+type ReviewToolsModule = typeof import('@solus/server/sessions/session-review-tools')
+type SessionToolsModule = typeof import('@solus/server/sessions/session-tools')
 let reviewTools: ReviewToolsModule
 let sessionTools: SessionToolsModule
 let closeDb: () => void
@@ -32,9 +32,9 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-answer-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  reviewTools = await import('../../src/main/sessions/session-review-tools')
-  sessionTools = await import('../../src/main/sessions/session-tools')
-  ;({ closeDb } = await import('../../src/main/db'))
+  reviewTools = await import('@solus/server/sessions/session-review-tools')
+  sessionTools = await import('@solus/server/sessions/session-tools')
+  ;({ closeDb } = await import('@solus/server/db'))
 })
 afterAll(() => {
   closeDb?.()

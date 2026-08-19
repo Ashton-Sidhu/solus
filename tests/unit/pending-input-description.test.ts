@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { describePendingInput } from '../../src/main/sessions/pending-input'
-import type { NormalizedEvent } from '../../src/shared/types'
+import { describePendingInput } from '@solus/server/sessions/pending-input'
+import type { NormalizedEvent } from '@solus/contracts/types'
 
 /**
  * The one structural read of a peer's pause. Everything that differs between

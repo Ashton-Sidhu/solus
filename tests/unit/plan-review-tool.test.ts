@@ -3,13 +3,13 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { AgentConversationUpdate, NormalizedEvent, PermissionOption, SessionMeta } from '../../src/shared/types'
+import type { AgentConversationUpdate, NormalizedEvent, PermissionOption, SessionMeta } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type ReviewToolsModule = typeof import('../../src/main/sessions/session-review-tools')
-type SessionToolsModule = typeof import('../../src/main/sessions/session-tools')
-type AnnotationsModule = typeof import('../../src/main/plans/annotations')
+type ReviewToolsModule = typeof import('@solus/server/sessions/session-review-tools')
+type SessionToolsModule = typeof import('@solus/server/sessions/session-tools')
+type AnnotationsModule = typeof import('@solus/server/plans/annotations')
 let reviewTools: ReviewToolsModule
 let sessionTools: SessionToolsModule
 let annotations: AnnotationsModule
@@ -35,10 +35,10 @@ let dataDir: string
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-plan-review-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  reviewTools = await import('../../src/main/sessions/session-review-tools')
-  sessionTools = await import('../../src/main/sessions/session-tools')
-  annotations = await import('../../src/main/plans/annotations')
-  ;({ closeDb } = await import('../../src/main/db'))
+  reviewTools = await import('@solus/server/sessions/session-review-tools')
+  sessionTools = await import('@solus/server/sessions/session-tools')
+  annotations = await import('@solus/server/plans/annotations')
+  ;({ closeDb } = await import('@solus/server/db'))
 })
 afterAll(() => {
   closeDb?.()

@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test'
-import { applyLayout, reapplyLayout } from '../../../src/shared/diagram-layout'
-import type { DiagramDoc } from '../../../src/shared/diagram-types'
+import { applyLayout, reapplyLayout } from '@solus/contracts/diagram-layout'
+import type { DiagramDoc } from '@solus/contracts/diagram-types'
 
 const DOC_NO_POSITIONS: DiagramDoc = {
   nodes: [

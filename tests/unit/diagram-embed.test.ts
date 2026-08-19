@@ -3,7 +3,7 @@ import {
   findDiagramEmbeds,
   parseDiagramEmbed,
   serializeDiagramEmbed,
-} from '../../src/shared/diagram-embed'
+} from '@solus/contracts/diagram-embed'
 
 describe('diagram embed references', () => {
   test('round-trips the canonical markdown token', () => {

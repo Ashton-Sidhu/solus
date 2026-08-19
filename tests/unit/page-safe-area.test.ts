@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
-const renderer = join(import.meta.dir, '../../src/renderer')
+const renderer = join(import.meta.dir, '../../packages/workspace-ui/src')
 const paneSource = readFileSync(join(renderer, 'components/ui/Pane.svelte'), 'utf8')
 const workspaceSource = readFileSync(
   join(renderer, 'components/layout/WorkspaceBody.svelte'),

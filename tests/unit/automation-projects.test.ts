@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Automation } from '../../src/shared/types'
-import { automationProject, automationProjects } from '../../src/renderer/components/automations/lib/automation-projects'
+import type { Automation } from '@solus/contracts/types'
+import { automationProject, automationProjects } from '@solus/workspace-ui/components/automations/lib/automation-projects'
 
 function automation(id: string, cwd: string): Automation {
   return {

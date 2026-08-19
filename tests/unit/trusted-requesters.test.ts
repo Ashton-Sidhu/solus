@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { isPrivateLanAddress, isTrustedRequesterAddress } from '../../src/main/server/trusted-requesters'
+import { isPrivateLanAddress, isTrustedRequesterAddress } from '@solus/server/server/trusted-requesters'
 
 // Per-requester trust is what lets the served web client connect to its own
 // origin without a pairing code even on a require-auth bind. Loopback is the

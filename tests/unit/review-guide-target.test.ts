@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { ReviewContext } from '../../src/shared/review'
-import { guideKeyFor } from '../../src/main/review/review-target'
+import type { ReviewContext } from '@solus/contracts/review'
+import { guideKeyFor } from '@solus/server/review/review-target'
 
 const review: ReviewContext = {
   key: 'main-deadbeef',

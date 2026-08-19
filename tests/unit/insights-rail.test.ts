@@ -3,12 +3,12 @@ import {
   railIndexOf,
   railItemsFromEvents,
   railItemsFromTurns,
-} from '../../src/renderer/components/insights/lib/rail'
+} from '@solus/workspace-ui/components/insights/lib/rail'
 import type {
   EventColumn,
   EventRow,
-} from '../../src/renderer/components/insights/lib/result-shape'
-import type { TurnRow } from '../../src/renderer/components/insights/lib/turn-rows'
+} from '@solus/workspace-ui/components/insights/lib/result-shape'
+import type { TurnRow } from '@solus/workspace-ui/components/insights/lib/turn-rows'
 
 // The rail is the list that stays beside an open turn. Its items must carry the
 // drill identity the panel navigates by — the trace, and the span when the

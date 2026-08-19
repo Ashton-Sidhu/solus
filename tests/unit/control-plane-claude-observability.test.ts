@@ -4,15 +4,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { AgentBackend, PermissionResponder, RunHandle } from '../../src/main/agents/agent-backend'
-import type { AgentRunRequest } from '../../src/main/agents/agent-runner'
-import type { AgentMetadata, NormalizedEvent, SessionRunInput } from '../../src/shared/types'
+import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
+import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
+import type { AgentMetadata, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type ControlPlaneModule = typeof import('../../src/main/control-plane')
-type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
-type DbModule = typeof import('../../src/main/db')
+type ControlPlaneModule = typeof import('@solus/server/control-plane')
+type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
+type DbModule = typeof import('@solus/server/db')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -23,9 +23,9 @@ let db: DbModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-claude-observability-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  controlPlaneModule = await import('../../src/main/control-plane')
-  metricsDb = await import('../../src/main/observability/metrics-db')
-  db = await import('../../src/main/db')
+  controlPlaneModule = await import('@solus/server/control-plane')
+  metricsDb = await import('@solus/server/observability/metrics-db')
+  db = await import('@solus/server/db')
 })
 
 afterEach(() => {

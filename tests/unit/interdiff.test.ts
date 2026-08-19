@@ -7,10 +7,10 @@ import {
   anchorReviewThreads,
   checkpointState,
   comparePatchSets,
-} from '../../src/main/git/interdiff'
-import { readReviewCheckpoint, writeReviewCheckpoint } from '../../src/main/review/checkpoints'
-import type { ReviewThread } from '../../src/shared/providers'
-import type { InterdiffHunk, ReviewCheckpoint } from '../../src/shared/git-types'
+} from '@solus/server/git/interdiff'
+import { readReviewCheckpoint, writeReviewCheckpoint } from '@solus/server/review/checkpoints'
+import type { ReviewThread } from '@solus/contracts/providers'
+import type { InterdiffHunk, ReviewCheckpoint } from '@solus/contracts/git-types'
 
 function patch(filePath: string, index: string, hunk: string): string {
   return [

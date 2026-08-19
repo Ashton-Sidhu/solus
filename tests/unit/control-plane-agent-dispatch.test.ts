@@ -1,16 +1,16 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import { EventEmitter } from 'node:events'
-import type { AgentRunRequest } from '../../src/main/agents/agent-runner'
-import type { RunHandle } from '../../src/main/agents/agent-backend'
-import type { AgentBackend } from '../../src/main/agents/agent-backend'
+import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
+import type { RunHandle } from '@solus/server/agents/agent-backend'
+import type { AgentBackend } from '@solus/server/agents/agent-backend'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-let ControlPlane: typeof import('../../src/main/control-plane')['ControlPlane']
+let ControlPlane: typeof import('@solus/server/control-plane')['ControlPlane']
 
 beforeAll(async () => {
-  ;({ ControlPlane } = await import('../../src/main/control-plane'))
+  ;({ ControlPlane } = await import('@solus/server/control-plane'))
 })
 
 function backend() {

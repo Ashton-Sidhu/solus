@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { endCellsFor, measureTableGrips } from '../../src/renderer/components/editor/lib/table-grips'
+import { endCellsFor, measureTableGrips } from '@solus/workspace-ui/components/editor/lib/table-grips'
 
 // Grips are measured off the rendered table, never computed from the document:
 // a table with dragged column widths, or one scrolled sideways inside its

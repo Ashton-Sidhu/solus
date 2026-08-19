@@ -1,12 +1,12 @@
 import { describe, expect, test } from 'bun:test'
-import { parseCommentText, parseInline } from '../../src/renderer/components/comments/lib/comment-text'
+import { parseCommentText, parseInline } from '@solus/workspace-ui/components/comments/lib/comment-text'
 import {
   isUnread,
   showsAuthor,
   visibleReplies,
-} from '../../src/renderer/components/comments/lib/thread'
-import { threadTime } from '../../src/renderer/lib/relative-time'
-import type { PlanComment } from '../../src/shared/types'
+} from '@solus/workspace-ui/components/comments/lib/thread'
+import { threadTime } from '@solus/workspace-ui/lib/relative-time'
+import type { PlanComment } from '@solus/contracts/types'
 
 // Comment prose is deliberately poorer than the document's. A thread that can
 // grow headings and tables stops being a margin note, so the tokenizer is an

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { MetricsQueryResult } from '../../src/shared/observability-types'
+import type { MetricsQueryResult } from '@solus/contracts/observability-types'
 import {
   countByStatus,
   groupBySession,
@@ -9,7 +9,7 @@ import {
   toTurnRows,
   withStatus,
   type TurnRow,
-} from '../../src/renderer/components/insights/lib/turn-rows'
+} from '@solus/workspace-ui/components/insights/lib/turn-rows'
 import {
   bucketPoints,
   pointExtent,
@@ -19,7 +19,7 @@ import {
   volumeWindow,
   withinSelection,
   VOLUME_BUCKETS,
-} from '../../src/renderer/components/insights/lib/volume'
+} from '@solus/workspace-ui/components/insights/lib/volume'
 
 // The console runs whatever SQL the user wrote, so the explore page cannot
 // assume a shape. These tests encode the rule that decides between the rich

@@ -16,11 +16,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execSync } from 'node:child_process'
 
-import type { Message, Session } from '../../src/shared/types'
-import { computeCurrentActivity } from '../../src/renderer/contexts/workspace/session.utils'
-import { turnDurationMs, type Turn } from '../../src/renderer/components/conversation/lib/turns'
-import * as activitySummary from '../../src/renderer/components/conversation/lib/activity-summary'
-import { scanCodexThreadActivityTimestamp } from '../../src/main/agents/codex/codex-utils'
+import type { Message, Session } from '@solus/contracts/types'
+import { computeCurrentActivity } from '@solus/workspace-ui/contexts/workspace/session.utils'
+import { turnDurationMs, type Turn } from '@solus/workspace-ui/components/conversation/lib/turns'
+import * as activitySummary from '@solus/workspace-ui/components/conversation/lib/activity-summary'
+import { scanCodexThreadActivityTimestamp } from '@solus/server/agents/codex/codex-utils'
 
 // ---------------------------------------------------------------------------
 // harness
@@ -404,7 +404,7 @@ await benchCodexScan()
 
 async function benchLowlight(): Promise<void> {
   const { createLowlight, common } = await import('lowlight')
-  const curated = await import('../../src/renderer/lib/lowlight')
+  const curated = await import('@solus/workspace-ui/lib/lowlight')
   const registered = curated.lowlight.listLanguages().length
   const commonCount = Object.keys(common).length
   const names = ['bash', 'c', 'cpp', 'css', 'go', 'java', 'javascript', 'json', 'markdown', 'python', 'rust', 'shell', 'sql', 'typescript', 'xml', 'yaml']

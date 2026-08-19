@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Task, TaskStatus } from '../../src/shared/task-types'
+import type { Task, TaskStatus } from '@solus/contracts/task-types'
 import {
   OPEN_TASK_STATUS_KEYS,
   TASK_STATUS_GROUPS,
@@ -7,7 +7,7 @@ import {
   taskInboxGroups,
   taskRow,
   taskStatusesFor,
-} from '../../src/renderer/components/tasks/lib/tasks-list-view'
+} from '@solus/workspace-ui/components/tasks/lib/tasks-list-view'
 
 const NOW = Date.parse('2026-08-04T13:00:00Z')
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { StackGraph } from '../../src/shared/stack-types'
-import { groupStackedPrRows, stackChainFor } from '../../src/renderer/components/prs/lib/stack-grouping'
+import type { StackGraph } from '@solus/contracts/stack-types'
+import { groupStackedPrRows, stackChainFor } from '@solus/workspace-ui/components/prs/lib/stack-grouping'
 
 function graph(edges: StackGraph['edges']): StackGraph {
   return { edges, headShas: {}, detectedAt: '2026-01-01T00:00:00.000Z' }

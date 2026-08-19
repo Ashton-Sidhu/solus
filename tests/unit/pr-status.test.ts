@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   statusDotColor,
   statusPillColors,
-} from '../../src/renderer/components/pr-review/lib/pr-status'
+} from '@solus/workspace-ui/components/pr-review/lib/pr-status'
 
 describe('pull request lifecycle tones', () => {
   test('uses conventional Git host semantics in review surfaces', () => {

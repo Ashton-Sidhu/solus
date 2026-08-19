@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 
-const read = (p: string) => readFileSync(join(import.meta.dir, '../../src/renderer/components/tasks/', p), 'utf8')
+const read = (p: string) => readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src/components/tasks/', p), 'utf8')
 const tasksPage = read('TasksPage.svelte')
 const composer = read('TaskComposer.svelte')
 

@@ -3,9 +3,9 @@ import { Editor } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { JSDOM } from "jsdom";
-import { createMarkdownParser } from "../../src/renderer/components/editor/markdownParser";
-import { DiagramEmbedMarkdownExtension } from "../../src/renderer/components/editor/diagramEmbedExtension";
-import { serializeDiagramEmbed } from "../../src/shared/diagram-embed";
+import { createMarkdownParser } from "@solus/workspace-ui/components/editor/markdownParser";
+import { DiagramEmbedMarkdownExtension } from "@solus/workspace-ui/components/editor/diagramEmbedExtension";
+import { serializeDiagramEmbed } from "@solus/contracts/diagram-embed";
 
 const dom = new JSDOM("<div id=\"editor\"></div>");
 

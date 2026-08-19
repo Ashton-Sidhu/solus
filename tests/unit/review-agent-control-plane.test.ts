@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
-import { runReviewAgent } from '../../src/main/review/review-agent'
-import type { AgentDispatcher, AgentRun, AgentRunRequest } from '../../src/main/agents/agent-runner'
-import type { AgentToolContext } from '../../src/main/agents/tools/agent-tool'
+import { runReviewAgent } from '@solus/server/review/review-agent'
+import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/agents/agent-runner'
+import type { AgentToolContext } from '@solus/server/agents/tools/agent-tool'
 
 const guide = {
   title: 'Unified runner',

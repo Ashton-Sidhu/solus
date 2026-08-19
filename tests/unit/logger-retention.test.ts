@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { serializeLogEntry } from '../../src/main/logger'
+import { serializeLogEntry } from '@solus/server/logger'
 
 describe('logger retention bounds', () => {
   test('serializes large object graphs into a valid byte-bounded NDJSON entry', () => {

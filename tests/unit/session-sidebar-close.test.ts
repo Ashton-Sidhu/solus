@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { SidebarTask } from '../../src/renderer/components/session/lib/task-list'
+import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import {
   SessionSidebarStore,
   type SidebarSessionChild,
-} from '../../src/renderer/contexts/workspace/session-sidebar.store.svelte'
+} from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
 type SidebarStoreHarness = Pick<SessionSidebarStore, 'closeTask' | 'closeChild' | 'closeProject' | 'runningTaskCountIn' | 'renameTask' | 'restoreTask'> & {
   doneTaskIds: Set<string>

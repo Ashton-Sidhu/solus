@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   updateListStatusSelection,
   type ListStatusOption,
-} from '../../src/renderer/components/ui/list-page/list-page'
+} from '@solus/workspace-ui/components/ui/list-page/list-page'
 
 const options: ListStatusOption[] = [
   { value: 'open', label: 'Open', count: 4 },

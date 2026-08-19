@@ -10,7 +10,7 @@ afterAll(() => {
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
 
-const { isStaleBuildError } = await import('../../client/src/lib/stale-build')
+const { isStaleBuildError } = await import('../../apps/client/src/lib/stale-build')
 
 describe('stale build detection', () => {
   test('recognises the module-load failures a rebuilt host produces', () => {

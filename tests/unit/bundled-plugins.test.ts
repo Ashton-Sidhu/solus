@@ -18,8 +18,8 @@ const originalInstallDir = process.env.SOLUS_INSTALL_DIR
 // The plugin module reads the state dir once at import time, so the override
 // has to be in place before it loads.
 process.env.SOLUS_DATA_DIR = dataDir
-const { syncBundledPlugins, PLUGINS_DIR, SOLUS_PLUGINS_DIR } = await import('../../src/main/agents/plugins')
-const { bundledResourcesDir } = await import('../../src/main/platform/paths')
+const { syncBundledPlugins, PLUGINS_DIR, SOLUS_PLUGINS_DIR } = await import('@solus/server/agents/plugins')
+const { bundledResourcesDir } = await import('@solus/server/platform/paths')
 
 describe('bundled plugin sync', () => {
   afterAll(() => {

@@ -3,10 +3,10 @@ import {
   GitHubProvider,
   githubComparedHeadSha,
   githubFilesToUnifiedPatch,
-} from '../../src/main/providers/github/provider'
-import type { GitHubAuth } from '../../src/main/providers/github/auth'
-import type { GitHubClient } from '../../src/main/providers/github/octokit'
-import type { PullRequestDetail, RepoRef } from '../../src/shared/providers'
+} from '@solus/server/providers/github/provider'
+import type { GitHubAuth } from '@solus/server/providers/github/auth'
+import type { GitHubClient } from '@solus/server/providers/github/octokit'
+import type { PullRequestDetail, RepoRef } from '@solus/contracts/providers'
 
 describe('GitHub pull request diff conversion', () => {
   test('reads the compared head without a non-existent head_commit field', () => {

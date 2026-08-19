@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { Session } from '../../src/shared/types'
-import { applySessionTitleChange } from '../../src/renderer/contexts/workspace/session-title-change'
+import type { Session } from '@solus/contracts/types'
+import { applySessionTitleChange } from '@solus/workspace-ui/contexts/workspace/session-title-change'
 
 function workspace() {
   return {

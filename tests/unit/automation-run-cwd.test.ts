@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { automationRunCwd } from '../../src/renderer/components/automations/lib/automation-format'
-import type { AutomationRun } from '../../src/shared/types'
+import { automationRunCwd } from '@solus/workspace-ui/components/automations/lib/automation-format'
+import type { AutomationRun } from '@solus/contracts/types'
 
 function run(overrides: Partial<AutomationRun> = {}): AutomationRun {
   return {

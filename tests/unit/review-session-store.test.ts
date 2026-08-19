@@ -11,7 +11,7 @@ describe('ReviewSessionStore effort totals', () => {
   test('reflects effort that becomes known after the session starts', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewSessionStore } = await import(
-      '../../src/renderer/components/review-mode/review-session.store.svelte'
+      '@solus/workspace-ui/components/review-mode/review-session.store.svelte'
     )
     const minutes = new Map<number, number>()
     const store = new ReviewSessionStore()

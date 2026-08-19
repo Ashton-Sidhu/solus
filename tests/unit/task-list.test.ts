@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test'
-import type { PullRequestSummary } from '../../src/shared/providers'
-import type { Task } from '../../src/shared/task-types'
+import type { PullRequestSummary } from '@solus/contracts/providers'
+import type { Task } from '@solus/contracts/task-types'
 import {
   aggregateReviewGuideStatus,
   buildProjectSummaries,
@@ -25,7 +25,7 @@ import {
   taskStatusFor,
   type SidebarTask,
   type TaskStatus,
-} from '../../src/renderer/components/session/lib/task-list'
+} from '@solus/workspace-ui/components/session/lib/task-list'
 
 describe('sidebar task search', () => {
   const task = (title: string, projectLabel: string): SidebarTask => ({

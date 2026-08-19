@@ -18,7 +18,7 @@ describe('Git action GitHub authentication', () => {
       const events = []
       let submittedBody = ''
       mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
-      mock.module('./src/main/git/exec', () => ({
+      mock.module('./packages/server/src/git/exec', () => ({
         git: () => '',
         runAsync: async (bin, args, _cwd, options = {}) => {
           calls.push({ bin, args, env: options.env })
@@ -37,7 +37,7 @@ describe('Git action GitHub authentication', () => {
           return ''
         },
       }))
-      const { runGitAction } = await import('./src/main/git/git-action-manager')
+      const { runGitAction } = await import('./packages/server/src/git/git-action-manager')
       const dispatchCheckout = '/Users/host/projects/solus-remote/dispatching-device/github.com/solus-sh/solus'
       // Which token this is comes from the checkout — see github-credentials.test.ts.
       const token = 'delegated-token'

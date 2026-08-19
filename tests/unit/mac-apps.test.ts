@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
-import { findAppBundle } from '../../src/main/mac-apps'
+import { findAppBundle } from '@solus/desktop-main/mac-apps'
 
 const describeMac = process.platform === 'darwin' ? describe : describe.skip
 

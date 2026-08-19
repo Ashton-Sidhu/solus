@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import type { DomainSyncState } from '../../src/client-core/freshness'
-import { hostSyncNotes } from '../../src/renderer/components/session/lib/host-sync-notes'
+import type { DomainSyncState } from '@solus/client-core/freshness'
+import { hostSyncNotes } from '@solus/workspace-ui/components/session/lib/host-sync-notes'
 
 const state = (freshness: DomainSyncState['freshness'], error: string | null = null): DomainSyncState =>
   ({ freshness, error })

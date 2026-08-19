@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { actionOrbWouldOverflow } from '../../src/renderer/components/layout/lib/action-orb-layout'
+import { actionOrbWouldOverflow } from '@solus/workspace-ui/components/layout/lib/action-orb-layout'
 
 describe('action orb fit', () => {
   test('collapses labels when the project panel leaves less room than the action row needs', () => {

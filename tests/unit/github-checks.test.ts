@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   normalizePullRequestChecks,
   type GqlChecksPullRequest,
-} from '../../src/main/providers/github/checks'
+} from '@solus/server/providers/github/checks'
 
 function pullRequest(
   nodes: NonNullable<NonNullable<GqlChecksPullRequest['commits']['nodes'][number]>['commit']['statusCheckRollup']>['contexts']['nodes'],

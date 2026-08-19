@@ -1,10 +1,10 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { Session } from '../../src/shared/types'
+import type { Session } from '@solus/contracts/types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connectionCalls: string[] = []
 
-mock.module('@client-core/server-connections', () => ({
+mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     ...singleHostServerConnections(),
     retain: (id: string) => connectionCalls.push(`retain:${id}`),
@@ -16,8 +16,8 @@ mock.module('@client-core/server-connections', () => ({
 const {
   moveTabToHost,
   worktreeBlockedReason,
-} = await import('../../src/renderer/components/servers/run-on')
-const { isDispatch, startsWorktree, withPendingHost } = await import('../../src/renderer/contexts/workspace/run-config')
+} = await import('@solus/workspace-ui/components/servers/run-on')
+const { isDispatch, startsWorktree, withPendingHost } = await import('@solus/workspace-ui/contexts/workspace/run-config')
 
 function workspaceWith(run: Partial<Session['run']>) {
   const built = {

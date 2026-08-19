@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from 'bun:test'
-import type { SolusServerTarget } from '../../src/client-core/server-connection'
-import { installationIdDecision } from '../../src/client-core/server-registry'
-import type { WsTransport } from '../../src/client-core/ws-transport'
+import type { SolusServerTarget } from '@solus/client-core/server-connection'
+import { installationIdDecision } from '@solus/client-core/server-registry'
+import type { WsTransport } from '@solus/client-core/ws-transport'
 import type { SolusAPI } from '../../src/preload'
 
 const startedTransports: string[] = []
@@ -10,7 +10,7 @@ const capabilityLoaders = new Map<string, () => Promise<unknown>>()
 
 // A real transport opens a socket and reads browser lifecycle globals; the
 // behavior under test is only when a connection's side effects run.
-mock.module('../../src/client-core/server-connection', () => ({
+mock.module('@solus/client-core/server-connection', () => ({
   createSolusConnection: (target: SolusServerTarget, options: {
     onStatusChange?: (status: string, attempt: number) => void
   }) => {
@@ -32,7 +32,7 @@ mock.module('../../src/client-core/server-connection', () => ({
   savedServerTarget: (server: { id: string }) => server as SolusServerTarget,
 }))
 
-const { ServerConnections } = await import('../../src/client-core/server-connections')
+const { ServerConnections } = await import('@solus/client-core/server-connections')
 
 const remoteTarget: SolusServerTarget = {
   id: 'remote',

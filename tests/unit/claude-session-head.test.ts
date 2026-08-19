@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import {
   MAX_SESSION_HEAD_BYTES,
   readSessionHeadMeta,
-} from '../../src/main/agents/claude/claude-session-helpers'
+} from '@solus/server/agents/claude/claude-session-helpers'
 
 const tempDirs: string[] = []
 

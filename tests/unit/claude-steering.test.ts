@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import type { NormalizedEvent } from '../../src/shared/types'
+import type { NormalizedEvent } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -17,13 +17,13 @@ mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   })(),
 }))
 
-let ClaudeBackend: typeof import('../../src/main/agents/claude/claude-backend')['ClaudeBackend']
-let ClaudeAgent: typeof import('../../src/main/agents/claude/claude-agent')['ClaudeAgent']
-let TurnInputChannel: typeof import('../../src/main/agents/claude/claude-turn-input')['TurnInputChannel']
+let ClaudeBackend: typeof import('@solus/server/agents/claude/claude-backend')['ClaudeBackend']
+let ClaudeAgent: typeof import('@solus/server/agents/claude/claude-agent')['ClaudeAgent']
+let TurnInputChannel: typeof import('@solus/server/agents/claude/claude-turn-input')['TurnInputChannel']
 beforeAll(async () => {
-  ;({ ClaudeBackend } = await import('../../src/main/agents/claude/claude-backend'))
-  ;({ ClaudeAgent } = await import('../../src/main/agents/claude/claude-agent'))
-  ;({ TurnInputChannel } = await import('../../src/main/agents/claude/claude-turn-input'))
+  ;({ ClaudeBackend } = await import('@solus/server/agents/claude/claude-backend'))
+  ;({ ClaudeAgent } = await import('@solus/server/agents/claude/claude-agent'))
+  ;({ TurnInputChannel } = await import('@solus/server/agents/claude/claude-turn-input'))
 })
 
 const opening = (text: string): SDKUserMessage =>

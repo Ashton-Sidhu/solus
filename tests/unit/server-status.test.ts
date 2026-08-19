@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from 'bun:test'
-import { serverConnections } from '../../src/client-core/server-connections'
+import { serverConnections } from '@solus/client-core/server-connections'
 
 const previousLocalStorage = globalThis.localStorage
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -32,7 +32,7 @@ Object.defineProperty(globalThis, 'localStorage', {
 })
 ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
 
-const { serversStore } = await import('../../src/renderer/contexts/connections/servers.store.svelte')
+const { serversStore } = await import('@solus/workspace-ui/contexts/connections/servers.store.svelte')
 
 // The store is a module singleton shared with other test files (e.g. server
 // removal deletes 'remote' from its in-memory list); re-read this file's

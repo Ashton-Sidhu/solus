@@ -7,11 +7,11 @@ import { ROOT_CONTEXT, trace } from '@opentelemetry/api'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-type SpanTableModule = typeof import('../../src/main/observability/span-table')
-type MetricsDbModule = typeof import('../../src/main/observability/metrics-db')
-type RolloverModule = typeof import('../../src/main/observability/rollover')
-type RegistriesModule = typeof import('../../src/main/observability/registries')
-type TracerModule = typeof import('../../src/main/observability/tracer')
+type SpanTableModule = typeof import('@solus/server/observability/span-table')
+type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
+type RolloverModule = typeof import('@solus/server/observability/rollover')
+type RegistriesModule = typeof import('@solus/server/observability/registries')
+type TracerModule = typeof import('@solus/server/observability/tracer')
 
 interface PersistedSpanRow {
   span_id: string
@@ -43,11 +43,11 @@ let tracer: TracerModule
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-observability-'))
   process.env.SOLUS_DATA_DIR = dataDir
-  spanTable = await import('../../src/main/observability/span-table')
-  metricsDb = await import('../../src/main/observability/metrics-db')
-  rollover = await import('../../src/main/observability/rollover')
-  registries = await import('../../src/main/observability/registries')
-  tracer = await import('../../src/main/observability/tracer')
+  spanTable = await import('@solus/server/observability/span-table')
+  metricsDb = await import('@solus/server/observability/metrics-db')
+  rollover = await import('@solus/server/observability/rollover')
+  registries = await import('@solus/server/observability/registries')
+  tracer = await import('@solus/server/observability/tracer')
 })
 
 afterEach(() => {

@@ -5,10 +5,10 @@ import { mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { Database, type SQLQueryBindings } from 'bun:sqlite'
-import type { ChangedFileStat, GitState, UncommittedFile } from '../src/shared/git-types'
-import type { ReviewGuide } from '../src/shared/review'
-import type { SessionLoadMessage } from '../src/shared/session-history'
-import type { Task, TaskCommentData, TaskSessionLink } from '../src/shared/task-types'
+import type { ChangedFileStat, GitState, UncommittedFile } from '@solus/contracts/git-types'
+import type { ReviewGuide } from '@solus/contracts/review'
+import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { Task, TaskCommentData, TaskSessionLink } from '@solus/contracts/task-types'
 import type {
   Automation,
   AutomationRun,
@@ -18,8 +18,8 @@ import type {
   WorkAnnotations,
   WorkMeta,
   WorkPrevious,
-} from '../src/shared/types'
-import { DEMO_PROJECT, type DemoFixtures } from '../client/src/demo/fixtures/types'
+} from '@solus/contracts/types'
+import { DEMO_PROJECT, type DemoFixtures } from '../apps/client/src/demo/fixtures/types'
 
 const FIXED_NEWEST_TIMESTAMP = Date.parse('2026-01-15T15:00:00.000Z')
 const EMAIL_RE = /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi
@@ -513,7 +513,7 @@ async function main(): Promise<void> {
       sessions, plans, works: await captureWorks(args.workspace, db), pr: await capturePr(args.workspace),
       tasks: captureTasks(args.workspace, db), automations: captureAutomations(args.workspace, db),
       diffs: captureDiffs(args), gitStatus: captureGitStatus(args), replayScript: [],
-      // The browsable project tree is authored in client/src/demo/fixtures/project-files.ts.
+      // The browsable project tree is authored in apps/client/src/demo/fixtures/project-files.ts.
       files: { root: DEMO_PROJECT, files: [], contents: {} },
     }
     const captured = normalizeAndSanitize(fixtures, args.workspace)

@@ -1,16 +1,16 @@
 import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import type { IpcContext } from '../../src/shared/types'
-import type { Provider, RepoRef } from '../../src/main/providers/types'
-import { SolusServer } from '../../src/main/server/server'
-import { ClientEventRegistry } from '../../src/main/events/client-event-registry'
-import { HostEventPublisher } from '../../src/main/events/host-event-publisher'
+import type { IpcContext } from '@solus/contracts/types'
+import type { Provider, RepoRef } from '@solus/server/providers/types'
+import { SolusServer } from '@solus/server/server/server'
+import { ClientEventRegistry } from '@solus/server/events/client-event-registry'
+import { HostEventPublisher } from '@solus/server/events/host-event-publisher'
 
 // The handler's default provider resolver reaches the production database
 // module, which imports node:sqlite (absent under Bun's test runtime).
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
-const { registerChecksHandlers } = await import('../../src/main/server/handlers/checks-handlers')
+const { registerChecksHandlers } = await import('@solus/server/server/handlers/checks-handlers')
 
 afterEach(() => jest.useRealTimers())
 

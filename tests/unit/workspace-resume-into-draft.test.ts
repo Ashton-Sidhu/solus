@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Session, Tab } from '../../src/shared/types'
-import { hasSessionStarted } from '../../src/renderer/lib/sessionUtils'
+import type { Session, Tab } from '@solus/contracts/types'
+import { hasSessionStarted } from '@solus/workspace-ui/lib/sessionUtils'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -40,7 +40,7 @@ afterEach(() => {
 describe('resuming a session into an empty composer', () => {
   test('leaves the tab in the order it was already in, and stops it being a draft', async () => {
     installRendererGlobals()
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
 
     const draftSession = {
       id: 'draft-session',

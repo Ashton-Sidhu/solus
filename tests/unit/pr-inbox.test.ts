@@ -1,14 +1,14 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { PrListPage, PullRequestSummary } from '../../src/shared/providers'
-import type { IpcContext } from '../../src/shared/types'
-import type { StackGraph } from '../../src/shared/stack-types'
-import { asHostApi } from '../../src/client-core/host-api'
+import type { PrListPage, PullRequestSummary } from '@solus/contracts/providers'
+import type { IpcContext } from '@solus/contracts/types'
+import type { StackGraph } from '@solus/contracts/stack-types'
+import { asHostApi } from '@solus/client-core/host-api'
 import {
   flattenQualifiedProjects,
   qualifiedPrKey,
   qualifiedStackParentOf,
   type QualifiedProject,
-} from '../../src/renderer/components/prs/lib/pr-cross-project'
+} from '@solus/workspace-ui/components/prs/lib/pr-cross-project'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -54,8 +54,8 @@ function pr(number: number, overrides: Partial<PullRequestSummary> = {}): PullRe
 describe('PrInboxStore aggregation', () => {
   test('merges every project\'s pull requests into one list', async () => {
     installStateRune()
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
-    const { PrInboxStore } = await import('../../src/renderer/contexts/prs/pr-inbox.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrInboxStore } = await import('@solus/workspace-ui/contexts/prs/pr-inbox.store.svelte')
     const store = new PrsStore()
     const inbox = new PrInboxStore()
 
@@ -82,8 +82,8 @@ describe('PrInboxStore aggregation', () => {
 
   test('a partial failure keeps the successful projects visible instead of hiding them', async () => {
     installStateRune()
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
-    const { PrInboxStore } = await import('../../src/renderer/contexts/prs/pr-inbox.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrInboxStore } = await import('@solus/workspace-ui/contexts/prs/pr-inbox.store.svelte')
     const store = new PrsStore()
     const inbox = new PrInboxStore()
 
@@ -112,8 +112,8 @@ describe('PrInboxStore aggregation', () => {
 
   test('a failed refresh keeps the last-safe snapshot instead of blanking a project that once loaded', async () => {
     installStateRune()
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
-    const { PrInboxStore } = await import('../../src/renderer/contexts/prs/pr-inbox.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrInboxStore } = await import('@solus/workspace-ui/contexts/prs/pr-inbox.store.svelte')
     const store = new PrsStore()
     const inbox = new PrInboxStore()
 
@@ -139,8 +139,8 @@ describe('PrInboxStore aggregation', () => {
 
   test('bounds how many projects load in parallel', async () => {
     installStateRune()
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
-    const { PrInboxStore } = await import('../../src/renderer/contexts/prs/pr-inbox.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrInboxStore } = await import('@solus/workspace-ui/contexts/prs/pr-inbox.store.svelte')
     const store = new PrsStore()
     const inbox = new PrInboxStore()
 
@@ -172,8 +172,8 @@ describe('PrInboxStore aggregation', () => {
 
   test('a stale response cannot land after a newer refresh has begun', async () => {
     installStateRune()
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
-    const { PrInboxStore } = await import('../../src/renderer/contexts/prs/pr-inbox.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrInboxStore } = await import('@solus/workspace-ui/contexts/prs/pr-inbox.store.svelte')
     const store = new PrsStore()
     const inbox = new PrInboxStore()
 
@@ -206,8 +206,8 @@ describe('PrInboxStore aggregation', () => {
 
   test('loadMore paginates only the named project, leaving others untouched', async () => {
     installStateRune()
-    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
-    const { PrInboxStore } = await import('../../src/renderer/contexts/prs/pr-inbox.store.svelte')
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrInboxStore } = await import('@solus/workspace-ui/contexts/prs/pr-inbox.store.svelte')
     const store = new PrsStore()
     const inbox = new PrInboxStore()
 
@@ -286,7 +286,7 @@ describe('qualifiedStackParentOf', () => {
     return {
       parentOf: (prNumber: number, serverId: string, repoRoot: string) =>
         graphs.get(`${serverId}\0${repoRoot}`)?.edges.find((edge) => edge.child === prNumber)?.parent ?? null,
-    } as import('../../src/renderer/contexts/prs/stacks.store.svelte').StacksStore
+    } as import('@solus/workspace-ui/contexts/prs/stacks.store.svelte').StacksStore
   }
 
   test('a stack edge in one repo never attaches to the same PR number in another', () => {

@@ -1,14 +1,14 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { comboHint } from '../../src/renderer/lib/keybindings/manifest'
+import { comboHint } from '@solus/workspace-ui/lib/keybindings/manifest'
 
 const filesTreePane = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/files/FilesTreePane.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/files/FilesTreePane.svelte'),
   'utf8',
 )
 const paneChrome = readFileSync(
-  join(import.meta.dir, '../../src/renderer/components/ui/PaneChrome.svelte'),
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/ui/PaneChrome.svelte'),
   'utf8',
 )
 

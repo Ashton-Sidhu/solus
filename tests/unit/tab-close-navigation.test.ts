@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { adjacentTabAfterClose } from '../../src/renderer/lib/sessionUtils'
+import { adjacentTabAfterClose } from '@solus/workspace-ui/lib/sessionUtils'
 
 describe('adjacentTabAfterClose', () => {
   test('selects the tab immediately left in the displayed grouped order', () => {

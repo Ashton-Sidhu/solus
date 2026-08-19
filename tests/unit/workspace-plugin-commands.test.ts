@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { PluginCommandsResult, Session } from '../../src/shared/types'
+import type { PluginCommandsResult, Session } from '@solus/contracts/types'
 
 const previousWindow = globalThis.window
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
@@ -51,7 +51,7 @@ afterEach(() => {
 describe('workspace plugin command demand', () => {
   test('keeps a previous tab response from replacing the active slash menu', async () => {
     installRendererGlobals()
-    const { WorkspaceLifecycleStore } = await import('../../src/renderer/contexts/workspace/workspace-lifecycle.store.svelte')
+    const { WorkspaceLifecycleStore } = await import('@solus/workspace-ui/contexts/workspace/workspace-lifecycle.store.svelte')
     const sessionA = {
       id: 'session-a',
       run: {
@@ -114,7 +114,7 @@ describe('workspace plugin command demand', () => {
 
   test('tab selection requests commands only for the selected session', async () => {
     installRendererGlobals()
-    const { WorkspaceContext } = await import('../../src/renderer/contexts/workspace/workspace.context.svelte')
+    const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
     const selectedSession = {
       id: 'session-b',
       run: {

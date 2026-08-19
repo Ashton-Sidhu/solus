@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { buildPrCommentsFixPrompt } from '../../src/renderer/contexts/workspace/pr-fix-session'
+import { buildPrCommentsFixPrompt } from '@solus/workspace-ui/contexts/workspace/pr-fix-session'
 
 describe('PR fix session prompt', () => {
   test('preserves every review instruction while making commit ownership explicit', () => {

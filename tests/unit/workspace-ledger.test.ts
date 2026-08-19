@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test'
-import type { PlanDescriptor, Work } from '../../src/shared/types'
+import type { PlanDescriptor, Work } from '@solus/contracts/types'
 import {
   formatGeneratedDate,
   formatGeneratedFull,
@@ -9,8 +9,8 @@ import {
   workItem,
   type WorkspaceItem,
   type WorkspaceProject,
-} from '../../src/renderer/components/workspace/lib/workspace-items'
-import { highlightRuns } from '../../src/renderer/lib/searchHighlight'
+} from '@solus/workspace-ui/components/workspace/lib/workspace-items'
+import { highlightRuns } from '@solus/workspace-ui/lib/searchHighlight'
 
 const DAY = 86_400_000
 

@@ -3,17 +3,17 @@ import {
   findAnchor,
   readTrigger,
   triggerRunPattern,
-} from '../../src/renderer/components/editor/unified-autocomplete/trigger'
-import { fuzzy, rank } from '../../src/renderer/components/editor/unified-autocomplete/rank'
+} from '@solus/workspace-ui/components/editor/unified-autocomplete/trigger'
+import { fuzzy, rank } from '@solus/workspace-ui/components/editor/unified-autocomplete/rank'
 import {
   buildRows,
   ghostFor,
   isSelectable,
   type MenuItem,
   type RowInput,
-} from '../../src/renderer/components/editor/unified-autocomplete/rows'
-import { GLYPH, type RefKind } from '../../src/renderer/components/editor/unified-autocomplete/kinds'
-import { autocompleteSelectionAction } from '../../src/renderer/components/editor/autocomplete-editor'
+} from '@solus/workspace-ui/components/editor/unified-autocomplete/rows'
+import { GLYPH, type RefKind } from '@solus/workspace-ui/components/editor/unified-autocomplete/kinds'
+import { autocompleteSelectionAction } from '@solus/workspace-ui/components/editor/autocomplete-editor'
 
 function reference(refKind: RefKind, title: string, meta = ''): MenuItem {
   return {

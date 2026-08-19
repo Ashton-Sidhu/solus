@@ -5,21 +5,21 @@ import { describe, expect, test } from "bun:test";
 const taskSidebarSource = readFileSync(
   join(
     import.meta.dir,
-    "../../src/renderer/components/tasks/task-page/TaskSidebar.svelte",
+    "@solus/workspace-ui/components/tasks/task-page/TaskSidebar.svelte",
   ),
   "utf8",
 );
 const taskSkeletonSource = readFileSync(
   join(
     import.meta.dir,
-    "../../src/renderer/components/tasks/task-page/TaskPageSkeleton.svelte",
+    "@solus/workspace-ui/components/tasks/task-page/TaskPageSkeleton.svelte",
   ),
   "utf8",
 );
 const prActivityRailSource = readFileSync(
   join(
     import.meta.dir,
-    "../../src/renderer/components/pr-review/PrActivityRail.svelte",
+    "@solus/workspace-ui/components/pr-review/PrActivityRail.svelte",
   ),
   "utf8",
 );

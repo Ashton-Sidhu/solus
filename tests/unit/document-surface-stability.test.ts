@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
-import { resizePreviewX } from '../../src/renderer/components/editor/lib/deferred-table-resize'
+import { resizePreviewX } from '@solus/workspace-ui/components/editor/lib/deferred-table-resize'
 
 const root = join(import.meta.dir, '../..')
 const editorSource = readFileSync(

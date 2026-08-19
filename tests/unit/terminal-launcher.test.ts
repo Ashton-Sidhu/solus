@@ -24,20 +24,20 @@ const execFileSync = mock((file: string, args: string[]) => {
 })
 
 mock.module('child_process', () => ({ execFileSync }))
-mock.module('../../src/main/cli-env', () => ({ getCliEnv: () => ({ PATH: '/usr/bin:/bin' }) }))
-mock.module('../../src/main/logger', () => ({
+mock.module('@solus/server/cli-env', () => ({ getCliEnv: () => ({ PATH: '/usr/bin:/bin' }) }))
+mock.module('@solus/server/logger', () => ({
   createLogger: () => ({ info() {}, warn() {}, error() {} }),
 }))
 // Stands in for the filesystem probe, so a launch asserts one fixed bundle path.
-mock.module('../../src/main/mac-apps', () => ({
+mock.module('@solus/desktop-main/mac-apps', () => ({
   findAppBundle: (bundleName: string) => `/Applications/${bundleName}`,
 }))
 
-let launchInTerminal: typeof import('../../src/main/terminal-launcher')['launchInTerminal']
-let resolveTerminal: typeof import('../../src/main/terminal-launcher')['resolveTerminal']
+let launchInTerminal: typeof import('@solus/desktop-main/terminal-launcher')['launchInTerminal']
+let resolveTerminal: typeof import('@solus/desktop-main/terminal-launcher')['resolveTerminal']
 
 beforeAll(async () => {
-  ;({ launchInTerminal, resolveTerminal } = await import('../../src/main/terminal-launcher'))
+  ;({ launchInTerminal, resolveTerminal } = await import('@solus/desktop-main/terminal-launcher'))
 })
 
 beforeEach(() => {

@@ -2,14 +2,14 @@ import { describe, expect, mock, test } from 'bun:test'
 
 describe('source-control writing policy', () => {
   test('uses recent commit subjects for repository-convention mode', async () => {
-    mock.module('../../src/main/git/exec', () => ({
+    mock.module('@solus/server/git/exec', () => ({
       runAsync: async () => [
         'fix(sessions): keep host selection stable',
         'Add source-control writing settings',
       ].join('\n'),
     }))
     const { resolveSourceControlWritingPolicy } = await import(
-      '../../src/main/git/source-control-writing'
+      '@solus/server/git/source-control-writing'
     )
 
     const policy = await resolveSourceControlWritingPolicy('/tmp/repo', {
@@ -25,7 +25,7 @@ describe('source-control writing policy', () => {
 
   test('uses one custom policy for commit and pull-request writing', async () => {
     const { resolveSourceControlWritingPolicy } = await import(
-      '../../src/main/git/source-control-writing'
+      '@solus/server/git/source-control-writing'
     )
     const policy = await resolveSourceControlWritingPolicy('/tmp/repo', {
       mode: 'custom',
@@ -40,7 +40,7 @@ describe('source-control writing policy', () => {
 
   test('applies Conventional Commits to commits without forcing pull-request titles', async () => {
     const { resolveSourceControlWritingPolicy } = await import(
-      '../../src/main/git/source-control-writing'
+      '@solus/server/git/source-control-writing'
     )
     const policy = await resolveSourceControlWritingPolicy('/tmp/repo', {
       mode: 'conventional_commits',

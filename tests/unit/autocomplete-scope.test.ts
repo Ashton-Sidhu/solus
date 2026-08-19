@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import type { Session } from '../../src/shared/types'
+import type { Session } from '@solus/contracts/types'
 import {
   autocompleteSessionChangedFiles,
   resolveAutocompleteScope,
-} from '../../src/renderer/components/editor/autocomplete-scope'
+} from '@solus/workspace-ui/components/editor/autocomplete-scope'
 
 function workspace(sessions: Record<string, Partial<Session>>) {
   return {

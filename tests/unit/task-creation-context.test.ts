@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { taskCreationContextFor } from '../../src/renderer/components/tasks/lib/task-creation-context'
+import { taskCreationContextFor } from '@solus/workspace-ui/components/tasks/lib/task-creation-context'
 
 describe('manual task creation context', () => {
   test('captures the active worktree while grouping the task under its base project', () => {

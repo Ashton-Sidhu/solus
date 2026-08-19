@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { facingAnchor, type AnchorRect } from '../../../src/shared/diagram-edge-anchor'
+import { facingAnchor, type AnchorRect } from '@solus/contracts/diagram-edge-anchor'
 
 // A 100x40 card whose top-left sits at (x, y).
 const card = (x: number, y: number): AnchorRect => ({ x, y, width: 100, height: 40 })

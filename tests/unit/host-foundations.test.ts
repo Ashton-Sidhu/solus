@@ -1,10 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { HostEventSubscriber } from '../../src/client-core/host-event-subscriber'
-import { subscribeAllHosts } from '../../src/client-core/host-events'
-import { hostKey, splitHostKey } from '../../src/client-core/host-key'
-import { serverConnections } from '../../src/client-core/server-connections'
-import { hostPolicy } from '../../src/client-core/host-policy'
-import type { HostApi } from '../../src/client-core/host-api'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
+import { subscribeAllHosts } from '@solus/client-core/host-events'
+import { hostKey, splitHostKey } from '@solus/client-core/host-key'
+import { serverConnections } from '@solus/client-core/server-connections'
+import { hostPolicy } from '@solus/client-core/host-policy'
+import type { HostApi } from '@solus/client-core/host-api'
 import type { SolusAPI } from '../../src/preload'
 
 function verifyHostApiBrand(rawApi: SolusAPI, hostApi: HostApi): void {

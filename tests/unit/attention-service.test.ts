@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { AttentionService, attentionActionForStatus } from '../../src/main/attention/attention-service'
-import type { AttentionEntry } from '../../src/shared/attention-types'
+import { AttentionService, attentionActionForStatus } from '@solus/server/attention/attention-service'
+import type { AttentionEntry } from '@solus/contracts/attention-types'
 
 describe('attentionActionForStatus — status → attention entry kind', () => {
   test('awaiting_input maps to the pending prompt kind', () => {

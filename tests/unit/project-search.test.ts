@@ -6,8 +6,8 @@ import {
   segmentStyle,
   visibleLine,
   type LineSegmentToken,
-} from '../../src/renderer/components/search/lib/project-search'
-import type { ProjectContentMatch } from '../../src/shared/types'
+} from '@solus/workspace-ui/components/search/lib/project-search'
+import type { ProjectContentMatch } from '@solus/contracts/types'
 
 // A search result row is a promise about *where* the hit is. A highlight that
 // lands one character off, or a selection index that skips a row, sends the
