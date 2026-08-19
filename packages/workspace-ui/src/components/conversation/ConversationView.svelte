@@ -174,7 +174,9 @@
   // this cursor. 30 FPS remains visually continuous while preventing coarse
   // transport batches from becoming up to 18 full markdown renders apiece.
   const REVEAL_FRAME_MS = 1000 / 30;
-  const prefersReducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const prefersReducedMotion = window.matchMedia(
+    "(prefers-reduced-motion: reduce)",
+  ).matches;
 
   let revealLen = $state(0);
   let revealExact = 0; // float cursor; revealLen is its floor
@@ -808,10 +810,10 @@
   const hasAskedAgain = $derived(sess?.messages.at(-1)?.role === "user");
   const showTurnDiffSummary = $derived(
     settings.showDiffSummaryAfterTurn &&
-    !isTurnLive &&
-    !hasAskedAgain &&
-    latestTurnSnapshot !== undefined &&
-    latestTurnSnapshot.filesChanged > 0,
+      !isTurnLive &&
+      !hasAskedAgain &&
+      latestTurnSnapshot !== undefined &&
+      latestTurnSnapshot.filesChanged > 0,
   );
 
   useKeybinding("conversation.find", () => openFind(), {
@@ -859,7 +861,9 @@
     "conversation.interrupt",
     () => {
       session.interruptTabSession(tabId);
-      session.apiFor(tabId).stopSession(session.ctxFor(tabId).session.sessionId);
+      session
+        .apiFor(tabId)
+        .stopSession(session.ctxFor(tabId).session.sessionId);
       requestInputFocus();
     },
     {
@@ -921,7 +925,10 @@
 
   async function navigateToSourceSession(agentSessionId: string) {
     // The source session lives on the same host as the transcript citing it.
-    const matchingTabId = session.tabIdForAgentSession(agentSessionId, sess?.run.serverId);
+    const matchingTabId = session.tabIdForAgentSession(
+      agentSessionId,
+      sess?.run.serverId,
+    );
     if (matchingTabId) {
       session.selectTab(matchingTabId);
       return;
@@ -931,7 +938,10 @@
     if (!sess) return;
     const meta = await sourceSessionHistory.findSession(
       agentSessionId,
-      { projectPath: sess.run.workingDirectory || "~", serverId: sess.run.serverId },
+      {
+        projectPath: sess.run.workingDirectory || "~",
+        serverId: sess.run.serverId,
+      },
       session.ctx,
     );
     if (meta) {
@@ -1383,7 +1393,11 @@
                 {skipMotion}
               />
             {:else if item.kind === "artifact" && item.message.artifact}
-              <ArtifactView artifact={item.message.artifact} {tabId} {skipMotion} />
+              <ArtifactView
+                artifact={item.message.artifact}
+                {tabId}
+                {skipMotion}
+              />
             {/if}
           {/snippet}
 
@@ -1428,7 +1442,8 @@
               <DiffSummaryCard
                 {tabId}
                 scope={latestTurnScope}
-                onOpenDiff={(filePath) => session.showDiff(tabId, latestTurnScope, filePath)}
+                onOpenDiff={(filePath) =>
+                  session.showDiff(tabId, latestTurnScope, filePath)}
               />
             </div>
           {/if}
