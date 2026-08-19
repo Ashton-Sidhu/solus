@@ -37,4 +37,16 @@ describe("plan autocomplete", () => {
       filterPlanAutocompleteDescriptors(loaded, "matching", ["/repo"]),
     ).toEqual([loaded[2], loaded[0]]);
   });
+
+  test("keeps every matching plan available after the first 20", () => {
+    // WHY: autocomplete must not hide a valid item only because its category has
+    // more than 20 entries.
+    const loaded = Array.from({ length: 25 }, (_, index) =>
+      descriptor(`Matching plan ${index + 1}`, "/repo", index + 1),
+    );
+
+    expect(
+      filterPlanAutocompleteDescriptors(loaded, "matching", ["/repo"]),
+    ).toHaveLength(25);
+  });
 });

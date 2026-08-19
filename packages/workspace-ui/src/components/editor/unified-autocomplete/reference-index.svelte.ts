@@ -18,9 +18,6 @@ import type { MenuItem } from './rows'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { stampSessionMetas } from '@solus/client-core/session-meta'
 
-/** Per-kind cap: the index behind `#` is for reaching things, not browsing all. */
-export const PER_KIND_LIMIT = 20
-
 export function timestamp(value: string | number | undefined | null): number {
   if (value === undefined || value === null) return 0
   const parsed = Number.isFinite(value) ? Number(value) : Date.parse(String(value))
@@ -54,7 +51,7 @@ export function filterPlanAutocompleteDescriptors(
   const matching = query
     ? scoped.filter((descriptor) => descriptor.title.toLowerCase().includes(query))
     : scoped
-  return matching.sort((a, b) => b.timestamp - a.timestamp).slice(0, 20)
+  return matching.sort((a, b) => b.timestamp - a.timestamp)
 }
 
 export interface ReferenceIndexDeps {
@@ -104,7 +101,6 @@ export class ReferenceIndex {
   docItems = $derived.by((): MenuItem[] =>
     Object.values(this.deps.session.worksStore.works)
       .sort((a, b) => timestamp(b.updatedAt) - timestamp(a.updatedAt))
-      .slice(0, PER_KIND_LIMIT)
       .map((work) => ({
         id: `doc:${work.id}`,
         title: work.title,
@@ -120,7 +116,7 @@ export class ReferenceIndex {
   )
 
   prItems = $derived.by((): MenuItem[] =>
-    this.#prCandidates.slice(0, PER_KIND_LIMIT).map((pr) => ({
+    this.#prCandidates.map((pr) => ({
       id: `pr:${pr.number}`,
       title: `#${pr.number} ${pr.title}`,
       meta: pr.draft ? `draft · ${pr.author}` : `${pr.state} · ${pr.author}`,
@@ -148,7 +144,6 @@ export class ReferenceIndex {
           session.sessionId.trim().length > 0 &&
           session.sessionId !== currentSessionId,
       )
-      .slice(0, PER_KIND_LIMIT)
       .map((session) => ({
         id: `session:${session.sessionId}`,
         title: sessionRefTitle(session),
@@ -171,7 +166,7 @@ export class ReferenceIndex {
   })
 
   taskItems = $derived.by((): MenuItem[] =>
-    this.deps.session.tasksStore.tasks.slice(0, PER_KIND_LIMIT).map((task: Task) => ({
+    this.deps.session.tasksStore.tasks.map((task: Task) => ({
       id: `task:${task.id}`,
       title: task.title,
       meta: task.status,
@@ -187,7 +182,6 @@ export class ReferenceIndex {
 
   automationItems = $derived.by((): MenuItem[] =>
     this.deps.session.automationsStore.items
-      .slice(0, PER_KIND_LIMIT)
       .map((automation: Automation) => ({
         id: `automation:${automation.id}`,
         title: automation.name,
