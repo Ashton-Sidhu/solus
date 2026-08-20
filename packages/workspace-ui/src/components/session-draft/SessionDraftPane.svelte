@@ -23,6 +23,7 @@
   let {
     params,
     paneId,
+    surfaceVisible = true,
     onAttachFile,
     onScreenshot,
     onDesignMode,
@@ -40,6 +41,28 @@
   // Beside another pane the composer needs the same seam a split chat draws;
   // in the leading pane it is the leftmost surface and draws none.
   const isAside = $derived(paneId !== session.router.leadingPane.id);
+
+  // The conversation composer stays mounted behind this routed surface. When a
+  // draft opens from that input, the generic focus guard sees the old editor as
+  // active and correctly refuses to steal from it. This route knows that editor
+  // is now hidden, so it explicitly gives the visible draft the caret after its
+  // InputBar has mounted. Waiting for the picker to close also covers drafts
+  // opened from its search field.
+  $effect(() => {
+    const draftId = params.draftId;
+    if (!surfaceVisible || !draft || session.sessionPickerOpen) return;
+    const focusFrame = requestAnimationFrame(() => {
+      if (
+        surfaceVisible &&
+        !session.sessionPickerOpen &&
+        params.draftId === draftId &&
+        session.sessionDrafts.has(draftId)
+      ) {
+        requestInputFocus();
+      }
+    });
+    return () => cancelAnimationFrame(focusFrame);
+  });
 
   // The project keeps its own name even when the session will run in a worktree
   // of it, so the label reads off the repo root rather than the checkout.

@@ -640,7 +640,7 @@
 
   export function focus() {
     if (editor) {
-      editor.focus({ preventScroll: true });
+      editor.focus({ lineNumber: "first-visible", preventScroll: true });
       return;
     }
     shouldFocusWhenReady = true;
@@ -730,7 +730,7 @@
           detachEditor = editor.edit(fileInstance);
           if (shouldFocusWhenReady) {
             shouldFocusWhenReady = false;
-            editor.focus({ preventScroll: true });
+            editor.focus({ lineNumber: "first-visible", preventScroll: true });
           }
         }
         syncContainerBackground();

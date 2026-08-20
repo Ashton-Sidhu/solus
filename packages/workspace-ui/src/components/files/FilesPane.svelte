@@ -23,7 +23,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { ensureIconCollections } from "../diagram/iconify";
-  import { FILE_TREE_CHEVRON_CSS } from "../../lib/fileTreeTheme";
+  import { FILE_TREE_THEME_CSS } from "../../lib/fileTreeTheme";
   import {
     useKeybinding,
     useScope,
@@ -270,9 +270,14 @@
     fileLoading = false;
     if (focusEditor && result.ok) {
       await tick();
-      if (selectedPath !== path) return;
-      if (isMarkdownFile(path)) markdownSurfaceRef?.focus();
-      else filePreviewRef?.focus();
+      // Pierre restores its row focus after selection closes the tree search.
+      // Wait until that commit finishes or it can take focus back from the
+      // editor, for both pointer clicks and Enter from the search field.
+      requestAnimationFrame(() => {
+        if (selectedPath !== path) return;
+        if (isMarkdownFile(path)) markdownSurfaceRef?.focus();
+        else filePreviewRef?.focus();
+      });
     }
   }
 
@@ -463,7 +468,7 @@
           [data-type='item'][data-item-focused='true']:not([data-item-selected='true'])::before {
           outline-color: transparent;
         }
-        ${FILE_TREE_CHEVRON_CSS}
+        ${FILE_TREE_THEME_CSS}
         [data-file-tree-search-container] {
           padding-top: 0.375rem;
           padding-left: calc(var(--trees-padding-inline) + 2.125rem);

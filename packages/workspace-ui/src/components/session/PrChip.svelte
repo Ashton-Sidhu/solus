@@ -13,22 +13,13 @@
   const tone = $derived.by(() => {
     switch (chip.state) {
       case "approvalRequested":
-        return {
-          color: "color-mix(in oklch, var(--review) 58%, var(--foreground))",
-          background: "color-mix(in oklch, var(--review) 14%, transparent)",
-        };
+        return "color-mix(in oklch, var(--review) 58%, var(--foreground))";
       case "merged":
-        return {
-          color: "var(--review)",
-          background: "color-mix(in oklch, var(--review) 12%, transparent)",
-        };
+        return "var(--review)";
       case "open":
-        return {
-          color: "var(--success)",
-          background: "color-mix(in oklch, var(--success) 12%, transparent)",
-        };
+        return "var(--success)";
       default:
-        return { color: "var(--muted-foreground)", background: "transparent" };
+        return "var(--muted-foreground)";
     }
   });
 
@@ -42,9 +33,8 @@
 
 <button
   type="button"
-  class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] rounded bg-(--pr-bg) px-1 py-0.5 text-(--pr-color) transition-[color,background-color,box-shadow,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-2.5 before:content-[''] hover:bg-[color-mix(in_oklch,var(--pr-color)_18%,transparent)] hover:text-foreground hover:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--pr-color)_22%,transparent)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring pointer-fine:[.is-laptop-display_&]:gap-0.5 pointer-fine:[.is-laptop-display_&]:px-0.5 pointer-fine:[.is-laptop-display_&]:py-px"
-  style:--pr-color={tone.color}
-  style:--pr-bg={tone.background}
+  class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] text-xs text-(--pr-color) transition-[color,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-2.5 before:content-[''] hover:text-foreground active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring pointer-fine:[.is-laptop-display_&]:gap-0.5"
+  style:--pr-color={tone}
   aria-label={actionLabel}
   title={actionLabel}
   onclick={(event) => {
@@ -65,7 +55,7 @@
       class="shrink-0 pointer-fine:[.is-laptop-display_&]:size-3 {chip.state === 'draft' ? 'opacity-70' : ''}"
     />
   {/if}
-  <span class="text-chrome-shelf tabular-nums"
+  <span class="tabular-nums"
     >#{chip.number}</span
   >
 </button>

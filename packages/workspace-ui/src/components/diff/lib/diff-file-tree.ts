@@ -1,7 +1,7 @@
 import { FileTree, type GitStatusEntry } from "@pierre/trees";
 import type { FileDiffMetadata } from "@pierre/diffs";
 import type { DiffComment } from "@solus/contracts/types";
-import { FILE_TREE_CHEVRON_CSS } from "../../../lib/fileTreeTheme";
+import { FILE_TREE_THEME_CSS } from "../../../lib/fileTreeTheme";
 import { createRowDecorationRenderer } from "../../../lib/diffTreeAdapter";
 
 const DIFF_TREE_CSS = `
@@ -17,7 +17,7 @@ const DIFF_TREE_CSS = `
     outline-color: transparent !important;
   }
   [data-item-section='icon'] { cursor: pointer; }
-  ${FILE_TREE_CHEVRON_CSS}
+  ${FILE_TREE_THEME_CSS}
   [data-item-section='decoration'] {
     font-variant-numeric: tabular-nums;
     font-size: var(--text-xs);

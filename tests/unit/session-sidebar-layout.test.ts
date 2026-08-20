@@ -115,17 +115,22 @@ describe('session sidebar layout', () => {
     )
   })
 
-  test('compacts PR chips only on fine-pointer laptop displays', () => {
-    // WHY: PR metadata must leave more title room in a laptop sidebar without
-    // shrinking the same action on a large display or a coarse-pointer client.
+  test('renders PR metadata as plain project-sized text on desktop and laptop', () => {
+    // WHY: the PR belongs on the same metadata line as the project. It must use
+    // the same text size without a chip plate, while its icon can still compact
+    // on fine-pointer laptop displays.
     const source = readSessionSource('PrChip.svelte')
+    const desktopSource = readSessionSource('TaskRow.svelte')
 
-    expect(source).toContain('text-chrome-shelf tabular-nums')
+    expect(source).toContain('items-center gap-[0.21875rem] text-xs')
+    expect(source).toContain('<span class="tabular-nums"')
+    expect(source).not.toContain('style:--pr-bg')
+    expect(source).not.toContain('hover:bg-')
+    expect(source).not.toContain('hover:shadow-')
     expect(source).toContain('pointer-fine:[.is-laptop-display_&]:gap-0.5')
-    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:px-0.5')
-    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:py-px')
     expect(source.match(/pointer-fine:\[\.is-laptop-display_&\]:size-3/g)).toHaveLength(2)
     expect(source).not.toMatch(/\[\.is-laptop-display_&\]:text-/)
+    expect(desktopSource).toContain('<PrChip chip={prChip} onOpen={onOpenPr} />')
   })
 
   test('starts the task search glyph on the sidebar icon column', () => {
