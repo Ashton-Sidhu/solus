@@ -248,10 +248,8 @@ export const ROUTES = defineRoutes({
     parse: (s) => (s ? { draftId: s } : null),
     serialize: (p) => p.draftId,
     placement: 'any',
-    // Not `keepAlive`: that flag means the outlet skips mounting because a pool
-    // owns the surface, and drafts have no pool. Unmounting on navigation costs
-    // only an editor rebuild — the prompt itself lives in `sessionDrafts`.
-    component: () => import('../../../components/session-draft/SessionDraftPane.svelte'),
+    // The pane shell renders this primary creation surface eagerly. It still
+    // unmounts on navigation; the prompt itself lives in `sessionDrafts`.
   },
   tasks: {
     parse: () => ({}),

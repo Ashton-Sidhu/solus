@@ -256,7 +256,34 @@ export function buildTraceView(trace: MetricsTurnTrace | null): TraceView | null
     null
   if (!root) return null
 
-  const latestEnd = trace.spans.reduce(
+  // Gaps are server-derived coverage intervals, not persisted spans. Give each
+  // one a neutral synthetic row so elapsed time never looks like empty chart
+  // padding. The row says what the trace knows about the location and does not
+  // claim that the model was thinking or idle.
+  const gapSpans: MetricsSpan[] = trace.gapSegments.map((gap, index) => ({
+    spanId: `gap:${index}:${gap.startedAt}`,
+    parentSpanId: root.spanId,
+    traceId: trace.traceId,
+    kind: UNATTRIBUTED_KIND,
+    name: GAP_DETAILS[gap.category].label,
+    service: 'unobserved',
+    sessionId: root.sessionId,
+    provider: root.provider,
+    model: root.model,
+    projectRoot: root.projectRoot,
+    origin: root.origin,
+    startedAt: gap.startedAt,
+    endedAt: gap.endedAt,
+    durationMs: gap.durationMs,
+    status: 'unknown',
+    attrs: {
+      category: gap.category,
+      description: GAP_DETAILS[gap.category].description,
+    },
+  }))
+  const displaySpans = [...trace.spans, ...gapSpans]
+
+  const latestEnd = displaySpans.reduce(
     (max, span) => Math.max(max, span.endedAt ?? span.startedAt + (span.durationMs ?? 0)),
     root.startedAt,
   )
@@ -264,8 +291,8 @@ export function buildTraceView(trace: MetricsTurnTrace | null): TraceView | null
   const totalMs = Math.max(1, rootInterval.to - rootInterval.from)
 
   const byParent = new Map<string, MetricsSpan[]>()
-  const known = new Set(trace.spans.map((span) => span.spanId))
-  for (const span of trace.spans) {
+  const known = new Set(displaySpans.map((span) => span.spanId))
+  for (const span of displaySpans) {
     if (span.spanId === root.spanId) continue
     const parentId = span.parentSpanId && known.has(span.parentSpanId) ? span.parentSpanId : root.spanId
     const siblings = byParent.get(parentId)

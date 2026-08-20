@@ -3,8 +3,8 @@
  *
  * Comment prose is Inter, never the document's serif — a thread is chrome that
  * happens to hold sentences. It gets mentions, links, inline code, one-line
- * code quotes, bold and italic, and nothing else: a comment that needs a
- * heading, a table or an image wants to be a document.
+ * code quotes, bold, italic, and locally stored pasted images. A comment that
+ * needs headings or tables wants to be a document.
  *
  * So this is an allowlist tokenizer rather than a markdown renderer. Anything
  * outside the set stays literal text, which means a pasted `# heading` reads
@@ -18,6 +18,7 @@ export type Segment =
   | { kind: 'code'; text: string }
   | { kind: 'mention'; text: string }
   | { kind: 'link'; text: string; href: string }
+  | { kind: 'image'; text: string; href: string }
 
 export type Block =
   | { kind: 'text'; segments: Segment[] }
@@ -28,12 +29,14 @@ export type Block =
  * Ordered by precedence: inline code first, so a URL or an asterisk inside
  * backticks stays literal.
  *
- * `image` is a rule for something the set does *not* allow: it matches the
- * whole `![alt](url)` and hands it back as plain text. Without it the link
- * rules would find the URL inside and quietly render half an image as a link.
+ * `assetImage` is the one accepted image shape. The following `image` rule
+ * keeps every other `![alt](url)` literal instead of quietly rendering half of
+ * it as a link.
  */
 const INLINE = [
   { kind: 'code', re: /`([^`\n]+)`/ },
+  { kind: 'assetImage', re: /!\[([^\]\n]*)\]\((asset:\/\/[a-f0-9]{64}\.(?:png|jpg|gif|webp))\)/i },
+  { kind: 'assetFile', re: /\[([^\]\n]+)\]\((asset:\/\/[a-f0-9]{64}\.[a-z0-9][a-z0-9+_-]{0,15})\)/i },
   { kind: 'image', re: /!\[[^\]\n]*\]\([^\s)]*\)/ },
   { kind: 'mdLink', re: /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)/ },
   { kind: 'bareLink', re: /(https?:\/\/[^\s<>()]+)/ },
@@ -54,6 +57,10 @@ function nextMatch(text: string): { index: number; length: number; segment: Segm
     const segment: Segment =
       kind === 'code'
         ? { kind: 'code', text: first }
+        : kind === 'assetImage'
+          ? { kind: 'image', text: first || 'pasted image', href: second }
+        : kind === 'assetFile'
+          ? { kind: 'link', text: first || 'attachment', href: second }
         : kind === 'image'
           ? { kind: 'plain', text: raw }
           : kind === 'mdLink'
@@ -109,7 +116,7 @@ export function parseCommentText(text: string): Block[] {
 /** Body preview for the 4-line clamp's "more" affordance and for hover cards. */
 export function plainText(text: string): string {
   return parseCommentText(text)
-    .map((block) => (block.kind === 'quote' ? block.text : block.segments.map((s) => s.text).join('')))
+    .map((block) => (block.kind === 'quote' ? block.text : block.segments.map((segment) => segment.text).join('')))
     .join(' ')
     .trim()
 }

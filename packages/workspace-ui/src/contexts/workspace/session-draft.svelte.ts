@@ -85,7 +85,7 @@ export function taskBindingSessionId(
   return session.handoffId ?? session.id
 }
 
-/** The task a newly minted one will hang under, when it has a parent. */
+/** The task a fallback minted after the first turn will hang under. */
 export function parentTaskId(task: TaskTarget): string | null {
   return task.kind === 'new' ? task.parentTaskId ?? null : null
 }

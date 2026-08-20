@@ -666,6 +666,53 @@ WHERE EXISTS (
     AND session_lineage_members.session_id <> task_session_links.session_id
 );
 `,
+  // Tasks belong to projects. Branches and worktrees describe individual
+  // session attempts, so keep that metadata only on task_session_links.
+  `
+DROP INDEX IF EXISTS tasks_by_worktree;
+ALTER TABLE tasks DROP COLUMN branch;
+ALTER TABLE tasks DROP COLUMN worktree_key;
+`,
+  // Branch and execution host describe a session attempt, not its relationship
+  // to one task. Backfill the session row before removing the duplicated link
+  // columns. The lineage join covers links keyed by the stable Solus id whose
+  // indexed transcript still uses the current provider id.
+  `
+ALTER TABLE sessions ADD COLUMN branch TEXT;
+
+UPDATE sessions
+SET branch = COALESCE(branch, (
+  SELECT task_session_links.branch
+  FROM task_session_links
+  LEFT JOIN session_lineage_members
+    ON session_lineage_members.session_id = task_session_links.session_id
+  WHERE task_session_links.branch IS NOT NULL
+    AND (
+      task_session_links.session_id = sessions.session_id
+      OR session_lineage_members.provider_session_id = sessions.session_id
+    )
+  ORDER BY task_session_links.linked_at DESC
+  LIMIT 1
+));
+
+UPDATE sessions
+SET server_id = COALESCE(server_id, (
+  SELECT task_session_links.execution_server_id
+  FROM task_session_links
+  LEFT JOIN session_lineage_members
+    ON session_lineage_members.session_id = task_session_links.session_id
+  WHERE task_session_links.execution_server_id IS NOT NULL
+    AND (
+      task_session_links.session_id = sessions.session_id
+      OR session_lineage_members.provider_session_id = sessions.session_id
+    )
+  ORDER BY task_session_links.linked_at DESC
+  LIMIT 1
+));
+
+ALTER TABLE task_session_links DROP COLUMN branch;
+ALTER TABLE task_session_links DROP COLUMN execution_server_id;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

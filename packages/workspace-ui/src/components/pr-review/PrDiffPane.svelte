@@ -11,6 +11,7 @@
   import StackDiffBanner from "./StackDiffBanner.svelte";
   import { existingPrReviewState } from "./lib/pr-review.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import ReviewLoadingSurface from "../review/ReviewLoadingSurface.svelte";
 
   // The review's change, popped out beside it. Reading a diff is a two-handed
   // job — the conversation on one side, the code on the other — so this is a
@@ -81,9 +82,7 @@
     {/if}
     <div class="min-h-0 flex-1">
       {#if review.commitScope ? review.commitDiffLoading && review.commitDiffPatch === null : review.diffLoading && review.diffPatch === null}
-        <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
-          Loading {review.commitScope ? "commit" : "pull request"} diff…
-        </div>
+        <ReviewLoadingSurface view="diff" />
       {:else if review.commitScope ? review.commitDiffError : review.diffError}
         <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
           {review.commitScope ? review.commitDiffError : review.diffError}
@@ -149,13 +148,7 @@
        this pane and the review's band simply stops at the divider — the header
        line breaks in half while the diff is on its way. -->
   <div class="flex h-full min-h-0 flex-col">
-    <div
-      class="workspace-titlebar h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--solus-container-border)]"
-      aria-hidden="true"
-    ></div>
-    <div class="grid min-h-0 flex-1 place-items-center text-xs text-muted-foreground" role="status">
-      Loading this pull request…
-    </div>
+    <ReviewLoadingSurface view="diff" />
   </div>
 {/if}
 

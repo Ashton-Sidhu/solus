@@ -22,6 +22,7 @@ import {
   markTaskFieldsDirty,
   notifyTaskSyncDirty,
 } from './task-sync-store'
+import { containsLocalAsset } from './task-assets'
 import type {
   Task as TaskRecord,
   TaskComment,
@@ -105,10 +106,8 @@ export class Task implements TaskRecord {
   parentId?: string
   dueDate?: string
   priority?: TaskPriority
-  branch?: string
   pr?: TaskRecord['pr']
   canEditPlanningFields?: boolean
-  worktreeKey?: string
   source?: TaskSource
   originSessionId?: string
   originAutomationId?: string
@@ -212,14 +211,12 @@ export class Task implements TaskRecord {
       wakeTaskForActivity(db, this.id)
       let parentId = existing.parent_id
       let projectKey = existing.project_key
-      let worktreeKey = existing.worktree_key
 
       if (patch.parentId !== undefined) {
         parentId = normalizedOptional(patch.parentId)
         if (parentId) {
           const parent = parentForChild(parentId, this.id, db)
           projectKey = parent.project_key
-          worktreeKey = parent.worktree_key
         }
       }
       if (patch.projectKey !== undefined) {
@@ -229,14 +226,6 @@ export class Task implements TaskRecord {
         }
         projectKey = requestedProject
       }
-      if (patch.worktreeKey !== undefined) {
-        const requestedWorktree = normalizedOptional(patch.worktreeKey)
-        if (parentId && requestedWorktree !== worktreeKey) {
-          throw new Error('A subtask must belong to the same worktree as its parent.')
-        }
-        worktreeKey = requestedWorktree
-      }
-
       const title = patch.title === undefined ? existing.title : patch.title.trim()
       if (!title) throw new Error('Task title cannot be empty.')
       const status = patch.status ?? existing.status
@@ -250,7 +239,7 @@ export class Task implements TaskRecord {
         UPDATE tasks SET
           project_key = ?, parent_id = ?, title = ?, title_source = ?, body = ?,
           status = ?, kind = ?, assignee = ?, due_date = ?, priority = ?,
-          labels = ?, branch = ?, worktree_key = ?, updated_at = ?,
+          labels = ?, updated_at = ?,
           triaged_at = ?, done_at = ?
         WHERE id = ?
       `).run(
@@ -265,8 +254,6 @@ export class Task implements TaskRecord {
         patch.dueDate === undefined ? existing.due_date : normalizedOptional(patch.dueDate),
         patch.priority === undefined ? existing.priority : patch.priority,
         patch.labels === undefined ? existing.labels : JSON.stringify(patch.labels),
-        patch.branch === undefined ? existing.branch : normalizedOptional(patch.branch),
-        worktreeKey,
         now,
         triagedAt,
         doneAt,
@@ -280,7 +267,7 @@ export class Task implements TaskRecord {
       if (options.markSyncDirty !== false) {
         const changedFields: string[] = []
         if (existing.title !== updated.title) changedFields.push('title')
-        if (existing.body !== updated.body) changedFields.push('body')
+        if (existing.body !== updated.body && !containsLocalAsset(updated.body)) changedFields.push('body')
         if (existing.status !== updated.status) changedFields.push('status')
         if (existing.labels !== updated.labels) changedFields.push('labels')
         syncDirty = markTaskFieldsDirty(db, this.id, changedFields)
@@ -300,6 +287,7 @@ export class Task implements TaskRecord {
       : false
     const shouldPush = externalLinkForTask(this.id) !== null
       && (options.pushToExternal === true || autoPush)
+      && !containsLocalAsset(text)
     withTx(() => {
       const db = database()
       requireTask(this.id, db)
@@ -331,6 +319,28 @@ export class Task implements TaskRecord {
     return this.details()
   }
 
+  async deleteComment(commentId: string): Promise<TaskDetails> {
+    const deleted = withTx(() => {
+      const db = database()
+      requireTask(this.id, db)
+      // SAFETY: the query selects exactly these two columns from task_comments,
+      // whose migration declares source as TEXT and external_id as nullable TEXT.
+      const comment = db.prepare(`
+        SELECT source, external_id FROM task_comments WHERE id = ? AND task_id = ?
+      `).get(commentId, this.id) as { source: string; external_id: string | null } | undefined
+      if (!comment) throw new Error('This task comment no longer exists.')
+      if (comment.source !== 'local' || comment.external_id !== null) {
+        throw new Error('Only unpublished local task comments can be deleted in Solus.')
+      }
+      const removed = db.prepare('DELETE FROM task_comments WHERE id = ? AND task_id = ?').run(commentId, this.id).changes > 0
+      if (removed) db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(Date.now(), this.id)
+      return removed
+    })
+    if (deleted) emitChanged()
+    this.refresh()
+    return this.details()
+  }
+
   /**
    * Send comments upstream that were written while auto-posting was off.
    *
@@ -343,6 +353,10 @@ export class Task implements TaskRecord {
     requireTask(this.id)
     if (!externalLinkForTask(this.id)) {
       throw new Error('This task is not linked to an upstream ticket.')
+    }
+    const selectedComments = this.details().comments.filter((comment) => commentIds.includes(comment.id))
+    if (selectedComments.some((comment) => containsLocalAsset(comment.body))) {
+      throw new Error('Pasted images are stored in Solus. Add them with the provider web composer before publishing.')
     }
     let queued = 0
     withTx(() => {
@@ -507,8 +521,7 @@ export class Task implements TaskRecord {
     return this.details()
   }
 
-  /** The branch is captured both on the attempt and on the task's denormalized
-   * current-work field. */
+  /** Explicitly attach this task to one session attempt. */
   async linkSession(
     sessionId: string,
     role: TaskSessionRole = 'working',
@@ -523,8 +536,7 @@ export class Task implements TaskRecord {
     this.refresh()
   }
 
-  /** The reverse of `linkSession`: drop the attempt row and record it, leaving
-   * the captured branch and origin on the task itself untouched. */
+  /** The reverse of `linkSession`: drop the relationship and record it. */
   async unlinkSession(
     sessionId: string,
     actor: EventActor = { actor: 'user' },

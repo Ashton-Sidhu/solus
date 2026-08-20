@@ -21,7 +21,7 @@ import {
 import { createLogger } from '../../logger'
 import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
-import { initSessionBase, snapshotTurn } from '../../git/session-snapshots'
+import { initSessionBase, prepareTurnSnapshot, snapshotTurn } from '../../git/session-snapshots'
 import type { AgentBackend, RunHandle } from '../agent-backend'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import { MODEL_PROFILES, SOLUS_WORKTREE_ENCODED_MARKER } from '@solus/contracts/types'
@@ -236,9 +236,20 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
     this.pendingRuns.push(handle)
     void (async () => {
+      const prepareSnapshots = async (providerSessionId: string) => {
+        const repoRoot = await resolveRepoRoot(workTree)
+        if (!repoRoot) return
+        const head = getHeadCommit(workTree)
+        if (!head) return
+        await initSessionBase(repoRoot, providerSessionId, head)
+        await prepareTurnSnapshot(workTree, repoRoot, providerSessionId)
+      }
       const resumeSessionAt = request.forkSession && request.forkExcludeLatestTurn && sessionId
         ? await this.forkResumeId(sessionId, request.cwd)
         : null
+      if (request.persistence === 'session' && sessionId && !request.forkSession) {
+        await prepareSnapshots(sessionId)
+      }
       const { events, result } = this.agent.run({
         prompt: handle.input,
         cwd: request.cwd,
@@ -259,19 +270,16 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         enableFileCheckpointing: request.persistence === 'session',
         persistSession: request.persistence === 'session',
         abortController,
-        onSessionInit: request.persistence === 'session' ? async (sid) => {
-          const repoRoot = await resolveRepoRoot(workTree)
-          if (!repoRoot) return
-          const head = getHeadCommit(workTree)
-          if (!head) return
-          await initSessionBase(repoRoot, sid, head)
-        } : undefined,
+        onSessionInit: request.persistence === 'session'
+          ? prepareSnapshots
+          : undefined,
         onTurnComplete: request.persistence === 'session' ? async (sid, snapOpts) => {
           const repoRoot = await resolveRepoRoot(workTree)
           if (!repoRoot) return null
           const result = await snapshotTurn(workTree, repoRoot, sid, {
             ...snapOpts,
             sessionChangedFiles: [...new Set([...(sessionState?.changedFiles ?? []), ...snapOpts.editedFiles])],
+            turnChangedFiles: snapOpts.editedFiles,
           })
           return result?.sessionChangedFiles ?? null
         } : undefined,

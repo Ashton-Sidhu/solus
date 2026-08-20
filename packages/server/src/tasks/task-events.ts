@@ -127,7 +127,7 @@ const DIFFED_FIELDS: Array<{ column: keyof TaskFieldsForDiff; kind: TaskEventKin
  * place field history is produced: every mutation path re-reads the row before
  * and after and hands both here, so no caller can forget an event kind.
  *
- * `body`, `branch`, `pr`, `worktree_key`, `project_key` and the timestamps are
+ * `body`, `pr`, `project_key` and the timestamps are
  * deliberately not logged — body edits would flood the feed and the rest is
  * machine bookkeeping nobody asked to see. */
 export function diffTaskEvents(

@@ -15,6 +15,7 @@
   import { toasts } from "../../lib/toasts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { Button } from "../ui/button";
+  import { Textarea } from "../ui/textarea";
   import PrChecksChip from "../prs/PrChecksChip.svelte";
   import PrReviewPane from "../pr-review/PrReviewPane.svelte";
   import QueueRail from "./QueueRail.svelte";
@@ -486,23 +487,26 @@
         </div>
 
         {#if composerOutcome}
-          <div class="flex shrink-0 items-end gap-2 border-t border-(--solus-accent-border) bg-(--solus-accent-light) px-3 py-2">
+          <div class="flex shrink-0 items-end gap-1 border-t border-(--solus-accent-border) bg-(--solus-accent-light) px-3 py-2">
             <div class="min-w-0 flex-1">
               <label for="review-mode-summary" class="mb-1 block text-xs font-medium text-(--solus-text-secondary)">
                 {composerOutcome === "changes_requested" ? "Why are you requesting changes?" : "Leave a review comment"}
               </label>
-              <textarea
+              <Textarea
                 id="review-mode-summary"
                 bind:this={composerEl}
                 bind:value={composerBody}
                 rows="2"
-                class="block max-h-28 min-h-14 w-full resize-y rounded-lg border border-(--solus-accent-border) bg-(--solus-container-bg) px-3 py-2 text-xs font-normal text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary) focus:border-(--solus-accent) focus:ring-2 focus:ring-(--solus-accent-border)"
+                class="block max-h-28 min-h-14 w-full resize-y rounded-lg border border-(--solus-accent-border) bg-(--solus-container-bg) py-2 pr-8 pl-3 text-xs font-normal text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary) focus:border-(--solus-accent) focus:ring-2 focus:ring-(--solus-accent-border)"
                 placeholder="Review summary…"
+                mic
                 onkeydown={onComposerKeydown}
-              ></textarea>
+              />
             </div>
-            <Button variant="outline" size="sm" onclick={cancelComposer}>Cancel</Button>
-            <Button size="sm" disabled={!composerBody.trim()} onclick={submitComposer}>Hold & continue</Button>
+            <div class="flex shrink-0 items-center gap-1.5">
+              <Button variant="outline" size="sm" class="h-7.5 [.is-laptop-display_&]:h-7" onclick={cancelComposer}>Cancel</Button>
+              <Button size="sm" class="h-7.5 [.is-laptop-display_&]:h-7" disabled={!composerBody.trim()} onclick={submitComposer}>Hold & continue</Button>
+            </div>
           </div>
         {:else}
           <div class="flex min-h-12 shrink-0 items-center gap-1.5 border-t border-(--solus-container-border) px-3">

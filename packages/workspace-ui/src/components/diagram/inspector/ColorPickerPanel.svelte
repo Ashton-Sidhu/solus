@@ -158,6 +158,7 @@
   <label class="picker__hex">
     <span class="picker__hash" aria-hidden="true">#</span>
     <input
+      data-dictation="false"
       class="picker__hex-input"
       value={hexDraft}
       spellcheck="false"

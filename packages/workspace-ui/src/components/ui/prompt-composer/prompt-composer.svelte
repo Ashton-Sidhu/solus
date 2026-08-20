@@ -13,7 +13,7 @@
   import { Switch } from "../switch";
   import { modelOptionsFor, type PickerSelection } from "../../pickers/lib/picker-selection";
   import { getWorkspaceContext, getStatusBarContext, getAgentContext, getVoiceModelStore } from "../../../contexts";
-  import { dictation, isDictationTarget } from "../../../lib/dictation.svelte";
+  import { dictation } from "../../../lib/dictation.svelte";
   import { useKeybinding } from "../../../lib/keybindings/use-keybinding.svelte";
   import { comboHint } from "../../../lib/keybindings/manifest";
   import WaveformVisualizer from "../../input/WaveformVisualizer.svelte";
@@ -139,20 +139,15 @@
     if (showWaveform) hasMountedWaveform = true;
   });
 
-  function appendTranscript(transcript: string) {
-    const trimmed = transcript.trim();
-    if (!trimmed) return;
-    const base = value.trimEnd();
-    const next = base ? `${base} ${trimmed}` : trimmed;
-    editorEl?.setValueAndCursor(next, true, false);
-    value = next;
+  function insertTranscript(transcript: string) {
+    editorEl?.insertTranscript(transcript);
   }
   function claimVoice() {
-    dictation.claimMessageConsumer(voiceOwnerId, appendTranscript, () => false);
+    dictation.claimMessageConsumer(voiceOwnerId, insertTranscript, () => false);
   }
   function toggleVoice() {
     if (!voiceReady || disabled) return;
-    dictation.toggleConversationalFor(voiceOwnerId, appendTranscript, () => false);
+    dictation.toggleConversationalFor(voiceOwnerId, insertTranscript, () => false);
   }
   onDestroy(() => dictation.releaseMessageConsumer(voiceOwnerId));
 
@@ -162,7 +157,7 @@
       focused &&
       voiceReady &&
       !disabled &&
-      !isDictationTarget(document.activeElement),
+      dictation.focusedTarget === null,
   });
 
   function handleSubmit() {
@@ -320,7 +315,7 @@
         <Switch size="sm" bind:checked={useWorktree} data-testid="composer-worktree" aria-label="Run in an isolated worktree" />
       </label>
     {/if}
-    <div class="flex items-center gap-2 shrink-0 ml-auto">
+    <div class="ml-auto flex shrink-0 items-center gap-1">
       <RecordingControls
         variant="bar"
         state={voiceState}
@@ -347,7 +342,7 @@
           onclick={handleSubmit}
           disabled={!canSend}
           aria-label="Send"
-          class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {canSend
+          class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] [.is-laptop-display_&]:size-7 {canSend
             ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
             : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
         >

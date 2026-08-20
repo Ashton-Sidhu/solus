@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ArrowUp as ArrowUpIcon } from "@lucide/svelte";
+  import { Input } from "../../ui/input";
 
   /**
    * The footer field. Sending here goes straight to that agent's session — it
@@ -42,43 +43,46 @@
   }
 </script>
 
-<input
-  bind:this={inputEl}
-  bind:value={draft}
-  aria-label={placeholder}
-  {placeholder}
-  class="flex-1 min-w-0 text-transcript-card outline-none placeholder:text-muted-foreground {emphasis
-    ? 'bg-(--solus-tx-card-bg) rounded-md px-2.5 py-1.5 shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
-    : 'bg-transparent'}"
-  onkeydown={(e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      void send("one");
-    }
-  }}
-/>
+<div class="flex min-w-0 flex-1 items-center gap-1">
+  <Input
+    bind:this={inputEl}
+    bind:value={draft}
+    aria-label={placeholder}
+    {placeholder}
+    mic={emphasis || Boolean(broadcastLabel)}
+    class="h-auto min-w-0 flex-1 rounded-none border-0 bg-transparent! p-0 pr-8 text-transcript-card shadow-none outline-none placeholder:text-muted-foreground focus-visible:ring-0 dark:bg-transparent! {emphasis
+      ? 'rounded-md bg-(--solus-tx-card-bg)! py-1.5 pl-2.5 pr-8 shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
+      : ''}"
+    onkeydown={(e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        void send("one");
+      }
+    }}
+  />
 
-{#if notice}
-  <span class="shrink-0 text-transcript-meta text-muted-foreground/60">{notice}</span>
-{/if}
+  {#if notice}
+    <span class="shrink-0 text-transcript-meta text-muted-foreground/60">{notice}</span>
+  {/if}
 
-{#if broadcastLabel}
-  <button
-    class="shrink-0 rounded-md px-2 py-1 text-transcript-meta text-muted-foreground cursor-pointer hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground disabled:opacity-40"
-    disabled={!draft.trim() || sending}
-    onclick={() => send("all")}
-  >
-    {broadcastLabel}
-  </button>
-{/if}
+  {#if broadcastLabel}
+    <button
+      class="h-7.5 shrink-0 cursor-pointer rounded-md px-2.5 text-transcript-meta text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground disabled:opacity-40 [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:px-2"
+      disabled={!draft.trim() || sending}
+      onclick={() => send("all")}
+    >
+      {broadcastLabel}
+    </button>
+  {/if}
 
-{#if emphasis}
-  <button
-    class="flex items-center justify-center shrink-0 size-6 rounded-md bg-primary text-primary-foreground cursor-pointer hover:brightness-105 disabled:opacity-40"
-    disabled={!draft.trim() || sending}
-    onclick={() => send("one")}
-    aria-label="Send"
-  >
-    <ArrowUpIcon size={12} />
-  </button>
-{/if}
+  {#if emphasis}
+    <button
+      class="flex size-7.5 shrink-0 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground hover:brightness-105 disabled:opacity-40 [.is-laptop-display_&]:size-7"
+      disabled={!draft.trim() || sending}
+      onclick={() => send("one")}
+      aria-label="Send"
+    >
+      <ArrowUpIcon size={12} />
+    </button>
+  {/if}
+</div>

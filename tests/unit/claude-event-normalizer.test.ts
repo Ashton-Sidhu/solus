@@ -66,6 +66,23 @@ describe('ClaudeTurnNormalizer', () => {
     } as ClaudeEvent)).toEqual([])
   })
 
+  test('records Claude compaction only when the provider reports its duration', () => {
+    const normalizer = new ClaudeTurnNormalizer()
+
+    expect(normalizer.push({
+      type: 'system',
+      subtype: 'compact_boundary',
+      compact_metadata: { trigger: 'auto', pre_tokens: 180_000, post_tokens: 12_000, duration_ms: 4_250 },
+      uuid: 'compact-1',
+      session_id: 'claude-session-1',
+    })).toEqual([{
+      type: 'context_compaction',
+      state: 'stop',
+      trigger: 'auto',
+      durationMs: 4_250,
+    }])
+  })
+
   test('streams parented text into the subagent transcript', () => {
     const normalizer = new ClaudeTurnNormalizer()
 

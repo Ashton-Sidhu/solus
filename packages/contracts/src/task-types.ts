@@ -149,15 +149,12 @@ export interface Task {
   dueDate?: string
   /** Priority; drives the "what's next" sort and the priority badge. */
   priority?: TaskPriority
-  /** Git branch the work happened on — auto-captured from the bound session. */
-  branch?: string
   /** PR opened for this task — auto-captured (branch → `gh pr view`), editable. */
   pr?: TaskPr
   /** Whether due date + priority are editable for *this* task. Local tasks are
    *  always true; a GitHub issue is true only when it's on a Projects v2 board
    *  (those fields live on the project item, not the issue). Undefined ⇒ false. */
   canEditPlanningFields?: boolean
-  worktreeKey?: string
   source?: TaskSource
   originSessionId?: string
   originAutomationId?: string
@@ -194,22 +191,9 @@ export interface TaskCreateInput {
   dueDate?: string | null
   priority?: TaskPriority | null
   labels?: string[]
-  branch?: string | null
-  worktreeKey?: string | null
   source?: TaskSource
   originSessionId?: string | null
   originAutomationId?: string | null
-}
-
-/** Stable task grouping key for a project's current branch/checkout. Keep this
- * shared so tasks created from the renderer and first-session dispatches use
- * the same worktree identity. */
-export function taskWorktreeKey(
-  projectKey: string,
-  checkout: { branch?: string | null; worktreePath?: string } | null | undefined,
-): string {
-  const branch = checkout?.branch ?? 'no branch'
-  return `${projectKey}::${branch}${checkout?.worktreePath ? ' (worktree)' : ''}`
 }
 
 export interface TaskUpdatePatch {
@@ -223,8 +207,6 @@ export interface TaskUpdatePatch {
   dueDate?: string | null
   priority?: TaskPriority | null
   labels?: string[]
-  branch?: string | null
-  worktreeKey?: string | null
 }
 
 /** First-class local comment. Upstream provider comments stay in the task's
@@ -376,10 +358,8 @@ export interface PrepareSessionTaskRequest {
   /** Mint the new task as a direct child of this one. */
   parentTaskId?: string | null
   projectKey?: string | null
-  worktreeKey?: string | null
   /** The first prompt, whose first non-empty line deterministically names the task. */
   prompt?: string
-  branch?: string | null
   /** Also return a `TaskSnapshot` of the minted/bound task. Set by a client
    *  about to dispatch to a different execution host, which needs the snapshot
    *  to ride the prompt (see docs/plans/dispatch-parity.md). */
@@ -540,14 +520,11 @@ export interface TaskSessionLink {
    *  `codex`, `opencode`). Null for a link whose session is not indexed yet. */
   provider: string | null
   lastActivityAt: number | null
-  /** The host the session ran on, when that is not the host holding this link.
-   *  A link is always written on the task's host, so a dispatch — the run whose
-   *  `serverId` differs from its `taskServerId` (ADR-0006) — is the only case
-   *  with anything to record. Absent or null therefore means "the task's own
-   *  host", and a reader resolves it against the host it read the task from
-   *  rather than assuming its own machine. */
+  /** Session-owned execution host, projected through the task/session join.
+   *  Null means the task host for older and non-dispatched attempts. */
   executionServerId?: string | null
   role?: TaskSessionRole
+  /** Session-owned checkout branch, projected through the relationship. */
   branch?: string
   pr?: TaskPr
   /** Epoch ms the link was recorded; drives "most recent session" ordering. */

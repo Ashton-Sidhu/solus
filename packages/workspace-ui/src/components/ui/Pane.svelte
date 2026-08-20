@@ -17,6 +17,15 @@
   import AutomationBuilderSkeleton from "../automations/AutomationBuilderSkeleton.svelte";
   import InsightsPageSkeleton from "../insights/InsightsPageSkeleton.svelte";
   import ReviewLoadingSurface from "../review/ReviewLoadingSurface.svelte";
+  import PlanModalSkeleton from "../plan/PlanModalSkeleton.svelte";
+  import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
+  import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
+  import FilesRouteSkeleton from "../files/FilesRouteSkeleton.svelte";
+  // The draft composer is the primary creation path, not a data-backed page.
+  // Keep it in the shell chunk so opening a draft never crosses an async
+  // boundary or flashes a loading surface before the input is ready.
+  import SessionDraftPane from "../session-draft/SessionDraftPane.svelte";
+  import ListPageSkeleton from "./list-page/ListPageSkeleton.svelte";
   import PaneChrome from "./PaneChrome.svelte";
   import { paneActions } from "./lib/pane-actions.svelte";
 
@@ -46,7 +55,16 @@
 </script>
 
 {#snippet surface()}
-  {#if ref && descriptor?.component}
+  {#if ref?.name === "draft"}
+    <SessionDraftPane
+      params={ref.params}
+      paneId={pane.id}
+      {surfaceVisible}
+      {onAttachFile}
+      {onScreenshot}
+      {onDesignMode}
+    />
+  {:else if ref && descriptor?.component}
     {#await descriptor.component()}
       {#if ref.name === "settings"}
         <SettingsPageSkeleton />
@@ -64,6 +82,23 @@
         <AutomationBuilderSkeleton />
       {:else if ref.name === "insights"}
         <InsightsPageSkeleton />
+      {:else if ref.name === "folio"}
+        <ListPageSkeleton label="Loading workspace" hasPrimaryAction />
+      {:else if ref.name === "reviewMode"}
+        <PrReviewSkeleton />
+      {:else if ref.name === "plan"}
+        <PlanModalSkeleton inline />
+      {:else if ref.name === "work"}
+        {@const work = session.worksStore.get(ref.params.workId)}
+        {#if work?.type === "diagram"}
+          <DiagramShellSkeleton />
+        {:else}
+          <DocumentModalSkeleton
+            inline
+            title={work?.title}
+            workStorage={work?.storage}
+          />
+        {/if}
       {:else if ref.name === "review"}
         <div class="relative h-full min-h-0 w-full">
           <ReviewLoadingSurface view={ref.params.view ?? "diff"} />
@@ -74,20 +109,43 @@
             closeLabel="Close loading review"
           />
         </div>
+      {:else if ref.name === "prDiff"}
+        <div class="relative h-full min-h-0 w-full">
+          <ReviewLoadingSurface view="diff" />
+          <PaneChrome
+            onClose={actions.close}
+            onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
+            isLeading={actions.isLeading}
+            closeLabel="Close loading diff"
+          />
+        </div>
+      {:else if ref.name === "files" || ref.name === "fileEditor"}
+        <div class="relative h-full min-h-0 w-full">
+          <FilesRouteSkeleton variant={ref.name === "files" ? "tree" : "editor"} />
+          <PaneChrome
+            onClose={actions.closeOverlay}
+            onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
+            isLeading={actions.isLeading}
+            closeLabel={ref.name === "files" ? "Close loading files" : "Close loading file"}
+          />
+        </div>
+      {:else if ref.name === "subagent"}
+        <div class="relative h-full min-h-0 w-full">
+          <ConversationPaneSkeleton />
+          {#if descriptor.placement === "overlay"}
+            <PaneChrome
+              onClose={actions.closeOverlay}
+              onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
+              isLeading={actions.isLeading}
+              closeLabel="Close loading conversation"
+            />
+          {/if}
+        </div>
       {:else if ref.name === "chat"}
         <ConversationPaneSkeleton />
       {:else}
-        <div class="flex h-full min-h-32 w-full flex-col">
-          <div
-            class="workspace-titlebar h-(--solus-chrome-row-h) shrink-0"
-            aria-hidden="true"
-          ></div>
-          <div
-            class="grid min-h-0 flex-1 place-items-center text-xs text-(--solus-text-tertiary)"
-            role="status"
-          >
-            Loading…
-          </div>
+        <div class="relative h-full min-h-0 w-full">
+          <ConversationPaneSkeleton />
           {#if descriptor.placement === "overlay"}
             <!-- After the chrome row: drag rects are collected in DOM order, so
                  the cluster's no-drag holes must come after the row's drag rect. -->

@@ -1,9 +1,19 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { GitState, Session, Tab } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
+const branchWrites: unknown[][] = []
+
+mock.module('@solus/client-core/server-connections', () => ({
+  serverConnections: {
+    apiFor: (serverId: string) => ({
+      setSessionBranch: async (...args: unknown[]) => { branchWrites.push([serverId, ...args]) },
+    }),
+  },
+}))
 
 afterEach(() => {
+  branchWrites.length = 0
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
   else (globalThis as unknown as { $state: unknown }).$state = previousState
 })
@@ -57,6 +67,7 @@ describe('SessionEventReducer Git events', () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
     const session = {
+      id: 'session-1',
       agentSessionId: 'provider-session',
       status: 'idle',
       run: {
@@ -67,7 +78,6 @@ describe('SessionEventReducer Git events', () => {
       } as Session['run'],
     } as Session
     const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
-    const writes: unknown[][] = []
     const reducer = new SessionEventReducer({
       registry: {
         tabs: { 'tab-1': tab },
@@ -77,9 +87,6 @@ describe('SessionEventReducer Git events', () => {
       },
       settings: { rateLimitBehavior: 'ask' },
       tasksStore: {
-        taskForSession: () => ({ id: 'task-1' }),
-        sessionBranchFor: () => null,
-        linkSession: async (...args: unknown[]) => { writes.push(args) },
         refreshSessionBinding: async () => null,
       },
       log: () => {},
@@ -96,11 +103,9 @@ describe('SessionEventReducer Git events', () => {
     })
     await Promise.resolve()
 
-    expect(writes).toEqual([[
+    expect(branchWrites).toEqual([[
       'task-host',
-      'task-1',
-      'provider-session',
-      null,
+      'session-1',
       'solus/shadcn-toast-styling-hpzih',
     ]])
   })

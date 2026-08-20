@@ -180,7 +180,20 @@ export interface StatusEvent {
   session_id: string
 }
 
-export type ClaudeEvent = InitEvent | StatusEvent | StreamEvent | AssistantEvent | UserEvent | RateLimitEvent | ResultEvent | PermissionEvent | UnknownEvent
+export interface CompactBoundaryEvent {
+  type: 'system'
+  subtype: 'compact_boundary'
+  compact_metadata: {
+    trigger: 'manual' | 'auto'
+    pre_tokens: number
+    post_tokens?: number
+    duration_ms?: number
+  }
+  uuid: string
+  session_id: string
+}
+
+export type ClaudeEvent = InitEvent | StatusEvent | CompactBoundaryEvent | StreamEvent | AssistantEvent | UserEvent | RateLimitEvent | ResultEvent | PermissionEvent | UnknownEvent
 
 export interface UnknownEvent {
   type: string

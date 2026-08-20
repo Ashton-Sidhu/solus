@@ -2955,18 +2955,18 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 }
 
 /* §4 — table: prose, not a card. Hairlines only, no filled header and no outer
-   box, so the head reads as a heading without a wash. Dense, column-aligned
-   content stays below the 16px assistant body without becoming too small. */
+   box, so the head reads as a heading without a wash. Tables use the assistant
+   body rung and a little extra separation from the prose around them. */
 .prose-transcript table {
-  margin: 0.75rem 0;
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  margin: 1rem 0;
+  font-size: var(--text-body);
   border-collapse: collapse;
 }
 .prose-transcript th {
   padding: 0 0.625rem 0.375rem 0;
   border-bottom: none;
   background: none;
-  font-size: inherit;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
   font-weight: 500;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -3361,7 +3361,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .task-description-prose .solus-doc-editor .ProseMirror {
   /* Every size below is a ratio of this one, so a denser surface (the inline
      diff card) re-scales the whole ruleset by setting it once. */
-  --prose-pr-size: calc(0.875rem * var(--solus-font-scale, 1));
+  --prose-pr-size: var(--text-caption);
   font-size: var(--prose-pr-size);
   line-height: 1.75;
   font-weight: 400;
@@ -3376,7 +3376,6 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    title's left edge, and the editor's own letter-spacing/feature set differs
    from the `.prose-cloud` one every other body on this ruleset gets. */
 .task-description-prose .solus-doc-editor .ProseMirror {
-  --prose-pr-size: var(--text-chrome-dense);
   line-height: 1.8;
   padding-left: 0;
   padding-right: 0;
@@ -3405,17 +3404,9 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   font-weight: 400;
 }
 
-/* Descriptions are primary reading content on pointer-precise desktop surfaces,
-   so they take one type step above the denser activity and metadata prose. The
-   coarse-pointer rung stays unchanged for the mobile clients. Descendants that
-   set their own size must follow the same step rather than falling back to the
-   shared PR comment size. */
+/* Description descendants that set their own size stay on the same shared
+   description, posted-comment, and composer rung. */
 @media (pointer: fine) {
-  .prose-pr-description,
-  .task-description-prose .solus-doc-editor .ProseMirror {
-    --prose-pr-size: calc(0.875rem * var(--solus-font-scale, 1));
-  }
-
   :is(.prose-pr-description, .task-description-prose .solus-doc-editor .ProseMirror)
     :is(h1, h2, h3, h4, h5, h6, li, blockquote, .markdown-alert) {
     font-size: var(--prose-pr-size);
@@ -3776,6 +3767,27 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   .agent-card-fold,
   .agent-card-fold--closed {
     transition: none;
+  }
+}
+
+/* Native prose fields that do not use the shared field primitives still show
+   the active dictation state. Outline-color is paint-only and state-bounded. */
+[data-solus-voice-state="recording"] {
+  outline: 0.125rem solid color-mix(in srgb, var(--solus-accent) 85%, transparent) !important;
+  outline-offset: 0.125rem;
+  animation: solus-native-voice-pulse 900ms ease-in-out infinite alternate;
+}
+[data-solus-voice-state="transcribing"] {
+  outline: 0.125rem solid color-mix(in srgb, var(--solus-accent) 55%, transparent) !important;
+  outline-offset: 0.125rem;
+}
+@keyframes solus-native-voice-pulse {
+  from { outline-color: color-mix(in srgb, var(--solus-accent) 35%, transparent); }
+  to { outline-color: color-mix(in srgb, var(--solus-accent) 90%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-solus-voice-state="recording"] {
+    animation: none;
   }
 }
 

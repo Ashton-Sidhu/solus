@@ -1,5 +1,7 @@
 <script lang="ts">
   import { parseCommentText } from './lib/comment-text'
+  import MarkdownImage from '../conversation/MarkdownImage.svelte'
+  import MarkdownLink from '../conversation/MarkdownLink.svelte'
 
   interface Props {
     text: string
@@ -43,9 +45,15 @@
               <!-- A mention is a link: terracotta, no pill, no background. -->
               <span class="cb__mention">{segment.text}</span>
             {:else if segment.kind === 'link'}
-              <a class="cb__link" href={segment.href} target="_blank" rel="noopener noreferrer"
-                >{segment.text}</a
-              >
+              {#if segment.href.startsWith('asset://')}
+                <MarkdownLink href={segment.href} text={segment.text}>{segment.text}</MarkdownLink>
+              {:else}
+                <a class="cb__link" href={segment.href} target="_blank" rel="noopener noreferrer"
+                  >{segment.text}</a
+                >
+              {/if}
+            {:else if segment.kind === 'image'}
+              <span class="cb__image"><MarkdownImage href={segment.href} text={segment.text} /></span>
             {:else}{segment.text}{/if}
           {/each}
         </p>
@@ -120,6 +128,20 @@
   }
   .cb__link:hover {
     border-bottom-color: var(--solus-accent);
+  }
+  .cb__image {
+    display: block;
+    max-width: 18rem;
+    margin: 0.375rem 0;
+    overflow: hidden;
+    border-radius: 0.5rem;
+  }
+  .cb__image :global(img) {
+    max-height: 14rem;
+    object-fit: contain;
+    border-radius: 0.5rem;
+    outline: 0.5px solid color-mix(in oklch, var(--foreground) 14%, transparent);
+    outline-offset: -0.5px;
   }
   .cb__more {
     align-self: flex-start;

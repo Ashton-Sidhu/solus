@@ -28,6 +28,19 @@ afterEach(() => {
 });
 
 describe("document editor markdown", () => {
+  test("rehydrates asset images after an external markdown reset", () => {
+    // WHY: cancel and raw-mode edits replace the ProseMirror document after
+    // initial setup. Asset URIs must be resolved again for the new image nodes.
+    const source = readFileSync(
+      new URL("../../packages/workspace-ui/src/components/editor/DocumentEditor.svelte", import.meta.url),
+      "utf8",
+    );
+
+    expect(source).toMatch(
+      /commands\.setContent\(ext \|\| ""[\s\S]*?void hydrateAssetImages\(editorInstance\)/,
+    );
+  });
+
   test("ProseMirror model resolves to one package instance", () => {
     const lockfile = readFileSync(new URL("../../bun.lock", import.meta.url), "utf8");
 

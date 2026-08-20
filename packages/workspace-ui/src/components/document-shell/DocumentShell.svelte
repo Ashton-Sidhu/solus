@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Editor, AnyExtension } from "@tiptap/core";
   import type { Snippet } from "svelte";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import {
     X as XIcon,
@@ -43,6 +43,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { createDiagramEmbedExtension } from "../editor/diagramEmbedExtension";
   import { buildGoogleDiagramAssets } from "./lib/google-diagrams";
+  import EditorVoiceControl from "../input/EditorVoiceControl.svelte";
 
   interface Props {
     /** Document title. Shown in the header's title cluster (alongside the pane
@@ -201,6 +202,7 @@
 
   let editorRef: DocumentEditor | null = $state(null);
   let editorMode = $state<"rich" | "raw">("rich");
+  let editorFocused = $state(false);
   let stateVersion = $state(0);
   let didFocusScrollContainer = $state(false);
   let findOpen = $state(false);
@@ -696,6 +698,14 @@
   })}
 {/snippet}
 
+{#snippet voiceControl()}
+  <EditorVoiceControl
+    onTranscript={(transcript) => editorRef?.insertTranscript(transcript)}
+    focused={editorFocused}
+    disabled={editorMode !== "rich"}
+  />
+{/snippet}
+
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 {#snippet shellInner()}
   <!-- aria-modal is set only for the true (floating) modal. -->
@@ -757,6 +767,7 @@
       <!-- Right: verbs only. Word count moved to the document's own byline and
            find is ⌘F — neither is a button here any more. -->
       <div class="doc-shell-header-actions flex shrink-0 items-center gap-1.5">
+        {@render voiceControl()}
         <button
           type="button"
           class="doc-shell-header-btn"
@@ -790,6 +801,7 @@
 
         <div class="min-w-2 flex-auto"></div>
 
+        {@render voiceControl()}
         <button type="button" class="doc-shell-toolbar-btn" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
           {#if editorMode === "rich"}<MarkdownLogoIcon size={14} />{:else}<TextAaIcon size={14} />{/if}
         </button>
@@ -871,6 +883,8 @@
           value={content}
           onValueChange={handleEditorChange}
           onInput={handleEditorInput}
+          onFocus={() => (editorFocused = true)}
+          onBlur={() => (editorFocused = false)}
           onEditorReady={handleEditorReady}
           onModeChange={(m) => (editorMode = m)}
           onAskSolus={onAskSolus ? () => onAskSolus("") : undefined}

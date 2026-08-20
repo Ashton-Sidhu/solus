@@ -42,6 +42,7 @@
   let lastInitialValue = $state(untrack(() => initialValue));
   let inputEl: ReturnType<typeof CommentEditor> | null = $state(null);
   let hasContent = $state(untrack(() => initialValue.trim().length > 0));
+  let uploadingImage = $state(false);
 
   export function focusInput() {
     if (!inputEl) return;
@@ -59,7 +60,7 @@
     hasContent = initialValue.trim().length > 0;
   });
 
-  const canSave = $derived(hasContent);
+  const canSave = $derived(hasContent && !uploadingImage);
   const hint = $derived(submitOn === "enter" ? "↵ to save" : "⌘↵ to save");
 
   function handleSave() {
@@ -112,6 +113,7 @@
       onFormValueChange?.(next);
     }}
     onEmptyChange={(empty) => (hasContent = !empty)}
+    onUploadStateChange={(uploading) => (uploadingImage = uploading)}
     {placeholder}
     maxHeight={120}
     onKeyDown={(event) => {

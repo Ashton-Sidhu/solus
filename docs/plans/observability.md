@@ -302,6 +302,8 @@ turn (trace root; service solus.sessions)
 ├─ response_stream     first visible text chunk → last visible text chunk
 ├─ tool_call           name: tool name; children nested via parentToolUseId
 ├─ permission_wait     name: tool name; attrs.decision: granted | denied
+├─ question_wait       user question shown → answer accepted
+├─ context_compaction  provider-reported compaction boundaries or duration
 ├─ rate_limit_wait
 ├─ turn_settlement     provider completion → authoritative Solus settlement
 └─ background_task     attrs.blocking: false — excluded from critical-path rollups
@@ -315,13 +317,14 @@ Turn attrs: `prompt` (capped ~4 KB, `promptTruncated` flag), `promptChars`,
 `timeToFirstActivityMs`, `timeToFirstTextMs`, `timeToFirstProviderEventMs`,
 `timeToLastProviderEventMs`, and `timeToProviderCompleteMs`.
 
-Unattributed turn time is not stored as a synthetic span. Query and waterfall surfaces
+Unattributed turn time is not stored as a synthetic span. Query surfaces
 derive it from the turn interval minus the union of observed blocking child intervals.
 The trace splits that complement at the first provider event, first activity, last
 activity, provider completion, last provider event, and Solus settlement boundaries.
 These segments locate missing trace coverage; they do not claim model work, idle time,
-or any other cause. This keeps capture factual and avoids manufacturing a gapless
-timeline from provider events.
+or any other cause. The waterfall renders these derived segments as neutral,
+selectable rows so uncovered time does not look like chart padding. This keeps capture
+factual and avoids manufacturing attributed spans from provider events.
 
 Tool-call attrs: size-capped input fields (~8 KB, truncation-flagged),
 `parentToolUseId`, `isSubagent`, provider outcome (exit code / error) where available.
@@ -489,7 +492,11 @@ boundaries as `thinking` spans. They also persist `response_stream` spans from t
 first to the last top-level text chunk in each response segment. A tool transition
 ends the current response segment; a new text chunk after the tool starts another.
 These are observed client-side boundaries, not provider claims about internal model
-compute. Time inside the root turn that no blocking child span covers remains derived
+compute. Both providers use the normalized question lifecycle to persist
+`question_wait`. Claude's compact boundary supplies a provider duration; Codex's
+compaction items can supply start and stop timestamps. Solus records
+`context_compaction` only from those reported facts. Time inside the root turn that no
+blocking child span covers remains derived
 as **unattributed turn time**. Insights presents its complement as trace coverage and
 groups the uncovered segments by their position between lifecycle boundaries. It can
 include inference without an explicit thinking event, provider queueing, transport

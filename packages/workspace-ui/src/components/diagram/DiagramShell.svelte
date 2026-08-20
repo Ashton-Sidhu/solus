@@ -20,7 +20,9 @@
   import type { WorkCopyFormat, WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import { dataUrlToPayload, renderDiagramPng, renderDiagramSvg } from "./lib/diagram-export";
   import type { PlanComment, SessionMeta, WorkStorage } from "@solus/contracts/types";
-  import { getWorkspaceContext, getSettingsContext } from "../../contexts";
+  import { getWindowContext, getWorkspaceContext, getSettingsContext } from "../../contexts";
+  import { serverConnections } from "@solus/client-core/server-connections";
+  import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { toasts } from "../../lib/toasts";
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
   import { uuid } from "@solus/contracts/uuid";
@@ -209,6 +211,17 @@
   const theme = getSettingsContext();
   const keybindings = getKeybindingsContext();
   const session = getWorkspaceContext();
+  const windowContext = getWindowContext();
+  setMarkdownImageContext({
+    cwd: () => undefined,
+    serverId: () => workId ? session.worksStore.hostFor(workId) ?? undefined : undefined,
+    ctx: () => undefined,
+    isWeb: () => windowContext.isWeb,
+    api: () => {
+      const serverId = workId ? session.worksStore.hostFor(workId) : null;
+      return serverId ? serverConnections.apiFor(serverId) : undefined;
+    },
+  });
 
   // Load the annotation sidecar whenever the open work changes (mirrors
   // DocumentModal).

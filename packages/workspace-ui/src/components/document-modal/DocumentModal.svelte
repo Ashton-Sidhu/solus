@@ -8,7 +8,9 @@
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import CommentLayer from "../comments/CommentLayer.svelte";
   import { CommentMark } from "../editor/commentMark";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getWindowContext, getWorkspaceContext } from "../../contexts";
+  import { serverConnections } from "@solus/client-core/server-connections";
+  import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
   import { workBreadcrumb } from "./lib/breadcrumb";
@@ -44,6 +46,17 @@
   let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, workStorage, onExport, hostIsRemote = false, onRename }: DocumentModalProps = $props();
 
   const session = getWorkspaceContext();
+  const windowContext = getWindowContext();
+  setMarkdownImageContext({
+    cwd: () => undefined,
+    serverId: () => workId ? session.worksStore.hostFor(workId) ?? undefined : undefined,
+    ctx: () => undefined,
+    isWeb: () => windowContext.isWeb,
+    api: () => {
+      const serverId = workId ? session.worksStore.hostFor(workId) : null;
+      return serverId ? serverConnections.apiFor(serverId) : undefined;
+    },
+  });
   const commentExtensions = [CommentMark];
 
   // A document is one file: its own markdown. The header still renders it

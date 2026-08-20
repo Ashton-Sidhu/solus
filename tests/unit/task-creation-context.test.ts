@@ -2,9 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { taskCreationContextFor } from '@solus/workspace-ui/components/tasks/lib/task-creation-context'
 
 describe('manual task creation context', () => {
-  test('captures the active worktree while grouping the task under its base project', () => {
-    // WHY: opening the Tasks page or command palette must not flatten a task
-    // created from a worktree back onto the base checkout.
+  test('groups a task created from a worktree under its base project', () => {
+    // WHY: a checkout is session execution context. The task itself belongs to
+    // the project and must stay visible from every checkout of that project.
     expect(taskCreationContextFor('/workspace/solus', {
       branch: 'feature/task-context',
       targetBranch: 'main',
@@ -13,8 +13,6 @@ describe('manual task creation context', () => {
     })).toEqual({
       workingDirectory: '/workspace/solus/.solus-worktrees/task-context',
       projectKey: '/workspace/solus',
-      branch: 'feature/task-context',
-      worktreeKey: '/workspace/solus::feature/task-context (worktree)',
     })
   })
 
@@ -23,8 +21,6 @@ describe('manual task creation context', () => {
       .toMatchObject({
         workingDirectory: '/workspace/solus/.solus-worktrees/task-context',
         projectKey: '/workspace/solus',
-        branch: null,
-        worktreeKey: '/workspace/solus::no branch',
       })
   })
 

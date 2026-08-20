@@ -18,9 +18,12 @@ async function createReducer(
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
   const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
   const session = {
+    id: 'session-1',
     status: 'running',
     messages,
     outboundPrompts: [],
+    permissionQueue: [],
+    questionQueue: [],
     run: {},
     task: { kind: 'new' },
   } as unknown as Session
@@ -62,6 +65,9 @@ describe('SessionEventReducer card stream boundaries', () => {
       (taskId, sessionId) => { tracked = [taskId, sessionId] },
     )
     session.task = { kind: 'existing', taskId: 'subtask-1' }
+    session.currentTurnStart = 'fresh'
+    session.run.serverId = 'remote-host'
+    session.run.taskServerId = 'task-host'
 
     reducer.apply('session-1', {
       type: 'session_init',
@@ -72,18 +78,18 @@ describe('SessionEventReducer card stream boundaries', () => {
 
     // WHY: clearing this before hydration resolves gives the sidebar one frame
     // where the new subtask is rendered as an unrelated loose session.
-    expect(tracked).toEqual(['subtask-1', 'agent-session-1'])
+    expect(tracked).toEqual(['subtask-1', 'session-1'])
     expect(session.task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
 
-    finishHydration({})
+    finishHydration({ id: 'subtask-1' })
     await hydration
     await Promise.resolve()
-    // WHY: the durable link is authoritative once it exists, so the pending
-    // target is released rather than shadowing it.
-    expect(session.task).toEqual({ kind: 'new' })
+    // WHY: the durable link is authoritative once it exists, so the mounted
+    // session keeps its durable task identity.
+    expect(session.task).toEqual({ kind: 'existing', taskId: 'subtask-1' })
   })
 
-  test('captures the execution worktree branch when the provider session starts', async () => {
+  test('links a fresh dispatched session without task-owned branch metadata', async () => {
     let linked: unknown[] | null = null
     const { reducer, session } = await createReducer(
       [],
@@ -93,6 +99,7 @@ describe('SessionEventReducer card stream boundaries', () => {
       async (...args) => { linked = args },
     )
     session.task = { kind: 'existing', taskId: 'task-1' }
+    session.currentTurnStart = 'fresh'
     session.run.serverId = 'remote-host'
     session.run.taskServerId = 'task-host'
     session.run.provider = 'claude-code'
@@ -112,20 +119,43 @@ describe('SessionEventReducer card stream boundaries', () => {
     })
     await Promise.resolve()
 
-    // WHY: the task was prepared on its local checkout before remote host
-    // selection. Only the started session knows the worktree branch that the PR
-    // list can match for the sidebar chip.
+    // WHY: the relationship records only the remote execution host. Branch
+    // metadata has its own session write and must not travel through this API.
     expect(linked).toEqual([
       'task-host',
       'task-1',
-      'agent-session-1',
+      'session-1',
       {
         serverId: 'remote-host',
         provider: 'claude-code',
         projectRoot: '/Users/sidhu/solus',
       },
-      'solus/remote-worktree',
     ])
+  })
+
+  test('does not rewrite a task binding when a session resumes', async () => {
+    let links = 0
+    const { reducer, session } = await createReducer(
+      [],
+      true,
+      async () => null,
+      () => {},
+      async () => { links++ },
+    )
+    session.task = { kind: 'existing', taskId: 'task-1' }
+    session.currentTurnStart = 'follow_up'
+    session.run.serverId = 'remote-host'
+    session.run.taskServerId = 'task-host'
+
+    reducer.apply('session-1', {
+      type: 'session_init',
+      sessionId: 'agent-session-1',
+      model: 'claude-test',
+      skills: [],
+    })
+    await Promise.resolve()
+
+    expect(links).toBe(0)
   })
 
   test('advances the visible startup lifecycle from connection to thinking', async () => {

@@ -83,6 +83,7 @@
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { setMarkdownImageContext } from "./lib/markdown-image";
   import { setSessionLinkContext } from "./lib/session-link-context";
+  import { serverConnections } from "@solus/client-core/server-connections";
 
   const markdownRenderers = {
     code: CodeBlock,
@@ -134,6 +135,10 @@
     serverId: () => sess?.run.serverId,
     ctx: () => (sess ? session.ctxFor(tabId) : undefined),
     isWeb: () => windowCtx.isWeb,
+    api: () =>
+      sess?.run.serverId
+        ? serverConnections.apiFor(sess.run.serverId)
+        : undefined,
   });
   setSessionLinkContext(() => sess?.run.serverId);
   const remoteServer = $derived(
@@ -953,7 +958,9 @@
 <!-- No container: assistant prose sits directly on the canvas. Cards, code and
      tables are the only boxes it may draw. -->
 {#snippet assistantBody(displayContent: string)}
-  <div class="prose-cloud prose-reading prose-transcript prose-transcript-main min-w-0">
+  <div
+    class="prose-cloud prose-reading prose-transcript prose-transcript-main min-w-0"
+  >
     <SvelteMarkdown
       source={displayContent}
       options={assistantMarkdownOptions}

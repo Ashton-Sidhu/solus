@@ -30,6 +30,23 @@ describe('laptop typography surfaces', () => {
     expect(documentMenu).toContain('slash-block-menu text-workspace-chrome')
   })
 
+  test('the selected-session prompt strip stays compact on laptop displays', () => {
+    // WHY: a long opening prompt must not make the autocomplete popover cover
+    // the workspace, especially on a laptop display with less vertical room.
+    const composerMenu = workspaceSource('components/input/UnifiedAutocompleteMenu.svelte')
+
+    expect(composerMenu).toContain('max-h-24 overflow-hidden')
+    expect(composerMenu).toContain(
+      'pointer-fine:[.is-laptop-display_&]:max-h-[4.75rem]',
+    )
+    expect(composerMenu).toContain('class="line-clamp-3')
+    expect(composerMenu).toContain(
+      'pointer-fine:[.is-laptop-display_&]:line-clamp-2',
+    )
+    expect(composerMenu).toContain('<span>Opening prompt</span>')
+    expect(composerMenu).not.toContain('Selected session')
+  })
+
   test('breadcrumb and command-palette section labels use the shelf rung', () => {
     const breadcrumb = workspaceSource('components/conversation/SessionBreadcrumb.svelte')
     const commandPalette = workspaceSource('components/command-palette/CommandPalette.svelte')
@@ -69,10 +86,13 @@ describe('laptop typography surfaces', () => {
     expect(css).toMatch(/\.prose-transcript \{[\s\S]*?font-size: var\(--text-body\)/)
     expect(css).toMatch(/\.prose-transcript-user \{[\s\S]*?font-size: var\(--text-body\)/)
     expect(css).toMatch(/\.pill-shell \.prose-reading \{[\s\S]*?font-size: var\(--text-body\)/)
-    // WHY: tables contain dense, aligned data and must remain visibly smaller
-    // than the assistant's primary prose instead of approaching the body rung.
+    // WHY: assistant tables must remain as readable as the prose around them,
+    // with enough vertical separation to scan them as a distinct data block.
     expect(css).toMatch(
-      /\.prose-transcript table \{[\s\S]*?font-size: calc\(0\.875rem \* var\(--solus-font-scale, 1\)\)/,
+      /\.prose-transcript table \{[\s\S]*?margin: 1rem 0;[\s\S]*?font-size: var\(--text-body\)/,
+    )
+    expect(css).toMatch(
+      /\.prose-transcript th \{[\s\S]*?font-size: calc\(0\.875rem \* var\(--solus-font-scale, 1\)\)/,
     )
     expect(css).toMatch(
       /\.prose-transcript td \{[\s\S]*?padding: 0\.5rem 0\.625rem 0\.5rem 0/,
@@ -87,6 +107,23 @@ describe('laptop typography surfaces', () => {
 
     expect(inputBar).toContain(
       '[--plain-editor-font-size:var(--text-workspace-chrome)]',
+    )
+  })
+
+  test('task and pull request prose stays at 14px on desktop and laptop', () => {
+    // WHY: descriptions, posted comments, and comment input must stay on the
+    // same content size across desktop, laptop, and touch surfaces.
+    const commentEditor = workspaceSource(
+      'components/ui/comment-editor/comment-editor.svelte',
+    )
+    const css = workspaceSource('index.css')
+
+    expect(commentEditor).toContain(
+      'style = "--plain-editor-font-size:var(--text-caption);--plain-editor-line-height:1.25rem"',
+    )
+    expect(css).toContain('--text-caption: calc(0.875rem * var(--solus-font-scale, 1))')
+    expect(css).toMatch(
+      /\.prose-pr,[\s\S]*?\.task-description-prose \.solus-doc-editor \.ProseMirror \{[\s\S]*?--prose-pr-size: var\(--text-caption\)/,
     )
   })
 

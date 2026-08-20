@@ -7,6 +7,7 @@
     MessagesSquare as ChatsIcon,
     Copy as CopyIcon,
     Pen as PencilSimpleIcon,
+    RefreshCw as ArrowsClockwiseIcon,
     CircleStop as StopCircleIcon,
     X as XIcon,
   } from "@lucide/svelte";
@@ -32,6 +33,8 @@
     /** Override for "Rename" — the sidebar edits its row in place instead of
      *  opening the dialog every other surface uses. */
     onStartRename?: (tabId: string) => void;
+    /** Closed pinned sessions regenerate through their owning sidebar store. */
+    onRegenerateTitle?: () => Promise<void> | void;
     /** What the sidebar's rows moved off themselves and into this menu. Omitted
      *  everywhere else: a pill-mode tab has no user-set "done". */
     rowActions?: {
@@ -56,6 +59,7 @@
     showSplit = false,
     onOpenInSplit,
     onStartRename,
+    onRegenerateTitle,
     rowActions = null,
     onCloseTab,
     closeTabLabel = "Close Tab",
@@ -131,6 +135,25 @@
       },
       onClose,
     });
+  }
+
+  async function regenerateTitle() {
+    const targetTabId = tabId;
+    const regenerateClosedSession = onRegenerateTitle;
+    onClose();
+    const progress = toasts.progress("Regenerating session title…");
+    try {
+      if (regenerateClosedSession) await regenerateClosedSession();
+      else if (targetTabId) await session.regenerateTabTitle(targetTabId);
+      else {
+        progress.dismiss();
+        return;
+      }
+      progress.success("Session title regenerated");
+    } catch (error) {
+      progress.error(error instanceof Error ? error.message : "Couldn't regenerate session title");
+    }
+    requestInputFocus();
   }
 
   function openInSplit() {
@@ -219,6 +242,12 @@
       <ContextMenu.Item onSelect={startRename}>
         <PencilSimpleIcon />
         Rename
+      </ContextMenu.Item>
+    {/if}
+    {#if tabId || onRegenerateTitle}
+      <ContextMenu.Item onSelect={regenerateTitle}>
+        <ArrowsClockwiseIcon />
+        Regenerate title
       </ContextMenu.Item>
     {/if}
     {#if copyableSessionId}

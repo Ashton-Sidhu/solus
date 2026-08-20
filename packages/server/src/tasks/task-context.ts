@@ -19,7 +19,6 @@ export function formatTaskContext(
   if (task.projectKey) lines.push(`Project: ${task.projectKey}`)
   if (task.labels.length) lines.push(`Labels: ${task.labels.join(', ')}`)
   if (task.assignee) lines.push(`Assignee: ${task.assignee}`)
-  if (task.branch) lines.push(`Branch: ${task.branch}`)
   if (task.pr?.url) lines.push(`Pull request: ${task.pr.url}`)
 
   if (parentDetails) {

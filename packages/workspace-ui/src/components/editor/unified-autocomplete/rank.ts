@@ -101,7 +101,7 @@ export function rank<T extends Rankable>(
     return items.map((item) => ({
       item,
       score: 0,
-      parts: [{ text: item.title, hit: false }],
+      parts: highlightParts(item.title, []),
     }));
 
   const ranked: Ranked<T>[] = [];

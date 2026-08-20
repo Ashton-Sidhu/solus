@@ -12,7 +12,7 @@ const markdownUrlSchema = z.string();
 // Solus emits custom-protocol links (plan://, work://, pr://, session://, task://, file://) that
 // MarkdownLink turns into in-app navigation, so we must allow them through;
 // everything else defers to the library's default sanitizer.
-const ALLOWED_CUSTOM_PROTOCOLS = /^\s*(plan|work|pr|session|task|file):/i;
+const ALLOWED_CUSTOM_PROTOCOLS = /^\s*(plan|work|pr|session|task|file|asset):/i;
 
 export const markdownSanitizeUrl: SanitizeUrlFn = (url, context) => {
   const parsed = markdownUrlSchema.safeParse(url);

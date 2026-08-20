@@ -1,5 +1,6 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
@@ -8,6 +9,8 @@
   import { tokenClassName } from "../editor/tokenStyle";
   import { faviconUrlForHref } from "./lib/external-link";
   import { codeFileLinkLabel } from "./lib/assistant-markdown";
+  import { assetUrlCache } from "../artifact/lib/asset-url";
+  import { getMarkdownImageContext, markdownAssetId } from "./lib/markdown-image";
   import { parseSessionHref, resolveSessionLinkMeta } from "./lib/session-link";
   import { getSessionLinkContext } from "./lib/session-link-context";
   import type { Snippet } from "svelte";
@@ -30,12 +33,41 @@
 
   const session = getWorkspaceContext();
   const sessionLinkContext = getSessionLinkContext();
+  const assetContext = getMarkdownImageContext();
 
   const isPlanRef = $derived(href.startsWith("plan://"));
   const isWorkRef = $derived(href.startsWith("work://"));
   const isPrRef = $derived(href.startsWith("pr://"));
   const sessionParams = $derived(parseSessionHref(href));
   const fileRef = $derived(parseFileHref(href));
+  const assetId = $derived(markdownAssetId(href));
+  let assetHref = $state("");
+
+  $effect(() => {
+    const currentAssetId = assetId;
+    const serverId = assetContext?.serverId();
+    const api = assetContext?.api();
+    if (!currentAssetId || !serverId || !api) {
+      assetHref = "";
+      return;
+    }
+    let cancelled = false;
+    void assetUrlCache.resolve({
+      serverId,
+      assetId: currentAssetId,
+      name: text,
+      origin: serverConnections.httpOriginFor(serverId),
+      api,
+      ctx: assetContext?.ctx(),
+    }).then((url) => {
+      if (!cancelled) assetHref = url;
+    }).catch(() => {
+      if (!cancelled) assetHref = "";
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
   const codeFileLabel = $derived(codeFileLinkLabel(text, fileRef?.line));
   // The destination comes from the codec; only the chip's own decoration is
   // read off the href here, and a plan's approval status is the whole of it.
@@ -65,7 +97,10 @@
   }
 
   function handleClick(e: MouseEvent) {
-    if (linkRoute) {
+    if (assetId) {
+      e.preventDefault();
+      if (assetHref) localApi.openExternal(assetHref);
+    } else if (linkRoute) {
       e.preventDefault();
       session.openRoute(linkRoute, {
         target: linkRoute.name === "task" ? "new" : "aside",
@@ -164,7 +199,7 @@
   </button>
 {:else}
   <a
-    {href}
+    href={assetId ? assetHref || undefined : href}
     {title}
     class="solus-link"
     onclick={handleClick}

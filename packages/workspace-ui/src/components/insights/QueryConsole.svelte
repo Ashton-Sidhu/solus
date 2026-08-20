@@ -19,6 +19,7 @@
   import SavedQueryContextMenu from "./SavedQueryContextMenu.svelte";
   import SqlEditor from "./SqlEditor.svelte";
   import TimeRangePicker from "./TimeRangePicker.svelte";
+  import { Input } from "../ui/input";
 
   /**
    * The one place a question is asked, in either language: English, which an
@@ -209,7 +210,7 @@
   {#snippet runButton()}
     <button
       type="button"
-      class="flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-(--primary) text-(--primary-foreground) transition-[scale,opacity] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
+      class="flex size-7.5 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-(--primary) text-(--primary-foreground) transition-[scale,opacity] active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100 [.is-laptop-display_&]:size-6.5"
       disabled={!canRun(activeForm)}
       onclick={() => onRun(activeForm)}
       title="Run — ⌘↵"
@@ -238,22 +239,29 @@
   {/snippet}
 
   {#if activeForm === "nl"}
-    <div class="relative flex h-11 items-center gap-2.5 pr-2 pl-2.5">
+    <div class="relative flex h-12 items-center gap-2.5 pr-2 pl-2.5 [.is-laptop-display_&]:h-11">
       {@render languageSegment()}
       <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
-      <input
-        class="min-w-0 flex-1 bg-transparent text-insights-chrome outline-none"
-        placeholder="Which sessions were slowest after 21:00?"
-        value={question}
-        disabled={readOnly}
-        oninput={(event) => onQuestionChange(event.currentTarget.value)}
-        onkeydown={(event) => onKey(event, activeForm)}
-        onfocus={() => (focused = true)}
-        onblur={() => (focused = false)}
-        aria-label="Ask a question about your sessions"
-      />
-      <TimeRangePicker {range} {onRangeChange} />
-      {@render runButton()}
+      <div class="flex min-w-0 flex-1 items-center gap-1">
+        <div class="min-w-0 flex-1">
+          <Input
+            class="h-auto rounded-none border-0 bg-transparent p-0 text-insights-chrome shadow-none focus-visible:ring-0 dark:bg-transparent"
+            placeholder="Which sessions were slowest after 21:00?"
+            value={question}
+            disabled={readOnly}
+            oninput={(event) => onQuestionChange(event.currentTarget.value)}
+            onkeydown={(event) => onKey(event, activeForm)}
+            onfocus={() => (focused = true)}
+            onblur={() => (focused = false)}
+            aria-label="Ask a question about your sessions"
+            mic
+          />
+        </div>
+        <div class="flex shrink-0 items-center gap-2.5">
+          <TimeRangePicker {range} {onRangeChange} />
+          {@render runButton()}
+        </div>
+      </div>
       {@render runningSweep()}
     </div>
   {:else}

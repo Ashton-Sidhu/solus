@@ -27,6 +27,8 @@ interface Sidecar {
   latestTreeSha?: string
   /** Authoritative net paths from the base to the latest captured tree. */
   sessionChangedFiles?: string[]
+  /** Live worktree tree captured immediately before the current turn starts. */
+  pendingTurnTreeSha?: string
 }
 
 const snapshotQueueByRepo = new Map<string, Promise<void>>()
@@ -49,6 +51,10 @@ function refForBase(sessionId: string): string {
 
 function refForTurn(sessionId: string, index: number): string {
   return `refs/solus/sessions/${sessionId}/turns/${index}`
+}
+
+function refForTurnRange(sessionId: string, index: number, boundary: 'from' | 'to'): string {
+  return `refs/solus/sessions/${sessionId}/turn-ranges/${index}/${boundary}`
 }
 
 function solusDir(repoRoot: string): string {
@@ -129,10 +135,10 @@ async function resolvePrev(repoRoot: string, sidecar: Sidecar): Promise<{ commit
   }
 }
 
-async function diffStats(repoRoot: string, fromCommit: string, toCommit: string): Promise<{ filesChanged: number; additions: number; deletions: number }> {
-  if (fromCommit === toCommit) return { filesChanged: 0, additions: 0, deletions: 0 }
+async function diffStats(repoRoot: string, fromTreeish: string, toTreeish: string): Promise<{ filesChanged: number; additions: number; deletions: number }> {
+  if (fromTreeish === toTreeish) return { filesChanged: 0, additions: 0, deletions: 0 }
   try {
-    const out = await runAsync('git', ['diff', '--numstat', `${fromCommit}..${toCommit}`], repoRoot)
+    const out = await runAsync('git', ['diff', '--numstat', fromTreeish, toTreeish], repoRoot)
     const lines = out.split('\n').filter(Boolean)
     let additions = 0
     let deletions = 0
@@ -154,12 +160,37 @@ export interface SnapshotOpts {
    *  instead of the full working tree — prevents cross-session leakage when
    *  multiple sessions share the same branch. */
   sessionChangedFiles?: string[]
+  /** Files modified during this turn. This keeps the turn range narrower than
+   *  the cumulative session path set. */
+  turnChangedFiles?: string[]
 }
 
 export interface SnapshotTurnResult {
   snapshot: TurnSnapshot
   /** Files with a net change across the whole session after this snapshot. */
   sessionChangedFiles: string[] | null
+}
+
+/** Capture the live worktree immediately before a provider turn starts. The
+ *  checkpoint is a Git tree, not a commit, and never touches the user's index. */
+export async function prepareTurnSnapshot(
+  workTree: string,
+  repoRoot: string,
+  sessionId: string,
+): Promise<void> {
+  return inSnapshotQueue(repoRoot, async () => {
+    const sidecar = readSidecar(repoRoot, sessionId)
+    if (!sidecar) return
+    const headSha = await runAsync('git', ['rev-parse', 'HEAD'], workTree)
+    const dirtyPaths = await listLiveChangedPaths(workTree)
+    sidecar.pendingTurnTreeSha = await writeTreeForPaths(
+      workTree,
+      repoRoot,
+      headSha,
+      dirtyPaths,
+    )
+    writeSidecar(repoRoot, sessionId, sidecar)
+  })
 }
 
 export async function snapshotTurn(
@@ -180,6 +211,10 @@ async function snapshotTurnQueued(
   const sidecar = readSidecar(repoRoot, sessionId)
   if (!sidecar) {
     log.warn('snapshot_skipped_no_base_ref', { sessionId })
+    return null
+  }
+  if (!sidecar.pendingTurnTreeSha) {
+    log.warn('snapshot_skipped_no_turn_start', { sessionId })
     return null
   }
   const turnIndex = sidecar.turns.length
@@ -204,6 +239,19 @@ async function snapshotTurnQueued(
     }
 
     const treeSha = await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
+    const turnFrom = sidecar.pendingTurnTreeSha
+    const turnTo = await writeTreeForPaths(
+      workTree,
+      repoRoot,
+      turnFrom,
+      opts.turnChangedFiles ?? opts.sessionChangedFiles ?? [],
+    )
+    const turnStats = await diffStats(repoRoot, turnFrom, turnTo)
+    await Promise.all([
+      runAsync('git', ['update-ref', refForTurnRange(sessionId, turnIndex, 'from'), turnFrom], repoRoot),
+      runAsync('git', ['update-ref', refForTurnRange(sessionId, turnIndex, 'to'), turnTo], repoRoot),
+    ])
+    delete sidecar.pendingTurnTreeSha
     if (treeSha === prev.tree) {
       let sessionChangedFiles: string[] | null = sidecar.sessionChangedFiles ?? null
       if (!sessionChangedFiles && prev.commit === sidecar.baseSha) {
@@ -224,13 +272,15 @@ async function snapshotTurnQueued(
       }
       const snap: TurnSnapshot = {
         index: turnIndex,
+        fromTreeSha: turnFrom,
+        toTreeSha: turnTo,
         sha: prev.commit,
         timestamp: Date.now(),
         partial: !!opts.partial,
         userMessagePreview: opts.userMessagePreview ?? '',
-        filesChanged: 0,
-        additions: 0,
-        deletions: 0,
+        filesChanged: turnStats.filesChanged,
+        additions: turnStats.additions,
+        deletions: turnStats.deletions,
       }
       sidecar.turns.push(snap)
       sidecar.latestTreeSha = treeSha
@@ -254,16 +304,17 @@ async function snapshotTurnQueued(
     )
     await runAsync('git', ['update-ref', refForTurn(sessionId, turnIndex), commitSha], repoRoot)
 
-    const stats = await diffStats(repoRoot, prev.commit, commitSha)
     const snap: TurnSnapshot = {
       index: turnIndex,
+      fromTreeSha: turnFrom,
+      toTreeSha: turnTo,
       sha: commitSha,
       timestamp: Date.now(),
       partial: !!opts.partial,
       userMessagePreview: opts.userMessagePreview ?? '',
-      filesChanged: stats.filesChanged,
-      additions: stats.additions,
-      deletions: stats.deletions,
+      filesChanged: turnStats.filesChanged,
+      additions: turnStats.additions,
+      deletions: turnStats.deletions,
     }
     sidecar.turns.push(snap)
     let sessionChangedFiles: string[] | null = null
@@ -305,11 +356,8 @@ async function resolveScope(repoRoot: string, sessionId: string, scope: DiffScop
   }
   if (scope.kind !== 'turn') return null
   const turn = sidecar.turns.find(t => t.index === scope.index)
-  if (!turn) return null
-  const fromSha = scope.index === 0
-    ? baseSha
-    : sidecar.turns.find(t => t.index === scope.index - 1)?.sha ?? baseSha
-  return { from: fromSha, to: turn.sha }
+  if (!turn?.fromTreeSha || !turn.toTreeSha) return null
+  return { from: turn.fromTreeSha, to: turn.toTreeSha }
 }
 
 // Keep each batched `git add` argv comfortably under the OS arg-length limit —
@@ -368,6 +416,33 @@ async function stageLivePaths(
         /* best-effort */
       }
     }
+  }
+}
+
+async function listLiveChangedPaths(workTree: string): Promise<string[]> {
+  const [tracked, untracked] = await Promise.all([
+    runAsync('git', ['diff', 'HEAD', '--name-only', '-z'], workTree, { raw: true }),
+    runAsync('git', ['ls-files', '--others', '--exclude-standard', '-z'], workTree, { raw: true }),
+  ])
+  return [...new Set(`${tracked}${untracked}`.split('\0').filter(Boolean))]
+}
+
+async function writeTreeForPaths(
+  workTree: string,
+  repoRoot: string,
+  baseTreeish: string,
+  paths: string[],
+): Promise<string> {
+  ensureSolusDirs(repoRoot)
+  const indexPath = tmpIndexPath(repoRoot)
+  const indexEnv: NodeJS.ProcessEnv = { GIT_INDEX_FILE: indexPath }
+  const treeArgs = [`--git-dir=${join(repoRoot, '.git')}`, `--work-tree=${workTree}`]
+  try {
+    await runAsync('git', [...treeArgs, 'read-tree', baseTreeish], repoRoot, { env: indexEnv })
+    await stageLivePaths(treeArgs, paths, repoRoot, indexEnv)
+    return await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
+  } finally {
+    try { unlinkSync(indexPath) } catch { /* best-effort */ }
   }
 }
 

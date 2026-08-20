@@ -232,6 +232,24 @@ describe('buildTraceView', () => {
     ])
   })
 
+  test('draws every uncovered interval as a neutral selectable row', () => {
+    const gaps: MetricsGapSegment[] = [
+      { category: 'between_activities', startedAt: 1_200, endedAt: 1_500, durationMs: 300 },
+      { category: 'provider_completion', startedAt: 1_800, endedAt: 1_900, durationMs: 100 },
+    ]
+    const view = buildTraceView(trace([root], 400, gaps))!
+    const rows = view.rows.filter((row) => row.kind === 'unattributed')
+
+    expect(rows).toHaveLength(2)
+    expect(rows[0]).toMatchObject({
+      label: 'Between activities', startOffsetMs: 200, durationMs: 300, depth: 1,
+    })
+    expect(rows[0].span?.attrs).toMatchObject({
+      category: 'between_activities',
+      description: 'Between recorded thinking, response, and tool intervals.',
+    })
+  })
+
   test('tool totals group repeat calls of the same tool', () => {
     const first = span({ spanId: 'a', parentSpanId: 'root', name: 'Bash', startedAt: 1_000, endedAt: 1_200, durationMs: 200 })
     const second = span({ spanId: 'b', parentSpanId: 'root', name: 'Bash', startedAt: 1_300, endedAt: 1_500, durationMs: 200 })

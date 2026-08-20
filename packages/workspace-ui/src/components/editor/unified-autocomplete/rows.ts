@@ -34,6 +34,9 @@ export interface MenuItem {
   /** Present for `#` rows so the metadata pass can match the noun. */
   kindNoun?: string;
   refKind?: RefKind;
+  /** Extra context shown only for the selected row. Kept out of the compact
+   *  result geometry so large indexes remain quick to scan. */
+  preview?: string;
 }
 
 export type MenuRow =
@@ -99,6 +102,7 @@ export interface RowInput {
 const MAX_IN_KIND = 5;
 const MAX_ELSEWHERE = 3;
 const MAX_BEST = 8;
+const MAX_DRILLED = 8;
 const MAX_RECENT = 4;
 
 function formatCount(n: number): string {
@@ -219,7 +223,12 @@ function drilledRows(input: RowInput, kindKey: RefKind): MenuRow[] {
       icon: kind.icon,
     },
   ];
-  const matches = rank(input.byKind[kind.key], query);
+  // An empty drill preserves the index's recency order, so do not allocate and
+  // rank thousands of results that cannot enter the first visible page.
+  const candidates = query
+    ? input.byKind[kind.key]
+    : input.byKind[kind.key].slice(0, MAX_DRILLED);
+  const matches = rank(candidates, query);
   if (matches.length === 0) {
     rows.push({
       type: "deadEnd",
@@ -231,7 +240,15 @@ function drilledRows(input: RowInput, kindKey: RefKind): MenuRow[] {
     });
     return rows;
   }
-  rows.push(...matches.map((match) => itemRow(match, false, kind.key)));
+  // The full category stays in the ranking input, but only a viewport-sized
+  // page becomes DOM. Rendering thousands of session buttons made opening an
+  // empty drill block the composer even though all but a handful were hidden
+  // below the scroll fold. A narrower query can still reach every item.
+  rows.push(
+    ...matches
+      .slice(0, MAX_DRILLED)
+      .map((match) => itemRow(match, false, kind.key)),
+  );
   return rows;
 }
 

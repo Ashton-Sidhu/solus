@@ -80,7 +80,7 @@ describe('native task migration', () => {
     // SAFETY: Bun's in-memory Database implements the DatabaseSync methods the migration runner uses.
     migrations.runMigrations(legacy as never)
 
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 24 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 26 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()
@@ -106,7 +106,9 @@ describe('native task migration', () => {
       PRAGMA user_version = 23;
       CREATE TABLE tasks (
         id TEXT PRIMARY KEY,
-        origin_session_id TEXT
+        origin_session_id TEXT,
+        branch TEXT,
+        worktree_key TEXT
       );
       CREATE TABLE task_session_links (
         task_id TEXT NOT NULL,
@@ -129,7 +131,12 @@ describe('native task migration', () => {
         updated_at INTEGER NOT NULL,
         PRIMARY KEY (session_id, position)
       );
-      INSERT INTO tasks VALUES ('task-1', 'provider-session');
+      CREATE TABLE sessions (
+        session_id TEXT PRIMARY KEY,
+        server_id TEXT
+      );
+      INSERT INTO sessions VALUES ('provider-session', NULL);
+      INSERT INTO tasks VALUES ('task-1', 'provider-session', 'fix/duplicate', 'old-worktree');
       INSERT INTO session_lineage_members VALUES (
         'solus-session', 0, 'codex', 'provider-session', '/workspace/solus', 1, NULL, 1
       );
@@ -145,18 +152,21 @@ describe('native task migration', () => {
     migrations.runMigrations(legacy as never)
 
     expect(legacy.query(`
-      SELECT task_id, session_id, branch, linked_at
+      SELECT task_id, session_id, linked_at
       FROM task_session_links
     `).all()).toEqual([{
       task_id: 'task-1',
       session_id: 'solus-session',
-      branch: 'fix/duplicate',
       linked_at: 10,
     }])
+    expect(legacy.query('SELECT branch FROM sessions WHERE session_id = ?').get('provider-session'))
+      .toEqual({ branch: 'fix/duplicate' })
     expect(legacy.query('SELECT origin_session_id FROM tasks').get()).toEqual({
       origin_session_id: 'solus-session',
     })
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 24 })
+    expect(legacy.query("SELECT name FROM pragma_table_info('tasks') WHERE name IN ('branch', 'worktree_key')").all())
+      .toEqual([])
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 26 })
     legacy.close()
   })
 })
@@ -225,13 +235,11 @@ describe('native task CRUD', () => {
     // the project-scoped sidebar must still include their task row.
     const task = await taskSessions.prepareSessionTask({
       projectKey: '/workspace/solus/.solus-worktrees/pr-47',
-      worktreeKey: '/workspace/solus::solus/pr-47 (worktree)',
       prompt: 'Resolve the PR conflicts',
     })
 
     expect(task).toMatchObject({
       projectKey: '/workspace/solus',
-      worktreeKey: '/workspace/solus::solus/pr-47 (worktree)',
     })
   })
 
@@ -275,6 +283,16 @@ describe('native task CRUD', () => {
         body: 'Local finding',
       }),
     ])
+
+    const commentId = detailed.comments[0]!.id
+    const withoutComment = await (await tasks.Task.byId(inbox.id)).deleteComment(commentId)
+    // WHY: removing a task-page comment must remove only that first-class row;
+    // reloading the task must not bring the comment back into Activity.
+    expect(withoutComment.comments).toEqual([])
+    expect((await (await tasks.Task.byId(inbox.id)).details()).comments).toEqual([])
+    await expect((await tasks.Task.byId(inbox.id)).deleteComment(commentId)).rejects.toThrow(
+      'no longer exists',
+    )
 
     const inboxTask = await tasks.Task.byId(inbox.id)
     expect(await inboxTask.delete()).toBe(true)
@@ -323,7 +341,6 @@ describe('session minting and durable links', () => {
       sessionId: 'session-with-pr',
       projectKey: '/workspace/solus',
       prompt: 'Open the pull request',
-      branch: 'feature/task-pr',
     })
 
     const pullRequest = {
@@ -401,20 +418,16 @@ describe('session minting and durable links', () => {
     const root = await taskSessions.prepareSessionTask({
       sessionId: 'session-root',
       projectKey: '/workspace/solus',
-      worktreeKey: 'feature/tasks',
       prompt: '\n  Build the durable tasks foundation with an intentionally very long suffix that is clipped\nMore',
-      branch: 'feature/tasks',
     })
     const child = await taskSessions.prepareSessionTask({
       sessionId: 'session-child',
       projectKey: '/workspace/solus',
-      worktreeKey: 'feature/tasks',
       prompt: 'Add focused tests',
     })
     const sibling = await taskSessions.prepareSessionTask({
       sessionId: 'session-sibling',
       projectKey: '/workspace/solus',
-      worktreeKey: 'feature/tasks',
       prompt: 'Verify migration',
     })
 
@@ -427,7 +440,7 @@ describe('session minting and durable links', () => {
     expect(child!.parentId).toBeUndefined()
     expect(sibling!.parentId).toBeUndefined()
     expect((await taskSessions.taskSessions())[root!.id]).toEqual([
-      expect.objectContaining({ sessionId: 'session-root', role: 'working', branch: 'feature/tasks' }),
+      expect.objectContaining({ sessionId: 'session-root', role: 'working' }),
     ])
     expect((await taskSessions.tasksForSession('session-child'))).toMatchObject({
       task: { id: child!.id },
@@ -610,7 +623,6 @@ describe('session minting and durable links', () => {
         existingAgentSessionId: 'provider-session-before-upgrade',
         sessionId: 'legacy-solus-session',
         projectKey: '/workspace/solus',
-        worktreeKey: 'main',
         prompt: `Follow-up ${prompt}`,
       })).toBeNull()
     }
@@ -622,7 +634,6 @@ describe('session minting and durable links', () => {
     const task = await taskSessions.prepareSessionTask({
       sessionId: 'session-title',
       projectKey: '/workspace/solus',
-      worktreeKey: 'title-work',
       prompt: 'Raw first prompt',
     })
     expect(await taskSessions.updateGeneratedMetadataForSession(
@@ -782,29 +793,35 @@ describe('session minting and durable links', () => {
     const bound = await taskSessions.prepareSessionTask({
       existingTaskId: task.id,
       projectKey: '/workspace/solus',
-      worktreeKey: '/workspace/solus::feature/bound (worktree)',
       prompt: 'Work on existing task',
     })
     expect(bound).toMatchObject({
       projectKey: '/workspace/solus',
-      worktreeKey: '/workspace/solus::feature/bound (worktree)',
       status: 'in_progress',
     })
     const bag = await tasks.Task.byId(task.id)
+    db.getDb().prepare(`
+      INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, message_count, size, branch)
+      VALUES (?, 'codex', 0, ?, 0, 0, ?)
+    `).run('bound-session', Date.now(), 'feature/bound')
     await bag.linkSession('bound-session', 'working', {
-      branch: 'feature/bound',
       originSessionId: 'provider-session',
     })
-    // Re-linking is bookkeeping: captured branch and provenance stay first-write-wins.
+    db.getDb().prepare(`
+      UPDATE task_session_links SET linked_at = 1 WHERE task_id = ? AND session_id = ?
+    `).run(task.id, 'bound-session')
+    // An explicit idempotent retry does not create new history or move the row.
     await bag.linkSession('bound-session', 'working', {})
 
     const detail = await bag.details()
-    expect(detail.task).toMatchObject({
-      branch: 'feature/bound',
-      originSessionId: 'provider-session',
-    })
+    expect(detail.task).toMatchObject({ originSessionId: 'provider-session' })
+    expect(detail.task).not.toHaveProperty('branch')
     expect((await taskSessions.taskSessions(task.id))[task.id]).toEqual([
-      expect.objectContaining({ sessionId: 'bound-session', branch: 'feature/bound' }),
+      expect.objectContaining({
+        sessionId: 'bound-session',
+        branch: 'feature/bound',
+        linkedAt: 1,
+      }),
     ])
   })
 
@@ -822,8 +839,7 @@ describe('session minting and durable links', () => {
     // Re-linking carries no host — it must not erase the one already recorded.
     await bag.linkSession('dispatched-session', 'working', {})
 
-    // Keyed rather than ordered: re-linking refreshes `linked_at`, so the list
-    // order is about recency and says nothing about the host.
+    // Keyed rather than ordered because this assertion concerns only the host.
     const hostBySession = Object.fromEntries(
       (await taskSessions.taskSessions(task.id))[task.id].map(
         (link) => [link.sessionId, link.executionServerId],

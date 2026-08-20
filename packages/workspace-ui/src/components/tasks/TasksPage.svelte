@@ -794,8 +794,6 @@ import Icon from "@iconify/svelte";
       const created = await store.create({
         ...input,
         projectKey: composing.context.projectKey,
-        branch: composing.context.branch,
-        worktreeKey: input.parentId ? undefined : composing.context.worktreeKey,
       });
       createdForNavigation = inline ? null : created.id;
     } catch (err) {

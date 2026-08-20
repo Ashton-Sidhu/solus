@@ -39,6 +39,7 @@ describe('global shortcuts with a secondary document pane', () => {
     expect(source).toContain(
       'useScope(() => scope, { exclusive: !untrack(() => inline), pre: true })',
     )
+    expect(source).toContain('import { tick, untrack } from "svelte";')
   })
 
   test('Settings reaches the global scope while a pane scope is active', () => {

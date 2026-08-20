@@ -7,7 +7,6 @@
   } from "@solus/contracts/task-types";
   import { RefreshCw as ArrowsClockwiseIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
-  import CopyButton from "../../ui/CopyButton.svelte";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import { authorInitials, PRIORITY_META, relativeTime, STATUS_META } from "../lib/tasks-api";
   import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
@@ -72,7 +71,6 @@
 
   const status = $derived(STATUS_META[task.status]);
   const bars = $derived(priorityBars(task.priority));
-  const branches = $derived(task.branch ? [task.branch] : []);
 
   let labelDraft = $state("");
 
@@ -248,6 +246,7 @@
         {/each}
         {#if canEdit}
           <input
+            data-dictation="false"
             class="h-[19px] min-w-[60px] flex-1 bg-transparent  text-muted-foreground outline-none placeholder:text-muted-foreground/70"
             bind:value={labelDraft}
             placeholder="Add a label…"
@@ -280,39 +279,6 @@
       {/if}
     </div>
   </div>
-
-  {#if branches.length}
-    <div class="{GROUP} gap-[11px] border-t-[.5px] border-[var(--hairline)]">
-      <span
-        class="pl-0.5  font-normal text-muted-foreground uppercase"
-      >
-        Work
-      </span>
-      <div class="flex items-start">
-        <span class="{ROW_LABEL} leading-[34px]">
-          {branches.length > 1 ? "Branches" : "Branch"}
-        </span>
-        <span class="flex min-w-0 flex-1 flex-col gap-px py-[3px]">
-          <!-- A branch name is long, and the one thing a user wants from it is
-               the whole string somewhere they can paste. Hover shows it in full
-               and hands over a copy button; the row itself stays one line. -->
-          {#each branches as branch (branch)}
-            <span
-              class="group/branch flex h-7 items-center gap-1 rounded-md pr-1 pl-2 font-mono  text-muted-foreground hover:bg-[var(--wash-2)]"
-              title={branch}
-            >
-              <span class="min-w-0 flex-1 truncate">{branch}</span>
-              <span
-                class="shrink-0 opacity-0 transition-opacity group-hover/branch:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100"
-              >
-                <CopyButton text={branch} title="Copy branch name" iconOnly />
-              </span>
-            </span>
-          {/each}
-        </span>
-      </div>
-    </div>
-  {/if}
 
   {#if upstream}
     {@const tone = syncToneColor(upstream.tone)}

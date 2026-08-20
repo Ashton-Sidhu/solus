@@ -12,6 +12,7 @@ import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationTracker } from './agent-conversation-tracker.svelte'
 import { AGENT_INTERRUPT_NOTICE, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
+import { serverConnections } from '@solus/client-core/server-connections'
 
 export interface SessionEventReducerDeps {
   registry: TabRegistry
@@ -31,6 +32,7 @@ export interface SessionEventReducerDeps {
   playNotificationIfHidden(): void
   closePlanModal(): void
   onTurnSettled(sessionId: string, cwd: string | null): void
+  onTurnFinished?(sessionId: string): void
   onGoalDefined?(sessionId: string): void
   applyGoalUpdated?(sessionId: string, goal: ThreadGoal): boolean
   applyGoalCleared?(sessionId: string, threadId: string): void
@@ -192,34 +194,38 @@ export class SessionEventReducer {
         // projects this session as loose between the two states.
         const taskServerId = session.run.taskServerId
         const pendingTaskId = existingTaskId(session.task)
-        if (pendingTaskId) {
+        if (
+          pendingTaskId
+          && session.currentTurnStart === 'fresh'
+          && session.run.serverId !== taskServerId
+        ) {
           this.deps.tasksStore.trackSessionStart(pendingTaskId, taskSessionId)
           // On a dispatch this client is the only party that can name the
           // execution host, so it says so once and the task's host records the
           // session. The group path travels with it because the agent's own
           // checkout is a path on the borrowed machine.
-          const isDispatch = session.run.serverId !== taskServerId
+          const branch = session.run.gitContext?.branch
           void this.deps.tasksStore.linkSession(
             taskServerId,
             pendingTaskId,
-              taskSessionId,
-            isDispatch
-              ? {
-                  serverId: session.run.serverId,
-                  provider: session.run.provider ?? undefined,
-                  projectRoot: session.run.projectGroupPath,
-                }
-              : null,
-            session.run.gitContext?.branch ?? null,
-          )
+            taskSessionId,
+            {
+              serverId: session.run.serverId,
+              provider: session.run.provider ?? undefined,
+              projectRoot: session.run.projectGroupPath,
+            },
+          ).then(() => branch
+            ? serverConnections.apiFor(taskServerId).setSessionBranch(taskSessionId, branch)
+            : undefined)
+            .catch(() => null)
         }
         void this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId)
           .then((task) => {
             if (!task) return
-            if (existingTaskId(session.task) === pendingTaskId) session.task = { kind: 'new' }
-            // The fork's subtask now exists and owns the nesting the provisional
-            // parent stood in for.
-            session.task = { kind: 'new' }
+            // The durable relationship is now authoritative. Keep its task id
+            // on the mounted session so later prompts never look taskless while
+            // the sidebar reconciles its session links.
+            session.task = { kind: 'existing', taskId: task.id }
           })
           .catch(() => null)
         this.deps.onSessionInitialized?.(sessionId)
@@ -428,6 +434,7 @@ export class SessionEventReducer {
         this.settledTurnIds.set(session, event.turnId)
         session.currentTurnStartedAt = null
         this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
+        this.deps.onTurnFinished?.(sessionId)
         this.deps.refreshTurnSnapshots(sessionId)
         this.deps.workStreamTracker.sweep(session)
         if (event.outcome === 'completed' || event.outcome === 'failed') {
@@ -570,27 +577,19 @@ export class SessionEventReducer {
       case 'git_context':
         session.run.gitContext = event.gitContext
         if (event.gitContext.worktreePath) session.run.worktree = null
-        // A dispatched host can create its worktree after session_init. Carry
-        // that authoritative branch back to the task host when it arrives, or
-        // the durable attempt stays branchless and PR discovery cannot recover
-        // it after a client refresh.
+        // A dispatched host can create its worktree after session_init. Copy
+        // that session-owned fact to the task host's session stub. This does
+        // not write or recreate any task relationship.
         if (session.agentSessionId && event.gitContext.branch) {
           const taskSessionId = taskBindingSessionId(session)
-          const task = this.deps.tasksStore.taskForSession(taskSessionId)
           const taskServerId = session.run.taskServerId
           if (
-            task
-            && taskServerId
+            taskServerId
             && taskSessionId
-            && this.deps.tasksStore.sessionBranchFor(task.id, taskSessionId) !== event.gitContext.branch
           ) {
-            void this.deps.tasksStore.linkSession(
-              taskServerId,
-              task.id,
-              taskSessionId,
-              null,
-              event.gitContext.branch,
-            ).then(() => this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId))
+            void serverConnections.apiFor(taskServerId)
+              .setSessionBranch(taskSessionId, event.gitContext.branch)
+              .then(() => this.deps.tasksStore.refreshSessionBinding(taskSessionId, taskServerId))
               .catch(() => null)
           }
         }

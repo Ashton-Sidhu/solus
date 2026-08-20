@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import type {
     Task,
     TaskLink,
@@ -92,6 +93,10 @@
     serverId: () => store.hostFor(taskId) ?? LOCAL_SERVER_ID,
     ctx: () => projectCwd ? session.ctxForDirectory(projectCwd) : undefined,
     isWeb: () => windowCtx.isWeb,
+    api: () => {
+      const serverId = store.hostFor(taskId);
+      return serverId ? serverConnections.apiFor(serverId) : undefined;
+    },
   });
   const projectLabel = $derived(
     projectCwd ? (projectCwd.split("/").pop() ?? projectCwd) : "Inbox",
@@ -171,6 +176,7 @@
   let picking = $state(false);
   let refreshing = $state(false);
   let syncing = $state(false);
+  let scrollViewport = $state<HTMLElement | null>(null);
 
   // The route param is the request: whenever it names a task we haven't read the
   // detail of, fetch it. A $derived can't express "go do IO", so this is one of
@@ -254,8 +260,17 @@
 
   async function comment(body: string, alsoPost: boolean) {
     if (!taskId) return;
+    const needsProviderUpload = alsoPost && body.includes("asset://");
     try {
-      await store.comment(taskId, body, { pushToExternal: alsoPost });
+      await store.comment(taskId, body, { pushToExternal: alsoPost && !needsProviderUpload });
+      await tick();
+      scrollViewport?.scrollTo({ top: scrollViewport.scrollHeight });
+      if (needsProviderUpload && task?.url) {
+        toasts.error("Add the pasted image in the provider composer", {
+          description: "The comment was saved in Solus. GitHub does not expose its attachment uploader through the API.",
+        });
+        await localApi.openExternal(task.url);
+      }
     } catch (err) {
       toastError("post comment", err);
       throw err;
@@ -264,10 +279,29 @@
 
   async function publishComments(commentIds: string[]) {
     if (!taskId || !commentIds.length) return;
+    const hasLocalAsset = details?.comments.some(
+      (comment) => commentIds.includes(comment.id) && comment.body.includes("asset://"),
+    );
+    if (hasLocalAsset && task?.url) {
+      toasts.error("Add the pasted image in the provider composer", {
+        description: "This comment stays in Solus until its image is uploaded by the provider.",
+      });
+      await localApi.openExternal(task.url);
+      return;
+    }
     try {
       await store.publishComments(taskId, commentIds);
     } catch (err) {
       toastError("publish that comment", err);
+    }
+  }
+
+  async function deleteComment(commentId: string) {
+    if (!taskId) return;
+    try {
+      await store.deleteComment(taskId, commentId);
+    } catch (err) {
+      toastError("delete that comment", err);
     }
   }
 
@@ -442,6 +476,7 @@
     />
 
     <div
+      bind:this={scrollViewport}
       class="min-h-0 flex-1 overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:w-0"
     >
       {#if syncOps.length}
@@ -518,6 +553,7 @@
             onOpenSession={(sessionId) => void openSession(sessionId)}
             provider={upstream?.canSync ? upstream.provider : null}
             onPublish={(commentId) => publishComments([commentId])}
+            onDelete={deleteComment}
           />
 
           {#if capabilities?.canComment}

@@ -62,6 +62,7 @@ const sessionRowSchema = z.object({
   reasoning_effort: reasoningEffortSchema.nullable(),
   project_root: z.string().nullable(),
   server_id: z.string().nullable().optional(),
+  branch: z.string().nullable().optional(),
   parent_session_id: z.string().nullable(),
   root_session_id: z.string().nullable(),
   delegation_exchange_id: z.string().nullable(),
@@ -713,6 +714,7 @@ function rowToSession(row: SessionRow): SessionMeta {
     reasoningEffort: row.reasoning_effort ?? undefined,
     projectRoot: row.project_root ?? undefined,
     serverId: row.server_id ?? undefined,
+    branch: row.branch ?? undefined,
     delegation,
   }
 }
@@ -720,7 +722,7 @@ function rowToSession(row: SessionRow): SessionMeta {
 const SESSION_SELECT = `
   session_id, provider, cwd, project_path, is_worktree, slug, first_message,
   custom_title, last_timestamp, size, model, reasoning_effort, project_root,
-  server_id, parent_session_id, root_session_id, delegation_exchange_id,
+  server_id, branch, parent_session_id, root_session_id, delegation_exchange_id,
   delegation_depth, delegation_intent, delegation_created_at
 `
 
@@ -748,18 +750,20 @@ export function persistIndexedSessionStart(
   model: string,
   reasoningEffort: ReasoningEffort,
   firstMessage: string | null = null,
+  branch: string | null = null,
 ): void {
   getDb().prepare(`
     INSERT INTO sessions(
       session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
-      slug, first_message, last_timestamp, message_count, size, model, reasoning_effort
+      slug, first_message, last_timestamp, message_count, size, model, reasoning_effort, branch
     )
-    VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, 0, ?, ?)
+    VALUES (?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, 0, 0, ?, ?, ?)
     ON CONFLICT(session_id) DO UPDATE SET
       project_root = COALESCE(sessions.project_root, excluded.project_root),
       first_message = COALESCE(sessions.first_message, excluded.first_message),
       model = COALESCE(sessions.model, excluded.model),
-      reasoning_effort = COALESCE(sessions.reasoning_effort, excluded.reasoning_effort)
+      reasoning_effort = COALESCE(sessions.reasoning_effort, excluded.reasoning_effort),
+      branch = COALESCE(sessions.branch, excluded.branch)
   `).run(
     sessionId,
     provider === 'claude-code' ? 'claude' : provider,
@@ -771,6 +775,7 @@ export function persistIndexedSessionStart(
     Date.now(),
     model,
     reasoningEffort,
+    branch,
   )
 }
 
@@ -810,6 +815,23 @@ export function persistRemoteSessionStart(
     Date.now(),
     serverId,
   )
+}
+
+/** Record the checkout owned by one session attempt. The row is created by
+ * session initialization (or by `persistRemoteSessionStart` on a task host),
+ * so metadata never creates a session or any task relationship. */
+export function setSessionBranch(sessionId: string, branch: string): void {
+  getDb().prepare(`
+    UPDATE sessions
+    SET branch = ?
+    WHERE session_id = COALESCE((
+      SELECT provider_session_id
+      FROM session_lineage_members
+      WHERE session_id = ?
+      ORDER BY position DESC
+      LIMIT 1
+    ), ?)
+  `).run(branch, sessionId, sessionId)
 }
 
 /** Name a session, or clear the name back to the derived one with null. Only
@@ -857,9 +879,9 @@ export function cacheIndexedSessions(sessions: SessionMeta[]): void {
     const upsert = getDb().prepare(`
       INSERT INTO sessions(
         session_id, provider, cwd, project_path, project_key, project_root, is_worktree,
-        slug, first_message, last_timestamp, message_count, size
+        slug, first_message, last_timestamp, message_count, size, branch
       )
-      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?)
+      VALUES (?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, 0, ?, ?)
       ON CONFLICT(session_id) DO UPDATE SET
         provider = excluded.provider,
         cwd = excluded.cwd,
@@ -869,7 +891,8 @@ export function cacheIndexedSessions(sessions: SessionMeta[]): void {
         slug = excluded.slug,
         first_message = excluded.first_message,
         last_timestamp = excluded.last_timestamp,
-        size = excluded.size
+        size = excluded.size,
+        branch = COALESCE(excluded.branch, sessions.branch)
     `)
     for (const session of sessions) {
       upsert.run(
@@ -883,6 +906,7 @@ export function cacheIndexedSessions(sessions: SessionMeta[]): void {
         session.firstMessage,
         new Date(session.lastTimestamp).getTime(),
         session.size,
+        session.branch ?? null,
       )
     }
   })

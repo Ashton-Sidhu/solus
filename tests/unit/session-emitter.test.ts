@@ -389,6 +389,62 @@ describe.serial('session emitter', () => {
     expect(attrs(spans.find((span) => span.kind === 'turn')!)).toMatchObject({ permissionDenialCount: 1 })
   })
 
+  test('closes a permission wait when the provider reports its resolution', () => {
+    // WHY: Codex reports permission completion as a normalized event. That
+    // event must close the permission span, not leave it open until settlement.
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'permission-event', prompt: 'apply', promptSource: 'typed', startedAt: 5_050 })
+    emitter.completeSetup('permission-event', {
+      provider: 'codex', model: 'gpt', projectRoot: '/repo', origin: 'typed', isResume: false,
+    }, 5_055)
+    emitter.onEvent('permission-event', {
+      type: 'permission_request', questionId: 'permission-1', toolName: 'Bash', options: [
+        { id: 'allow', label: 'Allow', kind: 'allow' },
+      ],
+    }, 5_060)
+    emitter.onEvent('permission-event', {
+      type: 'permission_resolved', questionId: 'permission-1',
+    }, 5_070)
+    emitter.recordTerminal('permission-event', 'ok', 5_080)
+    emitter.finishTurn('permission-event', 'completed', 5_080)
+
+    const permission = rows().find((span) => span.kind === 'permission_wait')!
+    expect(permission).toMatchObject({ started_at: 5_060, ended_at: 5_070, status: 'ok' })
+    expect(attrs(permission)).toMatchObject({ decision: 'resolved' })
+  })
+
+  test('records question waits and provider-bounded compaction for both backends', () => {
+    const emitter = new emitterModule.SessionEmitter()
+    emitter.beginTurn({ sessionId: 'lifecycle', prompt: 'continue', promptSource: 'typed', startedAt: 5_100 })
+    emitter.completeSetup('lifecycle', {
+      provider: 'codex', model: 'gpt', projectRoot: '/repo', origin: 'typed', isResume: true,
+    }, 5_110)
+    emitter.onEvent('lifecycle', {
+      type: 'question_request', questionId: 'question-1', questions: [{ question: 'Which path?' }],
+    }, 5_120)
+    emitter.resolveQuestion('lifecycle', 'question-1', 5_220)
+    emitter.onEvent('lifecycle', { type: 'context_compaction', state: 'start', startedAtMs: 5_230 }, 5_231)
+    emitter.onEvent('lifecycle', { type: 'context_compaction', state: 'stop', completedAtMs: 5_330 }, 5_331)
+    emitter.onEvent('lifecycle', {
+      type: 'context_compaction', state: 'stop', trigger: 'auto', durationMs: 50,
+    }, 5_400)
+    emitter.recordTerminal('lifecycle', 'ok', 5_410)
+    emitter.finishTurn('lifecycle', 'completed', 5_410)
+
+    const spans = rows()
+    expect(spans.find((span) => span.kind === 'question_wait')).toMatchObject({
+      name: 'Question wait', started_at: 5_120, ended_at: 5_220,
+    })
+    expect(attrs(spans.find((span) => span.kind === 'question_wait')!)).toMatchObject({
+      questionCount: 1, decision: 'answered',
+    })
+    expect(spans.filter((span) => span.kind === 'context_compaction')).toEqual([
+      expect.objectContaining({ started_at: 5_230, ended_at: 5_330 }),
+      expect.objectContaining({ started_at: 5_350, ended_at: 5_400 }),
+    ])
+    expect(attrs(spans.filter((span) => span.kind === 'context_compaction')[1])).toMatchObject({ trigger: 'auto' })
+  })
+
   test('omits a missing Codex resume baseline, handles a counter reset, and records failed status', () => {
     const emitter = new emitterModule.SessionEmitter()
     emitter.beginTurn({ sessionId: 'resume', prompt: 'resume', promptSource: 'agent', startedAt: 6_000 })

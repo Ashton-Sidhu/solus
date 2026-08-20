@@ -1,10 +1,12 @@
 import { VoiceRecorder, type VoiceErrorKind, type VoiceState } from './voice-recorder.svelte'
+import { dictationInsertion } from '../components/input/lib/dictation-text'
 
 export type DictationTarget = HTMLInputElement | HTMLTextAreaElement
 
-/** True when `el` is a plain text field we can dictate into at the caret. */
+/** True when `el` is a plain text field we can dictate into. */
 export function isDictationTarget(el: Element | null): el is DictationTarget {
   if (!el) return false
+  if (el instanceof HTMLElement && el.dataset.dictation === 'false') return false
   if (el instanceof HTMLTextAreaElement) {
     return !el.disabled && !el.readOnly
   }
@@ -19,7 +21,7 @@ export function isDictationTarget(el: Element | null): el is DictationTarget {
 /**
  * App-wide voice controller. Owns the single speech-to-text recorder (the mic
  * is single hardware) and routes its transcript by `mode`:
- *   - 'insert'  — dictation into a focused field at its caret, firing `input`
+ *   - 'insert'  — dictation at the selection of a focused field, firing `input`
  *                 so Svelte `bind:value` updates; if the field opted into
  *                 auto-send, invokes its submit handler afterwards.
  *   - 'message' — conversational "voice mode" (InputBar): the transcript is
@@ -46,6 +48,7 @@ class Dictation {
   mode = $state<'insert' | 'message'>('insert')
   /** InputBar currently routing conversational transcripts. */
   messageOwner = $state<string | null>(null)
+  focusedMessageOwner = $state<string | null>(null)
   #onMessage: ((transcript: string) => void) | null = null
   #pendingMessageConsumer: {
     owner: string
@@ -185,7 +188,22 @@ class Dictation {
     return true
   }
 
+  /** Claim a prose editor and mark it as the shortcut destination. */
+  focusMessageConsumer(
+    owner: string,
+    onMessage: (transcript: string) => void,
+    autoRearm: () => boolean,
+  ): boolean {
+    this.focusedMessageOwner = owner
+    return this.claimMessageConsumer(owner, onMessage, autoRearm)
+  }
+
+  blurMessageConsumer(owner: string): void {
+    if (this.focusedMessageOwner === owner) this.focusedMessageOwner = null
+  }
+
   releaseMessageConsumer(owner: string): void {
+    this.blurMessageConsumer(owner)
     if (this.#pendingMessageConsumer?.owner === owner) this.#pendingMessageConsumer = null
     if (this.messageOwner !== owner) return
     if (this.mode === 'message' && (this.#voice.state === 'recording' || this.#voice.starting)) {
@@ -194,6 +212,22 @@ class Dictation {
     this.messageOwner = null
     this.#onMessage = null
     this.#autoRearmFn = null
+  }
+
+  /** Toggle voice for the focused registered plain field or prose editor. */
+  toggleFocusedRecorder(activeElement: Element | null): boolean {
+    if (isDictationTarget(activeElement) && this.focusedTarget === activeElement) {
+      this.toggleInto(activeElement)
+      return true
+    }
+    if (
+      this.focusedMessageOwner !== null &&
+      this.messageOwner === this.focusedMessageOwner
+    ) {
+      this.toggleConversational()
+      return true
+    }
+    return false
   }
 
   /** Start/confirm voice input for a specific composer, transferring the mic
@@ -333,24 +367,25 @@ class Dictation {
   }
 
   #insert(transcript: string): void {
-    const text = transcript.trim()
     const el = this.target
-    if (!text || !el || !el.isConnected || el.disabled || el.readOnly) return
-
-    let start: number | null
-    let end: number | null
+    if (!el || !el.isConnected || el.disabled || el.readOnly) return
+    let selectionStart: number | null
+    let selectionEnd: number | null
     try {
-      start = el.selectionStart
-      end = el.selectionEnd
+      selectionStart = el.selectionStart
+      selectionEnd = el.selectionEnd
     } catch {
-      start = end = null
+      selectionStart = selectionEnd = null
     }
-
-    if (start === null || end === null) {
-      el.value = `${el.value}${text}`
-    } else {
-      el.setRangeText(text, start, end, 'end')
-    }
+    const from = selectionStart ?? el.value.length
+    const to = selectionEnd ?? from
+    const textBefore = el.value.slice(0, from)
+    const textAfter = el.value.slice(to)
+    const insertion = dictationInsertion(transcript, textBefore, textAfter)
+    if (!insertion) return
+    el.value = `${textBefore}${insertion}${textAfter}`
+    const caret = from + insertion.length
+    if (selectionStart !== null) el.setSelectionRange(caret, caret)
     el.dispatchEvent(new Event('input', { bubbles: true }))
     this.#justInserted = true
     el.focus({ preventScroll: true })

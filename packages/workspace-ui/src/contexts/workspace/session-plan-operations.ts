@@ -48,10 +48,17 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
     return
   }
 
-  const sessionId = ref?.sessionId ?? plan?.sessionId ?? targetPlanId.split('__')[0]
-  const planToolUseId = ref?.planToolUseId ?? plan?.planToolUseId ?? targetPlanId.split('__').slice(1).join('__')
-  const cwd = plan?.cwd ?? ctx.activeSession?.run.workingDirectory ?? ctx.globalDefaults.workingDirectory
-  const projectPath = plan?.projectPath ?? encodePathAsFolder(cwd)
+  const referencedSessionId = ref?.sessionId ?? targetPlanId.split('__')[0]
+  const referencedPlanToolUseId = ref?.planToolUseId ?? targetPlanId.split('__').slice(1).join('__')
+  const descriptor = ctx.planStore.cachedDescriptors.find((candidate) =>
+    candidate.sessionId === referencedSessionId
+      && (candidate.planToolUseId === referencedPlanToolUseId
+        || candidate.revisions.some((revision) => revision.planToolUseId === referencedPlanToolUseId)),
+  )
+  const sessionId = plan?.sessionId ?? descriptor?.sessionId ?? referencedSessionId
+  const planToolUseId = plan?.planToolUseId ?? referencedPlanToolUseId
+  const cwd = plan?.cwd ?? descriptor?.cwd ?? ctx.activeSession?.run.workingDirectory ?? ctx.globalDefaults.workingDirectory
+  const projectPath = plan?.projectPath ?? descriptor?.projectPath ?? encodePathAsFolder(cwd)
   if (!sessionId || !planToolUseId || !cwd) return
 
   // Reveal on the id the read will resolve to, so the click lands on the plan
@@ -61,14 +68,14 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
 
   try {
     await ctx.planStore.loadFromDisk({
-      serverId: ctx.planStore.hostFor?.(targetPlanId) ?? ctx.activeSession?.run.serverId,
+      serverId: ctx.planStore.hostFor?.(targetPlanId) ?? descriptor?.serverId ?? ctx.activeSession?.run.serverId,
       sessionId,
       planToolUseId,
       projectPath,
       cwd,
       status: ref?.status,
       ctx: ctx.ctx,
-      provider: ctx.activeSession?.run.provider,
+      provider: descriptor?.provider ?? ctx.activeSession?.run.provider,
     })
   } catch {}
 

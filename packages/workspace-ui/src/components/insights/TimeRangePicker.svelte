@@ -71,7 +71,7 @@
       <button
         {...props}
         type="button"
-        class="flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-insights-chrome whitespace-nowrap transition-[background-color,color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96]"
+        class="flex h-7.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-insights-chrome whitespace-nowrap transition-[background-color,color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96] [.is-laptop-display_&]:h-6.5 [.is-laptop-display_&]:px-2"
         style="color:{range.kind === 'absolute' ? 'var(--primary)' : 'var(--foreground)'}"
         aria-label="Time range: {label}"
       >

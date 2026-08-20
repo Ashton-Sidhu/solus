@@ -3,6 +3,7 @@
   import type { Task } from "@solus/contracts/task-types";
   import { getAgentContext, getWorkspaceContext } from "../../../contexts";
   import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
+  import { Input } from "../../ui/input";
   import { relativeTime, STATUS_META } from "../lib/tasks-api";
   import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
 
@@ -87,8 +88,8 @@
 </div>
 
 {#if canEdit}
-  <input
-    class="m-0 w-full bg-transparent text-2xl leading-[1.25] font-medium text-pretty outline-none"
+  <Input
+    class="m-0 h-auto w-full rounded-none border-0 bg-transparent! p-0 text-2xl leading-[1.25] font-medium text-pretty shadow-none outline-none focus-visible:ring-0 dark:bg-transparent!"
     bind:value={titleDraft}
     onblur={commitTitle}
     onkeydown={(e) => {
@@ -116,6 +117,7 @@
     readOnly={!canEdit}
     dragHandle={false}
     placeholder="Describe the work…"
+    dictation
     pluginCommands={session.pluginCommands}
     provider={editorProvider}
     workingDirectory={editorCwd}

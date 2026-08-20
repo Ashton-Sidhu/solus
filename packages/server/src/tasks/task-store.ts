@@ -43,9 +43,7 @@ const taskRowSchema = z.object({
   due_date: z.string().nullable(),
   priority: taskPrioritySchema.nullable(),
   labels: z.string(),
-  branch: z.string().nullable(),
   pr: z.string().nullable(),
-  worktree_key: z.string().nullable(),
   source: taskSourceSchema,
   origin_session_id: z.string().nullable(),
   origin_automation_id: z.string().nullable(),
@@ -142,10 +140,8 @@ export function taskFromRow(row: TaskRow): Task {
   if (row.parent_id !== null) task.parentId = row.parent_id
   if (row.due_date !== null) task.dueDate = row.due_date
   if (row.priority !== null) task.priority = row.priority
-  if (row.branch !== null) task.branch = row.branch
   const pr = jsonValue(row.pr, taskPrSchema)
   if (pr) task.pr = pr
-  if (row.worktree_key !== null) task.worktreeKey = row.worktree_key
   if (row.origin_session_id !== null) task.originSessionId = row.origin_session_id
   if (row.origin_automation_id !== null) task.originAutomationId = row.origin_automation_id
   if (row.triaged_at !== null) task.triagedAt = row.triaged_at
@@ -263,18 +259,13 @@ export function writeTask(db: DatabaseSync, input: TaskCreateInput & {
   if (!title) throw new Error('Task title cannot be empty.')
 
   let projectKey = normalizedOptional(input.projectKey)
-  let worktreeKey = normalizedOptional(input.worktreeKey)
   const parentId = normalizedOptional(input.parentId)
   if (parentId) {
     const parent = parentForChild(parentId, undefined, db)
     if (projectKey !== null && projectKey !== parent.project_key) {
       throw new Error('A subtask must belong to the same project as its parent.')
     }
-    if (worktreeKey !== null && parent.worktree_key !== null && worktreeKey !== parent.worktree_key) {
-      throw new Error('A subtask must belong to the same worktree as its parent.')
-    }
     projectKey = parent.project_key
-    worktreeKey = parent.worktree_key
   }
 
   const id = ulid(input.now)
@@ -283,10 +274,10 @@ export function writeTask(db: DatabaseSync, input: TaskCreateInput & {
   db.prepare(`
     INSERT INTO tasks(
       id, short_id, project_key, parent_id, title, title_source, body, status,
-      kind, assignee, due_date, priority, labels, branch, worktree_key,
+      kind, assignee, due_date, priority, labels,
       source, origin_session_id, origin_automation_id, created_at, updated_at,
       triaged_at, done_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     nextShortId(db),
@@ -301,8 +292,6 @@ export function writeTask(db: DatabaseSync, input: TaskCreateInput & {
     normalizedOptional(input.dueDate),
     input.priority ?? null,
     JSON.stringify(input.labels ?? []),
-    normalizedOptional(input.branch),
-    worktreeKey,
     input.source,
     normalizedOptional(input.originSessionId),
     normalizedOptional(input.originAutomationId),

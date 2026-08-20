@@ -30,7 +30,7 @@ import { formatTaskContext } from './tasks/task-context'
 import { getServerSettings } from './server/settings'
 import { clearForeignTaskSnapshot, foreignTaskFor, setForeignTaskSnapshot } from './tasks/foreign-tasks'
 import type { TaskSnapshot } from '@solus/contracts/task-types'
-import { getIndexedSession, persistIndexedSessionStart } from './db/session-indexer'
+import { getIndexedSession, persistIndexedSessionStart, setSessionBranch } from './db/session-indexer'
 import {
   beginSessionHandoff,
   cancelProvisionalSessionHandoff,
@@ -82,7 +82,6 @@ import { solusDir } from './platform/paths'
 import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
 import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
-import { taskWorktreeKey } from '@solus/contracts/task-types'
 import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
 import { SPAN_SERVICES } from './observability/registries'
 
@@ -507,6 +506,7 @@ export class ControlPlane extends EventEmitter {
             runReqInput.model,
             runReqInput.reasoningEffort,
             firstDispatchRun?.options.displayPrompt ?? firstDispatchRun?.options.prompt ?? null,
+            runReqInput.gitContext?.branch ?? null,
           )
         }
         if (existingSession) {
@@ -2653,9 +2653,9 @@ export class ControlPlane extends EventEmitter {
     this._setStatus(sessionId, newStatus)
     this._notifyActiveWork()
 
-    // A first dispatch becomes or binds a local task before the provider starts.
-    // The store returns null for a resumed provider session, which structurally
-    // enforces the clean-slate/no-backfill rule.
+    // A prompt can bind an existing task before the provider starts. A taskless
+    // first dispatch stays taskless here; the client settles its fallback task
+    // only after the turn, after the agent has had a chance to create a link.
     if (!options.skipTaskCreation && pendingHandoff && !options.taskId) {
       const existingTask = await dispatchStep('task_lookup', {
         fn: 'tasksForSession',
@@ -2667,11 +2667,10 @@ export class ControlPlane extends EventEmitter {
       })
       if (existingTask) options.taskId = existingTask.task.id
     }
-    const task = options.skipTaskCreation
+    const task = options.skipTaskCreation || !options.taskId
       ? null
       : await dispatchStep('task_prepare', {
         projectKey: resolvedProjectPath ?? '',
-        worktreeKey: taskWorktreeKey(resolvedProjectPath, effectiveGitCtx) ?? '',
         branch: effectiveGitCtx?.branch ?? '',
         existingTaskId: options.taskId ?? '',
         fn: 'sessionTaskPreparer',
@@ -2690,9 +2689,7 @@ export class ControlPlane extends EventEmitter {
           existingTaskId: options.taskId,
           parentTaskId: options.parentTaskId,
           projectKey: resolvedProjectPath,
-          worktreeKey: taskWorktreeKey(resolvedProjectPath, effectiveGitCtx),
           prompt: options.displayPrompt ?? options.prompt,
-          branch: effectiveGitCtx?.branch ?? null,
         })
         annotate({ taskId: prepared?.id ?? '', minted: !!prepared })
         return prepared
@@ -2865,7 +2862,6 @@ export class ControlPlane extends EventEmitter {
     if (run.options.taskSnapshot) return
     try {
       await (await Task.byId(taskId)).linkSession(sessionId, 'working', {
-        branch: run.input.gitContext?.branch ?? null,
         originSessionId: sessionId,
       })
     } catch (err) {
@@ -3092,6 +3088,8 @@ export class ControlPlane extends EventEmitter {
     const backends = backend ? [backend] : Array.from(this.backends.values())
     for (const b of backends) {
       if (b.permissions.respondToQuestion(questionId, answers)) {
+        const sessionId = this.questionIdToSession.get(questionId)
+        if (sessionId) this.sessionEmitter.resolveQuestion(sessionId, questionId)
         this._clearPendingInputEvent(questionId)
         this.questionIdToSession.delete(questionId)
         return true
@@ -3305,6 +3303,7 @@ export class ControlPlane extends EventEmitter {
           this.sessionGitEnvironments.set(sessionId, { cwd, gitContext })
           const session = this.activeSessions.get(sessionId)
           if (session) session.gitContext = gitContext
+          if (gitContext.branch) setSessionBranch(sessionId, gitContext.branch)
           this._emit(sessionId, { type: 'git_context', gitContext })
         }
       }

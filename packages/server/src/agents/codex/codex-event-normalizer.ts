@@ -588,6 +588,16 @@ function normalizeItemStarted(params: any): NormalizedEvent[] {
   const item = params?.item
   if (!item?.id || !item?.type) return []
 
+  if (isCompactionItem(item.type)) {
+    const event: Extract<NormalizedEvent, { type: 'context_compaction' }> = {
+      type: 'context_compaction',
+      state: 'start',
+    }
+    const startedAtMs = parsedFiniteNumber(params?.startedAtMs)
+    if (startedAtMs !== undefined) event.startedAtMs = startedAtMs
+    return [event]
+  }
+
   // The transcript prints how long the agent thought, never the thought itself.
   if (item.type === 'reasoning') {
     return [{ type: 'thinking', state: 'start', parentToolUseId: codexParentToolUseId(params) }]
@@ -662,6 +672,17 @@ function normalizeItemCompleted(params: any, opts?: { assembledAgentMessages?: b
   // lifecycle event: "started" opens the still-running card, while
   // "interrupted" settles it through the same normalization used above.
   if (item.type === 'subAgentActivity') return normalizeItemStarted(params)
+  if (isCompactionItem(item.type)) {
+    const event: Extract<NormalizedEvent, { type: 'context_compaction' }> = {
+      type: 'context_compaction',
+      state: 'stop',
+    }
+    const completedAtMs = parsedFiniteNumber(params?.completedAtMs)
+    const durationMs = parsedFiniteNumber(item.durationMs)
+    if (completedAtMs !== undefined) event.completedAtMs = completedAtMs
+    if (durationMs !== undefined) event.durationMs = durationMs
+    return [event]
+  }
   if (item.type === 'reasoning') {
     return [{ type: 'thinking', state: 'stop', parentToolUseId: codexParentToolUseId(params) }]
   }
@@ -843,6 +864,13 @@ function codexStartedToolInput(item: any): string | undefined {
   if (model) input.model = model
   if (reasoningEffort) input.reasoning_effort = reasoningEffort
   return JSON.stringify(input)
+}
+
+function isCompactionItem(type: string): boolean {
+  return type === 'contextCompaction'
+    || type === 'context_compaction'
+    || type === 'compaction'
+    || type === 'compaction_trigger'
 }
 
 function codexToolOutcome(item: any): Extract<NormalizedEvent, { type: 'tool_call_complete' }>['outcome'] {

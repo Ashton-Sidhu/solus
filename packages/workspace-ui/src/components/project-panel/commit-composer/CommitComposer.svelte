@@ -340,9 +340,10 @@
         placeholder="Commit message (optional — leave blank to generate one)"
         rows={2}
         disabled={actions.running}
-        class="w-full resize-none rounded-lg border-transparent bg-(--solus-input-bg-soft) px-2.5 py-2 text-xs text-(--solus-text-primary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] outline-none focus:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)] max-md:px-3 max-md:py-2.5 max-md:text-base"
+        class="w-full resize-none rounded-lg border-transparent bg-(--solus-input-bg-soft) py-2 pr-8 pl-2.5 text-xs text-(--solus-text-primary) shadow-[inset_0_0_0_0.0625rem_color-mix(in_srgb,var(--solus-container-border)_70%,transparent)] outline-none focus:border-transparent focus-visible:ring-[0.125rem] focus-visible:ring-[color-mix(in_srgb,var(--solus-accent)_30%,transparent)] max-md:py-2.5 max-md:pr-8 max-md:pl-3 max-md:text-base"
         onSubmit={() => void submit()}
         submitOn="mod-enter"
+        mic
       />
     </div>
 

@@ -298,10 +298,7 @@
     if (theme.autoSendVoiceTranscripts) {
       sendPrompt(text, { refocus: false });
     } else {
-      const existing = prompt.text;
-      const next = existing.trim() ? `${existing} ${text}` : text;
-      prompt.text = next;
-      composerEl?.setValueAndCursor(next, true, true);
+      composerEl?.insertTranscript(text);
     }
   }
 
@@ -1280,7 +1277,7 @@
         style="zoom:var(--solus-font-scale,1)"
       >
         {@render leadingActions(savedPromptsControl)}
-        <div class="ml-auto flex shrink-0 items-center gap-2">
+        <div class="ml-auto flex shrink-0 items-center gap-1">
           {@render actionButtons()}
         </div>
       </div>
@@ -1398,7 +1395,7 @@
             aria-label={canSteer ? "Steer the live turn" : "Send message"}
             class="flex shrink-0 items-center justify-center rounded-lg transition-[background-color,box-shadow,transform] duration-150 enabled:active:scale-[0.96] {isMobile
               ? 'size-8'
-              : 'size-[1.875rem]'} {canSend
+              : 'size-[1.875rem] [.is-laptop-display_&]:size-7'} {canSend
               ? 'bg-(--solus-accent) text-(--solus-text-on-accent) shadow-[0_0.25rem_0.75rem_-0.375rem_var(--solus-send-glow)] hover:shadow-[0_0.3125rem_0.875rem_-0.375rem_var(--solus-send-glow)]'
               : 'cursor-default bg-(--solus-surface-active) text-(--solus-text-tertiary)'}"
           >

@@ -5,6 +5,8 @@ export const SPAN_KINDS = {
   responseStream: 'response_stream',
   toolCall: 'tool_call',
   permissionWait: 'permission_wait',
+  questionWait: 'question_wait',
+  contextCompaction: 'context_compaction',
   queueWait: 'queue_wait',
   rateLimitWait: 'rate_limit_wait',
   turnSettlement: 'turn_settlement',

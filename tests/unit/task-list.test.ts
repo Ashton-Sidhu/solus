@@ -495,10 +495,10 @@ describe('prChipForBranches', () => {
     )).toEqual({ number: 43, state: 'open' })
   })
 
-  it('matches a remote session worktree when the task still records its local branch', () => {
+  it('matches a remote session worktree from attempt branches', () => {
     // WHY: a dispatched task is prepared on the task host before its execution
-    // host resolves the worktree branch. The mounted session is authoritative
-    // for that attempt and must still expose its GitHub PR in the sidebar.
+    // host resolves the worktree branch. Session attempts are authoritative
+    // for branches and must still expose the GitHub PR in the sidebar.
     expect(prChipForBranches(
       ['solus/remote-worktree', 'main'],
       [pr({ number: 43, headRef: 'solus/remote-worktree' })],

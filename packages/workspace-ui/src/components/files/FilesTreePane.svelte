@@ -3,6 +3,7 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
+  import FilesRouteSkeleton from "./FilesRouteSkeleton.svelte";
 
   let { params, paneId }: RouteSurfaceProps<"files"> = $props();
 
@@ -14,12 +15,7 @@
 </script>
 
 {#await import("./FilesPane.svelte")}
-  <div
-    class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
-    role="status"
-  >
-    Loading files…
-  </div>
+  <FilesRouteSkeleton variant="tree" />
 {:then filesModule}
   {@const FilesPane = filesModule.default}
   <FilesPane

@@ -6,6 +6,7 @@ import type {
   Task,
   TaskCreateInput,
   TaskDetails,
+  TaskForSessionResult,
   TaskLinkInput,
   TaskLinkKind,
   TaskProviderStatus,
@@ -20,6 +21,7 @@ import type {
 import { upstreamTaskDetails } from './upstream-task-details'
 import { resolveTaskSnoozeReminder, type TaskSnoozeReminder } from './task-snooze'
 import type { HostApi } from '@solus/client-core/host-api'
+import { taskTitleRegenerationInput } from './task-title-regeneration'
 
 const INVALIDATION_DEBOUNCE_MS = 100
 const TASK_DELETE_CONCURRENCY = 8
@@ -102,6 +104,7 @@ export class TasksStore {
   /** Tasks hidden during their Undo window. The host row still exists until
    * the toast commits, so refreshes must not put it back into the list. */
   private pendingDeleteIds = new SvelteSet<string>()
+  readonly regeneratingTitleIds = new SvelteSet<string>()
 
   constructor() {
     $effect(() => {
@@ -273,10 +276,6 @@ export class TasksStore {
 
   snoozeReminderForSession(sessionId: string | null | undefined): TaskSnoozeReminder | null {
     return resolveTaskSnoozeReminder(this.taskForSession(sessionId), this.lifecycleNow)
-  }
-
-  sessionBranchFor(taskId: string, sessionId: string): string | null {
-    return this.sessionsByTask.get(taskId)?.find((link) => link.sessionId === sessionId)?.branch ?? null
   }
 
   providerStatus(cwd: string | null | undefined): TaskProviderStatus | null {
@@ -537,6 +536,18 @@ export class TasksStore {
     return this.taskForSession(sessionId)
   }
 
+  /** Read each known identity from the task host before fallback task creation.
+   * Unlike normal UI hydration, an RPC failure must reject: an empty cache is
+   * not proof that the running agent did not create a task link. */
+  async findSessionTaskOnHost(sessionIds: string[], serverId: string): Promise<Task | null> {
+    const api = serverConnections.apiFor(serverId)
+    for (const sessionId of sessionIds) {
+      const tree = await api.tasksForSession(sessionId)
+      if (tree) return this.applySessionTree(sessionId, tree, serverId)
+    }
+    return null
+  }
+
   /** The two-level tree a session belongs to — its task, that task's parent,
    * and every subtask under the root, each by name. The global snapshot
    * carries all of them whenever it succeeds; this is the read that still
@@ -548,6 +559,14 @@ export class TasksStore {
     const api = serverConnections.apiFor(ownerServerId)
     const tree = await api.tasksForSession(sessionId).catch(() => null)
     if (!tree) return null
+    return this.applySessionTree(sessionId, tree, serverId)
+  }
+
+  private applySessionTree(
+    sessionId: string,
+    tree: TaskForSessionResult,
+    serverId?: string,
+  ): Task {
     for (const task of [tree.parent, tree.task, ...tree.subtasks, ...tree.siblings]) {
       if (!task) continue
       if (serverId) this.hostByTaskId.set(task.id, serverId)
@@ -607,6 +626,27 @@ export class TasksStore {
     return updated
   }
 
+  /** Generate a new task name from its durable description, then write it
+   * through the same host/provider path as a manual rename. */
+  async regenerateTitle(id: string): Promise<Task> {
+    if (this.regeneratingTitleIds.has(id)) {
+      throw new Error('The task title is already regenerating.')
+    }
+    const task = this.taskById(id)
+    if (!task) throw new Error('Task not found.')
+    this.regeneratingTitleIds.add(id)
+    try {
+      const metadata = await this.apiForTask(id).generateSessionMetadata(
+        taskTitleRegenerationInput(task),
+        task.projectKey ?? '~',
+      )
+      if (!metadata) throw new Error("Couldn't generate a new task title.")
+      return await this.update(id, { title: metadata.title })
+    } finally {
+      this.regeneratingTitleIds.delete(id)
+    }
+  }
+
   async snooze(id: string, input: TaskSnoozeInput): Promise<Task> {
     const updated = await this.apiForTask(id).tasksSnooze(id, input)
     this.replace(id, updated)
@@ -637,20 +677,21 @@ export class TasksStore {
   }
 
   /**
-   * Mint (or bind) the task a session is about to start under, on the host that
-   * owns its project.
+   * Bind an explicitly selected task before a session starts, or mint the
+   * fallback task after a taskless turn settles, on the host that owns its
+   * project.
    *
    * This is the first-dispatch boundary, moved out of whichever host happens to
    * run the agent. A dispatched session runs on one machine and files here, so
    * the mint cannot be a side effect of the prompt landing — the client has to
    * name the host, and it is the only party that knows both.
    *
-   * Returns null when the host declined to mint (a resumed provider session), in
-   * which case the caller sends no task id and nothing is bound.
+   * Returns null when the host declines the operation, in which case the caller
+   * leaves the session taskless.
    */
   async prepareForSession(
     serverId: string,
-    input: { existingTaskId?: string | null; parentTaskId?: string | null; projectKey?: string | null; worktreeKey?: string | null; prompt?: string; branch?: string | null; includeSnapshot?: boolean },
+    input: { existingTaskId?: string | null; parentTaskId?: string | null; projectKey?: string | null; prompt?: string; includeSnapshot?: boolean },
   ): Promise<PrepareSessionTaskResult> {
     const result = await serverConnections.apiFor(serverId).tasksPrepareForSession(input)
     if (!result.task) return result
@@ -683,6 +724,11 @@ export class TasksStore {
     const details = await this.apiForTask(id).tasksComment(id, body, opts)
     this.reconcileDetails(details)
     return details.task
+  }
+
+  async deleteComment(id: string, commentId: string): Promise<void> {
+    const details = await this.apiForTask(id).tasksDeleteComment(id, commentId)
+    this.reconcileDetails(details)
   }
 
   /** Send comments upstream that were written while auto-posting was off. The
@@ -724,10 +770,10 @@ export class TasksStore {
   /**
    * Bind a started session to its task, on the host that owns that task.
    *
-   * Split out from the mint because the two happen at different moments and, for
-   * a dispatch, involve different machines: the task is minted here before the
-   * prompt leaves, and the session id only exists once the *execution* host has
-   * started the agent and echoed `session_init` back.
+   * For an explicit task, the bind prepares before the prompt and the durable
+   * link follows `session_init`. For a fallback task, minting and linking both
+   * happen after turn settlement. A dispatch can involve different machines in
+   * either case.
    *
    * That second machine is also the only thing neither host can work out for
    * itself, so the client states it here and the task's host records a session
@@ -740,11 +786,9 @@ export class TasksStore {
     taskId: string,
     sessionId: string,
     execution: SessionExecutionHost | null,
-    branch: string | null,
   ): Promise<void> {
-    await serverConnections
-      .apiFor(serverId)
-      .tasksLinkSession(taskId, sessionId, 'working', execution, branch)
+    await serverConnections.apiFor(serverId)
+      .tasksLinkSession(taskId, sessionId, 'working', execution)
   }
 
   /** Detach a session from its task, on the host that owns that task. The

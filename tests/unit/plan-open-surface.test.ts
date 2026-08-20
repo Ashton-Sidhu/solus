@@ -24,6 +24,7 @@ function openContext(diskContent: string | null) {
     isExpanded: false,
     planStore: {
       plans,
+      cachedDescriptors: [],
       hydrateAnnotations: async () => {},
       loadFromDisk: async (opts: { sessionId: string; planToolUseId: string }) => {
         const id = `${opts.sessionId}__${opts.planToolUseId}`
@@ -76,5 +77,48 @@ describe('openPlanModal', () => {
 
     expect(closeCount()).toBe(1)
     expect(opened).toEqual([])
+  })
+
+  test('loads a referenced plan from the host and provider that listed it', async () => {
+    // WHY: a plan chip can refer to a Claude plan while the active composer is
+    // Codex. Loading through the active run returns no body and leaves the plan
+    // surface on its skeleton.
+    let loadOptions: {
+      serverId?: string
+      provider?: string | null
+      projectPath: string
+      cwd: string
+    } | null = null
+    const { ctx } = openContext('# Plan\n\nBody.')
+    ctx.planStore.cachedDescriptors = [{
+      serverId: 'plan-host',
+      provider: 'claude-code',
+      sessionId: 'agent-session-1',
+      planToolUseId: 'plan-tool-1',
+      projectPath: '-remote-repo',
+      cwd: '/remote/repo',
+      timestamp: 1,
+      title: 'Plan',
+      excerpt: '',
+      status: 'pending',
+      commentCount: 0,
+      bookmarked: false,
+      revisions: [],
+    }]
+    ctx.planStore.loadFromDisk = async (opts) => {
+      loadOptions = opts
+      const id = `${opts.sessionId}__${opts.planToolUseId}`
+      ctx.planStore.plans[id] = { id, content: '# Plan\n\nBody.' } as Plan
+      return id
+    }
+
+    await openPlanModal(ctx, 'agent-session-1__plan-tool-1')
+
+    expect(loadOptions).toMatchObject({
+      serverId: 'plan-host',
+      provider: 'claude-code',
+      projectPath: '-remote-repo',
+      cwd: '/remote/repo',
+    })
   })
 })

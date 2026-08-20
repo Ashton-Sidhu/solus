@@ -9,6 +9,7 @@
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
+  import { Textarea } from "../ui/textarea";
   import PanelSection from "./PanelSection.svelte";
   import {
     goalMetaLine,
@@ -195,14 +196,14 @@
                The field stays on the card surface and a hairline carries the
                edge, so editing changes the outline, not the colour. -->
           <!-- svelte-ignore a11y_autofocus -->
-          <textarea
+          <Textarea
             bind:value={objectiveDraft}
             maxlength="4000"
             rows="4"
             autofocus
             aria-label="Goal objective"
             class="w-full resize-y rounded-md border border-[color-mix(in_srgb,var(--solus-text-primary)_12%,transparent)] bg-transparent px-1.5 py-1 text-xs leading-5 text-(--solus-text-primary) outline-none focus:border-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)]"
-          ></textarea>
+          />
           <div class="flex items-center justify-between gap-2">
             <span class="text-xs tabular-nums text-(--solus-text-tertiary)">
               {objectiveDraft.length} / 4,000

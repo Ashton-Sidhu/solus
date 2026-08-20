@@ -9,6 +9,48 @@ import { PromptComposer } from '@solus/workspace-ui/contexts/workspace/prompt-co
 import { taskBindingSessionId } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 
 describe('session task binding identity', () => {
+  test('a taskless first prompt delays minting until turn settlement', () => {
+    // WHY: the agent can link the new session to an existing task during its
+    // turn. Minting before that turn finishes creates a second task and a
+    // duplicate sidebar occurrence.
+    const source = readFileSync(
+      join(import.meta.dir, '../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts'),
+      'utf8',
+    )
+
+    expect(source).toMatch(
+      /onTurnFinished:[\s\S]*?settleSessionTask\(sessionId\)/,
+    )
+    expect(source).toMatch(
+      /session\.task\.kind !== 'existing'[\s\S]*?skipTaskCreation: true/,
+    )
+    expect(source).toMatch(
+      /settleSessionTask[\s\S]*?findSessionTaskOnHost[\s\S]*?if \(linkedTask\)[\s\S]*?prepareForSession/,
+    )
+
+    const serverSource = readFileSync(
+      join(import.meta.dir, '../../packages/server/src/control-plane.ts'),
+      'utf8',
+    )
+    expect(serverSource).toContain('options.skipTaskCreation || !options.taskId')
+  })
+
+  test('generated session metadata still renames its fallback task', () => {
+    // WHY: task minting moved after the turn, but session naming is independent.
+    // The loose row must rename immediately and a later fallback task must keep
+    // that same generated title and description.
+    const source = readFileSync(
+      join(import.meta.dir, '../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts'),
+      'utf8',
+    )
+
+    expect(source).toContain('currentSession.title = metadata.title')
+    expect(source).toContain('this.generatedTaskMetadataBySession.set(currentSession, metadata)')
+    expect(source).toMatch(
+      /mintedTaskId[\s\S]*?tasksStore\.update\(mintedTaskId[\s\S]*?title: metadata\.title[\s\S]*?body: metadata\.description/,
+    )
+  })
+
   test('a new session draft inherits the active task through the stable session id', () => {
     // WHY: Cmd+T opens a draft from the active conversation. Restored sessions
     // use a Solus task-link id that differs from the provider thread id, so the

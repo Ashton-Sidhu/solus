@@ -13,6 +13,7 @@
   import { toasts } from "../../lib/toasts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
+  import { Input } from "../ui/input";
   import { folderLabel, triggerSummary } from "./lib/automation-format";
   import {
     AUTOMATION_TEMPLATES,
@@ -305,30 +306,35 @@
     </div>
   {:else}
     <div
-      class="mt-2 flex h-10 w-full items-center gap-2.5 rounded-2xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)] pointer-coarse:h-[46px]"
+      class="mt-2 flex h-11 w-full items-center gap-2.5 rounded-2xl bg-card pr-1.5 pl-3 shadow-[inset_0_0_0_.5px_var(--hairline-strong)] transition-shadow duration-150 focus-within:shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--primary)_45%,transparent)] [.is-laptop-display_&]:h-10 pointer-coarse:h-[46px]"
     >
       <PencilSimpleIcon size={14} class="shrink-0 text-[var(--primary)]" />
-      <input
-        type="text"
-        bind:value={description}
-        onkeydown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            void submitDescription();
-          }
-        }}
-        placeholder="Describe the automation…"
-        aria-label="Describe the automation"
-        class="min-w-0 flex-1 border-0 bg-transparent caret-[var(--primary)] outline-none placeholder:text-muted-foreground"
-      />
-      <button
-        type="button"
-        class="flex h-[26px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-2.5 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45 pointer-coarse:h-[30px] pointer-coarse:px-[13px]"
-        onclick={submitDescription}
-        disabled={!description.trim()}
-      >
-        Create<span class="opacity-80">↵</span>
-      </button>
+      <div class="flex min-w-0 flex-1 items-center gap-1">
+        <div class="min-w-0 flex-1">
+          <Input
+            type="text"
+            bind:value={description}
+            mic
+            onkeydown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void submitDescription();
+              }
+            }}
+            placeholder="Describe the automation…"
+            aria-label="Describe the automation"
+            class="h-full min-w-0 flex-1 rounded-none border-0 bg-transparent! px-0 py-0 pr-8 caret-[var(--primary)] shadow-none outline-none placeholder:text-muted-foreground focus-visible:border-0 focus-visible:ring-0"
+          />
+        </div>
+        <button
+          type="button"
+          class="flex h-7.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-primary px-3 font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] disabled:pointer-events-none disabled:opacity-45 [.is-laptop-display_&]:h-6.5 [.is-laptop-display_&]:px-2.5 pointer-coarse:h-[30px] pointer-coarse:px-[13px]"
+          onclick={submitDescription}
+          disabled={!description.trim()}
+        >
+          Create<span class="opacity-80">↵</span>
+        </button>
+      </div>
     </div>
   {/if}
 

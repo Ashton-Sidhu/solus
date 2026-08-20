@@ -98,6 +98,7 @@
         enterInsertsNewline
         hidePlaceholderOnFocus
         maxHeight={220}
+        dictation
         placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
         class={mdFieldClass}
       />
@@ -155,6 +156,7 @@
         enterInsertsNewline
         hidePlaceholderOnFocus
         maxHeight={220}
+        dictation
         placeholder="Instructions that only apply when {selectedModelLabel || 'this model'} is running."
         class={mdFieldClass}
       />

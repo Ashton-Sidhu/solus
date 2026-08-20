@@ -51,8 +51,7 @@ describe('comment text', () => {
   })
 
   test('what a comment is not allowed to be stays literal text', () => {
-    // Headings, tables, images and nested quotes: a comment that needs one of
-    // these wants to be a document, so none of them parse.
+    // Headings, tables, remote images and nested quotes stay out of margin notes.
     for (const source of ['# Heading', '| a | b |', '![alt](https://x.dev/i.png)', '>> nested']) {
       const blocks = parseCommentText(source)
       expect(blocks).toHaveLength(1)
@@ -60,6 +59,22 @@ describe('comment text', () => {
       const rendered = blocks[0].kind === 'text' ? blocks[0].segments.map((s) => s.text).join('') : ''
       expect(rendered).toBe(source)
     }
+  })
+
+  test('recognizes a content-addressed pasted image', () => {
+    const id = `${'a'.repeat(64)}.png`
+    expect(parseInline(`before ![screen](asset://${id}) after`)).toEqual([
+      { kind: 'plain', text: 'before ' },
+      { kind: 'image', text: 'screen', href: `asset://${id}` },
+      { kind: 'plain', text: ' after' },
+    ])
+  })
+
+  test('recognizes a content-addressed general attachment', () => {
+    const href = `asset://${'b'.repeat(64)}.pdf`
+    expect(parseInline(`[brief.pdf](${href})`)).toEqual([
+      { kind: 'link', text: 'brief.pdf', href },
+    ])
   })
 })
 
@@ -72,6 +87,7 @@ describe('threads', () => {
   })
 
   test('two replies show, the rest become a count', () => {
+    // SAFETY: visibleReplies reads only the replies populated by this fixture.
     const comment = { replies: [at(1), at(2), at(3), at(4)] } as PlanComment
     const { earlierCount, shown } = visibleReplies(comment)
     expect(earlierCount).toBe(2)
@@ -85,6 +101,7 @@ describe('threads', () => {
   })
 
   test('unread means Solus said something the reader has not seen', () => {
+    // SAFETY: each assertion adds the timestamps that isUnread reads.
     const base = { id: 'c', selectedText: 's', comment: 'c', author: 'you' } as PlanComment
     // Your own thread with no answer is never unread — that would be unread of
     // yourself.

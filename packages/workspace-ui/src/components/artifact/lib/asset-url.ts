@@ -11,21 +11,29 @@ interface CachedAssetUrl {
 
 export interface SignedAssetUrlRequest {
   serverId: string
-  path: string
+  path?: string
+  assetId?: string
+  name?: string
   origin: string
   api: Pick<HostApi, 'assetCreateUrl'>
-  ctx: IpcContext
+  ctx?: IpcContext
 }
 
 export class AssetUrlCache {
   private readonly entries = new Map<string, CachedAssetUrl>()
 
   async resolve(request: SignedAssetUrlRequest, now = Date.now()): Promise<string> {
-    const key = hostKey(request.serverId, request.path)
+    const sourceKey = request.assetId
+      ? `asset:${request.assetId}:${request.name ?? ''}`
+      : `path:${request.path ?? ''}`
+    const key = hostKey(request.serverId, sourceKey)
     const cached = this.entries.get(key)
     if (cached && cached.expiresAt - now > ASSET_URL_REFRESH_WINDOW_MS) return cached.url
 
-    const minted = await request.api.assetCreateUrl(request.ctx, { path: request.path })
+    const minted = await request.api.assetCreateUrl(
+      request.ctx,
+      request.assetId ? { assetId: request.assetId, name: request.name } : { path: request.path },
+    )
     const url = new URL(minted.relativeUrl, `${request.origin.replace(/\/+$/, '')}/`).toString()
     this.entries.set(key, { url, expiresAt: minted.expiresAt })
     return url

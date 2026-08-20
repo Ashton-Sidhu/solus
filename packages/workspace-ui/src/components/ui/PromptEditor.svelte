@@ -64,6 +64,10 @@
     readOnly?: boolean;
     /** Disables the underlying editor (read-only, connecting, transcribing…). */
     disabled?: boolean;
+    /** Show push-to-talk for prose editors outside the main input bar. */
+    mic?: boolean;
+    /** Enable the voice shortcut even when the idle mic is hidden. */
+    dictation?: boolean;
     maxHeight?: number;
     class?: string;
     /** Whether autocomplete menus grow upward (above the cursor) or downward.
@@ -101,6 +105,8 @@
     placeholder = "",
     readOnly = false,
     disabled = false,
+    mic = false,
+    dictation,
     maxHeight = 140,
     class: klass = "",
     menuPlacement = "up",
@@ -227,6 +233,9 @@
     plainTextEditorEl?.clearEditor();
     ac.clearCompletions();
   }
+  export function insertTranscript(transcript: string) {
+    plainTextEditorEl?.insertTranscript(transcript);
+  }
   export function isCaretAtStart(): boolean {
     return autocompleteEditor.isCaretAtStart();
   }
@@ -270,6 +279,8 @@
   {placeholder}
   ariaLabel="Message input"
   {disabled}
+  {mic}
+  {dictation}
   {maxHeight}
   referenceChips
   slashCommands={decoratedSlashCommands}

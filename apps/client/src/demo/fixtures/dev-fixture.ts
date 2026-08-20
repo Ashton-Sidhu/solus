@@ -239,6 +239,8 @@ export const devFixtures: DemoFixtures = {
       stats: [{ path: 'src/api/account.ts', additions: 1, deletions: 1, status: 'M' }],
       turnSnapshots: [{
         index: 0,
+        fromTreeSha: '1111111111111111111111111111111111111111',
+        toTreeSha: '2222222222222222222222222222222222222222',
         sha: '2222222222222222222222222222222222222222',
         timestamp: timestamp + 7_000,
         partial: false,

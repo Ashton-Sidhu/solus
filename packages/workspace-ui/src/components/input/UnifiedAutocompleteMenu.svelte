@@ -83,6 +83,13 @@
     }));
   });
 
+  const selectedSession = $derived.by(() => {
+    const selected = indexed.find((entry) => entry.index === selectedIndex)?.row;
+    return selected?.type === "item" && selected.item.refKind === "session"
+      ? selected.item
+      : null;
+  });
+
   let listEl: HTMLDivElement | null = $state(null);
 
   // Selection always scrolled into view with a 4px margin — the one thing that
@@ -135,6 +142,24 @@
           {/if}
         {/each}
       </div>
+
+      {#if selectedSession?.preview}
+        <div
+          class="mx-0.5 mt-1.5 max-h-24 overflow-hidden px-2 pt-2 pb-1 pointer-fine:[.is-laptop-display_&]:mt-1 pointer-fine:[.is-laptop-display_&]:max-h-[4.75rem] pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:pt-1.5"
+        >
+          <div
+            class="mb-1 flex items-center gap-2 text-[0.75em] font-medium uppercase tracking-[0.06em] text-(--solus-text-tertiary) pointer-fine:[.is-laptop-display_&]:mb-0.5"
+          >
+            <span>Opening prompt</span>
+            <span class="h-px flex-1 bg-(--wash-rule)"></span>
+          </div>
+          <div
+            class="line-clamp-3 leading-relaxed text-(--solus-text-secondary) text-pretty pointer-fine:[.is-laptop-display_&]:line-clamp-2"
+          >
+            {selectedSession.preview}
+          </div>
+        </div>
+      {/if}
 
       <div class="mx-0.5 mt-[0.3125rem] h-px bg-(--wash-rule)"></div>
       <div

@@ -129,14 +129,19 @@ export function registerTasksHandlers(server: SolusServer): void {
     return (await Task.byId(id)).comment(body, options)
   })
 
+  server.register('tasksDeleteComment', async (args) => {
+    const [id, commentId] = args
+    return (await Task.byId(id)).deleteComment(commentId)
+  })
+
   server.register('tasksPublishComments', async (args) => {
     const [id, commentIds] = args
     return (await Task.byId(id)).publishComments(commentIds)
   })
 
   server.register('tasksLinkSession', async (args) => {
-    const [taskId, sessionId, role, execution, branch] = args
-    return (await Task.byId(taskId)).linkSession(sessionId, role ?? 'working', { execution, branch })
+    const [taskId, sessionId, role, execution] = args
+    return (await Task.byId(taskId)).linkSession(sessionId, role ?? 'working', { execution })
   })
 
   server.register('tasksUnlinkSession', async (args) => {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { markdownImageUrl } from "@solus/workspace-ui/components/conversation/lib/markdown-image";
+import { markdownAssetId, markdownImageUrl } from "@solus/workspace-ui/components/conversation/lib/markdown-image";
 
 describe("markdown image URLs", () => {
   test("resolves a relative image from the session working directory", () => {
@@ -37,5 +37,12 @@ describe("markdown image URLs", () => {
   test("leaves relative URLs unchanged without a concrete working directory", () => {
     expect(markdownImageUrl("shot.png", undefined)).toBe("shot.png");
     expect(markdownImageUrl("shot.png", "~")).toBe("shot.png");
+  });
+
+  test("recognizes content-addressed attachment references", () => {
+    const id = `${"a".repeat(64)}.png`;
+    expect(markdownAssetId(`asset://${id}`)).toBe(id);
+    expect(markdownAssetId("asset://../../secret.png")).toBeNull();
+    expect(markdownAssetId(`asset://${"b".repeat(64)}.svg`)).toBe(`${"b".repeat(64)}.svg`);
   });
 });

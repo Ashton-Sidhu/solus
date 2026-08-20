@@ -558,6 +558,35 @@ export class SessionEmitter {
         this.startPermission(state, event, event.startedAtMs ?? arrivedAt)
         return
       }
+      if (event.type === 'permission_resolved') {
+        const key = this.permissionKey(event.questionId)
+        const open = state.openSpans.get(key)
+        if (open) {
+          state.openSpans.delete(key)
+          state.permissionOptions.delete(key)
+          this.endChild(state, open, arrivedAt, 'ok', { decision: 'resolved' })
+        }
+        return
+      }
+      if (event.type === 'question_request') {
+        this.finishResponseStream(state, undefined, 'ok')
+        this.finishThinking(state, undefined, arrivedAt, 'ok')
+        const key = this.questionKey(event.questionId)
+        if (!state.openSpans.has(key)) {
+          state.openSpans.set(key, this.newChild(
+            state,
+            SPAN_KINDS.questionWait,
+            'Question wait',
+            arrivedAt,
+            { questionCount: event.questions.length },
+          ))
+        }
+        return
+      }
+      if (event.type === 'context_compaction') {
+        this.observeContextCompaction(state, event, arrivedAt)
+        return
+      }
       if (event.type === 'background_task_started') {
         this.startBackgroundTask(state, event, arrivedAt)
         return
@@ -628,6 +657,18 @@ export class SessionEmitter {
       this.endChild(state, open, endedAt, granted ? 'ok' : 'error', {
         decision: granted ? 'granted' : 'denied',
       })
+    })
+  }
+
+  resolveQuestion(sessionId: string, questionId: string, endedAt = Date.now()): void {
+    this.safe(sessionId, () => {
+      const state = this.turns.get(sessionId)
+      if (!state) return
+      const key = this.questionKey(questionId)
+      const open = state.openSpans.get(key)
+      if (!open) return
+      state.openSpans.delete(key)
+      this.endChild(state, open, endedAt, 'ok', { decision: 'answered' })
     })
   }
 
@@ -852,6 +893,48 @@ export class SessionEmitter {
     )
   }
 
+  private observeContextCompaction(
+    state: TurnState,
+    event: Extract<NormalizedEvent, { type: 'context_compaction' }>,
+    arrivedAt: number,
+  ): void {
+    const key = 'context_compaction'
+    if (event.state === 'start') {
+      if (state.openSpans.has(key)) return
+      this.finishResponseStream(state, undefined, 'ok')
+      this.finishThinking(state, undefined, event.startedAtMs ?? arrivedAt, 'ok')
+      const attrs: SpanAttributes = {}
+      if (event.trigger) attrs.trigger = event.trigger
+      state.openSpans.set(key, this.newChild(
+        state,
+        SPAN_KINDS.contextCompaction,
+        'Context compaction',
+        event.startedAtMs ?? arrivedAt,
+        attrs,
+      ))
+      return
+    }
+
+    const endedAt = event.completedAtMs ?? arrivedAt
+    const open = state.openSpans.get(key)
+    if (open) {
+      state.openSpans.delete(key)
+      this.endChild(state, open, endedAt, 'ok', event.trigger ? { trigger: event.trigger } : undefined)
+      return
+    }
+    if (event.durationMs === undefined || event.durationMs <= 0) return
+    const attrs: SpanAttributes = {}
+    if (event.trigger) attrs.trigger = event.trigger
+    const retrospective = this.newChild(
+      state,
+      SPAN_KINDS.contextCompaction,
+      'Context compaction',
+      Math.max(state.startedAt, endedAt - event.durationMs),
+      attrs,
+    )
+    this.endChild(state, retrospective, endedAt, 'ok')
+  }
+
   private startBackgroundTask(
     state: TurnState,
     event: Extract<NormalizedEvent, { type: 'background_task_started' }>,
@@ -943,6 +1026,10 @@ export class SessionEmitter {
 
   private permissionKey(questionId: string): string {
     return `permission:${questionId}`
+  }
+
+  private questionKey(questionId: string): string {
+    return `question:${questionId}`
   }
 
   private backgroundKey(taskId: string): string {

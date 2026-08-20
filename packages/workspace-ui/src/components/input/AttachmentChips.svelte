@@ -20,9 +20,10 @@
     attachments: Attachment[]
     tabId?: string
     onRemove: (id: string) => void
+    onOpen?: (id: string) => void
   }
 
-  let { attachments, tabId, onRemove }: Props = $props()
+  let { attachments, tabId, onRemove, onOpen }: Props = $props()
 
   let previewSrc = $state<string | null>(null)
 
@@ -66,6 +67,7 @@
           style="cursor:{a.dataUrl ? 'zoom-in' : 'pointer'};background:none;border:none;padding:0"
           onclick={() => {
             if (a.dataUrl) previewSrc = a.dataUrl
+            else if (onOpen) onOpen(a.id)
             else requestFilePreview({ path: a.hostPath ?? a.path, tabId })
           }}
         >

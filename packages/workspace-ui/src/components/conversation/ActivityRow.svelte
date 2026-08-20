@@ -215,13 +215,9 @@
 
   .activity-target {
     min-width: 0;
-    font-size: var(--text-activity-label);
+    font-size: var(--text-tool-step);
     color: var(--muted-foreground);
     opacity: 0.7;
-  }
-
-  .activity-row.is-nested .activity-target {
-    font-size: var(--text-tool-step);
   }
 
   .activity-rail {

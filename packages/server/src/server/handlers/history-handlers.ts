@@ -4,7 +4,7 @@ import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger, isDebugEnabled } from '../../logger'
 import type { SolusServer } from '../server'
-import { getIndexedSession, searchIndexedSessions, setSessionCustomTitle } from '../../db/session-indexer'
+import { getIndexedSession, searchIndexedSessions, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { generateSessionMetadata } from '../../sessions/session-title'
 import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
@@ -225,6 +225,12 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       emitChanged()
     }
     log.info('session_renamed', { sessionId, cleared: !trimmed, taskCatalogChanged })
+  })
+
+  server.register('setSessionBranch', (args) => {
+    const [sessionId, branch] = args
+    setSessionBranch(sessionId, branch)
+    emitChanged()
   })
 
   server.register('listPlans', async (args) => {

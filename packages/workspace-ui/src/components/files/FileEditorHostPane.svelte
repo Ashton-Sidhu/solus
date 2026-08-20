@@ -3,6 +3,7 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
+  import FilesRouteSkeleton from "./FilesRouteSkeleton.svelte";
 
   let { params, paneId }: RouteSurfaceProps<"fileEditor"> = $props();
 
@@ -30,12 +31,7 @@
   onfocusin={() => session.router.focusPane(paneId)}
 >
   {#await import("./FileEditorPane.svelte")}
-    <div
-      class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
-      role="status"
-    >
-      Loading file…
-    </div>
+    <FilesRouteSkeleton variant="editor" />
   {:then fileEditorModule}
     {@const FileEditorPane = fileEditorModule.default}
     <FileEditorPane

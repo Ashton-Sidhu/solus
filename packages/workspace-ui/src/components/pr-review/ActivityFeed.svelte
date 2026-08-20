@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import {
     RefreshCw as ArrowsClockwiseIcon,
     GitPullRequest as GitPullRequestIcon,
@@ -33,6 +34,7 @@
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import { Button } from "../ui/button";
+  import { Input } from "../ui/input";
   import { Skeleton } from "../ui/skeleton";
   import PrAvatar from "../prs/PrAvatar.svelte";
   import type { ActivityFilter, PrActivityTarget } from "./lib/activity-data";
@@ -161,6 +163,8 @@
 
   let composer = $state("");
   let posting = $state(false);
+  let scrollViewport = $state<HTMLElement | null>(null);
+  let deletingCommentIds = $state(new SvelteSet<string>());
   let editing = $state(false);
   let titleDraft = $state("");
   let bodyDraft = $state("");
@@ -528,7 +532,13 @@
       const serverComments = await session.prsStore.loadComments(getApi(), serverId, feedCtx(), n, {
         force: true,
       });
-      if (pr.number === n) comments = serverComments;
+      if (pr.number === n) {
+        comments = serverComments;
+        filter = "all";
+        unresolvedOnly = false;
+        await tick();
+        scrollViewport?.scrollTo({ top: scrollViewport.scrollHeight });
+      }
     } catch (err) {
       toasts.error(
         commentCreated
@@ -538,6 +548,25 @@
     } finally {
       posting = false;
       requestInputFocus();
+    }
+  }
+
+  async function deleteComment(commentId: string) {
+    if (deletingCommentIds.has(commentId)) return;
+    deletingCommentIds.add(commentId);
+    try {
+      const n = pr.number;
+      await getApi().prDeleteIssueComment(feedCtx(), n, commentId);
+      const serverComments = await session.prsStore.loadComments(getApi(), serverId, feedCtx(), n, {
+        force: true,
+      });
+      if (pr.number === n) comments = serverComments;
+    } catch (err) {
+      toasts.error("Couldn't delete comment", {
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      deletingCommentIds.delete(commentId);
     }
   }
 
@@ -612,7 +641,7 @@
   }
 </script>
 
-<div class="h-full min-h-0 overflow-y-auto bg-background">
+<div bind:this={scrollViewport} class="h-full min-h-0 overflow-y-auto bg-background">
     {#if anyLoadFailed}
       <div
         class="mx-auto w-full max-w-[min(1384px,100%)] px-[clamp(20px,2.6vw,56px)] pt-4"
@@ -679,10 +708,10 @@
           {/if}
 
           {#if editing}
-            <input
+            <Input
               bind:this={titleInput}
               bind:value={titleDraft}
-              class="{masthead || !showIdentity ? '' : 'mt-3.5'} w-full rounded-lg border border-border bg-card px-3 py-2 text-2xl leading-[1.28] font-medium outline-none transition-colors focus:border-ring"
+              class="{masthead || !showIdentity ? '' : 'mt-3.5'} h-auto w-full rounded-lg border border-border bg-card px-3 py-2 text-2xl leading-[1.28] font-medium outline-none shadow-none transition-colors focus:border-ring focus-visible:ring-0"
               aria-label="Pull request title"
               onkeydown={(event) => {
                 if (event.key === "Escape") cancelEditing();
@@ -795,6 +824,7 @@
               value={bodyDraft}
               onValueChange={(markdown) => (bodyDraft = markdown)}
               placeholder="Describe this pull request…"
+              dictation
               dragHandle={false}
               class="pr-description-editor prose-pr prose-pr-description"
               style="max-height:26.25rem;overflow-y:auto"
@@ -911,10 +941,13 @@
           filtered={timelineFiltered}
           {authorName}
           {openedAt}
+          {viewerLogin}
+          {deletingCommentIds}
           onJump={jumpToFile}
           {onOpenCommit}
           onReply={replyToThread}
           onResolve={resolveThread}
+          onDeleteComment={deleteComment}
         />
 
         <!-- Composer: full measure of the main column, flush with the title and
@@ -935,7 +968,7 @@
           class="sticky bottom-0 z-10 mt-8 pt-2.5 pb-[22px] [background:linear-gradient(to_bottom,transparent,var(--background)_22px)]"
         >
         <div
-          class="flex items-center gap-3 rounded-2xl bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
+          class="flex items-center gap-1 rounded-2xl bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
         >
           <PrAvatar
             name={viewerLogin || "?"}
@@ -953,7 +986,7 @@
           <Button
             type="button"
             disabled={!composer.trim() || posting}
-            class="flex size-[28px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
+            class="flex size-7.5 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 [.is-laptop-display_&]:size-7"
             aria-label="Post comment"
             title="Comment · ⌘↵"
             onclick={postComment}

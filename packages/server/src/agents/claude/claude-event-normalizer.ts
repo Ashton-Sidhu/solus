@@ -1,5 +1,5 @@
 import type { ContextUsage, NormalizedEvent, UsageData } from '@solus/contracts/types'
-import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
+import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, CompactBoundaryEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import { normalizeResetNumber, rateLimitEventFromMessage } from '../../rate-limits'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
@@ -66,8 +66,8 @@ function normalize(
 ): NormalizedEvent[] {
   switch (raw.type) {
     case 'system':
-      // SAFETY: ClaudeEvent.type is the provider discriminant for system initialization and status events.
-      return normalizeSystem(raw as InitEvent)
+      // SAFETY: ClaudeEvent.type is the provider discriminant for system initialization, status, and compaction events.
+      return normalizeSystem(raw as InitEvent | StatusEvent | CompactBoundaryEvent)
 
     case 'stream_event':
       // SAFETY: ClaudeEvent.type is the provider discriminant for stream events.
@@ -192,7 +192,7 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   }
 }
 
-function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
+function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent): NormalizedEvent[] {
   // Sub-agents/tools that run as SDK "tasks" (the Task/Agent tool, backgroundable
   // Bash, etc.) settle out-of-band: the SDK keeps the query open, streaming task
   // lifecycle system messages until the work finishes. A task started up-front as
@@ -251,6 +251,18 @@ function normalizeSystem(event: InitEvent | StatusEvent): NormalizedEvent[] {
     if (uiMode) {
       return [{ type: 'permission_mode_changed', permissionMode: uiMode }]
     }
+  }
+
+  if (event.subtype === 'compact_boundary') {
+    const compaction: Extract<NormalizedEvent, { type: 'context_compaction' }> = {
+      type: 'context_compaction',
+      state: 'stop',
+      trigger: event.compact_metadata.trigger,
+    }
+    if (event.compact_metadata.duration_ms !== undefined) {
+      compaction.durationMs = event.compact_metadata.duration_ms
+    }
+    return [compaction]
   }
 
   return []

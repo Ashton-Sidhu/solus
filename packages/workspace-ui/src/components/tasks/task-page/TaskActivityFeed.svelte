@@ -8,6 +8,7 @@
     Check as CheckIcon,
     LoaderCircle as CircleNotchIcon,
     SquareTerminal as TerminalWindowIcon,
+    Trash2 as TrashIcon,
     UserRound as UserIcon,
   } from "@lucide/svelte";
   import type {
@@ -39,6 +40,7 @@
     /** Queue this comment for the ticket. Resolves once the host has taken it;
      *  the engine posts it on its next pass. */
     onPublish: (commentId: string) => Promise<void>;
+    onDelete: (commentId: string) => Promise<void>;
   }
 
   let {
@@ -48,11 +50,13 @@
     onOpenSession,
     provider,
     onPublish,
+    onDelete,
   }: Props = $props();
 
   /** Comments the user has just pressed Publish on, so the row stops offering
    *  the action before the host's answer arrives. */
   let publishing = $state(new SvelteSet<string>());
+  let deleting = $state(new SvelteSet<string>());
 
   async function publish(commentId: string) {
     if (publishing.has(commentId)) return;
@@ -61,6 +65,16 @@
       await onPublish(commentId);
     } finally {
       publishing.delete(commentId);
+    }
+  }
+
+  async function deleteComment(commentId: string) {
+    if (deleting.has(commentId)) return;
+    deleting.add(commentId);
+    try {
+      await onDelete(commentId);
+    } finally {
+      deleting.delete(commentId);
     }
   }
 
@@ -183,12 +197,12 @@
         {@const user = isUser(comment)}
         {@const originSessionId = comment.originSessionId}
         {@const originSessionName = commentSessionName(comment, sessions)}
-        <div class="relative flex gap-3 py-3">
+        <div class="group/comment relative flex gap-3 py-3">
           <span
-            class="flex size-[25px] shrink-0 items-center justify-center rounded-full font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
+            class="relative z-10 flex size-[25px] shrink-0 items-center justify-center rounded-full font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
             style={agent
-              ? "background:color-mix(in oklch, var(--primary) 15%, transparent);color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
-              : "background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
+              ? "background:color-mix(in oklch, var(--primary) 15%, var(--background));color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
+              : "background:color-mix(in oklch, var(--chart-1) 22%, var(--background));color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
           >
             {#if user}
               <UserIcon size={13} strokeWidth={2.2} aria-hidden="true" />
@@ -276,6 +290,22 @@
                 >
                   <TerminalWindowIcon size={10} aria-hidden="true" />
                   <span class="max-w-48 truncate">{originSessionName}</span>
+                </button>
+              {/if}
+              {#if user && comment.source === "local" && !comment.externalId}
+                <button
+                  type="button"
+                  class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground opacity-0 transition-[opacity,color] hover:text-destructive focus-visible:opacity-100 group-hover/comment:opacity-100 pointer-coarse:opacity-100"
+                  disabled={deleting.has(comment.id)}
+                  aria-label="Delete comment"
+                  title="Delete comment"
+                  onclick={() => void deleteComment(comment.id)}
+                >
+                  {#if deleting.has(comment.id)}
+                    <CircleNotchIcon size={12} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  {:else}
+                    <TrashIcon size={12} aria-hidden="true" />
+                  {/if}
                 </button>
               {/if}
             </span>

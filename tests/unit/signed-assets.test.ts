@@ -30,6 +30,7 @@ describe('signed host asset URLs', () => {
   })
 
   function ctx(): IpcContext {
+    // SAFETY: these are the only session fields exercised by asset root confinement.
     return {
       session: {
         sessionId: 'asset-session',
@@ -42,7 +43,7 @@ describe('signed host asset URLs', () => {
   test('mints a valid token with the configured expiry', async () => {
     const path = join(project, 'image.png')
     await writeFile(path, 'png')
-    const result = await createAssetUrl(ctx(), path, { secret, now })
+    const result = await createAssetUrl(ctx(), { path }, { secret, now })
     const token = result.relativeUrl.slice('/api/assets/'.length)
 
     expect(result.expiresAt).toBe(now + ASSET_URL_TTL_MS)
@@ -56,7 +57,7 @@ describe('signed host asset URLs', () => {
   test('refuses expired and tampered tokens', async () => {
     const path = join(project, 'image.webp')
     await writeFile(path, 'webp')
-    const result = await createAssetUrl(ctx(), path, { secret, now, ttlMs: 100 })
+    const result = await createAssetUrl(ctx(), { path }, { secret, now, ttlMs: 100 })
     const token = result.relativeUrl.slice('/api/assets/'.length)
     const last = token.at(-1)
     const tampered = `${token.slice(0, -1)}${last === 'a' ? 'b' : 'a'}`
@@ -68,12 +69,41 @@ describe('signed host asset URLs', () => {
   test('refuses a canonical path outside the session project', async () => {
     const path = join(outside, 'escape.png')
     await writeFile(path, 'png')
-    await expect(createAssetUrl(ctx(), path, { secret, now })).rejects.toThrow('outside')
+    await expect(createAssetUrl(ctx(), { path }, { secret, now })).rejects.toThrow('outside')
   })
 
   test('refuses an extension outside the asset allowlist', async () => {
     const path = join(project, 'payload.html')
     await writeFile(path, '<script>alert(1)</script>')
-    await expect(createAssetUrl(ctx(), path, { secret, now })).rejects.toThrow('not allowed')
+    await expect(createAssetUrl(ctx(), { path }, { secret, now })).rejects.toThrow('not allowed')
+  })
+
+  test('mints a URL for a stored asset without project context', async () => {
+    const id = `${'a'.repeat(64)}.png`
+    await writeFile(join(outside, id), 'stored png')
+    const result = await createAssetUrl(undefined, { assetId: id }, {
+      secret,
+      now,
+      assetsDir: outside,
+    })
+    const token = result.relativeUrl.slice('/api/assets/'.length)
+    expect(verifyAssetToken(token, secret, now)?.path).toBe(await realpath(join(outside, id)))
+  })
+
+  test('serves a general stored attachment as a named download', async () => {
+    const id = `${'b'.repeat(64)}.csv`
+    await writeFile(join(outside, id), 'quarter,total\nQ1,42\n')
+    const result = await createAssetUrl(undefined, { assetId: id, name: 'report.csv' }, {
+      secret,
+      now,
+      assetsDir: outside,
+    })
+    const token = result.relativeUrl.slice('/api/assets/'.length)
+    const response = await serveAssetToken(token, { method: 'GET' }, { secret, now })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('application/octet-stream')
+    expect(response.headers.get('content-disposition')).toBe('attachment; filename="report.csv"')
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff')
   })
 })

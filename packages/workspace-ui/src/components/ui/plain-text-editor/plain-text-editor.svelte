@@ -36,6 +36,8 @@
     type ReferenceDecorationCallbacks,
     type ReferenceDecorationConfig,
   } from "./lib/reference-decorations";
+  import EditorVoiceControl from "../../input/EditorVoiceControl.svelte";
+  import { dictationInsertion } from "../../input/lib/dictation-text";
   import { markdownComposerKeymap } from "./lib/markdown-keymap";
 import { ghostCompletion, showGhost } from "./lib/ghost-completion";
 
@@ -46,12 +48,19 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
     onEmptyChange?: (empty: boolean) => void;
     onKeyDown?: (event: KeyboardEvent) => void;
     onPaste?: (event: ClipboardEvent) => void;
+    onDrop?: (event: DragEvent) => void;
     onFocus?: () => void;
     onBlur?: () => void;
     placeholder?: string;
     ariaLabel?: string;
     hidePlaceholderOnFocus?: boolean;
     disabled?: boolean;
+    /** Show the shared push-to-talk recorder beside this prose editor. */
+    mic?: boolean;
+    /** Enable the voice shortcut even when the idle mic is hidden. */
+    dictation?: boolean;
+    /** Keep the recorder over the field, or give it its own place beside it. */
+    micPlacement?: "inside" | "beside";
     maxHeight?: number;
     enterInsertsNewline?: boolean;
     referenceChips?: boolean;
@@ -67,6 +76,7 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
     onEmptyChange,
     onKeyDown,
     onPaste,
+    onDrop,
     onFocus,
     onBlur,
     onPlanRefClick,
@@ -77,6 +87,9 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
     ariaLabel,
     hidePlaceholderOnFocus = false,
     disabled = false,
+    mic = false,
+    dictation,
+    micPlacement = "inside",
     maxHeight = 140,
     enterInsertsNewline = false,
     referenceChips = false,
@@ -85,15 +98,17 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
     style = "",
   }: Props = $props();
 
+  const dictationOn = $derived(dictation ?? mic);
+
   let wrapper: HTMLDivElement | null = $state(null);
   let editorHost: HTMLDivElement | null = $state(null);
   let view: EditorView | null = $state.raw(null);
   let lastLocalValue: string | null = null;
   let isApplyingValue = false;
   // CodeMirror can synchronously blur while Svelte is reconciling a template.
-  // Keep this imperative editor detail outside Svelte state and reconfigure the
-  // placeholder directly from the focus handlers.
-  let isFocused = false;
+  // Reconfigure the placeholder synchronously, but defer the reactive focus
+  // notification until Svelte has finished that reconciliation.
+  let isFocused = $state(false);
   const editableCompartment = new Compartment();
   const placeholderCompartment = new Compartment();
   const attributesCompartment = new Compartment();
@@ -154,6 +169,7 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
       // The room the tightened leading gives up comes back here, so a one-line
       // composer stands the height it always has.
       padding: "var(--plain-editor-padding, 0.9375rem 0 0.9375rem 0.25rem)",
+      paddingRight: mic && micPlacement === "inside" ? "4.25rem" : undefined,
       // The caret is text, so it takes the text's colour — never the accent.
       caretColor: "currentColor",
       wordBreak: "break-word",
@@ -177,7 +193,9 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
   }
 
   function setFocused(focused: boolean) {
-    isFocused = focused;
+    queueMicrotask(() => {
+      isFocused = focused;
+    });
     if (!view || !hidePlaceholderOnFocus) return;
     view.dispatch({
       effects: placeholderCompartment.reconfigure(
@@ -238,14 +256,18 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
             onPaste?.(event);
             return event.defaultPrevented;
           },
+          drop(event) {
+            onDrop?.(event);
+            return event.defaultPrevented;
+          },
           focus() {
             setFocused(true);
-            onFocus?.();
+            queueMicrotask(() => onFocus?.());
             return false;
           },
           blur() {
             setFocused(false);
-            onBlur?.();
+            queueMicrotask(() => onBlur?.());
             return false;
           },
         }),
@@ -411,6 +433,42 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
     setValueAndCursor("", false);
   }
 
+  export function insertTextAtSelection(text: string) {
+    if (!view) return;
+    const selection = view.state.selection.main;
+    view.dispatch({
+      changes: { from: selection.from, to: selection.to, insert: text },
+      selection: { anchor: selection.from + text.length },
+      scrollIntoView: true,
+    });
+    view.focus();
+  }
+
+  export function insertTranscript(transcript: string): void {
+    if (!view) return;
+    const documentText = view.state.doc.toString();
+    const selection = view.state.selection.main;
+    const insertion = dictationInsertion(
+      transcript,
+      documentText.slice(0, selection.from),
+      documentText.slice(selection.to),
+    );
+    if (!insertion) return;
+    view.dispatch({
+      changes: { from: selection.from, to: selection.to, insert: insertion },
+      selection: { anchor: selection.from + insertion.length },
+      scrollIntoView: true,
+    });
+    view.focus();
+  }
+
+  export function removeFirstText(text: string) {
+    if (!view || !text) return;
+    const start = view.state.doc.toString().indexOf(text);
+    if (start < 0) return;
+    view.dispatch({ changes: { from: start, to: start + text.length } });
+  }
+
   export function isCaretAtStart(): boolean {
     return view?.state.selection.main.head === 0;
   }
@@ -480,8 +538,22 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
 <div
   bind:this={wrapper}
   data-testid="message-input"
-  class="relative w-full min-w-0 {klass}"
+  class="relative w-full min-w-0 {mic && micPlacement === 'beside' ? 'flex items-center gap-1' : ''} {klass}"
   style="--plain-editor-max-height:{maxHeight}px; {style}"
 >
-  <div bind:this={editorHost}></div>
+  <div bind:this={editorHost} class="min-w-0 flex-1"></div>
+  {#if dictationOn}
+    <div
+      class={micPlacement === "beside"
+        ? "flex shrink-0 items-center"
+        : "absolute top-1 right-0 z-10"}
+    >
+      <EditorVoiceControl
+        onTranscript={insertTranscript}
+        focused={isFocused}
+        {disabled}
+        showMic={mic}
+      />
+    </div>
+  {/if}
 </div>

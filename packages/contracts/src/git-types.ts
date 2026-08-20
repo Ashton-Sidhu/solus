@@ -99,6 +99,11 @@ export interface GitStateOptions {
 
 export interface TurnSnapshot {
   index: number
+  /** Exact live worktree tree captured before provider execution. */
+  fromTreeSha: string
+  /** Exact tree after applying only this turn's reported file changes. */
+  toTreeSha: string
+  /** Cumulative session snapshot commit; not the turn diff boundary. */
   sha: string
   timestamp: number
   partial: boolean

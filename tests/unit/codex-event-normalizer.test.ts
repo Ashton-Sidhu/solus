@@ -36,6 +36,21 @@ describe('normalizeCodexNotification', () => {
     ])
   })
 
+  test('normalizes Codex compaction item boundaries', () => {
+    expect(normalizeCodexNotification('item/started', {
+      startedAtMs: 100,
+      item: { id: 'compact-1', type: 'contextCompaction' },
+    })).toEqual([{
+      type: 'context_compaction', state: 'start', startedAtMs: 100,
+    }])
+    expect(normalizeCodexNotification('item/completed', {
+      completedAtMs: 4_100,
+      item: { id: 'compact-1', type: 'contextCompaction', durationMs: 4_000 },
+    })).toEqual([{
+      type: 'context_compaction', state: 'stop', completedAtMs: 4_100, durationMs: 4_000,
+    }])
+  })
+
   test('passes through MCP and web-search input, provider timestamps, outcomes, and model reroutes', () => {
     expect(normalizeCodexNotification('item/started', {
       startedAtMs: 100,

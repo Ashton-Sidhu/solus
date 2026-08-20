@@ -26,6 +26,7 @@
   import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
   import TasksPageSkeleton from "../tasks/TasksPageSkeleton.svelte";
   import AutomationsPageSkeleton from "../automations/AutomationsPageSkeleton.svelte";
+  import ListPageSkeleton from "../ui/list-page/ListPageSkeleton.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { retainedConversationTabIds } from "./lib/workspace-body";
 
@@ -233,15 +234,6 @@
   }
 </script>
 
-{#snippet loadingSurface(label: string)}
-  <div
-    class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
-    role="status"
-  >
-    {label}
-  </div>
-{/snippet}
-
 <div
   class="click-through-shell fixed bottom-(--pill-margin) left-1/2 z-50 flex max-h-[calc(100vh-(var(--pill-margin)*2))] w-(--pill-width) -translate-x-1/2 flex-col justify-end"
   style="--pill-width:{pillWidth}px;--pill-body-max:{pillBodyMax}px;--pill-margin:{pillMargin}px"
@@ -282,7 +274,10 @@
         {:else}
           {#if hasMountedWorkspace}
             {#await import("../workspace/WorkspacePage.svelte")}
-              {@render loadingSurface("Loading workspace…")}
+              <ListPageSkeleton
+                label="Loading workspace"
+                hasPrimaryAction
+              />
             {:then workspaceModule}
               {@const WorkspacePage = workspaceModule.default}
               <WorkspacePage />

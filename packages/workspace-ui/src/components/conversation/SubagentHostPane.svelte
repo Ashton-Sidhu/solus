@@ -2,6 +2,7 @@
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
+  import ConversationPaneSkeleton from "./ConversationPaneSkeleton.svelte";
 
   let { params, paneId }: RouteSurfaceProps<"subagent"> = $props();
 
@@ -9,12 +10,7 @@
 </script>
 
 {#await import("./SubagentPane.svelte")}
-  <div
-    class="grid h-full min-h-32 w-full place-items-center text-xs text-(--solus-text-tertiary)"
-    role="status"
-  >
-    Loading subagent…
-  </div>
+  <ConversationPaneSkeleton />
 {:then subagentModule}
   {@const SubagentPane = subagentModule.default}
   <SubagentPane sessionId={params.sessionId} messageId={params.messageId} />

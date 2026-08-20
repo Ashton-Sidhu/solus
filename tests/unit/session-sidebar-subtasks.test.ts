@@ -10,6 +10,8 @@ type SidebarStoreHarness = Pick<SessionSidebarStore, 'sessionsFor'> & {
   dismissedRowKeys: Set<string>
   tabIdBySessionId: Map<string, string>
   sessionsByTaskId: Map<string, unknown>
+  automaticRootBySessionIdentity: Map<string, string>
+  projectsSessionUnder(rootTaskId: string, sessionId: string): boolean
 }
 
 function sidebarStore(): SidebarStoreHarness {
@@ -33,6 +35,22 @@ function task(id: string, title: string, parentId?: string): Task {
 }
 
 describe('session sidebar subtask rows', () => {
+  test('projects a linked session once unless the user explicitly opens another task', () => {
+    // WHY: task-session links are many-to-many, but background hydration must
+    // not turn every relationship into another copy of the same conversation.
+    const store = sidebarStore()
+    store.tabIdBySessionId = new Map([['provider-session', 'tab-1']])
+    store.automaticRootBySessionIdentity = new Map([['tab-1', 'first-task']])
+    store.session = {
+      hasExplicitSidebarTaskSession: (taskId: string, sessionId: string) =>
+        taskId === 'second-task' && sessionId === 'provider-session',
+    }
+
+    expect(store.projectsSessionUnder('first-task', 'provider-session')).toBe(true)
+    expect(store.projectsSessionUnder('unopened-task', 'provider-session')).toBe(false)
+    expect(store.projectsSessionUnder('second-task', 'provider-session')).toBe(true)
+  })
+
   test('shows an unstarted subtask by its own name', () => {
     // WHY: the task tree exists before its provider sessions. Hiding or naming
     // that row after the parent makes the sidebar unable to represent the plan.
@@ -87,7 +105,7 @@ describe('session sidebar subtask rows', () => {
   })
 
   test('a fork belongs to its source task before its own subtask exists', () => {
-    // WHY: a fork's subtask is only minted at its first dispatch. Until then the
+    // WHY: a fork's subtask is only minted after its first turn. Until then the
     // sidebar has to place it by the parent it will hang under, or the fork is
     // projected as a loose session sitting outside the task it came from.
     const root = task('root', 'Ship the release')

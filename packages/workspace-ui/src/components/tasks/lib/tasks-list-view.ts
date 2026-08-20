@@ -121,7 +121,6 @@ function metaFor(task: Task, activeSessions: number): string {
     return task.pr ? `closed · #${task.pr.number}` : 'closed'
   }
   if (task.pr) return `PR #${task.pr.number}`
-  if (task.branch) return task.branch
   return ''
 }
 
@@ -292,7 +291,7 @@ export function taskInboxGroups(
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map((task) => ({
           ...inboxRowBase(task, now),
-          context: `${sessionsFor(task.id)} live session${sessionsFor(task.id) === 1 ? '' : 's'}${task.branch ? ` · ${task.branch}` : ''}`,
+          context: `${sessionsFor(task.id)} live session${sessionsFor(task.id) === 1 ? '' : 's'}`,
           unread: false,
           primary: { label: 'Resume', shortcut: '⏎', run: () => actions.resume(task) },
         })),
@@ -337,6 +336,5 @@ function reviewContext(task: Task, activeSessions: number): string {
   const parts: string[] = []
   if (activeSessions > 0) parts.push(`${activeSessions} session${activeSessions === 1 ? '' : 's'}`)
   if (task.pr) parts.push(`PR #${task.pr.number}`)
-  else if (task.branch) parts.push(task.branch)
   return parts.length > 0 ? parts.join(' · ') : 'Ready for your review'
 }

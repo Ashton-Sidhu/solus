@@ -7,7 +7,7 @@ import type { AttentionEntry } from './attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, PrGuideMetadata, PrGuideMetadataRequest } from './review'
 import type { StackGraph } from './stack-types'
 import type { PrChecksSnapshot } from './checks-rpc-types'
-import type { AssetCreateUrlRequest, AssetCreateUrlResult, AttachmentUploadRequest, SearchSessionsRequest } from './rpc'
+import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, SearchSessionsRequest } from './rpc'
 import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnTrace, MetricsValue, SavedMetricsQuery } from './observability-types'
 import type { ClientNotificationRequest } from './notification-types'
 
@@ -38,7 +38,8 @@ export interface SolusAPI {
   attachFiles(ctx?: IpcContext): Promise<Attachment[] | null>
   attachFilePaths(paths: string[], ctx?: IpcContext): Promise<Attachment[] | null>
   attachUpload(ctx: IpcContext, request: AttachmentUploadRequest): Promise<string>
-  assetCreateUrl(ctx: IpcContext, request: AssetCreateUrlRequest): Promise<AssetCreateUrlResult>
+  assetUpload(request: AssetUploadRequest): Promise<AssetUploadResult>
+  assetCreateUrl(ctx: IpcContext | undefined, request: AssetCreateUrlRequest): Promise<AssetCreateUrlResult>
   takeScreenshot(ctx?: IpcContext): Promise<Attachment | null>
   pasteImage(dataUrl: string, ctx?: IpcContext): Promise<Attachment | null>
   transcribeAudio(audio: Float32Array | string, ctx?: IpcContext): Promise<{ error: string | null; transcript: string | null }>
@@ -92,6 +93,8 @@ export interface SolusAPI {
     generatedDescription?: string,
     publishEvent?: boolean,
   ): Promise<void>
+  /** Persist the checkout owned by one session attempt. */
+  setSessionBranch(sessionId: string, branch: string): Promise<void>
   listRecentProjects(): Promise<RecentProject[]>
   trackRecentProject(path: string): Promise<void>
   listPlans(projectPath?: string, allProjects?: boolean, ctx?: IpcContext): Promise<PlanDescriptor[]>
@@ -216,6 +219,7 @@ export interface SolusAPI {
   prUpdateLifecycle(ctx: IpcContext, number: number, action: Exclude<PrLifecycleAction, 'merge'>, expectedHeadSha: string): Promise<PullRequestDetail>
   prSubmitReview(ctx: IpcContext, number: number, review: DraftReview): Promise<void>
   prAddIssueComment(ctx: IpcContext, number: number, body: string): Promise<void>
+  prDeleteIssueComment(ctx: IpcContext, number: number, commentId: string): Promise<void>
   prInterdiff(ctx: IpcContext, pr: PrReviewContext): Promise<import('@solus/contracts/types').PrInterdiffResult>
   prReplyThread(ctx: IpcContext, number: number, threadId: string, body: string): Promise<ReviewComment>
   prResolveThread(ctx: IpcContext, number: number, threadId: string): Promise<void>
@@ -302,6 +306,7 @@ export interface SolusAPI {
   tasksRecordActivity(id: string): Promise<Task>
   tasksDelete(id: string): Promise<boolean>
   tasksComment(id: string, body: string, opts?: { pushToExternal?: boolean }): Promise<TaskDetails>
+  tasksDeleteComment(id: string, commentId: string): Promise<TaskDetails>
   /** Queue comments that were written while auto-posting was off. */
   tasksPublishComments(id: string, commentIds: string[]): Promise<TaskDetails>
   tasksLinkSession(
@@ -310,9 +315,6 @@ export interface SolusAPI {
     role?: TaskSessionRole,
     /** Where the agent ran, when that is not this host. See `SessionExecutionHost`. */
     execution?: SessionExecutionHost | null,
-    /** The resolved checkout branch. A remote worktree can differ from the task
-     *  host's branch, so capture it only after the execution host starts. */
-    branch?: string | null,
   ): Promise<void>
   /** Detach a session from a task. The reverse of `tasksLinkSession`. */
   tasksUnlinkSession(taskId: string, sessionId: string): Promise<void>
@@ -438,4 +440,3 @@ export interface NativeSolusAPI {
   onWindowShown(callback: (cursorPos: { x: number; y: number } | null) => void): () => void
   onWindowHidden(callback: () => void): () => void
 }
-

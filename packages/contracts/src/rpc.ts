@@ -22,12 +22,26 @@ export interface AttachmentUploadRequest {
 }
 
 export interface AssetCreateUrlRequest {
-  path: string
+  /** Existing host path authored by an agent. Mutually exclusive with assetId. */
+  path?: string
+  /** Content-addressed asset created through assetUpload. */
+  assetId?: string
+  /** Suggested download name for a stored attachment. */
+  name?: string
 }
 
 export interface AssetCreateUrlResult {
   relativeUrl: string
   expiresAt: number
+}
+
+export type AssetUploadRequest = AttachmentUploadRequest
+
+export interface AssetUploadResult {
+  id: string
+  uri: string
+  mime: string
+  size: number
 }
 
 export const RPC_INVOKE_METHODS = [
@@ -72,6 +86,7 @@ export const RPC_INVOKE_METHODS = [
   'attachFiles',
   'attachFilePaths',
   'attachUpload',
+  'assetUpload',
   'assetCreateUrl',
   'takeScreenshot',
   'pasteImage',
@@ -100,6 +115,7 @@ export const RPC_INVOKE_METHODS = [
   'resolveSessionLineage',
   'generateSessionMetadata',
   'setSessionTitle',
+  'setSessionBranch',
   'listRecentProjects',
   'trackRecentProject',
   'listPlans',
@@ -268,6 +284,7 @@ export const RPC_INVOKE_METHODS = [
   'prUpdateLifecycle',
   'prSubmitReview',
   'prAddIssueComment',
+  'prDeleteIssueComment',
   'prInterdiff',
   'prReplyThread',
   'prResolveThread',
@@ -308,6 +325,7 @@ export const RPC_INVOKE_METHODS = [
   'tasksRecordActivity',
   'tasksDelete',
   'tasksComment',
+  'tasksDeleteComment',
   'tasksPublishComments',
   'tasksLinkSession',
   'tasksUnlinkSession',

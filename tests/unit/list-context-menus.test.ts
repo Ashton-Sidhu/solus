@@ -91,6 +91,26 @@ describe('list page context menus', () => {
     expect(taskMenu).toContain('session.openInsightsForTask(taskId)')
   })
 
+  test('sessions and tasks can regenerate their titles from context menus', () => {
+    // WHY: title generation is an item action, so it must be available from
+    // every task menu and from both open and pinned session menus.
+    const sessionMenu = readComponent('session/SessionContextMenu.svelte')
+    const taskMenu = readComponent('session/TaskContextMenu.svelte')
+    const sidebar = readComponent('session/SessionSidebar.svelte')
+    expect(sessionMenu).toContain('session.regenerateTabTitle(targetTabId)')
+    expect(sessionMenu).toContain('toasts.progress("Regenerating session title…")')
+    expect(sessionMenu).toContain('Regenerate title')
+    expect(taskMenu).toContain('session.tasksStore.regenerateTitle(taskId)')
+    expect(taskMenu).toContain('toasts.progress("Regenerating task title…")')
+    expect(taskMenu).toContain('Regenerate title')
+    expect(sidebar).toContain('sidebarStore.regeneratePinnedSessionTitle(pin)')
+    const workspace = readFileSync(join(
+      import.meta.dir,
+      '../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts',
+    ), 'utf8')
+    expect(workspace).toContain('await api.getSessionInfo(agentSessionId)')
+  })
+
   test('the action row opens the current session in Insights', () => {
     // WHY: the orb is where a session's own actions live; asking what the
     // conversation in front of you cost should not mean retyping its id.

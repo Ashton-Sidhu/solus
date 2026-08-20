@@ -1,12 +1,9 @@
 import type { GitCheckout } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
-import { taskWorktreeKey } from '@solus/contracts/task-types'
 
 export interface TaskCreationContext {
   workingDirectory: string
   projectKey: string
-  branch: string | null
-  worktreeKey: string
 }
 
 /** Capture the project and checkout a manually-created task belongs to. */
@@ -20,7 +17,5 @@ export function taskCreationContextFor(
   return {
     workingDirectory: effectiveDirectory,
     projectKey,
-    branch: gitContext?.branch ?? null,
-    worktreeKey: taskWorktreeKey(projectKey, gitContext),
   }
 }

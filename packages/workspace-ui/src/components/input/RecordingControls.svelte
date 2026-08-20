@@ -2,8 +2,6 @@
   import {
     Mic as MicrophoneIcon,
     LoaderCircle as SpinnerGapIcon,
-    X as XIcon,
-    Check as CheckIcon,
   } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import WaveformVisualizer from './WaveformVisualizer.svelte'
@@ -22,7 +20,7 @@
     waiting?: boolean
     /** bar: tooltip for the idle mic. */
     idleTooltip?: string
-    /** field: whether to render the idle mic at all (the host's `mic` prop). */
+    /** Whether to render the idle mic. Active recording state always renders. */
     showMic?: boolean
     /** field: align the mic on the textarea's first line rather than on the whole box. */
     micTextarea?: boolean
@@ -43,48 +41,41 @@
     micTextarea = false,
     progressPct = null,
   }: Props = $props()
+
+  function handleWindowKeydown(event: KeyboardEvent): void {
+    if (state !== 'recording' || event.key !== 'Escape') return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    onCancel()
+  }
 </script>
+
+<svelte:window onkeydown={handleWindowKeydown} />
 
 {#if variant === 'bar'}
   {#if state === 'recording'}
-    <div class="flex items-center gap-1">
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <button {...tooltipProps}
-        type="button"
-        onmousedown={(e) => e.preventDefault()}
-        onclick={onCancel}
-        aria-label="Cancel recording"
-        class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
-      ><XIcon size={14} weight="bold" /></button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={"Cancel recording"} />
-      </TooltipUI.Root>
-      <TooltipUI.Root>
-        <TooltipUI.Trigger>
-          {#snippet child({ props: tooltipProps })}
-            <button {...tooltipProps}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
         type="button"
         onmousedown={(e) => e.preventDefault()}
         onclick={onConfirm}
-        aria-label="Finish recording"
-        class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-accent) text-(--solus-text-on-accent) transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96]"
-      ><CheckIcon size={14} weight="bold" /></button>
-          {/snippet}
-        </TooltipUI.Trigger>
-        <TooltipUI.Content value={"Finish recording (⌥⇧Space)"} />
-      </TooltipUI.Root>
-    </div>
+        aria-label="Finish listening and transcribe"
+        class="recording-stop recording-stop--bar"
+      ><MicrophoneIcon size={14} class="recording-mic-pulse" /></button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Listening · Click to transcribe · Esc to cancel"} />
+    </TooltipUI.Root>
   {:else if state === 'transcribing'}
     <button
       type="button"
       disabled
       aria-label="Finishing transcription"
-      class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg text-(--solus-mic-color)"
+      class="rc-bar-mic text-(--solus-mic-color)"
     ><SpinnerGapIcon size={14} class="animate-spin" /></button>
-  {:else}
+  {:else if showMic}
     <TooltipUI.Root>
       <TooltipUI.Trigger>
         {#snippet child({ props: tooltipProps })}
@@ -94,7 +85,7 @@
       onclick={onToggle}
       {disabled}
       aria-label="Voice input"
-      class="flex size-[1.875rem] shrink-0 items-center justify-center rounded-lg transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:hover:bg-(--solus-surface-hover) enabled:active:scale-[0.96]"
+      class="rc-bar-mic transition-[background-color,color,opacity,transform] duration-150 ease-out enabled:hover:bg-(--solus-surface-hover) enabled:active:scale-[0.96]"
       style="{waiting
         ? 'background:var(--solus-accent);'
         : progressPct !== null
@@ -111,39 +102,25 @@
     </TooltipUI.Root>
   {/if}
 {:else if state === 'recording'}
-  <span class="rc-row">
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
+        <button {...tooltipProps}
+    type="button"
+    class="rc-row"
+    onmousedown={(e) => e.preventDefault()}
+    onclick={onConfirm}
+    aria-label="Finish listening and transcribe"
+  >
     <span class="rc-waveform">
       <WaveformVisualizer {rmsRef} color="var(--solus-accent)" />
     </span>
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props: tooltipProps })}
-          <button {...tooltipProps}
-      type="button"
-      class="rc-action-btn"
-      onmousedown={(e) => e.preventDefault()}
-      onclick={onCancel}
-      aria-label="Cancel recording"
-    ><XIcon size={13} weight="bold" /></button>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={"Cancel recording"} />
-    </TooltipUI.Root>
-    <TooltipUI.Root>
-      <TooltipUI.Trigger>
-        {#snippet child({ props: tooltipProps })}
-          <button {...tooltipProps}
-      type="button"
-      class="rc-action-btn rc-action-btn--confirm"
-      onmousedown={(e) => e.preventDefault()}
-      onclick={onConfirm}
-      aria-label="Confirm recording"
-    ><CheckIcon size={13} weight="bold" /></button>
-        {/snippet}
-      </TooltipUI.Trigger>
-      <TooltipUI.Content value={"Finish recording (⌥⇧Space)"} />
-    </TooltipUI.Root>
-  </span>
+    <span class="recording-stop recording-stop--field" aria-hidden="true"><MicrophoneIcon size={13} class="recording-mic-pulse" /></span>
+  </button>
+      {/snippet}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={"Click to transcribe · Esc to cancel"} />
+  </TooltipUI.Root>
 {:else if state === 'transcribing'}
   <button
     type="button"
@@ -175,6 +152,59 @@
 {/if}
 
 <style>
+  .recording-stop {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border: 0.0625rem solid var(--solus-accent-border-medium);
+    border-radius: var(--radius-lg);
+    background: transparent;
+    color: var(--solus-accent);
+    transition:
+      border-color 150ms ease-out,
+      opacity 150ms ease-out,
+      scale 150ms ease-out;
+  }
+  .recording-stop:hover {
+    border-color: var(--solus-accent);
+  }
+  .recording-stop:active {
+    scale: 0.96;
+  }
+  .recording-stop--bar {
+    width: 1.875rem;
+    height: 1.875rem;
+  }
+  .rc-bar-mic {
+    display: flex;
+    width: 1.875rem;
+    height: 1.875rem;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    border-radius: var(--radius-lg);
+  }
+  :global(.recording-mic-pulse) {
+    animation: recording-mic-pulse 950ms ease-in-out infinite alternate;
+    will-change: opacity;
+  }
+  @keyframes recording-mic-pulse {
+    from {
+      opacity: 0.75;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    :global(.recording-mic-pulse) {
+      animation: none;
+      opacity: 1;
+      will-change: auto;
+    }
+  }
+
   /* field variant: absolute overlay row shown while recording, positioned
      against the host's relative .inp-mic-wrap. */
   .rc-row {
@@ -182,9 +212,13 @@
     inset: 0;
     display: flex;
     align-items: center;
-    gap: 0.25rem;
-    padding: 0 0.375rem;
+    gap: 0.375rem;
+    width: 100%;
+    padding: 0 0.375rem 0 0.5rem;
     overflow: hidden;
+    border-radius: inherit;
+    color: var(--solus-text-secondary);
+    cursor: pointer;
   }
   .rc-waveform {
     flex: 1;
@@ -193,32 +227,9 @@
     align-items: center;
   }
 
-  /* field action buttons (X / ✓) shown while recording */
-  .rc-action-btn {
-    flex-shrink: 0;
-    width: 1.5rem;
-    height: 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 50%;
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition:
-      background var(--duration-base) var(--ease-premium),
-      color var(--duration-base) var(--ease-premium);
-  }
-  .rc-action-btn:hover {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .rc-action-btn--confirm {
-    background: var(--solus-accent);
-    color: var(--solus-text-on-accent);
-  }
-  .rc-action-btn--confirm:hover {
-    opacity: 0.88;
+  .recording-stop--field {
+    width: 1.75rem;
+    height: 1.75rem;
   }
 
   /* field idle / transcribing mic button */
@@ -227,8 +238,8 @@
     right: 0.25rem;
     top: 50%;
     transform: translateY(-50%);
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1.75rem;
+    height: 1.75rem;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -254,5 +265,15 @@
   .rc-mic:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+  :global(html.is-laptop-display) .recording-stop--bar,
+  :global(html.is-laptop-display) .rc-bar-mic {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+  :global(html.is-laptop-display) .recording-stop--field,
+  :global(html.is-laptop-display) .rc-mic {
+    width: 1.5rem;
+    height: 1.5rem;
   }
 </style>

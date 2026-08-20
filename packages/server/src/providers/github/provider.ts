@@ -151,6 +151,12 @@ const UNRESOLVE_MUTATION = `
   }
 `
 
+const DELETE_ISSUE_COMMENT_MUTATION = `
+  mutation($commentId: ID!) {
+    deleteIssueComment(input: { id: $commentId }) { clientMutationId }
+  }
+`
+
 const PR_CONVERSATION_QUERY = `
   query(
     $owner: String!
@@ -1100,6 +1106,11 @@ export class GitHubProvider implements ReviewProvider {
       issue_number: number,
       body,
     })
+  }
+
+  async deleteIssueComment(_repo: RepoRef, commentId: string): Promise<void> {
+    const { graphql } = await this.client()
+    await graphql(DELETE_ISSUE_COMMENT_MUTATION, { commentId })
   }
 
   async listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]> {

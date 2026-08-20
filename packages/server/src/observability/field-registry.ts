@@ -131,7 +131,7 @@ export const SCHEMA_RELATIONSHIPS: string[] = [
   + 'events is one row per operation observed inside or beside one — filter events by kind '
   + 'instead of looking for a table per kind.',
   'turns already carries each per-kind child time sum (tool_time_ms, thinking_time_ms, '
-  + 'streaming_time_ms, setup_time_ms, permission_wait_ms, queue_wait_ms, '
+  + 'streaming_time_ms, setup_time_ms, permission_wait_ms, question_wait_ms, compaction_time_ms, queue_wait_ms, '
   + 'rate_limit_wait_ms, settlement_time_ms), so "… by model, project, or session" needs no join.',
   'An event inside a turn shares its trace_id (a turn root has span_id = trace_id); join '
   + 'events to turns on trace_id only when an event breakdown needs a turn column that is '
@@ -177,6 +177,8 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
       childTime('streaming_time_ms', SPAN_KINDS.responseStream, 'Total response-streaming time inside the turn'),
       childTime('setup_time_ms', SPAN_KINDS.setup, 'Pre-agent setup time inside the turn: git state, worktree, task prep'),
       childTime('permission_wait_ms', SPAN_KINDS.permissionWait, 'Time the turn spent waiting on the user for tool permissions'),
+      childTime('question_wait_ms', SPAN_KINDS.questionWait, 'Time the turn spent waiting on the user for an answer'),
+      childTime('compaction_time_ms', SPAN_KINDS.contextCompaction, 'Provider-reported time spent compacting context'),
       childTime('queue_wait_ms', SPAN_KINDS.queueWait, 'Time the prompt waited in the queue before the turn started'),
       childTime('rate_limit_wait_ms', SPAN_KINDS.rateLimitWait, 'Time the turn spent waiting on provider rate limits'),
       childTime('settlement_time_ms', SPAN_KINDS.turnSettlement, 'Solus processing after provider completion before authoritative turn settlement'),
@@ -243,6 +245,19 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
     fields: [
       TOOL_NAME_FIELD,
       attr('decision', 'decision', 'string', "'granted' or 'denied'"),
+    ],
+  },
+  [SPAN_KINDS.questionWait]: {
+    description: 'the turn waiting on the user for an answer',
+    fields: [
+      attr('decision', 'decision', 'string', "'answered' when the wait completed"),
+      attr('question_count', 'questionCount', 'number', 'Number of questions in the request'),
+    ],
+  },
+  [SPAN_KINDS.contextCompaction]: {
+    description: 'provider-reported context compaction',
+    fields: [
+      attr('trigger', 'trigger', 'string', "Provider trigger, usually 'manual' or 'auto'"),
     ],
   },
   [SPAN_KINDS.queueWait]: {

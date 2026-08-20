@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { computeGitState, parseStatus } from '@solus/server/git/git-helpers'
-import { getDiff, getDiffFileContents, getDiffStats, initSessionBase, parseChangedFileStats, snapshotTurn } from '@solus/server/git/session-snapshots'
+import { getDiff, getDiffFileContents, getDiffStats, initSessionBase, parseChangedFileStats, prepareTurnSnapshot, snapshotTurn } from '@solus/server/git/session-snapshots'
 import type { GitState } from '@solus/contracts/types'
 
 let repos: string[] = []
@@ -289,11 +289,13 @@ describe('diff statistics hot path', () => {
     writeFileSync(join(cwd, 'tracked.txt'), 'first\nsecond\n')
     writeFileSync(join(cwd, 'temporary.txt'), 'temporary\n')
 
+    await prepareTurnSnapshot(cwd, cwd, 'session-1')
     const first = await snapshotTurn(cwd, cwd, 'session-1', {
       sessionChangedFiles: ['tracked.txt', 'temporary.txt'],
     })
     expect(first?.sessionChangedFiles?.sort()).toEqual(['temporary.txt', 'tracked.txt'])
 
+    await prepareTurnSnapshot(cwd, cwd, 'session-1')
     const unchanged = await snapshotTurn(cwd, cwd, 'session-1', {
       sessionChangedFiles: ['tracked.txt', 'temporary.txt'],
     })
@@ -307,6 +309,7 @@ describe('diff statistics hot path', () => {
 
     writeFileSync(join(cwd, 'tracked.txt'), 'first\n')
     unlinkSync(join(cwd, 'temporary.txt'))
+    await prepareTurnSnapshot(cwd, cwd, 'session-1')
     const second = await snapshotTurn(cwd, cwd, 'session-1', {
       sessionChangedFiles: ['tracked.txt', 'temporary.txt'],
     })

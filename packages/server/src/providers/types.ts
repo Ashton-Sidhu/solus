@@ -94,6 +94,7 @@ export interface ReviewProvider {
 
   createReview(repo: RepoRef, number: number, review: DraftReview): Promise<void>
   addIssueComment(repo: RepoRef, number: number, body: string): Promise<void>
+  deleteIssueComment(repo: RepoRef, commentId: string): Promise<void>
   replyToThread(repo: RepoRef, threadId: string, body: string): Promise<ReviewComment>
   resolveThread(repo: RepoRef, threadId: string): Promise<void>
   unresolveThread(repo: RepoRef, threadId: string): Promise<void>

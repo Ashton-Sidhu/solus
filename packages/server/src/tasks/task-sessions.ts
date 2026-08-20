@@ -40,7 +40,6 @@ const taskSessionLinkRowSchema = z.object({
   branch: z.string().nullable(),
   /** Legacy capture — populated by earlier versions, read-only today. */
   pr: z.string().nullable(),
-  execution_server_id: z.string().nullable(),
   linked_at: z.number(),
   /** Joined from `sessions` by `LINK_SELECT`, which is the only way links are
    *  read. Null when the session is not in the index yet. */
@@ -52,9 +51,7 @@ const taskSessionLinkRowSchema = z.object({
 const rekeySessionLinkRowSchema = z.object({
   task_id: z.string(),
   role: taskSessionRoleSchema,
-  branch: z.string().nullable(),
   pr: z.string().nullable(),
-  execution_server_id: z.string().nullable(),
   linked_at: z.number(),
 })
 const taskIdRowSchema = z.object({ task_id: z.string() })
@@ -76,11 +73,9 @@ function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
     sessionTitle: row.session_title ?? null,
     provider: row.session_provider ?? null,
     lastActivityAt: row.last_activity_at ?? null,
-    // The session record answers first: it is one row per session, whereas a
-    // session referenced by several tasks has a link each, and only the session
-    // can be corrected in one place. The link's own copy survives for the rows
-    // written before sessions carried a host.
-    executionServerId: row.session_server_id ?? row.execution_server_id,
+    // Execution facts are projected from the session row. The relationship
+    // itself owns no host or checkout metadata.
+    executionServerId: row.session_server_id,
     role: row.role,
     linkedAt: row.linked_at,
   }
@@ -91,7 +86,6 @@ function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
 }
 
 export interface SessionLinkDetails {
-  branch?: string | null
   /** Present only for a dispatch. This host is the *task's*, so the agent ran on
    * a machine it never saw and the client is the only party that can say which. */
   execution?: SessionExecutionHost | null
@@ -100,8 +94,7 @@ export interface SessionLinkDetails {
   originSessionId?: string | null
 }
 
-/** Writes the attempt row and the task's denormalized current-branch field, so
- * direct and mint-time bindings share exactly one set of rules. Runs inside the
+/** Writes the attempt row and task provenance. Runs inside the
  * caller's transaction. The public write is the `Task` object's `linkSession`. */
 export function writeSessionLink(
   db: DatabaseSync,
@@ -112,7 +105,6 @@ export function writeSessionLink(
   now: number,
 ): void {
   requireTask(taskId, db)
-  const branch = normalizedOptional(details.branch)
   const execution = details.execution ?? null
   const executionServerId = normalizedOptional(execution?.serverId)
   // The session record is what later reads ask, so a machine this host cannot
@@ -132,21 +124,17 @@ export function writeSessionLink(
   const isNewLink = !db.prepare('SELECT 1 FROM task_session_links WHERE task_id = ? AND session_id = ?')
     .get(taskId, sessionId)
   db.prepare(`
-    INSERT INTO task_session_links(task_id, session_id, role, branch, execution_server_id, linked_at)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO task_session_links(task_id, session_id, role, linked_at)
+    VALUES (?, ?, ?, ?)
     ON CONFLICT(task_id, session_id) DO UPDATE SET
-      role = excluded.role,
-      branch = COALESCE(excluded.branch, task_session_links.branch),
-      execution_server_id = COALESCE(excluded.execution_server_id, task_session_links.execution_server_id),
-      linked_at = excluded.linked_at
-  `).run(taskId, sessionId, role, branch, executionServerId, now)
+      role = excluded.role
+  `).run(taskId, sessionId, role, now)
   db.prepare(`
     UPDATE tasks SET
-      branch = COALESCE(?, branch),
       origin_session_id = COALESCE(origin_session_id, ?),
       updated_at = ?
     WHERE id = ?
-  `).run(branch, normalizedOptional(details.originSessionId) ?? sessionId, now, taskId)
+  `).run(normalizedOptional(details.originSessionId) ?? sessionId, now, taskId)
 
   if (isNewLink) {
     appendTaskEvent(db, taskId, {
@@ -160,7 +148,7 @@ export function writeSessionLink(
 
 /** Returns false when there was nothing to unlink, so the caller can skip the
  * change broadcast on a no-op. Removes only the attempt row: the task's
- * denormalized branch and origin are captures, not joins, and stay put. Runs
+ * origin capture stays put. Runs
  * inside the caller's transaction; the public write is the `Task` object's
  * `unlinkSession`. */
 export function deleteSessionLink(
@@ -196,10 +184,15 @@ export function deleteSessionLink(
  * parent task and a task panel full of raw session ids. */
 const LINK_SELECT = `
   SELECT
-    task_session_links.*,
+    task_session_links.task_id,
+    task_session_links.session_id,
+    task_session_links.role,
+    task_session_links.pr,
+    task_session_links.linked_at,
     COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
     sessions.provider AS session_provider,
     sessions.server_id AS session_server_id,
+    sessions.branch AS branch,
     sessions.last_timestamp AS last_activity_at
   FROM task_session_links
   LEFT JOIN session_lineage_members AS active_lineage
@@ -220,27 +213,23 @@ export function rekeyTaskSessionLinks(sourceSessionId: string, targetSessionId: 
   const changed = withTx(() => {
     const db = getDb()
     const rows = rekeySessionLinkRowSchema.array().parse(db.prepare(`
-      SELECT task_id, role, branch, pr, execution_server_id, linked_at
+      SELECT task_id, role, pr, linked_at
       FROM task_session_links
       WHERE session_id = ?
     `).all(sourceSessionId))
     for (const row of rows) {
       db.prepare(`
-        INSERT INTO task_session_links(task_id, session_id, role, branch, pr, execution_server_id, linked_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO task_session_links(task_id, session_id, role, pr, linked_at)
+        VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(task_id, session_id) DO UPDATE SET
           role = excluded.role,
-          branch = COALESCE(excluded.branch, task_session_links.branch),
           pr = COALESCE(excluded.pr, task_session_links.pr),
-          execution_server_id = COALESCE(excluded.execution_server_id, task_session_links.execution_server_id),
           linked_at = MIN(excluded.linked_at, task_session_links.linked_at)
       `).run(
         row.task_id,
         targetSessionId,
         row.role,
-        row.branch,
         row.pr,
-        row.execution_server_id,
         row.linked_at,
       )
     }
@@ -309,9 +298,7 @@ interface PrepareSessionTaskInput {
   parentTaskId?: string | null
   sessionId?: string
   projectKey?: string | null
-  worktreeKey?: string | null
   prompt?: string
-  branch?: string | null
   originSessionId?: string | null
 }
 
@@ -333,16 +320,12 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
     // belongs to the base project shown by the sidebar and project filters.
     const rawProjectKey = normalizedOptional(input.projectKey)
     const projectKey = rawProjectKey ? worktreeProjectRoot(rawProjectKey) : null
-    const worktreeKey = normalizedOptional(input.worktreeKey)
     let task: Task
     if (existingTaskId) {
       const existing = requireTask(existingTaskId, db)
-      const branch = normalizedOptional(input.branch)
       db.prepare(`
         UPDATE tasks SET
           project_key = COALESCE(project_key, ?),
-          worktree_key = COALESCE(worktree_key, ?),
-          branch = COALESCE(?, branch),
           status = CASE WHEN status IN ('inbox', 'todo') THEN 'in_progress' ELSE status END,
           triaged_at = CASE
             WHEN status IN ('inbox', 'todo') THEN COALESCE(triaged_at, ?)
@@ -350,7 +333,7 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
           END,
           updated_at = ?
         WHERE id = ?
-      `).run(projectKey, worktreeKey, branch, now, now, existingTaskId)
+      `).run(projectKey, now, now, existingTaskId)
       // This promotes inbox/todo straight to in_progress without going through
       // updateTask, so the diff has to happen here or the move is unrecorded.
       const updated = requireTask(existingTaskId, db)
@@ -362,8 +345,6 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
         projectKey,
         parentId: parentTaskId,
         status: 'in_progress',
-        worktreeKey,
-        branch: input.branch,
         source: 'session',
         originSessionId: input.originSessionId ?? input.sessionId,
         titleSource: 'prompt',
@@ -373,7 +354,6 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
 
     if (input.sessionId) {
       writeSessionLink(db, task.id, input.sessionId, 'working', {
-        branch: input.branch,
         originSessionId: input.originSessionId,
       }, now)
       task = taskFromRow(requireTask(task.id, db))

@@ -133,14 +133,12 @@ export function formatCompletedAge(completedAt: number, now: number): string {
 }
 
 export interface SidebarTask {
-  /** Stable renderer identity. Unlike the branch key, this survives worktree
-   *  resolution and closing any one session within the task. */
+  /** Stable renderer identity for this task or loose session row. */
   id: string
   /** Durable task id when this row is backed by the task store. Loose session
    *  rows deliberately leave it unset until the first dispatch mints a task. */
   taskId?: string
-  /** Current branch key. This is navigation data and may change while a
-   *  pending worktree resolves. */
+  /** Navigation key. Durable task rows use their task id. */
   key: string
   title: string
   projectKey: string

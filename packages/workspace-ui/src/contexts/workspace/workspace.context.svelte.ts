@@ -5,7 +5,7 @@ import type { PullRequestSummary } from '@solus/contracts/providers'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
 import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
 import notificationSrc from '../../../../../resources/notification.mp3'
@@ -37,6 +37,7 @@ import { TabRegistry } from './tab-registry.svelte'
 import { SessionConfigController } from './session-config.svelte'
 import { WorkspaceLifecycleStore, type StaticInfo } from './workspace-lifecycle.store.svelte'
 import { SessionEventReducer } from './session-event-reducer.svelte'
+import { sessionTitleRegenerationInput } from './session-title-regeneration'
 import { type SettingsContext, type TabGroupMode } from '../app/settings.context.svelte'
 import { type WindowContext } from '../app/window.context.svelte'
 import { type StatusBarContext } from '../app/status-bar.context.svelte'
@@ -186,6 +187,13 @@ export class WorkspaceContext {
    *  `draft` route carries; an entry is removed the moment it becomes a
    *  session, which is why nothing else ever lists one. */
   sessionDrafts = new SvelteMap<string, SessionDraft>()
+  /** Task/session pairs the user explicitly opened. Automatic task refreshes do
+   *  not add entries here, so one provider session stays in its first sidebar
+   *  position unless the user asks to see another task-scoped occurrence. */
+  readonly explicitSidebarTaskSessions = new SvelteSet<string>()
+  /** The task-scoped occurrence selected for a mounted session. A session may be
+   *  linked to several tasks, but only this occurrence leads the active path. */
+  private readonly sidebarTaskContextBySessionId = new SvelteMap<string, string>()
   /** Where the workspace is: which routes are in which panes, plus history.
    *  Global — not per-tab. */
   router = new RouterStore()
@@ -206,6 +214,9 @@ export class WorkspaceContext {
   private promptComposer: PromptComposer
   private goalSync: GoalSync
   private hostDispatchAttempts = new Map<string, number>()
+  private taskSettlementBySessionId = new Map<string, Promise<void>>()
+  private generatedTaskMetadataBySession = new WeakMap<Session, { title: string; description: string }>()
+  private mintedTaskIdBySession = new WeakMap<Session, string>()
   environment: SessionEnvironmentStore
 
   constructor(settings: SettingsContext, windowCtx: WindowContext, statusBar: StatusBarContext, planStore: PlanStore, environment: SessionEnvironmentStore, agent?: AgentContext) {
@@ -288,6 +299,7 @@ export class WorkspaceContext {
       playNotificationIfHidden: () => { void this.playNotificationIfHidden() },
       closePlanModal: () => this.closePlanModal(),
       onTurnSettled: (sessionId, cwd) => this.onTurnSettled?.(sessionId, cwd),
+      onTurnFinished: (sessionId) => { void this.settleSessionTask(sessionId) },
       // These surfaces are still addressed by tab — the goal pane is a route
       // carrying one, and metadata generation reads a tab's IPC context. The
       // reducer no longer knows that: it names the session, and the resolver
@@ -957,6 +969,7 @@ export class WorkspaceContext {
    *  session_init for a live session (Claude does it when a background task
    *  resumes the parent), and naming is a paid round trip — once per tab. */
   private metadataFinalizedTabs = new Set<string>()
+  readonly regeneratingTitleSessionIds = new SvelteSet<string>()
 
   applySessionTitleChanged(
     serverId: string,
@@ -1014,6 +1027,14 @@ export class WorkspaceContext {
     if (!this.tabs[tabId] || !currentSession || currentSession.titleCustom) return
     if (currentSession.agentSessionId !== agentSessionId) return
     currentSession.title = metadata.title
+    this.generatedTaskMetadataBySession.set(currentSession, metadata)
+    const mintedTaskId = this.mintedTaskIdBySession.get(currentSession)
+    if (mintedTaskId) {
+      void this.tasksStore.update(mintedTaskId, {
+        title: metadata.title,
+        body: metadata.description,
+      }).catch(() => null)
+    }
     await this.apiFor(tabId)
       .setSessionTitle(agentSessionId, metadata.title, 'generated', metadata.description)
       .catch(() => {})
@@ -1033,6 +1054,49 @@ export class WorkspaceContext {
     this.metadataFinalizedTabs.add(tabId)
     if (session?.agentSessionId) {
       await this.apiFor(tabId).setSessionTitle(session.agentSessionId, trimmed || null, 'manual')
+    }
+  }
+
+  /** Replace a session's name from its opening prompt. This names only the
+   * conversation: a task linked to it keeps its separately owned title. */
+  async regenerateTabTitle(tabId: string): Promise<void> {
+    const session = this.sessionFor(tabId)
+    const agentSessionId = session?.agentSessionId
+    if (!session || !agentSessionId) {
+      throw new Error("Couldn't find the session's opening prompt.")
+    }
+    if (this.regeneratingTitleSessionIds.has(agentSessionId)) {
+      throw new Error('The session title is already regenerating.')
+    }
+
+    this.regeneratingTitleSessionIds.add(agentSessionId)
+    try {
+      const api = this.apiFor(tabId)
+      let workingDirectory = session.run.workingDirectory
+      let openingPrompt = sessionTitleRegenerationInput(session.messages)
+      if (!openingPrompt) {
+        const indexedSession = await api.getSessionInfo(agentSessionId)
+        openingPrompt = sessionTitleRegenerationInput([], indexedSession?.firstMessage)
+        workingDirectory = indexedSession?.cwd || workingDirectory
+      }
+      if (!openingPrompt) throw new Error("Couldn't find the session's opening prompt.")
+
+      const metadata = await api.generateSessionMetadata(
+        openingPrompt,
+        workingDirectory,
+      )
+      if (!metadata) throw new Error("Couldn't generate a new session title.")
+
+      const currentSession = this.sessionFor(tabId)
+      if (!currentSession || currentSession.agentSessionId !== agentSessionId) {
+        throw new Error('The session changed before its new title was ready.')
+      }
+      currentSession.title = metadata.title
+      currentSession.titleCustom = true
+      this.metadataFinalizedTabs.add(tabId)
+      await api.setSessionTitle(agentSessionId, metadata.title, 'generated')
+    } finally {
+      this.regeneratingTitleSessionIds.delete(agentSessionId)
     }
   }
 
@@ -1442,7 +1506,7 @@ export class WorkspaceContext {
       },
       pluginCommands: this.pluginCommands,
       // A fork hangs under its source's top-level task until its own subtask is
-      // minted at first dispatch — unless the source opted out of tasks entirely.
+      // minted after its first turn — unless the source opted out of tasks entirely.
       task: forkTask,
     })
 
@@ -2285,8 +2349,9 @@ export class WorkspaceContext {
   }
 
   /**
-   * Mint or bind this prompt's task on the host that owns the project, then hand
-   * the execution host the resulting id with minting switched off.
+   * Bind an explicitly selected task on the host that owns the project. A new
+   * task is deliberately not minted here: the running agent gets the whole turn
+   * to link the session to an existing task before settlement fills the gap.
    *
    * The two hosts are the same machine for ordinary work, and this is a no-op
    * beyond one extra call. They differ for a dispatch — and there, letting the
@@ -2294,8 +2359,9 @@ export class WorkspaceContext {
    * landing) files the task in a database nobody is reading, on a machine the
    * user only borrowed to run an agent.
    *
-   * A failure here is not allowed to swallow the prompt: the send proceeds
-   * untouched, and the execution host mints as before.
+   * A failure here is not allowed to swallow the prompt. Minting stays switched
+   * off so an unavailable task host cannot create an unrelated duplicate on the
+   * execution host.
    */
   private async resolveTaskOnItsHost<T extends { prompt: string; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; taskSnapshot?: TaskSnapshot }>(
     tabId: string,
@@ -2303,6 +2369,14 @@ export class WorkspaceContext {
   ): Promise<T> {
     const session = this.sessionFor(tabId)
     if (!session || options.skipTaskCreation) return options
+    if (session.task.kind !== 'existing') {
+      return {
+        ...options,
+        taskId: undefined,
+        parentTaskId: undefined,
+        skipTaskCreation: true,
+      }
+    }
     // A session with a provider thread is past its first dispatch and outside
     // automatic minting, which is the host's own no-backfill rule. A dispatched
     // one still needs its packet re-shipped: the execution host cannot read the
@@ -2316,9 +2390,7 @@ export class WorkspaceContext {
         existingTaskId: options.taskId ?? null,
         parentTaskId: options.taskId ? null : options.parentTaskId ?? null,
         projectKey: environmentProjectKey(environment, session.run.projectGroupPath),
-        worktreeKey: environment.worktreePath ?? null,
         prompt: options.prompt,
-        branch: environment.branch ?? null,
         includeSnapshot: isDispatch(session.run),
       })
       if (!task) return options
@@ -2353,9 +2425,91 @@ export class WorkspaceContext {
       if (preparedSnapshot) prepared.taskSnapshot = preparedSnapshot
       return prepared
     } catch (error) {
-      console.warn('[Solus] Task host mint failed; the run host will mint instead.', error)
-      return options
+      console.warn('[Solus] Task host binding failed; the prompt will run without minting.', error)
+      return { ...options, skipTaskCreation: true }
     }
+  }
+
+  /** Mint a fallback task only after a turn has finished and only when neither
+   * the user nor the agent linked the session while it was running. */
+  private settleSessionTask(sessionId: string): Promise<void> {
+    const pending = this.taskSettlementBySessionId.get(sessionId)
+    if (pending) return pending
+
+    const settlement = (async () => {
+      const session = this.sessions[sessionId]
+      if (!session?.agentSessionId || session.task.kind === 'none') return
+
+      const identities = [session.handoffId, session.id, session.agentSessionId]
+        .filter((identity): identity is string => !!identity)
+      // Ask the task host directly. If the read fails, this settlement rejects
+      // and does not treat an empty renderer cache as permission to mint.
+      const linkedTask = await this.tasksStore.findSessionTaskOnHost(
+        identities,
+        session.run.taskServerId,
+      )
+      if (linkedTask) {
+        session.task = { kind: 'existing', taskId: linkedTask.id }
+        return
+      }
+      if (session.task.kind !== 'new') return
+
+      const environment = this.environment.environmentFor(session.run)
+      const firstPrompt = session.messages.find((message) => message.role === 'user')?.content ?? ''
+      const prompt = session.title !== 'New Tab' ? session.title : firstPrompt
+      const { task } = await this.tasksStore.prepareForSession(session.run.taskServerId, {
+        parentTaskId: session.task.parentTaskId ?? null,
+        projectKey: environmentProjectKey(environment, session.run.projectGroupPath),
+        prompt,
+      })
+      if (!task) return
+
+      if (session.prReview) {
+        await this.tasksStore.link(task.id, {
+          kind: 'pr',
+          targetScope: task.projectKey ?? environmentProjectKey(environment, session.run.projectGroupPath),
+          targetKey: String(session.prReview.number),
+          title: `#${session.prReview.number} ${session.prReview.title}`,
+          createdBy: 'system',
+        }).catch(() => null)
+      }
+
+      const bindingSessionId = taskBindingSessionId(session) ?? session.agentSessionId
+      session.task = { kind: 'existing', taskId: task.id }
+      this.mintedTaskIdBySession.set(session, task.id)
+      const metadata = this.generatedTaskMetadataBySession.get(session)
+      if (metadata) {
+        await this.tasksStore.update(task.id, {
+          title: metadata.title,
+          body: metadata.description,
+        }).catch(() => null)
+      }
+
+      this.tasksStore.trackSessionStart(task.id, bindingSessionId)
+      const dispatched = isDispatch(session.run)
+      await this.tasksStore.linkSession(
+        session.run.taskServerId,
+        task.id,
+        bindingSessionId,
+        dispatched
+          ? {
+              serverId: session.run.serverId,
+              provider: session.run.provider ?? undefined,
+              projectRoot: session.run.projectGroupPath,
+            }
+          : null,
+      )
+      if (environment.branch) {
+        await serverConnections.apiFor(session.run.taskServerId)
+          .setSessionBranch(bindingSessionId, environment.branch)
+      }
+      await this.tasksStore.refreshSessionBinding(bindingSessionId, session.run.taskServerId)
+    })()
+      .catch((error) => console.warn('[Solus] Session task settlement failed.', error))
+      .finally(() => this.taskSettlementBySessionId.delete(sessionId))
+
+    this.taskSettlementBySessionId.set(sessionId, settlement)
+    return settlement
   }
 
   /** Re-ship a dispatched session's task state with a follow-up prompt. Best
@@ -2971,6 +3125,56 @@ export class WorkspaceContext {
 
   // ─── Tasks page ───
 
+  private sidebarRootTaskId(taskId: string): string {
+    const task = this.tasksStore.taskForId(taskId)
+    return task?.parentId ?? taskId
+  }
+
+  private sidebarSessionIdsForTab(tabId: string): string[] {
+    const session = this.sessionFor(tabId)
+    const tab = this.tabs[tabId]
+    return [tab?.sessionId, session?.id, session?.handoffId, session?.agentSessionId]
+      .filter((sessionId): sessionId is string => !!sessionId)
+  }
+
+  /** Record the task-scoped occurrence the user selected. This controls the
+   * active path only; it does not create another automatic sidebar row. */
+  selectSidebarTaskOccurrence(taskId: string, sessionId: string): void {
+    this.sidebarTaskContextBySessionId.set(sessionId, this.sidebarRootTaskId(taskId))
+  }
+
+  /** Materialize the one permitted duplicate: a task/session pair the user
+   * explicitly opened rather than one discovered by background reconciliation. */
+  showExplicitSidebarTaskSession(taskId: string, sessionId: string): void {
+    const rootTaskId = this.sidebarRootTaskId(taskId)
+    this.explicitSidebarTaskSessions.add(`${rootTaskId}:${sessionId}`)
+    this.sidebarTaskContextBySessionId.set(sessionId, rootTaskId)
+  }
+
+  hasExplicitSidebarTaskSession(taskId: string, sessionId: string): boolean {
+    return this.explicitSidebarTaskSessions.has(
+      `${this.sidebarRootTaskId(taskId)}:${sessionId}`,
+    )
+  }
+
+  sidebarTaskContextForTab(tabId: string): string | null {
+    for (const sessionId of this.sidebarSessionIdsForTab(tabId)) {
+      const taskId = this.sidebarTaskContextBySessionId.get(sessionId)
+      if (taskId) return taskId
+    }
+    return null
+  }
+
+  clearSidebarTaskOccurrences(taskId: string): void {
+    const rootTaskId = this.sidebarRootTaskId(taskId)
+    for (const key of this.explicitSidebarTaskSessions) {
+      if (key.startsWith(`${rootTaskId}:`)) this.explicitSidebarTaskSessions.delete(key)
+    }
+    for (const [sessionId, contextTaskId] of this.sidebarTaskContextBySessionId) {
+      if (contextTaskId === rootTaskId) this.sidebarTaskContextBySessionId.delete(sessionId)
+    }
+  }
+
   toggleTasks(via: Via = 'click'): void {
     // The page's own $effect loads on open (it needs the active project's cwd),
     // so there's nothing to kick off here — toggling just flips the route.
@@ -3011,14 +3215,20 @@ export class WorkspaceContext {
       undefined,
       sessionServerId,
     )
-    if (openTab) this.selectTab(openTab)
+    if (openTab) {
+      this.showExplicitSidebarTaskSession(task.id, link.sessionId)
+      this.selectTab(openTab)
+    }
     else {
       // The task link stores a session id, not its agent backend. Resolve the
       // indexed record before resuming instead of assigning whichever provider
       // happens to be selected now; loading a Claude transcript through Codex
       // (or vice versa) returns an empty conversation.
       const meta = await readSessionMeta(sessionServerId, link.sessionId)
-      if (meta) await this.resumeSession(meta)
+      if (meta) {
+        this.showExplicitSidebarTaskSession(task.id, link.sessionId)
+        await this.resumeSession(meta)
+      }
     }
     this.router.closeGroup('page')
     requestInputFocus()

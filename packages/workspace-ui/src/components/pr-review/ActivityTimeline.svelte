@@ -6,6 +6,8 @@
     MessageCircle as ChatCircleIcon,
     GitCommitHorizontal as GitCommitIcon,
     GitPullRequest as GitPullRequestIcon,
+    LoaderCircle as LoaderIcon,
+    Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { PrCommit, ReviewComment, ReviewThread } from "@solus/contracts/providers";
@@ -42,10 +44,13 @@
     filtered = false,
     authorName,
     openedAt,
+    viewerLogin,
+    deletingCommentIds,
     onJump,
     onOpenCommit,
     onReply,
     onResolve,
+    onDeleteComment,
   }: {
     /** Already filtered by the host; thread events keep the parent's object
      *  identity (PrThreadCard mutates reply/resolve in place — the Diff tab
@@ -59,12 +64,16 @@
     authorName: string;
     /** When the PR opened (ms); null until `detail` resolves. */
     openedAt: number | null;
+    /** Connected provider identity. Only this author's issue comments can be deleted. */
+    viewerLogin: string;
+    deletingCommentIds: ReadonlySet<string>;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Open the diff scoped to one commit's changes. */
     onOpenCommit?: (commit: PrCommit) => void;
     onReply: (threadId: string, body: string) => Promise<ReviewComment>;
     onResolve: (threadId: string, resolved: boolean) => Promise<void>;
+    onDeleteComment: (commentId: string) => Promise<void>;
   } = $props();
 
   // Comment/review bodies are GitHub markdown — same pipeline *and* the same
@@ -118,6 +127,25 @@
       weight="bold"
       class="transition-transform duration-150 {collapsed ? '-rotate-90' : ''}"
     />
+  </Button>
+{/snippet}
+
+{#snippet deleteCommentButton(commentId: string, author: string)}
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon-xs"
+    disabled={deletingCommentIds.has(commentId)}
+    aria-label="Delete comment from {author}"
+    title="Delete comment"
+    class="shrink-0 cursor-pointer text-muted-foreground opacity-0 transition-[opacity,color] hover:text-destructive focus-visible:opacity-100 group-hover/comment:opacity-100 pointer-coarse:opacity-100"
+    onclick={() => void onDeleteComment(commentId)}
+  >
+    {#if deletingCommentIds.has(commentId)}
+      <LoaderIcon size={12} class="animate-spin motion-reduce:animate-none" aria-hidden="true" />
+    {:else}
+      <TrashIcon size={12} aria-hidden="true" />
+    {/if}
   </Button>
 {/snippet}
 
@@ -361,6 +389,9 @@
                 </span>
                 {#if hasBody}
                   {@render collapseToggle(eventKey, event.comment.author)}
+                {/if}
+                {#if event.comment.kind === "comment" && viewerLogin && event.comment.author.toLowerCase() === viewerLogin.toLowerCase()}
+                  {@render deleteCommentButton(event.comment.id, event.comment.author)}
                 {/if}
               </div>
               {#if hasBody && !collapsedComments[eventKey]}

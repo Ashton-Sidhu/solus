@@ -34,6 +34,8 @@ const KIND_COLORS: Record<string, string> = {
   // dispatch step reads as part of the bar above it, not as a rival to it.
   'internal.dispatch_step': 'color-mix(in oklch, var(--solus-art-3) 60%, var(--muted-foreground))',
   permission_wait: 'var(--solus-art-2)',
+  question_wait: 'var(--solus-art-6)',
+  context_compaction: 'var(--solus-art-3)',
   queue_wait: 'var(--solus-art-6)',
   rate_limit_wait: 'var(--solus-art-6)',
   turn_settlement: 'var(--solus-art-3)',
@@ -50,6 +52,8 @@ const KIND_LABELS: Record<string, string> = {
   setup: 'Setup',
   'internal.dispatch_step': 'Dispatch steps',
   permission_wait: 'Permission waits',
+  question_wait: 'Question waits',
+  context_compaction: 'Context compaction',
   queue_wait: 'Queue waits',
   rate_limit_wait: 'Rate-limit waits',
   turn_settlement: 'Solus settlement',

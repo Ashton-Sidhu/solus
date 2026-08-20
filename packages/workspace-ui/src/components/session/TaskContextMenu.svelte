@@ -10,6 +10,7 @@
     ListChecks as ListChecksIcon,
     Play as PlayIcon,
     Pen as PencilSimpleIcon,
+    RefreshCw as ArrowsClockwiseIcon,
     CircleStop as StopCircleIcon,
     GitFork as TreeStructureIcon,
     Trash2 as TrashIcon,
@@ -156,6 +157,19 @@
     action();
     onClose();
   }
+
+  async function regenerateTitle() {
+    const taskId = task.id;
+    onClose();
+    const progress = toasts.progress("Regenerating task title…");
+    try {
+      await session.tasksStore.regenerateTitle(taskId);
+      progress.success("Task title regenerated");
+    } catch (error) {
+      progress.error(error instanceof Error ? error.message : "Couldn't regenerate task title");
+    }
+    requestInputFocus();
+  }
 </script>
 
 <ContextMenu.Root
@@ -261,6 +275,10 @@
         Rename task
       </ContextMenu.Item>
     {/if}
+    <ContextMenu.Item onSelect={regenerateTitle}>
+      <ArrowsClockwiseIcon />
+      Regenerate title
+    </ContextMenu.Item>
     <ContextMenu.Item onSelect={copyTaskId}>
       <CopyIcon />
       Copy task ID

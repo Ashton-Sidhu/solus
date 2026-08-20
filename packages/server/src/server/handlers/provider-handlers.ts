@@ -617,6 +617,21 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     await provider.review.addIssueComment(repo, number, body)
   })
 
+  server.register('prDeleteIssueComment', async (args) => {
+    const [ctx, number, commentId] = args
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const [comments, viewer] = await Promise.all([
+      provider.review.listComments(repo, number),
+      provider.auth.status(),
+    ])
+    const comment = comments.find((item) => item.id === commentId)
+    if (!comment || comment.kind !== 'comment') throw new Error('This pull request comment no longer exists.')
+    if (!viewer.login || comment.author.toLowerCase() !== viewer.login.toLowerCase()) {
+      throw new Error('You can only delete your own pull request comments.')
+    }
+    await provider.review.deleteIssueComment(repo, commentId)
+  })
+
   server.register('prInterdiff', async (args) => {
     const [ctx, pr] = args
     const { repo, provider } = await reviewTargetFor(ctx)

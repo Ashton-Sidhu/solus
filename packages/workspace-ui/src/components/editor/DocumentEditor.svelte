@@ -1,5 +1,6 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { untrack } from "svelte";
   import { Editor, Extension, type AnyExtension } from "@tiptap/core";
   import StarterKit from "@tiptap/starter-kit";
@@ -21,7 +22,18 @@
   import DragHandle from "@tiptap/extension-drag-handle";
   import { lowlight } from "../../lib/lowlight";
   import { SearchExtension } from "./searchExtension";
-  import { imageFilesFromDataTransfer, readAsDataUrl } from "./images";
+  import { readAsDataUrl } from "./images";
+  import {
+    assetFileMarkdown,
+    attachmentFilesFromDataTransfer,
+    isInlineAssetImage,
+    uploadAsset,
+  } from "../../lib/asset-upload";
+  import {
+    getMarkdownImageContext,
+    markdownAssetId,
+  } from "../conversation/lib/markdown-image";
+  import { assetUrlCache } from "../artifact/lib/asset-url";
   import {
     SlashCommandExtension,
     filterCommands,
@@ -36,6 +48,10 @@
   import TableContextMenu from "./TableContextMenu.svelte";
   import TableBlockBar from "./TableBlockBar.svelte";
   import TableGrips from "./TableGrips.svelte";
+  import EditorVoiceControl from "../input/EditorVoiceControl.svelte";
+  import { dictationInsertion } from "../input/lib/dictation-text";
+
+  const imageContext = getMarkdownImageContext();
   import { portal } from "../portal";
   import {
     deferTableResizeReflow,
@@ -47,6 +63,7 @@
   import type { DiagramEmbedChoice } from "./diagramEmbedExtension";
 
   const linkAttributesSchema = z.object({ href: z.string().optional() });
+  const imageSourceSchema = z.string();
 
   interface Props {
     value: string;
@@ -56,6 +73,10 @@
     onInput?: () => void;
     placeholder?: string;
     readOnly?: boolean;
+    /** Show push-to-talk on focused prose editing surfaces. */
+    mic?: boolean;
+    /** Enable the voice shortcut even when the idle mic is hidden. */
+    dictation?: boolean;
     extraExtensions?: AnyExtension[];
     onEditorReady?: (editor: Editor) => void;
     onModeChange?: (mode: "rich" | "raw") => void;
@@ -85,6 +106,8 @@
     onInput,
     placeholder = "",
     readOnly = false,
+    mic = false,
+    dictation,
     extraExtensions = [],
     onEditorReady,
     onModeChange,
@@ -102,6 +125,8 @@
     dragHandle = true,
   }: Props = $props();
 
+  const dictationOn = $derived(dictation ?? mic);
+
   // Matches a URL pasted onto a selection (smart-paste → link).
   const URL_RE = /^(https?:\/\/|mailto:)[^\s]+$/i;
   // How long to wait after the last keystroke before serializing to markdown.
@@ -112,9 +137,11 @@
   let editorDiv: HTMLDivElement | null = $state(null);
   let editorInstance: Editor | null = $state(null);
   let mode = $state<"rich" | "raw">("rich");
+  let isFocused = $state(false);
   let rawEditorRef: RawMarkdownEditor | null = $state(null);
   // Skip the value-sync diff pass when the incoming `value` is our own echo.
   let lastEmittedMd = "";
+  const persistedAssetUris = new Map<string, string>();
 
   let slashActive = $state(false);
   let slashQuery = $state("");
@@ -152,7 +179,52 @@
   const slashMenuOpen = $derived(slashMenuIsOpen(slashActive, slashFiltered.length));
 
   function getMd(editor: Editor): string {
-    return editor.getMarkdown();
+    let markdown = editor.getMarkdown();
+    for (const [displayUrl, assetUri] of persistedAssetUris) {
+      markdown = markdown.replaceAll(displayUrl, assetUri);
+    }
+    return markdown;
+  }
+
+  async function displayUrlForAsset(assetUri: string): Promise<string> {
+    const assetId = markdownAssetId(assetUri);
+    const serverId = imageContext?.serverId();
+    const api = imageContext?.api();
+    if (!assetId || !serverId || !api) return assetUri;
+    const displayUrl = await assetUrlCache.resolve({
+      serverId,
+      assetId,
+      origin: serverConnections.httpOriginFor(serverId),
+      api,
+      ctx: imageContext?.ctx(),
+    });
+    persistedAssetUris.set(displayUrl, assetUri);
+    return displayUrl;
+  }
+
+  async function hydrateAssetImages(editor: Editor) {
+    const assetUris: string[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name !== "image") return;
+      const src = imageSourceSchema.safeParse(node.attrs.src);
+      if (src.success && markdownAssetId(src.data)) assetUris.push(src.data);
+    });
+    for (const assetUri of assetUris) {
+      let displayUrl: string;
+      try {
+        displayUrl = await displayUrlForAsset(assetUri);
+      } catch {
+        continue;
+      }
+      if (displayUrl === assetUri || editor.isDestroyed) continue;
+      const transaction = editor.state.tr;
+      editor.state.doc.descendants((node, pos) => {
+        if (node.type.name === "image" && node.attrs.src === assetUri) {
+          transaction.setNodeMarkup(pos, undefined, { ...node.attrs, src: displayUrl });
+        }
+      });
+      if (transaction.docChanged) editor.view.dispatch(transaction);
+    }
   }
 
   $effect(() => {
@@ -240,10 +312,10 @@
       editable: initialEditable,
       editorProps: {
         handlePaste: (view, event) => {
-          // 1) Image files → embed inline as a data URL.
-          const images = imageFilesFromDataTransfer(event.clipboardData);
-          if (images.length > 0) {
-            void insertImageFiles(images);
+          // 1) Files → store images inline and other attachments as links.
+          const files = attachmentFilesFromDataTransfer(event.clipboardData);
+          if (files.length > 0) {
+            void insertAssetFiles(files);
             return true;
           }
           // 2) A bare URL pasted over a non-empty selection → wrap as a link.
@@ -264,14 +336,14 @@
           return false;
         },
         handleDrop: (view, event) => {
-          const images = imageFilesFromDataTransfer(event.dataTransfer);
-          if (images.length > 0) {
+          const files = attachmentFilesFromDataTransfer(event.dataTransfer);
+          if (files.length > 0) {
             const coords = view.posAtCoords({
               left: event.clientX,
               top: event.clientY,
             });
             event.preventDefault();
-            void insertImageFiles(images, coords?.pos);
+            void insertAssetFiles(files, coords?.pos);
             return true;
           }
           return false;
@@ -385,8 +457,18 @@
     // cheap synchronous signal so the host can mark itself dirty immediately,
     // and debounce the (expensive) markdown serialization off the hot path.
     editor.on("update", () => scheduleEmit(onChange));
-    editor.on("focus", () => onFocus?.());
-    editor.on("blur", () => onBlur?.());
+    editor.on("focus", () => {
+      queueMicrotask(() => {
+        isFocused = true;
+        onFocus?.();
+      });
+    });
+    editor.on("blur", () => {
+      queueMicrotask(() => {
+        isFocused = false;
+        onBlur?.();
+      });
+    });
 
     // Every handler gates on the *menu*, not on the "/" token: a token that
     // matches nothing renders no menu, so Enter must still break the line.
@@ -415,6 +497,7 @@
     };
 
     editorInstance = editor;
+    void hydrateAssetImages(editor);
     untrack(() => onEditorReady?.(editor));
     const stopDeferredTableResize = deferTableResizeReflow(
       editor,
@@ -463,12 +546,29 @@
     };
   });
 
-  async function insertImageFiles(files: File[], pos?: number) {
+  async function insertAssetFiles(files: File[], pos?: number) {
     if (!editorInstance) return;
     for (const file of files) {
+      const isImage = isInlineAssetImage(file);
       let src: string;
       try {
-        src = await readAsDataUrl(file);
+        const api = imageContext?.api();
+        if (api) {
+          const asset = await uploadAsset(api, file);
+          if (!isImage) {
+            const markdown = assetFileMarkdown(file.name || "attachment", asset.uri);
+            const chain = editorInstance.chain().focus();
+            if (pos != null) chain.insertContentAt(pos, markdown, { contentType: "markdown" });
+            else chain.insertContent(markdown, { contentType: "markdown" });
+            chain.run();
+            continue;
+          }
+          src = await displayUrlForAsset(asset.uri);
+        } else if (isImage) {
+          src = await readAsDataUrl(file);
+        } else {
+          continue;
+        }
       } catch {
         continue;
       }
@@ -549,6 +649,7 @@
         emitUpdate: false,
         contentType: "markdown",
       });
+      void hydrateAssetImages(editorInstance);
     }
   });
 
@@ -571,6 +672,22 @@
 
   export function getEditor(): Editor | null {
     return editorInstance;
+  }
+
+  export function insertTranscript(transcript: string): void {
+    if (!editorInstance || mode !== "rich") return;
+    const { doc, selection } = editorInstance.state;
+    const insertion = dictationInsertion(
+      transcript,
+      doc.textBetween(0, selection.from, "\n", "\n"),
+      doc.textBetween(selection.to, doc.content.size, "\n", "\n"),
+    );
+    if (!insertion) return;
+    editorInstance
+      .chain()
+      .focus()
+      .insertContent({ type: "text", text: insertion })
+      .run();
   }
 
   // Cursor rect (wrapper horizontal bounds + caret vertical position) used to
@@ -674,19 +791,41 @@
   }
 </script>
 
-<div bind:this={wrapperEl} class="solus-doc-editor-wrap {klass}" {style} oncontextmenu={handleContextMenu} role="presentation">
+<div bind:this={wrapperEl} class="solus-doc-editor-wrap relative {klass}" {style} oncontextmenu={handleContextMenu} role="presentation">
   <div
     bind:this={editorDiv}
     class="solus-doc-editor"
+    class:voice-enabled={mic}
     class:doc-mode-hidden={mode === "raw"}
   ></div>
+
+  {#if dictationOn && mode === "rich"}
+    <div class="absolute top-1 right-1 z-10">
+      <EditorVoiceControl
+        onTranscript={insertTranscript}
+        focused={isFocused}
+        disabled={readOnly}
+        showMic={mic}
+      />
+    </div>
+  {/if}
 
   <RawMarkdownEditor
     bind:this={rawEditorRef}
     {value}
     onValueChange={() => scheduleEmit(onValueChange)}
-    onFocus={() => onFocus?.()}
-    onBlur={() => onBlur?.()}
+    onFocus={() => {
+      queueMicrotask(() => {
+        isFocused = true;
+        onFocus?.();
+      });
+    }}
+    onBlur={() => {
+      queueMicrotask(() => {
+        isFocused = false;
+        onBlur?.();
+      });
+    }}
     {readOnly}
     class={mode === "rich" ? "doc-mode-hidden" : ""}
   />
@@ -754,6 +893,9 @@
 </div>
 
 <style>
+  .voice-enabled :global(.ProseMirror) {
+    padding-right: 4.25rem;
+  }
   /* Pasted/dropped images — sit inline as block figures, rounded + outlined to
      match the app's image treatment (warm hairline, never a hard black edge). */
   :global(.solus-doc-editor .ProseMirror img) {

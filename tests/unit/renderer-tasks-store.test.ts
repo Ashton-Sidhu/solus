@@ -79,6 +79,30 @@ function task(): Task {
 }
 
 describe('renderer task hydration', () => {
+  test('rejects an authoritative session read when the task host is unavailable', async () => {
+    // WHY: turn settlement mints a fallback task only after this read. Treating
+    // an RPC failure as an empty result can duplicate a task linked by the agent.
+    installStateRune()
+    const api = {
+      tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
+      tasksForSession: async () => {
+        throw new Error('task host unavailable')
+      },
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: api },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+
+    await expect(store.findSessionTaskOnHost(['session-1'], 'local'))
+      .rejects.toThrow('task host unavailable')
+  })
+
   test('refreshes visible task details without fanning out through the hidden cache', async () => {
     // WHY: Editor and Pill keep hidden tabs mounted. A task invalidation must not
     // turn every task detail ever opened in those tabs into a simultaneous RPC.

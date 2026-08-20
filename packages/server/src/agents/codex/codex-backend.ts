@@ -13,7 +13,7 @@ import {
 } from '../../plans/plan-index'
 import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
-import { initSessionBase, snapshotTurn } from '../../git/session-snapshots'
+import { initSessionBase, prepareTurnSnapshot, snapshotTurn } from '../../git/session-snapshots'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
 import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
 import type {
@@ -1094,6 +1094,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const head = getHeadCommit(workTree)
       if (!head) return
       await initSessionBase(repoRoot, sessionId, head)
+      await prepareTurnSnapshot(workTree, repoRoot, sessionId)
     } catch (e) {
       log.warn('init_snapshots_failed', { error: e instanceof Error ? e.message : String(e) })
     }
@@ -1107,6 +1108,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         partial,
         userMessagePreview: handle.userMessagePreview,
         sessionChangedFiles: [...handle.trackedFiles],
+        turnChangedFiles: handle.turnDiffFiles.size > 0
+          ? [...handle.turnDiffFiles]
+          : [...handle.trackedFiles],
       })
       return result?.sessionChangedFiles ?? null
     } catch (e) {

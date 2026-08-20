@@ -789,6 +789,7 @@
           provider={agentProvider}
           workingDirectory={cwd}
           menuPlacement="down"
+          dictation
           placeholder="What should the agent do each run? Use @ for files, / for skills, # for plans, % for docs, ! for PRs."
         />
       </div>

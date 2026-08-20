@@ -843,12 +843,12 @@
   <TaskRow
     {task}
     prChip={sidebarStore.prChipFor(task)}
-    onPath={task.tabIds.includes(session.onScreenTabId)}
+    onPath={sidebarStore.taskForTab(session.onScreenTabId)?.id === task.id}
     bulkSelected={selectedTaskIds.has(task.id)}
     expanded={expandedTaskIds.has(task.id)}
     onFilterProject={() => filterToProject(task.projectKey)}
     sessions={sidebarStore.sessionsFor(task)}
-    selectedTabId={task.tabIds.includes(session.onScreenTabId)
+    selectedTabId={sidebarStore.taskForTab(session.onScreenTabId)?.id === task.id
       ? session.onScreenTabId
       : null}
     {renamingTabId}
@@ -1511,6 +1511,7 @@
       tabId={sidebarStore.openTabIdForPinned(pin) ?? null}
       sessionId={pin.sessionId}
       showSplit
+      onRegenerateTitle={() => sidebarStore.regeneratePinnedSessionTitle(pin)}
       onOpenInSplit={() => void openPinnedSessionInSplit(pin)}
       onClose={closeSessionContextMenu}
     />

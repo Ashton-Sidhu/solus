@@ -16,6 +16,11 @@ import {
 import { GLYPH, type RefKind } from '@solus/workspace-ui/components/editor/unified-autocomplete/kinds'
 import { autocompleteSelectionAction } from '@solus/workspace-ui/components/editor/autocomplete-editor'
 import { shouldReleaseSpacedAutocompleteQuery } from '@solus/workspace-ui/components/editor/autocomplete.svelte'
+import {
+  sessionRefPreview,
+  sessionRefTitle,
+} from '@solus/workspace-ui/components/editor/unified-autocomplete/reference-index.svelte'
+import type { SessionMeta } from '@solus/contracts/types'
 
 function reference(refKind: RefKind, title: string, meta = ''): MenuItem {
   return {
@@ -51,6 +56,21 @@ function input(text: string, overrides: Partial<RowInput> = {}): RowInput {
     worktreeFileCount: null,
     byKind: empty,
     counts: { plan: 0, doc: 0, pr: 0, session: 0, task: 0, automation: 0 },
+    ...overrides,
+  }
+}
+
+function sessionMeta(overrides: Partial<SessionMeta> = {}): SessionMeta {
+  return {
+    provider: 'codex',
+    sessionId: 'session-12345678',
+    slug: 'provider-slug',
+    firstMessage: 'Opening prompt',
+    customTitle: null,
+    lastTimestamp: '2026-08-20T12:00:00.000Z',
+    size: 1,
+    cwd: '/repo',
+    projectPath: '-repo',
     ...overrides,
   }
 }
@@ -174,6 +194,23 @@ describe('ranking', () => {
     ])
   })
 
+  test('menu title parts stay on one line before a query is typed', () => {
+    // WHY: drilling into a category starts with an empty query. Provider titles
+    // can contain line breaks, but fixed-height rows must not paint over each
+    // other while the category is being browsed.
+    const [match] = rank(
+      [reference('session', 'update @ chunk.ts:42\nhandleEditorChange @ InputBar.svelte:1189')],
+      '',
+    )
+
+    expect(match.parts).toEqual([
+      {
+        text: 'update @ chunk.ts:42 handleEditorChange @ InputBar.svelte:1189',
+        hit: false,
+      },
+    ])
+  })
+
   test('the score ladder prefers a prefix over a boundary over a substring', () => {
     // WHY: this ordering is what makes three typed letters land on the thing you
     // meant without a category picker in front of it.
@@ -198,6 +235,49 @@ describe('ranking', () => {
     // WHY: fuzzy matching across metadata matches nearly everything, which would
     // make the whole index noise.
     expect(rank([reference('pr', 'Fix the flake', 'open · checks passing')], 'ocp')).toHaveLength(0)
+  })
+})
+
+describe('session result context', () => {
+  test('the generated session title wins over provider and prompt fallbacks', () => {
+    // WHY: the selected-session preview is meant to expose the generated title;
+    // showing a provider slug instead makes the preview repeat the old picker.
+    expect(
+      sessionRefTitle(
+        sessionMeta({
+          customTitle: 'Fix session autocomplete',
+          slug: 'quiet-copper-otter',
+          firstMessage: 'Why is session search slow?',
+        }),
+      ),
+    ).toBe('Fix session autocomplete')
+  })
+
+  test('the opening prompt preview is readable prose on one logical line', () => {
+    // WHY: prompts often contain pasted stacks or paragraphs. The preview owns
+    // wrapping; embedded whitespace must not create broken visual rows.
+    expect(
+      sessionRefPreview(
+        sessionMeta({ firstMessage: 'Why is this slow?\n\nPlease inspect\tthe picker.' }),
+      ),
+    ).toBe('Why is this slow? Please inspect the picker.')
+  })
+
+  test('the opening prompt preview removes appended task context', () => {
+    // WHY: task bindings are transport context, not prompt content. Showing the
+    // packet duplicates internal instructions and makes the preview unreadable.
+    expect(
+      sessionRefPreview(
+        sessionMeta({
+          firstMessage: [
+            'Can you improve session search?',
+            '',
+            '[Working On Task "Session Search" (task_id: task-1)]',
+            'Call read_task with task_id "task-1" to read the latest status.',
+          ].join('\n'),
+        }),
+      ),
+    ).toBe('Can you improve session search?')
   })
 })
 
@@ -322,6 +402,58 @@ describe('menu rows', () => {
     )
     expect(rows[0].type).toBe('header')
     expect(rows.filter(isSelectable)).toHaveLength(1)
+  })
+
+  test('a drilled category renders one viewport-sized result page', () => {
+    // WHY: a workspace can hold thousands of sessions. The full list remains
+    // searchable, but mounting thousands of off-screen buttons blocks typing.
+    const sessions = Array.from({ length: 3_000 }, (_, index) =>
+      reference('session', `Session ${index}`),
+    )
+    const rows = buildRows(
+      input('#sessions/', {
+        byKind: {
+          plan: [],
+          doc: [],
+          pr: [],
+          session: sessions,
+          task: [],
+          automation: [],
+        },
+        counts: {
+          plan: 0,
+          doc: 0,
+          pr: 0,
+          session: sessions.length,
+          task: 0,
+          automation: 0,
+        },
+      }),
+    )
+
+    expect(rows[0]).toMatchObject({
+      type: 'header',
+      meta: '3,000 in this workspace',
+    })
+    expect(rows.filter((row) => row.type === 'item')).toHaveLength(8)
+
+    const narrowedRows = buildRows(
+      input('#sessions/2999', {
+        byKind: {
+          plan: [],
+          doc: [],
+          pr: [],
+          session: sessions,
+          task: [],
+          automation: [],
+        },
+      }),
+    )
+    expect(
+      narrowedRows.some(
+        (row) => row.type === 'item' && row.item.title === 'Session 2999',
+      ),
+    ).toBe(true)
   })
 
   test('the grey completion equals the text pressing → produces', () => {

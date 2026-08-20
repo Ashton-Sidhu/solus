@@ -441,7 +441,8 @@
               placeholder={hasOptions ? "Or answer in your own words…" : "Type your answer…"}
               disabled={responded}
               rows={1}
-              class="min-h-0 rounded-none border-0 bg-transparent p-0 text-transcript-card font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
+              mic
+              class="min-h-0 rounded-none border-0 bg-transparent p-0 pr-8 text-transcript-card font-normal shadow-none focus-visible:ring-0 dark:bg-transparent"
               oninput={(e) => {
                 ensureState(currentQuestion).comment = (e.target as HTMLTextAreaElement).value;
               }}

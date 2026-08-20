@@ -4,6 +4,7 @@
   } from "../../contexts";
   import {
     getMarkdownImageContext,
+    markdownAssetId,
     markdownImagePath,
   } from "./lib/markdown-image";
   import { hostPolicy } from "@solus/client-core/host-policy";
@@ -23,13 +24,14 @@
   const context = getMarkdownImageContext();
   let src = $state("");
   $effect(() => {
+    const assetId = markdownAssetId(href);
     const path = markdownImagePath(href, context?.cwd());
     const serverId = context?.serverId();
-    if (!path || !serverId) {
+    if ((!path && !assetId) || !serverId) {
       src = href;
       return;
     }
-    if (!context?.isWeb() && hostPolicy.isClientMachine(serverId)) {
+    if (path && !context?.isWeb() && hostPolicy.isClientMachine(serverId)) {
       src = localArtifactProtocolUrl(path);
       return;
     }
@@ -44,7 +46,7 @@
       return;
     }
     const ctx = context?.ctx();
-    if (!ctx) {
+    if (!ctx && !assetId) {
       src = href;
       return;
     }
@@ -54,7 +56,8 @@
     void assetUrlCache
       .resolve({
         serverId,
-        path,
+        path: path ?? undefined,
+        assetId: assetId ?? undefined,
         origin: serverConnections.httpOriginFor(serverId),
         api: serverConnections.apiFor(serverId),
         ctx,

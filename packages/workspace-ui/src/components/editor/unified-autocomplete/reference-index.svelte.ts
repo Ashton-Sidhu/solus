@@ -17,6 +17,7 @@ import { GLYPH, KIND_NOUN, type RefKind } from './kinds'
 import type { MenuItem } from './rows'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { stampSessionMetas } from '@solus/client-core/session-meta'
+import { stripInjectedContext } from '@solus/contracts/injected-context'
 
 export function timestamp(value: string | number | undefined | null): number {
   if (value === undefined || value === null) return 0
@@ -31,12 +32,20 @@ function freshness(value: string | number | undefined | null): string {
 
 /** A referenced session's chip label: its slug, else the first line of its
  *  first message, else a short id. */
-function sessionRefTitle(session: SessionMeta): string {
+export function sessionRefTitle(session: SessionMeta): string {
+  const customTitle = session.customTitle?.trim()
+  if (customTitle) return customTitle
   const slug = session.slug?.trim()
   if (slug) return slug
-  const firstLine = session.firstMessage?.split('\n')[0]?.trim()
+  const firstLine = sessionRefPreview(session).split('\n')[0]?.trim()
   if (firstLine) return firstLine
   return session.sessionId.slice(0, 8)
+}
+
+export function sessionRefPreview(session: SessionMeta): string {
+  return session.firstMessage
+    ? stripInjectedContext(session.firstMessage).replace(/\s+/g, ' ').trim()
+    : ''
 }
 
 export function filterPlanAutocompleteDescriptors(
@@ -154,6 +163,7 @@ export class ReferenceIndex {
         monoMeta: false,
         refKind: 'session' as const,
         kindNoun: KIND_NOUN.session,
+        preview: sessionRefPreview(session),
         token: {
           kind: 'session',
           sessionId: session.sessionId,

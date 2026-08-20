@@ -29,12 +29,6 @@ describe('tool group laptop typography', () => {
     expect(activityRow).toMatch(
       /\.activity-row\.is-nested \.activity-label\s*{[\s\S]*?font-size: var\(--text-tool-step\);/,
     )
-    expect(activityRow).toMatch(
-      /\.activity-target\s*{[\s\S]*?font-size: var\(--text-activity-label\);/,
-    )
-    expect(activityRow).toMatch(
-      /\.activity-row\.is-nested \.activity-target\s*{[\s\S]*?font-size: var\(--text-tool-step\);/,
-    )
     expect(toolGroup).toContain('nested={!working && !runningTool}')
     expect(activityRow).toContain(
       '--activity-icon-size: var(--text-activity-label);',
@@ -61,6 +55,9 @@ describe('tool group laptop typography', () => {
     expect(toolGroup).toContain('class="tool-step-text text-tool-step font-mono"')
     expect(toolGroup).toContain(
       'class="tool-step-duration text-tool-step font-mono shrink-0"',
+    )
+    expect(activityRow).toMatch(
+      /\.activity-target\s*{[\s\S]*?font-size: var\(--text-tool-step\);/,
     )
     expect(toolGroup).toMatch(
       /\.tool-step-glyph :global\(svg\)\s*{[\s\S]*?width: var\(--text-tool-step\);[\s\S]*?height: var\(--text-tool-step\);/,

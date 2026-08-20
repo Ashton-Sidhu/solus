@@ -20,8 +20,9 @@
   let draft = $state("");
   let hasContent = $state(false);
   let posting = $state(false);
+  let uploadingImage = $state(false);
   let alsoPost = $state(false);
-  const canSend = $derived(hasContent && !posting);
+  const canSend = $derived(hasContent && !posting && !uploadingImage);
 
   async function send() {
     if (!canSend) return;
@@ -30,6 +31,7 @@
     posting = true;
     try {
       await onSubmit(body, autoPost || alsoPost);
+      editorEl?.clear();
       draft = "";
       hasContent = false;
     } finally {
@@ -46,17 +48,18 @@
   class="sticky bottom-0 z-10 pt-2.5 pb-[22px] [background:linear-gradient(to_bottom,transparent,var(--background)_22px)]"
 >
   <div
-    class="flex items-end gap-3 rounded-2xl bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
+    class="flex items-center gap-1 rounded-2xl bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
   >
     <CommentEditor
       bind:this={editorEl}
       value={draft}
       onValueChange={(v) => (draft = v)}
       onEmptyChange={(empty) => (hasContent = !empty)}
+      onUploadStateChange={(uploading) => (uploadingImage = uploading)}
       disabled={posting}
       placeholder="Leave a comment…"
       maxHeight={160}
-      class="min-w-0 flex-1"
+      class="min-w-0 flex-1 [&_.cm-content]:![min-height:1.25rem] [&_.cm-content]:![padding:0.25rem_0] [&_.cm-content]:![font-weight:400]"
       onKeyDown={(e) => {
         if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();
@@ -67,7 +70,7 @@
     />
     <Button
       type="button"
-      class="flex h-[28px] shrink-0 cursor-pointer items-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] px-3 font-medium text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40"
+      class="flex h-7.5 shrink-0 cursor-pointer items-center rounded-lg border-0 bg-[color:color-mix(in_oklab,var(--primary)_14%,transparent)] px-3 font-medium text-primary transition-colors hover:bg-[color:color-mix(in_oklab,var(--primary)_22%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 [.is-laptop-display_&]:h-7"
       disabled={!canSend}
       title="Comment · ⌘↵"
       onclick={send}

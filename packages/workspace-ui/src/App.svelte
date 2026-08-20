@@ -906,9 +906,9 @@
     // never sees it
     // (exclusive scopes in DocumentShell block the normal dispatcher for global
     // bindings, which would otherwise let macOS insert the  character).
-    // Handles dictation into focused plain inputs. Non-dictation cases (e.g.
-    // the chat composer) are handled by InputBar's own keybinding handler,
-    // which the dispatcher still reaches when no exclusive scope is active.
+    // Handles dictation into the focused registered plain field or prose
+    // editor. Other cases (for example the chat composer) continue through the
+    // normal dispatcher when no exclusive scope is active.
     //
     // Runs in the capture phase so it fires before any subtree keydown handler
     // (e.g. the diff panel's tree/diff widgets) can stopPropagation and swallow
@@ -919,11 +919,50 @@
         defaultCombo(KEYBINDINGS["voice.toggle-recorder"]);
       if (e.repeat || !eventMatches(e, combo)) return;
       e.preventDefault();
-      const el = document.activeElement;
-      if (isDictationTarget(el)) dictation.toggleInto(el);
+      if (dictation.toggleFocusedRecorder(document.activeElement)) {
+        // The focused field has handled this reserved shortcut. Do not let the
+        // normal dispatcher invoke the editor-local handler with the same key
+        // event and immediately toggle recording off again.
+        e.stopImmediatePropagation();
+      }
     };
     document.addEventListener("keydown", handleVoiceKey, true);
     return () => document.removeEventListener("keydown", handleVoiceKey, true);
+  });
+
+  // Native text fields outside the shared Input/Textarea primitives still get
+  // the same focused-field shortcut behavior. Structured text fields opt out
+  // with `data-dictation="false"`; the shared primitives remain the preferred
+  // path because they also render the full recording controls.
+  $effect(() => {
+    const handleFocusIn = (event: FocusEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (isDictationTarget(target)) dictation.focusGained(target);
+    };
+    const handleFocusOut = (event: FocusEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (isDictationTarget(target)) dictation.focusLost(target);
+    };
+    document.addEventListener("focusin", handleFocusIn);
+    document.addEventListener("focusout", handleFocusOut);
+    return () => {
+      document.removeEventListener("focusin", handleFocusIn);
+      document.removeEventListener("focusout", handleFocusOut);
+    };
+  });
+
+  // Direct native fields have no component-owned recording overlay. Mark the
+  // active target so the global stylesheet can show a state without changing
+  // its layout. Shared fields hide this element and show richer controls.
+  $effect(() => {
+    const target = dictation.mode === "insert" ? dictation.target : null;
+    const state = dictation.starting ? "recording" : dictation.state;
+    if (!target || state === "idle") return;
+    if (target.parentElement?.matches('[data-slot="input-wrap"], [data-slot="textarea-wrap"]')) {
+      return;
+    }
+    target.dataset.solusVoiceState = state;
+    return () => delete target.dataset.solusVoiceState;
   });
 
   // ── Global keybinding handlers ────────────────────────────────────────────
@@ -2626,8 +2665,6 @@
           await session.tasksStore.create({
             ...input,
             projectKey: context.projectKey,
-            branch: context.branch,
-            worktreeKey: input.parentId ? undefined : context.worktreeKey,
           });
           toasts.success("Task created");
         } catch (err) {

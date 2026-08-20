@@ -431,14 +431,14 @@
         ? 'pt-0.5'
         : 'pt-3.5'} flex-shrink-0"
     >
-      <input
+      <Input
         bind:this={titleEl}
         bind:value={title}
         type="text"
         placeholder="Task title…"
         aria-label="Task title"
         disabled={saving}
-        class="min-w-0 flex-1 border-0 border-none outline-none shadow-none appearance-none bg-transparent text-base leading-[1.3] font-semibold tracking-[-0.016em] text-(--solus-text-primary) placeholder:font-medium placeholder:text-(--solus-text-tertiary)! placeholder:opacity-60! disabled:opacity-60"
+        class="h-auto min-w-0 flex-1 appearance-none rounded-none border-0 bg-transparent! p-0 text-base leading-[1.3] font-semibold tracking-[-0.016em] text-(--solus-text-primary) shadow-none outline-none placeholder:font-medium placeholder:text-(--solus-text-tertiary)! placeholder:opacity-60! focus-visible:ring-0 disabled:opacity-60 dark:bg-transparent!"
         onkeydown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
             e.preventDefault();
@@ -502,6 +502,7 @@
           readOnly={saving}
           maxHeight={expanded ? undefined : 280}
           placeholder="Describe the work…"
+          dictation
           class="task-composer-description flex min-h-0 flex-1 flex-col"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -783,6 +784,7 @@
             </div>
           {/if}
           <input
+            data-dictation="false"
             bind:this={labelInputEl}
             bind:value={labelDraft}
             type="text"

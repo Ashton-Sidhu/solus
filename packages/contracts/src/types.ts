@@ -785,11 +785,12 @@ export interface Session {
    *  injected into each prompt so the agent revises the live version. */
   boundWorkId: string | null
   /**
-   * Where this session will be filed, until it has started. Once the provider
-   * session exists `task_session_links` is authoritative and this is inert.
+   * Where this session will be filed until a durable `task_session_links` row
+   * exists. A taskless session keeps `{ kind: 'new' }` through its first turn so
+   * the agent can link an existing task before fallback minting runs.
    *
    * A fork carries `{ kind: 'new', parentTaskId }`: its own task is minted as a
-   * subtask at first dispatch, so until then it has no task of its own — only
+   * subtask after its first turn, so until then it has no task of its own — only
    * the parent it will hang under.
    */
   task: TaskTarget
@@ -1409,6 +1410,9 @@ export type NormalizedEvent =
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
   | { type: 'question_request'; questionId: string; questions: QuestionItem[]; kind?: 'standard' | 'mcp_form' | 'mcp_url' }
+  /** Provider context compaction. Claude can report one completed interval by
+   *  duration; Codex can report start and stop item boundaries. */
+  | { type: 'context_compaction'; state: 'start' | 'stop'; trigger?: 'manual' | 'auto'; startedAtMs?: number; completedAtMs?: number; durationMs?: number }
   | { type: 'pending_input_sync'; pendingInputEvents: NormalizedEvent[] }
   | { type: 'plan'; planContent: string; planFilePath: string; questionId: string; options: PermissionOption[]; planToolUseId?: string }
   | { type: 'progress'; todos: TodoItem[]; parentToolUseId?: string }
@@ -1860,6 +1864,9 @@ export interface SessionMeta {
   /** Git-root that groups a repo with all its worktrees. The canonical
    *  "project" key for cross-project search and grouping. */
   projectRoot?: string
+  /** Branch this session attempt runs on. Session-owned because one attempt can
+   *  be linked to several tasks without changing its checkout. */
+  branch?: string
   /** Solus-owned lineage for a session created by another session. Provider
    *  history remains the source of conversation content; this relationship is
    *  local orchestration metadata that survives provider index refreshes. */
