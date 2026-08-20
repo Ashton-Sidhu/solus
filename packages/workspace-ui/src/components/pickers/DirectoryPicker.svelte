@@ -4,17 +4,17 @@
   import { Input } from "../ui/input";
   import { Button } from "../ui/button";
   import {
-    MagnifyingGlassIcon,
-    FolderIcon,
-    FolderPlusIcon,
-    HouseIcon,
-    CaretRightIcon,
-    ClockCounterClockwiseIcon,
-    EyeIcon,
-    EyeSlashIcon,
-    DesktopTowerIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    Search as MagnifyingGlassIcon,
+    Folder as FolderIcon,
+    FolderPlus as FolderPlusIcon,
+    House as HouseIcon,
+    ChevronRight as CaretRightIcon,
+    History as ClockCounterClockwiseIcon,
+    Eye as EyeIcon,
+    EyeOff as EyeSlashIcon,
+    HardDrive as DesktopTowerIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import VirtualList from "svelte-tiny-virtual-list";
   import DirectoryRow from "./DirectoryRow.svelte";
   import {

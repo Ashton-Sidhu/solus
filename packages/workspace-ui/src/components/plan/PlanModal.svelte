@@ -3,17 +3,17 @@
 
   import type { Editor } from "@tiptap/core";
   import {
-    CheckIcon,
-    CopyIcon,
-    BookmarkSimpleIcon,
-    CaretDownIcon,
-    CheckCircleIcon,
-    XCircleIcon,
-    ArrowUpRightIcon,
-    ArrowSquareOutIcon,
-    DotsThreeIcon,
-    FolderIcon,
-  } from "phosphor-svelte";
+    Check as CheckIcon,
+    Copy as CopyIcon,
+    Bookmark as BookmarkSimpleIcon,
+    ChevronDown as CaretDownIcon,
+    CircleCheck as CheckCircleIcon,
+    CircleX as XCircleIcon,
+    ArrowUpRight as ArrowUpRightIcon,
+    ExternalLink as ArrowSquareOutIcon,
+    Ellipsis as DotsThreeIcon,
+    Folder as FolderIcon,
+  } from "@lucide/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { runtime, getWorkspaceContext, getPlanStore } from "../../contexts";
   import PlanActionBar from "./PlanActionBar.svelte";

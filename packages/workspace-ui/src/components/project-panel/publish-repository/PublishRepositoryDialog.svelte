@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { GithubLogoIcon, CircleNotchIcon, XIcon } from "phosphor-svelte";
+import Icon from "@iconify/svelte";
+  import { LoaderCircle as CircleNotchIcon, X as XIcon } from "@lucide/svelte";
   import {
     getSessionEnvironmentStore,
     getWorkspaceContext,
@@ -163,7 +164,7 @@
       <div
         class="relative flex h-[2.875rem] flex-shrink-0 items-center gap-2 px-[1.125rem] after:absolute after:bottom-0 after:left-[1.125rem] after:right-[1.125rem] after:h-[0.0625rem] after:bg-(--solus-popover-border) after:opacity-[0.35] after:content-['']"
       >
-        <GithubLogoIcon
+        <Icon icon="logos:github-icon"
           size={14}
           weight="fill"
           class="flex-shrink-0 text-(--solus-accent)"

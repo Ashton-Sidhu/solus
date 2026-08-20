@@ -14,7 +14,7 @@
    * bad thing to ask of a thumb and is never blocking. Settings still has it.
    */
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { DesktopTowerIcon } from "phosphor-svelte";
+  import { HardDrive as DesktopTowerIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import {
     connectionsStore,

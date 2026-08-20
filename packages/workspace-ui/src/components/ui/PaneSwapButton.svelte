@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowSquareOutIcon } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon } from "@lucide/svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
 

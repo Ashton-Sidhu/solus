@@ -1,12 +1,12 @@
 <script lang="ts">
   /** Connections at rest: this server, the hosts it knows, and who can reach it. */
   import {
-    ArrowsClockwiseIcon,
-    CheckIcon,
-    CopyIcon,
-    MonitorIcon,
-    TrashIcon,
-  } from "phosphor-svelte";
+    RefreshCw as ArrowsClockwiseIcon,
+    Check as CheckIcon,
+    Copy as CopyIcon,
+    Monitor as MonitorIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import { connectionsStore } from "../../contexts";
   import HostDirectory from "../servers/HostDirectory.svelte";
   import { relativeTime } from "../../lib/relative-time";

@@ -1,11 +1,11 @@
 <script lang="ts">
   import {
-    ArrowRightIcon,
-    CheckIcon,
-    LinkSimpleIcon,
-    WifiHighIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ArrowRight as ArrowRightIcon,
+    Check as CheckIcon,
+    Link2 as LinkSimpleIcon,
+    Wifi as WifiHighIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import {
     discoveredServerUrl,
     hostStatusDotClass,

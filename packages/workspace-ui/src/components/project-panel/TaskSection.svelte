@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon, ColumnsIcon, PlusIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon, Columns3 as ColumnsIcon, Plus as PlusIcon } from "@lucide/svelte";
   import type { Task, TaskLink } from "@solus/contracts/task-types";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";

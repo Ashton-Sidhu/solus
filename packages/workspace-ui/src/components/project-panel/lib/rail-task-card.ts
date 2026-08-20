@@ -2,17 +2,17 @@
 // is, the sessions working it, and every object linked to it. Per the renderer
 // rules the .svelte holds markup and thin handlers; the row grammar lives here.
 import {
-  ArrowsClockwiseIcon,
-  ChatTeardropIcon,
-  CheckCircleIcon,
-  ClipboardTextIcon,
-  ClockIcon,
-  FileTextIcon,
-  GitPullRequestIcon,
-  SpinnerGapIcon,
-  XCircleIcon,
-} from 'phosphor-svelte'
-import type { Automation } from '@solus/contracts/types'
+    RefreshCw as ArrowsClockwiseIcon,
+    MessageSquare as ChatTeardropIcon,
+    CircleCheck as CheckCircleIcon,
+    ClipboardList as ClipboardTextIcon,
+    Clock as ClockIcon,
+    FileText as FileTextIcon,
+    GitPullRequest as GitPullRequestIcon,
+    LoaderCircle as SpinnerGapIcon,
+    CircleX as XCircleIcon,
+  } from "@lucide/svelte";
+  import type { Automation } from '@solus/contracts/types'
 import type { Task, TaskLink, TaskLinkKind, TaskSessionLink } from '@solus/contracts/task-types'
 import { sessionDisplayName, type AttentionState } from '../../../lib/sessionUtils'
 import { clockTime } from '../../automations/lib/automation-format'

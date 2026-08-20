@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    AppleLogoIcon,
-    GlobeSimpleIcon,
-    LinuxLogoIcon,
-    WindowsLogoIcon,
-  } from "phosphor-svelte";
+    Apple as AppleLogoIcon,
+    Earth as GlobeSimpleIcon,
+    Terminal as LinuxLogoIcon,
+    PanelsTopLeft as WindowsLogoIcon,
+  } from "@lucide/svelte";
   import type { HostOperatingSystem } from "@solus/contracts/types";
 
   interface Props {

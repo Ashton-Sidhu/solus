@@ -1,22 +1,22 @@
 <script lang="ts">
+import Icon from "@iconify/svelte";
   import {
-    PaperclipIcon,
-    BooksIcon,
-    GitDiffIcon,
-    GearIcon,
-    FolderOpenIcon,
-    ArrowsClockwiseIcon,
-    GitCommitIcon,
-    GitPullRequestIcon,
-    ArrowSquareUpIcon,
-    ArrowCounterClockwiseIcon,
-    CheckIcon,
-    SpinnerIcon,
-    XIcon,
-    CaretRightIcon,
-    HardDrivesIcon,
-    GithubLogoIcon,
-  } from "phosphor-svelte";
+    Paperclip as PaperclipIcon,
+    LibraryBig as BooksIcon,
+    GitCompareArrows as GitDiffIcon,
+    Settings as GearIcon,
+    FolderOpen as FolderOpenIcon,
+    RefreshCw as ArrowsClockwiseIcon,
+    GitCommitHorizontal as GitCommitIcon,
+    GitPullRequest as GitPullRequestIcon,
+    SquareArrowUp as ArrowSquareUpIcon,
+    RotateCcw as ArrowCounterClockwiseIcon,
+    Check as CheckIcon,
+    Loader as SpinnerIcon,
+    X as XIcon,
+    ChevronRight as CaretRightIcon,
+    Database as HardDrivesIcon,
+  } from "@lucide/svelte";
   import {
     getWorkspaceContext,
     getAgentContext,
@@ -461,7 +461,7 @@
               {#if isPullRequestActionRunning}
                 <SpinnerIcon size={14} class="animate-spin" />
               {:else if gitPrimaryAction.kind === "publish" || gitPrimaryAction.kind === "connect"}
-                <GithubLogoIcon size={14} />
+                <Icon icon="logos:github-icon" size={14} />
               {:else}
                 <GitPullRequestIcon size={14} />
               {/if}

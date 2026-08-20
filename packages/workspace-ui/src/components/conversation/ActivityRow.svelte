@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretRightIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
 
   /**

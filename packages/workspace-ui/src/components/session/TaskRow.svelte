@@ -1,14 +1,14 @@
 <script lang="ts">
   import {
-    ArrowUUpLeftIcon,
-    AlarmIcon,
-    CheckIcon,
-    LaptopIcon,
-    MoonIcon,
-    SunIcon,
-    SpinnerGapIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    Undo2 as ArrowUUpLeftIcon,
+    AlarmClock as AlarmIcon,
+    Check as CheckIcon,
+    Laptop as LaptopIcon,
+    Moon as MoonIcon,
+    Sun as SunIcon,
+    LoaderCircle as SpinnerGapIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { attentionLabel } from "../../lib/sessionUtils";
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";

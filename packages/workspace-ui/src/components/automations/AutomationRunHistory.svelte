@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import type { AutomationRun } from "@solus/contracts/types";
   import {
     RUN_STATUS_META,

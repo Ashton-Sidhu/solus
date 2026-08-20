@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte'
-  import { MagnifyingGlassIcon, CaretRightIcon, CaretLeftIcon } from 'phosphor-svelte'
+  import { Search as MagnifyingGlassIcon, ChevronRight as CaretRightIcon, ChevronLeft as CaretLeftIcon } from "@lucide/svelte";
   import Kbd from '../ui/Kbd.svelte'
   import { menuRowVariants } from '../ui/menu/menu-row'
   import { useScope, useKeybinding } from '../../lib/keybindings/use-keybinding.svelte'

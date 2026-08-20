@@ -1,23 +1,23 @@
 <script lang="ts">
   import {
-    ArrowSquareOutIcon,
-    ChartBarIcon,
-    ChatCircleDotsIcon,
-    ChatsIcon,
-    CheckIcon,
-    CopyIcon,
-    GitForkIcon,
-    ListChecksIcon,
-    PlayIcon,
-    PencilSimpleIcon,
-    StopCircleIcon,
-    TreeStructureIcon,
-    TrashIcon,
-    XIcon,
-    MoonIcon,
-    SunIcon,
-    DotOutlineIcon,
-  } from "phosphor-svelte";
+    ExternalLink as ArrowSquareOutIcon,
+    ChartBar as ChartBarIcon,
+    MessageCircleMore as ChatCircleDotsIcon,
+    MessagesSquare as ChatsIcon,
+    Check as CheckIcon,
+    Copy as CopyIcon,
+    GitFork as GitForkIcon,
+    ListChecks as ListChecksIcon,
+    Play as PlayIcon,
+    Pen as PencilSimpleIcon,
+    CircleStop as StopCircleIcon,
+    GitFork as TreeStructureIcon,
+    Trash2 as TrashIcon,
+    X as XIcon,
+    Moon as MoonIcon,
+    Sun as SunIcon,
+    Dot as DotOutlineIcon,
+  } from "@lucide/svelte";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";

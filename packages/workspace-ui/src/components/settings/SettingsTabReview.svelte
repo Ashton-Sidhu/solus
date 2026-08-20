@@ -1,6 +1,6 @@
 <script lang="ts">
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { MODEL_PROFILES, REASONING_EFFORT_LABELS, projectScopeOf, type AgentId } from "@solus/contracts/types";
   import { getSettingsContext, getAgentContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";

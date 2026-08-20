@@ -1,7 +1,14 @@
 <script lang="ts">
   import { scale, fly } from 'svelte/transition'
   import { flip } from 'svelte/animate'
-  import { XIcon, FileTextIcon, ImageIcon, FileCodeIcon, FileIcon, CrosshairIcon } from 'phosphor-svelte'
+  import {
+    X as XIcon,
+    FileText as FileTextIcon,
+    Image as ImageIcon,
+    FileCode as FileCodeIcon,
+    File as FileIcon,
+    Crosshair as CrosshairIcon,
+  } from "@lucide/svelte";
   import { portal } from '../portal'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
   import { requestFilePreview } from '../../lib/filePreview'

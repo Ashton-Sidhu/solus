@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SignOutIcon } from "phosphor-svelte";
+  import { LogOut as SignOutIcon } from "@lucide/svelte";
   import EditorInputCard from "@solus/workspace-ui/components/input/EditorInputCard.svelte";
   import WorkspaceBody from "@solus/workspace-ui/components/layout/WorkspaceBody.svelte";
   import { connectionStatusLabel } from "@solus/client-core/connection-display";

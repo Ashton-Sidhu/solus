@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from 'svelte/transition'
-  import { ChatCircleTextIcon, XIcon, CheckCircleIcon } from 'phosphor-svelte'
+  import { MessageCircle as ChatCircleTextIcon, X as XIcon, CircleCheck as CheckCircleIcon } from "@lucide/svelte";
   import type { DiffComment } from '@solus/contracts/types'
   import type { ReviewThread } from '@solus/contracts/providers'
   import { getPopoverLayer, useClickOutside } from '../popoverLayer.svelte'

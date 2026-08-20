@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CopyIcon, PlayIcon, TrashIcon } from "phosphor-svelte";
+  import { Copy as CopyIcon, Play as PlayIcon, Trash2 as TrashIcon } from "@lucide/svelte";
   import type { SavedMetricsQuery } from "@solus/contracts/observability-types";
   import { copyText, toasts } from "../../lib/toasts";
   import * as ContextMenu from "../ui/context-menu";

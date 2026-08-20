@@ -2,18 +2,18 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { tick, untrack } from "svelte";
   import {
-    BooksIcon,
-    CaretDownIcon,
-    CaretRightIcon,
-    CircleNotchIcon,
-    FileTextIcon,
-    GraphIcon,
-    MagnifyingGlassIcon,
-    PlusIcon,
-    PushPinIcon,
-    UploadSimpleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    LibraryBig as BooksIcon,
+    ChevronDown as CaretDownIcon,
+    ChevronRight as CaretRightIcon,
+    LoaderCircle as CircleNotchIcon,
+    FileText as FileTextIcon,
+    ChartNoAxesColumnIncreasing as GraphIcon,
+    Search as MagnifyingGlassIcon,
+    Plus as PlusIcon,
+    Pin as PushPinIcon,
+    Upload as UploadSimpleIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import type { PlanDescriptor, Work } from "@solus/contracts/types";
   import {
     getWorkspaceContext,

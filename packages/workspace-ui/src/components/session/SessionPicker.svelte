@@ -3,11 +3,11 @@
   import { fly } from "svelte/transition";
   import { Input } from "../ui/input";
   import {
-    MagnifyingGlassIcon,
-    PlusIcon,
-    SparkleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    Search as MagnifyingGlassIcon,
+    Plus as PlusIcon,
+    Sparkles as SparkleIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import VirtualList from "svelte-tiny-virtual-list";
   import {
     getWorkspaceContext,

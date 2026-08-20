@@ -1,11 +1,11 @@
 <script lang="ts">
   import { fade } from "svelte/transition";
   import {
-    ChatTeardropIcon,
-    ClockIcon,
-    FileTextIcon,
-    XCircleIcon,
-  } from "phosphor-svelte";
+    MessageSquare as ChatTeardropIcon,
+    Clock as ClockIcon,
+    FileText as FileTextIcon,
+    CircleX as XCircleIcon,
+  } from "@lucide/svelte";
   import { hasGlyph, type TaskStatus } from "./lib/task-list";
 
   const reduceMotion = window.matchMedia(

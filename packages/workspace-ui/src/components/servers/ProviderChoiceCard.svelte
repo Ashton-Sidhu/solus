@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CheckIcon, CircleNotchIcon } from "phosphor-svelte";
+  import { Check as CheckIcon, LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import ProviderLogo from "./ProviderLogo.svelte";
   import type { ProviderRow } from "./lib/host-onboarding";

@@ -6,7 +6,13 @@
   import MarkdownText from "./MarkdownText.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
-  import { FileTextIcon, ImageIcon, FileCodeIcon, FileIcon, LightningIcon } from "phosphor-svelte";
+  import {
+    FileText as FileTextIcon,
+    Image as ImageIcon,
+    FileCode as FileCodeIcon,
+    File as FileIcon,
+    Zap as LightningIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext, runtime } from "../../contexts";
   import { requestFilePreview } from "../../lib/filePreview";
   import { portal } from "../portal";

@@ -1,22 +1,22 @@
 <script lang="ts">
+import Icon from "@iconify/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { localApi } from "@solus/client-core/local-api";
   import { tick } from "svelte";
   import {
-    ArrowClockwiseIcon,
-    CalendarXIcon,
-    GithubLogoIcon,
-    KanbanIcon,
-    ListChecksIcon,
-    ListIcon,
-    PlusIcon,
-    PulseIcon,
-    TrashIcon,
-    WarningCircleIcon,
-    MoonIcon,
-    DotOutlineIcon,
-    CheckIcon,
-  } from "phosphor-svelte";
+    RotateCw as ArrowClockwiseIcon,
+    CalendarX as CalendarXIcon,
+    Columns3Cog as KanbanIcon,
+    ListChecks as ListChecksIcon,
+    List as ListIcon,
+    Plus as PlusIcon,
+    Activity as PulseIcon,
+    Trash2 as TrashIcon,
+    CircleAlert as WarningCircleIcon,
+    Moon as MoonIcon,
+    Dot as DotOutlineIcon,
+    Check as CheckIcon,
+  } from "@lucide/svelte";
   import {
     TASKS_AUTH_ERROR_PREFIX,
     type Task,
@@ -943,7 +943,7 @@
                   class={PAGE_SECONDARY_BTN}
                   onclick={() => void switchTaskProvider("github")}
                 >
-                  <GithubLogoIcon size={14} weight="fill" />
+                  <Icon icon="logos:github-icon" size={14} weight="fill" />
                   <span>Connect a task provider</span>
                 </button>
               {/if}

@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CheckCircleIcon,
-    CaretDownIcon,
-    CaretRightIcon,
-    ArrowBendUpLeftIcon,
-  } from "phosphor-svelte";
+    CircleCheck as CheckCircleIcon,
+    ChevronDown as CaretDownIcon,
+    ChevronRight as CaretRightIcon,
+    CornerUpLeft as ArrowBendUpLeftIcon,
+  } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { CommentEditor } from "../ui/comment-editor";
   import GuideFileDiff from "./guide/GuideFileDiff.svelte";

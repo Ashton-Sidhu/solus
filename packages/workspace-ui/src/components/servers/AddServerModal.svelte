@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { CheckCircleIcon, LinkSimpleIcon, XIcon } from "phosphor-svelte";
+  import { CircleCheck as CheckCircleIcon, Link2 as LinkSimpleIcon, X as XIcon } from "@lucide/svelte";
   import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@solus/client-core/pairing";
   import type { SavedServer } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts";

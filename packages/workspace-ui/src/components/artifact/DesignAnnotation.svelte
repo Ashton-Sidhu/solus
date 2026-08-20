@@ -1,16 +1,16 @@
 <script lang="ts">
   import { uuid } from "@solus/contracts/uuid";
   import {
-    XIcon,
-    CheckIcon,
-    RectangleIcon,
-    ArrowRightIcon,
-    HashIcon,
-    TextTIcon,
-    EraserIcon,
-    ArrowCounterClockwiseIcon,
-    ArrowClockwiseIcon,
-  } from "phosphor-svelte";
+    X as XIcon,
+    Check as CheckIcon,
+    RectangleHorizontal as RectangleIcon,
+    ArrowRight as ArrowRightIcon,
+    Hash as HashIcon,
+    Type as TextTIcon,
+    Eraser as EraserIcon,
+    RotateCcw as ArrowCounterClockwiseIcon,
+    RotateCw as ArrowClockwiseIcon,
+  } from "@lucide/svelte";
   import { portal } from "../portal";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import type { DesignAnnotation } from "@solus/contracts/types";

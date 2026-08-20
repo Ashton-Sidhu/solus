@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PlusIcon, CameraIcon, PencilIcon } from "phosphor-svelte";
+  import { Plus as PlusIcon, Camera as CameraIcon, Pencil as PencilIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
 
   interface Props {

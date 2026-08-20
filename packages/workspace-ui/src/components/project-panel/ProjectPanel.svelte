@@ -18,12 +18,12 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
-    ArrowsClockwiseIcon,
-    CheckIcon,
-    PlusIcon,
-    SidebarSimpleIcon,
-    WarningCircleIcon,
-  } from "phosphor-svelte";
+    RefreshCw as ArrowsClockwiseIcon,
+    Check as CheckIcon,
+    Plus as PlusIcon,
+    PanelLeft as SidebarSimpleIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
   import SidePanel from "../layout/SidePanel.svelte";
   import { Button } from "../ui/button";
   import PanelSection from "./PanelSection.svelte";

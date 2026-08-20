@@ -15,7 +15,7 @@
     type Node,
   } from "@xyflow/svelte";
   import "@xyflow/svelte/dist/style.css";
-  import { CheckIcon } from "phosphor-svelte";
+  import { Check as CheckIcon } from "@lucide/svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import type { WorkCopyFormat, WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import { dataUrlToPayload, renderDiagramPng, renderDiagramSvg } from "./lib/diagram-export";

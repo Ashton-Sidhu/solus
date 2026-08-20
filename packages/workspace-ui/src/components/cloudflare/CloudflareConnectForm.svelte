@@ -9,7 +9,7 @@
    * succeeds. It is never stored, never logged, never rendered back.
    */
   import { tick } from "svelte";
-  import { ArrowSquareOutIcon, SpinnerGapIcon } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, LoaderCircle as SpinnerGapIcon } from "@lucide/svelte";
   import {
     cloudflareStore,
     CLOUDFLARE_SIGNUP_URL,

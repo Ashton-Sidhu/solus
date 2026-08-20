@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { WarningCircleIcon } from "phosphor-svelte";
+  import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ActivityRow from "./ActivityRow.svelte";

@@ -1,6 +1,6 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import { CaretDownIcon, UserIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon, User as UserIcon } from "@lucide/svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import ProviderMark from "./ProviderMark.svelte";

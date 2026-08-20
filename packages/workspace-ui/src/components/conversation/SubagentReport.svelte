@@ -1,6 +1,6 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import { CaretRightIcon, LockIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon, Lock as LockIcon } from "@lucide/svelte";
   import type { Message } from "@solus/contracts/types";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeBlock from "../ui/CodeBlock.svelte";

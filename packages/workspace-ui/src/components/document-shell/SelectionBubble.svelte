@@ -3,12 +3,12 @@
   import { untrack } from "svelte";
   import { fly } from "svelte/transition";
   import {
-    TextBIcon,
-    TextItalicIcon,
-    CodeIcon,
-    LinkSimpleIcon,
-    SparkleIcon,
-  } from "phosphor-svelte";
+    Bold as TextBIcon,
+    Italic as TextItalicIcon,
+    Code as CodeIcon,
+    Link2 as LinkSimpleIcon,
+    Sparkles as SparkleIcon,
+  } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { portal } from "../portal";
   import { selectionRect, clampedCentre } from "./lib/selection-bubble";

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
-  import { ArrowsSplitIcon, ChatCircleTextIcon } from "phosphor-svelte";
+  import { GitFork as ArrowsSplitIcon, MessageCircle as ChatCircleTextIcon } from "@lucide/svelte";
   import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import { getWorkspaceContext, getStatusBarContext } from "../../contexts";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";

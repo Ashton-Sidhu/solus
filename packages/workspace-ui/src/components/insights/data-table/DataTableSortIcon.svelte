@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { ArrowsDownUpIcon, CaretDownIcon, CaretUpIcon } from 'phosphor-svelte'
-
-  let { direction }: { direction: false | 'asc' | 'desc' } = $props()
+  import { ArrowDownUp as ArrowsDownUpIcon, ChevronDown as CaretDownIcon, ChevronUp as CaretUpIcon } from "@lucide/svelte";let { direction }: { direction: false | 'asc' | 'desc' } = $props()
 </script>
 
 <span class="relative size-3 shrink-0" aria-hidden="true">

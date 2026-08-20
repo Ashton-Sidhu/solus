@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowSquareOutIcon } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon } from "@lucide/svelte";
   import type { FileDiffContentsLoader } from "@pierre/diffs";
   import Icon from "@iconify/svelte";
   import { SvelteSet } from "svelte/reactivity";

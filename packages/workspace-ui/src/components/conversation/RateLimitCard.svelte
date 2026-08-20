@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ClockIcon, StopIcon, ArrowUpIcon } from "phosphor-svelte";
+  import { Clock as ClockIcon, Square as StopIcon, ArrowUp as ArrowUpIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {

@@ -1,11 +1,11 @@
 import {
-  AppleLogoIcon,
-  CloudSlashIcon,
-  GlobeSimpleIcon,
-  LinuxLogoIcon,
-  WindowsLogoIcon,
-} from 'phosphor-svelte'
-import type { Component } from 'svelte'
+    Apple as AppleLogoIcon,
+    CloudOff as CloudSlashIcon,
+    Earth as GlobeSimpleIcon,
+    Terminal as LinuxLogoIcon,
+    PanelsTopLeft as WindowsLogoIcon,
+  } from "@lucide/svelte";
+  import type { Component } from 'svelte'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { ServerItemStatus } from './servers.store.svelte'
 

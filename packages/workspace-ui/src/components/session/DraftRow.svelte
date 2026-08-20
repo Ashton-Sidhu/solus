@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { NotePencilIcon, PaperclipIcon, XIcon } from "phosphor-svelte";
+  import { NotebookPen as NotePencilIcon, Paperclip as PaperclipIcon, X as XIcon } from "@lucide/svelte";
   import type { DraftRow } from "./lib/draft-list";
 
   interface Props {

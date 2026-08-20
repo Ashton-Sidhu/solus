@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CheckIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { Check as CheckIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import {
     getSessionEnvironmentStore,
     getWorkspaceContext,

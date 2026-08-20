@@ -1,7 +1,7 @@
 <script lang="ts">
   import { scaleBand } from "d3-scale";
   import { Axis, Bar, Bars, Chart, Svg } from "layerchart";
-  import { CaretRightIcon, XIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon, X as XIcon } from "@lucide/svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { fly } from "svelte/transition";
   import { TIME_AXIS_INSET_PX, TIME_AXIS_LABEL_GAP_PX } from "./lib/chart-axis";

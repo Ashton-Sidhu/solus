@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { PauseIcon, PencilSimpleIcon, PlayIcon, TrashIcon } from "phosphor-svelte";
+  import {
+    Pause as PauseIcon,
+    Pen as PencilSimpleIcon,
+    Play as PlayIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";

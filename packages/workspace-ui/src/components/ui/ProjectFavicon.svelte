@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { FolderIcon } from "phosphor-svelte";
+  import { Folder as FolderIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { isWorkspaceDir } from "../../lib/paths";
   import {

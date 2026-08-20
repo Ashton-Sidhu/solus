@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { GraphIcon, MagnifyingGlassIcon, XIcon } from "phosphor-svelte";
+  import { ChartNoAxesColumnIncreasing as GraphIcon, Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import { portal } from "../portal";
   import type { DiagramEmbedChoice } from "./diagramEmbedExtension";
 

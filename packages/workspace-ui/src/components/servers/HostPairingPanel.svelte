@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { InfoIcon } from "phosphor-svelte";
+  import { Info as InfoIcon } from "@lucide/svelte";
   import { Input } from "../ui/input";
   import { hostOnboardingStore as store } from "./host-onboarding.store.svelte";
   import type { DiscoveredServer } from "@solus/contracts/types";

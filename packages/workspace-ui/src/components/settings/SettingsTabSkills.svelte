@@ -2,12 +2,12 @@
   import { onMount } from "svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
   import {
-    DownloadSimpleIcon,
-    CheckIcon,
-    ArrowSquareOutIcon,
-    SpinnerGapIcon,
-    WarningCircleIcon,
-  } from "phosphor-svelte";
+    Download as DownloadSimpleIcon,
+    Check as CheckIcon,
+    ExternalLink as ArrowSquareOutIcon,
+    LoaderCircle as SpinnerGapIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
   import { SearchField } from "../ui/search-field";
   import {
     getAgentContext,

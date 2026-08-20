@@ -1,7 +1,7 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { FileDiffContentsLoader } from "@pierre/diffs";
-  import { ArrowsClockwiseIcon, ClockIcon } from "phosphor-svelte";
+  import { RefreshCw as ArrowsClockwiseIcon, Clock as ClockIcon } from "@lucide/svelte";
   import type { ReviewGuide, ReviewLedger } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import {

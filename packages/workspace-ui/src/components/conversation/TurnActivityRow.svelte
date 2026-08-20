@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowCounterClockwiseIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { RotateCcw as ArrowCounterClockwiseIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import ActivityRow from "./ActivityRow.svelte";
   import { KIND_ICONS } from "./lib/activity-icons";
   import {

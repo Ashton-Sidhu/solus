@@ -2,7 +2,7 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import MarkdownLink from "../conversation/MarkdownLink.svelte";
-  import { FileTextIcon } from "phosphor-svelte";
+  import { FileText as FileTextIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
   import TranscriptChip from "../conversation/TranscriptChip.svelte";

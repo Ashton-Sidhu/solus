@@ -1,5 +1,5 @@
-import { GitPullRequestIcon } from 'phosphor-svelte'
-import type { TaskDetails, TaskLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import { GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import type { TaskDetails, TaskLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
 import type { LinkedPrLifecycle } from '../../tasks/task-page/lib/task-prs'
 import { taskPrRows } from '../../tasks/task-page/lib/task-prs'
 import { prStatusBadge } from '../../prs/lib/pr-utils'

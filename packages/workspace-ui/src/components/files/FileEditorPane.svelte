@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { FloppyDiskIcon, LockSimpleIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { Save as FloppyDiskIcon, LockKeyhole as LockSimpleIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
   import type { IpcContext } from "@solus/contracts/types";
   import { requestInputFocus } from "../../lib/inputFocus";

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ClockCounterClockwiseIcon, PlusIcon } from 'phosphor-svelte'
+  import { History as ClockCounterClockwiseIcon, Plus as PlusIcon } from "@lucide/svelte";
   import * as DropdownMenu from '../ui/dropdown-menu'
   import type { SessionMeta } from '@solus/contracts/types'
 

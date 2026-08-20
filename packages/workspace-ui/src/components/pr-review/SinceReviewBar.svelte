@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon, ClockCounterClockwiseIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon, History as ClockCounterClockwiseIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import type { PrInterdiffResult } from "@solus/contracts/types";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";

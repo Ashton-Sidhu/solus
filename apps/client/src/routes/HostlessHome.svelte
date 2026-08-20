@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    ArrowRightIcon,
-    HardDrivesIcon,
-    LinkSimpleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ArrowRight as ArrowRightIcon,
+    Database as HardDrivesIcon,
+    Link2 as LinkSimpleIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import {
     loadServers,
     removeServer,

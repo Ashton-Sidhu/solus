@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitMergeIcon, GitPullRequestIcon } from "phosphor-svelte";
+  import { GitMerge as GitMergeIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import type { PrChip } from "./lib/task-list";
 
   interface Props {

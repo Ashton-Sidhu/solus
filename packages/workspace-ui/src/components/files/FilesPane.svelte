@@ -7,15 +7,15 @@
     type FileTreeRenameEvent,
   } from "@pierre/trees";
   import {
-    ArrowClockwiseIcon,
-    CaretLeftIcon,
-    FilePlusIcon,
-    FloppyDiskIcon,
-    FolderIcon,
-    FolderPlusIcon,
-    SidebarSimpleIcon,
-    WarningCircleIcon,
-  } from "phosphor-svelte";
+    RotateCw as ArrowClockwiseIcon,
+    ChevronLeft as CaretLeftIcon,
+    FilePlus as FilePlusIcon,
+    Save as FloppyDiskIcon,
+    Folder as FolderIcon,
+    FolderPlus as FolderPlusIcon,
+    PanelLeft as SidebarSimpleIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { Button } from "../ui/button";

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CheckIcon, MinusIcon } from "phosphor-svelte";
+  import { Check as CheckIcon, Minus as MinusIcon } from "@lucide/svelte";
   import type { SessionProgress } from "@solus/contracts/types";
   import * as Popover from "../ui/popover";
   import { dialCountFontRem } from "./lib/orb-progress-dial";

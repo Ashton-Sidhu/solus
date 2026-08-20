@@ -1,13 +1,13 @@
 <script lang="ts">
   import {
-    ArrowsClockwiseIcon,
-    CaretRightIcon,
-    ChatCircleDotsIcon,
-    ArrowRightIcon,
-    PlayIcon,
-    PauseIcon,
-    StopIcon,
-  } from "phosphor-svelte";
+    RefreshCw as ArrowsClockwiseIcon,
+    ChevronRight as CaretRightIcon,
+    MessageCircleMore as ChatCircleDotsIcon,
+    ArrowRight as ArrowRightIcon,
+    Play as PlayIcon,
+    Pause as PauseIcon,
+    Square as StopIcon,
+  } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
   import type { AutomationBoard } from "./lib/automation-board";
   import { getWorkspaceContext } from "../../contexts";

@@ -1,6 +1,6 @@
 /*
  * File-extension → SVG icon map. Path data is lifted from the regular-weight
- * variants of phosphor-svelte's File* icons, so the visual style matches the
+ * variants of @lucide/svelte's File* icons, so the visual style matches the
  * rest of the icon system. Used by both the Tiptap fileReference node
  * (renderHTML returns a vdom array) and the MarkdownText renderer (Svelte).
  */

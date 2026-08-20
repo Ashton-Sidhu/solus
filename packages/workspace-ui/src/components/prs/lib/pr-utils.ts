@@ -1,5 +1,10 @@
-import { GitBranchIcon, GitMergeIcon, GitPullRequestIcon, WarningCircleIcon } from 'phosphor-svelte'
-import type { PullRequestSummary } from '@solus/contracts/providers'
+import {
+    GitBranch as GitBranchIcon,
+    GitMerge as GitMergeIcon,
+    GitPullRequest as GitPullRequestIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
+  import type { PullRequestSummary } from '@solus/contracts/providers'
 
 export type PrStateFilter = 'open' | 'closed' | 'all'
 export type PrSortMode = 'updated' | 'created' | 'effort'

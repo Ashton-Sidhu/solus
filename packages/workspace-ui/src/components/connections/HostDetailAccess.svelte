@@ -3,7 +3,7 @@
    *  actually connected to — `connectionsStore` describes that server and no
    *  other, so on any other host these devices would be listed under the
    *  wrong name. */
-  import { MonitorIcon, TrashIcon } from "phosphor-svelte";
+  import { Monitor as MonitorIcon, Trash2 as TrashIcon } from "@lucide/svelte";
   import { connectionsStore } from "../../contexts";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";

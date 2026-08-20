@@ -1,11 +1,11 @@
 <script lang="ts">
   import {
-    ArrowsInSimpleIcon,
-    ArrowsOutSimpleIcon,
-    CaretLeftIcon,
-    CaretRightIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    Minimize2 as ArrowsInSimpleIcon,
+    Maximize2 as ArrowsOutSimpleIcon,
+    ChevronLeft as CaretLeftIcon,
+    ChevronRight as CaretRightIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import type { MetricsSpan } from "@solus/contracts/observability-types";
   import CopyButton from "../ui/CopyButton.svelte";

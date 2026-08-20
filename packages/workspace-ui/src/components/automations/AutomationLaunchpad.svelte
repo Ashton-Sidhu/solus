@@ -1,13 +1,13 @@
 <script lang="ts">
   import {
-    PencilSimpleIcon,
-    ClockIcon,
-    PlayIcon,
-    ArrowRightIcon,
-    CheckIcon,
-    CircleNotchIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    Pen as PencilSimpleIcon,
+    Clock as ClockIcon,
+    Play as PlayIcon,
+    ArrowRight as ArrowRightIcon,
+    Check as CheckIcon,
+    LoaderCircle as CircleNotchIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";

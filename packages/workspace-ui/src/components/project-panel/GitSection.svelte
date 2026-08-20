@@ -1,21 +1,21 @@
 <script lang="ts">
+import Icon from "@iconify/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import {
-    ArrowSquareOutIcon,
-    ArrowsClockwiseIcon,
-    CaretRightIcon,
-    CloudArrowUpIcon,
-    EyeglassesIcon,
-    GitCommitIcon,
-    GithubLogoIcon,
-    GitPullRequestIcon,
-    LinkIcon,
-    MagnifyingGlassIcon,
-    PaperPlaneTiltIcon,
-    TrashIcon,
-    WarningCircleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ExternalLink as ArrowSquareOutIcon,
+    RefreshCw as ArrowsClockwiseIcon,
+    ChevronRight as CaretRightIcon,
+    CloudUpload as CloudArrowUpIcon,
+    Glasses as EyeglassesIcon,
+    GitCommitHorizontal as GitCommitIcon,
+    GitPullRequest as GitPullRequestIcon,
+    Link as LinkIcon,
+    Search as MagnifyingGlassIcon,
+    Send as PaperPlaneTiltIcon,
+    Trash2 as TrashIcon,
+    CircleAlert as WarningCircleIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import {
     getSessionEnvironmentStore,
     getWorkspaceContext,

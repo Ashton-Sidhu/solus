@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { CopyIcon, CheckIcon } from "phosphor-svelte";
+  import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
   import { highlightCode } from "../../lib/highlight";
 
   interface Props {

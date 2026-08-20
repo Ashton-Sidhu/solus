@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowSquareOutIcon, ChatsIcon } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, MessagesSquare as ChatsIcon } from "@lucide/svelte";
   import * as ContextMenu from "../ui/context-menu";
 
   let {

@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    CaretRightIcon,
-    CheckSquareIcon,
-    CircleNotchIcon,
-    GitMergeIcon,
-    GitPullRequestIcon,
-    SquareIcon,
-  } from "phosphor-svelte";
+    ChevronRight as CaretRightIcon,
+    SquareCheck as CheckSquareIcon,
+    LoaderCircle as CircleNotchIcon,
+    GitMerge as GitMergeIcon,
+    GitPullRequest as GitPullRequestIcon,
+    Square as SquareIcon,
+  } from "@lucide/svelte";
   import type { PullRequestSummary } from "@solus/contracts/providers";
   import type { PrChecksSummary } from "@solus/contracts/checks-types";
   import type { PrGuideMetadata, PrGuideStatus } from "@solus/contracts/review";

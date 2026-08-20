@@ -1,12 +1,12 @@
 <script lang="ts">
   import { slide } from "svelte/transition";
   import {
-    ArrowRightIcon,
-    CaretLeftIcon,
-    CheckIcon,
-    CircleNotchIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ArrowRight as ArrowRightIcon,
+    ChevronLeft as CaretLeftIcon,
+    Check as CheckIcon,
+    LoaderCircle as CircleNotchIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { serversStore } from "../../contexts";
   import { Button } from "../ui/button";
   import GitHostPanel from "./GitHostPanel.svelte";

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CopyIcon, CheckIcon } from "phosphor-svelte";
+  import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
 
   interface Props {

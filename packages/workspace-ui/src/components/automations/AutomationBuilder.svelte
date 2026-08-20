@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    PlayIcon,
-    StopIcon,
-    CircleNotchIcon,
-    CheckIcon,
-    ChatCircleDotsIcon,
-    PencilSimpleIcon,
-  } from "phosphor-svelte";
+    Play as PlayIcon,
+    Square as StopIcon,
+    LoaderCircle as CircleNotchIcon,
+    Check as CheckIcon,
+    MessageCircleMore as ChatCircleDotsIcon,
+    Pen as PencilSimpleIcon,
+  } from "@lucide/svelte";
   import type {
     Automation,
     AutomationAction,

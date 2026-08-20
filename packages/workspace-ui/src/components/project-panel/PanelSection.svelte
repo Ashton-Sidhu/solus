@@ -2,7 +2,7 @@
   import type { Snippet } from "svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as Sidebar from "../ui/sidebar";
 

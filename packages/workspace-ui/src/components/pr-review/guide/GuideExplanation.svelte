@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { WarningIcon } from "phosphor-svelte";
+  import { TriangleAlert as WarningIcon } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { GuideSection, LedgerRecord } from "@solus/contracts/review";
   import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";

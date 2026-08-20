@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
   import {
-    ArrowsClockwiseIcon,
-    ArrowsInIcon,
-    ArrowsOutIcon,
-    SparkleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    RefreshCw as ArrowsClockwiseIcon,
+    Minimize as ArrowsInIcon,
+    Maximize as ArrowsOutIcon,
+    Sparkles as SparkleIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import type {
     DraftReview,

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CopyIcon, CheckIcon } from "phosphor-svelte";
+  import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
   import { runtime } from "../../contexts";
   import { formatRailTime, formatRailTitle } from "./lib/hover-rail";
   import { messageTimestampClock } from "../../lib/shared-clock";

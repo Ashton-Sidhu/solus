@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getLocalTimeZone, parseDate } from "@internationalized/date";
-  import { CalendarBlankIcon, CaretDownIcon } from "phosphor-svelte";
+  import { Calendar as CalendarBlankIcon, ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { cn } from "@solus/workspace-ui/lib/utils.js";
   import { Button } from "./button";
   import { Calendar } from "./calendar";

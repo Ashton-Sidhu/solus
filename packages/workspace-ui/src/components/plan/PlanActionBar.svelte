@@ -1,6 +1,13 @@
 <script lang="ts">
   import { tick } from 'svelte'
-  import { XIcon, ArrowCounterClockwiseIcon, RobotIcon, CheckIcon, GitForkIcon, ChatsIcon } from 'phosphor-svelte'
+  import {
+    X as XIcon,
+    RotateCcw as ArrowCounterClockwiseIcon,
+    Bot as RobotIcon,
+    Check as CheckIcon,
+    GitFork as GitForkIcon,
+    MessagesSquare as ChatsIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext, getStatusBarContext, runtime } from '../../contexts'
   import { useKeybinding, useScope } from '../../lib/keybindings/use-keybinding.svelte'
   import { Button } from '../ui/button'

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowSquareOutIcon, PlusIcon } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, Plus as PlusIcon } from "@lucide/svelte";
   import type { TaskLink } from "@solus/contracts/task-types";
   import { prStatusBadge } from "../../prs/lib/pr-utils";
   import type { TaskPrRow } from "./lib/task-prs";

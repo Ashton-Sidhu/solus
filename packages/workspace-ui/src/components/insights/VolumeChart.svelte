@@ -10,7 +10,7 @@
     Tooltip,
     type TextProps,
   } from "layerchart";
-  import { XIcon } from "phosphor-svelte";
+  import { X as XIcon } from "@lucide/svelte";
   import { TIME_AXIS_INSET_PX, TIME_AXIS_LABEL_GAP_PX } from "./lib/chart-axis";
   import {
     axisInstantFormat,

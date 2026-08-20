@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CircleNotchIcon, GitBranchIcon } from "phosphor-svelte";
+  import { LoaderCircle as CircleNotchIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
   import type { PrReviewTarget } from "@solus/contracts/providers";
   import type { PrReviewState } from "./lib/pr-review.store.svelte";
   import { Button } from "../ui/button";

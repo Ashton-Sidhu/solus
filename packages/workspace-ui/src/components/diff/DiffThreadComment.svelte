@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CheckCircleIcon,
-    ChatCircleIcon,
-    ArrowBendUpLeftIcon,
-    CaretDownIcon,
-  } from "phosphor-svelte";
+    CircleCheck as CheckCircleIcon,
+    MessageCircle as ChatCircleIcon,
+    CornerUpLeft as ArrowBendUpLeftIcon,
+    ChevronDown as CaretDownIcon,
+  } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { ReviewComment } from "@solus/contracts/providers";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";

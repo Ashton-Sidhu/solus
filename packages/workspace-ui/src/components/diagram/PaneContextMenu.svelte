@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    ArrowsOutSimpleIcon,
-    ClipboardIcon,
-    PlusCircleIcon,
-    SelectionAllIcon,
-    SelectionPlusIcon,
-    TreeStructureIcon,
-  } from 'phosphor-svelte'
+    Maximize2 as ArrowsOutSimpleIcon,
+    Clipboard as ClipboardIcon,
+    CirclePlus as PlusCircleIcon,
+    Scan as SelectionAllIcon,
+    ScanLine as SelectionPlusIcon,
+    GitFork as TreeStructureIcon,
+  } from "@lucide/svelte";
   import * as ContextMenu from '../ui/context-menu'
 
   interface Props {

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { MagnifyingGlassIcon, XIcon } from "phosphor-svelte";
+  import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import Kbd from "../ui/Kbd.svelte";
   import type { MetricsFieldDescriptor, MetricsSchema } from "@solus/contracts/observability-types";
   import {

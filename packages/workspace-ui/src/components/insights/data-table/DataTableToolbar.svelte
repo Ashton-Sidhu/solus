@@ -1,6 +1,6 @@
 <script lang="ts" generics="TData extends RowData">
   import type { RowData, SvelteTable } from '@tanstack/svelte-table'
-  import { MagnifyingGlassIcon, XIcon } from 'phosphor-svelte'
+  import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import { Input } from '../../ui/input'
   import type { InsightsTableFeatures } from './data-table-features'
 

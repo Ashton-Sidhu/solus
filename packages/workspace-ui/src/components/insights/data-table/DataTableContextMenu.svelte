@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { ArrowsHorizontalIcon, ArrowSquareOutIcon, CopyIcon, EyeSlashIcon } from 'phosphor-svelte'
+  import {
+    MoveHorizontal as ArrowsHorizontalIcon,
+    ExternalLink as ArrowSquareOutIcon,
+    Copy as CopyIcon,
+    EyeOff as EyeSlashIcon,
+  } from "@lucide/svelte";
   import { requestInputFocus } from '../../../lib/inputFocus'
   import { copyText, toasts } from '../../../lib/toasts'
   import * as ContextMenu from '../../ui/context-menu'

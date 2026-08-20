@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CaretDownIcon,
-    MagnifyingGlassIcon,
-    CheckIcon,
-    TrashIcon,
-  } from "phosphor-svelte";
+    ChevronDown as CaretDownIcon,
+    Search as MagnifyingGlassIcon,
+    Check as CheckIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import ProjectFavicon from "../ProjectFavicon.svelte";
   import { abbreviateHome } from "../../../lib/paths";
   import type { ListProjectOption } from "./list-page";

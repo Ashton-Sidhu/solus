@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import type { HostApi } from "@solus/client-core/host-api";
   import {
     DEFAULT_SOURCE_CONTROL_WRITING,

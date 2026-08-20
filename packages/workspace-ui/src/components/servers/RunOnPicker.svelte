@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CheckIcon,
-    DesktopTowerIcon,
-    GitForkIcon,
-    PlusIcon,
-  } from "phosphor-svelte";
+    Check as CheckIcon,
+    HardDrive as DesktopTowerIcon,
+    GitFork as GitForkIcon,
+    Plus as PlusIcon,
+  } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import type { RunConfig } from "@solus/contracts/types";

@@ -1,12 +1,12 @@
 import {
-  FileTextIcon,
-  LightbulbIcon,
-  MagnifyingGlassIcon,
-  PencilSimpleIcon,
-  TerminalIcon,
-  WrenchIcon,
-} from 'phosphor-svelte'
-import type { Component } from 'svelte'
+    FileText as FileTextIcon,
+    Lightbulb as LightbulbIcon,
+    Search as MagnifyingGlassIcon,
+    Pen as PencilSimpleIcon,
+    Terminal as TerminalIcon,
+    Wrench as WrenchIcon,
+  } from "@lucide/svelte";
+  import type { Component } from 'svelte'
 import type { ActivityKind } from './activity-summary'
 
 /** One glyph per kind, stacked in the order the kinds first happened. */

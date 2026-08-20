@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { CaretRightIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
 
   /** The 30px line that carries lifecycle state for every row beneath it —
    *  chevron, label, count, then a hairline to the right edge. Because status

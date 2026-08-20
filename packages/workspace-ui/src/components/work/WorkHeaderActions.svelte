@@ -1,18 +1,18 @@
 <script lang="ts">
   import {
-    CheckIcon,
-    CopyIcon,
-    ArrowSquareOutIcon,
-    CaretDownIcon,
-    ArrowCounterClockwiseIcon,
-    DownloadSimpleIcon,
-    FolderIcon,
-    PencilSimpleIcon,
-    SparkleIcon,
-    TrashIcon,
-    XIcon,
-    DotsThreeIcon,
-  } from "phosphor-svelte";
+    Check as CheckIcon,
+    Copy as CopyIcon,
+    ExternalLink as ArrowSquareOutIcon,
+    ChevronDown as CaretDownIcon,
+    RotateCcw as ArrowCounterClockwiseIcon,
+    Download as DownloadSimpleIcon,
+    Folder as FolderIcon,
+    Pen as PencilSimpleIcon,
+    Sparkles as SparkleIcon,
+    Trash2 as TrashIcon,
+    X as XIcon,
+    Ellipsis as DotsThreeIcon,
+  } from "@lucide/svelte";
   import WorkChatMenu from "./WorkChatMenu.svelte";
   import Diff from "../diff/Diff.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";

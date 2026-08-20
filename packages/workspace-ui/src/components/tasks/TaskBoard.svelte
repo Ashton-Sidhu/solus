@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { PlusIcon } from "phosphor-svelte";
+  import { Plus as PlusIcon } from "@lucide/svelte";
   import { SvelteMap } from "svelte/reactivity";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import { buildBoard } from "./lib/tasks-api";

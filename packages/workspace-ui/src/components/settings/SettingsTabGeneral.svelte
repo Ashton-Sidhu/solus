@@ -4,12 +4,12 @@
   import { Input } from "../ui/input";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import {
-    CheckIcon,
-    CaretDownIcon,
-    FolderIcon,
-    CaretRightIcon,
-    ArrowCounterClockwiseIcon,
-  } from "phosphor-svelte";
+    Check as CheckIcon,
+    ChevronDown as CaretDownIcon,
+    Folder as FolderIcon,
+    ChevronRight as CaretRightIcon,
+    RotateCcw as ArrowCounterClockwiseIcon,
+  } from "@lucide/svelte";
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import { abbreviateHome } from "../../lib/paths";
   import {

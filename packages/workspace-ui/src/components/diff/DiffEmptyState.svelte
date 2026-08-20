@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { FileDashedIcon } from "phosphor-svelte";
-  import { Button } from "../ui/button";
+import { FileQuestion as FileDashedIcon } from "@lucide/svelte";
+    import { Button } from "../ui/button";
 
   interface Props {
     selectedTurnIndex: number | null;

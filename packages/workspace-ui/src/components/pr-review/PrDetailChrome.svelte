@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { CaretDownIcon, CaretLeftIcon, CaretRightIcon, CheckIcon } from "phosphor-svelte";
+  import {
+    ChevronDown as CaretDownIcon,
+    ChevronLeft as CaretLeftIcon,
+    ChevronRight as CaretRightIcon,
+    Check as CheckIcon,
+  } from "@lucide/svelte";
   import type { PullRequestSummary } from "@solus/contracts/providers";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";

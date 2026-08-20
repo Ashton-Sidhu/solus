@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
-  import { CheckIcon } from "phosphor-svelte";
+  import { Check as CheckIcon } from "@lucide/svelte";
   import { getPopoverLayer } from "../popoverLayer.svelte";
   import { portal } from "../portal";
   import { Input } from "../ui/input";

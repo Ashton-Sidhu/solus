@@ -1,7 +1,7 @@
 <script lang="ts">
   /** What the host actually has on it, probed rather than assumed — and the one
    *  gap that stops it cloning anything, repaired here. */
-  import { ArrowsClockwiseIcon } from "phosphor-svelte";
+  import { RefreshCw as ArrowsClockwiseIcon } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
   import SettingsSection from "../settings/SettingsSection.svelte";

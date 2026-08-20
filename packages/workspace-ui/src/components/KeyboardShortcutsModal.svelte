@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { XIcon, MagnifyingGlassIcon } from 'phosphor-svelte'
+  import { X as XIcon, Search as MagnifyingGlassIcon } from "@lucide/svelte";
   import Kbd from './ui/Kbd.svelte'
   import { bindingsForScope } from '../lib/keybindings/manifest'
   import { defaultCombo, formatCombo } from '../lib/keybindings/match'

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowClockwiseIcon, CheckIcon, WifiXIcon } from "phosphor-svelte";
+  import { RotateCw as ArrowClockwiseIcon, Check as CheckIcon, WifiOff as WifiXIcon } from "@lucide/svelte";
   import { fly } from "svelte/transition";
   import { formatElapsed } from "@solus/client-core/connection-display";
   import { serversStore } from "../../contexts";

@@ -1,13 +1,13 @@
 <script lang="ts">
   import {
-    CopyIcon,
-    PauseIcon,
-    PencilSimpleIcon,
-    PlayIcon,
-    StarIcon,
-    StopIcon,
-    TrashIcon,
-  } from "phosphor-svelte";
+    Copy as CopyIcon,
+    Pause as PauseIcon,
+    Pen as PencilSimpleIcon,
+    Play as PlayIcon,
+    Star as StarIcon,
+    Square as StopIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";

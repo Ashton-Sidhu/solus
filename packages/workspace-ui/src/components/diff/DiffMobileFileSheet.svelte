@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
-  import { XIcon } from "phosphor-svelte";
+  import { X as XIcon } from "@lucide/svelte";
   import type { FileDiffMetadata } from "@pierre/diffs";
   import {
     diffFilePath,

@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    FilePlusIcon,
-    FolderPlusIcon,
-    PencilSimpleIcon,
-    TrashIcon,
-  } from "phosphor-svelte";
+    FilePlus as FilePlusIcon,
+    FolderPlus as FolderPlusIcon,
+    Pen as PencilSimpleIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import * as ContextMenu from "../ui/context-menu";
   import type { FileTreeEntryKind } from "./lib/file-tree-mutations";
 

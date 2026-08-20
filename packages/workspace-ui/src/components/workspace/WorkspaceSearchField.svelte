@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MagnifyingGlassIcon, XIcon } from "phosphor-svelte";
+  import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import type { WorkspaceFilter } from "./lib/workspace-items";
   import { clearChip, filterChips, parseToken } from "./lib/workspace-items";
   import { runtime } from "../../contexts";

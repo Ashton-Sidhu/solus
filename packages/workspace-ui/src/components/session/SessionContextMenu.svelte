@@ -1,15 +1,15 @@
 <script lang="ts">
   import {
-    ChartBarIcon,
-    CheckIcon,
-    GitForkIcon,
-    TreeStructureIcon,
-    ChatsIcon,
-    CopyIcon,
-    PencilSimpleIcon,
-    StopCircleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ChartBar as ChartBarIcon,
+    Check as CheckIcon,
+    GitFork as GitForkIcon,
+    GitFork as TreeStructureIcon,
+    MessagesSquare as ChatsIcon,
+    Copy as CopyIcon,
+    Pen as PencilSimpleIcon,
+    CircleStop as StopCircleIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";

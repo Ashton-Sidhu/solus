@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    ArrowsClockwiseIcon,
-    ClockIcon,
-    SparkleIcon,
-  } from "phosphor-svelte";
+  import { RefreshCw as ArrowsClockwiseIcon, Clock as ClockIcon, Sparkles as SparkleIcon } from "@lucide/svelte";
   import type { PrGuideStatus } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import type { GuideDiffCommentSave } from "../pr-review/guide/lib/guide-data";

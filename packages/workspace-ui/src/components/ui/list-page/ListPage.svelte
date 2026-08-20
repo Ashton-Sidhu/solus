@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import {
-    ArrowClockwiseIcon,
-    ListIcon,
-    PlusIcon,
-    TrayIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    RotateCw as ArrowClockwiseIcon,
+    List as ListIcon,
+    Plus as PlusIcon,
+    Archive as TrayIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { PAGE_ICON_BTN } from "../../../lib/page-chrome";
   import PaneSwapButton from "../PaneSwapButton.svelte";
   import {

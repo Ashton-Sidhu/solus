@@ -4,11 +4,11 @@
   } from "@humanspeak/svelte-markdown";
   import { SvelteSet } from "svelte/reactivity";
   import {
-    ArrowUpIcon,
-    CheckIcon,
-    CircleNotchIcon,
-    TerminalWindowIcon,
-  } from "phosphor-svelte";
+    ArrowUp as ArrowUpIcon,
+    Check as CheckIcon,
+    LoaderCircle as CircleNotchIcon,
+    SquareTerminal as TerminalWindowIcon,
+  } from "@lucide/svelte";
   import type {
     TaskComment,
     TaskEvent,

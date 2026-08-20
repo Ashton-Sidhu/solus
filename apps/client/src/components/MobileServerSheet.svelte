@@ -1,11 +1,11 @@
 <script lang="ts">
   import {
-    CheckIcon,
-    GearIcon,
-    HardDrivesIcon,
-    PlusIcon,
-    WifiHighIcon,
-  } from "phosphor-svelte";
+    Check as CheckIcon,
+    Settings as GearIcon,
+    Database as HardDrivesIcon,
+    Plus as PlusIcon,
+    Wifi as WifiHighIcon,
+  } from "@lucide/svelte";
   import {
     discoveredServerUrl,
     getWorkspaceContext,

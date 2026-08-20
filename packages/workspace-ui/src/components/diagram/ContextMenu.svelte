@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    ChatCircleTextIcon,
-    FolderMinusIcon,
-    PencilSimpleIcon,
-    SquaresFourIcon,
-    StackSimpleIcon,
-    TrashIcon,
-  } from 'phosphor-svelte'
+    MessageCircle as ChatCircleTextIcon,
+    FolderMinus as FolderMinusIcon,
+    Pen as PencilSimpleIcon,
+    Grid2X2 as SquaresFourIcon,
+    Layers2 as StackSimpleIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import * as ContextMenu from '../ui/context-menu'
 
   interface Props {

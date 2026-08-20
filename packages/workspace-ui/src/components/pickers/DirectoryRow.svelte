@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowElbowLeftUpIcon, FolderIcon, GitBranchIcon } from "phosphor-svelte";
+  import { CornerLeftUp as ArrowElbowLeftUpIcon, Folder as FolderIcon, GitBranch as GitBranchIcon } from "@lucide/svelte";
 
   interface Props {
     id: string;

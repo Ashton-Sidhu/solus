@@ -1,16 +1,16 @@
 <script lang="ts">
   import { tick } from "svelte";
   import {
-    SparkleIcon,
-    ChartBarIcon,
-    FilesIcon,
-    ArrowsClockwiseIcon,
-    GitForkIcon,
-    TreeStructureIcon,
-    SquareIcon,
-    StarIcon,
-    BinocularsIcon,
-  } from "phosphor-svelte";
+    Sparkles as SparkleIcon,
+    ChartBar as ChartBarIcon,
+    Files as FilesIcon,
+    RefreshCw as ArrowsClockwiseIcon,
+    GitFork as GitForkIcon,
+    GitFork as TreeStructureIcon,
+    Square as SquareIcon,
+    Star as StarIcon,
+    Binoculars as BinocularsIcon,
+  } from "@lucide/svelte";
   import {
     REVIEW_PROGRESS_STEPS,
     type ReviewProgressStep,

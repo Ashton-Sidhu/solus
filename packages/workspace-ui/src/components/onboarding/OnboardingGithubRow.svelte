@@ -1,4 +1,5 @@
 <script lang="ts">
+import Icon from "@iconify/svelte";
   /**
    * GitHub, through the device flow the rest of the app already uses, so a
    * connection made here is a connection Settings shows without a second round
@@ -7,12 +8,7 @@
    */
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import {
-    ArrowSquareOutIcon,
-    CheckIcon,
-    CopyIcon,
-    GithubLogoIcon,
-  } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { connectionsStore, getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
@@ -75,7 +71,7 @@
   expanded={!!connectionsStore.providerPrompt}
 >
   {#snippet mark()}
-    <GithubLogoIcon size={18} weight="fill" />
+    <Icon icon="logos:github-icon" size={18} weight="fill" />
   {/snippet}
   {#snippet expansion()}
     {#if connectionsStore.providerPrompt}

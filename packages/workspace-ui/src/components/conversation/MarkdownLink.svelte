@@ -1,10 +1,6 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  import {
-    ChatCircleDotsIcon,
-    FileTextIcon,
-    GitPullRequestIcon,
-  } from "phosphor-svelte";
+  import { MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";

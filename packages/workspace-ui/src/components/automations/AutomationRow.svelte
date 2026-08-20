@@ -1,14 +1,14 @@
 <script lang="ts">
   import {
-    PlayIcon,
-    PauseIcon,
-    StopIcon,
-    TrashIcon,
-    PencilSimpleIcon,
-    StarIcon,
-    ClockIcon,
-    CircleNotchIcon,
-  } from "phosphor-svelte";
+    Play as PlayIcon,
+    Pause as PauseIcon,
+    Square as StopIcon,
+    Trash2 as TrashIcon,
+    Pen as PencilSimpleIcon,
+    Star as StarIcon,
+    Clock as ClockIcon,
+    LoaderCircle as CircleNotchIcon,
+  } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
   import { compactRelativeTime } from "../ui/list-page";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";

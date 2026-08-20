@@ -10,7 +10,7 @@ export interface Command {
   group: string
   /** Optional extra terms that should match the search query. */
   keywords?: string[]
-  /** Optional leading icon (phosphor-svelte component). */
+  /** Optional leading icon (@lucide/svelte component). */
   icon?: Component
   /** Optional trailing hint, e.g. a formatted shortcut like "⌘B". */
   hint?: string

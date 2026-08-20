@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon, XIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon, X as XIcon } from "@lucide/svelte";
   import { onDestroy, tick } from "svelte";
   import { fly } from "svelte/transition";
   import { serverConnections } from "@solus/client-core/server-connections";

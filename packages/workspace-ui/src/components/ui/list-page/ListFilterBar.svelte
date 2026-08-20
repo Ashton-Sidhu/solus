@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { MagnifyingGlassIcon } from "phosphor-svelte";
+  import { Search as MagnifyingGlassIcon } from "@lucide/svelte";
   import type { ListFilterSpec } from "./list-page";
 
   /** One 28px line: an elastic search field, then a fixed run of filter chips.

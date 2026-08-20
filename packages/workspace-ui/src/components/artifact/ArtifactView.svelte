@@ -1,11 +1,11 @@
 <script lang="ts">
   import { z } from "zod";
   import {
-    ArrowsOutIcon,
-    ArrowsInIcon,
-    CheckIcon,
-    CopyIcon,
-  } from "phosphor-svelte";
+    Maximize as ArrowsOutIcon,
+    Minimize as ArrowsInIcon,
+    Check as CheckIcon,
+    Copy as CopyIcon,
+  } from "@lucide/svelte";
   import {
     getSettingsContext,
     getWindowContext,

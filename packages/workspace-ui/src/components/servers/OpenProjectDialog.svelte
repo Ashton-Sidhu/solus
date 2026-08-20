@@ -2,12 +2,12 @@
   import { fade, fly, slide } from "svelte/transition";
   import { expoOut } from "svelte/easing";
   import {
-    ArrowLeftIcon,
-    CaretDownIcon,
-    CheckIcon,
-    DesktopTowerIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ArrowLeft as ArrowLeftIcon,
+    ChevronDown as CaretDownIcon,
+    Check as CheckIcon,
+    HardDrive as DesktopTowerIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import Kbd from "../ui/Kbd.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";

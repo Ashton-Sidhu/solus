@@ -1,6 +1,6 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  import { ArrowSquareOutIcon, SignOutIcon } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, LogOut as SignOutIcon } from "@lucide/svelte";
   import {
     cloudflareStore,
     CLOUDFLARE_TOKEN_URL,

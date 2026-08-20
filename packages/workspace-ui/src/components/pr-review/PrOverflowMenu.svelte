@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    ArrowSquareOutIcon,
-    ArrowsClockwiseIcon,
-    ChatCircleIcon,
-    DotsThreeIcon,
-    GitPullRequestIcon,
-    PencilSimpleIcon,
-  } from "phosphor-svelte";
+    ExternalLink as ArrowSquareOutIcon,
+    RefreshCw as ArrowsClockwiseIcon,
+    MessageCircle as ChatCircleIcon,
+    Ellipsis as DotsThreeIcon,
+    GitPullRequest as GitPullRequestIcon,
+    Pen as PencilSimpleIcon,
+  } from "@lucide/svelte";
   import type { PrLifecycleAction, PullRequestDetail } from "@solus/contracts/providers";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";

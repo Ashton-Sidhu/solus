@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { FolderIcon, TrashIcon, CheckIcon, XIcon } from "phosphor-svelte";
+  import {
+    Folder as FolderIcon,
+    Trash2 as TrashIcon,
+    Check as CheckIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { untrack } from "svelte";
   import type { ProjectEntry } from "@solus/contracts/types";
   import { projectsStore, getWorkspaceContext } from "../../contexts";

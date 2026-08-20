@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowClockwiseIcon, WarningIcon } from "phosphor-svelte";
+  import { RotateCw as ArrowClockwiseIcon, TriangleAlert as WarningIcon } from "@lucide/svelte";
 
   interface Props {
     title: string;

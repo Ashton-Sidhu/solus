@@ -1,13 +1,13 @@
 <script lang="ts">
+import Icon from "@iconify/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import {
-    GithubLogoIcon,
-    ArrowSquareOutIcon,
-    CopyIcon,
-    CheckIcon,
-    SignOutIcon,
-    SpinnerGapIcon,
-  } from "phosphor-svelte";
+    ExternalLink as ArrowSquareOutIcon,
+    Copy as CopyIcon,
+    Check as CheckIcon,
+    LogOut as SignOutIcon,
+    LoaderCircle as SpinnerGapIcon,
+  } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { getWorkspaceContext, connectionsStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -119,7 +119,7 @@
             <SpinnerGapIcon size={14} class="animate-spin" />
             Connecting…
           {:else}
-            <GithubLogoIcon size={14} weight="fill" />
+            <Icon icon="logos:github-icon" size={14} weight="fill" />
             Connect GitHub
           {/if}
         </Button>
@@ -163,7 +163,7 @@
         <div
           class="size-11 rounded-lg bg-(--solus-surface-hover) flex items-center justify-center"
         >
-          <GithubLogoIcon
+          <Icon icon="logos:github-icon"
             size={22}
             weight="fill"
             class="text-(--solus-text-primary)"

@@ -3,7 +3,7 @@
   /** A browser-auth prompt: what to confirm or return, where, and why.
    *  The browser is opened for the user already — the Open action is the
    *  fallback for when it wasn't, or landed behind another window. */
-  import { ArrowSquareOutIcon, CircleNotchIcon } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";

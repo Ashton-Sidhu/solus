@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { CheckIcon, FolderIcon, HouseIcon, PlusIcon } from "phosphor-svelte";
+  import {
+    Check as CheckIcon,
+    Folder as FolderIcon,
+    House as HouseIcon,
+    Plus as PlusIcon,
+  } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import { getWorkspaceContext, serversStore } from "../../contexts";
   import { isWorkspaceDir, projectDirLabel } from "../../lib/paths";

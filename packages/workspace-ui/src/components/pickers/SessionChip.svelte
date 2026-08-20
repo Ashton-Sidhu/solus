@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { CaretDownIcon, CheckIcon, CodeIcon, SpinnerGapIcon } from "phosphor-svelte";
+  import {
+    ChevronDown as CaretDownIcon,
+    Check as CheckIcon,
+    Code as CodeIcon,
+    LoaderCircle as SpinnerGapIcon,
+  } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "./OpenAIBlossom.svelte";
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from "../../contexts";

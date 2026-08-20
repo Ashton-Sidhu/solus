@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitBranchIcon, GitForkIcon } from "phosphor-svelte";
+  import { GitBranch as GitBranchIcon, GitFork as GitForkIcon } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
     getWorkspaceContext,

@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    ArrowSquareOutIcon,
-    ColumnsIcon,
-    CopyIcon,
-    FolderOpenIcon,
-    PushPinIcon,
-    TrashIcon,
-  } from "phosphor-svelte";
+    ExternalLink as ArrowSquareOutIcon,
+    Columns3 as ColumnsIcon,
+    Copy as CopyIcon,
+    FolderOpen as FolderOpenIcon,
+    Pin as PushPinIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import * as ContextMenu from "../ui/context-menu";

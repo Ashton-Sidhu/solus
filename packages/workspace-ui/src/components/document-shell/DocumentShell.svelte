@@ -4,24 +4,24 @@
   import { tick } from "svelte";
   import { fly } from "svelte/transition";
   import {
-    XIcon,
-    TextBIcon,
-    TextItalicIcon,
-    TextStrikethroughIcon,
-    CodeIcon,
-    LinkSimpleIcon,
-    ListBulletsIcon,
-    ListNumbersIcon,
-    QuotesIcon,
-    MinusIcon,
-    TableIcon,
-    MarkdownLogoIcon,
-    TextAaIcon,
-    ArrowUUpLeftIcon,
-    ArrowUUpRightIcon,
-    MagnifyingGlassIcon,
-    DotsThreeIcon,
-  } from "phosphor-svelte";
+    X as XIcon,
+    Bold as TextBIcon,
+    Italic as TextItalicIcon,
+    Strikethrough as TextStrikethroughIcon,
+    Code as CodeIcon,
+    Link2 as LinkSimpleIcon,
+    List as ListBulletsIcon,
+    ListOrdered as ListNumbersIcon,
+    Quote as QuotesIcon,
+    Minus as MinusIcon,
+    Table as TableIcon,
+    FileType2 as MarkdownLogoIcon,
+    CaseSensitive as TextAaIcon,
+    Undo2 as ArrowUUpLeftIcon,
+    Redo2 as ArrowUUpRightIcon,
+    Search as MagnifyingGlassIcon,
+    Ellipsis as DotsThreeIcon,
+  } from "@lucide/svelte";
   import { runtime, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";

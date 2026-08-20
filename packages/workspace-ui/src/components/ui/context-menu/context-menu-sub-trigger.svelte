@@ -1,6 +1,6 @@
 <script lang="ts">
   import { ContextMenu as ContextMenuPrimitive } from "bits-ui";
-  import { CaretRightIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import { cn } from "@solus/workspace-ui/lib/utils.js";
   import { menuRowVariants } from "../menu/menu-row";
 

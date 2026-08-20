@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CheckIcon, CircleIcon, SpinnerGapIcon } from "phosphor-svelte";
+  import { Check as CheckIcon, Circle as CircleIcon, LoaderCircle as SpinnerGapIcon } from "@lucide/svelte";
   import {
     REVIEW_PROGRESS_STEPS,
     type ReviewProgressStep,

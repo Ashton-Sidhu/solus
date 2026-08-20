@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import {
-    ArrowsClockwiseIcon,
-    CaretRightIcon,
-    DesktopTowerIcon,
-    PlusIcon,
-    WifiHighIcon,
-  } from "phosphor-svelte";
+    RefreshCw as ArrowsClockwiseIcon,
+    ChevronRight as CaretRightIcon,
+    HardDrive as DesktopTowerIcon,
+    Plus as PlusIcon,
+    Wifi as WifiHighIcon,
+  } from "@lucide/svelte";
   import { discoveredServerUrl, hostStatusLabel, serversStore } from "../../contexts";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";

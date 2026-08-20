@@ -1,13 +1,13 @@
 import {
-  ChatTeardropIcon,
-  FileTextIcon,
-  SpinnerGapIcon,
-  CheckCircleIcon,
-  XCircleIcon,
-  StopCircleIcon,
-  ClockIcon,
-} from 'phosphor-svelte'
-import type { TaskSessionLink } from '@solus/contracts/task-types'
+    MessageSquare as ChatTeardropIcon,
+    FileText as FileTextIcon,
+    LoaderCircle as SpinnerGapIcon,
+    CircleCheck as CheckCircleIcon,
+    CircleX as XCircleIcon,
+    CircleStop as StopCircleIcon,
+    Clock as ClockIcon,
+  } from "@lucide/svelte";
+  import type { TaskSessionLink } from '@solus/contracts/task-types'
 import type { Tab, Session, SessionMeta, SessionStatus, Plan } from '@solus/contracts/types'
 import type { TabGroupMode } from '../contexts'
 

@@ -2,11 +2,11 @@
   import { tick } from "svelte";
   import { fly } from "svelte/transition";
   import {
-    CaretRightIcon,
-    ListChecksIcon,
-    MagnifyingGlassIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ChevronRight as CaretRightIcon,
+    ListChecks as ListChecksIcon,
+    Search as MagnifyingGlassIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
   import {
     getSessionSidebarStore,

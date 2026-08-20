@@ -1,13 +1,13 @@
 <script lang="ts">
+import Icon from "@iconify/svelte";
   import { slide } from "svelte/transition";
   import {
-    CopyIcon,
-    GitBranchIcon,
-    GithubLogoIcon,
-    SparkleIcon,
-    UserIcon,
-    WarningCircleIcon,
-  } from "phosphor-svelte";
+    Copy as CopyIcon,
+    GitBranch as GitBranchIcon,
+    Sparkles as SparkleIcon,
+    User as UserIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { toasts } from "../../lib/toasts";

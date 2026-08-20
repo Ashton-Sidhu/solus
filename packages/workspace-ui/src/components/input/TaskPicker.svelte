@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    CheckIcon,
-    PlusIcon,
-    XIcon,
-  } from "phosphor-svelte";
+  import { Check as CheckIcon, Plus as PlusIcon, X as XIcon } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import { getWorkspaceContext } from "../../contexts";
   import type { TaskTarget } from "@solus/contracts/types";

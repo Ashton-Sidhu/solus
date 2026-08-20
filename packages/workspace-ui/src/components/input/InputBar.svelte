@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { ArrowBendDownRightIcon, ArrowUpIcon, XIcon } from "phosphor-svelte";
+  import { CornerDownRight as ArrowBendDownRightIcon, ArrowUp as ArrowUpIcon, X as XIcon } from "@lucide/svelte";
   import {
     getWorkspaceContext,
     getStatusBarContext,

@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    ClockIcon,
-    CpuIcon,
-    CurrencyDollarIcon,
-    WrenchIcon,
-  } from "phosphor-svelte";
+    Clock as ClockIcon,
+    Cpu as CpuIcon,
+    DollarSign as CurrencyDollarIcon,
+    Wrench as WrenchIcon,
+  } from "@lucide/svelte";
   import * as TooltipUI from "../ui/tooltip";
   import { formatClock, formatCost, formatTokens } from "./lib/format";
   import type { SessionTurnRow } from "./lib/session-summary";

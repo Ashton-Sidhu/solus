@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon, CircleDashedIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon, CircleDashed as CircleDashedIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../dropdown-menu";
   import {
     updateListStatusSelection,

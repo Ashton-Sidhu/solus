@@ -2,12 +2,12 @@
   import { onDestroy, onMount, tick } from "svelte";
   import { SvelteMap, SvelteSet } from "svelte/reactivity";
   import {
-    CheckCircleIcon,
-    ChatTextIcon,
-    ClockIcon,
-    WarningCircleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    CircleCheck as CheckCircleIcon,
+    MessageSquareText as ChatTextIcon,
+    Clock as ClockIcon,
+    CircleAlert as WarningCircleIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import type { PrReviewTarget, PullRequestSummary } from "@solus/contracts/providers";
   import type { IpcContext } from "@solus/contracts/types";
   import type { ReviewOutcome } from "@solus/contracts/review-session-types";

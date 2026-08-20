@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MoonIcon, NotePencilIcon } from "phosphor-svelte";
+  import { Moon as MoonIcon, NotebookPen as NotePencilIcon } from "@lucide/svelte";
   import * as Popover from "../ui/popover";
   import { menuRowVariants } from "../ui/menu/menu-row";
   import { cn } from "@solus/workspace-ui/lib/tw";

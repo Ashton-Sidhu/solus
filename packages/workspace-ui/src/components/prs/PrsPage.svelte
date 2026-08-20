@@ -1,19 +1,19 @@
 <script lang="ts">
+import Icon from "@iconify/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import { SvelteSet } from "svelte/reactivity";
   import {
-    GitPullRequestIcon,
-    GithubLogoIcon,
-    ArrowsClockwiseIcon,
-    BookOpenTextIcon,
-    CircleNotchIcon,
-    PlayIcon,
-    UserIcon,
-    WarningIcon,
-    WarningCircleIcon,
-  } from "phosphor-svelte";
+    GitPullRequest as GitPullRequestIcon,
+    RefreshCw as ArrowsClockwiseIcon,
+    BookOpenText as BookOpenTextIcon,
+    LoaderCircle as CircleNotchIcon,
+    Play as PlayIcon,
+    User as UserIcon,
+    TriangleAlert as WarningIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
   import type { PullRequestSummary } from "@solus/contracts/providers";
   import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import {

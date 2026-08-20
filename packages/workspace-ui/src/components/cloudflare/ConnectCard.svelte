@@ -7,11 +7,11 @@
    * the permission and question cards, not in a chrome banner of its own.
    */
   import {
-    ArrowSquareOutIcon,
-    CheckCircleIcon,
-    CloudIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ExternalLink as ArrowSquareOutIcon,
+    CircleCheck as CheckCircleIcon,
+    Cloud as CloudIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import {
     cloudflareStore,
     getWorkspaceContext,

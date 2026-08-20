@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import {

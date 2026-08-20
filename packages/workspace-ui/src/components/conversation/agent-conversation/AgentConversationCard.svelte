@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    ArrowSquareOutIcon,
-    CheckIcon,
-    DotsThreeIcon,
-  } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, Check as CheckIcon, Ellipsis as DotsThreeIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import ClaudeIcon from "../../ClaudeIcon.svelte";
   import OpenAIBlossom from "../../pickers/OpenAIBlossom.svelte";

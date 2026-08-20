@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    ChatTextIcon,
-    CheckIcon,
-    CircleNotchIcon,
-  } from "phosphor-svelte";
+  import { MessageSquareText as ChatTextIcon, Check as CheckIcon, LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
   import type { PullRequestDetail } from "@solus/contracts/providers";
   import type { IpcContext } from "@solus/contracts/types";
   import type { PrGuideStatus } from "@solus/contracts/review";

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { CheckCircleIcon } from "phosphor-svelte";
+  import { CircleCheck as CheckCircleIcon } from "@lucide/svelte";
   import ListAvatar from "./ListAvatar.svelte";
   import ListChip from "./ListChip.svelte";
   import SourceLogo from "./SourceLogo.svelte";

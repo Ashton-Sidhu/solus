@@ -3,21 +3,21 @@
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import {
-    PlusIcon,
-    BooksIcon,
-    GearIcon,
-    ClockIcon,
-    CheckIcon,
-    XIcon,
-    PushPinIcon,
-    CaretRightIcon,
-    HardDrivesIcon,
-    NotePencilIcon,
-    PaperclipIcon,
-    SunIcon,
-    ListChecksIcon,
-    MagnifyingGlassIcon,
-  } from "phosphor-svelte";
+    Plus as PlusIcon,
+    LibraryBig as BooksIcon,
+    Settings as GearIcon,
+    Clock as ClockIcon,
+    Check as CheckIcon,
+    X as XIcon,
+    Pin as PushPinIcon,
+    ChevronRight as CaretRightIcon,
+    Database as HardDrivesIcon,
+    NotebookPen as NotePencilIcon,
+    Paperclip as PaperclipIcon,
+    Sun as SunIcon,
+    ListChecks as ListChecksIcon,
+    Search as MagnifyingGlassIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext, getSessionSidebarStore, serversStore } from "@solus/workspace-ui/contexts";
   import {
     aggregateReviewGuideStatus,

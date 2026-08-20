@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowRightIcon } from "phosphor-svelte";
+  import { ArrowRight as ArrowRightIcon } from "@lucide/svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import PrViewTabs from "./PrViewTabs.svelte";
 

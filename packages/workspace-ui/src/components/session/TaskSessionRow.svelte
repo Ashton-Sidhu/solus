@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CheckIcon,
-    LaptopIcon,
-    MoonIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    Check as CheckIcon,
+    Laptop as LaptopIcon,
+    Moon as MoonIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import { attentionLabel } from "../../lib/sessionUtils";
   import { liveActivityClock } from "../../lib/shared-clock";

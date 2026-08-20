@@ -7,21 +7,21 @@
   import { scale } from "svelte/transition";
   import { quintOut } from "svelte/easing";
   import {
-    PlusIcon,
-    XIcon,
-    BooksIcon,
-    ClockIcon,
-    CaretLeftIcon,
-    CaretRightIcon,
-    ChatsIcon,
-    FunnelSimpleIcon,
-    ChatTeardropIcon,
-    SpinnerGapIcon,
-    CheckCircleIcon,
-    XCircleIcon,
-    CircleDashedIcon,
-    CircleIcon,
-  } from "phosphor-svelte";
+    Plus as PlusIcon,
+    X as XIcon,
+    LibraryBig as BooksIcon,
+    Clock as ClockIcon,
+    ChevronLeft as CaretLeftIcon,
+    ChevronRight as CaretRightIcon,
+    MessagesSquare as ChatsIcon,
+    ListFilter as FunnelSimpleIcon,
+    MessageSquare as ChatTeardropIcon,
+    LoaderCircle as SpinnerGapIcon,
+    CircleCheck as CheckCircleIcon,
+    CircleX as XCircleIcon,
+    CircleDashed as CircleDashedIcon,
+    Circle as CircleIcon,
+  } from "@lucide/svelte";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import {
     getWorkspaceContext,

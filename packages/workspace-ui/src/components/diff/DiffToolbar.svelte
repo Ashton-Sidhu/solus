@@ -8,21 +8,21 @@
 
 <script lang="ts">
   import {
-    GitBranchIcon,
-    GitCommitIcon,
-    StackIcon,
-    ChatCircleTextIcon,
-    SidebarSimpleIcon,
-    CaretLeftIcon,
-    CaretRightIcon,
-    CaretDownIcon,
-    CaretUpIcon,
-    ColumnsIcon,
-    HighlighterIcon,
-    ArrowClockwiseIcon,
-    ArrowsInLineVerticalIcon,
-    ArrowsOutLineVerticalIcon,
-  } from "phosphor-svelte";
+    GitBranch as GitBranchIcon,
+    GitCommitHorizontal as GitCommitIcon,
+    Layers as StackIcon,
+    MessageCircle as ChatCircleTextIcon,
+    PanelLeft as SidebarSimpleIcon,
+    ChevronLeft as CaretLeftIcon,
+    ChevronRight as CaretRightIcon,
+    ChevronDown as CaretDownIcon,
+    ChevronUp as CaretUpIcon,
+    Columns3 as ColumnsIcon,
+    Highlighter as HighlighterIcon,
+    RotateCw as ArrowClockwiseIcon,
+    Shrink as ArrowsInLineVerticalIcon,
+    Expand as ArrowsOutLineVerticalIcon,
+  } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { MONO_FONT } from "../../lib/diffTheme";
   import type { Snippet } from "svelte";

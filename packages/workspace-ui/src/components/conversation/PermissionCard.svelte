@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretRightIcon } from 'phosphor-svelte'
+  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from '../../contexts'
   import type { PermissionRequest, PermissionOption } from '@solus/contracts/types'
   import { abbreviateHome, truncateMiddle } from '../../lib/paths'

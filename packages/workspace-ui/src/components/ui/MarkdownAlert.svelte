@@ -2,12 +2,12 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { AlertType } from "@humanspeak/svelte-markdown/extensions/alert";
   import {
-    InfoIcon,
-    LightbulbIcon,
-    StarFourIcon,
-    WarningIcon,
-    XCircleIcon,
-  } from "phosphor-svelte";
+    Info as InfoIcon,
+    Lightbulb as LightbulbIcon,
+    Sparkle as StarFourIcon,
+    TriangleAlert as WarningIcon,
+    CircleX as XCircleIcon,
+  } from "@lucide/svelte";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeSpan from "./CodeSpan.svelte";
   import MarkdownListItem from "./MarkdownListItem.svelte";

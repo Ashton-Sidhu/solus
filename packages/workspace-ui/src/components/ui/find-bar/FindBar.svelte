@@ -1,13 +1,13 @@
 <script lang="ts">
   import { onDestroy, tick, untrack } from "svelte";
   import {
-    CaretDownIcon,
-    CaretRightIcon,
-    CaretUpIcon,
-    MagnifyingGlassIcon,
-    TextAaIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ChevronDown as CaretDownIcon,
+    ChevronRight as CaretRightIcon,
+    ChevronUp as CaretUpIcon,
+    Search as MagnifyingGlassIcon,
+    CaseSensitive as TextAaIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { Input } from "../input";
 
   interface Props {

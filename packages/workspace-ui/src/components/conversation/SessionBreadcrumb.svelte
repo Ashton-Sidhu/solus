@@ -1,16 +1,16 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
   import {
-    ArrowUUpLeftIcon,
-    ArrowSquareOutIcon,
-    CaretDownIcon,
-    CheckIcon,
-    FolderOpenIcon,
-    PlusIcon,
-    SidebarSimpleIcon,
-    SpinnerGapIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    Undo2 as ArrowUUpLeftIcon,
+    ExternalLink as ArrowSquareOutIcon,
+    ChevronDown as CaretDownIcon,
+    Check as CheckIcon,
+    FolderOpen as FolderOpenIcon,
+    Plus as PlusIcon,
+    PanelLeft as SidebarSimpleIcon,
+    LoaderCircle as SpinnerGapIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";

@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CheckCircleIcon,
-    ArrowsCounterClockwiseIcon,
-    ChatCircleIcon,
-    MinusCircleIcon,
-  } from "phosphor-svelte";
+    CircleCheck as CheckCircleIcon,
+    RefreshCcw as ArrowsCounterClockwiseIcon,
+    MessageCircle as ChatCircleIcon,
+    CircleMinus as MinusCircleIcon,
+  } from "@lucide/svelte";
   import type { PrReviewer } from "@solus/contracts/providers";
 
   // A reviewer's standing state, shared by the PRs page rail and the PR review

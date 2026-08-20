@@ -4,22 +4,20 @@ import '@tiptap/extension-table'
 import '@tiptap/extension-task-list'
 import type { Component } from 'svelte'
 import {
-  TextTIcon,
-  TextHOneIcon,
-  TextHTwoIcon,
-  TextHThreeIcon,
-  ListBulletsIcon,
-  ListNumbersIcon,
-  ListChecksIcon,
-  QuotesIcon,
-  CodeIcon,
-  TableIcon,
-  MinusIcon,
-  SparkleIcon,
-  GraphIcon,
-} from 'phosphor-svelte'
-
-export interface EditorBlockCommand {
+    Type as TextTIcon,
+    Heading1 as TextHOneIcon,
+    Heading2 as TextHTwoIcon,
+    Heading3 as TextHThreeIcon,
+    List as ListBulletsIcon,
+    ListOrdered as ListNumbersIcon,
+    ListChecks as ListChecksIcon,
+    Quote as QuotesIcon,
+    Code as CodeIcon,
+    Table as TableIcon,
+    Minus as MinusIcon,
+    Sparkles as SparkleIcon,
+    ChartNoAxesColumnIncreasing as GraphIcon,
+  } from "@lucide/svelte";export interface EditorBlockCommand {
   id: string
   label: string
   description: string

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { WarningCircleIcon } from "phosphor-svelte";
+  import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
 
   let { feature, hostLabel }: { feature: string; hostLabel: string } = $props();
 </script>

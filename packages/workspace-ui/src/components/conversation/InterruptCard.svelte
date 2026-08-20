@@ -1,9 +1,7 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import { fly } from 'svelte/transition'
-  import { WarningIcon } from 'phosphor-svelte'
-
-  /**
+  import { TriangleAlert as WarningIcon } from "@lucide/svelte";/**
    * One card shape for every moment the agent stops and needs the user. Header
    * furniture, body grammar and the two-tier footer are fixed; only the body
    * differs between a permission, a question and a rate limit. Sections stack in

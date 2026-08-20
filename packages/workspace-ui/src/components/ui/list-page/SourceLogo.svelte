@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { GithubLogoIcon } from "phosphor-svelte";
-  import type { ListSourceId } from "./list-page";
+import Icon from "@iconify/svelte";
+    import type { ListSourceId } from "./list-page";
 
   /** The provider a row lives in, as its brand logo. A native Solus record is a
    *  quiet neutral dot rather than a badge — most rows are local, so a filled
@@ -37,7 +37,7 @@
     {title}
   >
     {#if source === "github"}
-      <GithubLogoIcon size={11} weight="fill" />
+      <Icon icon="logos:github-icon" size={11} weight="fill" />
     {:else if source === "linear"}
       <svg width="10" height="10" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
         <path

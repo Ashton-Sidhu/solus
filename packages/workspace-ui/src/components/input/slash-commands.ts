@@ -1,4 +1,4 @@
-import { NotePencilIcon, TrashIcon, RobotIcon } from "phosphor-svelte";
+import { NotebookPen as NotePencilIcon, Trash2 as TrashIcon, Bot as RobotIcon } from "@lucide/svelte";
 import type { Component } from "svelte";
 import type { AgentId, IpcContext } from "@solus/contracts/types";
 import type { HostApi } from "@solus/client-core/host-api";

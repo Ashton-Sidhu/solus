@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitBranchIcon, LaptopIcon } from "phosphor-svelte";
+  import { GitBranch as GitBranchIcon, Laptop as LaptopIcon } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
   import type { AttentionState } from "../../lib/sessionUtils";
   import { attentionLabel } from "../../lib/sessionUtils";

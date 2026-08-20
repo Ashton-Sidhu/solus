@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { CheckIcon } from "phosphor-svelte";
+  import { Check as CheckIcon } from "@lucide/svelte";
 
   interface Props {
     children?: Snippet;

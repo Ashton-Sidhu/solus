@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { BellIcon, BellSlashIcon, SpinnerIcon } from "phosphor-svelte";
+  import { Bell as BellIcon, BellOff as BellSlashIcon, Loader as SpinnerIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { webPushState } from "../lib/web-push.svelte";
   import { toasts } from "@solus/workspace-ui/lib/toasts";

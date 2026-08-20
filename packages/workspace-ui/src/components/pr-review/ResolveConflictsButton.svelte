@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { WarningCircleIcon } from "phosphor-svelte";
+  import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import type { IpcContext } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
   import { quintOut } from "svelte/easing";
-  import { PaperPlaneTiltIcon, XIcon } from "phosphor-svelte";
+  import { Send as PaperPlaneTiltIcon, X as XIcon } from "@lucide/svelte";
   import type { PlanComment } from "@solus/contracts/types";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";
   import { Textarea } from "../ui/textarea";

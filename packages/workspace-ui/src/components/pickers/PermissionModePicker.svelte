@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon, ShieldCheckIcon, PencilIcon, type IconWeight } from 'phosphor-svelte'
+  import { ChevronDown as CaretDownIcon, ShieldCheck as ShieldCheckIcon, Pencil as PencilIcon } from "@lucide/svelte";
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from '../../contexts'
   import type { RunConfig } from '@solus/contracts/types'
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -12,7 +12,7 @@
     id: PermissionMode
     label: string
     icon: typeof ShieldCheckIcon
-    weight: IconWeight
+    weight: "regular" | "fill"
   }
 
   const session = getWorkspaceContext()

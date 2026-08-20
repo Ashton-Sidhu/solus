@@ -1,6 +1,6 @@
 <script lang="ts" generics="TData extends RowData">
   import type { RowData, SvelteTable } from '@tanstack/svelte-table'
-  import { CaretLeftIcon, CaretRightIcon } from 'phosphor-svelte'
+  import { ChevronLeft as CaretLeftIcon, ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import { Button } from '../../ui/button'
   import * as Select from '../../ui/select'
   import type { InsightsTableFeatures } from './data-table-features'

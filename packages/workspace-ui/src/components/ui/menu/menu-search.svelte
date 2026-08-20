@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MagnifyingGlassIcon } from "phosphor-svelte";
+  import { Search as MagnifyingGlassIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import * as Command from "../command";
 

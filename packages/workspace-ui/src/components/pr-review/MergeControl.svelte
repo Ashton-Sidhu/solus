@@ -1,11 +1,11 @@
 <script lang="ts">
   import {
-    CaretDownIcon,
-    CheckIcon,
-    CheckCircleIcon,
-    CircleNotchIcon,
-    GitMergeIcon,
-  } from "phosphor-svelte";
+    ChevronDown as CaretDownIcon,
+    Check as CheckIcon,
+    CircleCheck as CheckCircleIcon,
+    LoaderCircle as CircleNotchIcon,
+    GitMerge as GitMergeIcon,
+  } from "@lucide/svelte";
   import type { IpcContext, MergeMethod } from "@solus/contracts/types";
   import type { PullRequestDetail } from "@solus/contracts/providers";
   import { toasts } from "../../lib/toasts";

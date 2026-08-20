@@ -1,12 +1,12 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
   import {
-    CheckIcon,
-    CircleNotchIcon,
-    MinusCircleIcon,
-    WarningCircleIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    Check as CheckIcon,
+    LoaderCircle as CircleNotchIcon,
+    CircleMinus as MinusCircleIcon,
+    CircleAlert as WarningCircleIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import type { CheckItem, PrChecksSummary } from "@solus/contracts/checks-types";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowRightIcon, ChatCircleIcon } from "phosphor-svelte";
+  import { ArrowRight as ArrowRightIcon, MessageCircle as ChatCircleIcon } from "@lucide/svelte";
   import type { ReviewThread } from "@solus/contracts/providers";
   import { reviewCommentPreview } from "./lib/since-review";
 

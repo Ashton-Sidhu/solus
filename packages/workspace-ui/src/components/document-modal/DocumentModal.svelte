@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Editor } from "@tiptap/core";
-  import { ArrowUpIcon } from "phosphor-svelte";
+  import { ArrowUp as ArrowUpIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { Button } from "../ui/button";
   import DocumentShell from "../document-shell/DocumentShell.svelte";

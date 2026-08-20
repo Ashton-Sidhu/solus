@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { MicrophoneIcon, SpinnerGapIcon, XIcon, CheckIcon } from 'phosphor-svelte'
+  import {
+    Mic as MicrophoneIcon,
+    LoaderCircle as SpinnerGapIcon,
+    X as XIcon,
+    Check as CheckIcon,
+  } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import WaveformVisualizer from './WaveformVisualizer.svelte'
   import type { VoiceState } from '../../lib/voice-recorder.svelte'

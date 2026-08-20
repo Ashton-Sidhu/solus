@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { GithubLogoIcon, OpenAiLogoIcon } from "phosphor-svelte";
+import Icon from "@iconify/svelte";
+  import { Bot as OpenAiLogoIcon } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import type { ProviderLogoId } from "./lib/host-onboarding";
 
@@ -25,7 +26,7 @@
   aria-hidden="true"
 >
   {#if provider === "github"}
-    <GithubLogoIcon size={14} weight="fill" />
+    <Icon icon="logos:github-icon" size={14} weight="fill" />
   {:else if provider === "claude"}
     <ClaudeIcon size={13} />
   {:else}

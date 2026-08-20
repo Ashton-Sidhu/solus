@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretRightIcon, CheckIcon, XIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon, Check as CheckIcon, X as XIcon } from "@lucide/svelte";
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from "@solus/workspace-ui/contexts";
   import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
   import { REASONING_EFFORT_LABELS } from "@solus/contracts/types";

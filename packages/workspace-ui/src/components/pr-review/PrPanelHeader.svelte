@@ -1,13 +1,13 @@
 <script lang="ts">
   import {
-    ArrowRightIcon,
-    ArrowsInSimpleIcon,
-    ArrowsOutSimpleIcon,
-    CaretLeftIcon,
-    CaretRightIcon,
-    GitPullRequestIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ArrowRight as ArrowRightIcon,
+    Minimize2 as ArrowsInSimpleIcon,
+    Maximize2 as ArrowsOutSimpleIcon,
+    ChevronLeft as CaretLeftIcon,
+    ChevronRight as CaretRightIcon,
+    GitPullRequest as GitPullRequestIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import CopyButton from "../ui/CopyButton.svelte";
   import PaneSwapButton from "../ui/PaneSwapButton.svelte";

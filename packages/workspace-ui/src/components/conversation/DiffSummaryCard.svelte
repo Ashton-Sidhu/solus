@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
   import { tick } from "svelte";
-  import { CaretRightIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { FILE_ICON_VIEWBOX, FOLDER_ICON_PATH, getFileIconPath } from "../editor/fileIcons";

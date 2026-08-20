@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    ArrowSquareOutIcon,
-    CopyIcon,
-    GitPullRequestIcon,
-    ListChecksIcon,
-  } from "phosphor-svelte";
+    ExternalLink as ArrowSquareOutIcon,
+    Copy as CopyIcon,
+    GitPullRequest as GitPullRequestIcon,
+    ListChecks as ListChecksIcon,
+  } from "@lucide/svelte";
   import type { PullRequestSummary } from "@solus/contracts/providers";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";

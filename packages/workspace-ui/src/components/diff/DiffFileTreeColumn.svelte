@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretLeftIcon } from "phosphor-svelte";
+  import { ChevronLeft as CaretLeftIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
 
   interface Props {

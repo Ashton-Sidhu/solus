@@ -1,7 +1,7 @@
 <script lang="ts">
   import PlainTextEditor from "../ui/plain-text-editor/plain-text-editor.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import { getAgentContext, getSettingsContext } from "../../contexts";
   import { buildAgentAvailabilityRows } from "../../lib/agentAvailability";
   import { requestInputFocus } from "../../lib/inputFocus";

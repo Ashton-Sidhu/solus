@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    ArrowsCounterClockwiseIcon,
-    CaretDownIcon,
-    CheckCircleIcon,
-    ChatCircleIcon,
-    GitCommitIcon,
-    GitPullRequestIcon,
-  } from "phosphor-svelte";
+    RefreshCcw as ArrowsCounterClockwiseIcon,
+    ChevronDown as CaretDownIcon,
+    CircleCheck as CheckCircleIcon,
+    MessageCircle as ChatCircleIcon,
+    GitCommitHorizontal as GitCommitIcon,
+    GitPullRequest as GitPullRequestIcon,
+  } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { PrCommit, ReviewComment, ReviewThread } from "@solus/contracts/providers";
   import {

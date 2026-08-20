@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    FolderOpenIcon,
-    GitBranchIcon,
-    GitForkIcon,
-  } from "phosphor-svelte";
+  import { FolderOpen as FolderOpenIcon, GitBranch as GitBranchIcon, GitFork as GitForkIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
   import {
     getWorkspaceContext,

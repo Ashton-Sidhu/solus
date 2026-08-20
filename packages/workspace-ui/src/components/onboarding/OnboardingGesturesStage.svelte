@@ -7,12 +7,7 @@
    * does rather than inviting a press and lighting up. Every one is a gesture
    * the mobile layout already answers to.
    */
-  import {
-    ArrowUUpLeftIcon,
-    HandSwipeRightIcon,
-    HandTapIcon,
-    PlusIcon,
-  } from "phosphor-svelte";
+  import { Undo2 as ArrowUUpLeftIcon, Hand as HandSwipeRightIcon, Plus as PlusIcon } from "@lucide/svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import { ONBOARDING_GESTURES } from "./lib/onboarding-model";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";

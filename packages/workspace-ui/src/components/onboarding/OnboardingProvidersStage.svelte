@@ -6,7 +6,7 @@
    * without a second round trip.
    */
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { CloudIcon } from "phosphor-svelte";
+  import { Cloud as CloudIcon } from "@lucide/svelte";
   import { onMount } from "svelte";
   import { cloudflareStore, connectionsStore } from "../../contexts";
   import CloudflareConnectForm from "../cloudflare/CloudflareConnectForm.svelte";

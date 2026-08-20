@@ -5,19 +5,19 @@
   import { SvelteSet } from "svelte/reactivity";
   import { comboHint } from "../../lib/keybindings/manifest";
   import {
-    BooksIcon,
-    ClockIcon,
-    CaretRightIcon,
-    PushPinIcon,
-    GearIcon,
-    ArrowsClockwiseIcon,
-    ChartBarIcon,
-    ListChecksIcon,
-    GitPullRequestIcon,
-    PlusIcon,
-    MagnifyingGlassIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    LibraryBig as BooksIcon,
+    Clock as ClockIcon,
+    ChevronRight as CaretRightIcon,
+    Pin as PushPinIcon,
+    Settings as GearIcon,
+    RefreshCw as ArrowsClockwiseIcon,
+    ChartBar as ChartBarIcon,
+    ListChecks as ListChecksIcon,
+    GitPullRequest as GitPullRequestIcon,
+    Plus as PlusIcon,
+    Search as MagnifyingGlassIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import type { PinnedSession } from "@solus/contracts/types";
   import type { Task } from "@solus/contracts/task-types";
   import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";

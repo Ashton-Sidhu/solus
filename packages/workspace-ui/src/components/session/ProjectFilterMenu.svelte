@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CheckIcon } from "phosphor-svelte";
+  import { Check as CheckIcon } from "@lucide/svelte";
   import * as Popover from "../ui/popover";
   import { menuRowVariants } from "../ui/menu/menu-row";
   import { cn } from "@solus/workspace-ui/lib/tw";

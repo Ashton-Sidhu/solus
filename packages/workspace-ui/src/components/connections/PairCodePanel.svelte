@@ -4,14 +4,14 @@
    *  One component because both the Connections list and a host's Access tab
    *  hand out access to the same server. */
   import {
-    ArrowsClockwiseIcon,
-    CheckIcon,
-    CopyIcon,
-    GlobeIcon,
-    HouseIcon,
-    PlusIcon,
-    WifiHighIcon,
-  } from "phosphor-svelte";
+    RefreshCw as ArrowsClockwiseIcon,
+    Check as CheckIcon,
+    Copy as CopyIcon,
+    Globe as GlobeIcon,
+    House as HouseIcon,
+    Plus as PlusIcon,
+    Wifi as WifiHighIcon,
+  } from "@lucide/svelte";
   import { connectionsStore, type ConnectionEndpoint } from "../../contexts";
   import { Button } from "../ui/button";
   import SettingsRow from "../settings/SettingsRow.svelte";

@@ -1,13 +1,13 @@
 <script lang="ts">
   import {
-    ArrowRightIcon,
-    BookmarkSimpleIcon,
-    CircleNotchIcon,
-    ClockCounterClockwiseIcon,
-    DotsThreeIcon,
-    MagnifyingGlassIcon,
-    TableIcon,
-  } from "phosphor-svelte";
+    ArrowRight as ArrowRightIcon,
+    Bookmark as BookmarkSimpleIcon,
+    LoaderCircle as CircleNotchIcon,
+    History as ClockCounterClockwiseIcon,
+    Ellipsis as DotsThreeIcon,
+    Search as MagnifyingGlassIcon,
+    Table as TableIcon,
+  } from "@lucide/svelte";
   import { formatAge, formatRowCount } from "./lib/format";
   import type { InsightsPreset } from "./lib/insights-queries";
   import type { SqlEditorSources } from "./lib/sql-editor-extensions";

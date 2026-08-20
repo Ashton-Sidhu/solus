@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Component, Snippet } from "svelte";
-  import { SidebarSimpleIcon } from "phosphor-svelte";
+  import { PanelLeft as SidebarSimpleIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { getWindowContext } from "../../contexts";
   import * as Sidebar from "../ui/sidebar";

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowCounterClockwiseIcon, KeyboardIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { RotateCcw as ArrowCounterClockwiseIcon, Keyboard as KeyboardIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import Kbd from "../ui/Kbd.svelte";
   import { Button } from "../ui/button";
   import { KEYBINDINGS, bindingsForScope, type BindingId } from "../../lib/keybindings/manifest";

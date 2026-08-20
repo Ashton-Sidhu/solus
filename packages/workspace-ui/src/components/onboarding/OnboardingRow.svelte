@@ -5,7 +5,7 @@
    * providers and the two start choices all read as the same object so the
    * three stages stack without a seam between them.
    */
-  import { CheckIcon } from "phosphor-svelte";
+  import { Check as CheckIcon } from "@lucide/svelte";
   import type { Snippet } from "svelte";
 
   interface Props {

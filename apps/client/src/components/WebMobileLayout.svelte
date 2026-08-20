@@ -1,13 +1,13 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import {
-    SidebarSimpleIcon,
-    PlusIcon,
-    CaretDownIcon,
-    GitBranchIcon,
-    GitForkIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    PanelLeft as SidebarSimpleIcon,
+    Plus as PlusIcon,
+    ChevronDown as CaretDownIcon,
+    GitBranch as GitBranchIcon,
+    GitFork as GitForkIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import InputBar from "@solus/workspace-ui/components/input/InputBar.svelte";
   import InputBarHeader from "@solus/workspace-ui/components/input/InputBarHeader.svelte";
   import GitDropdown from "@solus/workspace-ui/components/GitDropdown.svelte";

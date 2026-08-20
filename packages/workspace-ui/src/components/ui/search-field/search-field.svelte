@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MagnifyingGlassIcon, XIcon } from "phosphor-svelte";
+  import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import { Input } from "../input";
   import { cn } from "@solus/workspace-ui/lib/utils.js";
 

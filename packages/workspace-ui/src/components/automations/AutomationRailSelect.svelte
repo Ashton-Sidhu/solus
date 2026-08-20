@@ -1,5 +1,5 @@
 <script lang="ts" generics="T extends string">
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { VALUE_TRIGGER } from "./lib/rail-styles";
 

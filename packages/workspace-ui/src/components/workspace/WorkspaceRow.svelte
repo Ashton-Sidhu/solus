@@ -1,15 +1,15 @@
 <script lang="ts">
   import {
-    ArrowSquareOutIcon,
-    AsteriskIcon,
-    ChatCircleIcon,
-    ColumnsIcon,
-    FileTextIcon,
-    GraphIcon,
-    PresentationIcon,
-    PushPinIcon,
-    TrashIcon,
-  } from "phosphor-svelte";
+    ExternalLink as ArrowSquareOutIcon,
+    Asterisk as AsteriskIcon,
+    MessageCircle as ChatCircleIcon,
+    Columns3 as ColumnsIcon,
+    FileText as FileTextIcon,
+    ChartNoAxesColumnIncreasing as GraphIcon,
+    Presentation as PresentationIcon,
+    Pin as PushPinIcon,
+    Trash2 as TrashIcon,
+  } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import type { WorkspaceItem } from "./lib/workspace-items";

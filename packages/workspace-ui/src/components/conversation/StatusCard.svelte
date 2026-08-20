@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import type { StatusCardState } from "@solus/contracts/types";
   import TranscriptChip from "./TranscriptChip.svelte";
   import { SetupStepTiming, formatStepDuration } from "./lib/setup-timing.svelte";

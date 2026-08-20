@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CodeIcon, GlobeIcon, OpenAiLogoIcon } from "phosphor-svelte";
+  import { Code as CodeIcon, Globe as GlobeIcon, Bot as OpenAiLogoIcon } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import { getSettingsContext, serversStore } from "../../contexts";
   import {

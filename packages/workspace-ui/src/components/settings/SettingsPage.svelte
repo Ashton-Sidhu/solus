@@ -1,22 +1,22 @@
 <script lang="ts">
   import type { Component } from "svelte";
   import {
-    XIcon,
-    SlidersHorizontalIcon,
-    WrenchIcon,
-    SparkleIcon,
-    PlugsConnectedIcon,
-    KeyboardIcon,
-    MicrophoneIcon,
-    BinocularsIcon,
-    CloudIcon,
-    NotePencilIcon,
-    FolderIcon,
-    BroadcastIcon,
-    FlaskIcon,
-    CaretDownIcon,
-    GitPullRequestIcon,
-  } from "phosphor-svelte";
+    X as XIcon,
+    SlidersHorizontal as SlidersHorizontalIcon,
+    Wrench as WrenchIcon,
+    Sparkles as SparkleIcon,
+    Cable as PlugsConnectedIcon,
+    Keyboard as KeyboardIcon,
+    Mic as MicrophoneIcon,
+    Binoculars as BinocularsIcon,
+    Cloud as CloudIcon,
+    NotebookPen as NotePencilIcon,
+    Folder as FolderIcon,
+    Radio as BroadcastIcon,
+    FlaskConical as FlaskIcon,
+    ChevronDown as CaretDownIcon,
+    GitPullRequest as GitPullRequestIcon,
+  } from "@lucide/svelte";
   import {
     getWorkspaceContext,
     getWindowContext,

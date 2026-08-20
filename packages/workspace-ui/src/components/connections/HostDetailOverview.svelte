@@ -1,7 +1,7 @@
 <script lang="ts">
   /** Where a host stands, at a glance — each summary row is a way into the tab
    *  that can actually change it. */
-  import { CheckIcon, CopyIcon } from "phosphor-svelte";
+  import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
   import { hostStatusLabel, serversStore, type ServerItem } from "../../contexts";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";

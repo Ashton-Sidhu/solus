@@ -1,11 +1,11 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
   import {
-    CaretRightIcon,
-    CircleNotchIcon,
-    FileIcon,
-    XIcon,
-  } from "phosphor-svelte";
+    ChevronRight as CaretRightIcon,
+    LoaderCircle as CircleNotchIcon,
+    File as FileIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
   import type { Snippet } from "svelte";
   import type { ChangedFileStat } from "@solus/contracts/types";

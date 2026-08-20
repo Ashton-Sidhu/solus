@@ -1,13 +1,13 @@
 <script lang="ts">
   import {
-    BookmarkSimpleIcon,
-    CaretUpIcon,
-    XIcon,
-    FileTextIcon,
-    ImageIcon,
-    FileCodeIcon,
-    FileIcon,
-  } from "phosphor-svelte";
+    Bookmark as BookmarkSimpleIcon,
+    ChevronUp as CaretUpIcon,
+    X as XIcon,
+    FileText as FileTextIcon,
+    Image as ImageIcon,
+    FileCode as FileCodeIcon,
+    File as FileIcon,
+  } from "@lucide/svelte";
   import type { Component } from "svelte";
   import * as Popover from "@solus/workspace-ui/components/ui/popover";
   import * as Command from "@solus/workspace-ui/components/ui/command";

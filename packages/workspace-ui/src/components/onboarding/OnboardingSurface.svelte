@@ -11,7 +11,7 @@
    * to press real keys.
    */
   import { onMount } from "svelte";
-  import { MoonIcon, SunIcon } from "phosphor-svelte";
+  import { Moon as MoonIcon, Sun as SunIcon } from "@lucide/svelte";
   import { getSettingsContext, getWorkspaceContext } from "../../contexts";
   import { getKeybindingsContext } from "../../lib/keybindings/dispatcher.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";

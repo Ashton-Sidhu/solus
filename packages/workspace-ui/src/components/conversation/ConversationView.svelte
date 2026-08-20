@@ -3,13 +3,13 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import {
-    DesktopTowerIcon,
-    FileTextIcon,
-    GitForkIcon,
-    PlusCircleIcon,
-    TreeStructureIcon,
-    BellRingingIcon,
-  } from "phosphor-svelte";
+    HardDrive as DesktopTowerIcon,
+    FileText as FileTextIcon,
+    GitFork as GitForkIcon,
+    CirclePlus as PlusCircleIcon,
+    GitFork as TreeStructureIcon,
+    BellRing as BellRingingIcon,
+  } from "@lucide/svelte";
   import { computeCurrentActivity } from "../../contexts/workspace/session.utils";
   import {
     getWorkspaceContext,

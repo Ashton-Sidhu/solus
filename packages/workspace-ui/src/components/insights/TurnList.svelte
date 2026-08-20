@@ -5,7 +5,7 @@
     functionalUpdate,
     type SortingState,
   } from "@tanstack/svelte-table";
-  import { CaretRightIcon, StackSimpleIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon, Layers2 as StackSimpleIcon } from "@lucide/svelte";
   import * as Table from "../ui/table";
   import DataTableEmptyState from "./data-table/DataTableEmptyState.svelte";
   import DataTableColumnsMenu from "./data-table/DataTableColumnsMenu.svelte";

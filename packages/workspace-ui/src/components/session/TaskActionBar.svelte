@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { FunnelIcon } from "phosphor-svelte";
+  import { Funnel as FunnelIcon } from "@lucide/svelte";
   import ProjectFilterMenu from "./ProjectFilterMenu.svelte";
   import type { ProjectFilterChoice } from "./lib/task-list";
 

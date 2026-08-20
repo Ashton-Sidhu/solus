@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { XIcon } from "phosphor-svelte";
+  import { X as XIcon } from "@lucide/svelte";
   import { swipeDismiss } from "../lib/swipe-dismiss";
 
   interface Props {

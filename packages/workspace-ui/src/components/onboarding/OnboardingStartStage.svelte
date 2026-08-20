@@ -5,7 +5,7 @@
    * new-tab home, and a project also opens the folder picker on top of it, so
    * the first thing on screen is the choice that was just made.
    */
-  import { ChatCircleIcon, CodeIcon } from "phosphor-svelte";
+  import { MessageCircle as ChatCircleIcon, Code as CodeIcon } from "@lucide/svelte";
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import OnboardingRow from "./OnboardingRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";

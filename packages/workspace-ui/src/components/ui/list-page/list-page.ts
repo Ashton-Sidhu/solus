@@ -8,7 +8,7 @@
  * mapping from `Task` / `PullRequestSummary` into these specs.
  */
 
-import type { CaretRightIcon } from 'phosphor-svelte'
+import type { ChevronRight } from '@lucide/svelte'
 import { z } from 'zod'
 
 /** The two views every list page has: the grouped global list, and the personal inbox. */
@@ -185,7 +185,7 @@ export interface ListSummaryStat {
 /** Phosphor icon components, as used for the filter-chip glyphs. Typed off a
  *  real icon (the package has no exported props type) — the same pattern
  *  `pr-utils` uses for its status badges. */
-export type ListIcon = typeof CaretRightIcon
+export type ListIcon = typeof ChevronRight
 
 export interface ListFilterSpec {
   key: string

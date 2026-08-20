@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowsClockwiseIcon, SparkleIcon } from "phosphor-svelte";
+  import { RefreshCw as ArrowsClockwiseIcon, Sparkles as SparkleIcon } from "@lucide/svelte";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
 
   /**

@@ -1,9 +1,5 @@
 <script lang="ts">
-  import {
-    ArrowSquareOutIcon,
-    CircleNotchIcon,
-    FolderIcon,
-  } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
   import { taskProviderLabel, taskRef } from "./lib/task-page";
   import { syncToneColor, type TaskUpstreamState } from "./lib/task-upstream";

@@ -1,19 +1,19 @@
 <script lang="ts">
   import { fly } from "svelte/transition";
   import {
-    GearIcon,
-    BellIcon,
-    MoonIcon,
-    MicrophoneIcon,
-    TextAaIcon,
-    CodeIcon,
-    CaretDownIcon,
-    CheckIcon,
-    ClockCountdownIcon,
-    GitBranchIcon,
-    RobotIcon,
-    LinkIcon,
-  } from "phosphor-svelte";
+    Settings as GearIcon,
+    Bell as BellIcon,
+    Moon as MoonIcon,
+    Mic as MicrophoneIcon,
+    CaseSensitive as TextAaIcon,
+    Code as CodeIcon,
+    ChevronDown as CaretDownIcon,
+    Check as CheckIcon,
+    Timer as ClockCountdownIcon,
+    GitBranch as GitBranchIcon,
+    Bot as RobotIcon,
+    Link as LinkIcon,
+  } from "@lucide/svelte";
   import {
     APP_FONT_FAMILIES,
     APP_CODE_FONT_FAMILIES,

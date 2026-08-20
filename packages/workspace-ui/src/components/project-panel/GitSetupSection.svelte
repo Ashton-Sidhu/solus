@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { GitBranchIcon, GithubLogoIcon } from "phosphor-svelte";
+import Icon from "@iconify/svelte";
+  import { GitBranch as GitBranchIcon } from "@lucide/svelte";
   import { getWorkspaceContext, getSessionEnvironmentStore } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
@@ -104,7 +105,7 @@
       class="w-full justify-center gap-1.5 text-workspace-chrome"
       onclick={() => (publishDialogOpen = true)}
     >
-      <GithubLogoIcon size={13} />
+      <Icon icon="logos:github-icon" size={13} />
       Publish to GitHub
     </Button>
   </div>

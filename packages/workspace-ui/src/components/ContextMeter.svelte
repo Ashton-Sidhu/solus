@@ -1,7 +1,7 @@
 <script lang="ts">
   import { getWorkspaceContext } from "../contexts";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { GaugeIcon } from "phosphor-svelte";
+  import { Gauge as GaugeIcon } from "@lucide/svelte";
   import { requestInputFocus } from "../lib/inputFocus";
   import * as Popover from "./ui/popover";
   import {

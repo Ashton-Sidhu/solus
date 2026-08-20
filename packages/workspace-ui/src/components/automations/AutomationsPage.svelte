@@ -2,7 +2,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { hostKey } from "@solus/client-core/host-key";
   import { tick } from "svelte";
-  import { StarIcon } from "phosphor-svelte";
+  import { Star as StarIcon } from "@lucide/svelte";
   import type { Automation } from "@solus/contracts/types";
   import {
     getWorkspaceContext,

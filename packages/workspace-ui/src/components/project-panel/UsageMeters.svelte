@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CodeIcon } from "phosphor-svelte";
+  import { Code as CodeIcon } from "@lucide/svelte";
   import { Progress } from "@solus/workspace-ui/components/ui/progress";
   import { getAgentContext } from "../../contexts";
   import ClaudeIcon from "../ClaudeIcon.svelte";

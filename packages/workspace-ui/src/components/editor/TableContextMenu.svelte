@@ -2,16 +2,16 @@
   import type { Editor } from '@tiptap/core'
   import * as ContextMenu from '../ui/context-menu'
   import {
-    ArrowLineLeft,
-    ArrowLineRight,
-    ArrowLineUp,
-    ArrowLineDown,
-    TextAlignLeft,
-    TextAlignCenter,
-    TextAlignRight,
+    ArrowLeftToLine as ArrowLineLeft,
+    ArrowRightToLine as ArrowLineRight,
+    ArrowUpToLine as ArrowLineUp,
+    ArrowDownToLine as ArrowLineDown,
+    AlignLeft as TextAlignLeft,
+    AlignCenter as TextAlignCenter,
+    AlignRight as TextAlignRight,
     Trash,
     MinusSquare,
-  } from 'phosphor-svelte'
+  } from "@lucide/svelte";
   import { alignColumn } from './lib/table-align'
 
   interface Props {

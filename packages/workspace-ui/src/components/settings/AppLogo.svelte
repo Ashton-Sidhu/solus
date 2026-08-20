@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
-  import { CodeIcon, TerminalWindowIcon } from "phosphor-svelte";
+  import { Code as CodeIcon, SquareTerminal as TerminalWindowIcon } from "@lucide/svelte";
   import { ensureIconCollections } from "../diagram/iconify";
   import { APP_ICONS } from "./lib/app-icon-assets";
   import { appLogoFor } from "./lib/app-logos";

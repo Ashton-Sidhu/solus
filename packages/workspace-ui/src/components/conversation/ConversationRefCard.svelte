@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { ArrowLineRightIcon, CaretRightIcon } from "phosphor-svelte";
+  import { ArrowRightToLine as ArrowLineRightIcon, ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import { slide } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import * as Card from "../ui/card";

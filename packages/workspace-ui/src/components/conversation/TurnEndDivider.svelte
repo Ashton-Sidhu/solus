@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowCounterClockwiseIcon, MinusIcon, SquareIcon } from "phosphor-svelte";
+  import { RotateCcw as ArrowCounterClockwiseIcon, Minus as MinusIcon, Square as SquareIcon } from "@lucide/svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
   import { NO_REPLY_LABEL } from "./lib/transient";
   import type { TurnEnd } from "./lib/turns";

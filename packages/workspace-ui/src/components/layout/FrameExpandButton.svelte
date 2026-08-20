@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { SidebarSimpleIcon } from "phosphor-svelte";
+  import { PanelLeft as SidebarSimpleIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { frameChrome } from "./frame-chrome.store.svelte";
   import { comboHint } from "../../lib/keybindings/manifest";

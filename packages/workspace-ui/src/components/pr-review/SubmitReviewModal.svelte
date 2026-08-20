@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    XIcon,
-    ChatTextIcon,
-    CheckCircleIcon,
-    WarningCircleIcon,
-    CheckIcon,
-    PaperPlaneTiltIcon,
-  } from "phosphor-svelte";
+    X as XIcon,
+    MessageSquareText as ChatTextIcon,
+    CircleCheck as CheckCircleIcon,
+    CircleAlert as WarningCircleIcon,
+    Check as CheckIcon,
+    Send as PaperPlaneTiltIcon,
+  } from "@lucide/svelte";
   import { CommentEditor } from "../ui/comment-editor";
   import type { IpcContext } from "@solus/contracts/types";
   import type { PrReviewTarget, PrReviewVerdict } from "@solus/contracts/providers";

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { MagnifyingGlassIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { Search as MagnifyingGlassIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
   import type { FileMatch } from "@solus/contracts/types";
   import { getWorkspaceContext, getSessionEnvironmentStore } from "../../contexts";

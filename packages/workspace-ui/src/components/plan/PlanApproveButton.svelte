@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CheckIcon,
-    CaretDownIcon,
-    GitForkIcon,
-    RobotIcon,
-  } from "phosphor-svelte";
+    Check as CheckIcon,
+    ChevronDown as CaretDownIcon,
+    GitFork as GitForkIcon,
+    Bot as RobotIcon,
+  } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { runtime } from "../../contexts";

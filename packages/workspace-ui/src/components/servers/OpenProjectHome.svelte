@@ -1,12 +1,11 @@
 <script lang="ts">
   import {
-    CircleNotchIcon,
-    DownloadSimpleIcon,
-    FolderIcon,
-    GithubLogoIcon,
-    LinkSimpleIcon,
-    MagnifyingGlassIcon,
-  } from "phosphor-svelte";
+    LoaderCircle as CircleNotchIcon,
+    Download as DownloadSimpleIcon,
+    Folder as FolderIcon,
+    Link2 as LinkSimpleIcon,
+    Search as MagnifyingGlassIcon,
+  } from "@lucide/svelte";
   import { Input } from "../ui/input";
   import { abbreviateHome } from "../../lib/paths";
   import type { OpenProjectStore } from "./open-project.store.svelte";

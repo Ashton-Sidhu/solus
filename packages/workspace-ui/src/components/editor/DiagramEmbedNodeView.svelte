@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowSquareOutIcon, GraphIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { ExternalLink as ArrowSquareOutIcon, ChartNoAxesColumnIncreasing as GraphIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import type { DiagramEmbedWorkSource } from "./diagramEmbedExtension";
 
   interface Props {

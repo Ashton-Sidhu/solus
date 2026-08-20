@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { XIcon, ArrowsOutIcon, ArrowsInIcon } from "phosphor-svelte";
+  import { X as XIcon, Maximize as ArrowsOutIcon, Minimize as ArrowsInIcon } from "@lucide/svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import { comboHint, type BindingId } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";

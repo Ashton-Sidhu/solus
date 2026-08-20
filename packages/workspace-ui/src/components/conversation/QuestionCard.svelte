@@ -2,11 +2,11 @@
   import { localApi } from "@solus/client-core/local-api";
   import { fly } from "svelte/transition";
   import {
-    CaretLeftIcon,
-    CaretRightIcon,
-    ChatTeardropTextIcon,
-    CheckIcon,
-  } from "phosphor-svelte";
+    ChevronLeft as CaretLeftIcon,
+    ChevronRight as CaretRightIcon,
+    MessageSquareText as ChatTeardropTextIcon,
+    Check as CheckIcon,
+  } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeBlock from "../ui/CodeBlock.svelte";

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { MagnifyingGlassIcon, WarningCircleIcon } from "phosphor-svelte";
+  import { Search as MagnifyingGlassIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
   import type {
     ProjectContentMatch,

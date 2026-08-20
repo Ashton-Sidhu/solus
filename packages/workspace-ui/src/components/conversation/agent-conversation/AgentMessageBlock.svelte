@@ -1,6 +1,6 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import { FileTextIcon } from "phosphor-svelte";
+  import { FileText as FileTextIcon } from "@lucide/svelte";
   import CodeSpan from "../../ui/CodeSpan.svelte";
   import MarkdownLink from "../MarkdownLink.svelte";
   import MarkdownImage from "../MarkdownImage.svelte";

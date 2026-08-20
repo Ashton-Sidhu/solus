@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ChatCircleIcon, ArrowRightIcon } from "phosphor-svelte";
+  import { MessageCircle as ChatCircleIcon, ArrowRight as ArrowRightIcon } from "@lucide/svelte";
   import type { PreviewExtraction } from "../../lib/sessionPreviewMessages";
   import { highlightRuns } from "../../lib/searchHighlight";
   import { Skeleton } from "../ui/skeleton";

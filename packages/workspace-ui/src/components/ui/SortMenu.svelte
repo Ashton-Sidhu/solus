@@ -1,5 +1,5 @@
 <script lang="ts" generics="T extends string">
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as DropdownMenu from "./dropdown-menu";
   import { PAGE_GHOST_BTN } from "../../lib/page-chrome";
   import { cn } from "@solus/workspace-ui/lib/utils.js";

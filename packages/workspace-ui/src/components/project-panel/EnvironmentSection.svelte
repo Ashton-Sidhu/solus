@@ -1,10 +1,10 @@
 <script lang="ts">
   import {
-    CaretRightIcon,
-    FolderIcon,
-    GitBranchIcon,
-    GitForkIcon,
-  } from "phosphor-svelte";
+    ChevronRight as CaretRightIcon,
+    Folder as FolderIcon,
+    GitBranch as GitBranchIcon,
+    GitFork as GitForkIcon,
+  } from "@lucide/svelte";
   import {
     getSessionEnvironmentStore,
     getWorkspaceContext,

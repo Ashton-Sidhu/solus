@@ -1,12 +1,12 @@
 <script lang="ts">
   import {
-    PaperPlaneTiltIcon,
-    CircleNotchIcon,
-    CheckIcon,
-    MagnifyingGlassIcon,
-    XIcon,
-    WarningCircleIcon,
-  } from "phosphor-svelte";
+    Send as PaperPlaneTiltIcon,
+    LoaderCircle as CircleNotchIcon,
+    Check as CheckIcon,
+    Search as MagnifyingGlassIcon,
+    X as XIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
   import { Input } from "../../ui/input";
   import { Textarea } from "../../ui/textarea";
   import {

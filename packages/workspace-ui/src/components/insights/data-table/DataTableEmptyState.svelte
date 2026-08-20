@@ -1,7 +1,5 @@
 <script lang="ts">
-  import { MagnifyingGlassIcon, TableIcon } from 'phosphor-svelte'
-
-  let {
+  import { Search as MagnifyingGlassIcon, Table as TableIcon } from "@lucide/svelte";let {
     filtered,
     title,
     description,

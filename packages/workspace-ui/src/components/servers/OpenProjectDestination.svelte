@@ -1,6 +1,7 @@
 <script lang="ts">
+import Icon from "@iconify/svelte";
   import { slide } from "svelte/transition";
-  import { CircleNotchIcon, GithubLogoIcon, MagnifyingGlassIcon } from "phosphor-svelte";
+  import { LoaderCircle as CircleNotchIcon, Search as MagnifyingGlassIcon } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import type { CloneProtocol } from "@solus/contracts/types";
@@ -122,7 +123,7 @@
 
     {#if store.needsGithubOnHost}
       <div class="flex h-[16.625rem] flex-col items-center justify-center gap-1 px-8 text-center">
-        <GithubLogoIcon size={22} weight="fill" class="mb-1 text-muted-foreground" />
+        <Icon icon="logos:github-icon" size={22} weight="fill" class="mb-1 text-muted-foreground" />
         <div class="text-pretty text-sm font-medium">
           {store.hostLabel || "This machine"} isn’t signed in to GitHub
         </div>

@@ -2,7 +2,12 @@
   import { onDestroy, untrack, type Snippet } from "svelte";
   import type { PlanReference, WorkReference } from "@solus/contracts/types";
   import type { PromptComposerSubmit } from "./index";
-  import { ArrowUpIcon, ChatCircleTextIcon, GitForkIcon, CaretDownIcon } from "phosphor-svelte";
+  import {
+    ArrowUp as ArrowUpIcon,
+    MessageCircle as ChatCircleTextIcon,
+    GitFork as GitForkIcon,
+    ChevronDown as CaretDownIcon,
+  } from "@lucide/svelte";
   import PromptEditor from "../PromptEditor.svelte";
   import SessionChip from "../../pickers/SessionChip.svelte";
   import { Switch } from "../switch";

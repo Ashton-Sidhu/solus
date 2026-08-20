@@ -1,16 +1,16 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import {
-    StackIcon,
-    CheckSquareIcon,
-    XIcon,
-    CircleNotchIcon,
-    CalendarBlankIcon,
-    CheckIcon,
-    TagIcon,
-    ArrowsOutSimpleIcon,
-    ArrowsInSimpleIcon,
-  } from "phosphor-svelte";
+    Layers as StackIcon,
+    SquareCheck as CheckSquareIcon,
+    X as XIcon,
+    LoaderCircle as CircleNotchIcon,
+    Calendar as CalendarBlankIcon,
+    Check as CheckIcon,
+    Tag as TagIcon,
+    Maximize2 as ArrowsOutSimpleIcon,
+    Minimize2 as ArrowsInSimpleIcon,
+  } from "@lucide/svelte";
   import Dropdown from "../ui/Dropdown.svelte";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import { Input } from "../ui/input";

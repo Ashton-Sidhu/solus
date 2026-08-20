@@ -1,12 +1,12 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import {
-    ArrowsClockwiseIcon,
-    GitPullRequestIcon,
-    ArrowRightIcon,
-    ArrowUpIcon,
-    PencilSimpleIcon,
-  } from "phosphor-svelte";
+    RefreshCw as ArrowsClockwiseIcon,
+    GitPullRequest as GitPullRequestIcon,
+    ArrowRight as ArrowRightIcon,
+    ArrowUp as ArrowUpIcon,
+    Pen as PencilSimpleIcon,
+  } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { CommentEditor } from "../ui/comment-editor";
   import { projectScopeOf, type ChangedFileStat, type IpcContext } from "@solus/contracts/types";

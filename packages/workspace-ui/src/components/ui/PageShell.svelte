@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { XIcon } from "phosphor-svelte";
+  import { X as XIcon } from "@lucide/svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";

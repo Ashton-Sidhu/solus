@@ -30,7 +30,7 @@
 </script>
 
 <script lang="ts">
-  import { CaretRightIcon, CheckIcon, SpinnerGapIcon } from "phosphor-svelte";
+  import { ChevronRight as CaretRightIcon, Check as CheckIcon, LoaderCircle as SpinnerGapIcon } from "@lucide/svelte";
   import Kbd from "@solus/workspace-ui/components/ui/Kbd.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
 

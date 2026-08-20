@@ -1,13 +1,13 @@
 <script lang="ts">
   import {
-    ArrowRightIcon,
-    ArrowSquareOutIcon,
-    GlobeIcon,
-    LaptopIcon,
-    PlusIcon,
-    StopIcon,
-    TerminalWindowIcon,
-  } from "phosphor-svelte";
+    ArrowRight as ArrowRightIcon,
+    ExternalLink as ArrowSquareOutIcon,
+    Globe as GlobeIcon,
+    Laptop as LaptopIcon,
+    Plus as PlusIcon,
+    Square as StopIcon,
+    SquareTerminal as TerminalWindowIcon,
+  } from "@lucide/svelte";
   import type { TaskSessionLink } from "@solus/contracts/task-types";
   import * as TooltipUI from "../../ui/tooltip";
   import { getWorkspaceContext, serversStore } from "../../../contexts";

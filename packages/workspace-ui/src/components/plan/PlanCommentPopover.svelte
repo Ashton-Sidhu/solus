@@ -1,6 +1,6 @@
 <script lang="ts">
   import { fly } from 'svelte/transition'
-  import { PencilSimpleIcon, TrashIcon } from 'phosphor-svelte'
+  import { Pen as PencilSimpleIcon, Trash2 as TrashIcon } from "@lucide/svelte";
   import type { PlanComment } from '@solus/contracts/types'
   import { portal } from '../portal'
   import { Button } from '../ui/button'

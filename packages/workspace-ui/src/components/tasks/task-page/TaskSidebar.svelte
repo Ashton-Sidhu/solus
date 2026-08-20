@@ -5,11 +5,7 @@
     TaskStatus,
     TaskUpdatePatch,
   } from "@solus/contracts/task-types";
-  import {
-    ArrowsClockwiseIcon,
-    CircleNotchIcon,
-    FolderIcon,
-  } from "phosphor-svelte";
+  import { RefreshCw as ArrowsClockwiseIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import CopyButton from "../../ui/CopyButton.svelte";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";

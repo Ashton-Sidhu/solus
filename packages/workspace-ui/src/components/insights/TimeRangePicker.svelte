@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon, CheckIcon, ClockIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon, Check as CheckIcon, Clock as ClockIcon } from "@lucide/svelte";
   import DateTimePicker from "../ui/DateTimePicker.svelte";
   import * as Popover from "../ui/popover";
   import { Separator } from "../ui/separator";

@@ -3,9 +3,12 @@ import {
   hostAffinityGlyph,
   hostStatusLabel,
 } from '@solus/workspace-ui/contexts/connections/host-affinity'
-import { AppleLogoIcon, GlobeSimpleIcon, LinuxLogoIcon, WindowsLogoIcon } from 'phosphor-svelte'
-
-describe('host affinity badge', () => {
+import {
+    Apple as AppleLogoIcon,
+    Earth as GlobeSimpleIcon,
+    Terminal as LinuxLogoIcon,
+    PanelsTopLeft as WindowsLogoIcon,
+  } from "@lucide/svelte";describe('host affinity badge', () => {
   test('every host surface shares one availability vocabulary', () => {
     // WHY: Connections, the server switcher, and the Run On picker describe the
     // same host state. Synonyms make one host look like it has multiple states.

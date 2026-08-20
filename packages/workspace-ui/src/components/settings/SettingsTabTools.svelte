@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { CaretDownIcon } from "phosphor-svelte";
+  import { ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import {
     getSettingsContext,

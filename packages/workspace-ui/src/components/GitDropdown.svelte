@@ -1,5 +1,11 @@
 <script lang="ts">
-  import { CheckIcon, GitBranchIcon, PlusIcon, SpinnerGapIcon, TreeStructureIcon } from "phosphor-svelte";
+  import {
+    Check as CheckIcon,
+    GitBranch as GitBranchIcon,
+    Plus as PlusIcon,
+    LoaderCircle as SpinnerGapIcon,
+    GitFork as TreeStructureIcon,
+  } from "@lucide/svelte";
   import { getSessionEnvironmentStore, getWorkspaceContext } from "../contexts";
   import * as Popover from "./ui/popover";
   import * as Command from "./ui/command";

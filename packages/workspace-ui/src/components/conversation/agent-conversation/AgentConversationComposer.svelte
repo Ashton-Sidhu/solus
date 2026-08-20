@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ArrowUpIcon } from "phosphor-svelte";
+  import { ArrowUp as ArrowUpIcon } from "@lucide/svelte";
 
   /**
    * The footer field. Sending here goes straight to that agent's session — it
