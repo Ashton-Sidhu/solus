@@ -68,7 +68,7 @@
     if (linkRoute) {
       e.preventDefault();
       session.openRoute(linkRoute, {
-        target: linkRoute.name === "prReview" ? "aside" : undefined,
+        target: linkRoute.name === "task" ? "new" : "aside",
         externalFallbackUrl:
           linkRoute.name === "prReview" && /^https:\/\//i.test(href)
             ? href

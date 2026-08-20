@@ -4,12 +4,14 @@ import { gitCheckoutFromState, projectScopeOf, type IpcContext, type GitCheckout
 import { discardChanges, syncWithOrigin, listBranches, listProjectWorktrees, getWorkingBranch, getDefaultBranch, restoreWorktree, createWorktree, buildCommitMessagePrompt, COMMIT_MESSAGE_SYSTEM_PROMPT, checkoutPrInRepo, type PrRepoCheckoutBlockReason } from '../../git/worktree-manager'
 import { runGitAction } from '../../git/git-action-manager'
 import { runAsync } from '../../git/exec'
-import { computeGitIdentity, computeGitState, resolveRepoRoot } from '../../git/git-helpers'
+import { computeGitIdentity, computeGitState, resolveRepoRef, resolveRepoRoot } from '../../git/git-helpers'
 import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '../../git/session-snapshots'
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import { Task } from '../../tasks/task'
-import { githubTokenForCheckout } from '../../providers/github/credentials'
+import { githubTokenForCheckout, hostGithubToken } from '../../providers/github/credentials'
+import { GitHubAuth } from '../../providers/github/auth'
+import { buildClient, buildDelegatedClient } from '../../providers/github/octokit'
 import type { SolusServer } from '../server'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
@@ -147,6 +149,15 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       getServerSettings().sourceControlWriting,
     )
     const writerModel = resolveSourceControlWriterModel()
+    const pullRequestRequested = request.action === 'create_pull_request'
+      || request.action === 'commit_push_pull_request'
+    const githubToken = pullRequestRequested ? githubTokenForCheckout(cwd) : null
+    const githubClient = githubToken
+      ? githubToken === hostGithubToken()
+        ? await buildClient(new GitHubAuth())
+        : buildDelegatedClient(githubToken)
+      : null
+    const githubRepo = githubClient ? await resolveRepoRef(cwd) : null
     const result = await runGitAction(request, gitContext, ctx.session.workingDirectory, {
       writer: {
         provider: writerModel.provider,
@@ -162,7 +173,9 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
       ),
       // `gh` must act as whoever the checkout's credential helper pushes as, so
       // a dispatched branch is not opened as a PR by the host owner.
-      githubToken: githubTokenForCheckout(cwd),
+      githubClient,
+      githubRepo,
+      githubToken,
       publish: (event) => {
         if (handlerCtx.clientId) deps.events.publish(handlerCtx.clientId, 'git.actionProgressed', event)
         else deps.events.broadcast('git.actionProgressed', event)

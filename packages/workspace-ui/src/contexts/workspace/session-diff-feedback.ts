@@ -86,7 +86,7 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   branchContext?: string
   /** Composer picks, applied to the fresh session before it dispatches. */
   provider?: AgentId
-  modelConfig?: { modelId: string | null; reasoningEffort: ReasoningEffort }
+  modelConfig?: { modelId: string | null; reasoningEffort: ReasoningEffort; fastMode: boolean }
   /** Run the fresh session in an isolated worktree off the source branch. */
   useWorktree?: boolean
   /** The tab the reviewer is looking at; its session's queued comments and run
@@ -108,6 +108,7 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   if (newSession && opts.modelConfig) {
     newSession.run.modelConfig.modelId = opts.modelConfig.modelId
     newSession.run.modelConfig.reasoningEffort = opts.modelConfig.reasoningEffort
+    newSession.run.modelConfig.fastMode = opts.modelConfig.fastMode
   }
   if (newSession && opts.useWorktree) {
     newSession.run.worktree = { baseBranch: session?.run.gitContext?.targetBranch ?? null }

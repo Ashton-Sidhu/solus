@@ -27,4 +27,13 @@ describe('agent link routes', () => {
   test('leaves other GitHub links external', () => {
     expect(routeForHref('https://github.com/openai/codex/issues/314')).toBeNull()
   })
+
+  test('opens task references on the host that wrote the transcript', () => {
+    // WHY: task links in assistant and user messages must resolve on their
+    // source host before the conversation opens them in a companion pane.
+    expect(routeForHref('task://ref?taskId=01JTASK', { serverId: 'host-a' })).toEqual({
+      name: 'task',
+      params: { taskId: '01JTASK', serverId: 'host-a' },
+    })
+  })
 })

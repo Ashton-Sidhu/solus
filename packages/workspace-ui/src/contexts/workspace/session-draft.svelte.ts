@@ -77,12 +77,12 @@ export function existingTaskId(task: TaskTarget): string | null {
 }
 
 /** The durable identity that owns a session's task attempt. A handoff keeps one
- * Solus identity while its provider thread changes, so provider ids are only a
- * fallback for sessions that have never entered a handoff chain. */
+ * Solus identity while its provider thread changes; a regular session uses the
+ * stable id that Solus registered when its first provider thread started. */
 export function taskBindingSessionId(
-  session: Pick<Session, 'handoffId' | 'agentSessionId'>,
+  session: Pick<Session, 'id' | 'handoffId'>,
 ): string | null {
-  return session.handoffId ?? session.agentSessionId
+  return session.handoffId ?? session.id
 }
 
 /** The task a newly minted one will hang under, when it has a parent. */

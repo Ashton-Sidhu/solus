@@ -154,6 +154,13 @@ describe('formatClock', () => {
     expect(formatClock(0)).toBe('00:00')
     expect(formatClock(-5)).toBe('00:00')
   })
+
+  // A weekly reset shown as hundreds of hours is difficult to scan. Once the
+  // wait reaches a full day, keep hours within their familiar 24-hour range.
+  it('shows full days instead of accumulating hours beyond 24 hours', () => {
+    expect(formatClock(24 * 3600)).toBe('1d 00:00:00')
+    expect(formatClock(49 * 3600 + 62)).toBe('2d 01:01:02')
+  })
 })
 
 describe('formatWaited', () => {

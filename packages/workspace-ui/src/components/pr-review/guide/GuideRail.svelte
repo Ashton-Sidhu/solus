@@ -231,7 +231,7 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    font-size: var(--text-sm);
+    font-size: var(--text-workspace-chrome);
     line-height: 1.25;
     text-align: left;
     transition:

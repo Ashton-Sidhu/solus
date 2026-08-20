@@ -42,19 +42,19 @@
 {#if visible}
   <div
     data-testid={testId}
-    class="border-t border-border px-4 py-3.5 transition-colors first:border-t-0 {comingSoon
+    class="border-t border-border px-4 py-3.5 transition-colors first:border-t-0 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5 {comingSoon
  ? 'opacity-55'
  : '[@media(hover:hover)]:hover:bg-muted'}"
   >
-    <div class="flex items-center gap-6">
+    <div class="flex items-center gap-6 [.is-laptop-display_&]:gap-5">
       <div class="min-w-0 flex-1">
         <div
-          class="flex items-center gap-2 text-sm font-medium text-(--solus-text-primary)"
+          class="flex items-center gap-2 text-workspace-chrome font-medium text-(--solus-text-primary) [.is-laptop-display_&]:gap-1.5"
         >
           <span>{label}{@render labelExtra?.()}</span>
           {#if comingSoon}
             <span
-              class="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-xs leading-[1.5] font-medium uppercase tracking-[0.04em] text-muted-foreground sm:text-xs"
+              class="shrink-0 whitespace-nowrap rounded-full border border-border px-1.5 py-px text-[0.875em] leading-[1.5] font-medium uppercase tracking-[0.04em] text-muted-foreground"
             >
               Coming soon
             </span>
@@ -62,7 +62,7 @@
         </div>
         {#if description}
           <div
-            class="mt-0.5 text-pretty text-xs text-muted-foreground"
+            class="mt-0.5 text-pretty text-[0.875em] text-muted-foreground"
           >
             {description}
           </div>
@@ -73,7 +73,7 @@
       {/if}
     </div>
     {#if body && bodyVisible}
-      <div class="mt-3">{@render body()}</div>
+      <div class="mt-3 [.is-laptop-display_&]:mt-2.5">{@render body()}</div>
     {/if}
   </div>
 {/if}

@@ -455,7 +455,14 @@ export class PlanStore {
     descriptors: PlanDescriptor[]
     failedServerIds: Set<string>
   }> {
-    const results = await Promise.all(serverConnections.connectedServerIds().map(async (serverId) => {
+    const catalogServerIds = serverConnections.connectedServerIds()
+    const serverIds = catalogServerIds.filter(
+      (serverId) => serverConnections.phaseFor(serverId) === 'connected',
+    )
+    const failedServerIds = new Set(
+      catalogServerIds.filter((serverId) => !serverIds.includes(serverId)),
+    )
+    const results = await Promise.all(serverIds.map(async (serverId) => {
       try {
         return { serverId, descriptors: await serverConnections.apiFor(serverId).listPlans(projectPath, allProjects, ctx) }
       } catch (error) {
@@ -464,7 +471,6 @@ export class PlanStore {
       }
     }))
     const descriptors: PlanDescriptor[] = []
-    const failedServerIds = new Set<string>()
     for (const result of results) {
       if (!result.descriptors) {
         failedServerIds.add(result.serverId)
@@ -500,6 +506,7 @@ export class PlanStore {
     allProjects: boolean,
     ctx?: IpcContext,
     cached?: PlanDescriptor[],
+    force = false,
   ): Promise<PlanDescriptor[]> {
     this.setDescriptorLoading(key, true)
     try {
@@ -508,7 +515,7 @@ export class PlanStore {
         const loaded = await this.loadDescriptorUnion(projectPath, allProjects, ctx)
         failedServerIds = loaded.failedServerIds
         return loaded.descriptors
-      })
+      }, { force })
       const merged = this.mergeWithCached(fresh, cached, failedServerIds)
       this._descriptorCache.set(key, merged)
       if (this.cachedDescriptorKey === key) this.cachedDescriptors = merged
@@ -553,6 +560,14 @@ export class PlanStore {
     }
     if (this._descriptorLoads.has(key)) return
     void this.refreshDescriptors(key, undefined, true, ctx, cached?.value).catch(() => {})
+  }
+
+  /** Refresh the Workspace ledger after a catalog host becomes available. */
+  refreshAllDescriptors(ctx?: IpcContext): Promise<PlanDescriptor[]> {
+    const key = this.descriptorCacheKey(undefined, true)
+    this.resetVisibleDescriptorsForKey(key)
+    const cached = this._descriptorCache.getEntry(key, { allowStale: true })?.value
+    return this.refreshDescriptors(key, undefined, true, ctx, cached, true)
   }
 
   // ─── Persistence ───

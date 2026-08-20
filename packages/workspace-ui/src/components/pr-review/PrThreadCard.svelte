@@ -221,8 +221,6 @@
             value={replyText}
             onValueChange={(md) => (replyText = md)}
             onKeyDown={onReplyKey}
-            enterInsertsNewline
-            hidePlaceholderOnFocus
             maxHeight={140}
             placeholder="Reply…"
             class={replyFieldClass}

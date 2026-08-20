@@ -14,6 +14,7 @@
   import { UnifiedAutocompleteController } from "../editor/autocomplete.svelte";
   import type { AutocompleteEditor } from "../editor/autocomplete-editor";
   import { resolveAutocompleteScope } from "../editor/autocomplete-scope";
+  import { createReferenceNavigation } from "../editor/reference-navigation";
 
   interface Props {
     value: string;
@@ -111,6 +112,10 @@
   const autocompleteScope = $derived(
     resolveAutocompleteScope(session, workingDirectory, tabId, serverId),
   );
+  const referenceNavigation = createReferenceNavigation(session, {
+    workingDirectory: () => workingDirectory,
+    tabId: () => tabId,
+  });
 
   let plainTextEditorEl: ReturnType<typeof PlainTextEditor> | null =
     $state(null);
@@ -230,6 +235,7 @@
 {#if ac.open}
   <UnifiedAutocompleteMenu
     rows={ac.rows}
+    triggerChar={ac.trigger!.char}
     selectedIndex={ac.selectedIndex}
     anchorRect={ac.cursorAnchorRect}
     onActivate={ac.activate}
@@ -257,10 +263,10 @@
     onFocus?.();
   }}
   {onBlur}
-  {onPlanRefClick}
-  {onWorkRefClick}
-  {onPrRefClick}
-  {onFileRefClick}
+  onPlanRefClick={onPlanRefClick ?? referenceNavigation.openPlan}
+  onWorkRefClick={onWorkRefClick ?? referenceNavigation.openWork}
+  onPrRefClick={onPrRefClick ?? referenceNavigation.openPr}
+  onFileRefClick={onFileRefClick ?? referenceNavigation.openFile}
   {placeholder}
   ariaLabel="Message input"
   {disabled}

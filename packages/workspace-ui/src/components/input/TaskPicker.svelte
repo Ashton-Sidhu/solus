@@ -8,6 +8,7 @@
   import { MenuFooter, MenuSearch } from "../ui/menu";
   import * as Popover from "../ui/popover";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { taskPickerSections } from "../tasks/lib/task-picker-sections";
   import RoundedTaskIcon from "./RoundedTaskIcon.svelte";
 
   interface Props {
@@ -38,6 +39,7 @@
           task.status !== "dropped",
       ),
   );
+  const taskSections = $derived(taskPickerSections(tasks));
   const label = $derived(
     selectedTask?.title ?? (target.kind === "none" ? "No task" : "New task"),
   );
@@ -151,27 +153,29 @@
         <Command.Empty class="px-2.5 py-3 text-center text-xs text-(--solus-text-tertiary)">
           No tasks match
         </Command.Empty>
-        <Command.Group heading="Open tasks">
-          {#each tasks as task (task.id)}
-            <Command.Item
-              value="{task.title} {task.shortId ?? ''} {task.id}"
-              onSelect={() => select({ kind: "existing", taskId: task.id })}
-              data-menu-current={selectedTask?.id === task.id
-                ? ""
-                : undefined}
-              class="menu-item-stagger"
-            >
-              <RoundedTaskIcon
-                size={13}
-                class="shrink-0 text-(--solus-text-tertiary)"
-              />
-              <span class="min-w-0 flex-1 truncate">{task.title}</span>
-              {#if selectedTask?.id === task.id}
-                <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
-              {/if}
-            </Command.Item>
-          {/each}
-        </Command.Group>
+        {#each taskSections as section (section.key)}
+          <Command.Group heading={section.label}>
+            {#each section.tasks as task (task.id)}
+              <Command.Item
+                value="{task.title} {task.shortId ?? ''} {task.id}"
+                onSelect={() => select({ kind: "existing", taskId: task.id })}
+                data-menu-current={selectedTask?.id === task.id
+                  ? ""
+                  : undefined}
+                class="menu-item-stagger"
+              >
+                <RoundedTaskIcon
+                  size={13}
+                  class="shrink-0 text-(--solus-text-tertiary)"
+                />
+                <span class="min-w-0 flex-1 truncate">{task.title}</span>
+                {#if selectedTask?.id === task.id}
+                  <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
+                {/if}
+              </Command.Item>
+            {/each}
+          </Command.Group>
+        {/each}
       </Command.List>
     </Command.Root>
     <MenuFooter hints={[["⏎", "select"]]} summary="{tasks.length} tasks" />

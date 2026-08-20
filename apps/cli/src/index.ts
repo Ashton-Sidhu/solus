@@ -8,7 +8,7 @@ import { basename, dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
 import { renderQrAscii } from './lib/qr'
 import { defaultDataDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type ServerLock } from './lib/runtime'
-import { bestEndpoint, extractGitCredentialAction, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '@solus/contracts/entrypoint'
+import { bestEndpoint, extractGitCredentialAction, formatPairBlock, hostForUrl, parseFlags, parsePort } from '@solus/contracts/entrypoint'
 import packageJson from '../../../package.json'
 
 const DEFAULT_RELEASE_REPO = process.env.SOLUS_RELEASE_REPO || 'Ashton-Sidhu/solus'
@@ -68,8 +68,8 @@ async function main(argv: string[]): Promise<void> {
     case 'logs':
       await logs(parseLogsOptions(rest))
       return
-    case 'claim':
-      await claim(parseCommonOptions(rest))
+    case 'pair':
+      await pair(parseCommonOptions(rest))
       return
     case 'auth':
       await auth(rest)
@@ -91,7 +91,7 @@ function printHelp(): void {
 Usage:
   solus start [--data-dir PATH] [--host HOST] [--port PORT]
   solus logs [--data-dir PATH] [--lines N]
-  solus claim [--data-dir PATH]
+  solus pair [--data-dir PATH]
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
   solus git-credential <get|store|erase> [--data-dir PATH] [--delegation DEVICE_ID]
   solus update [--repo OWNER/REPO]
@@ -125,7 +125,7 @@ async function logs(opts: LogsOptions): Promise<void> {
   process.exitCode = code ?? 1
 }
 
-async function claim(opts: CommonOptions): Promise<void> {
+async function pair(opts: CommonOptions): Promise<void> {
   const paths = runtimePaths(opts.dataDir)
   const lock = readLockFile(paths.lockFile)
   if (!lock || !isProcessAlive(lock.pid)) throw new Error('Solus server is not running')
@@ -133,13 +133,13 @@ async function claim(opts: CommonOptions): Promise<void> {
   const signingKey = readSigningKey(paths.dataDir)
   if (!signingKey) throw new Error(`No server signing key found at ${join(paths.dataDir, 'server-keys.json')}`)
 
-  const response = await fetch(`${serverBaseUrl(lock)}/claim/open`, {
+  const response = await fetch(`${serverBaseUrl(lock)}/pair/open`, {
     method: 'POST',
     headers: createAdminHeaders(signingKey),
   })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(`Could not open claim window: ${body?.error ?? response.statusText}`)
+    throw new Error(`Could not create pair token: ${body?.error ?? response.statusText}`)
   }
 
   const endpoint = bestEndpoint(Array.isArray(body.endpoints) ? body.endpoints : []) ?? {
@@ -147,12 +147,12 @@ async function claim(opts: CommonOptions): Promise<void> {
     port: lock.port,
   }
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
-  const claimUrl = `${baseUrl}/pair#claim=${body.code}`
+  const pairUrl = `${baseUrl}/pair#token=${body.token}`
   console.log([
-    'Solus server claim',
-    ...formatClaimBlock(claimUrl, body.code, Number(body.expiresAt), body.fingerprint),
+    'Pair with Solus server',
+    ...formatPairBlock(pairUrl, body.code, Number(body.expiresAt), body.fingerprint),
     '',
-    renderQrAscii(claimUrl),
+    renderQrAscii(pairUrl),
   ].join('\n'))
 }
 

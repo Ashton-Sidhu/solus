@@ -4,6 +4,7 @@
     Check as CheckIcon,
     Code as CodeIcon,
     LoaderCircle as SpinnerGapIcon,
+    Zap as LightningIcon,
   } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
   import OpenAIBlossom from "./OpenAIBlossom.svelte";
@@ -17,9 +18,11 @@
   } from "@solus/contracts/types";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { toasts } from "../../lib/toasts";
   import { comboHint } from "../../lib/keybindings/manifest";
   import { cn } from "@solus/workspace-ui/lib/tw";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import { Switch } from "../ui/switch";
   import { MenuFooter } from "../ui/menu";
   import {
     clampReasoningEffort,
@@ -28,6 +31,7 @@
     modelPickerNavigationTarget,
     modelOptionsFor,
     reasoningLevelsFor,
+    supportsFastModeFor,
     type ModelPickerColumn,
     type PickerSelection,
   } from "./lib/picker-selection";
@@ -122,6 +126,7 @@
     detached ? reasoningLevelsFor(activeAgent, currentModelId) : ctx.reasoningLevels,
   );
   const reasoningLabel = $derived(REASONING_EFFORT_LABELS[reasoningEffort] ?? "High");
+  const fastMode = $derived(selection?.fastMode ?? ctx.fastMode);
 
   // Agent. Unavailable agents stay on the list, disabled: dropping them left the
   // flyout blank whenever a binary probe came back empty, with nothing on screen
@@ -194,13 +199,22 @@
     const pendingModelId =
       hoveredModelId && hoveredModelId !== currentModelId ? hoveredModelId : null;
     if (selection) {
-      if (pendingModelId) selection.modelId = pendingModelId;
+      if (pendingModelId) {
+        selection.modelId = pendingModelId;
+        selection.fastMode = false;
+      }
       selection.reasoningEffort = effort;
       onSelectionChange?.(selection);
       return;
     }
     session.updateModelConfig(
-      pendingModelId ? { modelId: pendingModelId, reasoningEffort: effort } : { reasoningEffort: effort },
+      pendingModelId
+        ? {
+            modelId: pendingModelId,
+            reasoningEffort: effort,
+            fastMode: false,
+          }
+        : { reasoningEffort: effort },
       tabId,
     );
   }
@@ -209,10 +223,11 @@
     if (selection) {
       selection.modelId = modelId;
       selection.reasoningEffort = clampReasoningEffort(selection.provider, modelId, selection.reasoningEffort);
+      selection.fastMode = false;
       onSelectionChange?.(selection);
       return;
     }
-    session.updateModelConfig({ modelId }, tabId);
+    session.updateModelConfig({ modelId, fastMode: false }, tabId);
   }
   function selectAgent(id: AgentId) {
     if (selection) {
@@ -220,10 +235,48 @@
       selection.provider = id;
       selection.modelId = modelId;
       selection.reasoningEffort = clampReasoningEffort(id, modelId, selection.reasoningEffort);
+      if (!supportsFastModeFor(id, modelId)) selection.fastMode = false;
       onSelectionChange?.(selection);
       return;
     }
     void session.switchActiveAgent(id, tabId);
+  }
+
+  function applyFastMode(modelId: string, enabled: boolean) {
+    if (selection) {
+      if (selection.modelId !== modelId) {
+        selection.modelId = modelId;
+        selection.reasoningEffort = clampReasoningEffort(
+          selection.provider,
+          modelId,
+          selection.reasoningEffort,
+        );
+      }
+      selection.fastMode = enabled;
+      onSelectionChange?.(selection);
+      return;
+    }
+    session.updateModelConfig(
+      modelId !== currentModelId ? { modelId, fastMode: enabled } : { fastMode: enabled },
+      tabId,
+    );
+  }
+
+  function setFastMode(enabled: boolean) {
+    const modelId = currentModelId;
+    if (!modelId) return;
+    applyFastMode(modelId, enabled);
+    if (!enabled) return;
+    toasts.info(`Fast mode on · ${modelLabel}`, {
+      id: "codex-fast-mode",
+      description: "This can consume your Codex usage allowance more quickly.",
+      duration: 5_000,
+      closeButton: true,
+      action: {
+        label: "Turn off",
+        onAction: () => applyFastMode(modelId, false),
+      },
+    });
   }
 
   function handleCloseAutoFocus(event: Event) {
@@ -311,14 +364,20 @@
         <!-- Codex's mark is solid black, so it keeps a white plate to stay
              legible in dark mode; the others take the accent directly. -->
         <span
-          class="flex flex-shrink-0 items-center justify-center text-(--solus-accent) {isCodex
-            ? 'h-5 w-5 rounded-full bg-white'
+        class="flex flex-shrink-0 items-center justify-center {isCodex
+            ? fastMode
+              ? 'h-5 w-5 text-amber-500 dark:text-amber-300'
+              : 'h-5 w-5 rounded-full bg-white text-(--solus-accent)'
             : ''}"
         >
           {#if isClaude}
             <ClaudeIcon size={13} />
           {:else if isCodex}
-            <OpenAIBlossom size={13} />
+            {#if fastMode}
+              <LightningIcon size={14} fill="currentColor" />
+            {:else}
+              <OpenAIBlossom size={13} />
+            {/if}
           {:else}
             <CodeIcon size={13} class="flex-shrink-0" />
           {/if}
@@ -353,7 +412,10 @@
     side={menuSide}
     align="end"
     sideOffset={6}
-    class={modelOnly ? "w-[344px] overflow-visible p-0" : "w-[452px] overflow-visible p-0"}
+    class={cn(
+      "overflow-visible p-0 text-workspace-chrome [&_.menu-row]:text-workspace-chrome",
+      modelOnly ? "w-[344px]" : "w-[452px]",
+    )}
     onCloseAutoFocus={handleCloseAutoFocus}
     onkeydown={handlePickerKeyDown}
     onpointerleave={() => {
@@ -422,17 +484,19 @@
               {/each}
             </div>
           </DropdownMenu.RadioGroup>
-          <!-- Always rendered, one line tall: appearing on hover would grow the
-               column and shift everything under it. -->
-          <p
-            class="h-[1.375rem] truncate px-2.5 pt-1.5 text-xs leading-4 text-(--solus-text-tertiary)"
-            class:invisible={!(previewModelLabel && previewReasoning)}
-          >
-            Default for {previewModelLabel ?? ""}
-          </p>
-
           <div class="min-h-2 flex-1"></div>
           <DropdownMenu.Separator />
+          {#if isCodex && supportsFastModeFor(activeAgent, currentModelId)}
+            <div class="flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-menu text-(--solus-text-secondary)">
+              <span class="min-w-0 flex-1 text-(--solus-text-tertiary)">Fast mode</span>
+              <Switch
+                size="sm"
+                checked={fastMode}
+                onCheckedChange={setFastMode}
+                aria-label="Fast mode for {modelLabel}"
+              />
+            </div>
+          {/if}
           <DropdownMenu.Sub>
             <DropdownMenu.SubTrigger data-picker-column="reasoning">
               <span class="flex-1 text-(--solus-text-tertiary)">Agent</span>

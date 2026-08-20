@@ -241,7 +241,6 @@ export interface DiscoveredServer {
   port: number
   name: string
   installationId: string
-  claimable: boolean
   os?: HostOperatingSystem
   source: 'lan' | 'tailnet'
 }
@@ -250,8 +249,6 @@ export interface SshBootstrapCredential {
   sessionToken: string
   installationId: string
   fingerprint: string
-  ownerDeviceId?: string
-  claimedAt?: number
 }
 
 export interface SshTargetCandidate {

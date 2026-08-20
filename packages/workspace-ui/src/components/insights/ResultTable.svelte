@@ -122,8 +122,8 @@
     class="flex min-h-13 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 shadow-[inset_0_-0.5px_0_var(--hairline-strong)]"
   >
     <div class="flex min-w-0 shrink-0 items-baseline gap-2">
-      <h2 class="text-[0.8125rem] font-medium text-foreground">Result</h2>
-      <p class="truncate text-xs tabular-nums text-muted-foreground">
+      <h2 class="text-insights-chrome font-medium text-foreground">Result</h2>
+      <p class="truncate text-insights-chrome tabular-nums text-muted-foreground">
         {result.rows.length} {result.rows.length === 1 ? 'row' : 'rows'} · {result.columns.length} columns
       </p>
     </div>
@@ -143,7 +143,7 @@
               {@const sorted = header.column.getIsSorted()}
               <Table.Head
                 colspan={header.colSpan}
-                class="group/head relative h-9 px-3 text-xs font-normal text-muted-foreground"
+                class="group/head relative h-9 px-3 text-insights-table font-normal text-muted-foreground"
                 style="{trackStyle(index, header.getSize())};text-align:{numericColumns[index] ? 'right' : 'left'}"
                 aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}
               >
@@ -186,7 +186,7 @@
               {@const value = cell.getValue() as MetricsValue}
               {@const emphasis = columnEmphasis(gridColumns[index])}
               <Table.Cell
-                class="truncate px-3 py-0 text-xs {emphasis === 'primary' ? 'font-medium' : ''} {numericColumns[index] ? 'tabular-nums' : ''}"
+                class="truncate px-3 py-0 text-insights-table {emphasis === 'primary' ? 'font-medium' : ''} {numericColumns[index] ? 'tabular-nums' : ''}"
                 style="{trackStyle(index, cell.column.getSize())};text-align:{numericColumns[index]
                   ? 'right'
                   : 'left'};color:{emphasis === 'secondary'

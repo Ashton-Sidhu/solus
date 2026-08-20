@@ -99,9 +99,8 @@
 
   // Wider than the disclosure column it steps past, so nesting reads as nesting
   // at a glance rather than as a row that happens to start slightly late.
-  const INDENT_REM = 1.375;
-  const ROW_PAD_REM = 0.375;
-  const indentFor = (depth: number) => `${ROW_PAD_REM + depth * INDENT_REM}rem`;
+  const indentFor = (depth: number) =>
+    `calc(var(--diff-row-pad) + ${depth} * var(--diff-indent))`;
 
   /** The row stays marked for as long as the pane still shows that file. */
   const openFilePath = $derived(
@@ -117,7 +116,7 @@
       : 'rounded-2xl pointer-fine:[.is-laptop-display_&]:rounded-xl'}"
     data-testid="diff-summary"
   >
-    <div class="flex items-center gap-2">
+    <div class="diff-summary-header flex items-center gap-2">
       <button
         type="button"
         class="diff-header flex min-w-0 flex-1 items-center gap-2"
@@ -247,6 +246,13 @@
   /* Three quarters of the reading column, collapsed and open alike, so the card
      reads as a footnote to the turn rather than another message in it. */
   .diff-summary {
+    --diff-indent: 1.375rem;
+    --diff-row-pad: 0.375rem;
+    --diff-row-gap: 0.5rem;
+    --diff-row-block-pad: 0.25rem;
+    --diff-icon-size: 0.8125rem;
+    --diff-bar-width: 2.125rem;
+
     width: 75%;
     background: var(--card);
     /* A step up from the transcript's shared hairline: this card is a control
@@ -259,6 +265,23 @@
     width: 100%;
     background: transparent;
     box-shadow: none;
+  }
+
+  :global(html.is-laptop-display) .diff-summary {
+    --diff-indent: 1.125rem;
+    --diff-row-pad: 0.3125rem;
+    --diff-row-gap: 0.375rem;
+    --diff-row-block-pad: 0.1875rem;
+    --diff-icon-size: 0.75rem;
+    --diff-bar-width: 1.75rem;
+  }
+
+  :global(html.is-laptop-display) .diff-summary:not(.diff-summary-embedded) {
+    width: 70%;
+  }
+
+  :global(html.is-laptop-display) .diff-summary-header {
+    gap: 0.375rem;
   }
 
   /* The card is the last thing in the transcript, so an unbounded tree opens
@@ -275,6 +298,10 @@
     overscroll-behavior: contain;
   }
 
+  :global(html.is-laptop-display) .diff-body {
+    max-height: min(19rem, 36vh);
+  }
+
   .diff-header {
     border: none;
     background: transparent;
@@ -287,10 +314,10 @@
   .diff-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
+    gap: var(--diff-row-gap);
     border: none;
     border-radius: 0.375rem;
-    padding: 0.25rem 0.375rem;
+    padding: var(--diff-row-block-pad) var(--diff-row-pad);
     background: transparent;
     color: inherit;
     text-align: left;
@@ -306,8 +333,8 @@
 
   .diff-icon {
     flex-shrink: 0;
-    width: 0.8125rem;
-    height: 0.8125rem;
+    width: var(--diff-icon-size);
+    height: var(--diff-icon-size);
     opacity: 0.75;
   }
 
@@ -363,7 +390,7 @@
   /* Folder rows only: the one place a row stands for many files, so the split
      between added and removed is worth a shape as well as two numbers. */
   .diff-bar {
-    width: 2.125rem;
+    width: var(--diff-bar-width);
     height: 0.1875rem;
     background: color-mix(in oklch, var(--foreground) 8%, transparent);
   }

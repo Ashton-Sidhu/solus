@@ -1,7 +1,7 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import type { AgentId } from '@solus/contracts/types'
 import { serializeReferenceToken } from './reference-tokens'
-import { tokenClassName, TOKEN_ICONS } from './tokenStyle'
+import { linkTokenClassName, TOKEN_ICONS } from './tokenStyle'
 
 export interface SessionRefAttrs {
   sessionId: string
@@ -91,7 +91,7 @@ export const SessionRefExtension = Node.create({
     return ['span', mergeAttributes(HTMLAttributes, {
       'data-session-ref': node.attrs.sessionId,
       contenteditable: 'false',
-      class: tokenClassName('session'),
+      class: linkTokenClassName('session'),
     }),
       ['span', { class: 'solus-token__icon' }, TOKEN_ICONS.session],
       ['span', {}, node.attrs.title],

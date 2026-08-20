@@ -78,7 +78,7 @@
   const railItems = $derived(mainSections.map((s) => ({ id: s.id, title: s.title })));
 </script>
 
-<div class="text-sm relative min-h-0 flex-1">
+<div class="text-workspace-chrome relative min-h-0 flex-1">
   <GuideRail items={railItems} {scrollEl} />
 
   <div bind:this={scrollEl} class="h-full overflow-y-auto">
@@ -90,7 +90,7 @@
              deep top pad on top of them read as a hole rather than as air. The
              weight stays below the header, where the guide starts. -->
         <header class="guide-intro border-b border-(--solus-art-border) pt-6 pr-8 pb-10 pl-14">
-          <h1 class="text-2xl leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
+          <h1 class="text-[1.714em] leading-[1.15] font-medium text-balance text-(--solus-text-primary)">
             {guide.title}
           </h1>
 
@@ -152,7 +152,7 @@
           {/if}
 
           {#if guide.summary}
-            <div class="prose-cloud prose-reading mt-4 max-w-[54rem] font-secondary text-(--solus-text-secondary)">
+            <div class="prose-cloud prose-reading prose-review-guide mt-4 max-w-[54rem] font-secondary text-(--solus-text-secondary)">
               <SvelteMarkdown source={guide.summary} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
             </div>
           {/if}

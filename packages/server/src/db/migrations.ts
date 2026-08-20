@@ -618,6 +618,54 @@ CREATE TABLE saved_metrics_queries (
   updated_at INTEGER NOT NULL
 );
 `,
+  // A first dispatch was briefly linked twice: the renderer used the stable
+  // Solus session id while ControlPlane used the provider thread id. Fold the
+  // provider aliases into their lineage id so existing task rows stop showing
+  // the same conversation twice. New writes use the stable id at both edges.
+  `
+INSERT INTO task_session_links(
+  task_id, session_id, role, branch, pr, execution_server_id, linked_at
+)
+SELECT
+  task_session_links.task_id,
+  session_lineage_members.session_id,
+  task_session_links.role,
+  task_session_links.branch,
+  task_session_links.pr,
+  task_session_links.execution_server_id,
+  task_session_links.linked_at
+FROM task_session_links
+JOIN session_lineage_members
+  ON session_lineage_members.provider_session_id = task_session_links.session_id
+WHERE session_lineage_members.session_id <> task_session_links.session_id
+ON CONFLICT(task_id, session_id) DO UPDATE SET
+  role = excluded.role,
+  branch = COALESCE(excluded.branch, task_session_links.branch),
+  pr = COALESCE(excluded.pr, task_session_links.pr),
+  execution_server_id = COALESCE(excluded.execution_server_id, task_session_links.execution_server_id),
+  linked_at = MIN(excluded.linked_at, task_session_links.linked_at);
+
+UPDATE tasks
+SET origin_session_id = (
+  SELECT session_lineage_members.session_id
+  FROM session_lineage_members
+  WHERE session_lineage_members.provider_session_id = tasks.origin_session_id
+)
+WHERE EXISTS (
+  SELECT 1
+  FROM session_lineage_members
+  WHERE session_lineage_members.provider_session_id = tasks.origin_session_id
+    AND session_lineage_members.session_id <> tasks.origin_session_id
+);
+
+DELETE FROM task_session_links
+WHERE EXISTS (
+  SELECT 1
+  FROM session_lineage_members
+  WHERE session_lineage_members.provider_session_id = task_session_links.session_id
+    AND session_lineage_members.session_id <> task_session_links.session_id
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

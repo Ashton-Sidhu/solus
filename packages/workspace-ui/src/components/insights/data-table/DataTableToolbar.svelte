@@ -33,7 +33,7 @@
     />
     <Input
       aria-label="Filter table rows"
-      class="h-8 rounded-full border-0 bg-[var(--wash-1)] pr-7 pl-8 text-xs shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[background-color,box-shadow] placeholder:text-muted-foreground/70 hover:bg-[var(--wash-2)] focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_var(--ring),0_0_0_3px_color-mix(in_oklch,var(--ring)_12%,transparent)] pointer-coarse:h-10"
+      class="h-8 rounded-full border-0 bg-[var(--wash-1)] pr-7 pl-8 text-insights-chrome shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[background-color,box-shadow] placeholder:text-muted-foreground/70 hover:bg-[var(--wash-2)] focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_var(--ring),0_0_0_3px_color-mix(in_oklch,var(--ring)_12%,transparent)] pointer-coarse:h-10"
       placeholder={filterPlaceholder}
       value={filter}
       oninput={(event) => table.setGlobalFilter(event.currentTarget.value)}
@@ -51,7 +51,7 @@
   </div>
 
   {#if filter && filteredRows !== allRows}
-    <span class="hidden shrink-0 text-xs tabular-nums text-muted-foreground sm:inline">
+    <span class="hidden shrink-0 text-insights-chrome tabular-nums text-muted-foreground sm:inline">
       {filteredRows} of {allRows}
     </span>
   {/if}

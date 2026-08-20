@@ -289,6 +289,15 @@
     });
   });
 
+  $effect(() =>
+    serverConnections.onPhaseChange((_serverId, phase) => {
+      if (phase !== "connected" || !open) return;
+      const ipcCtx = session.ctx;
+      void planStore.refreshAllDescriptors(ipcCtx).catch(() => {});
+      void session.worksStore.loadAll(session.galleryProjectPath);
+    }),
+  );
+
   // ── Derived ledger ──
   const filtered: WorkspaceItem[] = $derived(
     sortItems(applyFilter(items, filter), sort),

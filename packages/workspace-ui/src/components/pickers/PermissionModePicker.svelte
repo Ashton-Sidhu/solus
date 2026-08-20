@@ -1,5 +1,10 @@
 <script lang="ts">
-  import { ChevronDown as CaretDownIcon, ShieldCheck as ShieldCheckIcon, Pencil as PencilIcon } from "@lucide/svelte";
+  import {
+    ChevronDown as CaretDownIcon,
+    ShieldCheck as ShieldCheckIcon,
+    ShieldEllipsis as ShieldPlanIcon,
+    ShieldQuestionMark as ShieldQuestionIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext, getAgentContext, getStatusBarContext } from '../../contexts'
   import type { RunConfig } from '@solus/contracts/types'
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -12,7 +17,6 @@
     id: PermissionMode
     label: string
     icon: typeof ShieldCheckIcon
-    weight: "regular" | "fill"
   }
 
   const session = getWorkspaceContext()
@@ -53,9 +57,9 @@
     return 'Permission mode'
   })
   const permissionOptions = $derived(([
-    { id: 'ask', label: 'Ask', icon: ShieldCheckIcon, weight: 'regular' },
-    { id: 'auto', label: 'Auto', icon: ShieldCheckIcon, weight: 'fill' },
-    { id: 'plan', label: 'Plan', icon: PencilIcon, weight: isPlan ? 'fill' : 'regular' },
+    { id: 'ask', label: 'Ask', icon: ShieldQuestionIcon },
+    { id: 'auto', label: 'Auto', icon: ShieldCheckIcon },
+    { id: 'plan', label: 'Plan', icon: ShieldPlanIcon },
   ] satisfies PermissionOption[]).filter((opt) => opt.id !== 'plan' || supportsPlan))
 
   function handleToggle() {
@@ -103,7 +107,7 @@
         class="flex h-[1.875rem] items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
-        {#if isPlan}<PencilIcon size={12} weight="fill" class="text-(--solus-accent)" />{:else}<ShieldCheckIcon size={12} weight={isAuto ? 'fill' : 'regular'} class="text-(--solus-accent)" />{/if}
+        {#if isPlan}<ShieldPlanIcon size={14} class="w-4 shrink-0 text-(--solus-accent)" />{:else if isAuto}<ShieldCheckIcon size={14} class="w-4 shrink-0 text-(--solus-accent)" />{:else}<ShieldQuestionIcon size={14} class="w-4 shrink-0 text-(--solus-accent)" />{/if}
         {#if !compact}<span class="font-medium">{modeLabel}</span>{/if}
         <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
       </button>
@@ -113,14 +117,19 @@
       </TooltipUI.Root>
     {/snippet}
   </DropdownMenu.Trigger>
-  <DropdownMenu.Content side="bottom" align="start" sideOffset={6} class="w-[176px]">
+  <DropdownMenu.Content
+    side="bottom"
+    align="start"
+    sideOffset={6}
+    class="w-[176px] text-workspace-chrome [&_.menu-row]:text-workspace-chrome"
+  >
     <DropdownMenu.RadioGroup value={permissionMode}>
       {#each permissionOptions as opt (opt.id)}
         {@const Icon = opt.icon}
         {@const isChecked = permissionMode === opt.id}
         <DropdownMenu.RadioItem value={opt.id} class="gap-2.5 pl-1.5" onSelect={() => selectPermissionMode(opt.id)}>
           <span class="flex size-6 shrink-0 items-center justify-center rounded-lg transition-colors {isChecked ? 'bg-[color-mix(in_srgb,var(--solus-accent)_16%,transparent)] text-(--solus-accent)' : 'bg-(--solus-surface-hover)'}">
-            <Icon size={13} weight={opt.weight} class="size-3.5" />
+            <Icon size={15} class="h-[15px] w-[17px]" />
           </span>
           <span>{opt.label}</span>
         </DropdownMenu.RadioItem>

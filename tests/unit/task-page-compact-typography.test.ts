@@ -7,26 +7,39 @@ function source(relativePath: string): string {
 }
 
 const header = source(
-  "src/renderer/components/tasks/task-page/TaskHeader.svelte",
+  "packages/workspace-ui/src/components/tasks/task-page/TaskHeader.svelte",
 );
 const sidebar = source(
-  "src/renderer/components/tasks/task-page/TaskSidebar.svelte",
+  "packages/workspace-ui/src/components/tasks/task-page/TaskSidebar.svelte",
 );
 const sessions = source(
-  "src/renderer/components/tasks/task-page/TaskSessionsList.svelte",
+  "packages/workspace-ui/src/components/tasks/task-page/TaskSessionsList.svelte",
 );
 const linked = source(
-  "src/renderer/components/tasks/task-page/TaskLinkedTable.svelte",
+  "packages/workspace-ui/src/components/tasks/task-page/TaskLinkedTable.svelte",
 );
 const taskPrs = source(
-  "src/renderer/components/tasks/task-page/TaskPrList.svelte",
+  "packages/workspace-ui/src/components/tasks/task-page/TaskPrList.svelte",
 );
 const taskPage = source(
-  "src/renderer/components/tasks/task-page/TaskPage.svelte",
+  "packages/workspace-ui/src/components/tasks/task-page/TaskPage.svelte",
 );
-const tasksPage = source("src/renderer/components/tasks/TasksPage.svelte");
-const listRow = source("src/renderer/components/ui/list-page/ListRow.svelte");
-const rendererCss = source("src/renderer/index.css");
+const tasksPage = source(
+  "packages/workspace-ui/src/components/tasks/TasksPage.svelte",
+);
+const prsPage = source(
+  "packages/workspace-ui/src/components/prs/PrsPage.svelte",
+);
+const inboxRow = source(
+  "packages/workspace-ui/src/components/ui/list-page/InboxRow.svelte",
+);
+const listRow = source(
+  "packages/workspace-ui/src/components/ui/list-page/ListRow.svelte",
+);
+const listRailRow = source(
+  "packages/workspace-ui/src/components/ui/list-page/ListRailRow.svelte",
+);
+const rendererCss = source("packages/workspace-ui/src/index.css");
 
 describe("compact task typography", () => {
   test("uses metadata-sized text throughout task detail content", () => {
@@ -60,7 +73,9 @@ describe("compact task typography", () => {
       "pointer-coarse:[--text-workspace-chrome:0.875rem]",
     );
     expect(tasksPage).toMatch(/<ListRow[\s\S]*?responsiveTitle/);
+    expect(tasksPage).toMatch(/<InboxRow[\s\S]*?responsiveTitle/);
     expect(listRow).toContain("responsiveTitle?: boolean");
+    expect(inboxRow).toContain("responsiveTitle?: boolean");
     // The opt-in still names the responsive rung. What changed is the branch
     // that declines it: it used to pin `text-sm`, a fixed 14px that ignored the
     // list page hosting it. It now says nothing, so the title inherits the
@@ -69,6 +84,16 @@ describe("compact task typography", () => {
     expect(listRow).toMatch(
       /responsiveTitle[\s\S]*?'text-workspace-chrome'[\s\S]*?: ''/,
     );
+    // The task inbox and global list are two views of the same records. Their
+    // titles must therefore select the same responsive rung. PR rows do not
+    // opt in, so both PR views continue to inherit the dense list-page rung.
+    expect(inboxRow).toMatch(
+      /responsiveTitle[\s\S]*?'text-workspace-chrome'[\s\S]*?: ''/,
+    );
+    expect(prsPage).not.toContain("responsiveTitle");
     expect(listRow).not.toContain("'text-sm'");
+    expect(listRailRow).toContain(
+      'class="truncate leading-[17px] font-normal {responsiveTitle',
+    );
   });
 });

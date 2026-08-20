@@ -23,6 +23,9 @@ export const twMergeConfig = {
       'font-size': [
         'text-menu',
         'text-workspace-chrome',
+        'text-insights-chrome',
+        'text-insights-summary',
+        'text-insights-summary-heading',
         'text-chrome-dense',
         'text-chrome-shelf',
         'text-transcript-card',

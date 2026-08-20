@@ -5,7 +5,7 @@ import { isLaptopDisplay } from '@solus/workspace-ui/contexts/app/viewport'
 import { LAPTOP_SCREEN_MAX_WIDTH } from '@solus/contracts/zoom'
 
 const readRendererSource = (path: string) =>
-  readFileSync(join(import.meta.dir, '../../src/renderer', path), 'utf8')
+  readFileSync(join(import.meta.dir, '../../packages/workspace-ui/src', path), 'utf8')
 
 // `screen.width` is reported in zoomed CSS pixels, so a display of width W at
 // zoom Z reads back as W / Z. These helpers make each case state the real
@@ -65,6 +65,17 @@ describe('one shared classification', () => {
     expect(source).toContain('--outline-panel-w: 14.5rem')
     expect(source).toContain(':global(html.is-laptop-display) .doc-outline__item')
     expect(source).toContain('class="doc-outline__item text-workspace-chrome"')
+  })
+
+  test('documents use a narrower reading column on laptop displays', () => {
+    // WHY: the outline needs real margin beside the words. Folding the outline
+    // alone leaves laptop documents unnecessarily wide and does not create the
+    // side room shown by the document layout.
+    const source = readRendererSource('index.css')
+    expect(source).toContain(
+      'html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column',
+    )
+    expect(source).toContain('--solus-doc-measure: clamp(66ch, 48cqi, 80ch)')
   })
 
   test('the collapsed diagram inspector rail is compact on laptop displays, and names its selection without turning text on its side', () => {

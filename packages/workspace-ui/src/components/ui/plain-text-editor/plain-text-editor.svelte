@@ -133,11 +133,9 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
       maxHeight: "var(--plain-editor-max-height, 8.75rem)",
       overflowY: "auto",
       fontFamily: "inherit",
-      // The font's own leading, which is also the box the browser draws the
-      // caret from beside a character. Any looser and the caret standing on an
-      // empty line — where it takes the whole line box — is visibly taller than
-      // the one that replaces it on the first keystroke.
-      lineHeight: "normal",
+      // Most compact editors use the font's own leading. Reading surfaces can
+      // opt into a looser measure without changing the shared editor geometry.
+      lineHeight: "var(--plain-editor-line-height, normal)",
       scrollbarWidth: "auto",
     },
     // index.css draws the thumb (and reveals it only while the composer is

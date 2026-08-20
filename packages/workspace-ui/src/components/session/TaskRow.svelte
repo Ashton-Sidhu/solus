@@ -29,6 +29,7 @@
     aggregateReviewGuideStatus,
     hasDisclosure,
     hasGlyph,
+    shouldEmphasizeTitle,
     showsUnreadIndicator,
     type PrChip as PrChipModel,
     type SidebarTask,
@@ -127,10 +128,10 @@
   // since the child row that would otherwise say so is not on screen.
   const isCurrentSession = $derived(onPath && (!disclosable || !expanded));
   const titleIsEmphasized = $derived(
-    isCurrentSession || hasGlyph(task.status),
+    shouldEmphasizeTitle(task.status, task.unread, isCurrentSession),
   );
   // Full ink for the active row and anything asking for a person; every other
-  // title still reads clearly at the secondary tone rather than fading out.
+  // title rests just below the secondary tone so the current path scans first.
   const titleLeads = $derived(onPath || titleIsEmphasized);
   // A durable row is named by its task; a loose row is named by its only tab.
   const renamingLead = $derived(
@@ -237,8 +238,8 @@
 <!--
   Selection is carried by weight and tone alone — no plate, no rail, no colour.
   The active task and anything asking for a person lead in full ink at a heavier
-  weight; every other title rests one step down at the secondary tone, still
-  plainly legible rather than faded out. The hierarchy is a difference in
+  weight; every other title rests just below the secondary tone, still plainly
+  legible rather than faded out. The hierarchy is a difference in
   emphasis, never a wall between "readable" and "invisible".
 -->
 <div class="group/task">
@@ -322,7 +323,7 @@
  ? 'font-medium'
  : ''} {titleLeads
  ? 'text-foreground'
- : 'text-(--solus-text-secondary)'}">{task.title}</span
+ : 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)]'}">{task.title}</span
           >
         {/if}
 

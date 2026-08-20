@@ -4,11 +4,12 @@
   interface Props {
     value: string;
     onValueChange: (value: string) => void;
+    onInput?: () => void;
+    onEmptyChange?: (empty: boolean) => void;
     onKeyDown?: (event: KeyboardEvent) => void;
     onFocus?: () => void;
     onBlur?: () => void;
     placeholder?: string;
-    hidePlaceholderOnFocus?: boolean;
     disabled?: boolean;
     maxHeight?: number;
     class?: string;
@@ -18,11 +19,12 @@
   let {
     value,
     onValueChange,
+    onInput,
+    onEmptyChange,
     onKeyDown,
     onFocus,
     onBlur,
     placeholder = "",
-    hidePlaceholderOnFocus = true,
     disabled = false,
     maxHeight = 160,
     class: klass = "",
@@ -34,21 +36,26 @@
   export function focus() {
     editor?.focus();
   }
+
+  export function getMarkdown(): string {
+    return value;
+  }
+
 </script>
 
 <PlainTextEditor
   bind:this={editor}
   {value}
   {onValueChange}
+  {onInput}
+  {onEmptyChange}
   {onKeyDown}
   {onFocus}
   {onBlur}
   {placeholder}
-  {hidePlaceholderOnFocus}
   {disabled}
   {maxHeight}
   enterInsertsNewline
   class={klass}
   {style}
 />
-

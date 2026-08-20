@@ -4,10 +4,13 @@ import type { OutboundPrompt } from '@solus/contracts/types'
  *  a stable glyph count rather than a prose duration. */
 export function formatClock(seconds: number): string {
   if (seconds <= 0) return '00:00'
-  const h = Math.floor(seconds / 3600)
+  const totalHours = Math.floor(seconds / 3600)
+  const days = Math.floor(totalHours / 24)
+  const h = totalHours % 24
   const m = Math.floor((seconds % 3600) / 60)
   const s = seconds % 60
   const pad = (n: number) => String(n).padStart(2, '0')
+  if (days > 0) return `${days}d ${pad(h)}:${pad(m)}:${pad(s)}`
   return h > 0 ? `${h}:${pad(m)}:${pad(s)}` : `${pad(m)}:${pad(s)}`
 }
 

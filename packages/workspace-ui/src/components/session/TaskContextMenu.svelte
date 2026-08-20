@@ -16,7 +16,6 @@
     X as XIcon,
     Moon as MoonIcon,
     Sun as SunIcon,
-    Dot as DotOutlineIcon,
   } from "@lucide/svelte";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import { getWorkspaceContext } from "../../contexts";
@@ -48,7 +47,6 @@
     onOpenTask: () => void;
     onOpenSource?: () => void;
     onStartRename?: () => void;
-    onToggleDone?: () => void;
     onSetStatus?: (status: TaskStatus) => void;
     onSnooze?: () => void;
     onWake?: () => void;
@@ -81,7 +79,6 @@
     onOpenTask,
     onOpenSource,
     onStartRename,
-    onToggleDone,
     onSetStatus,
     onSnooze,
     onWake,
@@ -211,11 +208,6 @@
           {/each}
         </ContextMenu.SubContent>
       </ContextMenu.Sub>
-    {:else if onToggleDone}
-      <ContextMenu.Item onSelect={() => select(onToggleDone)}>
-        <CheckIcon />
-        {task.status === "done" ? "Reopen task" : "Mark done"}
-      </ContextMenu.Item>
     {/if}
     {#if onWake}
       <ContextMenu.Item onSelect={() => select(onWake)}>
@@ -230,7 +222,12 @@
     {/if}
     {#if onMarkUnread}
       <ContextMenu.Item onSelect={() => select(onMarkUnread)}>
-        <DotOutlineIcon weight="fill" />
+        <span
+          class="flex size-3.5 shrink-0 items-center justify-center"
+          aria-hidden="true"
+        >
+          <span class="size-1.5 rounded-full bg-current"></span>
+        </span>
         Mark unread
       </ContextMenu.Item>
     {/if}

@@ -182,7 +182,7 @@
         role={hasControls ? "group" : undefined}
         aria-label={hasControls ? "Queued prompt" : undefined}
         tabindex={hasControls ? 0 : undefined}
-        class="group/bubble relative max-w-[41.25rem] overflow-hidden rounded-2xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
+        class="group/bubble relative max-w-[41.25rem] pointer-fine:[.is-laptop-display_&]:max-w-[36rem] overflow-hidden rounded-2xl px-3 pt-2.5 pb-2.5 outline-none {hasControls
  ? 'min-w-[9.5rem]'
  : 'min-w-0'} {isPending
  ? 'queued-bubble'

@@ -13,6 +13,7 @@ const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
 beforeEach(() => {
   connections.reset()
+  connections.phaseFor = () => 'connected'
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
     <T>(value: T) => value,
     { snapshot: <T>(value: T) => value },
@@ -146,6 +147,32 @@ describe('plan descriptor cache', () => {
 })
 
 describe('works federation', () => {
+  test('an offline host does not block healthy documents', async () => {
+    // WHY: catalog sockets queue RPCs while they retry. The Workspace must not
+    // wait for an unavailable host before it can show documents from live hosts.
+    connections.registerPrimary('host-a', { listWorks: async () => [workMeta(work('work-a'))] })
+    let remoteConnected = false
+    connections.registerHost('host-b', {
+      listWorks: () => remoteConnected
+        ? Promise.resolve([workMeta(work('work-b'))])
+        : new Promise(() => {}),
+    })
+    connections.phaseFor = (serverId: string) =>
+      serverId === 'host-b' && !remoteConnected ? 'offline' : 'connected'
+    const { WorksStore } = await import('@solus/workspace-ui/contexts/works/works.store.svelte')
+    const store = new WorksStore()
+
+    await store.loadAll('/repo')
+
+    expect(store.get('work-a')).toBeDefined()
+    expect(store.listLoading).toBe(false)
+
+    remoteConnected = true
+    await store.loadAll('/repo')
+
+    expect(store.get('work-b')).toBeDefined()
+  })
+
   test('a failed host does not evict its work from the union', async () => {
     // WHY: a failed fan-out read contributes nothing. It is not proof that the
     // host deleted every work it owns.
@@ -215,6 +242,50 @@ describe('works federation', () => {
 })
 
 describe('plans federation', () => {
+  test('an offline host does not block healthy plans', async () => {
+    // WHY: one unavailable catalog host must not leave the whole Workspace in
+    // its loading state when another host has already answered.
+    connections.registerPrimary('host-a', { listPlans: async () => [descriptor('Plan A', 1)] })
+    let remoteConnected = false
+    connections.registerHost('host-b', {
+      listPlans: () => remoteConnected
+        ? Promise.resolve([descriptor('Plan B', 2)])
+        : new Promise(() => {}),
+    })
+    connections.phaseFor = (serverId: string) =>
+      serverId === 'host-b' && !remoteConnected ? 'offline' : 'connected'
+    const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
+    const store = new PlanStore()
+
+    const plans = await store.getDescriptors(undefined, true)
+
+    expect(plans.map((plan) => plan.title)).toEqual(['Plan A'])
+    expect(store.isDescriptorLoading(store.descriptorCacheKey(undefined, true))).toBe(false)
+
+    remoteConnected = true
+    const refreshed = await store.refreshAllDescriptors()
+
+    expect(refreshed.map((plan) => plan.title)).toEqual(['Plan B', 'Plan A'])
+  })
+
+  test('an offline host keeps its cached plans in the Workspace', async () => {
+    // WHY: skipping a queued RPC is not evidence that the remote plan was
+    // deleted. Its last known row must remain beside fresh rows from live hosts.
+    let remoteConnected = true
+    connections.registerPrimary('host-a', { listPlans: async () => [descriptor('Plan A', 1)] })
+    connections.registerHost('host-b', { listPlans: async () => [descriptor('Plan B', 2)] })
+    connections.phaseFor = (serverId: string) =>
+      serverId === 'host-b' && !remoteConnected ? 'offline' : 'connected'
+    const { PlanStore } = await import('@solus/workspace-ui/contexts/plans/plan.store.svelte')
+    const store = new PlanStore()
+    await store.getDescriptors(undefined, true)
+
+    remoteConnected = false
+    const refreshed = await store.refreshAllDescriptors()
+
+    expect(refreshed.map((plan) => plan.title)).toEqual(['Plan B', 'Plan A'])
+  })
+
   test('annotation persistence routes to the plan owner host', async () => {
     // WHY: the reviewing agent reads annotations on its own host. Saving the
     // comment on primary leaves the review loop one-way.

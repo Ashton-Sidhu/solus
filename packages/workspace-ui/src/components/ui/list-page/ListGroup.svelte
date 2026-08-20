@@ -8,12 +8,12 @@
    *  page for free.
    *
    *  Empty groups are not rendered at all (the caller filters them out), so a
-   *  zero never appears. The inbox reuses the same line without the chevron and
-   *  spends the right end on a note instead of leaving the rule bare. */
+   *  zero never appears. The inbox reuses the same line and spends the right
+   *  end on a note instead of leaving the rule bare. */
   interface Props {
     label: string;
     count: number;
-    /** The global list collapses per group; the inbox does not. */
+    /** Both list views collapse per group unless a caller opts out. */
     collapsible?: boolean;
     open?: boolean;
     onToggle?: () => void;

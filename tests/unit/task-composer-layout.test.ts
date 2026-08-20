@@ -46,7 +46,22 @@ describe('Task composer — one quiet column', () => {
     // `input::placeholder` is set unlayered in index.css, and an unlayered
     // declaration outranks any layered utility. Without the `!` the title's
     // placeholder silently fell back to the same grey as the description's.
-    expect(composer).toContain('placeholder:text-(--solus-text-secondary)!')
+    expect(composer).toContain('placeholder:text-(--solus-text-tertiary)!')
+    expect(composer).toContain('placeholder:opacity-60!')
+  })
+
+  test('makes the empty title read as a prompt, not pre-filled content', () => {
+    // WHY: the title is also the modal heading, so extra field chrome looks
+    // heavy. The empty prompt must instead be visibly softer than entered text.
+    const header = composer.slice(
+      composer.indexOf('<!-- Header:'),
+      composer.indexOf('<!-- Body:'),
+    )
+    expect(header).toContain('placeholder="Task title…"')
+    expect(header).toContain('placeholder:font-medium')
+    expect(header).toContain('placeholder:text-(--solus-text-tertiary)!')
+    expect(header).toContain('placeholder:opacity-60!')
+    expect(header).not.toContain('<label')
   })
 
   test('declares the chrome rung once per surface, not per leaf', () => {

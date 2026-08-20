@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken } from './reference-tokens'
-import { tokenClassName } from './tokenStyle'
+import { linkTokenClassName } from './tokenStyle'
 import { FILE_ICON_VIEWBOX, getFileIconPath, FOLDER_ICON_PATH } from './fileIcons'
 
 const SVG_NS = 'http://www.w3.org/2000/svg'
@@ -46,7 +46,7 @@ export const FileRefExtension = Node.create({
       'data-file-ref': node.attrs.path,
       contenteditable: 'false',
       title: node.attrs.path,
-      class: `${tokenClassName('file')} solus-token--input-file-ref`,
+      class: linkTokenClassName('file'),
     }),
       ['span', { class: 'solus-token__icon' },
         [`${SVG_NS} svg`, { viewBox: FILE_ICON_VIEWBOX, fill: 'currentColor' },

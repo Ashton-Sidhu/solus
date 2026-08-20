@@ -430,14 +430,17 @@ export class SessionEventReducer {
         this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
         this.deps.refreshTurnSnapshots(sessionId)
         this.deps.workStreamTracker.sweep(session)
-        if (event.outcome === 'completed') {
+        if (event.outcome === 'completed' || event.outcome === 'failed') {
           this.markUnread(sessionId)
+        }
+        if (event.outcome === 'completed') {
           this.deps.playNotificationIfHidden()
         }
         break
 
       case 'error':
         if (session.status === 'interrupted') break
+        this.markUnread(sessionId)
         this.resetSessionRunState(session)
         this.deps.workStreamTracker.sweep(session)
         session.terminalFailure = {
@@ -452,6 +455,7 @@ export class SessionEventReducer {
         break
 
       case 'session_dead':
+        this.markUnread(sessionId)
         this.resetSessionRunState(session)
         this.deps.workStreamTracker.sweep(session)
         session.terminalFailure = {
@@ -898,6 +902,7 @@ export class SessionEventReducer {
       this.deps.log('rate_limit_error_suppressed', session)
       return
     }
+    this.markUnread(sessionId)
     if (!alreadyHasError) {
       session.terminalFailure = {
         content: `Error: ${error.message}${error.stderrTail.length > 0 ? '\n\n' + error.stderrTail.slice(-5).join('\n') : ''}`,

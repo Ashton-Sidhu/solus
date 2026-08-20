@@ -35,6 +35,7 @@ describe('Solus toolbox', () => {
       'list_automation_runs',
       'read_automation_run',
       'cloudflare_status',
+      'query_insights',
       'list_agent_targets',
       'list_sessions',
       'read_session',
@@ -66,6 +67,7 @@ describe('Solus toolbox', () => {
     expect(solusToolbox.works.create.requiresApproval).toBe(false)
     expect(solusToolbox.works.update.requiresApproval).toBe(true)
     expect(solusToolbox.tasks.list.requiresApproval).toBe(false)
+    expect(solusToolbox.insights.query.requiresApproval).toBe(false)
     expect(solusToolbox.tasks.create.requiresApproval).toBe(true)
     expect(solusToolbox.sessions.prompt.requiresApproval).toBe(false)
     expect(solusToolbox.sessions.stop.requiresApproval).toBe(false)

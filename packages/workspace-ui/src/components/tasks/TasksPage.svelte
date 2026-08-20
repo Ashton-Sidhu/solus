@@ -3,6 +3,7 @@ import Icon from "@iconify/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { localApi } from "@solus/client-core/local-api";
   import { tick } from "svelte";
+  import { fly } from "svelte/transition";
   import {
     RotateCw as ArrowClockwiseIcon,
     CalendarX as CalendarXIcon,
@@ -68,6 +69,7 @@ import Icon from "@iconify/svelte";
     ListFilterBar,
     ListGroup,
     ListPage,
+    ListRailRow,
     ListRow,
     ListSkeleton,
     ListStatusMenu,
@@ -83,6 +85,7 @@ import Icon from "@iconify/svelte";
   import TaskComposer from "./TaskComposer.svelte";
   import TaskBoard from "./TaskBoard.svelte";
   import TaskBoardSkeleton from "./TaskBoardSkeleton.svelte";
+  import TaskPage from "./task-page/TaskPage.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import type { InlinePageProps } from "../ui/lib/pane-surface";
@@ -94,6 +97,7 @@ import Icon from "@iconify/svelte";
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
   const sessionSidebar = getSessionSidebarStore();
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   const open = $derived(session.router.at("tasks"));
 
@@ -197,11 +201,10 @@ import Icon from "@iconify/svelte";
 
   // ── View state ──
   // The page's two views (spec Part A): the grouped global list, and the
-  // personal inbox. `layout` is a Tasks-only extra that re-plots the *global*
-  // view as a kanban board — the inbox is a queue and has no board form.
+  // personal inbox. `layout` re-plots either view as a kanban board.
   let view = $state<ListPageView>("global");
   let layout = $state<"list" | "board">("list");
-  const boardLayout = $derived(view === "global" && layout === "board");
+  const boardLayout = $derived(layout === "board");
   let query = $state("");
   let sort = $state<TaskSort>("updated");
   let runningOnly = $state(false);
@@ -214,8 +217,11 @@ import Icon from "@iconify/svelte";
   let statusKeys = $state<string[]>([...OPEN_TASK_STATUS_KEYS]);
   const statuses = $derived(taskStatusesFor(statusKeys));
   let searchEl = $state<HTMLInputElement | null>(null);
+  let listEl = $state<HTMLDivElement | null>(null);
   let contentHeight = $state(0);
+  let pageWidth = $state(0);
   let selectedKey = $state<string | null>(null);
+  let openTaskId = $state<string | null>(null);
   let collapsedGroups = $state<Record<string, boolean>>({});
   let taskContextMenu = $state<{
     task: Task;
@@ -338,8 +344,19 @@ import Icon from "@iconify/svelte";
       statuses,
     ),
   );
+  const inboxTasks = $derived.by(() => {
+    const inboxTaskIds = new Set(
+      inboxGroups.flatMap((group) => group.rows.map((row) => row.key)),
+    );
+    return projectTasks.filter((task) => inboxTaskIds.has(task.id));
+  });
+  const boardTasks = $derived(view === "inbox" ? inboxTasks : visibleTasks);
   const inboxVirtualItems = $derived(
-    virtualGroupItems(inboxGroups, (row) => row.key),
+    virtualGroupItems(
+      inboxGroups,
+      (row) => row.key,
+      (group) => !collapsedGroups[`inbox:${group.key}`],
+    ),
   );
   const globalVirtualItems = $derived(
     virtualGroupItems(
@@ -434,9 +451,12 @@ import Icon from "@iconify/svelte";
     return facts;
   });
 
-  // The selectable rows in render order, for Shift range-select and arrow nav.
+  // The selectable rows in the active view's render order, for Shift
+  // range-select, arrow navigation, and detail-panel stepping.
   const flatVisibleIds = $derived(
-    groups.flatMap((g) => g.rows).map((r) => r.key),
+    (view === "inbox" ? inboxGroups : groups)
+      .flatMap((group) => group.rows)
+      .map((row) => row.key),
   );
   $effect(() => {
     selection.setOrder(flatVisibleIds);
@@ -444,6 +464,36 @@ import Icon from "@iconify/svelte";
 
   function taskById(id: string): Task | undefined {
     return projectTasks.find((task) => task.id === id);
+  }
+
+  const openTask = $derived(openTaskId ? (taskById(openTaskId) ?? null) : null);
+  const panelOpen = $derived(openTask !== null);
+  const roomForSplit = $derived(pageWidth >= 1040);
+  const boardPanel = $derived(panelOpen && boardLayout);
+  const splitList = $derived(panelOpen && roomForSplit && !boardPanel);
+
+  function closePanel() {
+    openTaskId = null;
+    void tick().then(() => {
+      const selectedRow = listEl?.querySelector<HTMLElement>(
+        '[data-selected="true"]',
+      );
+      if (selectedRow) selectedRow.focus();
+      else searchEl?.focus();
+    });
+  }
+
+  function stepPanel(delta: number) {
+    if (!openTaskId || flatVisibleIds.length === 0) return;
+    const index = flatVisibleIds.indexOf(openTaskId);
+    if (index === -1) return;
+    const nextId =
+      flatVisibleIds[
+        (index + delta + flatVisibleIds.length) % flatVisibleIds.length
+      ];
+    if (!nextId) return;
+    selectedKey = nextId;
+    openTaskId = nextId;
   }
 
   function beginComposing(
@@ -498,7 +548,8 @@ import Icon from "@iconify/svelte";
     () => {
       // Esc backs out one layer at a time: a held selection, then an active
       // search, and only then the panel itself.
-      if (selection.size > 0) selection.clear();
+      if (panelOpen) closePanel();
+      else if (selection.size > 0) selection.clear();
       else if (query) {
         query = "";
         searchEl?.focus();
@@ -511,7 +562,6 @@ import Icon from "@iconify/svelte";
   useKeybinding("global.create-task", () => beginComposing(), {
     enabled: () => open && canCreate,
   });
-
   function close() {
     session.router.close("tasks");
     requestInputFocus();
@@ -529,6 +579,7 @@ import Icon from "@iconify/svelte";
     clearFilters();
     selection.clear();
     selectedKey = null;
+    openTaskId = null;
     collapsedGroups = {};
     composing = null;
     void tick().then(() => searchEl?.focus());
@@ -567,7 +618,8 @@ import Icon from "@iconify/svelte";
   }
 
   function onOpen(task: Task) {
-    session.goToTask(task.id, "click");
+    selectedKey = task.id;
+    openTaskId = task.id;
   }
 
   function onStart(task: Task) {
@@ -576,6 +628,11 @@ import Icon from "@iconify/svelte";
 
   function onResume(task: Task) {
     void session.openTaskLinkedSession(task);
+  }
+
+  function openTaskRoute(task: Task) {
+    openTaskId = null;
+    session.goToTask(task.id, "click", pane.isLeading ? "leading" : "secondary");
   }
 
   function onOpenLink(task: Task) {
@@ -693,10 +750,10 @@ import Icon from "@iconify/svelte";
     }
   }
 
-  // Selection is a global-list concept: drop it on the board, in the inbox, and
-  // when the page closes, so a stale selection can't act on a hidden view.
+  // The board is a single-selection surface. Both list views share this one
+  // selection store and the same bulk-action bar.
   $effect(() => {
-    if (layout === "board" || view === "inbox" || !open) selection.clear();
+    if (layout === "board" || !open) selection.clear();
   });
 
   // ── Keyboard nav over the rendered rows ──
@@ -751,9 +808,8 @@ import Icon from "@iconify/svelte";
 </script>
 
 {#snippet headerActions()}
-  <!-- Tasks-only: the global list can be re-plotted as a board. Sits after the
-       view switch because it re-plots that view rather than replacing it. -->
-  {#if view === "global"}
+  <!-- The layout control re-plots the active task view rather than replacing it. -->
+  {#if !splitList}
     <div
       class="flex items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5"
       role="group"
@@ -795,9 +851,11 @@ import Icon from "@iconify/svelte";
     bind:searchEl
     compactText
     placeholder={view === "global"
-      ? "Search tasks, labels, assignees…"
+      ? splitList
+        ? "Search tasks…"
+        : "Search tasks, labels, assignees…"
       : "Search your inbox…"}
-    filters={view === "global" ? filters : []}
+    filters={view === "global" && !splitList ? filters : []}
   >
     {#snippet trailing()}
       <!-- The board plots every status as a column of its own, so a status
@@ -811,7 +869,7 @@ import Icon from "@iconify/svelte";
           compactText
         />
       {/if}
-      {#if view === "global"}
+      {#if view === "global" && !splitList}
         <SortMenu
           bind:value={sort}
           options={SORT_OPTIONS}
@@ -844,12 +902,20 @@ import Icon from "@iconify/svelte";
 
 {#if open}
   <div
-    class="@container relative flex min-h-0 flex-1 flex-col overflow-hidden bg-(--solus-container-bg) focus:outline-none"
+    class="@container relative flex min-h-0 flex-1 overflow-hidden bg-(--solus-container-bg) focus:outline-none [--task-list-width:380px]"
+    bind:clientWidth={pageWidth}
     role="dialog"
     aria-label="Tasks"
     tabindex="-1"
   >
+    <div
+      class="flex min-h-0 min-w-0 shrink-0 {splitList
+        ? 'w-(--task-list-width)'
+        : 'w-full'}"
+    >
     <ListPage
+      split={splitList}
+      hideHeader={splitList}
       projects={projectOptions}
       activeProjectKey={activeProjectOptionKey}
       emptyProjectLabel="No project"
@@ -859,8 +925,10 @@ import Icon from "@iconify/svelte";
       {summary}
       {view}
       onViewChange={(next) => {
+        selection.clear();
         view = next;
         selectedKey = null;
+        openTaskId = null;
       }}
       globalLabel="All tasks"
       inboxLabel="My inbox"
@@ -868,7 +936,7 @@ import Icon from "@iconify/svelte";
       {unreadCount}
       onRefresh={refresh}
       {refreshing}
-      primaryAction={canCreate
+      primaryAction={canCreate && !splitList
         ? {
             label: "New task",
             shortcut: comboHint("global.create-task"),
@@ -888,6 +956,7 @@ import Icon from "@iconify/svelte";
       <!-- The board owns the full scroll region and scrolls per column, so in
            that layout the body becomes a flex column the board can fill. -->
       <div
+        bind:this={listEl}
         class={boardLayout ? "flex h-full min-h-0 flex-col" : ""}
         onkeydown={onBodyKeydown}
         role="presentation"
@@ -949,6 +1018,24 @@ import Icon from "@iconify/svelte";
               {/if}
             {/snippet}
           </PageEmpty>
+        {:else if boardLayout}
+          <TaskBoard
+            tasks={boardTasks}
+            projectKey={cwd}
+            canReorder={view === "global" && boardUnfiltered}
+            {selectedKey}
+            onOpen={(task) => {
+              selectedKey = task.id;
+              onOpen(task);
+            }}
+            {onSetStatus}
+            {sessionsFor}
+            {now}
+            onContextMenu={openTaskContextMenu}
+            onAddInColumn={canCreate
+              ? (status) => beginComposing({ status })
+              : undefined}
+          />
         {:else if view === "inbox"}
           {#if inboxGroups.length === 0}
             <ListEmpty title="Inbox zero."
@@ -969,7 +1056,11 @@ import Icon from "@iconify/svelte";
                     <ListGroup
                       label={item.group.label}
                       count={item.group.rows.length}
-                      collapsible={false}
+                      open={!collapsedGroups[`inbox:${item.group.key}`]}
+                      onToggle={() => {
+                        const groupKey = `inbox:${item.group.key}`;
+                        collapsedGroups[groupKey] = !collapsedGroups[groupKey];
+                      }}
                       note={item.group.note}
                       accent={item.group.accent}
                     >
@@ -979,7 +1070,9 @@ import Icon from "@iconify/svelte";
                     <InboxRow
                       row={item.row}
                       hot={!!item.group.accent}
-                      selected={selectedKey === item.row.key}
+                      responsiveTitle
+                      selected={selectedKey === item.row.key ||
+                        selection.has(item.row.key)}
                       onSelect={() => {
                         selectedKey = item.row.key;
                         const task = taskById(item.row.key);
@@ -989,30 +1082,16 @@ import Icon from "@iconify/svelte";
                         const task = taskById(item.row.key);
                         if (task) openTaskContextMenu(event, task);
                       }}
-                    />
+                    >
+                      {#snippet leading()}
+                        {@render rowCheckbox(item.row.key)}
+                      {/snippet}
+                    </InboxRow>
                   {/if}
                 </div>
               {/snippet}
             </VirtualList>
           {/if}
-        {:else if layout === "board"}
-          <TaskBoard
-            tasks={visibleTasks}
-            projectKey={cwd}
-            canReorder={boardUnfiltered}
-            {selectedKey}
-            onOpen={(task) => {
-              selectedKey = task.id;
-              onOpen(task);
-            }}
-            {onSetStatus}
-            {sessionsFor}
-            {now}
-            onContextMenu={openTaskContextMenu}
-            onAddInColumn={canCreate
-              ? (status) => beginComposing({ status })
-              : undefined}
-          />
         {:else if groups.length === 0}
           <ListEmpty title="Nothing matches">
             Clear the filters or widen the search.
@@ -1031,7 +1110,11 @@ import Icon from "@iconify/svelte";
             items={globalVirtualItems}
             height={contentHeight}
             itemSize={(index) =>
-              globalVirtualItems[index].kind === "header" ? 36 : 44}
+              globalVirtualItems[index].kind === "header"
+                ? 36
+                : splitList
+                  ? 52
+                  : 44}
             keyOf={(item) => item.key}
             activeKey={globalActiveKey}
           >
@@ -1051,27 +1134,49 @@ import Icon from "@iconify/svelte";
                     {#snippet children()}{/snippet}
                   </ListGroup>
                 {:else}
-                  <ListRow
-                    row={item.row}
-                    identWidth={62}
-                    fallbackAvatar="solus"
-                    responsiveTitle
-                    selected={selectedKey === item.row.key ||
-                      selection.has(item.row.key)}
-                    onSelect={() => {
-                      selectedKey = item.row.key;
-                      const task = taskById(item.row.key);
-                      if (task) onOpen(task);
-                    }}
-                    onContextMenu={(event) => {
-                      const task = taskById(item.row.key);
-                      if (task) openTaskContextMenu(event, task);
-                    }}
-                  >
-                    {#snippet leading()}
-                      {@render rowCheckbox(item.row.key)}
-                    {/snippet}
-                  </ListRow>
+                  {#if splitList}
+                    <ListRailRow
+                      row={item.row}
+                      fallbackAvatar="solus"
+                      responsiveTitle
+                      showTime={false}
+                      selected={selectedKey === item.row.key ||
+                        selection.has(item.row.key)}
+                      onSelect={() => {
+                        const task = taskById(item.row.key);
+                        if (task) onOpen(task);
+                      }}
+                      onContextMenu={(event) => {
+                        const task = taskById(item.row.key);
+                        if (task) openTaskContextMenu(event, task);
+                      }}
+                    >
+                      {#snippet leading()}
+                        {@render rowCheckbox(item.row.key)}
+                      {/snippet}
+                    </ListRailRow>
+                  {:else}
+                    <ListRow
+                      row={item.row}
+                      identWidth={62}
+                      fallbackAvatar="solus"
+                      responsiveTitle
+                      selected={selectedKey === item.row.key ||
+                        selection.has(item.row.key)}
+                      onSelect={() => {
+                        const task = taskById(item.row.key);
+                        if (task) onOpen(task);
+                      }}
+                      onContextMenu={(event) => {
+                        const task = taskById(item.row.key);
+                        if (task) openTaskContextMenu(event, task);
+                      }}
+                    >
+                      {#snippet leading()}
+                        {@render rowCheckbox(item.row.key)}
+                      {/snippet}
+                    </ListRow>
+                  {/if}
                 {/if}
               </div>
             {/snippet}
@@ -1079,9 +1184,37 @@ import Icon from "@iconify/svelte";
         {/if}
       </div>
     </ListPage>
+    </div>
+
+    {#if panelOpen && openTask}
+      <div
+        class="flex flex-col bg-background {boardPanel && roomForSplit
+          ? 'absolute inset-y-0 right-0 z-10 w-[clamp(680px,72%,1400px)] shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'
+          : roomForSplit
+            ? 'absolute inset-y-0 right-0 left-(--task-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'
+            : 'absolute inset-0 z-20'}"
+        transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
+      >
+        <TaskPage
+          params={{
+            taskId: openTask.id,
+            serverId: store.hostFor(openTask.id),
+          }}
+          {paneId}
+          embedded
+          surfaceVisible={open}
+          onRequestClose={closePanel}
+          onOpenRoute={() => openTaskRoute(openTask)}
+          onRequestPrevious={flatVisibleIds.length > 1
+            ? () => stepPanel(-1)
+            : null}
+          onRequestNext={flatVisibleIds.length > 1 ? () => stepPanel(1) : null}
+        />
+      </div>
+    {/if}
 
     <!-- Bulk action bar — floats over the list while a selection is held -->
-    {#if view === "global" && layout === "list" && selection.size > 0}
+    {#if layout === "list" && selection.size > 0 && !panelOpen}
       <div
         class="pointer-events-none absolute inset-x-0 bottom-14 z-10 flex justify-center px-4"
       >

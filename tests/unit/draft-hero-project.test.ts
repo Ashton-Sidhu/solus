@@ -13,10 +13,17 @@ describe('draft hero project', () => {
     const pane = readRendererSource('session-draft/SessionDraftPane.svelte')
     expect(pane).toContain('onclick={() => (projectPickerOpen = true)}')
     expect(pane).toContain('aria-expanded={projectPickerOpen}')
+    expect(pane).toContain('bind:this={projectPickerAnchor}')
+    expect(pane).toContain('{projectPickerAnchor}')
     expect(pane).toContain('bind:projectPickerOpen')
 
     const header = readRendererSource('input/InputBarHeader.svelte')
+    expect(header).toContain('anchor={projectPickerAnchor}')
     expect(header).toContain('bind:open={projectPickerOpen}')
+
+    const chip = readRendererSource('input/ProjectChip.svelte')
+    expect(chip).toContain('customAnchor={anchor ?? triggerEl}')
+    expect(chip).toContain('side={anchor ? "bottom" : "top"}')
   })
 
   test('the project list loads whenever the menu opens, not only on chip clicks', () => {

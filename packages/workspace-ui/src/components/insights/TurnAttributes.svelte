@@ -16,8 +16,8 @@
    * Three things this surface owes the reader, and the app's global
    * `user-select: none` denies by default:
    *
-   * - **Selection.** Values are `select-text`, and they wrap rather than
-   *   truncate, because a value clipped by CSS cannot be dragged over.
+   * - **Readable rows.** Long keys and values truncate to keep the list easy
+   *   to scan. Their tooltips preserve the complete recorded text.
    * - **Copy.** Every row carries its own control, which copies the stored
    *   value rather than the rounded one on screen; the header copies the list.
    * - **A way through the length.** A turn carries around forty attributes.
@@ -54,8 +54,8 @@
   aria-label="Attributes"
 >
   <header class="flex h-9 shrink-0 items-center gap-2 pr-1.5 pl-3">
-    <h2 class="m-0 text-[0.6875rem] font-normal text-muted-foreground uppercase">Attributes</h2>
-    <span class="text-[0.6875rem] tabular-nums text-muted-foreground opacity-60">{total}</span>
+    <h2 class="m-0 text-insights-chrome font-normal text-muted-foreground uppercase">Attributes</h2>
+    <span class="text-insights-chrome tabular-nums text-muted-foreground opacity-60">{total}</span>
     <span class="flex-1"></span>
     <CopyButton text={attributesAsText(groups)} title="Copy every attribute" iconOnly />
   </header>
@@ -77,46 +77,61 @@
             class="group/attr grid min-h-7 items-center gap-2 rounded-md py-0.5 pl-1.5 transition-colors hover:bg-[var(--wash-1)]"
             style="grid-template-columns:minmax(0,3fr) minmax(0,2fr) 1.75rem"
           >
-            {#if attribute.note}
-              <TooltipUI.Root>
-                <TooltipUI.Trigger>
-                  {#snippet child({ props })}
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props })}
+                  {#if attribute.note}
                     <button
                       {...props}
                       type="button"
-                      class="min-w-0 cursor-help border-0 bg-transparent p-0 text-left text-[0.6875rem] leading-[1.5] text-muted-foreground underline decoration-dotted decoration-muted-foreground/50 underline-offset-4 wrap-anywhere select-text focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
+                      class="min-w-0 truncate cursor-help border-0 bg-transparent p-0 text-left text-[0.6875rem] leading-[1.5] text-muted-foreground underline decoration-dotted decoration-muted-foreground/50 underline-offset-4 select-text focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)]"
                     >{attribute.key}</button
                     >
+                  {:else}
+                    <span
+                      {...props}
+                      class="block min-w-0 truncate text-[0.6875rem] leading-[1.5] text-muted-foreground select-text"
+                      >{attribute.key}</span
+                    >
+                  {/if}
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content class="max-w-64 flex-col items-start font-normal">
+                <span class="max-w-full wrap-anywhere {attribute.mono ? 'font-mono' : ''}">{attribute.key}</span>
+                {#if attribute.note}
+                  <span class="text-muted-foreground">{attribute.note}</span>
+                {/if}
+              </TooltipUI.Content>
+            </TooltipUI.Root>
+            <span class="min-w-0">
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props })}
+                    {#if attribute.destination?.name === "task" && onOpenTask}
+                      <button
+                        {...props}
+                        type="button"
+                        class="block w-full truncate cursor-pointer border-0 bg-transparent p-0 text-left text-[0.6875rem] leading-[1.5] text-primary underline decoration-primary/35 underline-offset-4 select-text transition-colors hover:decoration-primary focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] active:scale-[0.96]"
+                        title="Open task in the trailing pane"
+                        onclick={() => onOpenTask(attribute.destination!.taskId)}
+                      >{attribute.value}</button
+                      >
+                    {:else}
+                      <span
+                        {...props}
+                        class="block truncate text-[0.6875rem] leading-[1.5] select-text {attribute.mono
+                          ? 'font-mono'
+                          : 'tabular-nums'}"
+                        style="color:{toneColor(attribute)}">{attribute.value}</span
+                      >
+                    {/if}
                   {/snippet}
                 </TooltipUI.Trigger>
                 <TooltipUI.Content
-                  value={attribute.note}
-                  class="max-w-64 font-normal"
+                  value={attribute.value}
+                  class="max-w-64 wrap-anywhere font-normal {attribute.mono ? 'font-mono' : ''}"
                 />
               </TooltipUI.Root>
-            {:else}
-              <span
-                class="min-w-0 text-[0.6875rem] leading-[1.5] text-muted-foreground wrap-anywhere select-text"
-                >{attribute.key}</span
-              >
-            {/if}
-            <span class="min-w-0">
-              {#if attribute.destination?.name === "task" && onOpenTask}
-                <button
-                  type="button"
-                  class="cursor-pointer border-0 bg-transparent p-0 text-left text-[0.6875rem] leading-[1.5] text-primary underline decoration-primary/35 underline-offset-4 wrap-anywhere select-text transition-colors hover:decoration-primary focus-visible:rounded-sm focus-visible:outline-1 focus-visible:outline-offset-2 focus-visible:outline-[color-mix(in_oklch,var(--primary)_45%,transparent)] active:scale-[0.96]"
-                  title="Open task in the trailing pane"
-                  onclick={() => onOpenTask(attribute.destination!.taskId)}
-                >{attribute.value}</button
-                >
-              {:else}
-                <span
-                  class="text-[0.6875rem] leading-[1.5] wrap-anywhere select-text {attribute.mono
-                    ? 'font-mono'
-                    : 'tabular-nums'}"
-                  style="color:{toneColor(attribute)}">{attribute.value}</span
-                >
-              {/if}
             </span>
             <!-- Revealed on hover or keyboard focus so forty rows do not read
                  as forty buttons, but never absent from the tab order. -->

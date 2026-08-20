@@ -27,6 +27,7 @@
     title,
     fullScreen,
     onToggleFullScreen,
+    onOpenRoute,
     onClose,
     onStep,
   }: {
@@ -40,6 +41,7 @@
     fullScreen: boolean;
     /** Absent when the surface has no room for a split in the first place. */
     onToggleFullScreen?: () => void;
+    onOpenRoute: () => void;
     onClose: () => void;
     onStep: (delta: number) => void;
   } = $props();
@@ -91,6 +93,7 @@
   {chatTabId}
   {fullScreen}
   {onToggleFullScreen}
+  {onOpenRoute}
   {onStep}
   onExit={onClose}
   onRefreshTarget={refreshTarget}

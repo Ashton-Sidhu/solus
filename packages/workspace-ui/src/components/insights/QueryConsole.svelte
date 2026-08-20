@@ -5,11 +5,13 @@
     LoaderCircle as CircleNotchIcon,
     History as ClockCounterClockwiseIcon,
     Ellipsis as DotsThreeIcon,
+    Maximize2 as ArrowsOutIcon,
+    Minimize2 as ArrowsInIcon,
     Search as MagnifyingGlassIcon,
     Table as TableIcon,
   } from "@lucide/svelte";
   import { formatAge, formatRowCount } from "./lib/format";
-  import type { InsightsPreset } from "./lib/insights-queries";
+  import { presetsFor, type InsightsPreset } from "./lib/insights-queries";
   import type { SqlEditorSources } from "./lib/sql-editor-extensions";
   import type { TimeRange } from "./lib/time-range";
   import type { QueryForm, QueryRunRecord } from "./insights.store.svelte";
@@ -32,7 +34,7 @@
     onQuestionChange: (question: string) => void;
     sqlText: string;
     onSqlChange: (sql: string) => void;
-    onRun: () => void;
+    onRun: (form?: QueryForm) => void;
     running: boolean;
     /** The window the question is asked in — part of the question, so its
      *  control lives on the console rather than in the page chrome. */
@@ -90,6 +92,9 @@
   let panel = $state<"none" | "history">("none");
   let now = $state(Date.now());
   let sqlEditor = $state<ReturnType<typeof SqlEditor> | null>(null);
+  let popoutSqlEditor = $state<ReturnType<typeof SqlEditor> | null>(null);
+  let editorPopoutOpen = $state(false);
+  let popoutForm = $state<QueryForm>("sql");
   /** The saved chip whose menu is on screen, anchored where it was summoned —
    *  a right-click lands at the pointer, the chip's own button under itself. */
   let savedMenu = $state<{ query: SavedMetricsQuery; x: number; y: number } | null>(null);
@@ -105,7 +110,9 @@
     else onSqlChange(sqlText.trim() ? `${sqlText} ${text}` : text);
   }
 
-  const canRun = $derived((form === "nl" ? question : sqlText).trim().length > 0 && !running);
+  function canRun(queryForm: QueryForm): boolean {
+    return (queryForm === "nl" ? question : sqlText).trim().length > 0 && !running;
+  }
 
   // Two words, not two banners: the language is a property of the question, so
   // it sits inside the field rather than on a band of its own.
@@ -122,10 +129,10 @@
     return () => clearInterval(interval);
   });
 
-  function onKey(event: KeyboardEvent): void {
+  function onKey(event: KeyboardEvent, queryForm: QueryForm): void {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
-      onRun();
+      onRun(queryForm);
     }
   }
 
@@ -145,6 +152,17 @@
     panel = panel === "history" ? "none" : "history";
   }
 
+  function openEditorPopout(): void {
+    popoutForm = form;
+    editorPopoutOpen = true;
+    queueMicrotask(() => popoutSqlEditor?.focus());
+  }
+
+  function closeEditorPopout(): void {
+    editorPopoutOpen = false;
+    queueMicrotask(() => sqlEditor?.focus());
+  }
+
   const consoleShadow = $derived(
     focused
       ? "0 0 0 .5px var(--hairline-strongest), 0 0 0 3px color-mix(in oklch,var(--primary) 13%,transparent)"
@@ -152,8 +170,11 @@
   );
 </script>
 
+{#snippet consoleSurface(isPopout: boolean)}
+{@const activeForm = isPopout ? popoutForm : form}
+{@const surfacePresets = isPopout ? presetsFor(activeForm, range) : presets}
 <section
-  class="shrink-0 overflow-hidden rounded-xl bg-card"
+  class="w-full shrink-0 overflow-hidden bg-card {isPopout ? 'rounded-none' : 'rounded-xl'}"
   style="box-shadow:{consoleShadow}"
   aria-label="Query console"
 >
@@ -169,15 +190,15 @@
         <button
           type="button"
           role="tab"
-          aria-selected={form === tab.id}
+          aria-selected={activeForm === tab.id}
           title={tab.title}
-          class="flex h-5.5 cursor-pointer items-center rounded-md px-2 text-[0.6875rem] font-medium transition-[background-color,color]"
-          style="color:{form === tab.id
+          class="flex h-5.5 cursor-pointer items-center rounded-md px-2 text-insights-chrome font-medium transition-[background-color,color]"
+          style="color:{activeForm === tab.id
             ? 'var(--foreground)'
-            : 'var(--muted-foreground)'};background:{form === tab.id
+            : 'var(--muted-foreground)'};background:{activeForm === tab.id
             ? 'var(--card)'
-            : 'transparent'};box-shadow:{form === tab.id ? 'var(--elev-ring)' : 'none'}"
-          onclick={() => onFormChange(tab.id)}
+            : 'transparent'};box-shadow:{activeForm === tab.id ? 'var(--elev-ring)' : 'none'}"
+          onclick={() => (isPopout ? (popoutForm = tab.id) : onFormChange(tab.id))}
         >
           {tab.label}
         </button>
@@ -189,8 +210,8 @@
     <button
       type="button"
       class="flex size-6.5 shrink-0 cursor-pointer items-center justify-center rounded-lg bg-(--primary) text-(--primary-foreground) transition-[scale,opacity] active:scale-[0.94] disabled:cursor-not-allowed disabled:opacity-30 disabled:active:scale-100"
-      disabled={!canRun}
-      onclick={onRun}
+      disabled={!canRun(activeForm)}
+      onclick={() => onRun(activeForm)}
       title="Run — ⌘↵"
       aria-label="Run the query"
     >
@@ -216,17 +237,17 @@
     {/if}
   {/snippet}
 
-  {#if form === "nl"}
+  {#if activeForm === "nl"}
     <div class="relative flex h-11 items-center gap-2.5 pr-2 pl-2.5">
       {@render languageSegment()}
       <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
       <input
-        class="min-w-0 flex-1 bg-transparent text-[0.8125rem] outline-none"
+        class="min-w-0 flex-1 bg-transparent text-insights-chrome outline-none"
         placeholder="Which sessions were slowest after 21:00?"
         value={question}
         disabled={readOnly}
         oninput={(event) => onQuestionChange(event.currentTarget.value)}
-        onkeydown={onKey}
+        onkeydown={(event) => onKey(event, activeForm)}
         onfocus={() => (focused = true)}
         onblur={() => (focused = false)}
         aria-label="Ask a question about your sessions"
@@ -243,15 +264,27 @@
     >
       {@render languageSegment()}
       <div class="min-w-0 flex-1">
-        <SqlEditor
-          bind:this={sqlEditor}
-          value={sqlText}
-          onValueChange={onSqlChange}
-          {onRun}
-          {sources}
-          {schemaRevision}
-          readOnly={readOnly}
-        />
+        {#if isPopout}
+          <SqlEditor
+            bind:this={popoutSqlEditor}
+            value={sqlText}
+            onValueChange={onSqlChange}
+            onRun={() => onRun(activeForm)}
+            {sources}
+            {schemaRevision}
+            surface="popout"
+          />
+        {:else}
+          <SqlEditor
+            bind:this={sqlEditor}
+            value={sqlText}
+            onValueChange={onSqlChange}
+            onRun={() => onRun(activeForm)}
+            {sources}
+            {schemaRevision}
+            readOnly={readOnly}
+          />
+        {/if}
       </div>
       <TimeRangePicker {range} {onRangeChange} />
       {@render runButton()}
@@ -265,15 +298,15 @@
     class="flex h-7.5 items-center gap-1 px-2 shadow-[inset_0_0.5px_0_var(--hairline)]"
   >
     <div class="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto" data-sb>
-      {#each presets as preset (preset.id)}
+      {#each surfacePresets as preset (preset.id)}
         <button
           type="button"
           title={preset.description}
-          class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-[0.6875rem] whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow,scale] hover:bg-[var(--wash-1)] hover:text-foreground hover:shadow-[shadow:var(--elev-ring)] active:scale-[0.96]"
+          class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow,scale] hover:bg-[var(--wash-1)] hover:text-foreground hover:shadow-[shadow:var(--elev-ring)] active:scale-[0.96]"
           onclick={() => onPreset(preset)}>{preset.label}</button
         >
       {/each}
-      {#if presets.length > 0 && savedQueries.length > 0}
+      {#if surfacePresets.length > 0 && savedQueries.length > 0}
         <span class="mx-1 h-3.5 w-px shrink-0 bg-(--hairline)" aria-hidden="true"></span>
       {/if}
       {#each savedQueries as saved (saved.id)}
@@ -285,7 +318,7 @@
         >
           <button
             type="button"
-            class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md pr-1 pl-2 text-[0.6875rem] whitespace-nowrap transition-[scale] active:scale-[0.96]"
+            class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md pr-1 pl-2 text-insights-chrome whitespace-nowrap transition-[scale] active:scale-[0.96]"
             title="Run “{saved.name}”"
             onclick={() => onSaved(saved)}
           >
@@ -311,10 +344,25 @@
       {/each}
     </div>
     <span
-      class="flex min-w-0 shrink items-center gap-1.5 pl-1 text-[0.625rem] text-muted-foreground"
+      class="flex min-w-0 shrink items-center gap-1.5 pl-1 text-insights-chrome text-muted-foreground"
     >
       <span class="truncate" aria-live="polite">{resultNote}</span>
     </span>
+    {#if !readOnly}
+      <button
+        type="button"
+        class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground active:scale-[0.96]"
+        onclick={isPopout ? closeEditorPopout : openEditorPopout}
+        title={isPopout ? "Return to Insights" : "Open the query console in a focused view"}
+        aria-label={isPopout ? "Close focused query console" : "Open query console"}
+      >
+        {#if isPopout}
+          <ArrowsInIcon size={12} aria-hidden="true" />
+        {:else}
+          <ArrowsOutIcon size={12} aria-hidden="true" />
+        {/if}
+      </button>
+    {/if}
     {#if !readOnly}
       <button
         type="button"
@@ -349,7 +397,7 @@
   {#if panel === "history"}
     <div class="overflow-hidden shadow-[inset_0_0.5px_0_var(--hairline)]">
       {#if history.length === 0}
-        <p class="px-2.5 py-2.5 text-[0.6875rem] text-muted-foreground">
+        <p class="px-2.5 py-2.5 text-insights-chrome text-muted-foreground">
           Queries you run appear here for the rest of the session.
         </p>
       {:else}
@@ -360,14 +408,14 @@
             style="box-shadow:{index ? 'inset 0 0.5px 0 var(--hairline)' : 'none'}"
             onclick={() => onHistory(run)}
           >
-            <span class="truncate text-[0.6875rem]">{run.text.replace(/\s+/g, " ")}</span>
-            <span class="text-right text-[0.625rem] tabular-nums text-muted-foreground"
+            <span class="truncate text-insights-chrome">{run.text.replace(/\s+/g, " ")}</span>
+            <span class="text-right text-insights-chrome tabular-nums text-muted-foreground"
               >{formatRowCount(run.rowCount)}</span
             >
-            <span class="text-right text-[0.625rem] tabular-nums text-muted-foreground"
+            <span class="text-right text-insights-chrome tabular-nums text-muted-foreground"
               >{run.tookMs}ms</span
             >
-            <span class="text-right text-[0.625rem] tabular-nums text-muted-foreground"
+            <span class="text-right text-insights-chrome tabular-nums text-muted-foreground"
               >{formatAge(run.at, now)}</span
             >
           </button>
@@ -377,6 +425,38 @@
   {/if}
 
 </section>
+{/snippet}
+
+{@render consoleSurface(false)}
+
+{#if editorPopoutOpen}
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <!-- svelte-ignore a11y_click_events_have_key_events -->
+  <div
+    data-solus-ui
+    class="fixed inset-0 z-[10020] flex items-center justify-center bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] p-6 pointer-events-auto motion-safe:animate-[backdrop-fade_140ms_ease-out] [.is-laptop-display_&]:p-4"
+    role="presentation"
+    onclick={(event) => {
+      if (event.target === event.currentTarget) closeEditorPopout();
+    }}
+    onkeydown={(event) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        closeEditorPopout();
+      }
+    }}
+  >
+    <div
+      class="sql-popout-enter max-h-[min(82vh,48rem)] w-[min(76rem,calc(100vw-4rem))] overflow-x-hidden overflow-y-auto rounded-2xl border-[0.0625rem] border-(--solus-popover-border) bg-card shadow-[0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_11%,transparent),var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.14),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.24),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.34)] [.dark_&]:shadow-[0_0_0_0.5px_var(--hairline-strongest),0_0_0_3px_color-mix(in_oklch,var(--primary)_13%,transparent),var(--solus-popover-shadow),inset_0_0.0625rem_0_rgba(255,255,255,0.06),0_1.75rem_3.125rem_-1.125rem_rgba(0,0,0,0.45),0_4.375rem_8.125rem_-3.125rem_rgba(0,0,0,0.55)] [.is-laptop-display_&]:max-h-[min(76vh,36rem)] [.is-laptop-display_&]:w-[min(66rem,calc(100vw-2rem))]"
+      data-sb
+      role="dialog"
+      aria-label="Focused query console"
+      aria-modal="true"
+    >
+      {@render consoleSurface(true)}
+    </div>
+  </div>
+{/if}
 
 {#if savedMenu}
   {@const query = savedMenu.query}
@@ -405,11 +485,30 @@
     }
   }
 
+  .sql-popout-enter {
+    animation: sql-popout-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .running-sweep {
       animation: none;
       width: 100%;
       opacity: 0.4;
+    }
+
+    .sql-popout-enter {
+      animation: none;
+    }
+  }
+
+  @keyframes sql-popout-enter {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 0.25rem, 0) scale(0.985);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0) scale(1);
     }
   }
 </style>

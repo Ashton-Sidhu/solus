@@ -77,9 +77,10 @@ describe('native task migration', () => {
       );
     `)
 
+    // SAFETY: Bun's in-memory Database implements the DatabaseSync methods the migration runner uses.
     migrations.runMigrations(legacy as never)
 
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 18 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()
@@ -93,6 +94,69 @@ describe('native task migration', () => {
     // mirror it briefly named.
     expect(legacy.query('SELECT name FROM pragma_table_info(?)').all('task_links').map((c: { name: string }) => c.name))
       .toContain('target_key')
+    legacy.close()
+  })
+
+  test('migration folds provider task links into the stable session id', () => {
+    // WHY: affected databases already contain both ids for one conversation.
+    // Preventing the next duplicate is not enough; the upgrade must remove the
+    // existing duplicate without losing its branch or first-link timestamp.
+    const legacy = new Database(':memory:')
+    legacy.exec(`
+      PRAGMA user_version = 23;
+      CREATE TABLE tasks (
+        id TEXT PRIMARY KEY,
+        origin_session_id TEXT
+      );
+      CREATE TABLE task_session_links (
+        task_id TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        role TEXT NOT NULL,
+        branch TEXT,
+        pr TEXT,
+        execution_server_id TEXT,
+        linked_at INTEGER NOT NULL,
+        PRIMARY KEY (task_id, session_id)
+      );
+      CREATE TABLE session_lineage_members (
+        session_id TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        provider TEXT NOT NULL,
+        provider_session_id TEXT,
+        cwd TEXT NOT NULL,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (session_id, position)
+      );
+      INSERT INTO tasks VALUES ('task-1', 'provider-session');
+      INSERT INTO session_lineage_members VALUES (
+        'solus-session', 0, 'codex', 'provider-session', '/workspace/solus', 1, NULL, 1
+      );
+      INSERT INTO task_session_links VALUES (
+        'task-1', 'solus-session', 'working', NULL, NULL, NULL, 20
+      );
+      INSERT INTO task_session_links VALUES (
+        'task-1', 'provider-session', 'working', 'fix/duplicate', NULL, NULL, 10
+      );
+    `)
+
+    // SAFETY: Bun's in-memory Database implements the DatabaseSync methods the migration runner uses.
+    migrations.runMigrations(legacy as never)
+
+    expect(legacy.query(`
+      SELECT task_id, session_id, branch, linked_at
+      FROM task_session_links
+    `).all()).toEqual([{
+      task_id: 'task-1',
+      session_id: 'solus-session',
+      branch: 'fix/duplicate',
+      linked_at: 10,
+    }])
+    expect(legacy.query('SELECT origin_session_id FROM tasks').get()).toEqual({
+      origin_session_id: 'solus-session',
+    })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 24 })
     legacy.close()
   })
 })
@@ -579,6 +643,37 @@ describe('session minting and durable links', () => {
       'Late generated description.',
     )).toBeNull()
     expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({ title: 'Human title', titleSource: 'manual' })
+  })
+
+  test('generated metadata resolves a provider thread to its stable task session', async () => {
+    // WHY: a new task is linked before the provider issues its thread id. The
+    // later naming request carries that provider id, while the task link keeps
+    // the stable Solus id used by every sidebar and handoff.
+    const task = await taskSessions.prepareSessionTask({
+      sessionId: 'stable-session',
+      prompt: 'Raw first prompt',
+    })
+    db.getDb().prepare(`
+      INSERT INTO session_lineage_members(
+        session_id, position, provider, provider_session_id, cwd, started_at, ended_at, updated_at
+      ) VALUES (?, 0, ?, ?, ?, ?, NULL, ?)
+    `).run('stable-session', 'codex', 'provider-session', '/workspace/solus', 1, 1)
+    let changes = 0
+    const unsubscribe = taskStore.onTasksChanged(() => changes++)
+    try {
+      expect(await taskSessions.updateGeneratedMetadataForSession(
+        'provider-session',
+        'Generated task title',
+        'A generated task description.',
+      )).toMatchObject({
+        id: task!.id,
+        title: 'Generated task title',
+        body: 'A generated task description.',
+      })
+      expect(changes).toBe(1)
+    } finally {
+      unsubscribe()
+    }
   })
 
   test('generated metadata preserves a description edited while generation is in flight', async () => {

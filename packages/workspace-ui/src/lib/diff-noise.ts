@@ -119,7 +119,7 @@ export function analyzeDiffNoise(file: FileDiffMetadata): DiffNoiseAnalysis {
   return result
 }
 
-/** Omits only format-only hunks while retaining original line arrays/anchors. */
+/** Omits only format-only hunks while retaining the surviving line anchors. */
 export function collapseFormatOnlyHunks(file: FileDiffMetadata): FileDiffMetadata {
   const analysis = analyzeDiffNoise(file)
   if (
@@ -132,10 +132,39 @@ export function collapseFormatOnlyHunks(file: FileDiffMetadata): FileDiffMetadat
   const omitted = new Set(analysis.formatOnlyHunks)
   let splitLineStart = 0
   let unifiedLineStart = 0
+  const additionLines: string[] = []
+  const deletionLines: string[] = []
   const hunks = file.hunks
     .filter((_, index) => !omitted.has(index))
     .map((hunk) => {
-      const adjusted = { ...hunk, splitLineStart, unifiedLineStart }
+      const additionLineIndex = additionLines.length
+      const deletionLineIndex = deletionLines.length
+      additionLines.push(
+        ...file.additionLines.slice(
+          hunk.additionLineIndex,
+          hunk.additionLineIndex + hunk.additionCount,
+        ),
+      )
+      deletionLines.push(
+        ...file.deletionLines.slice(
+          hunk.deletionLineIndex,
+          hunk.deletionLineIndex + hunk.deletionCount,
+        ),
+      )
+      const adjusted = {
+        ...hunk,
+        additionLineIndex,
+        deletionLineIndex,
+        splitLineStart,
+        unifiedLineStart,
+        hunkContent: hunk.hunkContent.map((content) => ({
+          ...content,
+          additionLineIndex:
+            additionLineIndex + content.additionLineIndex - hunk.additionLineIndex,
+          deletionLineIndex:
+            deletionLineIndex + content.deletionLineIndex - hunk.deletionLineIndex,
+        })),
+      }
       splitLineStart += hunk.splitLineCount
       unifiedLineStart += hunk.unifiedLineCount
       return adjusted
@@ -143,10 +172,11 @@ export function collapseFormatOnlyHunks(file: FileDiffMetadata): FileDiffMetadat
   const collapsed: FileDiffMetadata = {
     ...file,
     hunks,
-    // Dropping hunks while keeping the line arrays leaves the surviving hunks'
-    // `collapsedBefore` gaps describing regions that are no longer there, so this
-    // filtered view can't support hunk expansion. Saying so explicitly also keeps
-    // the trailing-context arithmetic (which assumes hunks cover the file) off it.
+    additionLines,
+    deletionLines,
+    // The surviving hunks' `collapsedBefore` gaps describe omitted regions that
+    // are not available in these compacted line arrays, so this filtered view
+    // cannot support hunk expansion.
     isPartial: true,
     splitLineCount: splitLineStart,
     unifiedLineCount: unifiedLineStart,

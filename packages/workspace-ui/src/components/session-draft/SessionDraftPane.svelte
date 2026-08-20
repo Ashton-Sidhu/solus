@@ -60,8 +60,9 @@
   // its object and only the chip below is left to do the choosing.
   const hasProject = $derived(projectName !== "~");
   // The headline names the project, so it opens the same list the chip below
-  // does — one menu, anchored where project choices always appear.
+  // does. Keep its element so that shared menu drops from the control used.
   let projectPickerOpen = $state(false);
+  let projectPickerAnchor = $state<HTMLButtonElement | null>(null);
 
   // A draft has no session command cache. Load against the run selected in its
   // own model picker instead of borrowing commands from the active tab.
@@ -189,6 +190,7 @@
       {#if hasProject}
         What should we build in
         <button
+          bind:this={projectPickerAnchor}
           type="button"
           aria-haspopup="menu"
           aria-expanded={projectPickerOpen}
@@ -214,6 +216,7 @@
       <InputBarHeader
         sourceId={current.id}
         {paneId}
+        {projectPickerAnchor}
         bind:projectPickerOpen
       />
 

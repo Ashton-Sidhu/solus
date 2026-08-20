@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import type { Prompt, Session } from '@solus/contracts/types'
 import type { TasksStore } from '@solus/workspace-ui/contexts/tasks/tasks.store.svelte'
 import type { PlanStore } from '@solus/workspace-ui/contexts/plans/plan.store.svelte'
@@ -7,11 +9,52 @@ import { PromptComposer } from '@solus/workspace-ui/contexts/workspace/prompt-co
 import { taskBindingSessionId } from '@solus/workspace-ui/contexts/workspace/session-draft.svelte'
 
 describe('session task binding identity', () => {
+  test('a new session draft inherits the active task through the stable session id', () => {
+    // WHY: Cmd+T opens a draft from the active conversation. Restored sessions
+    // use a Solus task-link id that differs from the provider thread id, so the
+    // task picker falls back to "New task" if this lookup uses agentSessionId.
+    const source = readFileSync(
+      join(import.meta.dir, '../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts'),
+      'utf8',
+    )
+
+    expect(source).toMatch(
+      /rootTaskIdFor[\s\S]*?taskForSession\(taskBindingSessionId\(anchor\)\)/,
+    )
+  })
+
+  test('the project panel resolves the active task from the stable session id', () => {
+    // WHY: restored and completed sessions can have a provider thread id that
+    // differs from the durable id stored on their task attempt. The Task section
+    // must use the durable identity or it disappears from the active rail.
+    const source = readFileSync(
+      join(import.meta.dir, '../../packages/workspace-ui/src/components/project-panel/ProjectPanel.svelte'),
+      'utf8',
+    )
+
+    expect(source).toContain('panelSession ? taskBindingSessionId(panelSession) : null')
+    expect(source).toContain('session.tasksStore.taskForSession(panelTaskSessionId)')
+    expect(source).toContain('currentSessionId={panelTaskSessionId}')
+  })
+
+  test('a regular session uses its stable Solus id after restoration', () => {
+    const session = {
+      id: 'solus-session',
+      agentSessionId: 'provider-session',
+    }
+
+    // WHY: the provider thread id is replaceable and differs from the id used
+    // to restore the tab. A task linked under it disappears after restart, so a
+    // follow-up cannot reopen a completed task.
+    expect(taskBindingSessionId(session)).toBe('solus-session')
+  })
+
   test('a handoff keeps its stable Solus id when the provider thread changes', () => {
     const session = {
+      id: 'original-solus-session',
       handoffId: 'solus-session',
       agentSessionId: 'second-provider-session',
-    } as Session
+    }
 
     // WHY: using the provider id here makes the first prompt after a handoff mint
     // a second task, which the sidebar then renders beside the original attempt.
@@ -41,6 +84,7 @@ describe('session task binding identity', () => {
       attachments: [],
     } as unknown as Prompt
     const session = {
+      id: 'original-solus-session',
       handoffId: 'solus-session',
       agentSessionId: null,
       task: { kind: 'new' },

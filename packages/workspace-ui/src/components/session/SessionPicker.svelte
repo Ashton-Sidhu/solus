@@ -363,18 +363,43 @@
     }
   }
 
+  async function revealSidebarTask(tabId: string): Promise<void> {
+    const tabSession = session.sessionFor(tabId);
+    if (!tabSession) return;
+
+    const sessionIds = [tabSession.id, tabSession.agentSessionId].filter(
+      (sessionId, index, ids): sessionId is string =>
+        !!sessionId && ids.indexOf(sessionId) === index,
+    );
+    let task = sessionIds
+      .map((sessionId) => session.tasksStore.taskForSession(sessionId))
+      .find((candidate) => !!candidate);
+    for (const sessionId of sessionIds) {
+      if (task) break;
+      task = await session.tasksStore
+        .ensureSessionBinding(sessionId, tabSession.run.taskServerId)
+        .catch(() => null);
+    }
+    if (!task) return;
+
+    window.dispatchEvent(
+      new CustomEvent("solus:expand-sidebar-task", { detail: task.id }),
+    );
+  }
+
   function handleSelect(entry: PickerEntry, opts?: { keepOpen?: boolean }) {
     const keepOpen = opts?.keepOpen ?? false;
     if (!keepOpen) session.router.close('folio');
     if (entry.kind === "open") {
-      const sessionId = entry.session.agentSessionId;
-      if (sessionId)
-        void session.tasksStore.ensureSessionBinding(sessionId).catch(() => null);
-      if (!keepOpen) session.selectTab(entry.tabId);
+      if (!keepOpen) {
+        session.selectTab(entry.tabId);
+        void revealSidebarTask(entry.tabId);
+      }
     } else {
       // resumeSession hydrates the lightweight task/session tree alongside the
       // selected transcript. Do not issue the same metadata request twice.
-      void session.resumeSession(entry.meta, { background: keepOpen });
+      const resumed = session.resumeSession(entry.meta, { background: keepOpen });
+      if (!keepOpen) void resumed.then(revealSidebarTask);
     }
     if (!keepOpen) close();
   }

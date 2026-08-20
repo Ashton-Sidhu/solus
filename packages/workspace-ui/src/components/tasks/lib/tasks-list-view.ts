@@ -250,7 +250,7 @@ export function taskInboxGroups(
       rows: [...needsYou]
         .sort((a, b) => a.updatedAt - b.updatedAt)
         .map((task) => ({
-          ...inboxRowBase(task, sessionsFor(task.id), now),
+          ...inboxRowBase(task, now),
           title: `Review requested: ${task.title}`,
           context: reviewContext(task, sessionsFor(task.id)),
           unread: true,
@@ -275,7 +275,7 @@ export function taskInboxGroups(
       rows: [...waiting]
         .sort((a, b) => a.updatedAt - b.updatedAt)
         .map((task) => ({
-          ...inboxRowBase(task, 0, now),
+          ...inboxRowBase(task, now),
           context: task.assignee ? `Assigned to ${task.assignee} · no session started` : 'No session started',
           unread: false,
           primary: { label: 'Start agent', shortcut: '⏎', run: () => actions.start(task) },
@@ -291,7 +291,7 @@ export function taskInboxGroups(
       rows: [...running]
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map((task) => ({
-          ...inboxRowBase(task, sessionsFor(task.id), now),
+          ...inboxRowBase(task, now),
           context: `${sessionsFor(task.id)} live session${sessionsFor(task.id) === 1 ? '' : 's'}${task.branch ? ` · ${task.branch}` : ''}`,
           unread: false,
           primary: { label: 'Resume', shortcut: '⏎', run: () => actions.resume(task) },
@@ -308,7 +308,7 @@ export function taskInboxGroups(
       rows: [...closed]
         .sort((a, b) => b.updatedAt - a.updatedAt)
         .map((task) => ({
-          ...inboxRowBase(task, 0, now),
+          ...inboxRowBase(task, now),
           context: task.pr ? `Closed · PR #${task.pr.number}` : 'Closed',
           unread: false,
         })),
@@ -318,7 +318,7 @@ export function taskInboxGroups(
   return groups
 }
 
-function inboxRowBase(task: Task, activeSessions: number, now: number) {
+function inboxRowBase(task: Task, now: number) {
   return {
     key: task.id,
     ident: identFor(task),
@@ -330,7 +330,6 @@ function inboxRowBase(task: Task, activeSessions: number, now: number) {
     time: compactRelativeTime(task.updatedAt, now),
     timeTitle: absoluteTime(task.updatedAt),
     unread: false,
-    chips: activeSessions > 0 ? [{ label: 'running', tint: 'running' as const }] : [],
   }
 }
 

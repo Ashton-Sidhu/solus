@@ -57,7 +57,7 @@
 </script>
 
 {#if capabilities === undefined}
-  <div class="py-10 text-center text-sm text-(--solus-text-tertiary)" role="status">
+  <div class="py-10 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-8" role="status">
     Checking voice support…
   </div>
 {:else if !isSupported}

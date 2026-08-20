@@ -16,18 +16,18 @@
 </script>
 
 {#if visible}
-  <section class="flex flex-col gap-2">
+  <section class="flex flex-col gap-2 [.is-laptop-display_&]:gap-1.5">
     {#if label || action}
-      <div class="flex min-h-6 items-center justify-between gap-3 px-0.5">
+      <div class="flex min-h-6 items-center justify-between gap-3 px-0.5 [.is-laptop-display_&]:min-h-5">
         <h2
-          class="text-xs font-medium uppercase r text-muted-foreground"
+          class="text-[0.875em] font-medium uppercase text-muted-foreground"
         >
           {label}
         </h2>
         {@render action?.()}
       </div>
     {/if}
-    <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-xs">
+    <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-xs [.is-laptop-display_&]:rounded-xl">
       {@render children()}
     </div>
   </section>

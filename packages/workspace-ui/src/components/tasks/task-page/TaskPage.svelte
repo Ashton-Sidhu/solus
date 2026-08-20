@@ -44,11 +44,25 @@
   import TaskSessionsList from "./TaskSessionsList.svelte";
   import TaskSidebar from "./TaskSidebar.svelte";
 
+  interface Props extends Omit<RouteSurfaceProps<"task">, "paneId"> {
+    paneId?: RouteSurfaceProps<"task">["paneId"];
+    embedded?: boolean;
+    onRequestClose?: () => void;
+    onRequestPrevious?: (() => void) | null;
+    onRequestNext?: (() => void) | null;
+    onOpenRoute?: () => void;
+  }
+
   let {
     params,
     paneId,
     surfaceVisible = true,
-  }: RouteSurfaceProps<"task"> = $props();
+    embedded = false,
+    onRequestClose,
+    onRequestPrevious,
+    onRequestNext,
+    onOpenRoute,
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -322,6 +336,7 @@
               ? session.ctxForDirectory(target.projectDirectory)
               : session.ctx,
             serverId: target.serverId,
+            externalFallbackUrl: link.url ?? undefined,
           });
         }
         break;
@@ -380,8 +395,10 @@
 
   // Shares the Tasks scope: `task` and `tasks` are one exclusive page group, so
   // only ever one of them is mounted and Escape means the same thing in both.
-  useScope("tasks", { active: () => true });
-  useKeybinding("tasks.close", () => pane.close());
+  useScope("tasks", { active: () => !embedded });
+  useKeybinding("tasks.close", () => pane.close(), {
+    enabled: () => !embedded,
+  });
 </script>
 
 <div
@@ -390,7 +407,9 @@
   aria-label="Task"
   tabindex="-1"
 >
-  {#if task}
+  {#if taskId !== loadedId || loadingTaskId === taskId || !store.loaded}
+    <TaskPageSkeleton />
+  {:else if task}
     <TaskChromeBar
       {task}
       {projectLabel}
@@ -402,17 +421,24 @@
         : task.providerId === "github"
           ? refresh
           : null}
-      onPrevious={previous
-        ? () => session.goToTask(previous.id, "click")
-        : null}
-      onNext={next ? () => session.goToTask(next.id, "click") : null}
+      onPrevious={embedded
+        ? onRequestPrevious
+        : previous
+          ? () => session.goToTask(previous.id, "click")
+          : null}
+      onNext={embedded
+        ? onRequestNext
+        : next
+          ? () => session.goToTask(next.id, "click")
+          : null}
       onOpenSource={task.url
         ? () => void localApi.openExternal(task.url!)
         : null}
       onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
       isLeading={pane.isLeading}
-      onOpenList={() => session.openTasks("click")}
-      onClose={() => pane.close()}
+      onOpenPage={embedded ? onOpenRoute : undefined}
+      onOpenList={onRequestClose ?? (() => session.openTasks("click"))}
+      onClose={onRequestClose ?? (() => pane.close())}
     />
 
     <div
@@ -522,8 +548,6 @@
         />
       </div>
     </div>
-  {:else if taskId !== loadedId || loadingTaskId === taskId || !store.loaded}
-    <TaskPageSkeleton />
   {:else}
     <div
       class="flex flex-1 items-center justify-center text-muted-foreground"

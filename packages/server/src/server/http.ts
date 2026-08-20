@@ -13,7 +13,7 @@ import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, isAbsolute } from 'path'
 import { hostname, tmpdir } from 'os'
 import { z } from 'zod'
-import { claimOwnership, consumePairToken, generatePairToken, getInstallationId, getOwnershipState, getServerFingerprint, isClaimable, issueSessionToken, issueWsTicket, listRevokedDevices, openClaimWindow, refreshSessionToken, revokeDevice, verifyClaimOpenAdminRequest, verifySessionToken } from './auth'
+import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken } from './auth'
 import { listReachableEndpoints } from './endpoints'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
@@ -61,12 +61,6 @@ const pairRequestSchema = z.object({
   deviceLabel: z.string().optional(),
 })
 
-const claimRequestSchema = z.object({
-  claimToken: z.string().optional(),
-  code: z.string().optional(),
-  deviceLabel: z.string().optional(),
-})
-
 const revokeRequestSchema = z.object({ deviceId: z.string().min(1) })
 
 export interface BuiltHttpServer {
@@ -91,7 +85,6 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const port = opts.port ?? 0
   const currentPort = () => opts.getPort?.() ?? port
   const pairRateLimiter = createTokenBucketRateLimiter(10, 60_000)
-  const claimRateLimiter = createTokenBucketRateLimiter(10, 60_000)
   let voiceTranscriptionActive = false
 
   const app = new Hono<Env>()
@@ -109,14 +102,13 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
   app.use('/health', publicCors)
   app.use('/pair', publicCors)
-  app.use('/claim', publicCors)
+  app.use('/pair/*', publicCors)
   app.use('/upload', publicCors)
   app.use('/voice/transcribe', publicCors)
   app.use('/artifact', publicCors)
   app.use('/api/assets/*', publicCors)
   app.use('/auth/refresh', publicCors)
   app.use('/auth/ws-ticket', publicCors)
-  app.use('/auth/pair-token', publicCors)
   app.use('/auth/revoke', publicCors)
 
   app.onError((err, c) => {
@@ -138,7 +130,6 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.get('/health', async (c) => c.json({
     ok: true,
     installationId: getInstallationId(),
-    claimable: isClaimable(),
     requireAuth: await authRequiredFor(c),
     name: hostname() || 'Solus Server',
     os: hostOperatingSystem(),
@@ -167,33 +158,14 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     return c.json({ sessionToken, installationId: getInstallationId(), os: hostOperatingSystem() })
   })
 
-  app.post('/claim', async (c) => {
-    if (getOwnershipState() !== 'unclaimed') return c.json({ error: 'Server already claimed' }, 403)
-    if (!claimRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many claim attempts' }, 429)
-    const body = await readJson(c, claimRequestSchema)
-    const claimToken = body?.claimToken ?? body?.code
-    const deviceLabel = body?.deviceLabel?.slice(0, 64) || 'Owner device'
-    if (!claimToken) {
-      return c.json({ error: 'claimToken or code required' }, 400)
-    }
-
-    const result = claimOwnership(claimToken, deviceLabel)
-    if (!result.ok) {
-      return c.json({ error: result.reason === 'owned' ? 'Server already claimed' : 'Invalid or expired claim code' }, 403)
-    }
-
-    log.info('server_claimed', { deviceLabel })
-    return c.json({ ...result, os: hostOperatingSystem() })
-  })
-
-  app.post('/claim/open', async (c) => {
-    if (!verifyClaimOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
-    const claimWindow = openClaimWindow()
-    if (!claimWindow) return c.json({ error: 'Server already claimed' }, 403)
-    log.info('claim_window_reopened')
+  app.post('/pair/open', async (c) => {
+    if (!verifyPairOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
+    const pairToken = generatePairToken()
+    log.info('pair_token_generated', { code: pairToken.code, expiresInMinutes: 5 })
     return c.json({
-      code: claimWindow.code,
-      expiresAt: claimWindow.expiresAt,
+      token: pairToken.token,
+      code: pairToken.code,
+      expiresAt: pairToken.expiresAt,
       fingerprint: getServerFingerprint(),
       installationId: getInstallationId(),
       endpoints: await listReachableEndpoints(currentHost(), currentPort()),
@@ -299,14 +271,6 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   }
   app.get('/api/assets/:token', serveSignedAsset)
   app.on('HEAD', '/api/assets/:token', serveSignedAsset)
-
-  // Internal/back-compat route for already-paired clients. The Connections panel
-  // normally mints tokens through authenticated RPC.
-  app.post('/auth/pair-token', (c) => {
-    if (!pairRateLimiter.allow(clientIp(c))) return c.json({ error: 'Too many pairing attempts' }, 429)
-    if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
-    return c.json(generatePairToken())
-  })
 
   app.post('/auth/refresh', (c) => {
     const refreshed = refreshSessionToken(readBearer(c))

@@ -104,9 +104,9 @@ describe('the maximize key across the whole secondary pane', () => {
   })
 
   test('survives an exclusive scope that would otherwise swallow the keyboard', () => {
-    // WHY: a plan or document shell opens inline in a companion pane and pushes
-    // an exclusive scope, so nothing below it fires. That is the one pane most in
-    // need of the full window, and the key that widens it would have been eaten.
+    // WHY: a standalone document modal can push an exclusive scope while a
+    // companion stays mounted behind it. The shared restore key must still be
+    // the way back when the modal closes.
     const kb = new KeybindingsContext()
     kb.pushScope('global')
     kb.pushScope('plan-modal', true)

@@ -84,6 +84,7 @@
     embedded = false,
     fullScreen = false,
     onToggleFullScreen,
+    onOpenRoute,
     onMoveAcross,
     onExit,
     onStep,
@@ -112,6 +113,8 @@
     /** Embedded only: the panel is covering the list rather than sitting beside it. */
     fullScreen?: boolean;
     onToggleFullScreen?: () => void;
+    /** Embedded-list only: promote this panel to the standalone review route. */
+    onOpenRoute?: () => void;
     /** Move the review between the leading pane and the companion beside it.
      *  Passed only by the route adapter: mounted as the pull requests page's
      *  own detail panel there is no pane of its own to move. `embedded` states
@@ -887,6 +890,7 @@
       total={listOrder.length}
       {fullScreen}
       {onToggleFullScreen}
+      onOpenPage={onOpenRoute}
       {onMoveAcross}
       isLeading={false}
       onStep={step}

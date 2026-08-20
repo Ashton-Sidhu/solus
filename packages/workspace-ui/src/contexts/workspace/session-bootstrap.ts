@@ -429,9 +429,25 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   // nothing below — so start it now rather than behind a transcript parse and a
   // bind round-trip.
   const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId }).catch(() => null)
-  const taskSessionId = handoff?.sessionId ?? snapTab.agentSessionId
+  const taskSessionId = handoff?.sessionId ?? session.id
+  const providerTaskSessionId = activeMember?.providerSessionId ?? snapTab.agentSessionId
   const taskHydration = taskSessionId
-    ? ctx.tasksStore.ensureSessionBinding(taskSessionId, snapTab.taskServerId).catch(() => null)
+    ? ctx.tasksStore.ensureSessionBinding(taskSessionId, snapTab.taskServerId)
+        .then(async (task) => {
+          if (task || !providerTaskSessionId || providerTaskSessionId === taskSessionId) return task
+          const legacyTask = await ctx.tasksStore.ensureSessionBinding(
+            providerTaskSessionId,
+            snapTab.taskServerId,
+          )
+          if (!legacyTask) return null
+          ctx.tasksStore.rekeySessionBinding(
+            providerTaskSessionId,
+            taskSessionId,
+            snapTab.taskServerId,
+          )
+          return legacyTask
+        })
+        .catch(() => null)
     : Promise.resolve(null)
 
   if (snapTab.agentSessionId || handoff) {

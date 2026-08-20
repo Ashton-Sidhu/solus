@@ -31,6 +31,8 @@
     /** Bound where another control opens the same list — the draft headline names
      *  the project too, and one menu answers for both. */
     open?: boolean;
+    /** When set, drop the open list from this external project control. */
+    anchor?: HTMLElement | null;
   }
   let {
     run,
@@ -40,6 +42,7 @@
     onBrowse,
     onDismiss,
     open = $bindable(false),
+    anchor = null,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -165,8 +168,8 @@
        fixed menu rung, so this surface opts all three into the display rung. -->
   <Popover.Content
     data-solus-ui
-    customAnchor={triggerEl}
-    side="top"
+    customAnchor={anchor ?? triggerEl}
+    side={anchor ? "bottom" : "top"}
     align="start"
     sideOffset={6}
     collisionPadding={8}

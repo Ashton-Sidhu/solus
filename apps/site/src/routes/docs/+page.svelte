@@ -899,7 +899,7 @@
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Pair over SSH', `Point Solus at <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">user@host</code> and it connects, installs the Solus server, and pairs automatically. No SSH? Enter the server's address and pair code by hand.`],
-						['Claim a fresh server', `A server you installed yourself prints a claim link, code, and QR on <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus claim</code>; opening the link takes ownership.`],
+						['Pair with a server', `A server you installed yourself prints a pair link and code at startup. Run <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus pair</code> to create another link and QR for any client.`],
 						['Automatic setup', `Once paired, Solus provisions git credentials from your GitHub connection, installs the agent CLIs, and walks you through signing into them.`],
 						['Readiness at a glance', `The host directory shows what's installed and signed in, with one-click repairs for anything missing.`],
 					] as [title, desc]}
@@ -975,11 +975,11 @@
 				</p>
 				<div class="mt-4 p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)] font-mono text-[13px] text-[#6B6158] whitespace-pre-wrap">brew install Ashton-Sidhu/tap/solus   # CLI + vendored server runtime
 brew services start solus             # run the daemon in the background
-solus claim                           # claim the server from this machine</div>
+solus pair                            # create a one-time client pairing link</div>
 				<ul class="mt-4 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Manage from the CLI', `<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus start</code>, <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus logs</code>, and <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus update</code> run, tail, and upgrade the daemon. Data lives under <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">~/.solus</code>.`],
-						['Claim it once', `<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus claim</code> prints a link, code, and QR; open it to take ownership, then pair devices normally.`],
+						['Pair every client', `<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus pair</code> prints a one-time link, code, and QR. Run it again for each additional client.`],
 						['Stays updated', 'Upgrade with <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">brew upgrade solus</code>, or <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus update</code> for tarball installs.'],
 					] as [title, desc]}
 						<li class="flex gap-3">

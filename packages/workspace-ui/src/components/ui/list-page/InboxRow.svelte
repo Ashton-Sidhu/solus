@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import ListAvatar from "./ListAvatar.svelte";
   import ListChip from "./ListChip.svelte";
   import type { InboxRowSpec } from "./list-page";
@@ -17,15 +18,21 @@
      *  same verb is a cool card button, because it isn't urgent there. */
     hot?: boolean;
     selected?: boolean;
+    /** Use the canonical responsive type rung for workspace list titles. */
+    responsiveTitle?: boolean;
     onSelect?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
+    /** Page-owned controls, such as the Tasks multi-select checkbox. */
+    leading?: Snippet;
   }
   let {
     row,
     hot = false,
     selected = false,
+    responsiveTitle = false,
     onSelect,
     onContextMenu,
+    leading,
   }: Props = $props();
 
   const hasActions = $derived(!!row.primary);
@@ -50,12 +57,14 @@
 </script>
 
 <div
-  class="text-xs group flex h-[55px] w-full items-center gap-[11px] rounded-lg py-2 pr-3 pl-2 transition-shadow duration-150 {selected
+  class="text-xs group flex h-[55px] w-full items-center rounded-lg py-2 pr-3 pl-2 transition-shadow duration-150 {selected
  ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
  : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}
   oncontextmenu={onContextMenu}
 >
+  {#if leading}{@render leading()}{/if}
+
   <button
     type="button"
     class="flex min-w-0 flex-1 cursor-pointer items-center gap-[11px] border-0 bg-transparent p-0 text-left focus-visible:outline-none"
@@ -67,7 +76,9 @@
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
       <span class="flex min-w-0 items-center gap-2">
         <span
-          class="truncate leading-[19px] {row.unread
+          class="truncate leading-[19px] {responsiveTitle
+ ? 'text-workspace-chrome'
+ : ''} {row.unread
  ? 'font-medium text-foreground'
  : 'font-normal text-[color-mix(in_oklch,var(--foreground)_72%,transparent)]'}"
           title={row.title}
@@ -87,7 +98,7 @@
   </button>
 
   <!-- At rest -->
-  <span class="{metaVisibility} shrink-0 items-center gap-[9px]">
+  <span class="{metaVisibility} ml-[11px] shrink-0 items-center gap-[9px]">
     {#each row.chips ?? [] as chip (chip.label)}
       <ListChip {chip} />
     {/each}
@@ -100,7 +111,7 @@
   </span>
 
   <!-- On hover / selection -->
-  <span class="{actionVisibility} shrink-0 items-center gap-1.5">
+  <span class="{actionVisibility} ml-[11px] shrink-0 items-center gap-1.5">
     {#if row.secondary}
       <button
         type="button"

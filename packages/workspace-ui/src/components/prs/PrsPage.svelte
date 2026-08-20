@@ -348,7 +348,11 @@ import Icon from "@iconify/svelte";
     }, statuses, rowKeyOf),
   );
   const inboxVirtualItems = $derived(
-    virtualGroupItems(inboxGroups, (row) => row.key),
+    virtualGroupItems(
+      inboxGroups,
+      (row) => row.key,
+      (group) => !listView.collapsedGroups[`inbox:${group.key}`],
+    ),
   );
   const globalVirtualItems = $derived(
     virtualGroupItems(
@@ -510,9 +514,7 @@ import Icon from "@iconify/svelte";
   const splitList = $derived(panelOpen && !panelFullScreen);
 
   function closePanel() {
-    if (isAllProjects) aggregateOpenKey = null;
-    else listView.openNumber = null;
-    listView.panelFullScreen = false;
+    clearPanelState();
     void tick().then(() => {
       const selectedRow = listEl?.querySelector<HTMLElement>(
         '[data-selected="true"]',
@@ -520,6 +522,12 @@ import Icon from "@iconify/svelte";
       if (selectedRow) selectedRow.focus();
       else searchEl?.focus();
     });
+  }
+
+  function clearPanelState() {
+    if (isAllProjects) aggregateOpenKey = null;
+    else listView.openNumber = null;
+    listView.panelFullScreen = false;
   }
 
   function toggleFullScreen() {
@@ -551,6 +559,16 @@ import Icon from "@iconify/svelte";
   function openPrExternal(pr: PullRequestSummary) {
     const url = prUrl(pr);
     if (url) void localApi.openExternal(url);
+  }
+
+  function openPrRoute(pr: PullRequestSummary, target: PrTarget) {
+    clearPanelState();
+    void session.enterPrReview(pr.number, pr.title, {
+      ctx: target.ctx,
+      serverId: target.serverId,
+      target: paneId,
+      via: "click",
+    });
   }
 
   function openPrContextMenu(event: MouseEvent, pr: PullRequestSummary) {
@@ -1206,7 +1224,12 @@ import Icon from "@iconify/svelte";
                     <ListGroup
                       label={item.group.label}
                       count={item.group.rows.length}
-                      collapsible={false}
+                      open={!listView.collapsedGroups[`inbox:${item.group.key}`]}
+                      onToggle={() => {
+                        const groupKey = `inbox:${item.group.key}`;
+                        listView.collapsedGroups[groupKey] =
+                          !listView.collapsedGroups[groupKey];
+                      }}
                       note={item.group.note}
                       accent={item.group.accent}
                     >
@@ -1390,6 +1413,7 @@ import Icon from "@iconify/svelte";
           title={openPr.title}
           fullScreen={panelFullScreen}
           onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
+          onOpenRoute={() => openPrRoute(openPr, openTarget)}
           onClose={closePanel}
           onStep={stepPanel}
         />

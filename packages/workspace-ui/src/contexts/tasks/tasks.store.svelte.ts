@@ -131,6 +131,15 @@ export class TasksStore {
       // same operation retry instead of exposing an incomplete sidebar frame.
       void this.load()
     })
+    // A catalog host exists before its socket is accepted. Its RPC queue can
+    // wait through the whole retry ladder, so including it in a federated read
+    // would keep healthy hosts out of the sidebar. Read it only after this edge,
+    // then merge its rows into the snapshot already on screen.
+    serverConnections.onPhaseChange((_serverId, phase) => {
+      if (phase !== 'connected') return
+      this.hostGeneration++
+      void this.load()
+    })
     queueMicrotask(() => void this.ensureLoaded())
   }
 
@@ -326,10 +335,15 @@ export class TasksStore {
       try {
         while (true) {
           const hostGeneration = this.hostGeneration
-          // One snapshot per connected host, merged. A host that fails is reported
-          // rather than emptying the list: losing one machine's tasks must not read
-          // as "the sidebar lost my tasks" for every other machine.
-          const serverIds = serverConnections.connectedServerIds()
+          // One snapshot per accepted host, merged. A catalog host whose socket
+          // is still connecting stays out of this read: its first-connect queue
+          // has no deadline and must not hold every healthy host's rows back.
+          // A host that fails after acceptance is reported rather than emptying
+          // the list: losing one machine's tasks must not read as "the sidebar
+          // lost my tasks" for every other machine.
+          const serverIds = serverConnections.connectedServerIds().filter(
+            (serverId) => serverConnections.phaseFor(serverId) === 'connected',
+          )
           const snapshots = await Promise.all(
             serverIds.map(async (serverId) => {
               try {

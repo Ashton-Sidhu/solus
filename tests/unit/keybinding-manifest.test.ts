@@ -85,4 +85,15 @@ describe('session task shortcuts', () => {
     })
     expect(KEYBINDINGS['global.design-mode'].combo).toBeNull()
   })
+
+  test('opens Files with a non-numbered global shortcut', () => {
+    // WHY: Files needs one default that works on desktop and web without
+    // colliding with the fully occupied Option+Shift letter layer.
+    expect(KEYBINDINGS['global.toggle-files']).toMatchObject({
+      combo: { alt: true, shift: true, code: 'Semicolon' },
+      scope: 'global',
+      label: 'Open files',
+    })
+    expect(KEYBINDINGS['global.toggle-files'].web).toBeUndefined()
+  })
 })

@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken } from './reference-tokens'
-import { tokenClassName, TOKEN_ICONS } from './tokenStyle'
+import { linkTokenClassName, TOKEN_ICONS } from './tokenStyle'
 
 export interface WorkRefAttrs {
   workId: string
@@ -82,7 +82,7 @@ export const WorkRefExtension = Node.create({
     return ['span', mergeAttributes(HTMLAttributes, {
       'data-work-ref': node.attrs.workId,
       contenteditable: 'false',
-      class: tokenClassName('work'),
+      class: linkTokenClassName('work'),
     }),
       ['span', { class: 'solus-token__icon' }, TOKEN_ICONS.work],
       ['span', {}, node.attrs.title],

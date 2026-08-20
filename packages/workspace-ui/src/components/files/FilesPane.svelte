@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, type Snippet } from "svelte";
+  import { onMount, tick, type Snippet } from "svelte";
   import {
     FileTree,
     type ContextMenuItem,
@@ -67,10 +67,11 @@
     ctx: IpcContext;
     cwd: string;
     isDark: boolean;
+    bordered?: boolean;
     onClose: () => void;
   }
 
-  let { ctx, cwd, isDark, onClose }: Props = $props();
+  let { ctx, cwd, isDark, bordered = true, onClose }: Props = $props();
   const workspace = getWorkspaceContext();
 
   // Register the small offline icon subset used by file-type badges.
@@ -128,6 +129,7 @@
   let fileError = $state<string | null>(null);
   let saveState = $state<FileSaveState>("idle");
   let markdownSurfaceRef: MarkdownFileSurface | null = $state(null);
+  let filePreviewRef: FilePreviewStream | null = $state(null);
   let markdownViewMode = $state<MarkdownFileViewMode>("rendered");
   let treeHost: HTMLDivElement | undefined = $state();
   let treeInstance: FileTree | null = $state(null);
@@ -241,7 +243,7 @@
     loading = false;
   }
 
-  async function openFile(path: string) {
+  async function openFile(path: string, focusEditor = false) {
     selectedPath = path;
     markdownViewMode = initialMarkdownFileViewMode(path);
     syncTreeSelection(path);
@@ -266,6 +268,12 @@
       fileError = result.error;
     }
     fileLoading = false;
+    if (focusEditor && result.ok) {
+      await tick();
+      if (selectedPath !== path) return;
+      if (isMarkdownFile(path)) markdownSurfaceRef?.focus();
+      else filePreviewRef?.focus();
+    }
   }
 
   function moveSelection(delta: number) {
@@ -432,7 +440,7 @@
           if (selectedPath) syncTreeSelection(selectedPath);
           return;
         }
-        if (next && next !== selectedPath) void openFile(next);
+        if (next && next !== selectedPath) void openFile(next, true);
       },
       unsafeCSS: `
         [data-type='item'][data-item-selected='true']::after {
@@ -445,6 +453,15 @@
         }
         [data-type='item'][data-item-selected='true']::before {
           outline-color: transparent !important;
+        }
+        [data-file-tree-virtualized-root]:has([data-file-tree-search-input]:focus)
+          [data-type='item'][data-item-focused='true']:not([data-item-selected='true']) {
+          background-color: var(--trees-bg-muted);
+          --truncate-marker-background-overlay-color: var(--trees-bg-muted);
+        }
+        [data-file-tree-virtualized-root]:has([data-file-tree-search-input]:focus)
+          [data-type='item'][data-item-focused='true']:not([data-item-selected='true'])::before {
+          outline-color: transparent;
         }
         ${FILE_TREE_CHEVRON_CSS}
         [data-file-tree-search-container] {
@@ -459,6 +476,7 @@
     });
     tree.render({ containerWrapper: treeHost });
     treeInstance = tree;
+    tree.openSearch();
   }
 
   // Clicking the tree's empty space unpicks the current row, which is the only
@@ -554,7 +572,7 @@
 {/snippet}
 
 <div
-  class="flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
+  class={`flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
   bind:clientWidth={panelWidth}
 >
   <!-- In-content path line on the shared chrome centreline: the tree/refresh
@@ -735,6 +753,7 @@
             />
           {:else}
             <FilePreviewStream
+              bind:this={filePreviewRef}
               api={workspace.apiForSession(ctx.session.sessionId)}
               {ctx}
               cwd={root || cwd}

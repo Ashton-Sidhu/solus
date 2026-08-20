@@ -42,7 +42,7 @@
        twice, and a duplicate key is a crash rather than a wrong chart. -->
   {#each bars as bar, index (index)}
     <li
-      class="group flex min-h-10 items-center gap-2.5 rounded-md py-2 text-[0.6875rem] transition-colors hover:bg-[var(--wash-1)] sm:min-h-8 sm:py-1 sm:[@media(min-height:1000px)]:min-h-10 sm:[@media(min-height:1000px)]:py-2"
+      class="group flex min-h-10 items-center gap-2.5 rounded-md py-2 text-insights-summary transition-colors hover:bg-[var(--wash-1)] sm:min-h-8 sm:py-1 sm:[@media(min-height:1000px)]:min-h-10 sm:[@media(min-height:1000px)]:py-2"
     >
       <span
         class="w-24 shrink-0 truncate pl-1 text-right text-muted-foreground transition-colors group-hover:text-foreground sm:w-36"
@@ -74,7 +74,7 @@
 </ul>
 {#if hiddenBars > 0}
   <!-- Aligned to where the bars start: label width plus the gap. -->
-  <p class="pl-26.5 text-[0.6875rem] text-muted-foreground opacity-70 sm:pl-38.5">
+  <p class="pl-26.5 text-insights-summary text-muted-foreground opacity-70 sm:pl-38.5">
     +{hiddenBars} more, in the table below
   </p>
 {/if}

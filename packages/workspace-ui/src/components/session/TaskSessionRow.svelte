@@ -19,6 +19,7 @@
   import {
     formatElapsed,
     hasGlyph,
+    shouldEmphasizeTitle,
     taskStatusFor,
   } from "./lib/task-list";
 
@@ -60,7 +61,9 @@
   }: Props = $props();
 
   const status = $derived(taskStatusFor(session.attention));
-  const titleIsEmphasized = $derived(selected || hasGlyph(status));
+  const titleIsEmphasized = $derived(
+    shouldEmphasizeTitle(status, session.unread, selected),
+  );
   const titleLeads = $derived(onPath || titleIsEmphasized);
   // `unread` maps to an idle status, so this never competes with a glyph or the
   // elapsed readout — but state it directly rather than leaning on the chain.
@@ -215,7 +218,7 @@
             ? 'font-medium '
             : ''} {titleLeads
             ? 'text-foreground'
-            : 'text-(--solus-text-secondary)'}">{session.label}</span
+            : 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)]'}">{session.label}</span
         >
       {/if}
 

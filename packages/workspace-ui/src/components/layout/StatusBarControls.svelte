@@ -264,11 +264,8 @@
 {/if}
 
 {#snippet projectInfo()}
-  <!-- A flat 12px, not a rung: this pair sits beside the action dock, whose
-       labels resolve to ~12px, so it holds that size on every client rather
-       than growing back to 14 on touch the way both chrome rungs do. -->
   <div
-    class="flex items-center gap-2.5 min-w-0 overflow-hidden text-xs text-(--solus-text-tertiary)"
+    class="flex min-w-0 items-center gap-2 overflow-hidden"
   >
     <TooltipUI.Root>
       <TooltipUI.Trigger>
@@ -276,11 +273,11 @@
           <button {...tooltipProps}
       onclick={handleChooseDirectory}
       disabled={isBusy || isPinned}
-      class="flex items-center gap-1 shrink-0 transition-[color,opacity] text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:text-(--solus-text-primary)"
+      class="flex h-[1.875rem] shrink-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,opacity,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none"
       style="max-width:240px;cursor:{isPinned ? 'default' : isBusy ? 'not-allowed' : 'pointer'};opacity:{isBusy ? 0.5 : 1}"
     >
       {#if showDirIcon}
-        <FolderOpenIcon size={13} class="flex-shrink-0 opacity-50" />
+        <FolderOpenIcon size={14} class="shrink-0 opacity-70" />
       {/if}
       {#if showDirLabel}
         <span class="truncate">{displayDir}</span>
@@ -306,13 +303,13 @@
         onclick={toggleGitMenu}
         aria-haspopup="menu"
         aria-expanded={gitOpen}
-        class="flex items-center gap-1 min-w-0 text-(--solus-text-tertiary) cursor-pointer transition-[color] hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:text-(--solus-text-primary)"
+        class="flex h-[1.875rem] min-w-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none"
         style="max-width:16rem"
       >
         {#if pendingDispatch}
-          <GitForkIcon size={12} class="flex-shrink-0 opacity-50" />
+          <GitForkIcon size={14} class="shrink-0 opacity-70" />
         {:else}
-          <GitBranchIcon size={12} class="flex-shrink-0 opacity-50" />
+          <GitBranchIcon size={14} class="shrink-0 opacity-70" />
         {/if}
         <span class="truncate">{displayBranch}</span>
         {#if creatingWorktree || worktreeModePending}

@@ -230,8 +230,8 @@
     validate: (sql) => store.validateSql(sql),
   };
 
-  function run(): void {
-    if (store.form === "nl") void store.compileAndRun(workspace.ctx, store.question);
+  function run(form: QueryForm = store.form): void {
+    if (form === "nl") void store.compileAndRun(workspace.ctx, store.question);
     else void store.runSql(store.sqlText);
   }
 
@@ -429,7 +429,7 @@
      different one silently falls back to that answer's own preference. -->
 {#snippet measureHeading(current: string, measures: string[], detail: string)}
   <header class="flex items-baseline gap-2">
-    <h2 class="text-[0.8125rem] font-semibold">
+    <h2 class="text-insights-summary font-semibold">
       {#if measures.length > 1}
         <DropdownMenu.Root>
           <DropdownMenu.Trigger
@@ -451,26 +451,26 @@
         {current}
       {/if}
     </h2>
-    <span class="text-[0.6875rem] text-muted-foreground">{detail}</span>
+    <span class="text-insights-summary text-muted-foreground">{detail}</span>
   </header>
 {/snippet}
 
 <div
-  class="relative flex h-full w-full flex-col overflow-hidden bg-background text-foreground [--insights-list-width:380px]"
+  class="relative flex h-full w-full flex-col overflow-hidden bg-background text-insights-chrome text-foreground [--insights-list-width:380px]"
   bind:clientWidth={pageWidth}
 >
   <header
-    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-1 pr-6 pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))] text-muted-foreground shadow-[inset_0_-0.5px_0_var(--hairline)]"
+    class="workspace-titlebar flex h-[calc(var(--solus-chrome-row-h,2.75rem)-0.25rem)] shrink-0 items-center gap-1 pr-6 pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))] text-muted-foreground shadow-[inset_0_-0.5px_0_var(--hairline)] pointer-coarse:h-(--solus-chrome-row-h,2.75rem)"
   >
     <span
-      class="flex h-7 shrink-0 items-center px-[7px] text-[0.8125rem] font-semibold text-foreground"
+      class="flex h-7 shrink-0 items-center px-[7px] text-workspace-chrome font-semibold text-foreground"
       >Insights</span
     >
     <!-- Beside the panel this band is only as wide as the rail, and the turn's
          own header continues the path from here. -->
     {#if !splitList}
-      <span class="px-[3px] text-[0.8125rem] opacity-25" aria-hidden="true">/</span>
-      <span class="flex h-7 shrink-0 items-center px-[7px] text-[0.8125rem] text-muted-foreground"
+      <span class="px-[3px] text-workspace-chrome opacity-25" aria-hidden="true">/</span>
+      <span class="flex h-7 shrink-0 items-center px-[7px] text-workspace-chrome text-muted-foreground"
         >{listLabel}</span
       >
     {/if}
@@ -480,7 +480,7 @@
     {#if !splitList}
       <button
         type="button"
-        class="h-6 cursor-pointer rounded-md px-2 text-[0.6875rem] transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
+        class="h-6 cursor-pointer rounded-md px-2 text-insights-chrome transition-colors hover:bg-[var(--wash-1)] hover:text-foreground"
         title="Back to the default question"
         onclick={resetQuery}>Reset</button
       >
@@ -542,7 +542,7 @@
 
     {#if store.error}
       <p
-        class="shrink-0 rounded-lg px-3 py-2 text-[0.6875rem] leading-relaxed"
+        class="shrink-0 rounded-lg px-3 py-2 text-insights-chrome leading-relaxed"
         style="background:color-mix(in oklch, var(--failure) 8%, transparent);color:var(--failure)"
         role="alert"
       >

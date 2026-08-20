@@ -299,7 +299,7 @@
               <div
                 role="group"
                 aria-labelledby={`command-palette-group-${groupIndex}`}
-                class="overflow-hidden p-0 text-(--solus-text-primary) [&_[data-command-group-heading]]:flex [&_[data-command-group-heading]]:items-center [&_[data-command-group-heading]]:gap-3 [&_[data-command-group-heading]]:px-3 [&_[data-command-group-heading]]:pt-3 [&_[data-command-group-heading]]:pb-[0.4375rem] [&_[data-command-group-heading]]:text-xs [&_[data-command-group-heading]]:font-medium [&_[data-command-group-heading]]:uppercase [&_[data-command-group-heading]]:text-(--solus-text-tertiary) [&_[data-command-group-heading]]:select-none [&_[data-command-group-heading]]:pointer-events-none [&_[data-command-group-heading]]:after:content-[''] [&_[data-command-group-heading]]:after:flex-1 [&_[data-command-group-heading]]:after:h-[0.0625rem] [&_[data-command-group-heading]]:after:bg-(--solus-menu-hairline)"
+                class="overflow-hidden p-0 text-(--solus-text-primary) [&_[data-command-group-heading]]:flex [&_[data-command-group-heading]]:items-center [&_[data-command-group-heading]]:gap-3 [&_[data-command-group-heading]]:px-3 [&_[data-command-group-heading]]:pt-3 [&_[data-command-group-heading]]:pb-[0.4375rem] [&_[data-command-group-heading]]:text-chrome-shelf [&_[data-command-group-heading]]:font-medium [&_[data-command-group-heading]]:uppercase [&_[data-command-group-heading]]:text-(--solus-text-tertiary) [&_[data-command-group-heading]]:select-none [&_[data-command-group-heading]]:pointer-events-none [&_[data-command-group-heading]]:after:content-[''] [&_[data-command-group-heading]]:after:flex-1 [&_[data-command-group-heading]]:after:h-[0.0625rem] [&_[data-command-group-heading]]:after:bg-(--solus-menu-hairline)"
               >
                 <div
                   id={`command-palette-group-${groupIndex}`}
@@ -334,7 +334,7 @@
       </div>
 
       <!-- Footer -->
-      <div class="flex items-center gap-5 px-4 h-10 flex-shrink-0 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) text-xs text-(--solus-text-tertiary)">
+      <div class="flex items-center gap-5 px-4 h-10 flex-shrink-0 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) text-chrome-shelf text-(--solus-text-tertiary)">
         <span class="inline-flex items-center gap-1.5">
           <Kbd variant="keycap">↑</Kbd>
           <Kbd variant="keycap">↓</Kbd>

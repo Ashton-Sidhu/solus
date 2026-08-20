@@ -1,7 +1,6 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import { LOCAL_SERVER_ID, type SavedServer } from '@solus/client-core/server-registry'
 import {
-  claimServer,
   defaultDeviceLabel,
   pairServer,
   saveBootstrappedServer,
@@ -228,27 +227,13 @@ export class HostOnboardingStore {
     this.pairingBusy = true
     this.pairingError = ''
     try {
-      let server: SavedServer
-      let fingerprint: string | undefined
-      if (target.claimable) {
-        const result = await claimServer({
-          url,
-          code: trimmed,
-          deviceLabel: defaultDeviceLabel(),
-          serverLabel: target.name,
-        })
-        server = result.server
-        fingerprint = result.fingerprint
-      } else {
-        const result = await pairServer({
-          url,
-          pairToken: trimmed,
-          deviceLabel: defaultDeviceLabel(),
-          serverLabel: target.name,
-        })
-        server = result.server
-      }
-      this.adoptPairedHost(server, target, fingerprint)
+      const { server } = await pairServer({
+        url,
+        pairToken: trimmed,
+        deviceLabel: defaultDeviceLabel(),
+        serverLabel: target.name,
+      })
+      this.adoptPairedHost(server, target)
     } catch (err) {
       this.pairingError = messageFor(err)
     } finally {

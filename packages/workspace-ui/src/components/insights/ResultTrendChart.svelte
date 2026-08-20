@@ -112,13 +112,13 @@
        model, and the reader should not have to hover to find out. -->
   <ul class="flex flex-wrap items-center gap-x-3 gap-y-1 pb-1 pl-11.5" aria-label="Series">
     {#each series as line (line.label)}
-      <li class="flex items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+      <li class="flex items-center gap-1.5 text-insights-summary text-muted-foreground">
         <span class="size-2 shrink-0 rounded-sm" style="background:{line.color}"></span>
         <span class="max-w-40 truncate" title={line.label}>{line.label}</span>
       </li>
     {/each}
     {#if hiddenSeries > 0}
-      <li class="text-[0.6875rem] text-muted-foreground opacity-70">
+      <li class="text-insights-summary text-muted-foreground opacity-70">
         +{hiddenSeries} more, in the table below
       </li>
     {/if}
@@ -152,7 +152,7 @@
           ticks={3}
           tickMarks={false}
           format={(value: unknown) => formatValue(Number(value))}
-          classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
+          classes={{ tickLabel: "text-insights-summary tabular-nums fill-[var(--muted-foreground)]" }}
         />
         <Axis
           placement="bottom"
@@ -161,7 +161,7 @@
           tickLength={0}
           tickLabelProps={{ dy: TIME_AXIS_LABEL_GAP_PX }}
           format={(value: unknown) => formatTick(Number(value))}
-          classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
+          classes={{ tickLabel: "text-insights-summary tabular-nums fill-[var(--muted-foreground)]" }}
         >
           <!-- The end labels sit on the extent itself, so centred they hang half
                a timestamp off the plot and get cut by the card. -->
@@ -236,7 +236,7 @@
         }}
       >
         {#snippet children({ data }: { data: TrendPoint })}
-          <div class="flex flex-col gap-0.5 text-[0.6875rem]">
+          <div class="flex flex-col gap-0.5 text-insights-summary">
             <span class="tabular-nums whitespace-nowrap text-muted-foreground"
               >{formatInstant(data.at)}</span
             >
@@ -251,7 +251,7 @@
             {/if}
             <span class="flex items-baseline gap-1.5">
               <span
-                class="text-xs font-medium tabular-nums"
+                class="text-insights-summary font-medium tabular-nums"
                 style="color:{data.failed ? FAILED_COLOR : 'var(--foreground)'}"
                 >{formatValue(data.value)}</span
               >

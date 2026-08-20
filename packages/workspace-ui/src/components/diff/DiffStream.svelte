@@ -965,7 +965,8 @@
     align-items: baseline;
     min-width: 0;
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-sm);
+    font-size: var(--text-workspace-chrome);
+    line-height: var(--text-workspace-chrome--line-height);
   }
 
   :global(.diff-file-dir) {

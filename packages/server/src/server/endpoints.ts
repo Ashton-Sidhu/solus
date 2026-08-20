@@ -55,7 +55,6 @@ const tailscaleStatusSchema = z.object({
 })
 const discoveredHealthSchema = z.object({
   installationId: z.string(),
-  claimable: z.boolean().optional(),
   name: z.string().optional(),
   os: z.enum(['macos', 'windows', 'linux']).optional(),
 })
@@ -252,7 +251,6 @@ async function probeDiscoveredServer(
       port: target.port,
       name: body.name || target.name,
       installationId: body.installationId,
-      claimable: body.claimable === true,
       os: body.os,
       source: 'tailnet',
     }

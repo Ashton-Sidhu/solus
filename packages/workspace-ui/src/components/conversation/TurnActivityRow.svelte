@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { RotateCcw as ArrowCounterClockwiseIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
+  import {
+    RotateCcw as ArrowCounterClockwiseIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
   import ActivityRow from "./ActivityRow.svelte";
   import { KIND_ICONS } from "./lib/activity-icons";
   import {
@@ -11,11 +14,7 @@
     participleFor,
     toolPathsFromParsed,
   } from "./lib/activity-summary";
-  import {
-    hasVisibleTurnBody,
-    turnDurationMs,
-    type Turn,
-  } from "./lib/turns";
+  import { hasVisibleTurnBody, turnDurationMs, type Turn } from "./lib/turns";
   import type { TurnStartKind } from "@solus/contracts/types";
   import { liveActivityClock } from "../../lib/shared-clock";
 
@@ -69,10 +68,14 @@
   const canExpand = $derived(hasVisibleTurnBody(turn));
   const kinds = $derived(activityKinds(turn.tools));
 
-  const runningTool = $derived(turn.tools.find((t) => t.toolStatus === "running"));
+  const runningTool = $derived(
+    turn.tools.find((t) => t.toolStatus === "running"),
+  );
   // Steps that have actually landed — a tool still in flight is the row's
   // subject, not something folded away behind it.
-  const steps = $derived(turn.tools.filter((t) => t.toolStatus !== "running").length);
+  const steps = $derived(
+    turn.tools.filter((t) => t.toolStatus !== "running").length,
+  );
   // A request in flight with nothing back yet is waiting, not working — §12's
   // distinction survives the merge into this row: dots, not a spinner, and the
   // label holds still because nothing is happening.
@@ -81,7 +84,9 @@
   let now = $state(Date.now());
   $effect(() => {
     if (!live) return;
-    return liveActivityClock.subscribe((value) => { now = value; });
+    return liveActivityClock.subscribe((value) => {
+      now = value;
+    });
   });
 
   const settledDurationMs = $derived(turnDurationMs(turn));
@@ -109,7 +114,9 @@
       runningTool.toolInput,
     );
     // The participle already carries the verb, so drop the description's own.
-    return raw.replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, "").trim();
+    return raw
+      .replace(/^(Read|Edit|Write|Search files|Search|Fetch)[:\s]+/i, "")
+      .trim();
   });
 
   const filesTouched = $derived.by(() => {
@@ -149,7 +156,9 @@
   {#snippet glyph()}
     {#if state === "live"}
       {#if waiting}
-        <span class="activity-dots" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="activity-dots" aria-hidden="true"
+          ><span></span><span></span><span></span></span
+        >
       {:else}
         <span class="activity-spinner" aria-hidden="true"></span>
       {/if}
@@ -246,7 +255,7 @@
     padding: 0.1875rem 0.5625rem;
     color: var(--solus-text-primary);
     font-size: var(--text-transcript-meta);
-    font-weight: 500;
+    font-weight: 400;
     cursor: pointer;
     transition:
       background var(--duration-quick) var(--ease-premium),
@@ -265,5 +274,4 @@
     outline: 0.125rem solid var(--solus-accent-border-medium);
     outline-offset: 0.125rem;
   }
-
 </style>

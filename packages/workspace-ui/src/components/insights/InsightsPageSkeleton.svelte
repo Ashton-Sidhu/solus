@@ -7,19 +7,19 @@
      console band, and the answer geometry stay in place, so the pane does not
      settle twice after it opens. -->
 <div
-  class="relative flex h-full w-full flex-col overflow-hidden bg-background text-foreground"
+  class="relative flex h-full w-full flex-col overflow-hidden bg-background text-insights-chrome text-foreground"
   role="status"
   aria-busy="true"
   aria-label="Loading insights"
 >
   <header
-    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-1 pr-6 pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))] shadow-[inset_0_-0.5px_0_var(--hairline)]"
+    class="workspace-titlebar flex h-[calc(var(--solus-chrome-row-h,2.75rem)-0.25rem)] shrink-0 items-center gap-1 pr-6 pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))] shadow-[inset_0_-0.5px_0_var(--hairline)] pointer-coarse:h-(--solus-chrome-row-h,2.75rem)"
   >
-    <span class="flex h-7 shrink-0 items-center px-[7px] text-[0.8125rem] font-semibold"
+    <span class="flex h-7 shrink-0 items-center px-[7px] text-workspace-chrome font-semibold"
       >Insights</span
     >
-    <span class="px-[3px] text-[0.8125rem] opacity-25" aria-hidden="true">/</span>
-    <Skeleton class="h-3 w-12 rounded opacity-55" />
+    <span class="px-[3px] text-workspace-chrome opacity-25" aria-hidden="true">/</span>
+    <Skeleton class="h-3.5 w-12 rounded opacity-55" />
     <span class="flex-1"></span>
     <Skeleton class="h-6 w-14 rounded-md opacity-45" />
     <!-- The move-across control the real header ends with. -->

@@ -25,7 +25,6 @@ export interface ServerHealth {
   ok: boolean
   installationId: string
   name: string
-  claimable?: boolean
   os?: HostOperatingSystem
 }
 
@@ -36,7 +35,6 @@ const serverHealthSchema = z.object({
   ok: z.literal(true),
   installationId: z.string().min(1),
   name: z.string().min(1),
-  claimable: z.boolean().optional().catch(undefined),
   os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
 })
 

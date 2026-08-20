@@ -25,7 +25,6 @@ describe('server discovery', () => {
       port: 3000,
       name: 'build-server',
       installationId: 'remote-installation',
-      claimable: true,
       os: 'linux',
     }
 
@@ -48,7 +47,6 @@ describe('server discovery', () => {
       port: 70_000,
       name: 'invalid-server',
       installationId: 'remote-installation',
-      claimable: true,
     })))).toBeNull()
   })
 
@@ -167,16 +165,16 @@ describe('server discovery', () => {
     ])
   })
 
-  test('sorts claimable hosts first so machines ready to connect stay actionable', () => {
-    const paired = { ...server('100.64.0.11', 'paired-installation'), name: 'Alpha', claimable: false }
-    const claimableZeta = { ...server('100.64.0.12', 'zeta-installation'), name: 'Zeta' }
-    const claimableBeta = { ...server('100.64.0.13', 'beta-installation'), name: 'Beta' }
+  test('sorts nearby hosts alphabetically', () => {
+    const alpha = { ...server('100.64.0.11', 'alpha-installation'), name: 'Alpha' }
+    const zeta = { ...server('100.64.0.12', 'zeta-installation'), name: 'Zeta' }
+    const beta = { ...server('100.64.0.13', 'beta-installation'), name: 'Beta' }
 
-    expect(mergeNearbyHosts(new Map(), [paired, claimableZeta, claimableBeta], 10_000)
+    expect(mergeNearbyHosts(new Map(), [alpha, zeta, beta], 10_000)
       .map(({ server }) => server.installationId)).toEqual([
+      'alpha-installation',
       'beta-installation',
       'zeta-installation',
-      'paired-installation',
     ])
   })
 })
@@ -199,7 +197,6 @@ function server(host: string, installationId: string): DiscoveredServer {
     port: 3000,
     name: host,
     installationId,
-    claimable: true,
     source: 'tailnet',
   }
 }

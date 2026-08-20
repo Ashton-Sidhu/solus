@@ -224,7 +224,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       // manual edit. Other clients of the task host still need to reload it.
       emitChanged()
     }
-    log.info('session_renamed', { sessionId, cleared: !trimmed })
+    log.info('session_renamed', { sessionId, cleared: !trimmed, taskCatalogChanged })
   })
 
   server.register('listPlans', async (args) => {

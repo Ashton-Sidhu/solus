@@ -78,10 +78,10 @@ export function bestEndpoint<T extends Endpoint>(endpoints: T[]): T | null {
     null
 }
 
-export function formatClaimBlock(claimUrl: string, code: string, expiresAt: number, fingerprint: string): string[] {
+export function formatPairBlock(pairUrl: string, code: string, expiresAt: number, fingerprint: string): string[] {
   const ttlMinutes = Math.max(0, Math.ceil((expiresAt - Date.now()) / 60_000))
   return [
-    `Claim URL: ${claimUrl}`,
+    `Pair URL: ${pairUrl}`,
     `Code: ${code}`,
     `Fingerprint: ${fingerprint}`,
     `Expires in: ${ttlMinutes} minute${ttlMinutes === 1 ? '' : 's'}`,

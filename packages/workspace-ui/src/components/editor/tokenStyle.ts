@@ -20,6 +20,11 @@ export function tokenClassName(variant: TokenVariant, mono = false): string {
   return `solus-token solus-token--${variant}${mono ? ' solus-token--mono' : ''}`
 }
 
+/** References use the same bordered shell in both rich and plain-text editors. */
+export function linkTokenClassName(variant: TokenVariant, mono = false): string {
+  return `${tokenClassName(variant, mono)} solus-token--link-chip`
+}
+
 /*
  * Tiptap's `renderHTML` returns vdom-like arrays; SVG icons ship as the same
  * shape. Each icon is a 24×24 stroked glyph styled by the surrounding class.

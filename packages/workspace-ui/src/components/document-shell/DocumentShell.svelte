@@ -427,7 +427,11 @@
     return () => scrollContainer?.removeEventListener("scroll", handler);
   });
 
-  useScope(() => scope, { exclusive: true, pre: true });
+  // A pane is one keyboard surface beside others, not a modal over the whole
+  // workspace. Keep its shortcuts ahead of the global scope without blocking
+  // unrelated global actions such as Settings. Standalone modals stay
+  // exclusive so background surfaces cannot react through them.
+  useScope(() => scope, { exclusive: !untrack(() => inline), pre: true });
   useKeybinding(() => bindings.close, () => {
     if (findOpen) findOpen = false;
     else (onEscape ?? onClose)();

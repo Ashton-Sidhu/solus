@@ -300,11 +300,14 @@
   <!-- Anchored to the composer card, not the pill, so the sheet spans the full
        composer — a saved prompt is a paragraph, and reading it in a narrow menu
        column turns it back into a list item. The class list restates
-       rounded-2xl/bg/shadow/text-menu for the same reason GitDropdown does:
+       rounded-2xl/bg/shadow/text-workspace-chrome for the same reason
+       GitDropdown does:
        Popover.Content's stock rounded-lg + bg-popover + shadow-md are emitted
        after the utility layer and would otherwise win the cascade, and
-       lg:text-menu is a separate merge group from the bare text-menu so the
-       primitive's lg:text-sm needs answering at its own breakpoint. -->
+       lg:text-workspace-chrome is a separate merge group from the bare type
+       utility, so the primitive's lg:text-sm needs answering at its own
+       breakpoint. Nested rows and the search field otherwise keep their fixed
+       menu rung, so this surface opts all three into the display rung. -->
   <Popover.Content
     data-solus-ui
     customAnchor={anchorEl}
@@ -315,7 +318,7 @@
     onInteractOutside={(event) => {
       if (triggerEl?.contains(event.target as Node)) event.preventDefault();
     }}
-    class="menu-surface z-[10002] w-[var(--bits-popover-anchor-width)] max-w-[var(--bits-popover-anchor-width)] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-menu lg:text-menu shadow-[shadow:var(--solus-menu-shadow)] ring-0"
+    class="menu-surface z-[10002] w-[var(--bits-popover-anchor-width)] max-w-[var(--bits-popover-anchor-width)] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
   >
     <Command.Root
       bind:value={selectedId}

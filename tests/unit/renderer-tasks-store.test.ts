@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
 import type { Task } from '@solus/contracts/task-types'
+import type { HostPhase } from '@solus/client-core/host-supervisor'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const taskServerConnections = singleHostServerConnections()
 let connectionCreatedListener: ((connection: { serverId: string }) => void) | undefined
+let phaseChangeListener: ((serverId: string, phase: HostPhase) => void) | undefined
+const hostPhases = new Map<string, HostPhase>()
 
 // One connected host, whose RPC surface is the same `window.solus` each test
 // installs. Tasks are host-scoped now, so the store reaches them through the
@@ -18,6 +21,13 @@ mock.module('@solus/client-core/server-connections', () => ({
         if (connectionCreatedListener === listener) connectionCreatedListener = undefined
       }
     },
+    onPhaseChange: (listener: (serverId: string, phase: HostPhase) => void) => {
+      phaseChangeListener = listener
+      return () => {
+        if (phaseChangeListener === listener) phaseChangeListener = undefined
+      }
+    },
+    phaseFor: (serverId: string) => hostPhases.get(serverId) ?? 'connected',
   },
 }))
 
@@ -30,6 +40,8 @@ afterEach(() => {
   jest.useRealTimers()
   taskServerConnections.reset()
   connectionCreatedListener = undefined
+  phaseChangeListener = undefined
+  hostPhases.clear()
   if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
   else Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: previousWindow })
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
@@ -225,6 +237,70 @@ describe('renderer task hydration', () => {
 
     expect(store.taskForSession('restored-session')?.status).toBe('done')
     expect(store.hostFor('remote-completed')).toBe('remote')
+  })
+
+  test('does not let an offline host block healthy sidebar sessions', async () => {
+    // WHY: saved hosts are supervised before their first successful socket.
+    // An unreachable host's RPC queue must not keep the local task snapshot in
+    // the loading state, or every session row disappears from the sidebar.
+    installStateRune()
+    const localTask = { ...task(), id: 'local-task' }
+    const remoteTask = { ...task(), id: 'remote-task' }
+    const localApi = {
+      tasksSidebarSnapshot: async () => ({
+        tasks: [localTask],
+        sessionsByTask: {
+          'local-task': [{ taskId: 'local-task', sessionId: 'local-session', linkedAt: 1 }],
+        },
+      }),
+    }
+    let resolveRemoteSnapshot!: (snapshot: {
+      tasks: Task[]
+      sessionsByTask: Record<string, Array<{ taskId: string; sessionId: string; linkedAt: number }>>
+    }) => void
+    const remoteSnapshot = new Promise<{
+      tasks: Task[]
+      sessionsByTask: Record<string, Array<{ taskId: string; sessionId: string; linkedAt: number }>>
+    }>((resolve) => {
+      resolveRemoteSnapshot = resolve
+    })
+    let remoteReads = 0
+    const remoteApi = {
+      tasksSidebarSnapshot: () => {
+        remoteReads++
+        return remoteSnapshot
+      },
+    }
+    taskServerConnections.registerPrimary('local', localApi)
+    taskServerConnections.registerHost('remote', remoteApi)
+    hostPhases.set('remote', 'offline')
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: { solus: localApi },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    expect(store.loaded).toBe(true)
+    expect(store.taskForSession('local-session')?.id).toBe('local-task')
+    expect(remoteReads).toBe(0)
+
+    hostPhases.set('remote', 'connected')
+    phaseChangeListener?.('remote', 'connected')
+    const connectedLoad = store.load()
+    resolveRemoteSnapshot({
+      tasks: [remoteTask],
+      sessionsByTask: {
+        'remote-task': [{ taskId: 'remote-task', sessionId: 'remote-session', linkedAt: 2 }],
+      },
+    })
+    await connectedLoad
+
+    expect(store.taskForSession('remote-session')?.id).toBe('remote-task')
+    expect(remoteReads).toBe(1)
   })
 
   test('lists a task once when two hosts serve the same task store', async () => {

@@ -2,6 +2,11 @@ import { describe, expect, it } from 'bun:test'
 import type { PullRequestSummary } from '@solus/contracts/providers'
 import type { Task } from '@solus/contracts/task-types'
 import {
+  completedTasksWithinRetention,
+  DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
+  SIDEBAR_COMPLETED_RETENTION_CHECK_MS,
+} from '@solus/workspace-ui/lib/completed-task-retention'
+import {
   aggregateReviewGuideStatus,
   buildProjectSummaries,
   formatCompletedAge,
@@ -11,6 +16,7 @@ import {
   hasDisclosure,
   sidebarChildLabel,
   hasGlyph,
+  shouldEmphasizeTitle,
   prChipFor,
   prChipForBranches,
   reconcileSidebarTasks,
@@ -70,12 +76,35 @@ describe('sidebar task search', () => {
 describe('completed task age', () => {
   const now = Date.parse('2026-08-11T12:00:00Z')
 
+  it('keeps completed tasks in the sidebar for two days by default', () => {
+    expect(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS).toBe(2)
+  })
+
+  it('checks completed task retention once an hour', () => {
+    // WHY: the shelf changes slowly, so a minute-level timer adds needless
+    // renderer invalidations without making the retention rule more useful.
+    expect(SIDEBAR_COMPLETED_RETENTION_CHECK_MS).toBe(60 * 60 * 1000)
+  })
+
   it('keeps the completed shelf age compact from minutes through days', () => {
     // WHY: completed rows have one narrow trailing column and must not grow
     // into prose or switch to an unrelated calendar-date representation.
     expect(formatCompletedAge(now - 57 * 60_000, now)).toBe('57m')
     expect(formatCompletedAge(now - 6 * 3_600_000, now)).toBe('6h')
     expect(formatCompletedAge(now - 38 * 86_400_000, now)).toBe('38d')
+  })
+
+  it('removes completed sidebar tasks when their retention period ends', () => {
+    // WHY: completion history is useful briefly, but old rows must leave the
+    // session sidebar without deleting or reopening their durable tasks.
+    const recent = { completedAt: now - 2 * 86_400_000 + 1 } as SidebarTask
+    const expired = { completedAt: now - 2 * 86_400_000 } as SidebarTask
+    const unknown = { completedAt: 0 } as SidebarTask
+
+    expect(completedTasksWithinRetention([recent, expired, unknown], 2, now)).toEqual([
+      recent,
+      unknown,
+    ])
   })
 })
 
@@ -181,12 +210,15 @@ describe('shouldShowDurableSidebarTask', () => {
     expect(shouldShowDurableSidebarTask(task, true, true, true)).toBe(true)
   })
 
-  it('keeps a host task closed until this client opens it', () => {
-    // WHY: task data is shared across clients, but sidebar row state is not.
-    // A task created from desktop must not open a row on web.
-    const task = durableTask('in_progress')
-    expect(shouldShowDurableSidebarTask(task, false, false, false)).toBe(false)
-    expect(shouldShowDurableSidebarTask(task, false, true, false)).toBe(true)
+  it('keeps every host task closed until this client opens it', () => {
+    // WHY: connecting a host must not copy any part of its task list into the
+    // session sidebar. Status alone is not an open action.
+    for (const status of ['todo', 'in_progress', 'in_review'] as const) {
+      const task = durableTask(status)
+      expect(shouldShowDurableSidebarTask(task, false, false, false)).toBe(false)
+      expect(shouldShowDurableSidebarTask(task, false, false, true)).toBe(true)
+      expect(shouldShowDurableSidebarTask(task, false, true, false)).toBe(true)
+    }
   })
 
   it('continues to project child tasks through their root row', () => {
@@ -510,11 +542,20 @@ describe('title emphasis', () => {
     expect(hasGlyph('idle')).toBe(false)
   })
 
-  it('still emphasizes every state that is waiting on a person', () => {
-    expect(hasGlyph('question')).toBe(true)
-    expect(hasGlyph('plan')).toBe(true)
-    expect(hasGlyph('limit')).toBe(true)
-    expect(hasGlyph('error')).toBe(true)
+  it('stops emphasizing an error after the user reads it', () => {
+    // WHY: the error glyph must remain as durable status, but bold text is the
+    // call to inspect new activity. The selection spine locates the row while
+    // it is open, so a read error does not need a second selection signal.
+    expect(shouldEmphasizeTitle('error', true, false)).toBe(true)
+    expect(shouldEmphasizeTitle('error', false, true)).toBe(false)
+    expect(shouldEmphasizeTitle('error', false, false)).toBe(false)
+  })
+
+  it('still emphasizes selection and unresolved requests', () => {
+    expect(shouldEmphasizeTitle('idle', false, true)).toBe(true)
+    expect(shouldEmphasizeTitle('question', false, false)).toBe(true)
+    expect(shouldEmphasizeTitle('plan', false, false)).toBe(true)
+    expect(shouldEmphasizeTitle('limit', false, false)).toBe(true)
   })
 })
 

@@ -136,20 +136,20 @@
 
 <section
   data-guide-section-id={section.id}
-  class="text-xs grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 lg:grid-cols-[24rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]"
+  class="text-workspace-chrome grid items-start gap-x-10 gap-y-6 border-b border-(--solus-art-border) py-12 pr-8 pl-14 lg:grid-cols-[24rem_minmax(0,1fr)] xl:grid-cols-[28rem_minmax(0,1fr)]"
 >
   <!-- Left: the "why", pinned while the diffs scroll past. -->
   <div class="guide-why flex flex-col gap-5 lg:sticky lg:top-12 lg:self-start">
     {#if index && total}
       <span
-        class="tabular-nums text-sm font-medium text-(--solus-text-tertiary)"
+        class="tabular-nums text-chrome-shelf font-medium text-(--solus-text-tertiary)"
       >
         {String(index).padStart(2, "0")} / {String(total).padStart(2, "0")}
       </span>
     {/if}
 
     <h2
-      class="text-sm leading-snug font-medium text-balance text-(--solus-text-primary)"
+      class="leading-snug font-medium text-balance text-(--solus-text-primary)"
     >
       {section.title}
     </h2>
@@ -162,7 +162,7 @@
           <li>
             <button
               type="button"
-              class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left transition-[background-color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) active:scale-[0.98]"
+              class="flex w-full cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-left text-chrome-shelf transition-[background-color,scale] duration-150 ease-out hover:bg-(--solus-surface-hover) active:scale-[0.98]"
               onclick={() => jumpToCard(file.path)}
             >
               {@render typeBadge(file.path)}
@@ -215,7 +215,7 @@
           <!-- The card's own header row, not a button primitive. -->
           <button
             type="button"
-            class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
+            class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left text-chrome-shelf"
             aria-expanded={open}
             aria-label={open
               ? `Collapse diff for ${fileName(file.path)}`
@@ -228,7 +228,7 @@
  : 'rotate-45'}"
             ></span>
             {@render typeBadge(file.path)}
-            <span class="min-w-0 flex-1 truncate font-mono text-sm">
+            <span class="min-w-0 flex-1 truncate font-mono">
               <span class="text-(--solus-text-tertiary)"
                 >{dirName(file.path)}</span
               >

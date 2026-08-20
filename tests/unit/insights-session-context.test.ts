@@ -217,6 +217,10 @@ const toolTotals = readFileSync(
   join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TurnToolTotals.svelte'),
   'utf8',
 )
+const attributes = readFileSync(
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TurnAttributes.svelte'),
+  'utf8',
+)
 const panel = readFileSync(
   join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/TurnDetailPanel.svelte'),
   'utf8',
@@ -273,6 +277,13 @@ describe('Insights session surfaces composition', () => {
     expect(taskButtonClass).not.toContain('truncate')
   })
 
+  test('the session task and page titles lead the enlarged detail text', () => {
+    // WHY: after detail rows move to 14px/12px, their titles need the next
+    // content rung so the page hierarchy remains visible without extra weight.
+    expect(summary).toContain('text-insights-summary-heading leading-5 font-medium')
+    expect(panel).toContain('truncate text-h3 leading-[1.4] font-medium')
+  })
+
   test('a row answers its second question on hover, the way a session row does', () => {
     expect(summary).toContain('<SessionTurnTooltip {row} />')
   })
@@ -288,6 +299,35 @@ describe('Insights session surfaces composition', () => {
       expect(source, name).not.toMatch(/size-1\.5[^"]*rounded-full/)
       expect(source, name).not.toMatch(/rounded-full[^"]*size-1\.5/)
     }
+  })
+
+  test('the turn summary uses readable responsive text', () => {
+    // WHY: the summary is recorded conversation content, not chart annotation.
+    // Keeping it on the 12px footnote rung made full-page answers hard to read.
+    expect(transcript).toMatch(
+      /\.transcript-text \{[\s\S]*?font-size: var\(--text-insights-summary\)/,
+    )
+    expect(transcript).toMatch(
+      /\.transcript-text :global\(h1\) \{[\s\S]*?font-size: var\(--text-insights-summary-heading\)/,
+    )
+    const css = readFileSync(
+      join(import.meta.dir, '../../packages/workspace-ui/src/index.css'),
+      'utf8',
+    )
+    expect(css).toContain('--text-insights-summary: calc(0.875rem * var(--solus-font-scale, 1))')
+    expect(css).toMatch(
+      /html\.is-laptop-display \{[\s\S]*?--text-insights-summary: calc\(0\.75rem \* var\(--solus-font-scale, 1\)\)/,
+    )
+  })
+
+  test('the turn summary separates both speaker captions from their messages', () => {
+    // WHY: without a quiet boundary, the role label and the recorded message
+    // read as one text block. The same caption renders both speakers, and the
+    // rule changes sides to keep the divider between each label and message.
+    expect(transcript).toContain('class="h-px flex-1 bg-[var(--hairline)]"')
+    expect(transcript).toContain('class:order-first={alignEnd}')
+    expect(transcript).toContain('{@render roleLine(ask, true)}')
+    expect(transcript).toContain('{@render roleLine(answer)}')
   })
 
   // Why it matters: the card is context beside the turn being read. A 200-turn
@@ -336,6 +376,25 @@ describe('Insights session surfaces composition', () => {
     expect(panel).toMatch(/<SessionSummary[\s\S]*?<TurnToolTotals totals=\{view\.toolTotals\}/)
     const aside = panel.slice(panel.indexOf('<aside'), panel.indexOf('</aside>'))
     expect(aside).not.toContain('<TurnToolTotals')
+  })
+
+  test('the tool ranking and Attributes titles use the responsive Insights size', () => {
+    // WHY: these two compact rail cards are peers on the full turn page. Their
+    // uppercase titles must stay on the same 12px desktop and 10px laptop rung.
+    expect(toolTotals).toContain(
+      '<h2 class="m-0 text-insights-chrome font-normal text-muted-foreground uppercase">',
+    )
+    expect(attributes).toContain(
+      '<h2 class="m-0 text-insights-chrome font-normal text-muted-foreground uppercase">Attributes</h2>',
+    )
+  })
+
+  test('session details and compact turn lists use the readable summary size', () => {
+    // WHY: these values are reading content, not chart annotation. They use the
+    // 14px desktop and 12px laptop summary rung while their titles stay compact.
+    expect(summary).toMatch(/<header[\s\S]*?text-insights-summary/)
+    expect(summary).toMatch(/scrollbar-on-hover[\s\S]*?text-insights-summary/)
+    expect(toolTotals).toContain('px-2 text-insights-summary')
   })
 
   // Why it matters: an answer and a system prompt are markdown. Printed as one

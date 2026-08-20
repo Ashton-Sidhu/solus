@@ -2,7 +2,6 @@
   import { tick } from "svelte";
   import { fly } from "svelte/transition";
   import {
-    ChevronRight as CaretRightIcon,
     ListChecks as ListChecksIcon,
     Search as MagnifyingGlassIcon,
     X as XIcon,
@@ -24,6 +23,7 @@
     type ConversationBounds,
   } from "../pickers/lib/conversation-bounds";
   import { relativeTime, STATUS_META } from "../tasks/lib/tasks-api";
+  import { taskPickerSections } from "../tasks/lib/task-picker-sections";
   import { isDone } from "../tasks/lib/tasks-list-view";
   import {
     linkedTableLinks,
@@ -52,7 +52,6 @@
   const layer = getPopoverLayer();
   let query = $state("");
   let selectedIndex = $state(0);
-  let completedExpanded = $state(false);
   let searchEl = $state<HTMLInputElement | null>(null);
   let pickerEl = $state<HTMLDivElement | null>(null);
   let viewportWidth = $state(0);
@@ -75,15 +74,8 @@
         .includes(needle),
     );
   });
-  const openTasks = $derived(filteredTasks.filter((task) => !isDone(task)));
-  const completedTasks = $derived(filteredTasks.filter(isDone));
-  // Finished work is history: it stays folded away until asked for, except when
-  // it is the only thing a search matched — an empty list would read as "no
-  // results" while the match sat hidden one row below.
-  const completedVisible = $derived(completedExpanded || openTasks.length === 0);
-  const visibleTasks = $derived(
-    completedVisible ? [...openTasks, ...completedTasks] : openTasks,
-  );
+  const taskSections = $derived(taskPickerSections(filteredTasks));
+  const visibleTasks = $derived(taskSections.flatMap((section) => section.tasks));
   const selectedTask = $derived(
     visibleTasks[Math.min(selectedIndex, visibleTasks.length - 1)] ?? null,
   );
@@ -149,7 +141,6 @@
     wasOpen = true;
     query = "";
     selectedIndex = 0;
-    completedExpanded = false;
     void session.tasksStore.ensureLoaded();
     blurActiveTextInputOnMobile();
     tick().then(() => {
@@ -178,23 +169,12 @@
     return task.projectKey.replace(/\/$/, "").split("/").at(-1) || task.projectKey;
   }
 
-  function toggleCompleted(): void {
-    completedExpanded = !completedVisible;
-    // Folding the section away must not leave the selection on a hidden row.
-    selectedIndex = Math.min(selectedIndex, visibleTasks.length - 1);
-  }
-
   function handleKeyDown(event: KeyboardEvent): void {
     if (event.key === "Escape") {
       event.preventDefault();
       close();
     } else if (event.key === "ArrowDown" || (event.key === "Tab" && !event.shiftKey)) {
       event.preventDefault();
-      // Walking off the end of the open work is how the keyboard reaches the
-      // folded section, so no shortcut is needed to unfold it.
-      if (selectedIndex >= visibleTasks.length - 1 && completedTasks.length && !completedVisible) {
-        completedExpanded = true;
-      }
       selectedIndex = Math.min(selectedIndex + 1, visibleTasks.length - 1);
     } else if (event.key === "ArrowUp" || (event.key === "Tab" && event.shiftKey)) {
       event.preventDefault();
@@ -267,38 +247,12 @@
           {session.tasksStore.loading ? "Loading tasks…" : `No tasks match “${query}”`}
         </div>
       {:else}
-        {#if openTasks.length}
-          {@render sectionHeading("Open", openTasks.length)}
-          {#each openTasks as task, index (task.id)}
-            {@render taskRow(task, index, false)}
+        {#each taskSections as section (section.key)}
+          {@render sectionHeading(section.label, section.tasks.length)}
+          {#each section.tasks as task, index (task.id)}
+            {@render taskRow(task, section.startIndex + index, isDone(task))}
           {/each}
-        {/if}
-        {#if completedTasks.length && !openTasks.length}
-          <!-- Nothing to fold behind: the section is the whole list, so the
-               heading answers what these rows are instead of offering a
-               toggle that cannot change anything. -->
-          {@render sectionHeading("Completed", completedTasks.length)}
-        {:else if completedTasks.length}
-          <button
-            type="button"
-            class="flex h-8 w-full cursor-pointer items-center gap-1.5 rounded-lg px-3 text-left text-(--solus-text-tertiary) transition-[background-color,color] duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-secondary) {openTasks.length ? 'mt-1' : ''}"
-            aria-expanded={completedVisible}
-            onclick={toggleCompleted}
-          >
-            <CaretRightIcon
-              size={11}
-              weight="bold"
-              class="shrink-0 transition-transform duration-150 {completedVisible ? 'rotate-90' : ''}"
-            />
-            <span class="text-xs font-normal uppercase">Completed</span>
-            <span class="text-xs tabular-nums opacity-70">{completedTasks.length}</span>
-          </button>
-        {/if}
-        {#if completedVisible}
-          {#each completedTasks as task, index (task.id)}
-            {@render taskRow(task, openTasks.length + index, true)}
-          {/each}
-        {/if}
+        {/each}
       {/if}
     </div>
     <div class="relative min-w-0 flex-1 overflow-y-auto bg-[color-mix(in_srgb,var(--solus-surface-primary)_5%,transparent)] p-7 shadow-[inset_0.0625rem_0_0_0_color-mix(in_srgb,var(--solus-popover-border)_45%,transparent)] max-md:hidden">

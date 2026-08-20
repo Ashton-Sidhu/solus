@@ -1,4 +1,4 @@
-// Bundled OAuth App client ID for the Solus desktop app.
+// Bundled OAuth App client ID for Solus desktop and standalone server builds.
 // Set SOLUS_GITHUB_CLIENT_ID at build time; production embeds the real ID.
 //
 // Device flow needs no client secret, so — unlike google/ — there is

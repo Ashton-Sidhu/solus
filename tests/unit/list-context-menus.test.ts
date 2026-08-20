@@ -46,6 +46,39 @@ describe('list page context menus', () => {
     expect(menu).toContain('<ContextMenu.SubContent>')
   })
 
+  test('the task unread dot stays inside the menu icon slot', () => {
+    // WHY: a bare dot glyph has its own font-like bounds and can look detached
+    // from the other menu icons. The unread mark needs the same 14px slot.
+    const menu = readComponent('session/TaskContextMenu.svelte')
+    expect(menu).toContain('class="flex size-3.5 shrink-0 items-center justify-center"')
+    expect(menu).toContain('class="size-1.5 rounded-full bg-current"')
+  })
+
+  test('session task menus expose the complete task lifecycle', () => {
+    // WHY: task context menus in the sidebar and breadcrumb must not reduce the
+    // six-state workflow to a binary done toggle when the Tasks page does not.
+    const sidebar = readComponent('session/SessionSidebar.svelte')
+    const breadcrumb = readComponent('conversation/SessionBreadcrumb.svelte')
+    const menu = readComponent('session/TaskContextMenu.svelte')
+    expect(sidebar).toContain(
+      'onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}',
+    )
+    expect(breadcrumb).toContain(
+      'onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}',
+    )
+    expect(menu).not.toContain('onToggleDone')
+    for (const status of [
+      '"inbox"',
+      '"todo"',
+      '"in_progress"',
+      '"in_review"',
+      '"done"',
+      '"dropped"',
+    ]) {
+      expect(menu).toContain(status)
+    }
+  })
+
   test('sessions and tasks both reach Insights from their context menu', () => {
     // WHY: telemetry is only useful where the work is. Both menus scope the
     // page to the thing that was right-clicked — a session by Solus's own id,

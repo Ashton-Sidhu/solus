@@ -263,7 +263,10 @@ export class WorksStore {
     this.activeCwd = targetCwd
     const load = (async () => {
       try {
-        const results = await Promise.all(serverConnections.connectedServerIds().map(async (serverId) => {
+        const serverIds = serverConnections.connectedServerIds().filter(
+          (serverId) => serverConnections.phaseFor(serverId) === 'connected',
+        )
+        const results = await Promise.all(serverIds.map(async (serverId) => {
           try {
             return { serverId, metas: await serverConnections.apiFor(serverId).listWorks(targetCwd) }
           } catch (error) {

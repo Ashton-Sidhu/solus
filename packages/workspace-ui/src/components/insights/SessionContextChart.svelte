@@ -61,10 +61,10 @@
   aria-label="This session in the window"
 >
   <div class="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-    <h2 class="m-0 text-xs font-medium">{heading}</h2>
-    <span class="text-[0.6875rem] text-muted-foreground">{note}</span>
+    <h2 class="m-0 text-insights-summary font-medium">{heading}</h2>
+    <span class="text-insights-summary text-muted-foreground">{note}</span>
     <span class="flex-1"></span>
-    <div class="flex items-center gap-2.5 text-[0.625rem] text-muted-foreground">
+    <div class="flex items-center gap-2.5 text-insights-summary text-muted-foreground">
       {#each [{ label: "This turn", swatch: "var(--primary)" }, { label: "This session", swatch: "color-mix(in oklch, var(--primary) 42%, transparent)" }, { label: "Other sessions", swatch: "var(--wash-4)" }] as entry (entry.label)}
         <span class="flex items-center gap-1.5">
           <span class="size-1.5 rounded-full" style="background:{entry.swatch}"></span>
@@ -103,7 +103,7 @@
             tickLength={0}
             tickLabelProps={{ dy: TIME_AXIS_LABEL_GAP_PX }}
             format={(value: unknown) => formatTick(Number(value))}
-            classes={{ tickLabel: "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]" }}
+            classes={{ tickLabel: "text-insights-summary tabular-nums fill-[var(--muted-foreground)]" }}
           />
           <Bars rounded="top" radius={3} class="fill-[var(--wash-4)]" />
           <Bars
@@ -126,7 +126,7 @@
 
     {#if buckets.every((bucket) => bucket.total === 0)}
       <span
-        class="pointer-events-none absolute inset-0 flex items-center justify-center text-[0.6875rem] text-muted-foreground"
+        class="pointer-events-none absolute inset-0 flex items-center justify-center text-insights-summary text-muted-foreground"
         >No turns in this window</span
       >
     {/if}

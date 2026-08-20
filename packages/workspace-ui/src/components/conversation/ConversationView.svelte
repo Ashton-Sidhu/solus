@@ -953,7 +953,7 @@
 <!-- No container: assistant prose sits directly on the canvas. Cards, code and
      tables are the only boxes it may draw. -->
 {#snippet assistantBody(displayContent: string)}
-  <div class="prose-cloud prose-reading prose-transcript min-w-0">
+  <div class="prose-cloud prose-reading prose-transcript prose-transcript-main min-w-0">
     <SvelteMarkdown
       source={displayContent}
       options={assistantMarkdownOptions}
@@ -1230,7 +1230,7 @@
                   data-conversation-message-id={item.settledMessageId}
                 >
                   <div
-                    class="prose-cloud prose-reading prose-transcript min-w-0"
+                    class="prose-cloud prose-reading prose-transcript prose-transcript-main min-w-0"
                   >
                     <SvelteMarkdown
                       source={item.content}

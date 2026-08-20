@@ -36,24 +36,24 @@
 
 <SettingsSection label="Devices with access">
   {#if connections.sessions.length === 0}
-    <p class="px-4 py-6 text-center text-xs text-(--solus-text-tertiary)">
+    <p class="px-4 py-6 text-center text-[0.875em] text-(--solus-text-tertiary) [.is-laptop-display_&]:py-5">
       No devices are connected to this host.
     </p>
   {:else}
     {#each connections.sessions as session (session.id)}
       <div
-        class="group flex items-center gap-3 border-t border-border px-4 py-2.5 first:border-t-0"
+        class="group flex items-center gap-3 border-t border-border px-4 py-2.5 first:border-t-0 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2"
       >
         <div
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
         >
           <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
         </div>
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-medium text-(--solus-text-primary)">
+          <p class="truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
             {session.deviceLabel}
           </p>
-          <p class="text-xs text-(--solus-text-tertiary)">
+          <p class="text-[0.875em] text-(--solus-text-tertiary)">
             {relativeTime(session.connectedAt)}
             {#if session.connectionCount > 1}
               &middot; {session.connectionCount} connections

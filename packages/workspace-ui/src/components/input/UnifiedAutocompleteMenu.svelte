@@ -1,8 +1,8 @@
 <script lang="ts">
   /*
    * One popover behind all three trigger characters. Categories and items are
-   * the same 30px row and differ only by their leading glyph and trailing slot:
-   * a count on a category, freshness or state on an item — never both.
+   * the same row geometry and differ only by their leading glyph and trailing
+   * slot: a count on a category, freshness or state on an item — never both.
    */
   import Icon from "@iconify/svelte";
   import { getPopoverLayer } from "../popoverLayer.svelte";
@@ -10,8 +10,11 @@
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { ensureIconCollections } from "../diagram/iconify";
   import { GLYPH } from "../editor/unified-autocomplete/kinds";
+  import type { TriggerChar } from "../editor/unified-autocomplete/trigger";
+  import { runtime } from "../../contexts";
   import {
     isSelectable,
+    inlineTitlePrefix,
     rowMeta,
     type MenuRow,
     type SelectableRow,
@@ -19,6 +22,7 @@
 
   interface Props {
     rows: MenuRow[];
+    triggerChar: TriggerChar;
     /** Index into the selectable rows only — labels and the header are skipped. */
     selectedIndex: number;
     anchorRect: DOMRect | null;
@@ -35,6 +39,7 @@
 
   let {
     rows,
+    triggerChar,
     selectedIndex,
     anchorRect,
     onActivate,
@@ -54,8 +59,11 @@
      width and have it read narrow in a wide pane, the menu takes the composer's
      own width — bounded so it neither cramps a metadata column nor runs the
      rows so long that the trailing slot floats away from the title. */
-  const MIN_WIDTH = 480;
-  const MAX_WIDTH = 660;
+  const MIN_WIDTH = $derived(runtime.isLaptopDisplay ? 420 : 480);
+  const MAX_WIDTH = $derived(runtime.isLaptopDisplay ? 560 : 660);
+  const titleWeight = $derived(
+    triggerChar === "#" ? "font-normal" : "font-medium",
+  );
 
   const width = $derived.by(() => {
     const preferred = Math.max(
@@ -108,12 +116,12 @@
       : `bottom:${window.innerHeight - anchorRect.top + 4}px`}"
   >
     <div
-      class="unified-menu rounded-2xl bg-(--solus-popover-bg) p-1.5"
+      class="unified-menu text-workspace-chrome rounded-2xl bg-(--solus-popover-bg) p-1.5 pointer-fine:[.is-laptop-display_&]:rounded-xl pointer-fine:[.is-laptop-display_&]:p-1"
       style="box-shadow:var(--solus-popover-shadow), 0 0 0 0.03125rem var(--wash-ring);backdrop-filter:blur(1.25rem)"
     >
       <div
         bind:this={listEl}
-        class="max-h-[22rem] overflow-x-hidden overflow-y-auto"
+        class="max-h-[22rem] overflow-x-hidden overflow-y-auto pointer-fine:[.is-laptop-display_&]:max-h-[18rem]"
         role="listbox"
         tabindex="-1"
       >
@@ -130,9 +138,9 @@
 
       <div class="mx-0.5 mt-[0.3125rem] h-px bg-(--wash-rule)"></div>
       <div
-        class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem] text-xs text-(--solus-text-tertiary) select-none"
+        class="flex items-center justify-between px-2 pt-[0.4375rem] pb-[0.1875rem] text-[0.875em] text-(--solus-text-tertiary) select-none pointer-fine:[.is-laptop-display_&]:px-1.5 pointer-fine:[.is-laptop-display_&]:pt-1.5"
       >
-        <span class="flex items-center gap-[0.6875rem]">
+        <span class="flex items-center gap-[0.6875rem] pointer-fine:[.is-laptop-display_&]:gap-2">
           <span
             ><span class="font-mono text-(--solus-text-primary)">↑↓</span> move</span
           >
@@ -148,7 +156,7 @@
           {/if}
         </span>
         {#if footer}
-          <span class="font-mono text-xs opacity-80">{footer}</span>
+          <span class="font-mono opacity-80">{footer}</span>
         {/if}
       </div>
     </div>
@@ -165,20 +173,21 @@
     stroke-width="1.4"
     stroke-linecap="round"
     stroke-linejoin="round"
+    class="size-[0.8125rem] pointer-fine:[.is-laptop-display_&]:size-3"
     aria-hidden="true"><path d={path} /></svg
   >
 {/snippet}
 
 {#snippet label(text: string, hint: string)}
   <div
-    class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem]"
+    class="flex items-center gap-2.5 px-[0.5625rem] pt-[0.5625rem] pb-[0.3125rem] pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-[0.4375rem] pointer-fine:[.is-laptop-display_&]:pt-[0.4375rem] pointer-fine:[.is-laptop-display_&]:pb-1"
   >
-    <span class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
+    <span class="text-[0.875em] font-medium uppercase text-(--solus-text-tertiary)"
       >{text}</span
     >
     <span class="h-px flex-1 bg-(--wash-rule)"></span>
     {#if hint}
-      <span class="font-mono text-xs text-(--solus-text-tertiary) opacity-70"
+      <span class="font-mono text-[0.875em] text-(--solus-text-tertiary) opacity-70"
         >{hint}</span
       >
     {/if}
@@ -190,73 +199,80 @@
        back, so the drill never loses its subject. -->
   <button
     type="button"
-    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-[0.5625rem] text-left hover:bg-(--wash-hover)"
+    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-2.5 rounded-lg border-0 bg-transparent px-[0.5625rem] text-left hover:bg-(--wash-hover) pointer-fine:[.is-laptop-display_&]:h-[1.625rem] pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-[0.4375rem]"
     onclick={onBack}
   >
     <span class="flex w-4 shrink-0 items-center justify-center"
       >{@render glyph(icon)}</span
     >
-    <span class="text-[0.8125rem] font-medium text-(--solus-text-primary)"
+    <span class="{titleWeight} text-(--solus-text-primary)"
       >{text}</span
     >
-    <span class="text-xs text-(--solus-text-tertiary)">{meta}</span>
+    <span class="text-[0.875em] text-(--solus-text-tertiary)">{meta}</span>
     <span class="flex-1"></span>
-    <span class="font-mono text-xs text-(--solus-text-tertiary) opacity-70"
+    <span class="font-mono text-[0.875em] text-(--solus-text-tertiary) opacity-70"
       >⌫ back</span
     >
   </button>
+  <div
+    class="mx-1 my-1 h-px bg-(--wash-rule) pointer-fine:[.is-laptop-display_&]:my-0.5"
+    aria-hidden="true"
+  ></div>
 {/snippet}
 
 {#snippet row(entry: SelectableRow, index: number)}
   {@const selected = index === selectedIndex}
   {@const isFileEntry =
     entry.type === "item" && entry.item.token.kind === "file"}
+  {@const titlePrefix = inlineTitlePrefix(entry)}
   {@const iconName = isFileEntry ? fileTypeIcon(entry.item.token.path) : null}
   <button
     type="button"
     role="option"
     aria-selected={selected}
     data-row-index={index}
-    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg border-0 px-[0.5625rem] text-left transition-[background-color] duration-120"
+    class="flex h-[1.875rem] w-full cursor-pointer items-center gap-[0.5625rem] rounded-lg border-0 px-[0.5625rem] text-left transition-[background-color] duration-120 pointer-fine:[.is-laptop-display_&]:h-[1.625rem] pointer-fine:[.is-laptop-display_&]:gap-[0.4375rem] pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-[0.4375rem]"
     style="background:{selected ? 'var(--wash-selected)' : 'transparent'}"
     onmousemove={(event) => onHover(index, event)}
     onclick={() => onActivate(entry)}
   >
-    <span
-      class="flex w-4 shrink-0 items-center justify-center text-(--solus-text-tertiary)"
-      >{#if iconName}
-        <Icon icon={iconName} width="14" height="14" />
-      {:else}
-        {@render glyph(
-          entry.type === "category"
-            ? entry.icon
-            : entry.type === "item"
-              ? entry.item.icon
-              : entry.icon,
-        )}
-      {/if}</span
-    >
+    {#if !titlePrefix}
+      <span
+        class="flex w-4 shrink-0 items-center justify-center text-(--solus-text-tertiary)"
+        >{#if iconName}
+          <Icon icon={iconName} width="14" height="14" />
+        {:else}
+          {@render glyph(
+            entry.type === "category"
+              ? entry.icon
+              : entry.type === "item"
+                ? entry.item.icon
+                : entry.icon,
+          )}
+        {/if}</span
+      >
+    {/if}
 
     {#if entry.type === "deadEnd"}
       <!-- A dead end always offers a next move instead of an empty box. -->
       <span
-        class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap text-[0.8125rem] font-medium text-(--solus-text-tertiary)"
+        class="max-w-[20rem] shrink-0 overflow-hidden whitespace-nowrap {titleWeight} text-(--solus-text-tertiary)"
         >{entry.title}</span
       >
-      <span class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary)"
+      <span class="min-w-0 flex-1 truncate text-[0.875em] text-(--solus-text-tertiary)"
         >{entry.meta}</span
       >
     {:else}
       {@const parts = entry.parts}
       {@const mono = entry.type === "item" && entry.item.mono}
       <span
-        class="block max-w-[20rem] shrink-0 truncate text-[0.8125rem] text-(--solus-text-primary) {isFileEntry
+        class="block max-w-[20rem] shrink-0 truncate text-(--solus-text-primary) {isFileEntry
           ? 'font-[450]'
-          : 'font-medium'} {mono ? 'font-mono' : ''}"
+          : titleWeight} {mono ? 'font-mono' : ''}"
       >
         <!-- Matched characters light up in every row; a metadata-only match
              lights nothing, because none of the title matched. -->
-        {#each parts as part, i (i)}<span
+        {titlePrefix}{#each parts as part, i (i)}<span
             class="whitespace-pre"
             style={part.hit ? "color:var(--solus-accent)" : ""}
             >{part.text}</span
@@ -265,14 +281,14 @@
 
       {#if entry.type === "item"}
         <span
-          class="min-w-0 flex-1 truncate text-xs text-(--solus-text-tertiary) {entry
+          class="min-w-0 flex-1 truncate text-[0.875em] text-(--solus-text-tertiary) {entry
             .item.monoMeta
-            ? 'font-mono text-xs'
+            ? 'font-mono'
             : ''}">{rowMeta(entry.item, entry.showKind)}</span
         >
         {#if entry.item.when}
           <span
-            class="shrink-0 font-mono text-xs text-(--solus-text-tertiary) opacity-75"
+            class="shrink-0 font-mono text-[0.875em] text-(--solus-text-tertiary) opacity-75"
             >{entry.item.when}</span
           >
         {/if}
@@ -282,7 +298,7 @@
         <span
           class="flex shrink-0 items-center gap-2 text-(--solus-text-tertiary)"
         >
-          <span class="font-mono text-xs tabular-nums opacity-55"
+          <span class="font-mono text-[0.875em] tabular-nums opacity-55"
             >{entry.count}</span
           >
           <span class="opacity-40">{@render glyph(GLYPH.chevron)}</span>

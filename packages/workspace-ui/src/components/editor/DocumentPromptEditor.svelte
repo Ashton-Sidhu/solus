@@ -12,6 +12,7 @@
   import { UnifiedAutocompleteController } from "./autocomplete.svelte";
   import { createTiptapAutocompleteAdapter } from "./tiptap-autocomplete-adapter";
   import UnifiedAutocompleteMenu from "../input/UnifiedAutocompleteMenu.svelte";
+  import { createReferenceNavigation } from "./reference-navigation";
 
   interface Props {
     value: string;
@@ -76,6 +77,10 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
+  const referenceNavigation = createReferenceNavigation(session, {
+    workingDirectory: () => workingDirectory,
+    tabId: () => session.focusedChatTabId ?? session.activeTabId,
+  });
 
   let docEl: ReturnType<typeof DocumentEditor> | null = $state(null);
   const ed = () => docEl?.getEditor() ?? null;
@@ -161,6 +166,7 @@
 {#if ac.open}
   <UnifiedAutocompleteMenu
     rows={ac.rows}
+    triggerChar={ac.trigger!.char}
     selectedIndex={ac.selectedIndex}
     anchorRect={ac.cursorAnchorRect}
     onActivate={ac.activate}
@@ -182,10 +188,10 @@
   onKeyDown={handleKeyDown}
   onEditorReady={handleEditorReady}
   {onModeChange}
-  {onPlanRefClick}
-  {onWorkRefClick}
-  {onPrRefClick}
-  {onFileRefClick}
+  onPlanRefClick={onPlanRefClick ?? referenceNavigation.openPlan}
+  onWorkRefClick={onWorkRefClick ?? referenceNavigation.openWork}
+  onPrRefClick={onPrRefClick ?? referenceNavigation.openPr}
+  onFileRefClick={onFileRefClick ?? referenceNavigation.openFile}
   {onFocus}
   {onBlur}
   extraExtensions={allExtensions}

@@ -53,9 +53,9 @@ export function isOutlineVisible(
  * the cqi step is the safe bound — and it needs no `ch`, which is font-relative
  * and cannot be resolved here. Solving it for the panel width gives 88rem.
  *
- * A laptop display holds a narrower measure (58cqi, index.css) precisely so the
- * margin can carry the outline, so the same solution there gives 62rem — where
- * the measure's 66ch floor takes over and the margin stops growing.
+ * A laptop display holds a narrower measure (48cqi, index.css) precisely so the
+ * margin can carry the outline. The conservative 62rem gate remains where the
+ * measure's 66ch floor takes over and the margin stops growing.
  *
  * Below that the reveal would land on the first lines of the document, so it
  * waits for a hover, a pin, or a keyboard jump instead.

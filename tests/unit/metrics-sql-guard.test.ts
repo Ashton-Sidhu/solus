@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import type { AgentToolContext } from '@solus/server/agents/tools/agent-tool'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -10,6 +11,7 @@ type SpanTableModule = typeof import('@solus/server/observability/span-table')
 type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
 type SqlGuardModule = typeof import('@solus/server/observability/sql-guard')
 type RegistriesModule = typeof import('@solus/server/observability/registries')
+type InsightsToolsModule = typeof import('@solus/server/observability/insights-tools')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -17,6 +19,17 @@ let spanTable: SpanTableModule
 let metricsDb: MetricsDbModule
 let sqlGuard: SqlGuardModule
 let registries: RegistriesModule
+let insightsTools: InsightsToolsModule
+
+const agentToolContext: AgentToolContext = {
+  provider: 'codex',
+  cwd: '/tmp/project',
+  sessionId: () => 'session-1',
+  solusSessionId: () => 'solus-session-1',
+  abortSignal: new AbortController().signal,
+  parentToolUseId: () => undefined,
+  emit: () => {},
+}
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-guard-'))
@@ -25,6 +38,7 @@ beforeAll(async () => {
   metricsDb = await import('@solus/server/observability/metrics-db')
   sqlGuard = await import('@solus/server/observability/sql-guard')
   registries = await import('@solus/server/observability/registries')
+  insightsTools = await import('@solus/server/observability/insights-tools')
   metricsDb.closeMetricsDb()
 
   for (let index = 0; index < 10; index++) {
@@ -94,7 +108,49 @@ describe.serial('guarded SQL executor', () => {
 
   test('the read-only connection refuses writes even for trusted SQL', () => {
     expect(() => sqlGuard.runCompiledSql('DELETE FROM spans', [])).toThrow()
-    expect((metricsDb.getMetricsDb().prepare('SELECT COUNT(*) AS n FROM spans').get() as { n: number }).n).toBe(10)
+    expect(metricsDb.getMetricsDb().prepare('SELECT COUNT(*) AS n FROM spans').get()).toEqual({ n: 10 })
+  })
+})
+
+describe.serial('Insights agent query tool', () => {
+  test('returns current query results as structured JSON', async () => {
+    const result = await insightsTools.queryInsightsAgentTool.execute(
+      { sql: 'SELECT COUNT(*) AS turns FROM turns' },
+      agentToolContext,
+    )
+
+    expect(result.ok).toBe(true)
+    expect(JSON.parse(result.text)).toEqual({
+      columns: ['turns'],
+      rows: [[10]],
+      rowCount: 1,
+      truncated: false,
+    })
+  })
+
+  test('reports rejected writes as a recoverable tool error', async () => {
+    const result = await insightsTools.queryInsightsAgentTool.execute(
+      { sql: "DELETE FROM spans WHERE status = 'ok'" },
+      agentToolContext,
+    )
+
+    expect(result.ok).toBe(false)
+    expect(result.text).toContain('Only SELECT and WITH statements are allowed')
+    expect(sqlGuard.runGuardedSql('SELECT COUNT(*) AS n FROM spans').rows).toEqual([[10]])
+  })
+
+  test('caps exploratory results before they consume the agent context', async () => {
+    const result = await insightsTools.queryInsightsAgentTool.execute({
+      sql: `WITH RECURSIVE numbers(n) AS (
+        SELECT 1 UNION ALL SELECT n + 1 FROM numbers WHERE n <= ${insightsTools.AGENT_INSIGHTS_ROW_CAP}
+      ) SELECT n FROM numbers ORDER BY n`,
+    }, agentToolContext)
+
+    expect(result.ok).toBe(true)
+    expect(JSON.parse(result.text)).toMatchObject({
+      rowCount: insightsTools.AGENT_INSIGHTS_ROW_CAP,
+      truncated: true,
+    })
   })
 })
 

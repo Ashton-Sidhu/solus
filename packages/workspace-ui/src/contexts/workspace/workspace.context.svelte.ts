@@ -27,8 +27,9 @@ import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
 import { visibleRef, type NavTarget, type PaneId } from './routing/location'
-import { CHAT_ROUTE, chatRoute, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
+import { CHAT_ROUTE, ROUTES, chatRoute, type RouteParams, type RouteRef, type SettingsTab } from './routing/route-registry'
 import { WorkStreamTracker } from './work-stream-tracker.svelte'
+import { shouldReturnToActiveSession } from './settings-exit'
 import { WorkspaceUiStore } from './workspace-ui.store.svelte'
 import { IpcContextBuilder } from './ipc-context'
 import { PromptComposer } from './prompt-composer'
@@ -969,8 +970,8 @@ export class WorkspaceContext {
       // the authoritative rename back across that boundary; otherwise only the
       // borrowed host learns the generated name.
       void serverConnections.apiFor(taskServerId)
-        .setSessionTitle(event.sessionId, event.title, event.source, event.generatedDescription, false)
-        .then(() => this.tasksStore.refreshSessionBinding(event.sessionId, taskServerId))
+        .setSessionTitle(sessionId, event.title, event.source, event.generatedDescription, false)
+        .then(() => this.tasksStore.refreshSessionBinding(sessionId, taskServerId))
         .catch(() => null)
     }
   }
@@ -1105,7 +1106,7 @@ export class WorkspaceContext {
   private rootTaskIdFor(tabId: string | undefined): string | null {
     const anchor = tabId ? this.sessionFor(tabId) : undefined
     if (!anchor) return null
-    return this.tasksStore.taskForSession(anchor.agentSessionId)?.id
+    return this.tasksStore.taskForSession(taskBindingSessionId(anchor))?.id
       ?? existingTaskId(anchor.task)
       ?? null
   }
@@ -2905,10 +2906,9 @@ export class WorkspaceContext {
 
   // ─── Pages ───
   //
-  // A page is a route with `exclusiveGroup: 'page'`, so opening one replaces
-  // whichever page is showing wherever it lives — no flag to clear, no slot to
-  // pick. `showPage` adds the one thing the router does not own: the pill's
-  // expansion, which is shell state rather than a location.
+  // A page is a route with `exclusiveGroup: 'page'`, so only one can exist.
+  // `showPage` makes an explicit destination win over that reuse rule and adds
+  // the pill expansion, which is shell state rather than a location.
 
   private showPage(
     ref: RouteRef,
@@ -2916,15 +2916,20 @@ export class WorkspaceContext {
     surface: SolusEventMap['surface_viewed']['surface'],
     target: NavTarget = this.router.leadingPane.id,
   ): void {
-    // A page that is already open is replaced where it lives (exclusivity).
-    // The default target covers the conversation rather than taking over
-    // whichever companion pane happens to hold focus; contextual links can
-    // explicitly request a companion.
-    //
-    // Asking for the companion is the one case exclusivity would defeat: a page
-    // already showing in the lead would be replaced there and the split would
-    // never appear. Clear the group first so the request is honoured.
-    if (target === 'aside') this.router.closeGroup('page')
+    // An explicit target must beat page-group reuse. Main page entry points
+    // name the leading pane; contextual links can name the companion. Without
+    // clearing a page in the other pane first, exclusivity replaces it where it
+    // already lives and silently ignores the requested destination.
+    const existingPage = this.router.panes.find(
+      (pane) => pane.base && ROUTES[pane.base.name].exclusiveGroup === 'page',
+    )
+    if (existingPage && (
+      target === 'aside' ||
+      target === 'new' ||
+      (target !== 'focused' && existingPage.id !== target)
+    )) {
+      this.router.closeGroup('page')
+    }
     this.router.navigate(ref, { via, target })
     this.isExpanded = true
     track('surface_viewed', { surface, via })
@@ -3678,7 +3683,17 @@ export class WorkspaceContext {
   }
 
   closeSettings() {
-    this.router.close('settings')
+    if (shouldReturnToActiveSession(this.activeSession, this.tasksStore)) {
+      this.router.close('settings')
+      return
+    }
+
+    // Settings replaces the leading route. When no current session can fill
+    // the chat route, return to the latest composer instead of an empty chat.
+    let latestDraft: SessionDraft | null = null
+    for (const draft of this.sessionDrafts.values()) latestDraft = draft
+    if (latestDraft) this.openDraft(latestDraft.id)
+    else this.openSessionDraft({ via: 'click' })
   }
 
   // ─── Arriving from outside ───
@@ -3696,10 +3711,20 @@ export class WorkspaceContext {
   ): void {
     switch (ref.name) {
       case 'plan':
-        if (ref.params.planId) void this.openPlanModal(ref.params.planId)
+        if (ref.params.planId) {
+          void this.openPlanModal(ref.params.planId, undefined, {
+            secondary: opts.target === 'aside' || opts.target === 'new',
+          })
+        }
         return
       case 'work':
-        void this.openWorkModal(ref.params.workId, undefined, { via: opts.via })
+        void this.openWorkModal(ref.params.workId, undefined, {
+          secondary: opts.target === 'aside' || opts.target === 'new',
+          via: opts.via,
+        })
+        return
+      case 'task':
+        this.showPage(ref, opts.via ?? 'click', 'tasks', opts.target)
         return
       case 'prReview':
         void this.enterPrReview(ref.params.number, ref.params.title, {

@@ -9,6 +9,7 @@ export interface PromptComposerSubmit {
   provider: AgentId;
   modelId: string | null;
   reasoningEffort: ReasoningEffort;
+  fastMode: boolean;
   planRefs: PlanReference[];
   workRefs: WorkReference[];
 }

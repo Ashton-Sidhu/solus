@@ -1,8 +1,11 @@
 <script lang="ts">
-  import { Check as CheckIcon, Minus as MinusIcon } from "@lucide/svelte";
+  import {
+    Check as CheckIcon,
+    Minus as MinusIcon,
+  } from "@lucide/svelte";
   import type { SessionProgress } from "@solus/contracts/types";
   import * as Popover from "../ui/popover";
-  import { dialCountFontRem } from "./lib/orb-progress-dial";
+  import { buildSessionProgressRing } from "./lib/session-progress-ring";
 
   interface Props {
     progress: SessionProgress;
@@ -30,9 +33,7 @@
     progress.todos.filter((t) => t.status !== "completed").length,
   );
 
-  let dialFontRem = $derived(
-    dialCountFontRem(progress.currentStep, progress.totalSteps),
-  );
+  let iconRing = $derived(buildSessionProgressRing(progress));
 
   let stepsListEl: HTMLUListElement | null = $state(null);
   $effect(() => {
@@ -159,7 +160,6 @@
       <button
         {...props}
         class="progress-toggle stagger-item"
-        class:progress-toggle-active={stepsOpen}
         class:progress-toggle-done={progressAllDone}
         style="--progress:{progressFraction};--item-index:-1"
         tabindex={expanded ? 0 : -1}
@@ -169,26 +169,28 @@
           class="pt-fill {isRunning && !progressAllDone ? 'pt-fill-live' : ''}"
           aria-hidden="true"
         ></span>
-        <span class="pt-dial" aria-hidden="true">
+        <span class="pt-dial" data-mode={iconRing.mode} aria-hidden="true">
           <svg class="pt-svg" viewBox="0 0 36 36">
-            <circle class="pt-track" cx="18" cy="18" r="16.5" />
-            <circle
-              class="pt-arc {isRunning && !progressAllDone ? 'pt-arc-live' : ''}"
-              cx="18"
-              cy="18"
-              r="16.5"
-              pathLength="100"
-              stroke-dasharray="100"
-              style="stroke-dashoffset:{100 - progressFraction * 100}"
-            />
+            {#each iconRing.segments as segment, index (`${iconRing.mode}-${index}`)}
+              <circle
+                class="pt-segment pt-segment-{segment.state} {segment.state ===
+                  'in_progress' &&
+                isRunning &&
+                !progressAllDone
+                  ? 'pt-segment-live'
+                  : ''}"
+                cx="18"
+                cy="18"
+                r="16.5"
+                pathLength="100"
+                stroke-dasharray={`${segment.length} ${100 - segment.length}`}
+                stroke-dashoffset={-segment.start}
+              />
+            {/each}
           </svg>
-          <span
-            class="pt-count tabular-nums"
-            style="font-size:calc({dialFontRem}rem * var(--orb-scale))"
-            >{progress.currentStep}<span class="pt-sep"
-              >/</span
-            >{progress.totalSteps}</span
-          >
+          <span class="pt-glyph">
+            <CheckIcon class="pt-glyph-icon" />
+          </span>
         </span>
         <span class="pt-text">
           <span class="pt-count-text tabular-nums"
@@ -256,9 +258,6 @@
       inset 0 0.0625rem 0 0 color-mix(in srgb, white 10%, transparent),
       0 0 0 0.1875rem color-mix(in srgb, var(--solus-accent) 18%, transparent);
   }
-  .progress-toggle-active {
-    border-color: color-mix(in srgb, var(--solus-accent) 24%, transparent);
-  }
   .progress-toggle-done {
     opacity: 0.9;
   }
@@ -266,9 +265,6 @@
     opacity: 1;
   }
   /* Completed → the fill (pill) and ring (circle) shift to the success green. */
-  .progress-toggle-done .pt-arc {
-    stroke: var(--solus-status-complete);
-  }
   .progress-toggle-done .pt-fill {
     background: linear-gradient(
       90deg,
@@ -280,6 +276,16 @@
       var(--solus-status-complete) 32%,
       transparent
     );
+  }
+  .progress-toggle-done .pt-dial {
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--solus-status-complete) 11%, transparent) 0%,
+      color-mix(in srgb, var(--solus-status-complete) 19%, transparent) 100%
+    );
+  }
+  .progress-toggle-done .pt-dial .pt-svg {
+    display: none;
   }
   .pt-fill {
     position: absolute;
@@ -319,8 +325,8 @@
     width: calc(1.75rem * var(--orb-scale));
     height: calc(1.75rem * var(--orb-scale));
   }
-  /* Smooth anti-aliased stroke ring (round caps) — matches the elegance of the
-     pill's horizontal fill, where a masked conic gradient read as jagged. */
+  /* Short tasks show one arc per step. Longer tasks use the same continuous
+     summary as the session sidebar so the icon stays calm at small sizes. */
   .pt-svg {
     position: absolute;
     inset: 0;
@@ -329,37 +335,58 @@
     overflow: visible;
     transform: rotate(-90deg);
   }
-  .pt-track {
+  .pt-segment {
     fill: none;
-    stroke: color-mix(in srgb, var(--solus-text-tertiary) 16%, transparent);
-    stroke-width: 2.75;
-  }
-  .pt-arc {
-    fill: none;
-    stroke: color-mix(in srgb, var(--solus-accent) 85%, transparent);
     stroke-width: 2.75;
     stroke-linecap: round;
-    transition: stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+    transition:
+      stroke 0.18s ease,
+      stroke-width 0.18s ease,
+      stroke-dasharray 0.7s cubic-bezier(0.16, 1, 0.3, 1),
+      stroke-dashoffset 0.7s cubic-bezier(0.16, 1, 0.3, 1);
   }
-  .pt-count {
+  .pt-segment-pending {
+    stroke: color-mix(in srgb, var(--solus-text-tertiary) 28%, transparent);
+  }
+  .pt-segment-completed {
+    stroke: var(--solus-status-complete);
+    opacity: 0.9;
+  }
+  .pt-segment-in_progress {
+    stroke: var(--solus-status-running);
+    stroke-width: 3.25;
+  }
+  .pt-dial[data-mode="continuous"] .pt-segment {
+    stroke-linecap: butt;
+  }
+  .pt-dial[data-mode="continuous"] .pt-segment-in_progress {
+    stroke-linecap: round;
+  }
+  .pt-glyph {
     position: absolute;
     inset: 0;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-weight: 500;
-    line-height: 1;
-    letter-spacing: -0.02em;
-    color: var(--solus-text-secondary);
+    color: var(--solus-text-tertiary);
+    opacity: 0.52;
+    transition:
+      color 0.18s ease,
+      opacity 0.18s ease;
+  }
+  .pt-glyph :global(.pt-glyph-icon) {
+    width: calc(0.9688rem * var(--orb-scale));
+    height: calc(0.9688rem * var(--orb-scale));
+  }
+  .progress-toggle-done .pt-glyph {
+    color: var(--solus-status-complete);
+    opacity: 1;
   }
   .pt-sep {
     margin: 0 0.0313rem;
     color: var(--solus-text-tertiary);
   }
-  .pt-count .pt-sep {
-    margin: 0;
-  }
-  .pt-arc-live {
+  .pt-segment-live {
     animation: ring-glow 2.6s ease-in-out infinite;
   }
   @keyframes ring-glow {

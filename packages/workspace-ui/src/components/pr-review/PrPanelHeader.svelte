@@ -1,5 +1,6 @@
 <script lang="ts">
   import {
+    ArrowUpRight as OpenPageIcon,
     ArrowRight as ArrowRightIcon,
     Minimize2 as ArrowsInSimpleIcon,
     Maximize2 as ArrowsOutSimpleIcon,
@@ -36,6 +37,7 @@
     fullScreen,
     onStep,
     onToggleFullScreen,
+    onOpenPage,
     onMoveAcross,
     isLeading = true,
     onClose,
@@ -53,6 +55,8 @@
     /** Absent when the surface is too narrow to hold a split at all — there is
      *  no smaller state to go back to, so the control is not offered. */
     onToggleFullScreen?: () => void;
+    /** Replace the list's embedded detail panel with the standalone review route. */
+    onOpenPage?: () => void;
     /** Move the review between the leading pane and the companion beside it.
      *  Absent when this band belongs to the list's own detail panel, which has
      *  no pane of its own. */
@@ -153,6 +157,18 @@
       iconSize={13}
       class={roundButton}
     />
+  {/if}
+
+  {#if onOpenPage}
+    <button
+      type="button"
+      class={roundButton}
+      title="Open pull request page"
+      aria-label="Open pull request page"
+      onclick={onOpenPage}
+    >
+      <OpenPageIcon size={13} />
+    </button>
   {/if}
 
   {#if onToggleFullScreen}

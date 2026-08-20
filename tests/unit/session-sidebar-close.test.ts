@@ -84,6 +84,7 @@ describe('session sidebar dismissal', () => {
       tabId: 'child-tab',
       label: 'Background child',
       attention: 'running',
+      unread: false,
       serverId: null,
       branchName: null,
       runStartedAt: 1,

@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken } from './reference-tokens'
-import { tokenClassName, TOKEN_ICONS } from './tokenStyle'
+import { linkTokenClassName, TOKEN_ICONS } from './tokenStyle'
 
 export interface PrRefAttrs {
   number: number
@@ -76,7 +76,7 @@ export const PrRefExtension = Node.create({
     return ['span', mergeAttributes(HTMLAttributes, {
       'data-pr-ref': node.attrs.number,
       contenteditable: 'false',
-      class: tokenClassName('pr'),
+      class: linkTokenClassName('pr'),
     }),
       ['span', { class: 'solus-token__icon' }, TOKEN_ICONS.pr],
       ['span', {}, `#${node.attrs.number} ${node.attrs.title}`],

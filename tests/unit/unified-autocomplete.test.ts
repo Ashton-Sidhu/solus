@@ -8,12 +8,14 @@ import { fuzzy, rank } from '@solus/workspace-ui/components/editor/unified-autoc
 import {
   buildRows,
   ghostFor,
+  inlineTitlePrefix,
   isSelectable,
   type MenuItem,
   type RowInput,
 } from '@solus/workspace-ui/components/editor/unified-autocomplete/rows'
 import { GLYPH, type RefKind } from '@solus/workspace-ui/components/editor/unified-autocomplete/kinds'
 import { autocompleteSelectionAction } from '@solus/workspace-ui/components/editor/autocomplete-editor'
+import { shouldReleaseSpacedAutocompleteQuery } from '@solus/workspace-ui/components/editor/autocomplete.svelte'
 
 function reference(refKind: RefKind, title: string, meta = ''): MenuItem {
   return {
@@ -118,6 +120,18 @@ describe('trigger grammar', () => {
     expect(findAnchor('user@example')).toBeNull()
   })
 
+  test('a space ends a # reference query', () => {
+    // WHY: after the user continues the sentence, the reference picker must
+    // release the composer instead of treating later words as one long query.
+    expect(readTrigger('#task ', 0)).toBeNull()
+    expect(findAnchor('#task ')).toBeNull()
+    expect(readTrigger('#task #next', findAnchor('#task #next'))).toMatchObject({
+      char: '#',
+      anchor: 6,
+      query: 'next',
+    })
+  })
+
   test('accepting replaces the whole run, scope and spaces included', () => {
     // WHY: the run is what the user sees as one gesture. Leaving the scope slug
     // behind would put `#automations/` in the sent prompt beside the chip.
@@ -188,6 +202,48 @@ describe('ranking', () => {
 })
 
 describe('menu rows', () => {
+  test('slash command rows render the slash inline with the command name', () => {
+    // WHY: a slash in the icon column creates a visible gap and teaches the
+    // invalid `/ clear` spelling. Commands must read as the `/clear` token the
+    // user actually types.
+    const [row] = buildRows(
+      input('/cl', {
+        commands: [
+          {
+            id: 'cmd:/clear',
+            title: 'clear',
+            meta: 'Clear current conversation',
+            when: '',
+            icon: GLYPH.cmd,
+            mono: true,
+            monoMeta: false,
+            token: { kind: 'slash', command: '/clear' },
+          },
+        ],
+      }),
+    ).filter(isSelectable)
+
+    if (!row) throw new Error('expected a slash command row')
+    expect(inlineTitlePrefix(row)).toBe('/')
+    expect(
+      row.type === 'item' ? `${inlineTitlePrefix(row)}${row.item.title}` : '',
+    ).toBe('/clear')
+  })
+
+  test('a spaced slash query with only a dead end releases the composer', () => {
+    // WHY: the dead-end row is selectable so Enter can dismiss it, but it is
+    // not a command match. Treating it as one leaves slash autocomplete stuck
+    // over ordinary sentence text after the user types past an unmatched `/`.
+    const rows = buildRows(
+      input('/label', {
+        trigger: { char: '/', anchor: 0, path: [], query: 'label text' },
+      }),
+    )
+
+    expect(rows.map((row) => row.type)).toEqual(['deadEnd'])
+    expect(shouldReleaseSpacedAutocompleteQuery('label text', rows)).toBe(true)
+  })
+
   test('duplicate slash commands keep one keyed row', () => {
     // WHY: provider-discovered commands can overlap Solus built-ins. The menu is
     // keyed by command id, so duplicates would crash Svelte before the user can

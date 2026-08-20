@@ -10,6 +10,7 @@ export interface PickerSelection {
   provider: AgentId;
   modelId: string | null;
   reasoningEffort: ReasoningEffort;
+  fastMode: boolean;
 }
 
 export type ModelPickerColumn = "model" | "reasoning";
@@ -89,6 +90,10 @@ export function defaultReasoningFor(
   modelId: string | null,
 ): ReasoningEffort | null {
   return MODEL_PROFILES[provider]?.[modelId ?? ""]?.defaultReasoningEffort ?? null;
+}
+
+export function supportsFastModeFor(provider: AgentId, modelId: string | null): boolean {
+  return MODEL_PROFILES[provider]?.[modelId ?? ""]?.supportsFastMode ?? false;
 }
 
 /** Keep the chosen effort when the model supports it; otherwise fall back to the model's default. */

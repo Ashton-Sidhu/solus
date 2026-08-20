@@ -300,15 +300,15 @@
 
   {#if currentQuestion}
     {#key currentIndex}
-      <div in:fly={{ y: 4, duration: 140 }} class="pb-4">
+      <div in:fly={{ y: 4, duration: 140 }} class="pb-4 pointer-fine:[.is-laptop-display_&]:pb-3">
         <!-- Answers stack as a numbered trail above the live question, each
              showing the choice made and reopenable in place. -->
         {#if trail.length > 0}
-          <div class="flex flex-col gap-[0.1875rem] px-[1.125rem] pt-3">
+          <div class="flex flex-col gap-[0.1875rem] px-[1.125rem] pt-3 pointer-fine:[.is-laptop-display_&]:gap-0.5 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5">
             {#each trail as entry (entry.index)}
               <button
                 type="button"
-                class="trail-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[0.4375rem] text-left"
+                class="trail-row flex w-full items-center gap-2.5 rounded-lg px-2.5 py-[0.4375rem] text-left pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2 pointer-fine:[.is-laptop-display_&]:py-[0.3125rem]"
                 disabled={responded}
                 onclick={() => goTo(entry.index)}
               >
@@ -341,13 +341,13 @@
         </div>
 
         {#if request.kind === "mcp_url" && request.url}
-          <div class="px-[1.125rem] pb-2 font-mono text-transcript-meta leading-relaxed break-all text-(--muted-foreground)">
+          <div class="px-[1.125rem] pb-2 font-mono text-transcript-meta leading-relaxed break-all text-(--muted-foreground) pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pb-1.5">
             {request.url}
           </div>
         {/if}
 
         {#if currentQuestion.multiSelect && hasOptions}
-          <div class="px-[1.125rem] pb-2 text-transcript-meta uppercase text-(--muted-foreground)">
+          <div class="px-[1.125rem] pb-2 text-transcript-meta uppercase text-(--muted-foreground) pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pb-1.5">
             Select all that apply
           </div>
         {/if}
@@ -355,13 +355,13 @@
         {#if hasOptions}
           <!-- Options are rows, not chips: each carries a consequence line,
                which is the part that makes the choice decidable. -->
-          <div class="flex flex-col gap-1.5 px-[1.125rem]">
+          <div class="flex flex-col gap-1.5 px-[1.125rem] pointer-fine:[.is-laptop-display_&]:gap-1 pointer-fine:[.is-laptop-display_&]:px-3.5">
             {#each currentQuestion.options as opt, i (opt.label)}
               {@const selected = isSelected(currentQuestion, opt.label)}
               {@const label = optionLabelParts(opt.label)}
               <button
                 type="button"
-                class="option-row flex items-start gap-3 rounded-lg px-[0.6875rem] py-[0.5625rem] text-left"
+                class="option-row flex items-start gap-3 rounded-lg px-[0.6875rem] py-[0.5625rem] text-left pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2.5 pointer-fine:[.is-laptop-display_&]:py-[0.4375rem]"
                 class:is-selected={selected}
                 disabled={responded}
                 onclick={() => toggleOption(currentQuestion, opt.label)}
@@ -402,7 +402,7 @@
         {/if}
 
         {#if hasPreview && activeOption}
-          <div class="flex flex-col gap-1.5 px-[1.125rem] pt-3">
+          <div class="flex flex-col gap-1.5 px-[1.125rem] pt-3 pointer-fine:[.is-laptop-display_&]:gap-1 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5">
             <button
               type="button"
               class="interrupt-disclosure self-start"
@@ -418,7 +418,7 @@
             {#if previewOpen}
               <div
                 in:fly={{ y: -2, duration: 140 }}
-                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] text-transcript-meta leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
+                class="interrupt-payload px-[0.8125rem] py-[0.6875rem] text-transcript-meta leading-[1.75] whitespace-pre-wrap text-(--muted-foreground) pointer-fine:[.is-laptop-display_&]:px-2.5 pointer-fine:[.is-laptop-display_&]:py-2 [&_code]:!bg-transparent [&_p:last-child]:mb-0 [&_p]:mb-1 [&_p]:whitespace-pre-wrap [&_pre]:!bg-transparent [&_pre]:overflow-x-auto [&_pre]:whitespace-pre [&_strong]:font-medium [&_strong]:text-(--solus-text-primary)"
               >
                 <SvelteMarkdown
                   source={activeOption.preview ?? ""}
@@ -433,8 +433,8 @@
 
         <!-- Permanent: an off-menu reply must never require abandoning the card.
              Card fill, not a grey well — it is an alternative, not the emphasis. -->
-        <div class="px-[1.125rem] pt-3">
-          <div class="answer-field flex items-center gap-2 rounded-lg px-2.5 py-2">
+        <div class="px-[1.125rem] pt-3 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5">
+          <div class="answer-field flex items-center gap-2 rounded-lg px-2.5 py-2 pointer-fine:[.is-laptop-display_&]:gap-1.5 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2 pointer-fine:[.is-laptop-display_&]:py-1.5">
             <ChatTeardropTextIcon size={14} class="shrink-0 text-(--muted-foreground)" />
             <Textarea
               value={getComment(currentQuestion)}
@@ -663,5 +663,31 @@
     color: var(--muted-foreground);
     font-size: var(--text-transcript-meta);
     line-height: 1.5;
+  }
+
+  @media (pointer: fine) {
+    :global(html.is-laptop-display) .interrupt-pager {
+      width: 1.25rem;
+      height: 1.25rem;
+    }
+    :global(html.is-laptop-display) .interrupt-pager :global(svg) {
+      width: 0.75rem;
+      height: 0.75rem;
+    }
+    :global(html.is-laptop-display) .trail-change {
+      padding: 0.0625rem 0.375rem;
+    }
+    :global(html.is-laptop-display) .option-index {
+      width: 1rem;
+      height: 1rem;
+    }
+    :global(html.is-laptop-display) .option-mark {
+      width: 0.8125rem;
+      height: 0.8125rem;
+    }
+    :global(html.is-laptop-display) .option-dot {
+      width: 0.375rem;
+      height: 0.375rem;
+    }
   }
 </style>

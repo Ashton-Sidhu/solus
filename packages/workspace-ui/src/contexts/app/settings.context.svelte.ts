@@ -12,8 +12,10 @@ import { runtime } from './runtime.svelte'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { clampZoomFactor, defaultZoomFactorForScreen, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
+import { DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS } from '../../lib/completed-task-retention'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
+export type DocumentFontFamily = 'solus' | AppFontFamily
 
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
 export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'task' | 'automations'
@@ -57,6 +59,8 @@ export type SettingsFields = {
   zoomFactor: number
   codeFontFamily: AppCodeFontFamily
   codeFontSize: number
+  documentFontFamily: DocumentFontFamily
+  documentFontSize: number
   extraInstructions: string
   modelInstructions: Record<string, string>
   keybindings: Record<string, KeyCombo>
@@ -68,6 +72,8 @@ export type SettingsFields = {
   projectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   splitProjectPanelCollapsed: Record<ProjectPanelSectionId, boolean>
   tabGroupMode: TabGroupMode
+  /** Number of days a done task remains in the session sidebar's Completed shelf. */
+  sidebarCompletedRetentionDays: number
   /** The project the task list is scoped to, by `projectKey`. Null is the whole
    *  list — the sidebar is flat across every open project either way, so this
    *  narrows what is in it rather than changing its shape. */
@@ -164,6 +170,32 @@ export const APP_CODE_FONT_FAMILIES: { id: AppCodeFontFamily; label: string; sta
   { id: 'system-mono', label: 'System Mono', stack: "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace" },
 ]
 
+export const DOCUMENT_FONT_FAMILIES: { id: DocumentFontFamily; label: string }[] = [
+  { id: 'solus', label: 'Solus preset' },
+  ...APP_FONT_FAMILIES.map(({ id, label }) => ({ id, label })),
+]
+
+const DEFAULT_DOCUMENT_FONT_SIZE = 16
+
+function applyDocumentFontFamily(documentFontFamily: DocumentFontFamily): void {
+  const family = APP_FONT_FAMILIES.find((option) => option.id === documentFontFamily)
+  document.documentElement.style.setProperty(
+    '--solus-document-font-family',
+    family?.stack ?? 'var(--solus-font-family)',
+  )
+  document.documentElement.style.setProperty(
+    '--solus-document-heading-font-family',
+    family?.stack ?? "'Lora', Georgia, 'Times New Roman', serif",
+  )
+}
+
+function applyDocumentFontSize(size: number): void {
+  document.documentElement.style.setProperty(
+    '--solus-document-font-scale',
+    String(size / DEFAULT_DOCUMENT_FONT_SIZE),
+  )
+}
+
 const DEFAULT_CODE_FONT_SIZE = 12
 
 function applyCodeFontFamily(codeFontFamily: AppCodeFontFamily): void {
@@ -238,6 +270,8 @@ const savedSettingsSchema = z.object({
   zoomFactor: z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT),
   codeFontFamily: z.enum(['sf-mono', 'geist-mono', 'fira-code', 'cascadia-code', 'jetbrains-mono', 'system-mono']).catch('jetbrains-mono'),
   codeFontSize: z.number().min(8).catch(DEFAULT_CODE_FONT_SIZE),
+  documentFontFamily: z.enum(['solus', 'inter', 'dm-sans', 'system', 'geist', 'lora', 'sf-pro-text', 'sf-mono']).catch('solus'),
+  documentFontSize: z.number().min(12).catch(DEFAULT_DOCUMENT_FONT_SIZE),
   extraInstructions: z.string().catch(''),
   modelInstructions: z.record(z.string(), z.string()).catch({}),
   keybindings: keybindingsSchema.catch({}),
@@ -249,6 +283,7 @@ const savedSettingsSchema = z.object({
   projectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
   splitProjectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
   tabGroupMode: z.enum(TAB_GROUP_MODES).catch('flat'),
+  sidebarCompletedRetentionDays: z.number().int().min(1).max(365).catch(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS),
   sidebarProjectFilter: z.string().nullable().catch(null),
   onboardingCompleted: z.boolean().catch(true),
 })
@@ -302,6 +337,8 @@ function loadSettings(): SettingsFields {
     zoomFactor: DEFAULT_ZOOM_FACTOR,
     codeFontFamily: 'jetbrains-mono',
     codeFontSize: DEFAULT_CODE_FONT_SIZE,
+    documentFontFamily: 'solus',
+    documentFontSize: DEFAULT_DOCUMENT_FONT_SIZE,
     extraInstructions: '',
     modelInstructions: {},
     keybindings: {},
@@ -313,6 +350,7 @@ function loadSettings(): SettingsFields {
     projectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     tabGroupMode: 'flat',
+    sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
     sidebarProjectFilter: null,
     onboardingCompleted: false,
   }
@@ -343,6 +381,8 @@ export class SettingsContext {
   zoomFactor = $state(ZOOM_FACTOR_DEFAULT)
   codeFontFamily = $state<AppCodeFontFamily>('jetbrains-mono')
   codeFontSize = $state(DEFAULT_CODE_FONT_SIZE)
+  documentFontFamily = $state<DocumentFontFamily>('solus')
+  documentFontSize = $state(DEFAULT_DOCUMENT_FONT_SIZE)
   extraInstructions = $state('')
   modelInstructions = $state<Record<string, string>>({})
   keybindings = $state<Record<string, KeyCombo>>({})
@@ -354,6 +394,7 @@ export class SettingsContext {
   projectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   tabGroupMode = $state<TabGroupMode>('flat')
+  sidebarCompletedRetentionDays = $state(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS)
   sidebarProjectFilter = $state<string | null>(null)
   onboardingCompleted = $state(true)
   // Seeded from the media query so 'system' paints correctly before the main
@@ -386,6 +427,8 @@ export class SettingsContext {
     this.zoomFactor = saved.zoomFactor
     this.codeFontFamily = saved.codeFontFamily
     this.codeFontSize = saved.codeFontSize
+    this.documentFontFamily = saved.documentFontFamily
+    this.documentFontSize = saved.documentFontSize
     this.extraInstructions = saved.extraInstructions
     this.modelInstructions = saved.modelInstructions
     this.keybindings = saved.keybindings
@@ -397,6 +440,7 @@ export class SettingsContext {
     this.projectPanelCollapsed = saved.projectPanelCollapsed
     this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
     this.tabGroupMode = saved.tabGroupMode
+    this.sidebarCompletedRetentionDays = saved.sidebarCompletedRetentionDays
     this.sidebarProjectFilter = saved.sidebarProjectFilter
     this.onboardingCompleted = saved.onboardingCompleted
 
@@ -407,6 +451,8 @@ export class SettingsContext {
     applyZoomFactor(saved.zoomFactor)
     applyCodeFontFamily(saved.codeFontFamily)
     applyCodeFontSize(saved.codeFontSize)
+    applyDocumentFontFamily(saved.documentFontFamily)
+    applyDocumentFontSize(saved.documentFontSize)
 
     // Write the seeded blob straight back on a first run so the screen-derived
     // zoom is decided once. Chromium reports `screen.width` in zoomed CSS
@@ -522,6 +568,14 @@ export class SettingsContext {
       this.codeFontSize = Math.max(8, patch.codeFontSize)
       applyCodeFontSize(this.codeFontSize)
     }
+    if (patch.documentFontFamily !== undefined) {
+      this.documentFontFamily = patch.documentFontFamily
+      applyDocumentFontFamily(this.documentFontFamily)
+    }
+    if (patch.documentFontSize !== undefined) {
+      this.documentFontSize = Math.max(12, patch.documentFontSize)
+      applyDocumentFontSize(this.documentFontSize)
+    }
     if (patch.extraInstructions !== undefined) this.extraInstructions = patch.extraInstructions
     if (patch.modelInstructions !== undefined) this.modelInstructions = patch.modelInstructions
     if (patch.keybindings !== undefined) this.keybindings = patch.keybindings
@@ -543,6 +597,8 @@ export class SettingsContext {
     if (patch.splitProjectPanelCollapsed !== undefined)
       this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
+    if (patch.sidebarCompletedRetentionDays !== undefined)
+      this.sidebarCompletedRetentionDays = Math.max(1, Math.min(365, Math.floor(patch.sidebarCompletedRetentionDays)))
     if (patch.sidebarProjectFilter !== undefined)
       this.sidebarProjectFilter = patch.sidebarProjectFilter
     if (patch.onboardingCompleted !== undefined) this.onboardingCompleted = patch.onboardingCompleted
@@ -602,6 +658,8 @@ export class SettingsContext {
         zoomFactor: this.zoomFactor,
         codeFontFamily: this.codeFontFamily,
         codeFontSize: this.codeFontSize,
+        documentFontFamily: this.documentFontFamily,
+        documentFontSize: this.documentFontSize,
         extraInstructions: this.extraInstructions,
         modelInstructions: this.modelInstructions,
         keybindings: this.keybindings,
@@ -613,6 +671,7 @@ export class SettingsContext {
         projectPanelCollapsed: this.projectPanelCollapsed,
         splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
         tabGroupMode: this.tabGroupMode,
+        sidebarCompletedRetentionDays: this.sidebarCompletedRetentionDays,
         sidebarProjectFilter: this.sidebarProjectFilter,
         onboardingCompleted: this.onboardingCompleted,
       }))

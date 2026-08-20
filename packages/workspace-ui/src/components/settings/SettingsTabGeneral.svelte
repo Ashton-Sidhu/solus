@@ -15,6 +15,7 @@
   import {
     APP_FONT_FAMILIES,
     APP_CODE_FONT_FAMILIES,
+    DOCUMENT_FONT_FAMILIES,
   } from "../../contexts/app/settings.context.svelte";
   import {
     connectionsStore,
@@ -83,6 +84,7 @@
         provider: selection.provider,
         modelId: selection.model,
         reasoningEffort: "high",
+        fastMode: false,
       };
       return;
     }
@@ -98,6 +100,7 @@
         provider: selection.provider,
         modelId: selection.model,
         reasoningEffort: "high",
+        fastMode: false,
       };
       return;
     }
@@ -157,6 +160,9 @@
   );
   const codeFontLabel = $derived(
     APP_CODE_FONT_FAMILIES.find((font) => font.id === theme.codeFontFamily)?.label ?? "System",
+  );
+  const documentFontLabel = $derived(
+    DOCUMENT_FONT_FAMILIES.find((font) => font.id === theme.documentFontFamily)?.label ?? "Solus preset",
   );
   const rateLimitLabel = $derived(
     theme.rateLimitBehavior.at(0)?.toUpperCase() + theme.rateLimitBehavior.slice(1),
@@ -222,11 +228,23 @@
     requestInputFocus();
   }
 
+  function selectDocumentFont(value: typeof theme.documentFontFamily) {
+    theme.update({ documentFontFamily: value });
+    requestInputFocus();
+  }
+
   function selectRateLimitBehavior(
     value: "ask" | "continue" | "stop" | "queue",
   ) {
     theme.update({ rateLimitBehavior: value });
     requestInputFocus();
+  }
+
+  function commitCompletedRetentionDays(value: number) {
+    const days = Number.isFinite(value)
+      ? Math.max(1, Math.min(365, Math.floor(value)))
+      : theme.sidebarCompletedRetentionDays;
+    theme.update({ sidebarCompletedRetentionDays: days });
   }
 
   async function selectTaskLifecyclePolicy(value: AgentTaskLifecyclePolicy) {
@@ -250,8 +268,11 @@
     { id: "font-size", keywords: ["font", "size", "text", "zoom"] },
     { id: "code-font-family", keywords: ["code", "font", "mono", "monospace", "diff", "typeface", "sf mono", "geist", "fira", "jetbrains", "cascadia"] },
     { id: "code-font-size", keywords: ["code", "font", "size", "mono", "diff"] },
+    { id: "document-font-family", keywords: ["document", "plan", "editor", "font", "family", "typeface", "writing", "prose"] },
+    { id: "document-font-size", keywords: ["document", "plan", "editor", "font", "size", "writing", "prose"] },
     { id: "ratelimit", keywords: ["rate", "limit", "behavior", "queue", "throttle"] },
     { id: "task-lifecycle", keywords: ["agent", "task", "ticket", "lifecycle", "status", "done", "autonomous", "moderate"] },
+    { id: "completed-retention", keywords: ["task", "completed", "done", "sidebar", "history", "days", "retention"] },
     { id: "projects-base", keywords: ["project", "projects", "folder", "directory", "base", "start", "open", "picker", "path"] },
     { id: "worktree", keywords: ["git", "worktree", "branch", "isolate", "session"] },
     { id: "auto-rename", keywords: ["rename", "name", "title", "session", "tab", "auto", "summarize"] },
@@ -272,7 +293,7 @@
 
 <SettingsSection
   label="Appearance"
-  visible={["theme", "font-family", "font-size", "code-font-family", "code-font-size"].some(isVisible)}
+  visible={["theme", "font-family", "font-size", "code-font-family", "code-font-size", "document-font-family", "document-font-size"].some(isVisible)}
 >
   <SettingsRow
     label="Theme"
@@ -323,12 +344,12 @@
     visible={isVisible("font-size")}
   >
     {#snippet control()}
-      <div class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs">
+      <div class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs [.is-laptop-display_&]:h-6">
         <button
           type="button"
           onclick={() => theme.update({ fontSize: Math.max(8, theme.fontSize - 1) })}
           aria-label="Decrease interface size"
-          class="h-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
         >&minus;</button>
         <Input
           type="number"
@@ -348,7 +369,72 @@
           type="button"
           onclick={() => theme.update({ fontSize: theme.fontSize + 1 })}
           aria-label="Increase interface size"
-          class="h-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+        >+</button>
+      </div>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Document font"
+    description="The typeface used in document and plan editors."
+    visible={isVisible("document-font-family")}
+  >
+    {#snippet control()}
+      <DropdownMenu.Root onOpenChange={(next) => { if (!next) requestInputFocus() }}>
+        <DropdownMenu.Trigger>
+          {#snippet child({ props })}
+            <Button {...props} variant="outline" size="sm" aria-label="Document font" class="min-w-28 justify-between text-xs shadow-xs">
+              <span class="truncate">{documentFontLabel}</span>
+              <CaretDownIcon size={11} style="opacity:0.6" />
+            </Button>
+          {/snippet}
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Content side="bottom" align="end" sideOffset={6} class="w-[176px]">
+          <DropdownMenu.RadioGroup value={theme.documentFontFamily}>
+            {#each DOCUMENT_FONT_FAMILIES as font (font.id)}
+              <DropdownMenu.RadioItem value={font.id} onSelect={() => selectDocumentFont(font.id)}>
+                <span class="truncate">{font.label}</span>
+              </DropdownMenu.RadioItem>
+            {/each}
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Root>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Document size"
+    description="Text size in document and plan editors."
+    visible={isVisible("document-font-size")}
+  >
+    {#snippet control()}
+      <div class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs [.is-laptop-display_&]:h-6">
+        <button
+          type="button"
+          onclick={() => theme.update({ documentFontSize: Math.max(12, theme.documentFontSize - 1) })}
+          aria-label="Decrease document size"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+        >&minus;</button>
+        <Input
+          type="number"
+          min={12}
+          step={1}
+          value={String(theme.documentFontSize)}
+          aria-label="Document size in pixels"
+          onchange={(e) => {
+            const v = Math.max(12, Number((e.target as HTMLInputElement).value));
+            theme.update({ documentFontSize: v });
+            (e.target as HTMLInputElement).value = String(v);
+          }}
+          class="h-auto w-9 rounded-none border-0 bg-transparent p-0 text-center text-xs font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span class="mr-1 text-xs text-(--solus-text-tertiary)">px</span>
+        <button
+          type="button"
+          onclick={() => theme.update({ documentFontSize: theme.documentFontSize + 1 })}
+          aria-label="Increase document size"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
         >+</button>
       </div>
     {/snippet}
@@ -388,12 +474,12 @@
     visible={isVisible("code-font-size")}
   >
     {#snippet control()}
-      <div class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs">
+      <div class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs [.is-laptop-display_&]:h-6">
         <button
           type="button"
           onclick={() => theme.update({ codeFontSize: Math.max(8, theme.codeFontSize - 1) })}
           aria-label="Decrease code font size"
-          class="h-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
         >&minus;</button>
         <Input
           type="number"
@@ -413,7 +499,7 @@
           type="button"
           onclick={() => theme.update({ codeFontSize: theme.codeFontSize + 1 })}
           aria-label="Increase code font size"
-          class="h-full px-2.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
         >+</button>
       </div>
     {/snippet}
@@ -422,7 +508,7 @@
 
 <SettingsSection
   label="Agents & sessions"
-  visible={["agent", "model", "ratelimit", "task-lifecycle", "notification"].some(isVisible)}
+  visible={["agent", "model", "ratelimit", "task-lifecycle", "completed-retention", "notification"].some(isVisible)}
 >
   <SettingsRow
     label="Default agent"
@@ -501,6 +587,43 @@
         </p>
       {/snippet}
     {/if}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Completed task history"
+    description="Keep completed tasks in the session sidebar for this many days."
+    visible={isVisible("completed-retention")}
+  >
+    {#snippet control()}
+      <div class="flex h-7 items-center overflow-hidden rounded-md border border-border bg-card shadow-xs [.is-laptop-display_&]:h-6">
+        <button
+          type="button"
+          onclick={() => commitCompletedRetentionDays(theme.sidebarCompletedRetentionDays - 1)}
+          aria-label="Decrease completed task history"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+        >&minus;</button>
+        <Input
+          type="number"
+          min={1}
+          max={365}
+          step={1}
+          value={String(theme.sidebarCompletedRetentionDays)}
+          aria-label="Completed task history in days"
+          onchange={(event) => {
+            commitCompletedRetentionDays(Number((event.target as HTMLInputElement).value));
+            (event.target as HTMLInputElement).value = String(theme.sidebarCompletedRetentionDays);
+          }}
+          class="h-auto w-9 rounded-none border-0 bg-transparent p-0 text-center text-xs font-medium tabular-nums shadow-none focus-visible:ring-0 dark:bg-transparent [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+        />
+        <span class="mr-1 text-xs text-(--solus-text-tertiary)">d</span>
+        <button
+          type="button"
+          onclick={() => commitCompletedRetentionDays(theme.sidebarCompletedRetentionDays + 1)}
+          aria-label="Increase completed task history"
+          class="h-full px-2.5 text-workspace-chrome text-muted-foreground transition-colors hover:bg-muted hover:text-foreground [.is-laptop-display_&]:px-2"
+        >+</button>
+      </div>
+    {/snippet}
   </SettingsRow>
 
   <SettingsRow
@@ -752,7 +875,7 @@
 </SettingsSection>
 
 {#if !anyVisible}
-  <div class="py-8 text-center text-sm text-(--solus-text-tertiary)">
+  <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">
     No settings match your search
   </div>
 {/if}

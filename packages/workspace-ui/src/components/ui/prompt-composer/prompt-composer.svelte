@@ -91,6 +91,7 @@
     provider: seed.activeAgent,
     modelId: seed.model || null,
     reasoningEffort: seed.reasoningEffort,
+    fastMode: seed.fastMode,
   });
   // Panes outlive the tab they were opened for, so re-seed when the dispatch
   // target moves — otherwise a send applies the previous session's model.
@@ -103,6 +104,7 @@
     selection.provider = ctx.activeAgent;
     selection.modelId = ctx.model || null;
     selection.reasoningEffort = ctx.reasoningEffort;
+    selection.fastMode = ctx.fastMode;
   });
 
   const sess = $derived(session.sessionFor(tabId ?? session.activeTabId));
@@ -205,6 +207,7 @@
       provider: selection.provider,
       modelId: selection.modelId,
       reasoningEffort: selection.reasoningEffort,
+      fastMode: selection.fastMode,
       planRefs: [...planRefs],
       workRefs: [...workRefs],
     };
@@ -267,14 +270,6 @@
       onFocus={() => {
         claimVoice();
       }}
-      onPlanRefClick={(planId) => session.openPlanModal(planId)}
-      onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
-      onPrRefClick={(number, title) =>
-        void session.enterPrReview(number, title, {
-          ctx: workingDirectory
-            ? session.ctxForDirectory(workingDirectory)
-            : session.ctx,
-        })}
       {placeholder}
       {disabled}
       enterInsertsNewline

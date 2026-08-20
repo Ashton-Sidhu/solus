@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { NotebookPen as NotePencilIcon, Paperclip as PaperclipIcon, X as XIcon } from "@lucide/svelte";
+  import { Paperclip as PaperclipIcon, SquarePen as SquarePenIcon, X as XIcon } from "@lucide/svelte";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import type { DraftRow } from "./lib/draft-list";
 
   interface Props {
@@ -11,16 +12,14 @@
 </script>
 
 <!--
-  A draft row is a task row with everything a session would have taken away:
-  no disclosure, no status glyph, no clock, no PR. The pencil sits in the column
-  a task spends on its disclosure, so both lists keep one title edge — and it is
-  the whole of what the row reports, because "unsent" is a draft's only state.
+  A draft uses the same title and project hierarchy as an open task. Its pencil
+  leads the project favicon and label on the second line.
 
   There is no selected state either: a draft is listed only once no pane is
   composing it, so the row you are looking at is never the prompt you are in.
 -->
 <div
-  class="group/draft relative -mr-1 flex cursor-pointer items-center gap-[0.5625rem] rounded-[0.6875rem] pr-2 pl-[0.125rem] transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 h-[3.25rem] focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
+  class="group/draft relative -mx-2 flex h-[3.5rem] cursor-pointer items-center rounded-lg pr-2 pl-[0.625rem] transition-[background] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
   role="option"
   tabindex="0"
   aria-selected="false"
@@ -32,26 +31,16 @@
     onSelect();
   }}
 >
-  <span
-    class="mt-2 -mr-[0.375rem] flex size-4 shrink-0 items-center justify-center self-start text-(--solus-text-tertiary)"
-    aria-hidden="true"
-  >
-    <NotePencilIcon size={12} />
-  </span>
-
   <span class="flex min-w-0 flex-1 flex-col">
-    <span class="flex h-[1.1875rem] items-center gap-[0.5625rem]">
+    <span class="flex h-[1.1875rem] items-center gap-[0.5625rem] @max-[15rem]:gap-1.5">
       <span
-        class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap text-(--solus-text-secondary)"
+        class="min-w-0 flex-1 overflow-hidden text-workspace-chrome text-ellipsis whitespace-nowrap text-[color-mix(in_oklch,var(--solus-text-secondary)_84%,transparent)]"
         title={row.title}>{row.title}</span
       >
 
-      <!-- Files are the one thing the title cannot say, so they get the margin
-           a task spends on its state. It steps aside for the discard action on
-           hover, exactly as a task's PR chip does. -->
       {#if row.hasAttachments}
         <span
-          class="flex shrink-0 items-center text-(--solus-text-tertiary) group-hover/draft:hidden"
+          class="flex shrink-0 items-center text-(--solus-text-tertiary) group-hover/draft:hidden group-focus-within/draft:hidden pointer-coarse:hidden"
           role="img"
           aria-label="Has attachments"
           title="Has attachments"
@@ -75,8 +64,23 @@
     </span>
 
     <span
-      class="mt-[0.1875rem] overflow-hidden text-xs text-ellipsis whitespace-nowrap text-(--solus-text-tertiary)"
-      >{row.projectLabel}</span
+      class="mt-[0.375rem] flex h-5 min-w-0 max-w-full items-center gap-[0.375rem] text-xs text-[color-mix(in_oklch,var(--foreground)_64%,transparent)] @max-[15rem]:gap-1"
     >
+      <span
+        class="flex size-4 shrink-0 items-center justify-center text-(--solus-text-tertiary)"
+        role="img"
+        aria-label="Draft"
+        title="Draft"
+      >
+        <SquarePenIcon size={14} />
+      </span>
+      <ProjectFavicon
+        projectRoot={row.projectKey}
+        class="size-4 @max-[15rem]:size-[0.875rem]"
+      />
+      <span class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+        >{row.projectLabel}</span
+      >
+    </span>
   </span>
 </div>

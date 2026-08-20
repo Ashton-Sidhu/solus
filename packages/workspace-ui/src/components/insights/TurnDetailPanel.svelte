@@ -169,7 +169,7 @@
   // The breadcrumb reads at the same size and rhythm as the task page's, so a
   // turn and a task look like the same kind of destination.
   const CRUMB_BUTTON =
-    "flex h-7 shrink-0 cursor-pointer items-center rounded px-[7px] text-[0.8125rem] text-muted-foreground transition-colors hover:bg-[var(--wash-1)] hover:text-foreground";
+    "flex h-7 shrink-0 cursor-pointer items-center rounded px-[7px] text-workspace-chrome text-muted-foreground transition-colors hover:bg-[var(--wash-1)] hover:text-foreground";
 
   const roundButton =
     "flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
@@ -205,7 +205,7 @@
        list it starts at the window's, where the macOS window controls are — so
        only full screen takes the chrome lead inset. -->
   <header
-    class="workspace-titlebar flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-1 pr-3.5 {fullScreen
+    class="workspace-titlebar flex h-[calc(var(--solus-chrome-row-h,2.75rem)-0.25rem)] shrink-0 items-center gap-1 pr-3.5 pointer-coarse:h-(--solus-chrome-row-h,2.75rem) {fullScreen
       ? 'pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))]'
       : 'pl-3'} text-muted-foreground shadow-[inset_0_-0.5px_0_var(--hairline)]"
   >
@@ -214,12 +214,12 @@
          and this one continues it. Either crumb returns to the listing. -->
     {#if fullScreen}
       <button type="button" class={CRUMB_BUTTON} onclick={onClose}>Insights</button>
-      <span class="px-[3px] text-[0.8125rem] opacity-30" aria-hidden="true">/</span>
+      <span class="px-[3px] text-workspace-chrome opacity-30" aria-hidden="true">/</span>
     {/if}
     <button type="button" class={CRUMB_BUTTON} onclick={onClose}>{listLabel}</button>
-    <span class="px-[3px] text-[0.8125rem] opacity-30" aria-hidden="true">/</span>
+    <span class="px-[3px] text-workspace-chrome opacity-30" aria-hidden="true">/</span>
     <span
-      class="flex h-7 shrink-0 items-center rounded px-[7px] font-mono text-[0.8125rem] text-foreground"
+      class="flex h-7 shrink-0 items-center rounded px-[7px] font-mono text-insights-chrome text-foreground"
       title={traceId}>{shortId(traceId)}</span
     >
     <CopyButton text={traceId} title="Copy Insights ID" iconOnly />
@@ -227,7 +227,7 @@
     <span class="flex-1"></span>
 
     {#if root && root.status !== "ok"}
-      <span class="mr-1 shrink-0 text-[0.625rem] font-medium uppercase" style="color:{statusTone}"
+      <span class="mr-1 shrink-0 text-insights-chrome font-medium uppercase" style="color:{statusTone}"
         >{root.status}</span
       >
     {/if}
@@ -243,7 +243,7 @@
         >
           <CaretLeftIcon size={11} />
         </button>
-        <span class="text-[0.6875rem] tabular-nums whitespace-nowrap">{position} of {total}</span>
+        <span class="text-insights-chrome tabular-nums whitespace-nowrap">{position} of {total}</span>
         <button
           type="button"
           class={roundButton}
@@ -292,8 +292,8 @@
       <TurnDetailSkeleton />
     {:else if !view || !root}
       <div class="flex flex-col items-center gap-2 py-16 text-muted-foreground">
-        <span class="text-xs">No spans recorded for this trace</span>
-        <span class="text-[0.625rem]"
+        <span class="text-insights-chrome">No spans recorded for this trace</span>
+        <span class="text-insights-chrome"
           >Metrics start at the version that instrumented them; there is no backfill.</span
         >
       </div>
@@ -304,7 +304,7 @@
             <!-- The prompt is a message, not a title: one line names the turn,
                  and the Summary card below holds the whole text. -->
             <h1
-              class="m-0 max-w-[72ch] truncate text-base leading-[1.4] font-medium select-text"
+              class="m-0 max-w-[72ch] truncate text-h3 leading-[1.4] font-medium select-text"
               title={singleLine(prompt)}
             >
               {singleLine(prompt) || "This turn recorded no prompt text"}
@@ -314,7 +314,7 @@
                  that ran it carries its logo, so a reader comparing Claude Code
                  against Codex recognises the turn before reading the line. -->
             <span
-              class="flex flex-wrap items-center gap-1.5 text-[0.6875rem] text-muted-foreground select-text"
+              class="flex flex-wrap items-center gap-1.5 text-insights-chrome text-muted-foreground select-text"
             >
               {formatClock(root.startedAt)} · {root.model ?? "—"} ·
               <span class="inline-flex items-center gap-1">
@@ -326,7 +326,7 @@
           </div>
           <button
             type="button"
-            class="h-7.5 shrink-0 cursor-pointer rounded-lg bg-card px-3 text-xs font-medium shadow-[shadow:var(--elev-ring)] transition-colors select-none hover:bg-muted active:scale-[0.98] disabled:cursor-default disabled:opacity-40"
+            class="h-7.5 shrink-0 cursor-pointer rounded-lg bg-card px-3 text-insights-chrome font-medium shadow-[shadow:var(--elev-ring)] transition-colors select-none hover:bg-muted active:scale-[0.98] disabled:cursor-default disabled:opacity-40"
             disabled={!sessionId}
             onclick={queryThisSession}>Query this session</button
           >
@@ -398,9 +398,9 @@
               <header
                 class="flex h-10 items-center gap-3 px-5 shadow-[inset_0_-0.5px_0_var(--hairline)]"
               >
-                <h2 class="m-0 shrink-0 text-sm font-medium">Trace</h2>
+                <h2 class="m-0 shrink-0 text-insights-summary font-medium">Trace</h2>
                 {#if view.slowest[0]}
-                  <span class="truncate text-[0.6875rem] text-muted-foreground"
+                  <span class="truncate text-insights-chrome text-muted-foreground"
                     >{view.slowest[0].label} is the largest span at {formatDuration(
                       view.slowest[0].durationMs,
                     )}</span
@@ -410,7 +410,7 @@
                 {#if offersInternals}
                   <!-- The switch reads as a statement of what is on screen, so
                        the label is the thing shown rather than an instruction. -->
-                  <label class="flex shrink-0 cursor-pointer items-center gap-1.5 text-[0.6875rem] text-muted-foreground">
+                  <label class="flex shrink-0 cursor-pointer items-center gap-1.5 text-insights-chrome text-muted-foreground">
                     <Switch
                       checked={showInternals}
                       onCheckedChange={(next) => insightsStore.setShowSolusInternals(next)}
@@ -419,7 +419,7 @@
                     Solus internals
                   </label>
                 {/if}
-                <span class="shrink-0 text-[0.6875rem] tabular-nums text-muted-foreground"
+                <span class="shrink-0 text-insights-chrome tabular-nums text-muted-foreground"
                   >{formatDuration(view.totalMs)} · {view.spanCount} spans · {view.toolCallCount} tool
                   calls</span
                 >

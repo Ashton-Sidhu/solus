@@ -14,15 +14,6 @@ const pairResponseSchema = z.object({
   installationId: tolerantString,
   os: tolerantOs,
 }).catch({})
-const claimResponseSchema = z.object({
-  ok: z.boolean().optional().catch(undefined),
-  sessionToken: tolerantString,
-  ownerDeviceId: tolerantString,
-  claimedAt: z.number().optional().catch(undefined),
-  installationId: tolerantString,
-  fingerprint: tolerantString,
-  os: tolerantOs,
-}).catch({})
 
 export interface ParsedPairLink {
   url: string
@@ -40,22 +31,6 @@ export interface PairServerResult {
   server: SavedServer
   sessionToken: string
   installationId: string
-}
-
-export interface ClaimServerInput {
-  url: string
-  code: string
-  deviceLabel: string
-  serverLabel?: string
-}
-
-export interface ClaimServerResult {
-  server: SavedServer
-  sessionToken: string
-  ownerDeviceId: string
-  claimedAt: number
-  installationId: string
-  fingerprint: string
 }
 
 export function parsePairLink(link: string): ParsedPairLink | null {
@@ -137,49 +112,6 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
   }
 
   return { server, sessionToken: body.sessionToken, installationId: body.installationId }
-}
-
-export async function claimServer(input: ClaimServerInput): Promise<ClaimServerResult> {
-  const url = normalizeServerUrl(input.url)
-  const res = await fetch(`${url}/claim`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      code: input.code,
-      deviceLabel: input.deviceLabel || defaultDeviceLabel(),
-    }),
-  })
-  if (!res.ok) {
-    const body = serverErrorSchema.parse(await res.json().catch(() => ({})))
-    throw new Error(body.error ?? `Claim failed (${res.status})`)
-  }
-
-  const body = claimResponseSchema.parse(await res.json().catch(() => ({})))
-  if (body.ok !== true) throw new Error('Claim response did not confirm ownership')
-  if (!body.sessionToken) throw new Error('Claim response did not include a session token')
-  if (!body.ownerDeviceId) throw new Error('Claim response did not include an owner device id')
-  if (!body.installationId) throw new Error('Claim response did not include an installation id')
-  if (!body.fingerprint) throw new Error('Claim response did not include a fingerprint')
-  if (body.claimedAt === undefined) throw new Error('Claim response did not include a claim timestamp')
-
-  const server: SavedServer = {
-    id: body.installationId,
-    label: input.serverLabel || urlHost(url),
-    url,
-    sessionToken: body.sessionToken,
-    installationId: body.installationId,
-    os: body.os,
-    lastConnected: Date.now(),
-  }
-
-  return {
-    server,
-    sessionToken: body.sessionToken,
-    ownerDeviceId: body.ownerDeviceId,
-    claimedAt: body.claimedAt,
-    installationId: body.installationId,
-    fingerprint: body.fingerprint,
-  }
 }
 
 export function saveBootstrappedServer(

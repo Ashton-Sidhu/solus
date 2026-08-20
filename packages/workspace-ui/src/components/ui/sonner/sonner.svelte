@@ -13,7 +13,7 @@
 
 <Sonner
   theme="system"
-  class="toaster group"
+  class="toaster group no-drag"
   style="--normal-bg: var(--color-popover); --normal-text: var(--color-popover-foreground); --normal-border: var(--color-border);"
   {...restProps}
 >

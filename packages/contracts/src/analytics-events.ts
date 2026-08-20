@@ -35,8 +35,8 @@ export interface SolusEventMap {
   client_connected: { attempt?: number }
   client_reconnected: { attempt?: number }
   push_permission_result: { granted: boolean }
-  pairing_completed: { method: 'token' | 'claim' | 'ssh' }
-  pairing_failed: { method: 'token' | 'claim' | 'ssh' }
+  pairing_completed: { method: 'token' | 'ssh' }
+  pairing_failed: { method: 'token' | 'ssh' }
 }
 
 export interface ServerEventMap {

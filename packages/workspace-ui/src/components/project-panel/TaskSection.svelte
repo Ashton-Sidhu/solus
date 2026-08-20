@@ -185,6 +185,7 @@
               ? session.ctxForDirectory(target.projectDirectory)
               : session.ctx,
             serverId: target.serverId,
+            taskId: task.id,
           });
         }
         break;

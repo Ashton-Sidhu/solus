@@ -40,7 +40,10 @@
   import type { DiffComment, DiffScope, IpcContext } from "@solus/contracts/types";
   import type { ReviewComment } from "@solus/contracts/providers";
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
-  import { mountDiffFileTree } from "./lib/diff-file-tree";
+  import {
+    mountDiffFileTree,
+    uniqueDiffTreePaths,
+  } from "./lib/diff-file-tree";
   import type { HostApi } from "@solus/client-core/host-api";
   import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
@@ -73,6 +76,7 @@
     initialFilePath,
     navigationRequestId,
     embedded = false,
+    bordered = true,
     hasHostHeaderRow = false,
     commentingDisabled = false,
     commitSha = null,
@@ -109,6 +113,7 @@
      *  navigation) and the session turn stepper (turn scopes would silently
      *  replace the host's PR scope with no way back). */
     embedded?: boolean;
+    bordered?: boolean;
     /** The host draws its own header row directly above this panel, so the diff
      *  toolbar drops the branch identity it would repeat and the gutters it
      *  reserves for window and pane chrome. Separate from `embedded`: a pane
@@ -882,12 +887,12 @@
 
   const treePaths = $derived(treeFiles.map((f) => diffFilePath(f)));
   const displayedTreePaths = $derived(
-    treePaths.map((p) => toTreeDisplayPath(p)),
+    uniqueDiffTreePaths(treePaths.map((p) => toTreeDisplayPath(p))),
   );
   const fullPathByDisplay = $derived.by(() => {
     const map = new Map<string, string>();
-    for (let i = 0; i < treePaths.length; i++) {
-      map.set(displayedTreePaths[i], treePaths[i]);
+    for (const path of treePaths) {
+      map.set(toTreeDisplayPath(path), path);
     }
     return map;
   });
@@ -965,7 +970,7 @@
 
 <div
   class="relative flex h-full flex-col diff-panel-selectable"
-  class:diff-panel-bordered={!embedded}
+  class:diff-panel-bordered={bordered && !embedded}
   style="background:var(--solus-container-bg)"
   bind:clientWidth={panelWidth}
   role="region"

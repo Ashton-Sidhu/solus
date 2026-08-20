@@ -8,6 +8,7 @@
     Check as CheckIcon,
     LoaderCircle as CircleNotchIcon,
     SquareTerminal as TerminalWindowIcon,
+    UserRound as UserIcon,
   } from "@lucide/svelte";
   import type {
     TaskComment,
@@ -94,6 +95,10 @@
     return comment.author === "agent" || comment.author === "automation";
   }
 
+  function isUser(comment: TaskComment): boolean {
+    return comment.author === "You";
+  }
+
   function authorName(comment: TaskComment): string {
     if (comment.author === "agent") return "Solus";
     if (comment.author === "automation") return "Automation";
@@ -175,6 +180,7 @@
       {:else}
         {@const comment = entry.comment}
         {@const agent = isAgent(comment)}
+        {@const user = isUser(comment)}
         {@const originSessionId = comment.originSessionId}
         {@const originSessionName = commentSessionName(comment, sessions)}
         <div class="relative flex gap-3 py-3">
@@ -184,7 +190,9 @@
               ? "background:color-mix(in oklch, var(--primary) 15%, transparent);color:color-mix(in oklch, var(--primary) 78%, var(--foreground))"
               : "background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"}
           >
-            {#if agent}
+            {#if user}
+              <UserIcon size={13} strokeWidth={2.2} aria-hidden="true" />
+            {:else if agent}
               <svg
                 width="14"
                 height="14"

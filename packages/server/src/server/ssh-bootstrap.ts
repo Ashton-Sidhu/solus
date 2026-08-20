@@ -16,8 +16,6 @@ const sshBootstrapCredentialSchema = z
     sessionToken: z.string(),
     installationId: z.string(),
     fingerprint: z.string(),
-    ownerDeviceId: z.string().optional(),
-    claimedAt: z.number().optional(),
   })
   .strict()
 
@@ -30,15 +28,23 @@ printf 'Solus ssh-askpass invoked without SOLUS_SSH_AUTH_SECRET.\\n' >&2
 exit 1
 `
 
-const REMOTE_CREDENTIAL_SCRIPT = `set -eu
+export const SSH_BOOTSTRAP_CREDENTIAL_SCRIPT = `set -eu
 DEVICE_LABEL="$1"
+CLI_PATH=""
 if command -v solus >/dev/null 2>&1; then
-  exec solus auth session create --json --device-label "$DEVICE_LABEL"
+  CLI_PATH="$(command -v solus)"
+elif command -v solus-server >/dev/null 2>&1; then
+  CLI_PATH="$(command -v solus-server)"
+elif [ -n "\${SHELL:-}" ] && [ -x "$SHELL" ]; then
+  # sshd's non-interactive PATH omits shell-managed tools such as Linuxbrew
+  # and nvm. Ask the remote account's own login shell for the executable it
+  # would use, then invoke that absolute path without evaluating shell output.
+  CLI_PATH="$("$SHELL" -ilc 'command -v solus || command -v solus-server' 2>/dev/null | tail -n 1)"
 fi
-if command -v solus-server >/dev/null 2>&1; then
-  exec solus-server auth session create --json --device-label "$DEVICE_LABEL"
+if [ -n "$CLI_PATH" ] && [ -x "$CLI_PATH" ]; then
+  exec "$CLI_PATH" auth session create --json --device-label "$DEVICE_LABEL"
 fi
-printf 'Solus CLI not found on PATH. Install the Solus server package or add solus/solus-server to PATH.\\n' >&2
+printf 'Solus CLI not found in the SSH or login-shell PATH. Install the Solus server package or add solus/solus-server to PATH.\\n' >&2
 exit 127
 `
 
@@ -187,7 +193,7 @@ export async function runSshCredentialCommand(options: SshRunOptions): Promise<S
       env,
       stdio: ['pipe', 'pipe', 'pipe'],
     })
-    child.stdin.end(REMOTE_CREDENTIAL_SCRIPT)
+    child.stdin.end(SSH_BOOTSTRAP_CREDENTIAL_SCRIPT)
     const exitCode = new Promise<number>((resolve, reject) => {
       child.once('exit', (code) => resolve(code ?? 1))
       child.once('error', reject)

@@ -111,10 +111,9 @@ export default defineConfig(({ mode }) => {
         '@solus/contracts': resolve(__dirname, 'packages/contracts/src'),
         '@geist-fonts': geistFontsDir
       },
-      // prosemirror-tables can resolve its own prosemirror-view copy. Its
-      // DecorationSet then fails the editor view's instanceof check when a
-      // resizable table is hovered, corrupting DecorationGroup.
-      dedupe: ['prosemirror-view']
+      // ProseMirror classes rely on module identity. Nested model copies break
+      // splitBlock, while nested view copies corrupt table DecorationGroup.
+      dedupe: ['prosemirror-model', 'prosemirror-view']
     },
     server: {
       watch: {

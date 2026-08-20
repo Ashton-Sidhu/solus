@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { RefreshCw as ArrowsClockwiseIcon, Sparkles as SparkleIcon } from "@lucide/svelte";
+  import { RefreshCw as ArrowsClockwiseIcon } from "@lucide/svelte";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
 
   /**
@@ -12,8 +12,8 @@
    *
    * The Guide tab carries its own state, because generating a guide has no
    * other home now that the guide is a view rather than a destination: a
-   * sparkle when there is none to read, a spinner while one is being produced,
-   * and a short text cue when one arrived while you were on another tab.
+   * spinner while one is being produced. Ready and absent guides stay quiet;
+   * the guide content itself makes the state clear when opened.
    */
   let {
     view,
@@ -68,13 +68,6 @@
             size={11}
             class="shrink-0 animate-spin [animation-duration:1.2s] motion-reduce:animate-none"
           />
-        {:else if guideState === "absent"}
-          <SparkleIcon size={11} weight="fill" class="shrink-0 opacity-60" />
-        {:else if guideState === "unread"}
-          <span
-            class="shrink-0 text-[10px] font-medium leading-none text-primary"
-            aria-label="A new guide is ready"
-          >Ready</span>
         {/if}
       {/if}
     </button>

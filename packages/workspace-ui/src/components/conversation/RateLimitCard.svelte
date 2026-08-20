@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { Clock as ClockIcon, Square as StopIcon, ArrowUp as ArrowUpIcon } from "@lucide/svelte";
+  import {
+    Clock as ClockIcon,
+    Square as StopIcon,
+    ArrowUp as ArrowUpIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
@@ -62,7 +66,9 @@
 
   $effect(() => {
     if (!isVisible || !resetsAt || secondsLeft <= 0) return;
-    return liveActivityClock.subscribe((value) => { now = value; });
+    return liveActivityClock.subscribe((value) => {
+      now = value;
+    });
   });
 
   async function handleQueueIt() {
@@ -103,11 +109,8 @@
     eyebrow="Rate limited"
     title="Reached the {limitWindow || 'usage'} limit"
     testId="rate-limit-card"
+    footerClass="rate-limit-footer"
   >
-    {#snippet chip()}
-      <TranscriptChip state="warning">Paused</TranscriptChip>
-    {/snippet}
-
     {#snippet meta()}
       <span class="shrink-0">Resets at</span>
       <span class="text-transcript-meta font-medium text-(--foreground)"
@@ -134,7 +137,7 @@
 
     {#snippet footer()}
       <button type="button" class="interrupt-btn" onclick={handleStop}>
-        <StopIcon size={14} weight="bold" />
+        <StopIcon size={13} weight="bold" />
         Stop &amp; discard
       </button>
       <div class="flex-1"></div>
@@ -150,7 +153,7 @@
         class="interrupt-btn interrupt-btn--primary"
         onclick={handleSendNow}
       >
-        <ArrowUpIcon size={14} weight="bold" />
+        <ArrowUpIcon size={13} weight="bold" />
         Send now
       </button>
     {/snippet}
@@ -172,5 +175,40 @@
     text-transform: uppercase;
     color: var(--muted-foreground);
     opacity: 0.65;
+  }
+
+  :global(.rate-limit-footer) {
+    gap: 0.375rem;
+    padding-top: 0.5rem;
+    padding-right: 0.75rem;
+    padding-bottom: 0.5rem;
+    padding-left: 0.875rem;
+  }
+  :global(.rate-limit-footer .interrupt-btn) {
+    height: 1.75rem;
+    gap: 0.3125rem;
+    padding-right: 0.4375rem;
+    padding-left: 0.4375rem;
+    font-size: var(--text-transcript-meta);
+  }
+  :global(.rate-limit-footer .interrupt-btn--secondary) {
+    padding-right: 0.5625rem;
+    padding-left: 0.5625rem;
+  }
+  :global(.rate-limit-footer .interrupt-btn--primary) {
+    padding-right: 0.625rem;
+    padding-left: 0.625rem;
+  }
+
+  @media (pointer: fine) {
+    :global(html.is-laptop-display) .limit-clock {
+      font-size: var(--text-xl);
+    }
+    :global(html.is-laptop-display .rate-limit-footer) {
+      padding: 0.375rem 0.625rem 0.375rem 0.75rem;
+    }
+    :global(html.is-laptop-display .rate-limit-footer .interrupt-btn) {
+      height: 1.5rem;
+    }
   }
 </style>

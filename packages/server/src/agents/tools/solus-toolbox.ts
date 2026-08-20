@@ -52,6 +52,7 @@ import {
   submitPrReviewAgentTool,
 } from '../../providers/pr-tools'
 import { cloudflareStatusAgentTool } from '../../cloudflare/cloudflare-tools'
+import { queryInsightsAgentTool } from '../../observability/insights-tools'
 
 export const solusToolbox = {
   works: {
@@ -81,6 +82,9 @@ export const solusToolbox = {
   },
   cloudflare: {
     status: cloudflareStatusAgentTool,
+  },
+  insights: {
+    query: queryInsightsAgentTool,
   },
   sessions: {
     targets: listAgentTargetsAgentTool,

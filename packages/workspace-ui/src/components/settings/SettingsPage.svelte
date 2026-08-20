@@ -231,11 +231,11 @@
   // The same spine the session sidebar's nav rows sit on — settings is the
   // leftmost chrome while it is open, so its column reads as that one.
   const navRow =
-    "group flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded bg-transparent px-[0.625rem] text-left text-muted-foreground transition-[color,background] duration-150 hover:bg-accent hover:text-foreground";
+    "group flex h-8 w-full cursor-pointer items-center gap-[0.625rem] rounded bg-transparent px-[0.625rem] text-left text-muted-foreground transition-[color,background] duration-150 hover:bg-accent hover:text-foreground [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:gap-2 [.is-laptop-display_&]:px-2";
   const navRowActive = "text-foreground";
   const navIcon = "flex shrink-0 items-center";
   const navLabel =
-    "flex-1 min-w-0 overflow-hidden text-left text-sm  text-ellipsis whitespace-nowrap";
+    "flex-1 min-w-0 overflow-hidden text-left text-workspace-chrome text-ellipsis whitespace-nowrap";
 
   function close() {
     session.closeSettings();
@@ -378,7 +378,7 @@
 {/snippet}
 
 {#if runtime.isMobileViewport}
-  <div class="flex flex-col h-full overflow-hidden">
+  <div class="flex flex-col h-full overflow-hidden text-workspace-chrome">
     <header
       class="shrink-0 flex items-center justify-between px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top,0px))] border-b border-(--solus-container-border)"
     >
@@ -431,13 +431,13 @@
        border + its own 2px top pad) and this flush column does not. That lands
        the first control on the exact y the sidebar's first row occupies. -->
   <div
-    class="flex h-full overflow-hidden [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
+    class="flex h-full overflow-hidden text-workspace-chrome [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
   >
     <!-- Width and surface are the session sidebar's, not a second measure: the
          settings column replaces it in place, so the shell must not shift. -->
     <Sidebar.Provider
       open={true}
-      class="w-[clamp(18.75rem,24vw,22.5rem)] shrink-0"
+      class="w-[clamp(18.75rem,24vw,22.5rem)] shrink-0 [.is-laptop-display_&]:w-[clamp(16rem,22vw,19rem)]"
     >
       <Sidebar.Root
         role="navigation"
@@ -456,23 +456,23 @@
              (The page owns its titlebar chrome, so the window-control clearance
              lives in that lead rather than as an outlet pad above the whole
              surface — that is what lets this column reach the window's top.) -->
-        <Sidebar.Header class="gap-0 p-0 px-[1.1875rem] pt-(--settings-nav-lead) pb-3">
+        <Sidebar.Header class="gap-0 p-0 px-[1.1875rem] pt-(--settings-nav-lead) pb-3 [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:pb-2.5">
           <SearchField
             bind:ref={searchInputEl}
             bind:value={searchQuery}
             placeholder="Search settings"
-            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-xs"
+            class="w-full basis-auto rounded border-border bg-card px-2 py-1.5 shadow-xs [&_input]:text-workspace-chrome [.is-laptop-display_&]:py-1"
           />
         </Sidebar.Header>
         <Sidebar.Content
-          class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-px px-[1.1875rem] pb-4"
+          class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-2 px-[1.1875rem] pb-4 [.is-laptop-display_&]:gap-1.5 [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:pb-3"
         >
           {#each groupedTabs as section (section.group)}
             <Sidebar.Group class="p-0">
               <!-- A group name is the level above the rows, so it starts on the
                    icons' column rather than on the labels'. -->
               <Sidebar.GroupLabel
-                class="h-[2.125rem] pr-2.5 pl-[0.625rem] text-xs font-medium uppercase text-muted-foreground"
+                class="h-[2.125rem] pr-2.5 pl-[0.625rem] text-[0.875em] font-medium uppercase text-muted-foreground [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:pl-2"
                 >{section.group}</Sidebar.GroupLabel
               >
               <Sidebar.GroupContent>
@@ -500,7 +500,7 @@
         </Sidebar.Content>
         {#if session.staticInfo?.version}
           <Sidebar.Footer
-            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-xs text-muted-foreground"
+            class="shrink-0 flex-row items-center gap-1.5 border-t border-t-sidebar-border px-[1.1875rem] pt-2 pb-2.5 text-[0.875em] text-muted-foreground [.is-laptop-display_&]:px-4 [.is-laptop-display_&]:py-2"
           >
             <span>v{session.staticInfo.version}</span>
             {#if session.staticInfo.email}
@@ -518,11 +518,11 @@
            below it, and not above the sections, where a duplicate of it pushed
            the first setting a screenful down. -->
       <header
-        class="workspace-titlebar h-(--solus-chrome-row-h) border-b border-b-border flex items-center justify-between gap-3 px-[clamp(2rem,3vw,3rem)] shrink-0"
+        class="workspace-titlebar h-(--solus-chrome-row-h) border-b border-b-border flex items-center justify-between gap-3 px-[clamp(2rem,3vw,3rem)] shrink-0 [.is-laptop-display_&]:px-7"
       >
         {#if openHostLabel}
           <Breadcrumb.Root class="min-w-0">
-            <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-sm">
+            <Breadcrumb.List class="gap-2 min-w-0 flex-nowrap text-workspace-chrome">
               <Breadcrumb.Item class="min-w-0">
                 <Breadcrumb.Link class="truncate">
                   {#snippet child({ props })}
@@ -547,7 +547,7 @@
         {:else}
           <div class="flex min-w-0 items-baseline gap-2.5">
             <h1
-              class="shrink-0 text-sm font-medium text-foreground"
+              class="shrink-0 text-workspace-chrome font-medium text-foreground"
             >
               {activeTabMeta.label}
             </h1>
@@ -555,7 +555,7 @@
               class="h-2.5 w-px shrink-0 self-center bg-border"
               aria-hidden="true"
             ></span>
-            <p class="min-w-0 truncate text-xs text-muted-foreground">
+            <p class="min-w-0 truncate text-[0.875em] text-muted-foreground">
               {activeTabMeta.description}
             </p>
           </div>
@@ -577,14 +577,14 @@
       </header>
 
       <div
-        class="flex-1 overflow-y-auto px-[clamp(2rem,3vw,3rem)]"
+        class="flex-1 overflow-y-auto px-[clamp(2rem,3vw,3rem)] [.is-laptop-display_&]:px-7"
         role="tabpanel"
         style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
       >
         <!-- Fluid reading column: grows with the window between 45rem and 72rem.
              `w-full` keeps it from overflowing narrow panes — max-width only caps. -->
-        <div class="mx-auto w-full max-w-[clamp(45rem,66vw,72rem)] pt-8 pb-16">
-          <div class="flex flex-col gap-7">
+        <div class="mx-auto w-full max-w-[clamp(45rem,66vw,72rem)] pt-8 pb-16 [.is-laptop-display_&]:max-w-[60rem] [.is-laptop-display_&]:pt-6 [.is-laptop-display_&]:pb-12">
+          <div class="flex flex-col gap-7 [.is-laptop-display_&]:gap-5">
             {@render tabContent()}
           </div>
         </div>

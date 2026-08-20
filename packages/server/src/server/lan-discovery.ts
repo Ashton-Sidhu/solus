@@ -42,7 +42,6 @@ const discoveryMessageSchema = z.discriminatedUnion('type', [
     port: z.number().int().min(1).max(65_535),
     installationId: z.string().min(1),
     name: z.string().min(1),
-    claimable: z.boolean(),
     os: z.enum(['macos', 'windows', 'linux']).optional(),
   }).strict(),
 ])
@@ -55,7 +54,6 @@ interface DiscoveryResponse {
   port: number
   name: string
   installationId: string
-  claimable: boolean
   os?: DiscoveredServer['os']
 }
 
@@ -64,7 +62,6 @@ type DiscoveryMessage = DiscoveryQuery | DiscoveryResponse
 export interface LanDiscoveryAdvertisement {
   port: number
   installationId: string
-  claimable: boolean
   isReachable: boolean
 }
 
@@ -96,7 +93,6 @@ export async function startLanDiscoveryService(
       port: message.port,
       name: message.name,
       installationId: message.installationId,
-      claimable: message.claimable,
       os: message.os,
       source: 'lan',
     }
@@ -154,7 +150,6 @@ function respondToQuery(
     port: advertisement.port,
     name: hostname() || 'Solus Server',
     installationId: advertisement.installationId,
-    claimable: advertisement.claimable,
     os: hostOperatingSystem(),
   }
   void send(socket, Buffer.from(JSON.stringify(response)), remote.address, remote.port).catch((err) => {

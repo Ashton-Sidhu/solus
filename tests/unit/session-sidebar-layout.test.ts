@@ -27,6 +27,20 @@ describe('session sidebar layout', () => {
     expect(source).toContain('{#if isCompleted}')
   })
 
+  test('slightly mutes task and session titles outside the selected path', () => {
+    // WHY: the active task/session path must scan first without making the
+    // surrounding navigation look disabled or difficult to read.
+    const taskSource = readSessionSource('TaskRow.svelte')
+    const sessionSource = readSessionSource('TaskSessionRow.svelte')
+    const mutedTitle =
+      'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)]'
+
+    expect(taskSource).toContain(mutedTitle)
+    expect(sessionSource).toContain(mutedTitle)
+    expect(taskSource).toContain("titleLeads\n ? 'text-foreground'")
+    expect(sessionSource).toContain("titleLeads\n            ? 'text-foreground'")
+  })
+
   test('extends hover plates while keeping child connectors on the task spine', () => {
     // WHY: negative margins add breathing room, but the child connector must
     // compensate for that inset or its selected elbow shifts left of the tree.
@@ -93,12 +107,25 @@ describe('session sidebar layout', () => {
   })
 
   test('keeps metadata the same height with or without a PR chip', () => {
-    // WHY: the PR chip is 20px tall. Reserving that height on every metadata
-    // line prevents task content from shifting when a pull request appears.
+    // WHY: the PR chip fits within a 20px metadata line at every display rung.
+    // Reserving that line prevents task content from shifting when one appears.
     const source = readSessionSource('TaskRow.svelte')
     expect(source).toContain(
       'mt-[0.625rem] flex h-5 min-w-0 max-w-full items-center',
     )
+  })
+
+  test('compacts PR chips only on fine-pointer laptop displays', () => {
+    // WHY: PR metadata must leave more title room in a laptop sidebar without
+    // shrinking the same action on a large display or a coarse-pointer client.
+    const source = readSessionSource('PrChip.svelte')
+
+    expect(source).toContain('text-chrome-shelf tabular-nums')
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:gap-0.5')
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:px-0.5')
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:py-px')
+    expect(source.match(/pointer-fine:\[\.is-laptop-display_&\]:size-3/g)).toHaveLength(2)
+    expect(source).not.toMatch(/\[\.is-laptop-display_&\]:text-/)
   })
 
   test('starts the task search glyph on the sidebar icon column', () => {
@@ -112,19 +139,46 @@ describe('session sidebar layout', () => {
     expect(source).toContain('pr-8 pl-[1.5625rem]')
   })
 
-  test('leads the task list with drafts instead of a section heading', () => {
+  test('leads the task list with drafts and separates them from open tasks', () => {
     // WHY: a heading that appears only while a draft exists is a standing row
     // the column cannot afford, and labelling one group and not the other reads
     // as if it labels both. Drafts lead the same scroller as the tasks, told
-    // apart by their own row and a wider gap below the group.
+    // apart by their own row and a quiet divider below the group.
     const source = readSessionSource('SessionSidebar.svelte')
     expect(source).toContain(
-      'class="mb-3 flex flex-col gap-[0.1875rem]"\n        role="listbox"\n        aria-label="Drafts"',
+      'class="mb-2 flex flex-col gap-[0.1875rem] border-b border-sidebar-border/50 pb-2"\n        role="listbox"\n        aria-label="Drafts"',
     )
     // One action bar in the whole column, and it belongs to the tasks.
     expect(source.match(/<TaskActionBar/g)).toHaveLength(1)
     // No nested scroller: the drafts group sits inside the task scroll area.
     expect(source).not.toContain('flex max-h-[10.5rem] flex-shrink-0 flex-col')
+  })
+
+  test('spaces the task list below search and divides shelf labels from counts', () => {
+    // WHY: the first row needs breathing room below the search controls, while
+    // shelf counts need a clear visual relationship without reading as labels.
+    const source = readSessionSource('SessionSidebar.svelte')
+    expect(source).toContain(
+      'class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pt-2 pb-3.5',
+    )
+    expect(source.match(/class="h-px min-w-4 flex-1 bg-sidebar-border\/50"/g)).toHaveLength(2)
+    expect(source).toContain('>{searchedSnoozedTasks.length}</span')
+    expect(source).toContain('>{searchedCompletedTasks.length}</span')
+  })
+
+  test('leads compact draft metadata with its square pen and project identity', () => {
+    // WHY: a draft becomes an open task when sent, so its title and project
+    // identity must stay together, with less space than the open-task rows.
+    const source = readSessionSource('DraftRow.svelte')
+    expect(source).toContain('h-[3.5rem]')
+    expect(source).toContain('class="mt-[0.375rem] flex h-5')
+    expect(source).toContain('<SquarePenIcon size={14} />')
+    expect(source).toContain('projectRoot={row.projectKey}')
+    expect(source.indexOf('<SquarePenIcon size={14} />')).toBeLessThan(
+      source.indexOf('projectRoot={row.projectKey}'),
+    )
+    expect(source).toContain('class="size-4 @max-[15rem]:size-[0.875rem]"')
+    expect(source).toContain('>{row.projectLabel}</span')
   })
 
   test('expands matching completed tasks while search is active', () => {
@@ -137,6 +191,21 @@ describe('session sidebar layout', () => {
     )
     expect(source).toContain('aria-expanded={isCompletedShelfExpanded}')
     expect(source).toContain('{#if isCompletedShelfExpanded}')
+  })
+
+  test('reveals a snoozed or completed task selected from the session picker', () => {
+    // WHY: selecting an already-mounted session does not restore a new row, so
+    // the picker must explicitly open the shelf that already contains it.
+    const pickerSource = readSessionSource('SessionPicker.svelte')
+    expect(pickerSource).toContain('void revealSidebarTask(entry.tabId)')
+    expect(pickerSource).toContain('void resumed.then(revealSidebarTask)')
+    expect(pickerSource).toContain(
+      'new CustomEvent("solus:expand-sidebar-task", { detail: task.id })',
+    )
+
+    const sidebarSource = readSessionSource('SessionSidebar.svelte')
+    expect(sidebarSource).toContain('completedShelfOpen = true')
+    expect(sidebarSource).toContain('snoozedShelfOpen = true')
   })
 
   test('keeps project filtering behind one compact filter action', () => {

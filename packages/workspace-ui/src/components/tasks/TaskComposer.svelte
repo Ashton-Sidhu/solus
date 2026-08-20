@@ -12,7 +12,7 @@
     Minimize2 as ArrowsInSimpleIcon,
   } from "@lucide/svelte";
   import Dropdown from "../ui/Dropdown.svelte";
-  import PromptEditor from "../ui/PromptEditor.svelte";
+  import DocumentPromptEditor from "../editor/DocumentPromptEditor.svelte";
   import { Input } from "../ui/input";
   import { getWorkspaceContext } from "../../contexts";
   import type { AgentId } from "@solus/contracts/types";
@@ -119,6 +119,7 @@
   const presets = dueDatePresets();
 
   let titleEl = $state<HTMLInputElement | null>(null);
+  let descriptionEditor = $state<DocumentPromptEditor | null>(null);
   let labelInputEl = $state<HTMLInputElement | null>(null);
   let labelDraft = $state("");
   // In-flight write — drives the button spinner and blocks double-submits.
@@ -131,8 +132,7 @@
   // composer is opened from the command palette it mounts in the same tick the
   // palette tears down, and a microtask-timed focus loses to the browser moving
   // focus to <body> as the palette's search input is removed. rAF lands the
-  // focus after that teardown settles. (Same reason PromptEditor.focus() and
-  // the input bar reach for rAF on a visibility transition.)
+  // focus after that teardown settles.
   $effect(() => {
     const raf = requestAnimationFrame(() =>
       titleEl?.focus({ preventScroll: true }),
@@ -248,6 +248,7 @@
 
   async function submit() {
     if (!canSubmit) return;
+    const description = descriptionEditor?.getMarkdown() ?? body;
     // A preset parent (adding from an epic header) always wins and forces a task;
     // otherwise epics never nest and a task takes the chosen parent, if any.
     const parent = initialParentId ?? (kind === "task" ? parentId : "");
@@ -255,7 +256,7 @@
     try {
       await onCreate({
         title: title.trim(),
-        body: body.trim(),
+        body: description.trim(),
         kind: initialParentId ? "task" : kind,
         parentId: parent || undefined,
         // Planning fields only persist where the provider stores them (local).
@@ -363,28 +364,11 @@
   // Shared option-row styling inside a picker popover.
   const OPT =
     "flex w-full items-center gap-2 rounded-md border-0 bg-transparent px-2 py-1.5 text-left font-secondary text-(--solus-text-secondary) cursor-pointer outline-none transition-colors duration-100 hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) data-[selected=true]:font-medium data-[selected=true]:text-(--solus-text-primary)";
-  // Layout-only prompt wrapper: the editor reads like AutomationBuilder's unboxed
-  // prompt area — the plain-text editor ships no border/background of its own, so the
-  // wrapper only needs a transparent base plus flex sizing.
-  //
-  // The editor's own default is the content rung (--text-body, 16px) because its
-  // home is the transcript composer. This is a chrome surface, so the two vars
-  // below put the description on the same rung and the same left edge as the
-  // title input above it, and trade the composer's tall resting well for padding
-  // that suits a modal field.
-  //
-  // The collapsed field claims a real writing area rather than growing from one
-  // line: a description is usually a paragraph, and a field that starts as a
-  // single line asks for a sentence. The editor fills that area in both states,
-  // so clicking anywhere in the well puts the caret in the text.
+  // Layout-only wrapper. The shared rich editor owns block formatting and slash
+  // commands; this surface only decides how much room the description receives.
   const DESCRIPTION_FIELD = $derived(
-    "flex flex-col min-h-0 w-full bg-transparent " +
-      "[--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-padding:0.25rem_0_0.5rem_0] " +
-      "[&_[data-testid=message-input]]:flex [&_[data-testid=message-input]]:min-h-0 [&_[data-testid=message-input]]:flex-1 " +
-      "[&_.cm-editor]:flex [&_.cm-editor]:min-h-0 [&_.cm-editor]:flex-1 [&_.cm-content]:![font-weight:400] " +
-      (expanded
-        ? "flex-1 overflow-y-auto [&_.cm-content]:min-h-full [&_.cm-scroller]:max-h-none!"
-        : "min-h-[9rem]"),
+    "flex min-h-0 w-full flex-col bg-transparent " +
+      (expanded ? "flex-1 overflow-y-auto" : "min-h-[9rem]"),
   );
 </script>
 
@@ -434,7 +418,8 @@
 
     <!-- Header: the title IS the header. The panel's own name was noise, so the
          field the user types into takes that line, with the window controls on
-         its right.
+         its right. The placeholder stays visibly softer than entered text so
+         it reads as a prompt rather than a pre-filled title.
 
          The `!` on the placeholder colour is load-bearing: index.css sets
          `input::placeholder` unlayered, and an unlayered declaration outranks
@@ -450,10 +435,10 @@
         bind:this={titleEl}
         bind:value={title}
         type="text"
-        placeholder="Task title"
+        placeholder="Task title…"
         aria-label="Task title"
         disabled={saving}
-        class="min-w-0 flex-1 border-0 border-none outline-none shadow-none appearance-none bg-transparent text-base leading-[1.3] font-semibold tracking-[-0.016em] text-(--solus-text-primary) placeholder:font-semibold placeholder:text-(--solus-text-secondary)! disabled:opacity-60"
+        class="min-w-0 flex-1 border-0 border-none outline-none shadow-none appearance-none bg-transparent text-base leading-[1.3] font-semibold tracking-[-0.016em] text-(--solus-text-primary) placeholder:font-medium placeholder:text-(--solus-text-tertiary)! placeholder:opacity-60! disabled:opacity-60"
         onkeydown={(e) => {
           if (e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
             e.preventDefault();
@@ -505,27 +490,19 @@
  : ''}"
     >
       <div class={DESCRIPTION_FIELD}>
-        <PromptEditor
+        <DocumentPromptEditor
+          bind:this={descriptionEditor}
           value={body}
           onValueChange={(v) => (body = v)}
           pluginCommands={session.pluginCommands}
           {provider}
           {workingDirectory}
-          onPlanRefClick={(planId) => session.openPlanModal(planId)}
-          onWorkRefClick={(workId, title) =>
-            session.openWorkModal(workId, title)}
-          onPrRefClick={(number, title) =>
-            void session.enterPrReview(number, title, {
-              ctx: workingDirectory
-                ? session.ctxForDirectory(workingDirectory)
-                : session.ctx,
-            })}
           menuPlacement="down"
           useRelativeFilePaths
           readOnly={saving}
           maxHeight={expanded ? undefined : 280}
-          enterInsertsNewline
           placeholder="Describe the work…"
+          class="task-composer-description flex min-h-0 flex-1 flex-col"
           onKeyDown={(e) => {
             if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
@@ -978,6 +955,12 @@
 </div>
 
 <style>
+  :global(.task-composer-description .solus-doc-editor .ProseMirror) {
+    min-height: 8rem;
+    padding: 0.25rem 0 0.5rem;
+    font-weight: 400;
+  }
+
   /* Scoped, unlayered, and therefore ahead of the utility classes that carry
      these animations: a reduced-motion reader gets the finished dialog. */
   @media (prefers-reduced-motion: reduce) {

@@ -324,7 +324,7 @@
       {@const active = statusFilter === filter.id}
       <button
         type="button"
-        class="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-[background-color,color,box-shadow,scale] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-9"
+        class="flex h-7 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-insights-chrome outline-none transition-[background-color,color,box-shadow,scale] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-9"
         style="background:{active
           ? 'var(--card)'
           : 'transparent'};box-shadow:{active
@@ -345,7 +345,7 @@
 {#snippet groupToggle()}
   <button
     type="button"
-    class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs outline-none transition-[background-color,color,box-shadow,scale] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-10"
+    class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-insights-chrome outline-none transition-[background-color,color,box-shadow,scale] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.96] pointer-coarse:h-10"
     style="box-shadow:inset 0 0 0 0.5px var(--hairline);background:{grouped
       ? 'var(--wash-3)'
       : 'transparent'};color:{grouped
@@ -362,14 +362,14 @@
 {#snippet turnCell(row: TurnRow, columnId: string, indent: number)}
   {#if columnId === "startedAt"}
     <span
-      class="block truncate text-xs tabular-nums text-muted-foreground"
+      class="block truncate text-insights-table tabular-nums text-muted-foreground"
       style="padding-left:{indent}px"
     >
       {spansDays ? formatDayClock(row.startedAt) : formatClock(row.startedAt)}
     </span>
   {:else if columnId === "prompt"}
     <span class="flex min-w-0 items-center gap-2">
-      <span class="truncate text-[0.8125rem]" title={row.prompt}
+      <span class="truncate text-insights-table" title={row.prompt}
         >{singleLine(row.prompt) || "—"}</span
       >
     </span>
@@ -379,7 +379,7 @@
     {:else}
       <button
         type="button"
-        class="cursor-pointer truncate text-left text-xs text-muted-foreground transition-colors hover:text-(--primary) hover:underline"
+        class="cursor-pointer truncate text-left text-insights-table text-muted-foreground transition-colors hover:text-(--primary) hover:underline"
         onclick={(event) => {
           event.stopPropagation();
           if (row.sessionId) onOpenSession(row.sessionId);
@@ -388,20 +388,20 @@
       >
     {/if}
   {:else if columnId === "model"}
-    <span class="block truncate text-xs text-muted-foreground"
+    <span class="block truncate text-insights-table text-muted-foreground"
       >{row.model ?? "—"}</span
     >
   {:else if columnId === "durationMs"}
     <span
-      class="block text-right text-xs tabular-nums"
+      class="block text-right text-insights-table tabular-nums"
       style="color:{durationColor(row)}">{formatDuration(row.durationMs)}</span
     >
   {:else if columnId === "costUsd"}
-    <span class="block text-right text-xs tabular-nums"
+    <span class="block text-right text-insights-table tabular-nums"
       >{formatCost(row.costUsd)}</span
     >
   {:else if columnId === "tokens"}
-    <span class="block text-right text-xs tabular-nums"
+    <span class="block text-right text-insights-table tabular-nums"
       >{formatTokens(
         row.inputTokens == null && row.outputTokens == null
           ? null
@@ -455,10 +455,10 @@
     class="flex min-h-13 shrink-0 flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2 shadow-[inset_0_-0.5px_0_var(--hairline-strong)]"
   >
     <div class="flex min-w-0 shrink-0 items-baseline gap-2">
-      <h2 class="text-[0.8125rem] font-medium text-foreground">
+      <h2 class="text-insights-chrome font-medium text-foreground">
         {grouped ? "Sessions" : "Turns"}
       </h2>
-      <p class="truncate text-xs tabular-nums text-muted-foreground">
+      <p class="truncate text-insights-chrome tabular-nums text-muted-foreground">
         {#if grouped}{groups.length} sessions · {filteredSortedRows.length} turns{:else}{filteredSortedRows.length}
           of {rows.length}{/if}
       </p>
@@ -488,7 +488,7 @@
               {@const sorted = header.column.getIsSorted()}
               <Table.Head
                 colspan={header.colSpan}
-                class="group/head relative h-9 px-3 text-xs font-normal text-muted-foreground"
+                class="group/head relative h-9 px-3 text-insights-table font-normal text-muted-foreground"
                 style="{trackStyle(
                   definition.key,
                   header.getSize(),
@@ -544,7 +544,7 @@
             >
               {#each dataTable.getVisibleLeafColumns() as column (column.id)}
                 <Table.Cell
-                  class="overflow-hidden px-3 py-0 text-xs"
+                  class="overflow-hidden px-3 py-0 text-insights-table"
                   style={trackStyle(head(column.id).key, column.getSize())}
                   data-column-id={column.id}
                   data-column-label={head(column.id).label}
@@ -560,7 +560,7 @@
                       {group.turns.length === 1 ? "turn" : "turns"}
                     </span>
                   {:else if column.id === "prompt"}
-                    <span class="block truncate text-[0.8125rem] font-medium"
+                    <span class="block truncate text-insights-table font-medium"
                       >{singleLine(group.firstPrompt)}</span
                     >
                   {:else if column.id === "sessionId"}

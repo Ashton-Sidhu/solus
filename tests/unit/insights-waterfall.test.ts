@@ -372,6 +372,15 @@ describe('Trace surface composition', () => {
     expect(waterfall).toContain('sticky bottom-0')
   })
 
+  test('the docked detail separates itself from the waterfall', () => {
+    // WHY: the dock overlaps a card with the same surface colour. Without an
+    // lifted shadow, opening it can look like no action occurred.
+    expect(waterfall).not.toContain('var(--primary)_36%')
+    expect(waterfall).not.toContain('var(--primary)_10%')
+    expect(waterfall).toContain('0_1rem_2.5rem_-1rem_rgba(0,0,0,0.3)')
+    expect(waterfall).not.toContain('bg-[color-mix(in_oklch,var(--primary)_5%,transparent)]')
+  })
+
   // Why it matters: sticky positions against the nearest scroll container. An
   // `overflow-hidden` Trace card silently becomes that container, and the dock
   // stops following the reader with no error anywhere.

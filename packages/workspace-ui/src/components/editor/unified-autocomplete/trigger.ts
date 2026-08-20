@@ -3,9 +3,10 @@
  * menu mode and no selected-category state. Everything the menu needs is
  * re-derived from the caret on each keystroke.
  *
- * The anchor survives across keystrokes so a query can keep its spaces —
- * multi-word titles stay searchable. The caller re-validates it each change and
- * re-matches TRIGGER_RE when it no longer points at a trigger character.
+ * The anchor survives across keystrokes so file and command queries can keep
+ * their spaces. A space ends a `#` reference query and hands typing back to the
+ * sentence. The caller re-validates the anchor each change and re-matches
+ * TRIGGER_RE when it no longer points at a live trigger.
  */
 import { kindForSlug, type RefKind } from "./kinds";
 
@@ -74,6 +75,7 @@ export function readTrigger(
   // Only `#` scopes. An `@` query may contain `/` because it is a path, so the
   // split is never applied to it.
   if (char === "#") {
+    if (/\s/.test(rest)) return null;
     const separator = rest.indexOf("/");
     if (separator >= 0) {
       const kind = kindForSlug(rest.slice(0, separator));

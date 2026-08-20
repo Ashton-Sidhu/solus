@@ -28,10 +28,13 @@ export const KEYBINDINGS = {
   'global.saved-prompts':     { combo: { alt: true, shift: true, code: 'KeyK' },          scope: 'global',             label: 'Saved prompts',            group: 'Compose' },
   'global.continue-in-mode':  { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Continue in editor / pill', group: 'View' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
-  'global.toggle-files':         { combo: { alt: true, shift: true, code: 'KeyO' }, web: { alt: true, shift: true, code: 'KeyY' }, scope: 'global', label: 'Open files',               group: 'View' },
+  // The letter layer is already occupied by other global actions. Semicolon
+  // gives Files one collision-free default on desktop and web without making
+  // the shortcut depend on a numbered key.
+  'global.toggle-files':         { combo: { alt: true, shift: true, code: 'Semicolon' },   scope: 'global',             label: 'Open files',               group: 'View' },
   'global.open-in-split': { combo: { alt: true, shift: true, code: 'Backslash' }, scope: 'global',             label: 'Open artifact in split',   group: 'View' },
   // ⌥M is the pane's key wherever a pane is: `reserved` carries it through an
-  // exclusive scope (a plan or document shell inline in a pane), and no other
+  // exclusive scope (for example, a standalone document modal), and no other
   // scope may bind it. It is declared before the project panel so it takes the
   // key first in this scope, and its handler is enabled only while a companion
   // pane is open — with no companion the same press falls through to the rail

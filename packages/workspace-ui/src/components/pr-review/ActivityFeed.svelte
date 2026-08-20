@@ -9,6 +9,7 @@
   } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { CommentEditor } from "../ui/comment-editor";
+  import DocumentEditor from "../editor/DocumentEditor.svelte";
   import { projectScopeOf, type ChangedFileStat, type IpcContext } from "@solus/contracts/types";
   import type {
     ReviewThread,
@@ -163,6 +164,7 @@
   let editing = $state(false);
   let titleDraft = $state("");
   let bodyDraft = $state("");
+  let descriptionEditor = $state<DocumentEditor | null>(null);
   let saving = $state(false);
   let titleInput = $state<HTMLInputElement | null>(null);
   let addressingComments = $state(false);
@@ -557,11 +559,12 @@
   async function savePullRequest() {
     const title = titleDraft.trim();
     if (!detail || !title || saving) return;
+    const body = descriptionEditor?.getCurrentMarkdown() ?? bodyDraft;
     saving = true;
     try {
       detail = await session.prsStore.updatePullRequest(getApi(), serverId, feedCtx(), pr.number, {
         title,
-        body: bodyDraft,
+        body,
       });
       editing = false;
       toasts.success("Pull request updated");
@@ -787,13 +790,14 @@
           <div
             class="mt-6 rounded-2xl border border-border bg-card p-3 shadow-[0_1px_2px_rgba(0,0,0,0.03)]"
           >
-            <CommentEditor
+            <DocumentEditor
+              bind:this={descriptionEditor}
               value={bodyDraft}
               onValueChange={(markdown) => (bodyDraft = markdown)}
-              enterInsertsNewline
-              maxHeight={420}
               placeholder="Describe this pull request…"
-              class="[&_.cm-content]:![min-height:9rem] [&_.cm-content]:![padding:0.5rem] [&_.cm-content]:![font-weight:400]"
+              dragHandle={false}
+              class="pr-description-editor prose-pr prose-pr-description"
+              style="max-height:26.25rem;overflow-y:auto"
             />
             <div class="mt-3 flex items-center justify-end gap-2 border-t border-border pt-3">
               <Button
@@ -942,8 +946,6 @@
             value={composer}
             onValueChange={(md) => (composer = md)}
             onKeyDown={onComposerKey}
-            enterInsertsNewline
-            hidePlaceholderOnFocus
             maxHeight={160}
             placeholder="Write a comment…"
             class={composerFieldClass}

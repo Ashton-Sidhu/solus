@@ -165,7 +165,9 @@
      on. Muted and unweighted: the bubble and the prose carry the roles, and a
      bold heading over each would put the labels back in charge of the card.
      The backend's logo keeps its own brand ink while the name beside it stays
-     muted, so the speaker is recognised before the caption is read. -->
+     muted, so the speaker is recognised before the caption is read. A muted
+     hairline carries each caption away from its message without adding another
+     container: after the agent on the left, before the user on the right. -->
 {#snippet roleLine(pane: TranscriptPane, alignEnd = false)}
   <div class="flex h-5 items-center gap-1.5 text-xs {alignEnd ? 'justify-end' : ''}">
     <span class="flex shrink-0 items-center gap-1.5 text-muted-foreground">
@@ -179,6 +181,11 @@
     {#if pane.text}
       <CopyButton text={pane.text} title={pane.copyTitle} iconOnly />
     {/if}
+    <span
+      class="h-px flex-1 bg-[var(--hairline)]"
+      class:order-first={alignEnd}
+      aria-hidden="true"
+    ></span>
   </div>
 {/snippet}
 
@@ -281,23 +288,21 @@
 </section>
 
 <style>
-  /* The three texts drop one rung, to the annotation size the rest of this
-     analytics surface reads at. The conversation sets its transcript at the
-     reading size because the transcript is the page; here the exchange is one
-     card beside a waterfall, a coverage band and a table, and at the reading
-     size it shouted over all of them. `--text-footnote` still carries the
-     user's own text-size preference, so a reader who scales prose up keeps it.
+  /* The three texts use the responsive Summary rung: one step below the main
+     transcript, but large enough to read as a summary rather than chart
+     annotation. It is 14px on desktop and 12px on a laptop, and carries the
+     user's text-size preference at both sizes.
 
      Written here, not as a utility: `.prose-transcript` and `.prose-reading`
      are unlayered, so a `text-*` utility in `@layer utilities` never wins. */
   .transcript-text {
-    font-size: var(--text-footnote);
+    font-size: var(--text-insights-summary);
     line-height: 1.7;
   }
   /* Headings inside a recorded answer follow the text down; left alone they
      would sit two rungs above their own paragraphs. */
   .transcript-text :global(h1) {
-    font-size: var(--text-caption);
+    font-size: var(--text-insights-summary-heading);
   }
   .transcript-text :global(h2),
   .transcript-text :global(h3),
@@ -305,7 +310,7 @@
   .transcript-text :global(h5),
   .transcript-text :global(h6),
   .transcript-text :global(table) {
-    font-size: var(--text-footnote);
+    font-size: var(--text-insights-summary);
   }
 
   /* Fades the last lines of a clipped text so a cut never reads as a text that

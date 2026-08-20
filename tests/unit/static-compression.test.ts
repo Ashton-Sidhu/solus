@@ -58,7 +58,7 @@ describe('stale build requests', () => {
     expect(staleChunk.headers.get('content-type')).not.toContain('text/html')
 
     // Client-side routes still resolve to the shell.
-    const route = await fetch(`${baseUrl}/claim`)
+    const route = await fetch(`${baseUrl}/pair`)
     expect(route.status).toBe(200)
     expect(route.headers.get('content-type')).toContain('text/html')
   })

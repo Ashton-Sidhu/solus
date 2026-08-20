@@ -32,14 +32,14 @@
     <Button
       variant="ghost"
       size="sm"
-      class="mt-2 -ml-2 text-(--solus-text-tertiary)"
+      class="mt-2 -ml-2 text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:h-6"
       onclick={() => void setup.cancelGithubConnect()}
     >
       Cancel
     </Button>
   {/if}
   {#if setup.stepError?.step === "github"}
-    <p class="mt-3 cursor-text select-text text-pretty text-xs text-(--solus-status-error)">
+    <p class="mt-3 cursor-text select-text text-pretty text-[0.875em] text-(--solus-status-error)">
       {setup.stepError.message}
     </p>
   {/if}

@@ -235,6 +235,11 @@ async function createNotifyReducer() {
     status: 'running',
     messages: [],
     currentTurnStartedAt: 123,
+    currentTurnStart: 123,
+    isStreamingText: false,
+    isReconnecting: false,
+    permissionQueue: [],
+    questionQueue: [],
     run: { workingDirectory: null },
   } as unknown as Session
   const tab = { id: 'tab-1', sessionId: 'session-1', hasUnread: false } as Tab
@@ -292,7 +297,7 @@ describe('SessionEventReducer turn-done notification timing', () => {
   })
 
   test('does not play the completion sound for a failed settlement', async () => {
-    const { reducer, notifyCount } = await createNotifyReducer()
+    const { reducer, tab, notifyCount } = await createNotifyReducer()
 
     reducer.apply('session-1', {
       type: 'turn_settled',
@@ -301,5 +306,8 @@ describe('SessionEventReducer turn-done notification timing', () => {
       settledAt: 456,
     })
     expect(notifyCount()).toBe(0)
+    // WHY: the sidebar must emphasize a failed background session until the
+    // user opens it, even though failure does not use the completion sound.
+    expect(tab.hasUnread).toBe(true)
   })
 })

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ExternalLink as ArrowSquareOutIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon } from "@lucide/svelte";
+  import { ExternalLink as ArrowSquareOutIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon, Maximize2 as ArrowsOutSimpleIcon } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
   import { taskProviderLabel, taskRef } from "./lib/task-page";
   import { syncToneColor, type TaskUpstreamState } from "./lib/task-upstream";
@@ -27,6 +27,8 @@
     onMoveAcross?: () => void;
     /** Which way `onMoveAcross` sends it. */
     isLeading?: boolean;
+    /** Replace an embedded detail panel with this task's standalone route. */
+    onOpenPage?: () => void;
     onOpenList: () => void;
     onClose: () => void;
   }
@@ -43,6 +45,7 @@
     onOpenSource,
     onMoveAcross,
     isLeading = true,
+    onOpenPage,
     onOpenList,
     onClose,
   }: Props = $props();
@@ -155,6 +158,18 @@
       iconSize={13}
       class={ICON_BTN}
     />
+  {/if}
+
+  {#if onOpenPage}
+    <button
+      type="button"
+      class={ICON_BTN}
+      onclick={onOpenPage}
+      title="Open task page"
+      aria-label="Open task page"
+    >
+      <ArrowsOutSimpleIcon size={13} />
+    </button>
   {/if}
 
   {#if onOpenSource}

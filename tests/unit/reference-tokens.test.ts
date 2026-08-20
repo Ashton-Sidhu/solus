@@ -6,6 +6,7 @@ import {
   type ReferenceToken,
 } from "@solus/workspace-ui/components/editor/reference-tokens";
 import { referenceTokenClassName } from "@solus/workspace-ui/components/ui/plain-text-editor/lib/reference-decorations";
+import { referenceExtensions } from "@solus/workspace-ui/components/editor/referenceExtensions";
 
 const tokens: ReferenceToken[] = [
   { kind: "file", path: "src/renderer/App.svelte", name: "App.svelte" },
@@ -46,6 +47,36 @@ describe("reference token markdown", () => {
     expect(referenceTokenClassName(tokens[4])).not.toContain(
       "solus-token--link-chip",
     );
+  });
+
+  test("every rich href reference uses the same chip shell as the prompt editor", () => {
+    // WHY: task and PR descriptions use the rich editor, but their href
+    // references must not switch to a different visual language.
+    for (const extension of referenceExtensions.filter(
+      (candidate) => candidate.name !== "slashReference",
+    )) {
+      // SAFETY: this focused render fixture supplies the fields that each
+      // reference renderer reads.
+      const rendered = extension.config.renderHTML?.({
+        node: {
+          attrs: {
+            path: "src/renderer/App.svelte",
+            name: "App.svelte",
+            planId: "plan-1",
+            workId: "work-1",
+            sessionId: "session-1",
+            number: 42,
+            title: "Reference",
+            status: "pending",
+          },
+        },
+        HTMLAttributes: {},
+      } as never);
+
+      expect(rendered?.[1]).toMatchObject({
+        class: expect.stringContaining("solus-token--link-chip"),
+      });
+    }
   });
 
   test("round-trips every composer reference through one canonical format", () => {

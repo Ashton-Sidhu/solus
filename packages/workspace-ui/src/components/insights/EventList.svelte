@@ -166,9 +166,9 @@
           class="size-2 shrink-0 rounded-full shadow-[inset_0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
           style="background:{seriesColor}"
         ></span>
-        <h2 class="truncate text-[0.8125rem] font-medium text-foreground">{title}</h2>
+        <h2 class="truncate text-insights-chrome font-medium text-foreground">{title}</h2>
       </span>
-      <p class="truncate text-xs tabular-nums text-muted-foreground">{rows.length} of {eventTable.rows.length}</p>
+      <p class="truncate text-insights-chrome tabular-nums text-muted-foreground">{rows.length} of {eventTable.rows.length}</p>
     </div>
 
     <DataTableToolbar table={dataTable} filterPlaceholder="Filter events…" />
@@ -202,7 +202,7 @@
               {@const sorted = header.column.getIsSorted()}
               <Table.Head
                 colspan={header.colSpan}
-                class="group/head relative h-9 px-3 text-xs font-normal text-muted-foreground"
+                class="group/head relative h-9 px-3 text-insights-table font-normal text-muted-foreground"
                 style="{trackStyle(column, header.column.id, header.getSize())};text-align:{column.numeric ? 'right' : 'left'}"
                 aria-sort={sorted === 'asc' ? 'ascending' : sorted === 'desc' ? 'descending' : 'none'}
               >
@@ -252,7 +252,7 @@
               {@const column = eventTable.columns[index]}
               {@const text = cellText(column, cell.getValue() as MetricsValue)}
               <Table.Cell
-                class="truncate px-3 py-0 text-xs {columnEmphasis(column) === 'primary' ? 'font-medium' : ''} {column.numeric || column.format !== 'raw' ? 'tabular-nums' : ''}"
+                class="truncate px-3 py-0 text-insights-table {columnEmphasis(column) === 'primary' ? 'font-medium' : ''} {column.numeric || column.format !== 'raw' ? 'tabular-nums' : ''}"
                 style="{trackStyle(column, cell.column.id, cell.column.getSize())};text-align:{column.numeric ? 'right' : 'left'};color:{cellColor(column, row.original)}"
                 title={text}
                 data-column-id={cell.column.id}

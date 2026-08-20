@@ -125,6 +125,8 @@ async function buildServerBundle(staging: string): Promise<void> {
     '--format=cjs',
     '--log-level=warning',
     '--define:import.meta.url=__filename',
+    `--define:process.env.SOLUS_GOOGLE_CLIENT_ID=${JSON.stringify(process.env.SOLUS_GOOGLE_CLIENT_ID ?? '')}`,
+    `--define:process.env.SOLUS_GOOGLE_CLIENT_SECRET=${JSON.stringify(process.env.SOLUS_GOOGLE_CLIENT_SECRET ?? '')}`,
     `--define:process.env.SOLUS_GITHUB_CLIENT_ID=${JSON.stringify(process.env.SOLUS_GITHUB_CLIENT_ID ?? '')}`,
     `--outfile=${join(outdir, 'standalone.js')}`,
     '--external:electron',

@@ -9,7 +9,7 @@
    *  the title is the first thing to be squeezed out, which is the one thing you
    *  are scanning for. So the rail re-stacks the same facts into two lines —
    *  title above, `ident · meta · note` below — and keeps only the avatar and the
-   *  time on the outside, where the eye already expects them.
+   *  optional time on the outside, where the eye already expects them.
    *
    *  Chips do not survive the fold. The one that becomes the note is the first
    *  *tinted* one — a state that needed colour to be worth saying. The neutral
@@ -19,6 +19,10 @@
     row: ListRowSpec;
     selected?: boolean;
     fallbackAvatar?: "solus";
+    /** Use the canonical responsive type rung for workspace list titles. */
+    responsiveTitle?: boolean;
+    /** The rail can omit age when recency is not useful for navigation. */
+    showTime?: boolean;
     onSelect?: () => void;
     onContextMenu?: (event: MouseEvent) => void;
     leading?: Snippet;
@@ -27,6 +31,8 @@
     row,
     selected = false,
     fallbackAvatar,
+    responsiveTitle = false,
+    showTime = true,
     onSelect,
     onContextMenu,
     leading,
@@ -81,7 +87,9 @@
 
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
       <span
-        class="truncate leading-[17px] font-medium"
+        class="truncate leading-[17px] font-normal {responsiveTitle
+          ? 'text-workspace-chrome'
+          : ''}"
         title={row.title}
       >
         {row.title}
@@ -107,11 +115,13 @@
 
     <!-- Aligned to the title's line, not to the row's middle: the time belongs
          to the thing it is naming. -->
-    <span
-      class="mt-px shrink-0 self-start text-xs tabular-nums text-muted-foreground opacity-75"
-      title={row.timeTitle}
-    >
-      {row.time}
-    </span>
+    {#if showTime}
+      <span
+        class="mt-px shrink-0 self-start text-xs tabular-nums text-muted-foreground opacity-75"
+        title={row.timeTitle}
+      >
+        {row.time}
+      </span>
+    {/if}
   </button>
 </div>

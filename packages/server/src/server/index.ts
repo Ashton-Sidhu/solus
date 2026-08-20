@@ -48,7 +48,7 @@ import { registerTasksHandlers } from './handlers/tasks-handlers'
 import { setVoiceModelStatusListener } from '../model-downloader'
 import { createLogger, isDebugEnabled } from '../logger'
 import { PushNotificationService, attentionEntryKey, diffNewPushAttentionEntries } from '../notifications/push-service'
-import { ensureClaimWindow, getInstallationId, isClaimable } from './auth'
+import { getInstallationId } from './auth'
 import { probeServerCapabilities, registerSetupHandlers } from './handlers/setup-handlers'
 import packageJson from '../../../../package.json'
 import { solusDir } from '../platform/paths'
@@ -360,8 +360,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     events.broadcast('session.statusChanged', event)
   })
 
-  ensureClaimWindow()
-
   const { server: http } = buildHttpServer({
     host,
     port,
@@ -489,7 +487,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       lanDiscovery = await startLanDiscoveryService(() => ({
         port: actualPort,
         installationId: getInstallationId(),
-        claimable: isClaimable(),
         isReachable: !isLoopbackHost(host),
       }))
     } catch (err) {

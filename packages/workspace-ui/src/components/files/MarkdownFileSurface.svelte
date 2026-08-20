@@ -119,6 +119,11 @@
     await sourceEditorRef?.flushSave();
     renderedContents = sourceEditorRef?.getCurrentContents() ?? renderedContents;
   }
+
+  export function focus() {
+    if (mode === "rendered") richEditorRef?.focus();
+    else sourceEditorRef?.focus();
+  }
 </script>
 
 <div class="relative flex h-full min-h-0 min-w-0 flex-1 flex-col">

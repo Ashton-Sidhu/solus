@@ -132,10 +132,12 @@ diff --git a/src/new.ts b/src/new.ts
     const [file] = parse(`diff --git a/src/example.ts b/src/example.ts
 --- a/src/example.ts
 +++ b/src/example.ts
-@@ -1 +1 @@
+@@ -1,2 +1,2 @@
+ const before = true
 -const answer=42
 +const answer = 42
-@@ -10 +10 @@
+@@ -10,2 +10,2 @@
+ const ready = true
 -runLegacy()
 +runCurrent()
 `)
@@ -143,7 +145,25 @@ diff --git a/src/new.ts b/src/new.ts
     const visible = collapseFormatOnlyHunks(file)
 
     expect(visible.hunks).toHaveLength(1)
-    expect(visible.additionLines[visible.hunks[0].additionLineIndex].trim()).toBe('runCurrent()')
+    expect(visible.additionLines).toEqual(['const ready = true\n', 'runCurrent()\n'])
+    expect(visible.deletionLines).toEqual(['const ready = true\n', 'runLegacy()\n'])
+    expect(visible.hunks[0]).toMatchObject({
+      additionLineIndex: 0,
+      deletionLineIndex: 0,
+      hunkContent: [
+        {
+          additionLineIndex: 0,
+          deletionLineIndex: 0,
+        },
+        {
+          additionLineIndex: 1,
+          deletionLineIndex: 1,
+        },
+      ],
+    })
+    expect(visible.additionLines[visible.hunks[0].hunkContent[1].additionLineIndex].trim()).toBe(
+      'runCurrent()',
+    )
   })
 
   test('diff files follow the tree panel hierarchy and natural filename order', () => {

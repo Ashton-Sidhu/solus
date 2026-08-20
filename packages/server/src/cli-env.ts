@@ -12,6 +12,7 @@ let warmPromise: Promise<string> | null = null
 const PATH_PROBE_COMMANDS = [
   '/bin/zsh -ilc "echo $PATH"',
   '/bin/zsh -lc "echo $PATH"',
+  '/bin/bash -ilc "echo $PATH"',
   '/bin/bash -lc "echo $PATH"',
 ]
 

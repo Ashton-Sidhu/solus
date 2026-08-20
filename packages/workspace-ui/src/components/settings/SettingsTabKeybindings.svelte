@@ -340,7 +340,7 @@
     class="text-xs flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
  {recording ? 'bg-(--solus-accent)/5' : ''}"
   >
-    <span class="text-sm text-(--solus-text-primary) min-w-0">{def.label}</span>
+    <span class="text-workspace-chrome text-(--solus-text-primary) min-w-0">{def.label}</span>
     <div class="flex items-center gap-1.5 shrink-0">
       {#if conflict}
         <span class="inline-flex items-center gap-1  font-secondary text-(--solus-text-secondary)">
@@ -410,7 +410,7 @@
   {@const failed = appFailed[key]}
   <div class="text-xs flex items-center justify-between gap-4 min-h-[2.375rem] px-4 py-[0.3125rem] border-t border-border first:border-t-0
  {recording ? 'bg-(--solus-accent)/5' : ''}">
-    <span class="text-sm text-(--solus-text-primary) min-w-0">{label}</span>
+    <span class="text-workspace-chrome text-(--solus-text-primary) min-w-0">{label}</span>
     <div class="flex items-center gap-1.5 shrink-0">
       {#if recording}
         <button type="button" class="inline-flex items-center gap-2  text-(--solus-accent) py-1 px-2.5 rounded-md border border-dashed border-(--solus-accent) bg-(--solus-accent)/8" onclick={cancelRecord}>
@@ -476,7 +476,7 @@
           aria-current={active ? "true" : undefined}
           onclick={() => selectScope(item.key)}
         >
-          <span class="text-sm min-w-0 overflow-hidden text-ellipsis whitespace-nowrap {active ? 'font-medium' : 'font-normal'}">{item.label}</span>
+          <span class="text-workspace-chrome min-w-0 overflow-hidden text-ellipsis whitespace-nowrap {active ? 'font-medium' : 'font-normal'}">{item.label}</span>
           <span class="inline-flex items-center gap-1.5 shrink-0">
             {#if item.overrides > 0}
               <span class="w-1.5 h-1.5 rounded-full bg-(--solus-accent)" title={`${item.overrides} customized`}></span>
@@ -487,10 +487,10 @@
       {/each}
     </nav>
 
-    <div class="flex-1 min-w-0 flex flex-col gap-[1.125rem]">
+    <div class="flex-1 min-w-0 flex flex-col gap-[1.125rem] [.is-laptop-display_&]:gap-3.5">
       {#if searchQuery}
         {#if !hasSearchResults}
-          <div class="py-8 text-center text-sm text-(--solus-text-tertiary)">No shortcuts match your search</div>
+          <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">No shortcuts match your search</div>
         {:else}
           {#each searchSections as section (section.scope)}
             <SettingsSection label={section.label}>

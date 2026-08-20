@@ -60,7 +60,7 @@ describe('turn attributes', () => {
     // Applying that cap only after the click made the state change invisible:
     // the card stayed the same height and the new groups landed below its fold.
     const component = readFileSync(
-      new URL('@solus/workspace-ui/components/insights/TurnAttributes.svelte', import.meta.url),
+      new URL('../../packages/workspace-ui/src/components/insights/TurnAttributes.svelte', import.meta.url),
       'utf8',
     )
 
@@ -68,23 +68,23 @@ describe('turn attributes', () => {
     expect(component).toContain('expanded ? "Show less" : `Show all ${total} attributes`')
   })
 
-  test('long names cannot overlap values and explanations live in tooltips', () => {
-    // Narrow detail rails still need to show machine-sized column names. The
-    // name track must be allowed to shrink and wrap instead of painting over
-    // the value, while explanatory notes stay available without adding a
-    // second line to every affected row.
+  test('long names and values truncate while their complete text stays in tooltips', () => {
+    // Narrow detail rails must stay scannable when names, ids, and paths are
+    // long. Both tracks truncate instead of growing the row, while tooltips
+    // keep the complete recorded text and any explanation available.
     const component = readFileSync(
-      new URL('@solus/workspace-ui/components/insights/TurnAttributes.svelte', import.meta.url),
+      new URL('../../packages/workspace-ui/src/components/insights/TurnAttributes.svelte', import.meta.url),
       'utf8',
     )
 
     expect(component).toContain('grid-template-columns:minmax(0,3fr) minmax(0,2fr) 1.75rem')
-    expect(component).toContain('min-w-0 cursor-help')
-    expect(component).toContain('wrap-anywhere select-text')
+    expect(component).toContain('min-w-0 truncate cursor-help')
+    expect(component).toContain('block truncate text-[0.6875rem]')
     expect(component).toContain('<TooltipUI.Content')
-    expect(component).toContain('value={attribute.note}')
+    expect(component).toContain('{attribute.key}</span>')
+    expect(component).toContain('value={attribute.value}')
+    expect(component).toContain('{attribute.note}</span>')
     expect(component).not.toContain('side="right"')
-    expect(component).not.toContain('>{attribute.note}</span')
   })
 
   test('the outcome numbers are attributes, not a separate strip', () => {
@@ -155,11 +155,11 @@ describe('turn attributes', () => {
     // Insights must remain visible while the task opens beside it, matching
     // other contextual task links rather than replacing the leading pane.
     const panel = readFileSync(
-      new URL('@solus/workspace-ui/components/insights/TurnDetailPanel.svelte', import.meta.url),
+      new URL('../../packages/workspace-ui/src/components/insights/TurnDetailPanel.svelte', import.meta.url),
       'utf8',
     )
     const attributes = readFileSync(
-      new URL('@solus/workspace-ui/components/insights/TurnAttributes.svelte', import.meta.url),
+      new URL('../../packages/workspace-ui/src/components/insights/TurnAttributes.svelte', import.meta.url),
       'utf8',
     )
 

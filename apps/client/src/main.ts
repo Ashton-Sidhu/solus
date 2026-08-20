@@ -300,11 +300,6 @@ const bootPairToken = pairTokenFromLocation(location.href)
 
 if (bootPairToken) {
   void pairFromLocation(bootPairToken)
-} else if (location.pathname === '/claim') {
-  // A fresh server's claim link: the hostless home offers the serving origin;
-  // the user still types the 6-digit code the server printed.
-  history.replaceState({}, '', '/')
-  bootHostlessHome()
 } else {
   void bootFromCatalog()
 }

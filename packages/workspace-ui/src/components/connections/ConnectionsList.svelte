@@ -180,34 +180,34 @@
 
 <SettingsSection label="Connected devices">
   {#if connections.sessions.length === 0}
-    <div class="flex flex-col items-center justify-center gap-2 py-8">
+    <div class="flex flex-col items-center justify-center gap-2 py-8 [.is-laptop-display_&]:py-6">
       <div
         class="flex size-10 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
       >
         <MonitorIcon size={20} class="text-(--solus-text-tertiary)" />
       </div>
-      <p class="text-sm text-(--solus-text-tertiary)">
+      <p class="text-workspace-chrome text-(--solus-text-tertiary)">
         No devices connected
       </p>
-      <p class="text-xs text-(--solus-text-tertiary) opacity-70">
+      <p class="text-[0.875em] text-(--solus-text-tertiary) opacity-70">
         Pair a device to get started
       </p>
     </div>
   {:else}
     {#each connections.sessions as session (session.id)}
       <div
-        class="group flex items-center gap-3 border-t border-border px-4 py-2.5 first:border-t-0"
+        class="group flex items-center gap-3 border-t border-border px-4 py-2.5 first:border-t-0 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2"
       >
         <div
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)"
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
         >
           <MonitorIcon size={14} class="text-(--solus-text-tertiary)" />
         </div>
         <div class="min-w-0 flex-1">
-          <p class="truncate text-sm font-medium text-(--solus-text-primary)">
+          <p class="truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
             {session.deviceLabel}
           </p>
-          <p class="text-xs text-(--solus-text-tertiary)">
+          <p class="text-[0.875em] text-(--solus-text-tertiary)">
             {relativeTime(session.connectedAt)}
             {#if session.connectionCount > 1}
               &middot; {session.connectionCount} connections

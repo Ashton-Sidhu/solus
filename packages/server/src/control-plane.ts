@@ -549,7 +549,10 @@ export class ControlPlane extends EventEmitter {
             ?? this.claudeGoals.create({ threadId: event.sessionId, objective: goalObjective })
         }
         if (firstDispatchRun?.options.taskId) {
-          void this._linkPreparedTask(firstDispatchRun, pendingHandoff ? initSessionId : event.sessionId)
+          // Task attempts use the stable Solus session id. The renderer writes
+          // the same binding after session_init; using the provider thread id
+          // here creates a second link that resolves to the same conversation.
+          void this._linkPreparedTask(firstDispatchRun, initSessionId)
         }
         this._notifyActiveWork()
       }
@@ -1720,6 +1723,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.artifact,
         solusToolbox.automations,
         solusToolbox.cloudflare,
+        solusToolbox.insights,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
@@ -1796,6 +1800,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.artifact,
         solusToolbox.automations,
         solusToolbox.cloudflare,
+        solusToolbox.insights,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
@@ -1876,6 +1881,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.artifact,
         solusToolbox.automations,
         solusToolbox.cloudflare,
+        solusToolbox.insights,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
@@ -1972,6 +1978,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.artifact,
         solusToolbox.automations,
         solusToolbox.cloudflare,
+        solusToolbox.insights,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
@@ -2022,6 +2029,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.works,
         solusToolbox.artifact,
         solusToolbox.cloudflare,
+        solusToolbox.insights,
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
@@ -2124,7 +2132,7 @@ export class ControlPlane extends EventEmitter {
       this.sessionEmitter.recordQueueWait(request.sessionId, request.servedEnqueuedAt, runStartedAt)
     }
     if (handle.agentSessionId && !run.input.agentSessionId && run.options.taskId) {
-      await this._linkPreparedTask(run, handle.agentSessionId)
+      await this._linkPreparedTask(run, request.sessionId)
     }
     const agentSessionId = handle.agentSessionId
       ? Promise.resolve(startedSession(handle.agentSessionId, run.options.taskId))
@@ -3008,6 +3016,7 @@ export class ControlPlane extends EventEmitter {
       solusToolbox.artifact,
       solusToolbox.automations,
       solusToolbox.cloudflare,
+      solusToolbox.insights,
       solusToolbox.sessions,
       solusToolbox.tasks,
       solusToolbox.prs,
@@ -3511,6 +3520,12 @@ export class ControlPlane extends EventEmitter {
       const alive = !!agentSessionId && backend.isSessionRunning(agentSessionId)
       const hasPendingRun = !alive && backend.getPendingHandles().some((handle) => handle.sessionId === sessionId)
       if (alive || hasPendingRun) {
+        this.missingRunCounts.delete(sessionId)
+        continue
+      }
+      if (session.status === 'rate_limited') {
+        // A rate-limited session is intentionally parked without a provider run
+        // until its release time. The missing run is expected, not a dead agent.
         this.missingRunCounts.delete(sessionId)
         continue
       }

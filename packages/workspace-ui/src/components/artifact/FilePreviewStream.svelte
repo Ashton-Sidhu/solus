@@ -317,6 +317,7 @@
   let saveGeneration = 0;
   let linkedLineRequestKey = "";
   let linkedLineDismissed = false;
+  let shouldFocusWhenReady = false;
   let renderedCommentPath = untrack(() => displayPath || filePath);
 
   useScope("file-editor");
@@ -637,6 +638,14 @@
     return latestContents;
   }
 
+  export function focus() {
+    if (editor) {
+      editor.focus({ preventScroll: true });
+      return;
+    }
+    shouldFocusWhenReady = true;
+  }
+
   export function replaceContents(nextContents: string, isSaved = true) {
     if (saveTimer) {
       clearTimeout(saveTimer);
@@ -719,6 +728,10 @@
             },
           });
           detachEditor = editor.edit(fileInstance);
+          if (shouldFocusWhenReady) {
+            shouldFocusWhenReady = false;
+            editor.focus({ preventScroll: true });
+          }
         }
         syncContainerBackground();
         revealLinkedLine();

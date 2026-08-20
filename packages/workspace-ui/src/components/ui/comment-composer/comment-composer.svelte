@@ -2,7 +2,7 @@
   import { onMount, untrack } from "svelte";
   import type { FieldSubmitKey } from "@solus/workspace-ui/lib/field-dictation.svelte.js";
   import { cn } from "@solus/workspace-ui/lib/utils.js";
-  import { MarkdownTextarea } from "../markdown-field";
+  import { CommentEditor } from "../comment-editor";
   import { Button } from "../button";
 
   // The one comment box. A note on a diff line, an annotation on a run of prose,
@@ -20,7 +20,6 @@
     submitLabel?: string;
     submitOn?: FieldSubmitKey;
     framed?: boolean;
-    rows?: number;
     autoFocus?: boolean;
     class?: string;
   }
@@ -35,20 +34,18 @@
     submitLabel = "Comment",
     submitOn = "mod-enter",
     framed = true,
-    rows = 1,
     autoFocus = true,
     class: className,
   }: Props = $props();
 
   let value = $state(untrack(() => initialValue));
   let lastInitialValue = $state(untrack(() => initialValue));
-  let inputEl: HTMLTextAreaElement | null = $state(null);
+  let inputEl: ReturnType<typeof CommentEditor> | null = $state(null);
+  let hasContent = $state(untrack(() => initialValue.trim().length > 0));
 
   export function focusInput() {
     if (!inputEl) return;
     inputEl.focus();
-    const end = inputEl.value.length;
-    inputEl.setSelectionRange(end, end);
   }
 
   onMount(() => {
@@ -59,20 +56,16 @@
     if (initialValue === lastInitialValue) return;
     lastInitialValue = initialValue;
     value = initialValue;
+    hasContent = initialValue.trim().length > 0;
   });
 
-  const canSave = $derived(value.trim().length > 0);
+  const canSave = $derived(hasContent);
   const hint = $derived(submitOn === "enter" ? "↵ to save" : "⌘↵ to save");
 
-  function handleInput(e: Event) {
-    if (!(e.target instanceof HTMLTextAreaElement)) return;
-    value = e.target.value;
-    onFormValueChange?.(value);
-  }
-
   function handleSave() {
-    if (!canSave) return;
-    onSave(value.trim());
+    const comment = inputEl?.getMarkdown().trim() ?? value.trim();
+    if (!comment) return;
+    onSave(comment);
   }
 
   // The composer always sits over a surface with its own key handling — a diff
@@ -109,23 +102,31 @@
       {anchorLabel}
     </span>
   {/if}
-  <!-- What you are typing is the one thing in the box that has to be readable,
-       so the field alone takes the responsive chrome rung — 14px on a desktop
-       display, 12px on a laptop. The caption, hint and buttons stay 12px; a
-       comment box is still chrome. The `!` markers restate what the Textarea
-       primitive marks, or its own 12px placeholder and 16px leading survive. -->
-  <MarkdownTextarea
-    bind:ref={inputEl}
-    bind:value
-    bare
-    mic
+  <!-- The shared lightweight field keeps inline diff notes on the same raw
+       Markdown input path as task and PR conversation comments. -->
+  <CommentEditor
+    bind:this={inputEl}
+    {value}
+    onValueChange={(next) => {
+      value = next;
+      onFormValueChange?.(next);
+    }}
+    onEmptyChange={(empty) => (hasContent = !empty)}
     {placeholder}
-    {rows}
-    {submitOn}
-    oninput={handleInput}
-    onkeydown={handleKeyDown}
-    onSubmit={handleSave}
-    class="min-h-8 max-h-30 overflow-y-auto text-workspace-chrome leading-5! placeholder:text-workspace-chrome! placeholder:leading-5!"
+    maxHeight={120}
+    onKeyDown={(event) => {
+      handleKeyDown(event);
+      if (
+        event.key === "Enter" &&
+        ((submitOn === "enter" && !event.shiftKey) ||
+          (submitOn === "mod-enter" && (event.metaKey || event.ctrlKey)))
+      ) {
+        event.preventDefault();
+        event.stopPropagation();
+        handleSave();
+      }
+    }}
+    class="min-h-8 text-workspace-chrome leading-5!"
   />
   <div class="flex items-center justify-end gap-1.5">
     <span

@@ -19,11 +19,19 @@
     X as XIcon,
   } from "@lucide/svelte";
   import type { PinnedSession } from "@solus/contracts/types";
-  import type { Task } from "@solus/contracts/task-types";
-  import { getWorkspaceContext, getSessionSidebarStore } from "../../contexts";
+  import type { Task, TaskStatus } from "@solus/contracts/task-types";
+  import {
+    getSettingsContext,
+    getWorkspaceContext,
+    getSessionSidebarStore,
+  } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { routeForHref } from "../../lib/agent-links";
+  import {
+    completedTasksWithinRetention,
+    SIDEBAR_COMPLETED_RETENTION_CHECK_MS,
+  } from "../../lib/completed-task-retention";
   import SidePanel from "../layout/SidePanel.svelte";
   import {
     SIDEBAR_MAX_WIDTH,
@@ -68,6 +76,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const theme = getSettingsContext();
   const sidebarStore = getSessionSidebarStore();
   const needsReviewCount = $derived(
     session.prsStore.needsReviewCountFor(
@@ -127,6 +136,7 @@
   let snoozeTargets = $state<Task[]>([]);
   let snoozeAnchor = $state<TaskSnoozeAnchor | null>(null);
   let taskQuery = $state("");
+  let sidebarNow = $state(Date.now());
   let taskSearchEl = $state<HTMLInputElement | null>(null);
   const searchedTasks = $derived(
     filterSidebarTasks(sidebarStore.visibleTasks, taskQuery),
@@ -135,7 +145,14 @@
     filterSidebarTasks(sidebarStore.snoozedTasks, taskQuery),
   );
   const searchedCompletedTasks = $derived(
-    filterSidebarTasks(sidebarStore.completedTasks, taskQuery),
+    filterSidebarTasks(
+      completedTasksWithinRetention(
+        sidebarStore.completedTasks,
+        theme.sidebarCompletedRetentionDays,
+        sidebarNow,
+      ),
+      taskQuery,
+    ),
   );
   /** Search results must be visible even when the user normally keeps this
    *  quiet shelf collapsed. Keep the manual preference separate so clearing
@@ -176,6 +193,13 @@
     if (expandedTaskIds.has(taskId)) expandedTaskIds.delete(taskId);
     else expandedTaskIds.add(taskId);
   }
+
+  onMount(() => {
+    const clock = window.setInterval(() => {
+      sidebarNow = Date.now();
+    }, SIDEBAR_COMPLETED_RETENTION_CHECK_MS);
+    return () => window.clearInterval(clock);
+  });
 
   onMount(() => {
     const expandPickedTask = (event: Event) => {
@@ -454,11 +478,16 @@
     requestInputFocus();
   }
 
-  /** The check is the only state the user sets themselves — it says "I am
-   *  finished with this", which nothing the agent reports can stand in for. */
-  function markTaskDone(taskId: string) {
-    sidebarStore.toggleTaskDone(taskId);
-    requestInputFocus();
+  async function setTaskStatus(taskId: string, status: TaskStatus) {
+    try {
+      await session.tasksStore.setStatus(taskId, status);
+    } catch (error) {
+      toasts.error("Couldn't update task status", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      requestInputFocus();
+    }
   }
 
   /** Completion and reopening use the task's canonical workflow status.
@@ -1004,7 +1033,7 @@
     </Sidebar.GroupContent>
   </Sidebar.Group>
 
-  <!-- One of the two hairlines in the whole panel. -->
+  <!-- Separate navigation from task controls. -->
   <div
     class="mx-3.5 mt-[1.125rem] h-[0.03125rem] flex-shrink-0 bg-sidebar-border @max-[15rem]:mx-2.5"
   ></div>
@@ -1136,19 +1165,19 @@
        costs the same 8px whether or not the bar is there, and nothing moves. -->
   <div
     bind:this={scrollEl}
-    class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pb-3.5 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
+    class="@container min-h-0 flex-1 overflow-y-auto px-3.5 pt-2 pb-3.5 [scrollbar-gutter:stable] @max-[15rem]:px-2.5"
     style="-webkit-overflow-scrolling:touch; overscroll-behavior-y:contain"
   >
     <!-- Drafts lead the list rather than sitting under a heading of their own. A
          prompt on its way to becoming a task is not one yet, and a standing
          eyebrow that appears and disappears above the list says more about that
          distinction than it is worth. The pencil mark on each row carries it,
-         and the wider gap below the group keeps drafts from reading as tasks.
+         and the divider below the group keeps drafts from reading as tasks.
          They scroll with the tasks; the group is absent until something is
          written. -->
     {#if sidebarStore.draftRows.length > 0}
       <div
-        class="mb-3 flex flex-col gap-[0.1875rem]"
+        class="mb-2 flex flex-col gap-[0.1875rem] border-b border-sidebar-border/50 pb-2"
         role="listbox"
         aria-label="Drafts"
       >
@@ -1185,7 +1214,11 @@
             onclick={() => (snoozedShelfOpen = !snoozedShelfOpen)}
           >
             Snoozed
-            <span class="ml-auto tabular-nums opacity-60"
+            <span
+              class="h-px min-w-4 flex-1 bg-sidebar-border/50"
+              aria-hidden="true"
+            ></span>
+            <span class="tabular-nums opacity-60"
               >{searchedSnoozedTasks.length}</span
             >
             <span class="flex size-4 shrink-0 items-center justify-center">
@@ -1215,7 +1248,11 @@
             onclick={() => (completedShelfOpen = !completedShelfOpen)}
           >
             Completed
-            <span class="ml-auto tabular-nums opacity-60"
+            <span
+              class="h-px min-w-4 flex-1 bg-sidebar-border/50"
+              aria-hidden="true"
+            ></span>
+            <span class="tabular-nums opacity-60"
               >{searchedCompletedTasks.length}</span
             >
             <span class="flex size-4 shrink-0 items-center justify-center">
@@ -1239,7 +1276,7 @@
     </div>
   </div>
 
-  <!-- The panel's second and last hairline. -->
+  <!-- Separate the task list from saved sessions. -->
   <Sidebar.Footer
     class="relative flex-shrink-0 border-t border-t-sidebar-border px-3.5 pt-2.5 pb-3.5 @max-[15rem]:px-2.5"
   >
@@ -1412,12 +1449,7 @@
           if (menuTask.url) void localApi.openExternal(menuTask.url);
         }}
         onStartRename={() => startRename({ taskId: menuTask.id })}
-        onToggleDone={() => {
-          if (menuTask.status === "done") markTaskDone(menuTask.id);
-          else if (sidebarTask) completeTask(sidebarTask);
-          else if (menuChild?.isSubtask) completeChild(menuChild);
-          else markTaskDone(menuTask.id);
-        }}
+        onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}
         onSnooze={menuTask.status === "done" ||
         (menuTask.snoozedUntil ?? 0) > Date.now()
           ? undefined

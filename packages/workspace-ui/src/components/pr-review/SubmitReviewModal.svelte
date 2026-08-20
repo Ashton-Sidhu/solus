@@ -278,8 +278,6 @@
           bind:this={bodyEditor}
           value={body}
           onValueChange={(md) => (body = md)}
-          enterInsertsNewline
-          hidePlaceholderOnFocus
           maxHeight={180}
           placeholder={event === "APPROVE" || drafts.length > 0
             ? "Overall review comment (optional)…"

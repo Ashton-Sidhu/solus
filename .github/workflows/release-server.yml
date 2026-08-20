@@ -11,6 +11,7 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-latest
+    environment: CD
     strategy:
       fail-fast: false
       matrix:
@@ -36,6 +37,10 @@ jobs:
         run: bun run build
 
       - name: Package server
+        env:
+          SOLUS_GOOGLE_CLIENT_ID: ${{ secrets.SOLUS_GOOGLE_CLIENT_ID }}
+          SOLUS_GOOGLE_CLIENT_SECRET: ${{ secrets.SOLUS_GOOGLE_CLIENT_SECRET }}
+          SOLUS_GITHUB_CLIENT_ID: ${{ secrets.SOLUS_GITHUB_CLIENT_ID }}
         run: bun scripts/package-server.ts --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
 
       - name: Upload packaged server

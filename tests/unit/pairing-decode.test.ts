@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { claimServer, pairServer } from '@solus/client-core/pairing'
+import { pairServer } from '@solus/client-core/pairing'
 
 const originalFetch = globalThis.fetch
 
@@ -27,27 +27,6 @@ describe('pairing handshake decoding', () => {
 
     expect(result.sessionToken).toBe('tok')
     expect(result.server.installationId).toBe('inst-1')
-    expect(result.server.os).toBeUndefined()
-  })
-
-  test('claims a fresh server despite an unknown os value', async () => {
-    respondWith({
-      ok: true,
-      sessionToken: 'tok',
-      ownerDeviceId: 'dev-1',
-      claimedAt: 5,
-      installationId: 'inst-2',
-      fingerprint: 'fp',
-      os: 'freebsd',
-    })
-
-    const result = await claimServer({
-      url: 'http://host.example',
-      code: '123456',
-      deviceLabel: 'Test device',
-    })
-
-    expect(result.sessionToken).toBe('tok')
     expect(result.server.os).toBeUndefined()
   })
 

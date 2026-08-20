@@ -97,6 +97,8 @@ export type SidebarSessionChild = {
   branchName: string | null
   label: string
   attention: AttentionState
+  /** True while this session has output or an error the user has not viewed. */
+  unread: boolean
   /** Session history mixes hosts, so each row has to carry the one it runs on. */
   serverId: string | null
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
@@ -574,12 +576,11 @@ export class SessionSidebarStore {
       const rootTasks = this.session.tasksStore.tasks.filter((task) => !task.parentId)
       let openTasksChanged = false
 
-      // Preserve the rows visible before sidebar ownership became client-local.
-      // After this one migration, host tasks start closed until this client opens them.
+      // Do not infer sidebar membership from a task snapshot. Seeding root
+      // tasks here made connecting a remote host copy that host's task list
+      // into this client's session sidebar. A picker action or an open session
+      // adds a row after this migration.
       if (!this.hasSeededOpenTasks) {
-        for (const task of rootTasks) {
-          if (!this.dismissedRowKeys.has(task.id)) this.openTaskIds.add(task.id)
-        }
         this.hasSeededOpenTasks = true
         openTasksChanged = true
       }
@@ -810,6 +811,7 @@ export class SessionSidebarStore {
       tabId,
       label: sess ? sessionTitle(sess) : tabId,
       attention,
+      unread: tab?.hasUnread ?? false,
       serverId: sess?.run.serverId ?? null,
       // The mounted tab's environment is live, so it outranks whatever branch
       // the task record captured when it was last written.
@@ -921,6 +923,7 @@ export class SessionSidebarStore {
         branchName: record.branch ?? null,
         label: sidebarChildLabel(record, sessionDisplayName({ link, taskTitle: record.title })),
         attention: liveState?.attention ?? null,
+        unread: liveState?.attention === 'error',
         serverId,
         runStartedAt: liveState?.attention === 'running' ? liveState.runStartedAt : 0,
         reviewGuideStatus: null,
@@ -965,6 +968,7 @@ export class SessionSidebarStore {
         branchName: record.branch ?? null,
         label: record.title,
         attention: null,
+        unread: false,
         // Nothing has run yet, so the only true answer is where it would: the
         // host that holds the task.
         serverId: this.session.tasksStore.hostFor(record.id),

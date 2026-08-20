@@ -119,12 +119,6 @@
     pluginCommands={session.pluginCommands}
     provider={editorProvider}
     workingDirectory={editorCwd}
-    onPlanRefClick={(planId) => session.openPlanModal(planId)}
-    onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
-    onPrRefClick={(number, title) =>
-      void session.enterPrReview(number, title, {
-        ctx: editorCwd ? session.ctxForDirectory(editorCwd) : session.ctx,
-      })}
     menuPlacement="down"
     maxHeight={4000}
   />

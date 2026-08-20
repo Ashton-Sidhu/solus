@@ -195,6 +195,43 @@ describe.serial('ControlPlane observability hooks', () => {
     plane.shutdown()
   })
 
+  test('a first dispatch keeps one stable task attempt and accepts provider metadata', async () => {
+    // WHY: the renderer also links the stable id after session_init. If the
+    // server links the provider thread id, one conversation appears twice under
+    // its task. Automatic naming still arrives under the provider id, so the
+    // same lifecycle must resolve that alias back to the one stable task link.
+    const taskSessions = await import('@solus/server/tasks/task-sessions')
+    const record = await taskSessions.prepareSessionTask({ prompt: 'Raw first prompt' })
+    if (!record) throw new Error('Expected a session-born task')
+
+    const backend = new Backend()
+    const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const lifecycle = await plane.runTurn({
+      target: { kind: 'new-session' }, sessionId: 'solus-task', input: input(null), tools: [],
+      options: { prompt: 'start', promptSource: 'typed', taskId: record.id, skipTaskCreation: true },
+    })
+    await lifecycle.agentSessionId
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(taskSessions.taskSessions(record.id)[record.id]).toEqual([
+      expect.objectContaining({ sessionId: 'solus-task' }),
+    ])
+    expect(await taskSessions.updateGeneratedMetadataForSession(
+      'thread-1',
+      'Generated task title',
+      'Generated task description.',
+    )).toMatchObject({
+      id: record.id,
+      title: 'Generated task title',
+      body: 'Generated task description.',
+    })
+
+    backend.complete('thread-1', 0)
+    await lifecycle.done
+    plane.shutdown()
+  })
+
   test('records a fulfilled Codex failed turn as error', async () => {
     const backend = new Backend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))

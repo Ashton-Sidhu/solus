@@ -9,17 +9,11 @@ import { clearDelegation } from '../providers/github/delegation-store'
 const log = createLogger('main', 'auth')
 
 export const SESSION_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000
-export const CLAIM_OPEN_ADMIN_TTL_MS = 60 * 1000
+export const PAIR_OPEN_ADMIN_TTL_MS = 60 * 1000
 
 interface ServerKeys {
   installationId: string
   signingKey: string
-  /**
-   * Persisted in server-keys.json with the signing material so ownership moves
-   * with the server identity:
-   *   "unclaimed" | { "owned": { "ownerDeviceId": "...", "claimedAt": 123 } }
-   */
-  ownership: OwnershipState
 }
 
 interface PairToken {
@@ -29,27 +23,10 @@ interface PairToken {
   expiresAt: number
 }
 
-export type OwnershipState = 'unclaimed' | { owned: { ownerDeviceId: string; claimedAt: number } }
-
-const ownershipStateSchema = z.union([
-  z.literal('unclaimed'),
-  z
-    .object({
-      owned: z
-        .object({
-          ownerDeviceId: z.string().min(1),
-          claimedAt: z.number().finite(),
-        })
-        .strict(),
-    })
-    .strict(),
-])
-
 const serverKeysSchema = z
   .object({
     installationId: z.string().min(1),
     signingKey: z.string().min(1),
-    ownership: ownershipStateSchema.optional().default('unclaimed'),
   })
   .strict()
 
@@ -64,13 +41,6 @@ const revokedDevicesSchema = z.union([
     .transform((value) => value.deviceIds),
 ])
 
-export interface ClaimWindow {
-  token: string
-  /** 6-digit one-time claim code printed by the daemon/CLI. */
-  code: string
-  expiresAt: number
-}
-
 interface SessionToken {
   /** Opaque random id used inside the signed token. */
   deviceId: string
@@ -82,7 +52,6 @@ interface SessionToken {
 
 let _keys: ServerKeys | null = null
 const _activePairTokens = new Map<string, PairToken>()
-let _activeClaimWindow: ClaimWindow | null = null
 const _revokedDevices = new Set<string>()
 let _revokedDevicesLoaded = false
 
@@ -109,7 +78,6 @@ function loadOrCreateKeys(): ServerKeys {
   _keys = {
     installationId: randomBytes(16).toString('hex'),
     signingKey: randomBytes(32).toString('hex'),
-    ownership: 'unclaimed',
   }
   persistKeys()
   log.info('server_keys_created', { installationId: _keys.installationId })
@@ -124,15 +92,11 @@ export function getServerFingerprint(): string {
   return createHash('sha256').update(getInstallationId()).digest('hex').slice(0, 8)
 }
 
-export function getOwnershipState(): OwnershipState {
-  return loadOrCreateKeys().ownership
+export function createPairOpenAdminSignature(signingKey: string, timestamp: string, nonce: string): string {
+  return createHmac('sha256', signingKey).update(`pair-open:${timestamp}:${nonce}`).digest('hex')
 }
 
-export function createClaimOpenAdminSignature(signingKey: string, timestamp: string, nonce: string): string {
-  return createHmac('sha256', signingKey).update(`claim-open:${timestamp}:${nonce}`).digest('hex')
-}
-
-export function verifyClaimOpenAdminRequest(
+export function verifyPairOpenAdminRequest(
   headers: Record<string, string | string[] | undefined>,
   now = Date.now(),
 ): boolean {
@@ -144,9 +108,9 @@ export function verifyClaimOpenAdminRequest(
 
   const issuedAt = Number(timestamp)
   if (!Number.isSafeInteger(issuedAt)) return false
-  if (Math.abs(now - issuedAt) > CLAIM_OPEN_ADMIN_TTL_MS) return false
+  if (Math.abs(now - issuedAt) > PAIR_OPEN_ADMIN_TTL_MS) return false
 
-  const expected = createClaimOpenAdminSignature(loadOrCreateKeys().signingKey, timestamp, nonce)
+  const expected = createPairOpenAdminSignature(loadOrCreateKeys().signingKey, timestamp, nonce)
   const sigBuf = Buffer.from(signature, 'hex')
   const expBuf = Buffer.from(expected, 'hex')
   return sigBuf.length === expBuf.length && timingSafeEqual(sigBuf, expBuf)
@@ -158,7 +122,6 @@ function singleHeader(value: string | string[] | undefined): string {
 }
 
 const PAIR_TOKEN_TTL_MS = 5 * 60 * 1000
-export const CLAIM_WINDOW_TTL_MS = 10 * 60 * 1000
 
 function createOneTimeToken(ttlMs: number, now: number): PairToken {
   const token = randomBytes(24).toString('base64url')
@@ -191,91 +154,20 @@ export function consumePairToken(tokenOrCode: string, now = Date.now()): boolean
   return entry.expiresAt >= now
 }
 
-export function openClaimWindow(options: { now?: number; ttlMs?: number } = {}): ClaimWindow | null {
-  if (getOwnershipState() !== 'unclaimed') return null
-  _activeClaimWindow = createOneTimeToken(options.ttlMs ?? CLAIM_WINDOW_TTL_MS, options.now ?? Date.now())
-  return _activeClaimWindow
-}
-
-export function ensureClaimWindow(options: { now?: number; ttlMs?: number } = {}): ClaimWindow | null {
-  if (getOwnershipState() !== 'unclaimed') return null
-  const now = options.now ?? Date.now()
-  if (_activeClaimWindow && _activeClaimWindow.expiresAt >= now) return _activeClaimWindow
-  return openClaimWindow({ ...options, now })
-}
-
-export function getActiveClaimWindow(now = Date.now()): ClaimWindow | null {
-  if (!_activeClaimWindow) return null
-  if (_activeClaimWindow.expiresAt < now) {
-    _activeClaimWindow = null
-    return null
-  }
-  return _activeClaimWindow
-}
-
-export function isClaimable(now = Date.now()): boolean {
-  return getOwnershipState() === 'unclaimed' && !!getActiveClaimWindow(now)
-}
-
-export type ClaimOwnershipResult =
-  | { ok: true; sessionToken: string; ownerDeviceId: string; claimedAt: number; installationId: string; fingerprint: string }
-  | { ok: false; reason: 'owned' | 'closed' }
-
-export function claimOwnership(tokenOrCode: string, deviceLabel: string, now = Date.now()): ClaimOwnershipResult {
-  const keys = loadOrCreateKeys()
-  if (keys.ownership !== 'unclaimed') return { ok: false, reason: 'owned' }
-
-  const claimWindow = getActiveClaimWindow(now)
-  if (!claimWindow || (tokenOrCode !== claimWindow.token && tokenOrCode !== claimWindow.code)) {
-    return { ok: false, reason: 'closed' }
-  }
-
-  _activeClaimWindow = null
-  const { token: sessionToken, deviceId } = issueSessionToken(deviceLabel, now)
-
-  keys.ownership = { owned: { ownerDeviceId: deviceId, claimedAt: now } }
-  persistKeys()
-
-  return {
-    ok: true,
-    sessionToken,
-    ownerDeviceId: deviceId,
-    claimedAt: now,
-    installationId: keys.installationId,
-    fingerprint: getServerFingerprint(),
-  }
-}
-
 export interface SshBootstrapCredential {
   sessionToken: string
   installationId: string
   fingerprint: string
-  ownerDeviceId?: string
-  claimedAt?: number
 }
 
 export function issueSshBootstrapCredential(deviceLabel: string, now = Date.now()): SshBootstrapCredential {
   const keys = loadOrCreateKeys()
-  const { token: sessionToken, deviceId } = issueSessionToken(deviceLabel, now)
-
-  let claimedAt: number | undefined
-  let ownerDeviceId: string | undefined
-  if (keys.ownership === 'unclaimed') {
-    claimedAt = now
-    ownerDeviceId = deviceId
-    keys.ownership = { owned: { ownerDeviceId, claimedAt } }
-    _activeClaimWindow = null
-    persistKeys()
-  }
-
-  const credential: SshBootstrapCredential = {
+  const { token: sessionToken } = issueSessionToken(deviceLabel, now)
+  return {
     sessionToken,
     installationId: keys.installationId,
     fingerprint: getServerFingerprint(),
   }
-  if (ownerDeviceId) credential.ownerDeviceId = ownerDeviceId
-  if (claimedAt) credential.claimedAt = claimedAt
-  return credential
 }
 
 function signSessionToken(deviceId: string, deviceLabel: string, issuedAt: number): string {
@@ -421,7 +313,6 @@ function persistRevokedDevices(): void {
 export function resetAuthStateForTests(): void {
   _keys = null
   _activePairTokens.clear()
-  _activeClaimWindow = null
   _revokedDevices.clear()
   _revokedDevicesLoaded = false
 }

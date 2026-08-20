@@ -82,12 +82,10 @@ describe('probeServer auth advertisement', () => {
   test('a newer server with a reshaped field still probes ok', async () => {
     // WHY: skew-safety (dispatch-client step 1). One additive value (e.g. a
     // new `os`) used to fail the whole probe, which broke zero-ceremony boot
-    // and sent claimable hosts down the wrong pairing path.
-    respondWith({ ok: true, requireAuth: false, claimable: true, os: 'freebsd', name: 'newer' })
+    respondWith({ ok: true, requireAuth: false, os: 'freebsd', name: 'newer' })
     const health = await probeServer('http://127.0.0.1:3000')
     expect(health.ok).toBe(true)
     expect(health.requireAuth).toBe(false)
-    expect(health.claimable).toBe(true)
     expect(health.os).toBeUndefined()
   })
 })

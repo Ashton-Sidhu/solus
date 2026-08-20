@@ -371,7 +371,12 @@ describe('ControlPlane agent reply hold', () => {
     await peer.done.catch(() => {})
     await Promise.resolve()
 
+    Reflect.get(env.plane, '_checkActiveRuns').call(env.plane)
+
     expect(env.statuses.filter((event) => event.sessionId === 'peer').at(-1)?.status).toBe('rate_limited')
+    expect(env.events.some(({ sessionId, event }) =>
+      sessionId === 'peer' && event.type === 'session_dead'
+    )).toBe(false)
     expect(watchCount(env.plane, 'caller')).toBe(1)
     expect(env.events.some(({ event }) =>
       event.type === 'agent_conversation_update'

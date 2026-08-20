@@ -21,6 +21,7 @@ import {
   type ReferenceTokenRange,
 } from "../../../editor/reference-tokens";
 import {
+  linkTokenClassName,
   tokenClassName,
   TOKEN_ICONS,
   type SvgSpec,
@@ -101,13 +102,9 @@ function tokenVariant(token: ReferenceToken): TokenVariant {
 }
 
 export function referenceTokenClassName(token: ReferenceToken): string {
-  const classes = tokenClassName(
-    tokenVariant(token),
-    token.kind === "slash",
-  );
-  return token.kind !== "slash"
-    ? `${classes} solus-token--link-chip`
-    : classes;
+  return token.kind === "slash"
+    ? tokenClassName("slash", true)
+    : linkTokenClassName(tokenVariant(token));
 }
 
 function tokenLabel(token: ReferenceToken): string {

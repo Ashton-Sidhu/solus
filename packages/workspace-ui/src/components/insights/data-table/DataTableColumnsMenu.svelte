@@ -20,7 +20,7 @@
         {...props}
         variant="ghost"
         size="sm"
-        class="h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] aria-expanded:text-foreground pointer-coarse:h-10"
+        class="h-8 shrink-0 gap-1.5 rounded-full px-2.5 text-insights-chrome text-muted-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[color,background-color,scale] hover:bg-[var(--wash-2)] hover:text-foreground active:scale-[0.96] aria-expanded:bg-[var(--wash-3)] aria-expanded:text-foreground pointer-coarse:h-10"
       >
         <SlidersHorizontalIcon class="size-3.5" aria-hidden="true" />
         <span class="hidden sm:inline">Columns</span>
@@ -29,7 +29,7 @@
     {/snippet}
   </DropdownMenu.Trigger>
   <DropdownMenu.Content align="end" class="min-w-44">
-    <DropdownMenu.Label class="text-xs uppercase text-muted-foreground">
+    <DropdownMenu.Label class="text-insights-chrome uppercase text-muted-foreground">
       Visible columns
     </DropdownMenu.Label>
     <DropdownMenu.Separator />

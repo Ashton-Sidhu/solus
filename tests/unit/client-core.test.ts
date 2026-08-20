@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { localApi } from '@solus/client-core/local-api'
 import { mergeNativeOnlySolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
-import { claimServer, defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '@solus/client-core/pairing'
+import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, saveBootstrappedServer } from '@solus/client-core/pairing'
 import { base64UrlToUint8Array } from '@solus/client-core/push'
 import { encodeQrByteMode } from '@solus/client-core/qr'
 import {
@@ -231,60 +231,6 @@ describe('client core transport helpers', () => {
         sessionToken: 'device.123.label.sig',
         installationId: 'server-installation-1',
         os: 'macos',
-      })
-    } finally {
-      globalThis.fetch = originalFetch
-    }
-  })
-
-  test('claims with POST /claim and maps owner credentials into the saved server', async () => {
-    const originalFetch = globalThis.fetch
-    const calls: Array<{ url: string; init?: RequestInit }> = []
-    globalThis.fetch = (async (url: string | URL | Request, init?: RequestInit) => {
-      calls.push({ url: String(url), init })
-      return new Response(JSON.stringify({
-        ok: true,
-        sessionToken: 'owner.123.label.sig',
-        ownerDeviceId: 'owner-device-1',
-        claimedAt: 1770000000000,
-        installationId: 'claimed-installation-1',
-        fingerprint: 'abc123ef',
-        os: 'linux',
-      }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })
-    }) as typeof fetch
-
-    try {
-      const result = await claimServer({
-        url: 'http://100.64.0.4:3000/',
-        code: '123456',
-        deviceLabel: 'Solus desktop',
-        serverLabel: 'Studio server',
-      })
-
-      expect(calls).toHaveLength(1)
-      expect(calls[0].url).toBe('http://100.64.0.4:3000/claim')
-      expect(calls[0].init?.method).toBe('POST')
-      expect(JSON.parse(String(calls[0].init?.body))).toEqual({
-        code: '123456',
-        deviceLabel: 'Solus desktop',
-      })
-      expect(result).toMatchObject({
-        sessionToken: 'owner.123.label.sig',
-        ownerDeviceId: 'owner-device-1',
-        claimedAt: 1770000000000,
-        installationId: 'claimed-installation-1',
-        fingerprint: 'abc123ef',
-      })
-      expect(result.server).toMatchObject({
-        id: 'claimed-installation-1',
-        label: 'Studio server',
-        url: 'http://100.64.0.4:3000',
-        sessionToken: 'owner.123.label.sig',
-        installationId: 'claimed-installation-1',
-        os: 'linux',
       })
     } finally {
       globalThis.fetch = originalFetch

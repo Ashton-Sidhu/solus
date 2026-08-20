@@ -2,7 +2,7 @@ import { planKey } from '@solus/contracts/types'
 import type { RouteRef } from '../contexts/workspace/routing/route-registry'
 
 /**
- * The `plan://` / `work://` / `pr://` links an agent writes into its output,
+ * The `plan://` / `work://` / `pr://` / `task://` links an agent writes into its output,
  * read as routes. One vocabulary from here on: the palette, a notification
  * click, and a link in a transcript all end up at the same `openRoute`.
  *
@@ -13,7 +13,7 @@ export function routeForHref(
   href: string,
   opts: { title?: string; serverId?: string } = {},
 ): RouteRef | null {
-  if (!/^(plan|work|pr):\/\//i.test(href) && !/^https:\/\/github\.com\//i.test(href)) return null
+  if (!/^(plan|work|pr|task):\/\//i.test(href) && !/^https:\/\/github\.com\//i.test(href)) return null
   let url: URL
   try {
     url = new URL(href)
@@ -50,6 +50,11 @@ export function routeForHref(
   if (href.startsWith('work://')) {
     const workId = params.get('workId') ?? ''
     return workId ? { name: 'work', params: { workId } } : null
+  }
+
+  if (href.startsWith('task://')) {
+    const taskId = params.get('taskId') ?? ''
+    return taskId ? { name: 'task', params: { taskId, serverId: opts.serverId } } : null
   }
 
   const number = Number(params.get('number'))

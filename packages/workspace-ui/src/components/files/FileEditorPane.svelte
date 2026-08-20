@@ -33,10 +33,11 @@
     /** Identifies the reveal *request*, so re-opening the same file and line
      *  scrolls to it again instead of looking like nothing happened. */
     revealEpoch?: number;
+    bordered?: boolean;
     onClose: () => void;
   }
 
-  let { ctx, cwd, isDark, file, revealEpoch = 0, onClose }: Props = $props();
+  let { ctx, cwd, isDark, file, revealEpoch = 0, bordered = true, onClose }: Props = $props();
   const workspace = getWorkspaceContext();
 
   ensureIconCollections();
@@ -147,7 +148,7 @@
 </script>
 
 <div
-  class="text-xs flex h-full min-h-0 min-w-0 flex-col border-l border-(--solus-container-border) bg-(--solus-container-bg)"
+  class={`text-xs flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) ${bordered ? "border-l border-(--solus-container-border)" : ""}`}
   data-file-editor-pane
 >
   <!-- In-content path line on the shared chrome centreline. The pane's close

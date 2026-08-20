@@ -26,6 +26,8 @@
     glyphClass?: string;
     /** The label runs to two lines, so the row tops-aligns instead of centring. */
     stacked?: boolean;
+    /** This row is nested under the turn-level activity summary. */
+    nested?: boolean;
     expanded?: boolean;
     /** Absent means there is nothing folded away: the chevron keeps its slot for
      *  the geometry but has nothing to open. */
@@ -42,6 +44,7 @@
     detail,
     glyphClass = "",
     stacked = false,
+    nested = false,
     expanded = false,
     onToggle,
     testid,
@@ -52,6 +55,7 @@
   <div
     class="activity-row"
     class:is-static={!onToggle}
+    class:is-nested={nested}
     data-testid={testid}
   >
     <button
@@ -100,6 +104,7 @@
   }
 
   .activity-row {
+    --activity-icon-size: var(--text-activity-label);
     display: flex;
     width: calc(100% + 1.5rem);
     align-items: flex-start;
@@ -117,6 +122,10 @@
     transition:
       background var(--duration-quick) var(--ease-premium),
       box-shadow var(--duration-quick) var(--ease-premium);
+  }
+
+  .activity-row.is-nested {
+    --activity-icon-size: var(--text-tool-step);
   }
 
   /* A defined edge rather than a floating patch of grey: the same chip chassis
@@ -155,6 +164,8 @@
   }
 
   :global(.activity-caret) {
+    width: var(--activity-icon-size);
+    height: var(--activity-icon-size);
     color: var(--muted-foreground);
     opacity: 0.45;
     transition: transform var(--duration-quick) var(--ease-premium);
@@ -182,6 +193,11 @@
     color: var(--muted-foreground);
   }
 
+  .activity-glyph :global(svg) {
+    width: var(--activity-icon-size);
+    height: var(--activity-icon-size);
+  }
+
   /* The only colour a row is permitted, and only on the glyph — never a filled
      banner. `:global` because callers pass it through `glyphClass`. */
   :global(.activity-glyph.is-destructive) {
@@ -189,15 +205,23 @@
   }
 
   .activity-label {
-    font-size: var(--text-transcript-meta);
+    font-size: var(--text-activity-label);
     color: var(--muted-foreground);
+  }
+
+  .activity-row.is-nested .activity-label {
+    font-size: var(--text-tool-step);
   }
 
   .activity-target {
     min-width: 0;
-    font-size: var(--text-transcript-meta);
+    font-size: var(--text-activity-label);
     color: var(--muted-foreground);
     opacity: 0.7;
+  }
+
+  .activity-row.is-nested .activity-target {
+    font-size: var(--text-tool-step);
   }
 
   .activity-rail {
@@ -247,8 +271,8 @@
   }
 
   :global(.activity-spinner) {
-    width: 0.8125rem;
-    height: 0.8125rem;
+    width: var(--activity-icon-size);
+    height: var(--activity-icon-size);
     border-radius: 9999px;
     border: 0.09375rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
     border-top-color: var(--muted-foreground);

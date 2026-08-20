@@ -16,8 +16,8 @@
       <TableIcon class="size-4" aria-hidden="true" />
     {/if}
   </span>
-  <span class="text-[0.8125rem] font-medium text-foreground">{title}</span>
+  <span class="text-insights-chrome font-medium text-foreground">{title}</span>
   {#if description}
-    <span class="mt-1 max-w-sm text-xs leading-relaxed text-muted-foreground">{description}</span>
+    <span class="mt-1 max-w-sm text-insights-chrome leading-relaxed text-muted-foreground">{description}</span>
   {/if}
 </div>

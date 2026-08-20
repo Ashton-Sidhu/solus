@@ -102,12 +102,12 @@
     {/snippet}
   </SettingsRow>
 {:else}
-  <div class="flex flex-col gap-4 p-4">
+  <div class="flex flex-col gap-4 p-4 [.is-laptop-display_&]:gap-3 [.is-laptop-display_&]:p-3.5">
     <!-- Code display -->
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <code
-          class="text-2xl font-medium text-(--solus-text-primary) tabular-nums"
+          class="text-[2em] font-medium text-(--solus-text-primary) tabular-nums"
           class:opacity-40={pairExpired}
           style="font-family: 'Geist Mono', ui-monospace, monospace"
           >{connections.activePair.code}</code
@@ -128,7 +128,7 @@
       </div>
       <div class="flex items-center gap-2">
         <span
-          class="text-xs font-medium tabular-nums"
+          class="text-[0.875em] font-medium tabular-nums"
           class:text-red-500={pairExpired}
           class:text-(--solus-text-tertiary)={!pairExpired}
           style="font-family: 'Geist Mono', ui-monospace, monospace"
@@ -152,11 +152,11 @@
     {#if bestPairLink && bestEndpoint && bestPairQr}
       {@const BestIcon = endpointIcon[bestEndpoint.kind]}
       <div
-        class="flex flex-col gap-3 rounded-2xl border border-border bg-(--solus-container-bg) p-3 sm:flex-row"
+        class="flex flex-col gap-3 rounded-2xl border border-border bg-(--solus-container-bg) p-3 sm:flex-row [.is-laptop-display_&]:rounded-xl [.is-laptop-display_&]:p-2.5"
       >
         <div class="shrink-0">
           <svg
-            class="mx-auto block size-40 max-w-full rounded-lg bg-(--solus-container-bg) p-2 text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-container-border)] sm:mx-0"
+            class="mx-auto block size-40 max-w-full rounded-lg bg-(--solus-container-bg) p-2 text-(--solus-text-primary) shadow-[0_0_0_1px_var(--solus-container-border)] sm:mx-0 [.is-laptop-display_&]:size-32"
             viewBox={bestPairQr.viewBox}
             role="img"
             aria-label={`QR code for pairing using ${bestEndpoint.label}`}
@@ -168,10 +168,10 @@
         </div>
         <div class="flex min-w-0 flex-1 flex-col justify-between gap-3">
           <div class="min-w-0">
-            <p class="text-sm font-medium text-(--solus-text-primary)">
+            <p class="text-workspace-chrome font-medium text-(--solus-text-primary)">
               Scan to pair
             </p>
-            <p class="mt-1 text-xs leading-4 text-(--solus-text-tertiary)">
+            <p class="mt-1 text-[0.875em] leading-4 text-(--solus-text-tertiary)">
               Opens the web client with this one-time token.
             </p>
           </div>
@@ -180,7 +180,7 @@
           >
             <BestIcon size={12} class="shrink-0 text-(--solus-text-tertiary)" />
             <code
-              class="min-w-0 flex-1 truncate text-xs font-secondary text-(--solus-text-secondary)"
+              class="min-w-0 flex-1 truncate text-[0.875em] font-secondary text-(--solus-text-secondary)"
               style="font-family: 'Geist Mono', ui-monospace, monospace"
               >{bestPairLink}</code
             >
@@ -205,7 +205,7 @@
     <!-- Pair links per endpoint -->
     {#if connections.endpoints.length > 0}
       <div class="flex flex-col gap-1.5">
-        <p class="text-xs text-(--solus-text-tertiary)">
+        <p class="text-[0.875em] text-(--solus-text-tertiary)">
           Other direct links:
         </p>
         {#each connections.endpoints as endpoint (endpoint.host)}
@@ -216,7 +216,7 @@
           >
             <PairIcon size={11} class="shrink-0 text-(--solus-text-tertiary)" />
             <code
-              class="min-w-0 flex-1 truncate text-xs font-secondary text-(--solus-text-secondary)"
+              class="min-w-0 flex-1 truncate text-[0.875em] font-secondary text-(--solus-text-secondary)"
               style="font-family: 'Geist Mono', ui-monospace, monospace"
               >{link}</code
             >

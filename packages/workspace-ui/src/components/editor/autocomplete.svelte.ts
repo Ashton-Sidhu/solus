@@ -99,6 +99,16 @@ export function shouldUnwrapFileReferenceOnBackspace(
   );
 }
 
+export function shouldReleaseSpacedAutocompleteQuery(
+  query: string,
+  rows: readonly MenuRow[],
+): boolean {
+  return (
+    /\s/.test(query) &&
+    !rows.some((row) => row.type === "item" || row.type === "category")
+  );
+}
+
 /** Mouse hover sets selection, but not for this long after a navigation key —
  *  a stationary cursor must not steal the highlight during keyboard use. */
 const HOVER_SUPPRESSION_MS = 400;
@@ -374,6 +384,11 @@ export class UnifiedAutocompleteController {
     ) {
       anchor = findAnchor(textBeforeCursor);
       if (anchor !== this.#anchor) this.#selectedIndex = 0;
+    } else if (!readTrigger(textBeforeCursor, anchor)) {
+      // A space closes a `#` run. Re-match at the caret so a later trigger in
+      // the same line can open without waiting for the old `#` to be deleted.
+      anchor = findAnchor(textBeforeCursor);
+      if (anchor !== this.#anchor) this.#selectedIndex = 0;
     }
     this.#anchor = anchor;
     this.#dismissed = false;
@@ -387,7 +402,7 @@ export class UnifiedAutocompleteController {
     }
 
     // A spaced query that matches nothing hands the words back to the sentence.
-    if (/\s/.test(trigger.query) && this.selectableRows.length === 0) {
+    if (shouldReleaseSpacedAutocompleteQuery(trigger.query, this.rows)) {
       this.#anchor = null;
       this.#warmedForAnchor = null;
       return;

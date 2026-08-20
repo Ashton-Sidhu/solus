@@ -44,8 +44,15 @@
     /** Bound where a surface above this strip names the project as well — the
      *  draft headline opens the chip's own list instead of a second menu. */
     projectPickerOpen?: boolean;
+    /** An external project control that owns the open menu's visual position. */
+    projectPickerAnchor?: HTMLElement | null;
   }
-  let { sourceId, paneId, projectPickerOpen = $bindable(false) }: Props = $props();
+  let {
+    sourceId,
+    paneId,
+    projectPickerOpen = $bindable(false),
+    projectPickerAnchor = null,
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const windowCtx = getWindowContext();
@@ -347,6 +354,7 @@
     onSelect={selectProject}
     onBrowse={browseProjects}
     onDismiss={() => requestInputFocus(focusTarget)}
+    anchor={projectPickerAnchor}
     bind:open={projectPickerOpen}
   />
 

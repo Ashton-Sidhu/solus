@@ -362,12 +362,12 @@
        still on screen, so picking a row deep in a long trace never costs a
        round trip to the bottom of the page. `bottom-0` is the scroller's own
        edge; the card keeps its own inset so it reads as lifted off the page. -->
-  <div class="sticky bottom-0 z-10 pt-3 pb-1">
+  <div class="sticky bottom-0 z-20 pt-4 pb-2">
     <!-- The dock is a region, not a control; the keydown is only there so Escape
          dismisses it from anywhere inside it. -->
     <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
     <div
-      class="flex max-h-[min(24rem,45vh)] flex-col overflow-hidden rounded-xl bg-card shadow-[shadow:var(--elev-lift)]"
+      class="flex max-h-[min(24rem,45vh)] flex-col overflow-hidden rounded-xl bg-card shadow-[0_1rem_2.5rem_-1rem_rgba(0,0,0,0.3),var(--elev-lift)] [.dark_&]:shadow-[0_1.25rem_3rem_-1rem_rgba(0,0,0,0.62),var(--elev-lift)]"
       role="group"
       aria-label="Span detail"
       tabindex="-1"
@@ -378,7 +378,7 @@
            what it is called, how long it took — and closes on the ruler that
            says where in the turn it ran. Colour is spent only where it carries
            a fact: a failed status. -->
-      <div class="shrink-0">
+      <div class="shrink-0 shadow-[inset_0_-0.5px_0_var(--hairline)]">
         <div class="flex items-center gap-3 px-4 pt-3">
           <span class="min-w-0 truncate text-[0.6875rem] text-muted-foreground"
             >{labelForKind(openRow.span.kind)} · {openRow.span.service}</span

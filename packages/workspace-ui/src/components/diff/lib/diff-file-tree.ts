@@ -48,6 +48,15 @@ export interface MountedDiffFileTree {
   destroy: () => void
 }
 
+/**
+ * A combined patch can contain the same file more than once. The diff stream
+ * can still show each patch entry, but @pierre/trees rejects duplicate paths
+ * when it builds the navigation tree.
+ */
+export function uniqueDiffTreePaths(paths: string[]): string[] {
+  return [...new Set(paths)]
+}
+
 export function mountDiffFileTree({
   node,
   paths,

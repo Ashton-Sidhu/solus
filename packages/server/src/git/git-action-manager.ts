@@ -10,14 +10,18 @@ import type {
   GitActionResult,
   GitCheckout,
 } from '@solus/contracts/types'
+import type { RepoRef } from '@solus/contracts/providers'
 import { runAsync } from './exec'
 import { toRootRelativePath } from '../paths'
 import { authorPullRequest, type PullRequestWriter } from './pull-request-authoring'
+import type { GitHubClient } from '../providers/github/octokit'
 import { z } from 'zod'
 
 export interface GitActionManagerOptions {
   writer: PullRequestWriter
   generateCommitSubject(cwd: string): Promise<string>
+  githubClient?: GitHubClient | null
+  githubRepo?: RepoRef | null
   githubToken?: string | null
   publish(event: GitActionProgressEvent): void
 }
@@ -190,6 +194,62 @@ async function branchHasPullRequestChanges(cwd: string, baseBranch: string): Pro
   return (Number(count) || 0) > 0
 }
 
+async function createPullRequest(
+  cwd: string,
+  baseBranch: string,
+  headBranch: string,
+  draft: { title: string; body: string },
+  options: Pick<GitActionManagerOptions, 'githubClient' | 'githubRepo' | 'githubToken'>,
+): Promise<ExistingPullRequest> {
+  let octokitErrorMessage: string | null = null
+  if (options.githubClient && options.githubRepo) {
+    try {
+      const { data } = await options.githubClient.rest.pulls.create({
+        owner: options.githubRepo.owner,
+        repo: options.githubRepo.repo,
+        base: baseBranch,
+        head: headBranch,
+        title: draft.title,
+        body: draft.body,
+      })
+      return {
+        url: data.html_url,
+        number: data.number,
+        title: data.title,
+      }
+    } catch (error) {
+      octokitErrorMessage = error instanceof Error ? error.message : String(error)
+    }
+  }
+
+  const bodyFile = path.join(tmpdir(), `solus-pr-body-${process.pid}-${randomUUID()}.md`)
+  await writeFile(bodyFile, draft.body, 'utf8')
+  try {
+    const output = await runAsync(
+      'gh',
+      ['pr', 'create', '--base', baseBranch, '--head', headBranch, '--title', draft.title, '--body-file', bodyFile],
+      cwd,
+      { env: ghEnv(options.githubToken) },
+    )
+    const url = output.match(/https:\/\/\S+/)?.[0] ?? output.trim()
+    if (!url) throw new Error('GitHub did not return the pull request URL.')
+    const numberMatch = url.match(/\/pull\/(\d+)(?:[/?#]|$)/)
+    return {
+      url,
+      number: numberMatch ? Number(numberMatch[1]) : null,
+      title: draft.title,
+    }
+  } catch (cliError) {
+    if (!octokitErrorMessage) throw cliError
+    const cliErrorMessage = cliError instanceof Error ? cliError.message : String(cliError)
+    throw new Error(
+      `Could not create the pull request with GitHub or the GitHub CLI. GitHub: ${octokitErrorMessage} GitHub CLI: ${cliErrorMessage}`,
+    )
+  } finally {
+    await unlink(bodyFile).catch(() => {})
+  }
+}
+
 async function runGitActionUnlocked(
   request: GitActionRequest,
   gitContext: GitCheckout,
@@ -307,26 +367,9 @@ async function runGitActionUnlocked(
         const draft = await authorPullRequest(cwd, gitContext.targetBranch, branch, options.writer)
         currentPhase = 'create_pull_request'
         options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Creating pull request…' })
-        const bodyFile = path.join(tmpdir(), `solus-pr-body-${process.pid}-${randomUUID()}.md`)
-        await writeFile(bodyFile, draft.body, 'utf8')
-        try {
-          const output = await runAsync(
-            'gh',
-            ['pr', 'create', '--base', gitContext.targetBranch, '--head', branch, '--title', draft.title, '--body-file', bodyFile],
-            cwd,
-            { env: ghEnv(options.githubToken) },
-          )
-          const url = output.match(/https:\/\/\S+/)?.[0] ?? output.trim()
-          if (!url) throw new Error('GitHub did not return the pull request URL.')
-          const numberMatch = url.match(/\/pull\/(\d+)(?:[/?#]|$)/)
-          pullRequestStep = {
-            status: 'created',
-            url,
-            number: numberMatch ? Number(numberMatch[1]) : null,
-            title: draft.title,
-          }
-        } finally {
-          await unlink(bodyFile).catch(() => {})
+        pullRequestStep = {
+          status: 'created',
+          ...await createPullRequest(cwd, gitContext.targetBranch, branch, draft, options),
         }
       }
     }

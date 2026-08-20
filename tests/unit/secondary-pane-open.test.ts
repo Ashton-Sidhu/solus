@@ -9,26 +9,48 @@ function readRendererFile(path: string): string {
 }
 
 describe('secondary pane open action', () => {
-  test('every routed pane chrome can open its secondary content as a page', () => {
+  test('every routed pane chrome can move its secondary content to the primary pane', () => {
     // WHY: maximize and close are not substitutes for navigation. Every route
-    // shown beside the leading pane must give the user a direct way to make
-    // that content the page, including temporary overlay routes.
-    const routedPaneHosts = [
+    // shown beside the leading pane must give the user a direct way to move it
+    // to the primary pane, without falsely describing non-page routes as pages.
+    const movablePaneHosts = [
       'automations/AutomationPane.svelte',
       'conversation/SubagentHostPane.svelte',
-      'files/FileEditorHostPane.svelte',
-      'files/FilesTreePane.svelte',
       'plan/PlanPane.svelte',
       'pr-review/PrDiffPane.svelte',
-      'review/ReviewPane.svelte',
       'work/WorkPane.svelte',
     ]
 
-    for (const path of routedPaneHosts) {
+    for (const path of movablePaneHosts) {
       const source = readRendererFile(path)
       expect(source, path).toContain('<PaneChrome')
       expect(source, path).toContain('onOpenInSplit=')
     }
+
+    for (const path of [
+      'files/FileEditorHostPane.svelte',
+      'files/FilesTreePane.svelte',
+      'review/ReviewPane.svelte',
+    ]) {
+      const source = readRendererFile(path)
+      expect(source, path).toContain('<PaneChrome')
+      expect(source, path).not.toContain('onOpenInSplit=')
+      expect(source, path).toContain('onToggleMaximize=')
+    }
+  })
+
+  test('Files and Review draw their divider only in a companion pane', () => {
+    // WHY: the divider is a seam between panes. In the primary pane it becomes
+    // an unexplained inset border around the main content.
+    expect(readRendererFile('files/FilesTreePane.svelte')).toContain(
+      'bordered={!pane.isLeading}',
+    )
+    expect(readRendererFile('files/FileEditorHostPane.svelte')).toContain(
+      'bordered={!pane.isLeading}',
+    )
+    expect(readRendererFile('review/ReviewPane.svelte')).toContain(
+      'bordered={!pane.isLeading}',
+    )
   })
 
   test('conversation and draft panes expose the same action in their shared header', () => {
@@ -80,7 +102,11 @@ describe('secondary pane open action', () => {
     // sends the page. Deriving it from `isLeading` in one place is what keeps
     // "Open in split" and "Open as page" from drifting apart per surface.
     const swap = readRendererFile('ui/PaneSwapButton.svelte')
-    expect(swap).toContain('isLeading ? "Open in split" : "Open as page"')
+    expect(swap).toContain('leadingDestination === "page"')
+    expect(swap).toContain('"Move to primary pane"')
+    expect(readRendererFile('ui/PaneChrome.svelte')).toContain(
+      'leadingDestination="pane"',
+    )
 
     for (const path of [
       'ui/PaneChrome.svelte',

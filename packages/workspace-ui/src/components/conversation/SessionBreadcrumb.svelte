@@ -1,5 +1,6 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
+  import type { TaskStatus } from "@solus/contracts/task-types";
   import {
     Undo2 as ArrowUUpLeftIcon,
     ExternalLink as ArrowSquareOutIcon,
@@ -279,6 +280,18 @@
     }
   }
 
+  async function setTaskStatus(taskId: string, status: TaskStatus) {
+    try {
+      await session.tasksStore.setStatus(taskId, status);
+    } catch (error) {
+      toasts.error("Couldn't update task status", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      requestInputFocus();
+    }
+  }
+
   function closeSession(childTabId: string) {
     if (childTabId === tabId) menu = null;
     sidebarStore.closeTabs([childTabId]);
@@ -326,7 +339,7 @@
   // menu's Open/Completed pair: the three menus open off one band and are read
   // in one pass, so they shrink together or the band looks assembled.
   const menuHeading =
-    "px-[0.5625rem] pt-1.5 pb-1.5 [.is-laptop-display_&]:pt-1 [.is-laptop-display_&]:pb-1 text-xs font-medium text-muted-foreground uppercase";
+    "px-[0.5625rem] pt-1.5 pb-2.5 [.is-laptop-display_&]:pt-1 [.is-laptop-display_&]:pb-2 text-chrome-shelf font-medium text-muted-foreground uppercase";
   // Rows you can close reserve the slot the X lands in, so nothing reflows the
   // moment a pointer crosses the row.
   // The wash follows the row, not the pointer's exact target: reaching for the X
@@ -592,7 +605,7 @@
                                the completed section is a trailing affordance so
                                nothing is pushed off that edge. -->
                           <div
-                            class="flex h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] items-center gap-1.5 [.is-laptop-display_&]:gap-1 px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            class="mb-1 flex h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] items-center gap-1.5 [.is-laptop-display_&]:gap-1 px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                           >
                             <span>Open</span>
                             <span class="tabular-nums opacity-50"
@@ -613,7 +626,9 @@
                                onto it and open the section with Enter. -->
                           <Command.Item
                             value="completed tasks section"
-                            class="h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] gap-1.5 [.is-laptop-display_&]:gap-1 rounded-md px-[0.5625rem] text-xs font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
+                            class="{completedVisible
+                              ? 'mb-1'
+                              : ''} h-[1.625rem] [.is-laptop-display_&]:h-[1.375rem] gap-1.5 [.is-laptop-display_&]:gap-1 rounded-md px-[0.5625rem] text-chrome-shelf font-medium tracking-[0.08em] whitespace-nowrap text-muted-foreground uppercase"
                             aria-expanded={completedVisible}
                             onSelect={() =>
                               (completedOverride = {
@@ -983,7 +998,7 @@
         onOpenSource={menuTask.url
           ? () => void localApi.openExternal(menuTask.url!)
           : undefined}
-        onToggleDone={() => void completeTask(menuSidebarTask)}
+        onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}
         onRemove={() => closeTask(menuSidebarTask)}
         onClose={() => (contextMenu = null)}
       />

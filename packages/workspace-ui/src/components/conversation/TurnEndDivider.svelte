@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { RotateCcw as ArrowCounterClockwiseIcon, Minus as MinusIcon, Square as SquareIcon } from "@lucide/svelte";
+  import {
+    RotateCcw as ArrowCounterClockwiseIcon,
+    Minus as MinusIcon,
+    Square as SquareIcon,
+  } from "@lucide/svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
   import { NO_REPLY_LABEL } from "./lib/transient";
   import type { TurnEnd } from "./lib/turns";
@@ -28,9 +32,9 @@
   const RETRY_LABEL = "Retry from your message";
 </script>
 
-{#snippet stopGlyph()}<SquareIcon size={9} weight="bold" />{/snippet}
+{#snippet stopGlyph()}<SquareIcon size={9} />{/snippet}
 
-{#snippet noReplyGlyph()}<MinusIcon size={10} weight="bold" />{/snippet}
+{#snippet noReplyGlyph()}<MinusIcon size={10} />{/snippet}
 
 {#snippet dividerRetry()}
   <button type="button" class="divider-action" onclick={onRetry}>

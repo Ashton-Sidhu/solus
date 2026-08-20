@@ -1,7 +1,5 @@
 <script lang="ts">
-  import type { AgentId } from "@solus/contracts/types";
-  import { getAgentContext, getWorkspaceContext } from "../../../contexts";
-  import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
+  import { CommentEditor } from "../../ui/comment-editor";
   import { Button } from "../../ui/button";
   import { Switch } from "../../ui/switch";
 
@@ -18,14 +16,7 @@
 
   let { onSubmit, provider, autoPost }: Props = $props();
 
-  const session = getWorkspaceContext();
-  const agentContext = getAgentContext();
-  const editorProvider = $derived<AgentId>(
-    agentContext.activeMetadata?.id ?? "claude-code",
-  );
-  const editorCwd = $derived(session.tasksProjectCwd ?? undefined);
-
-  let editorEl: ReturnType<typeof DocumentPromptEditor> | null = $state(null);
+  let editorEl: ReturnType<typeof CommentEditor> | null = $state(null);
   let draft = $state("");
   let hasContent = $state(false);
   let posting = $state(false);
@@ -57,26 +48,15 @@
   <div
     class="flex items-end gap-3 rounded-2xl bg-card px-3.5 py-2.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_1px_2px_rgba(24,20,16,.05)] transition-shadow focus-within:shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent),0_0_0_3px_color-mix(in_oklab,var(--ring)_14%,transparent)]"
   >
-    <DocumentPromptEditor
+    <CommentEditor
       bind:this={editorEl}
       value={draft}
       onValueChange={(v) => (draft = v)}
-      onInput={() => (hasContent = !(editorEl?.getEditor()?.isEmpty ?? true))}
-      readOnly={posting}
-      dragHandle={false}
-      placeholder="Leave a comment. @ to mention, # to link a task."
-      pluginCommands={session.pluginCommands}
-      provider={editorProvider}
-      workingDirectory={editorCwd}
-      onPlanRefClick={(planId) => session.openPlanModal(planId)}
-      onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
-      onPrRefClick={(number, title) =>
-        void session.enterPrReview(number, title, {
-          ctx: editorCwd ? session.ctxForDirectory(editorCwd) : session.ctx,
-        })}
-      menuPlacement="up"
+      onEmptyChange={(empty) => (hasContent = !empty)}
+      disabled={posting}
+      placeholder="Leave a comment…"
       maxHeight={160}
-      class="doc-prompt-compact min-w-0 flex-1"
+      class="min-w-0 flex-1"
       onKeyDown={(e) => {
         if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
           e.preventDefault();

@@ -22,6 +22,8 @@
     meta?: Snippet
     /** Header-right furniture: a pager, a countdown. */
     headerAside?: Snippet
+    /** Optional geometry for a footer whose actions need a denser treatment. */
+    footerClass?: string
     children: Snippet
     footer: Snippet
   }
@@ -34,6 +36,7 @@
     chip,
     meta,
     headerAside,
+    footerClass = '',
     children,
     footer,
   }: Props = $props()
@@ -76,7 +79,7 @@
   <!-- Escape hatch left, scope-broadening in the middle, the one filled default
        on the right. Never the reverse, on any interrupt. -->
   <div
-    class="interrupt-footer flex items-center gap-2 py-[0.6875rem] pr-[0.875rem] pl-[1.125rem] pointer-fine:[.is-laptop-display_&]:py-2 pointer-fine:[.is-laptop-display_&]:pr-3 pointer-fine:[.is-laptop-display_&]:pl-3.5"
+    class="interrupt-footer flex items-center gap-2 py-[0.6875rem] pr-[0.875rem] pl-[1.125rem] pointer-fine:[.is-laptop-display_&]:py-2 pointer-fine:[.is-laptop-display_&]:pr-3 pointer-fine:[.is-laptop-display_&]:pl-3.5 {footerClass}"
   >
     {@render footer()}
   </div>

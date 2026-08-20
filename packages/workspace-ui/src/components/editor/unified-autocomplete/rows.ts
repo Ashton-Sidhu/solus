@@ -76,6 +76,11 @@ export function isSelectable(row: MenuRow): row is SelectableRow {
   return row.type === "category" || row.type === "item" || row.type === "deadEnd";
 }
 
+/** Slash commands read as one typed token (`/clear`), not an icon and label. */
+export function inlineTitlePrefix(row: SelectableRow): string {
+  return row.type === "item" && row.item.token.kind === "slash" ? "/" : "";
+}
+
 export interface RowInput {
   trigger: Trigger;
   /** `/` channel. Already filtered to what this provider offers. */

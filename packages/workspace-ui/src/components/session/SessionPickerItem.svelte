@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { Code as CodeIcon, Globe as GlobeIcon, Bot as OpenAiLogoIcon } from "@lucide/svelte";
+  import { Code as CodeIcon, Globe as GlobeIcon } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
+  import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import { getSettingsContext, serversStore } from "../../contexts";
   import {
     entryTitle,
@@ -65,14 +66,6 @@
         ? "OpenCode"
         : "Claude Code",
   );
-  const ProviderIcon = $derived(
-    provider === "codex"
-      ? OpenAiLogoIcon
-      : provider === "opencode"
-        ? CodeIcon
-        : null,
-  );
-
   const timestamp = $derived.by(() => {
     if (item.kind === "open") {
       const msgs = item.session.messages;
@@ -118,11 +111,10 @@
     >
       {#if provider === "claude-code"}
         <ClaudeIcon size={14} />
-      {:else if ProviderIcon}
-        <ProviderIcon
-          size={14}
-          weight={provider === "codex" ? "regular" : "fill"}
-        />
+      {:else if provider === "codex"}
+        <OpenAIBlossom size={14} fill="currentColor" />
+      {:else if provider === "opencode"}
+        <CodeIcon size={14} />
       {/if}
     </span>
 

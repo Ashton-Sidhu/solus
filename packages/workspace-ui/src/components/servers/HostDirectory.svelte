@@ -19,8 +19,6 @@
 
   // The registry can point at a host that is no longer saved, so trust the
   // resolved active server rather than the stored id.
-  const activeServerId = $derived(serversStore.activeServer?.id ?? null);
-
   onMount(() => {
     void serversStore.probeHosts().then(() =>
       hostSetupStore.probeUnprobedOnline(serversStore.servers),
@@ -55,14 +53,13 @@
     </p>
   {:else}
     {#each serversStore.servers as server (server.id)}
-      {@const isActive = server.id === activeServerId}
       <button
         type="button"
-        class="flex w-full items-center gap-3 border-t border-border px-4 py-3 text-left transition-colors first:border-t-0 [@media(hover:hover)]:hover:bg-muted"
+        class="flex w-full items-center gap-3 border-t border-border px-4 py-3 text-left transition-colors first:border-t-0 [@media(hover:hover)]:hover:bg-muted [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5"
         onclick={() => connectionsNav.open(server.id)}
       >
         <span
-          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
         >
           <!-- The OS logo marks a machine you dispatch to; the host you are
                on keeps the plain device glyph. -->
@@ -74,19 +71,12 @@
         </span>
         <span class="min-w-0 flex-1">
           <span
-            class="flex min-w-0 items-center gap-2 text-sm font-medium text-(--solus-text-primary)"
+            class="flex min-w-0 items-center gap-2 text-workspace-chrome font-medium text-(--solus-text-primary)"
           >
             <span class="truncate">{server.label}</span>
-            {#if isActive}
-              <span
-                class="shrink-0 whitespace-nowrap rounded-full bg-(--solus-accent-light) px-1.5 py-0.5 text-xs leading-[1.4] font-medium uppercase tracking-[0.04em] text-(--solus-accent) sm:text-xs"
-              >
-                Running sessions
-              </span>
-            {/if}
           </span>
           <span
-            class="mt-0.5 block truncate text-xs text-(--solus-text-tertiary)"
+            class="mt-0.5 block truncate text-[0.875em] text-(--solus-text-tertiary)"
             style="font-family: 'Geist Mono', ui-monospace, monospace"
           >
             {hostMeta(server.id, server.url)}
@@ -116,25 +106,20 @@
   {/snippet}
 
   {#each serversStore.nearbyHosts as host (host.server.installationId)}
-    <div class="flex items-center gap-3 border-t border-border px-4 py-3 first:border-t-0">
+    <div class="flex items-center gap-3 border-t border-border px-4 py-3 first:border-t-0 [.is-laptop-display_&]:gap-2.5 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5">
       <span
-        class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
+        class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) [.is-laptop-display_&]:size-7 [.is-laptop-display_&]:rounded-md"
       >
         <WifiHighIcon size={15} />
       </span>
       <div class="min-w-0 flex-1">
         <div class="flex min-w-0 items-center gap-2">
-          <p class="truncate text-sm font-medium text-(--solus-text-primary)">
+          <p class="truncate text-workspace-chrome font-medium text-(--solus-text-primary)">
             {host.server.name}
           </p>
-          <span
-            class="shrink-0 whitespace-nowrap rounded-full bg-(--solus-surface-active) px-1.5 py-0.5 text-xs leading-[1.4] font-medium uppercase tracking-[0.04em] text-(--solus-text-tertiary) sm:text-xs"
-          >
-            {host.server.source === "lan" ? "LAN" : "Tailnet"}
-          </span>
         </div>
         <p
-          class="mt-0.5 truncate text-xs text-(--solus-text-tertiary)"
+          class="mt-0.5 truncate text-[0.875em] text-(--solus-text-tertiary)"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
         >
           {discoveredServerUrl(host.server)} · {relativeTime(host.lastSeenAt)}
@@ -153,8 +138,8 @@
   <!-- Always present, whether or not anything was found: discovery failing
        silently is the same picture as a network with no hosts on it, and this
        is the only place that says which one the user is looking at. -->
-  <div class="border-t border-border px-4 py-3 first:border-t-0">
-    <p class="text-pretty text-xs leading-5 text-(--solus-text-tertiary)">
+  <div class="border-t border-border px-4 py-3 first:border-t-0 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5">
+    <p class="text-pretty text-[0.875em] leading-5 text-(--solus-text-tertiary)">
       {#if serversStore.nearbyHosts.length === 0}
         No nearby hosts found.
       {/if}

@@ -307,6 +307,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const model = this.resolveModel(request.model ?? null)
       const threadConfig: CodexThreadStartParams = {
         model,
+        serviceTier: request.fastMode ? 'fast' : null,
         cwd: request.cwd,
         approvalPolicy: approvalPolicyFor(request.permissionMode),
         baseInstructions: request.systemPrompt ?? null,
@@ -387,6 +388,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         approvalPolicy: approvalPolicyFor(request.permissionMode),
         sandboxPolicy: sandboxPolicyFor(request.permissionMode),
         model,
+        serviceTier: request.fastMode ? 'fast' : null,
         summary: 'auto',
         reasoning_effort: reasoningEffort,
         collaborationMode: { mode: isPlanMode ? 'plan' : 'default', settings: {

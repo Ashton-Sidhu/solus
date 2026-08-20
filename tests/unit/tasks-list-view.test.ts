@@ -69,6 +69,22 @@ describe('task status filter', () => {
     const withDone = taskInboxGroups(rows, noSessions, NOW, actions, taskStatusesFor([...OPEN_TASK_STATUS_KEYS, 'done']))
     expect(withDone.find((group) => group.key === 'done')?.rows).toHaveLength(1)
   })
+
+  test('inbox rows keep the right edge clear of status chips', () => {
+    // WHY: the inbox group and context line already explain why each task is
+    // present. Repeating that state in a chip crowds the time and row actions.
+    const rows = [task('a', 'in_review'), task('b', 'in_progress'), task('c', 'todo')]
+    const sessionsFor = (taskId: string) => taskId === 'b' ? 1 : 0
+    const groups = taskInboxGroups(
+      rows,
+      sessionsFor,
+      NOW,
+      actions,
+      taskStatusesFor(OPEN_TASK_STATUS_KEYS),
+    )
+
+    expect(groups.flatMap((group) => group.rows).every((row) => row.chips === undefined)).toBe(true)
+  })
 })
 
 describe('the provider a task row names', () => {

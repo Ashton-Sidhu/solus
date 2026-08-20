@@ -3,6 +3,7 @@ import { Editor } from "@tiptap/core";
 import { Markdown } from "@tiptap/markdown";
 import StarterKit from "@tiptap/starter-kit";
 import { JSDOM } from "jsdom";
+import { readFileSync } from "node:fs";
 import { createMarkdownParser } from "@solus/workspace-ui/components/editor/markdownParser";
 import { DiagramEmbedMarkdownExtension } from "@solus/workspace-ui/components/editor/diagramEmbedExtension";
 import { serializeDiagramEmbed } from "@solus/contracts/diagram-embed";
@@ -27,6 +28,39 @@ afterEach(() => {
 });
 
 describe("document editor markdown", () => {
+  test("ProseMirror model resolves to one package instance", () => {
+    const lockfile = readFileSync(new URL("../../bun.lock", import.meta.url), "utf8");
+
+    expect(lockfile).not.toMatch(/^\s+"[^"]+\/prosemirror-model":/m);
+    expect(lockfile).not.toMatch(/"@tiptap\/[^"]+\/@tiptap\/pm"/);
+  });
+
+  test("Enter can split a paragraph in document and plan editors", () => {
+    // DocumentEditor is shared by DocumentShell and PlanModal. A second
+    // prosemirror-model instance makes splitBlock throw instead of inserting
+    // the new paragraph on both surfaces.
+    // SAFETY: The fixture always creates this element before each test.
+    editor = new Editor({
+      element: document.querySelector("#editor") as HTMLElement,
+      extensions: [StarterKit],
+      content: "first line",
+    });
+
+    editor.commands.setTextSelection(6);
+
+    expect(editor.commands.splitBlock()).toBe(true);
+    expect(editor.getJSON().content).toEqual([
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: "first" }],
+      },
+      {
+        type: "paragraph",
+        content: [{ type: "text", text: " line" }],
+      },
+    ]);
+  });
+
   test("preserves explicit line breaks instead of joining adjacent words", () => {
     const markdown = [
       "Morning light drifts in  ",

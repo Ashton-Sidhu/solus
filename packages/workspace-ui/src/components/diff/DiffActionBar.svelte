@@ -92,7 +92,8 @@
     const providerChanged = payload.provider !== current.activeAgent;
     const modelChanged = payload.modelId !== (current.model || null);
     const effortChanged = payload.reasoningEffort !== current.reasoningEffort;
-    return { providerChanged, changed: modelChanged || effortChanged };
+    const fastModeChanged = payload.fastMode !== current.fastMode;
+    return { providerChanged, changed: modelChanged || effortChanged || fastModeChanged };
   }
 
   function applyRefs(payload: PromptComposerSubmit) {
@@ -111,6 +112,7 @@
         {
           modelId: payload.modelId,
           reasoningEffort: payload.reasoningEffort,
+          fastMode: payload.fastMode,
         },
         targetTabId,
       );
@@ -137,7 +139,7 @@
       branchContext,
       provider: providerChanged ? payload.provider : undefined,
       modelConfig: changed || providerChanged
-        ? { modelId: payload.modelId, reasoningEffort: payload.reasoningEffort }
+        ? { modelId: payload.modelId, reasoningEffort: payload.reasoningEffort, fastMode: payload.fastMode }
         : undefined,
       useWorktree: useWorktree || undefined,
       sourceTabId: targetTabId,

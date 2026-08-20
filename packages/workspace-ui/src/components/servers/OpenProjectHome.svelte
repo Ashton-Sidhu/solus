@@ -1,4 +1,5 @@
 <script lang="ts">
+  import Icon from "@iconify/svelte";
   import {
     LoaderCircle as CircleNotchIcon,
     Download as DownloadSimpleIcon,
@@ -39,12 +40,6 @@
     github: "Clone from GitHub…",
     "clone-url": "Clone from a URL…",
   } satisfies Record<"browse" | "github" | "clone-url", string>;
-  const ACTION_ICONS = {
-    browse: FolderIcon,
-    github: GithubLogoIcon,
-    "clone-url": LinkSimpleIcon,
-  };
-
 </script>
 
 {#snippet shell(index: number, height: string, children: import("svelte").Snippet)}
@@ -133,8 +128,12 @@
           <div class="mt-2 border-t border-border pt-2"></div>
         {/if}
         {#snippet actionRow()}
-          {@const Icon = ACTION_ICONS[row.action]}
-          <Icon size={13} weight={row.action === "github" ? "fill" : "regular"} class="shrink-0 text-muted-foreground" />
+          {#if row.action === "github"}
+            <Icon icon="logos:github-icon" width={13} class="shrink-0 text-muted-foreground" />
+          {:else}
+            {@const ActionIcon = row.action === "browse" ? FolderIcon : LinkSimpleIcon}
+            <ActionIcon size={13} class="shrink-0 text-muted-foreground" />
+          {/if}
           <span class="min-w-0 flex-1 truncate text-sm">{ACTION_LABELS[row.action]}</span>
           {#if row.action === "browse"}
             <span class="shrink-0  text-muted-foreground">⌘O</span>

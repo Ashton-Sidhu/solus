@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
+import { stableSessionIdForProviderThread } from '../sessions/session-lineage'
 import { getDb, withTx } from '../db'
 import { persistRemoteSessionStart } from '../db/session-indexer'
 import { appendTaskEvent, diffTaskEvents, type EventActor } from './task-events'
@@ -401,6 +402,7 @@ export async function updateGeneratedMetadataForSession(
   if (!generatedTitle || !generatedDescription) return null
   const task = withTx(() => {
     const db = database()
+    const taskSessionId = stableSessionIdForProviderThread(sessionId, db) ?? sessionId
     const row = generatedMetadataTaskRowSchema.nullish().parse(db.prepare(`
       SELECT tasks.id, tasks.title_source, tasks.body
       FROM tasks
@@ -411,7 +413,7 @@ export async function updateGeneratedMetadataForSession(
         AND tasks.origin_session_id = task_session_links.session_id
       ORDER BY task_session_links.linked_at DESC
       LIMIT 1
-    `).get(sessionId))
+    `).get(taskSessionId))
     if (!row) return null
     const canUpdateTitle = row.title_source === 'prompt'
     const canUpdateDescription = row.body.trim() === ''

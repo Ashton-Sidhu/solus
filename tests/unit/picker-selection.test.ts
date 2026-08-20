@@ -1,6 +1,9 @@
 /// <reference types="bun-types" />
 import { describe, expect, test } from "bun:test";
-import { modelPickerNavigationTarget } from "@solus/workspace-ui/components/pickers/lib/picker-selection";
+import {
+  modelPickerNavigationTarget,
+  supportsFastModeFor,
+} from "@solus/workspace-ui/components/pickers/lib/picker-selection";
 
 describe("model picker keyboard navigation", () => {
   test("vertical movement stays in its visual column", () => {
@@ -65,4 +68,13 @@ describe("model picker keyboard navigation", () => {
       }),
     ).toBeNull();
   });
+});
+
+describe("model picker fast mode", () => {
+  test("offers fast mode only when the selected provider model supports it", () => {
+    expect(supportsFastModeFor("codex", "gpt-5.6-sol")).toBe(true);
+    expect(supportsFastModeFor("codex", "gpt-5.3-codex")).toBe(false);
+    expect(supportsFastModeFor("claude-code", "claude-opus-5")).toBe(false);
+  });
+
 });

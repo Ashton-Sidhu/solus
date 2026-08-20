@@ -1,6 +1,9 @@
 <script lang="ts">
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { existingTaskId } from "../../contexts/workspace/session-draft.svelte";
+  import {
+    existingTaskId,
+    taskBindingSessionId,
+  } from "../../contexts/workspace/session-draft.svelte";
   import {
     getWorkspaceContext,
     getSettingsContext,
@@ -195,11 +198,12 @@
   const namedTaskId = $derived(
     panelTaskTarget ? existingTaskId(panelTaskTarget) : null,
   );
+  const panelTaskSessionId = $derived(
+    panelSession ? taskBindingSessionId(panelSession) : null,
+  );
   const panelTask = $derived(
     (namedTaskId ? session.tasksStore.taskForId(namedTaskId) : null) ??
-      (panelSession
-        ? session.tasksStore.taskForSession(panelSession.agentSessionId)
-        : null),
+      session.tasksStore.taskForSession(panelTaskSessionId),
   );
 
   // Automations scoped to the focused project (its repo root, worktree, and cwd),
@@ -530,7 +534,7 @@
         <TaskSection
           task={panelTask}
           projectCwd={panelTask.projectKey ?? cwd}
-          currentSessionId={panelSession?.agentSessionId ?? null}
+          currentSessionId={panelTaskSessionId}
           active={active && open}
         />
       </PanelSection>

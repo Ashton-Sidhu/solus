@@ -42,7 +42,7 @@
 
 <button
   type="button"
-  class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] rounded bg-(--pr-bg) px-1 py-0.5 text-(--pr-color) transition-[color,background-color,box-shadow,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-2.5 before:content-[''] hover:bg-[color-mix(in_oklch,var(--pr-color)_18%,transparent)] hover:text-foreground hover:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--pr-color)_22%,transparent)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+  class="relative flex shrink-0 cursor-pointer items-center gap-[0.21875rem] rounded bg-(--pr-bg) px-1 py-0.5 text-(--pr-color) transition-[color,background-color,box-shadow,scale] duration-150 before:absolute before:-inset-x-2 before:-inset-y-2.5 before:content-[''] hover:bg-[color-mix(in_oklch,var(--pr-color)_18%,transparent)] hover:text-foreground hover:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--pr-color)_22%,transparent)] active:scale-[0.96] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring pointer-fine:[.is-laptop-display_&]:gap-0.5 pointer-fine:[.is-laptop-display_&]:px-0.5 pointer-fine:[.is-laptop-display_&]:py-px"
   style:--pr-color={tone.color}
   style:--pr-bg={tone.background}
   aria-label={actionLabel}
@@ -57,15 +57,15 @@
        landed. Draft is the same mark drawn lighter — an open PR the agent has
        not committed to yet. -->
   {#if chip.state === "merged"}
-    <GitMergeIcon size={12.5} class="shrink-0" />
+    <GitMergeIcon size={12.5} class="shrink-0 pointer-fine:[.is-laptop-display_&]:size-3" />
   {:else}
     <GitPullRequestIcon
       size={12.5}
       weight={chip.state === "draft" ? "light" : "regular"}
-      class="shrink-0 {chip.state === 'draft' ? 'opacity-70' : ''}"
+      class="shrink-0 pointer-fine:[.is-laptop-display_&]:size-3 {chip.state === 'draft' ? 'opacity-70' : ''}"
     />
   {/if}
-  <span class="text-xs tabular-nums"
+  <span class="text-chrome-shelf tabular-nums"
     >#{chip.number}</span
   >
 </button>

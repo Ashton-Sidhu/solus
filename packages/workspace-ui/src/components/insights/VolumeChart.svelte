@@ -208,10 +208,10 @@
   aria-label="Volume"
 >
   <header class="flex flex-wrap items-center gap-x-3 gap-y-1">
-    <h2 class="text-[0.8125rem] font-semibold">{heading}</h2>
+    <h2 class="text-insights-summary font-semibold">{heading}</h2>
     {#if selection}
       <span
-        class="flex items-center gap-1.5 rounded-full px-2 py-1 text-[0.6875rem] shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_24%,transparent)]"
+        class="flex items-center gap-1.5 rounded-full px-2 py-1 text-insights-summary shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_24%,transparent)]"
         style="background:color-mix(in oklch, var(--primary) 9%, transparent)"
       >
         <span class="font-semibold text-[var(--primary)]">Zoomed</span>
@@ -230,13 +230,13 @@
         </button>
       </span>
     {:else}
-      <span class="text-[0.6875rem] text-muted-foreground"
+      <span class="text-insights-summary text-muted-foreground"
         >Drag across the chart to zoom</span
       >
     {/if}
     <span class="flex-1"></span>
     <div
-      class="flex items-center gap-3 text-[0.6875rem] text-muted-foreground"
+      class="flex items-center gap-3 text-insights-summary text-muted-foreground"
       aria-label="Providers"
     >
       <!-- The swatch is the whole mark here: it keys the name to a bar, and now
@@ -282,10 +282,10 @@
           ></span>
         {/if}
         <span class="flex items-baseline gap-1.5">
-          <span class="text-[0.8125rem] tabular-nums" style="color:{stat.tone}"
+          <span class="text-insights-summary tabular-nums" style="color:{stat.tone}"
             >{stat.value}</span
           >
-          <span class="text-[0.6875rem] text-muted-foreground"
+          <span class="text-insights-summary text-muted-foreground"
             >{stat.label}</span
           >
         </span>
@@ -294,7 +294,7 @@
   </header>
 
   <div
-    class="relative h-52 w-full cursor-crosshair sm:h-44 sm:[@media(min-height:1000px)]:h-52"
+    class="relative h-52 w-full cursor-crosshair sm:h-44 sm:[@media(min-height:1000px)]:h-52 [.is-laptop-display_&]:h-36"
     bind:clientWidth={plotWidth}
   >
     {#key `${viewport.from}:${viewport.to}`}
@@ -337,7 +337,7 @@
             format={(value: unknown) => String(Math.round(Number(value)))}
             classes={{
               tickLabel:
-                "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]",
+                "text-insights-summary tabular-nums fill-[var(--muted-foreground)]",
             }}
           />
           <!-- Bucket starts, not evenly-spaced instants: a band scale only
@@ -351,7 +351,7 @@
             format={(value: unknown) => formatTick(Number(value))}
             classes={{
               tickLabel:
-                "text-[0.6875rem] tabular-nums fill-[var(--muted-foreground)]",
+                "text-insights-summary tabular-nums fill-[var(--muted-foreground)]",
             }}
           >
             <!-- The end labels are centred on their bar, which for the first and
@@ -408,12 +408,12 @@
           }}
         >
           {#snippet children({ data }: { data: VolumeBucket })}
-            <div class="flex flex-col gap-0.5 text-[0.6875rem]">
+            <div class="flex flex-col gap-0.5 text-insights-summary">
               <span class="tabular-nums whitespace-nowrap text-muted-foreground"
                 >{bucketLabel(data)}</span
               >
               <span class="flex items-baseline gap-1.5">
-                <span class="text-xs font-medium tabular-nums"
+                <span class="text-insights-summary font-medium tabular-nums"
                   >{data.total}</span
                 >
                 <span class="text-muted-foreground"
@@ -427,7 +427,7 @@
                     style="background:{CLAUDE_FILL}"
                     aria-hidden="true"
                   ></span>
-                  <span class="text-xs font-medium tabular-nums"
+                  <span class="text-insights-summary font-medium tabular-nums"
                     >{data.claudeCode}</span
                   >
                   <span class="text-muted-foreground">Claude Code</span>
@@ -440,7 +440,7 @@
                     style="background:{CODEX_FILL}"
                     aria-hidden="true"
                   ></span>
-                  <span class="text-xs font-medium tabular-nums"
+                  <span class="text-insights-summary font-medium tabular-nums"
                     >{data.codex}</span
                   >
                   <span class="text-muted-foreground">Codex</span>
@@ -453,7 +453,7 @@
                     style="background:{UNKNOWN_FILL}"
                     aria-hidden="true"
                   ></span>
-                  <span class="text-xs font-medium tabular-nums"
+                  <span class="text-insights-summary font-medium tabular-nums"
                     >{data.unknownProvider}</span
                   >
                   <span class="text-muted-foreground">Unknown</span>
@@ -466,7 +466,7 @@
     {/key}
     {#if points.length === 0}
       <span
-        class="pointer-events-none absolute inset-0 flex items-center justify-center text-[0.6875rem] text-muted-foreground"
+        class="pointer-events-none absolute inset-0 flex items-center justify-center text-insights-summary text-muted-foreground"
         >Nothing in this window</span
       >
     {/if}

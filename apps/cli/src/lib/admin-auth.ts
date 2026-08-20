@@ -24,7 +24,7 @@ export function readSigningKey(dataDir: string): string | null {
 
 export function createAdminHeaders(signingKey: string, now = Date.now(), nonce = randomBytes(12).toString('hex')): AdminHeaders {
   const timestamp = String(now)
-  const signature = createHmac('sha256', signingKey).update(`claim-open:${timestamp}:${nonce}`).digest('hex')
+  const signature = createHmac('sha256', signingKey).update(`pair-open:${timestamp}:${nonce}`).digest('hex')
   return {
     'x-solus-admin-timestamp': timestamp,
     'x-solus-admin-nonce': nonce,

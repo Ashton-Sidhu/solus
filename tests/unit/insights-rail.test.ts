@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import {
   railIndexOf,
   railItemsFromEvents,
@@ -57,6 +58,25 @@ function event(
 }
 
 describe('rail items', () => {
+  test('the collapsed rail uses its space for readable rows, not a repeated count', () => {
+    const source = readFileSync(
+      new URL(
+        '../../packages/workspace-ui/src/components/insights/InsightsRail.svelte',
+        import.meta.url,
+      ),
+      'utf8',
+    )
+    // WHY: the detail panel already gives the listing context. Repeating
+    // "Turns 500" costs a full row in the narrow rail without helping navigation.
+    expect(source).not.toContain('<header')
+    expect(source).not.toContain('{items.length}</span>')
+    expect(source).toContain('class="truncate text-insights-summary leading-[1.125rem]"')
+    expect(source).toContain('gap-2 text-insights-summary leading-[1.125rem] tabular-nums')
+    expect(source).not.toContain('statusLabels')
+    expect(source).toContain('data-status={item.status}')
+    expect(source).not.toContain('aria-label="Status legend"')
+  })
+
   test('a turn item drills by its trace alone', () => {
     const items = railItemsFromTurns([
       turn('tr_a', { model: 'gpt-5.6-sol' }),

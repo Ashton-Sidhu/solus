@@ -89,6 +89,9 @@
      *  line, because the column is now a place to navigate from rather than the
      *  page you are reading. */
     split?: boolean;
+    /** Removes the title and action band when the host surface already owns
+     *  those controls. The filter band keeps the split head's top inset. */
+    hideHeader?: boolean;
   }
   let {
     projects,
@@ -121,6 +124,7 @@
     contentOwnsScroll = false,
     contentHeight = $bindable(0),
     split = false,
+    hideHeader = false,
   }: Props = $props();
 
   // The head's own measure. A laptop display gives up the generous desktop top
@@ -146,20 +150,23 @@
 >
   <div
     class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
- ? 'px-[18px]'
- : 'max-w-[72rem] px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4'}"
+      ? 'px-[18px]'
+      : 'max-w-[72rem] px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4'} {hideHeader
+      ? headPad
+      : ''}"
   >
     <!-- ── Head: title block + action cluster ── -->
-    <div
-      class="workspace-titlebar flex shrink-0 items-end justify-between gap-8 {headPad} {split
+    {#if !hideHeader}
+      <div
+        class="workspace-titlebar flex shrink-0 items-end justify-between gap-8 {headPad} {split
  ? 'flex-wrap gap-y-3 pb-[18px] [.is-laptop-display_&]:pb-3.5'
  : 'pb-[22px] [.is-laptop-display_&]:pb-4'}"
-    >
-      {#if !split}
-        <div class="flex min-w-0 flex-col gap-[9px]">
-          <h1 class="text-2xl font-medium whitespace-nowrap">
-            {title}
-          </h1>
+      >
+        {#if !split}
+          <div class="flex min-w-0 flex-col gap-[9px]">
+            <h1 class="text-2xl font-medium whitespace-nowrap">
+              {title}
+            </h1>
 
           <div
             class="flex items-center gap-2 text-xs text-muted-foreground"
@@ -177,10 +184,10 @@
               </span>
             {/each}
           </div>
-        </div>
-      {/if}
+          </div>
+        {/if}
 
-      <div class="flex shrink-0 items-center gap-2">
+        <div class="flex shrink-0 items-center gap-2">
         {#if !split && projects}
           <ListProjectSwitcher
             {projects}
@@ -284,8 +291,9 @@
             <XIcon size={14} />
           </button>
         {/if}
+        </div>
       </div>
-    </div>
+    {/if}
 
     {#if filters}{@render filters()}{/if}
 

@@ -15,7 +15,7 @@
 </script>
 
 <footer
-  class="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-1.5 text-xs text-muted-foreground shadow-[inset_0_0.5px_0_var(--hairline)]"
+  class="flex min-h-11 shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-1.5 text-insights-chrome text-muted-foreground shadow-[inset_0_0.5px_0_var(--hairline)]"
   data-insights-table-pagination
 >
   <span class="mr-auto tabular-nums">
@@ -32,7 +32,7 @@
       <Select.Trigger
         size="sm"
         aria-label="Rows per page"
-        class="h-8 w-16 gap-1 rounded-full border-0 bg-[var(--wash-1)] px-2.5 text-xs tabular-nums text-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[background-color,box-shadow] hover:bg-[var(--wash-2)] focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_var(--ring),0_0_0_3px_color-mix(in_oklch,var(--ring)_12%,transparent)] pointer-coarse:h-10 [&_svg]:size-2.5 [&_svg]:opacity-60"
+        class="h-8 w-16 gap-1 rounded-full border-0 bg-[var(--wash-1)] px-2.5 text-insights-chrome tabular-nums text-foreground shadow-[inset_0_0_0_0.5px_var(--hairline)] transition-[background-color,box-shadow] hover:bg-[var(--wash-2)] focus-visible:ring-0 focus-visible:shadow-[inset_0_0_0_1px_var(--ring),0_0_0_3px_color-mix(in_oklch,var(--ring)_12%,transparent)] pointer-coarse:h-10 [&_svg]:size-2.5 [&_svg]:opacity-60"
       >
         {pagination.pageSize}
       </Select.Trigger>

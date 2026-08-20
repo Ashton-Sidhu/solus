@@ -49,6 +49,7 @@
     navigationRequestId,
     onClose,
     initialSkeletonVisible = false,
+    bordered = true,
   }: {
     sourceTabId: string;
     view: ReviewView;
@@ -63,6 +64,8 @@
     onClose: () => void;
     /** True when the route boundary already painted the same skeleton. */
     initialSkeletonVisible?: boolean;
+    /** Whether this surface needs a seam against content in another pane. */
+    bordered?: boolean;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -303,6 +306,7 @@
     {viewTabs}
     {mapView}
     {guideView}
+    {bordered}
     {initialSkeletonVisible}
   />
 {:else}

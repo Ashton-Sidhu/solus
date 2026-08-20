@@ -45,9 +45,7 @@ export function filterUnsavedDiscoveredServers(input: DiscoveryFilterInput): Dis
   return out
 }
 
-/** Claimable hosts first — they are the one-click case — then alphabetical. */
 export function compareNearbyHosts(a: NearbyHost, b: NearbyHost): number {
-  if (a.server.claimable !== b.server.claimable) return a.server.claimable ? -1 : 1
   return a.server.name.localeCompare(b.server.name)
 }
 

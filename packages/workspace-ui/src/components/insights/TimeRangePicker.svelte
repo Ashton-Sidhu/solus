@@ -71,7 +71,7 @@
       <button
         {...props}
         type="button"
-        class="flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-[0.6875rem] whitespace-nowrap transition-[background-color,color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96]"
+        class="flex h-6.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2 text-insights-chrome whitespace-nowrap transition-[background-color,color,scale] hover:bg-[var(--wash-1)] active:scale-[0.96]"
         style="color:{range.kind === 'absolute' ? 'var(--primary)' : 'var(--foreground)'}"
         aria-label="Time range: {label}"
       >
@@ -97,7 +97,7 @@
           type="button"
           role="option"
           aria-selected={selected}
-          class="flex h-7 cursor-pointer items-center justify-between rounded-md px-2 text-xs transition-colors hover:bg-muted"
+          class="flex h-7 cursor-pointer items-center justify-between rounded-md px-2 text-insights-chrome transition-colors hover:bg-muted"
           onclick={() => chooseRelative(choice.ms)}
         >
           {choice.label}
@@ -111,29 +111,29 @@
     <Separator class="my-1.5" />
 
     <div class="flex flex-col gap-1.5 px-1 pb-1">
-      <span class="text-[0.5938rem] font-medium text-muted-foreground tracking-[0.07em] uppercase">Custom range</span>
+      <span class="text-insights-chrome font-medium text-muted-foreground tracking-[0.07em] uppercase">Custom range</span>
       <div class="flex flex-col gap-0.5">
-        <span class="px-0.5 text-[0.625rem] text-muted-foreground">From</span>
+        <span class="px-0.5 text-insights-chrome text-muted-foreground">From</span>
         <DateTimePicker
           value={draftFrom}
           onChange={(value) => (draftFrom = value)}
-          class="h-7 w-full text-xs"
+          class="h-7 w-full text-insights-chrome"
         />
       </div>
       <div class="flex flex-col gap-0.5">
-        <span class="px-0.5 text-[0.625rem] text-muted-foreground">To</span>
+        <span class="px-0.5 text-insights-chrome text-muted-foreground">To</span>
         <DateTimePicker
           value={draftTo}
           onChange={(value) => (draftTo = value)}
-          class="h-7 w-full text-xs"
+          class="h-7 w-full text-insights-chrome"
         />
       </div>
       {#if invalidHint}
-        <span class="text-[0.625rem]" style="color:var(--failure)">{invalidHint}</span>
+        <span class="text-insights-chrome" style="color:var(--failure)">{invalidHint}</span>
       {/if}
       <button
         type="button"
-        class="mt-0.5 h-6.5 cursor-pointer rounded-lg bg-(--primary) text-[0.6875rem] font-medium text-(--primary-foreground) transition-opacity disabled:cursor-not-allowed"
+        class="mt-0.5 h-6.5 cursor-pointer rounded-lg bg-(--primary) text-insights-chrome font-medium text-(--primary-foreground) transition-opacity disabled:cursor-not-allowed"
         style="opacity:{canApply ? 1 : 0.35}"
         disabled={!canApply}
         onclick={applyAbsolute}>Apply range</button

@@ -12,7 +12,7 @@
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import { toasts } from "../../lib/toasts";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
-  import { MarkdownTextarea } from "../ui/markdown-field";
+  import { CommentEditor } from "../ui/comment-editor";
   import { Button } from "../ui/button";
   import SinceReviewMarker from "../pr-review/SinceReviewMarker.svelte";
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
@@ -51,7 +51,8 @@
 
   let replying = $state(false);
   let replyText = $state("");
-  let replyEl = $state<HTMLTextAreaElement | null>(null);
+  let replyHasContent = $state(false);
+  let replyEl: ReturnType<typeof CommentEditor> | null = $state(null);
   let busy = $state(false);
 
   function initials(name: string): string {
@@ -67,10 +68,11 @@
   function cancelReply() {
     replying = false;
     replyText = "";
+    replyHasContent = false;
   }
 
   async function submitReply() {
-    const body = replyText.trim();
+    const body = replyEl?.getMarkdown().trim() ?? replyText.trim();
     if (!body || busy || !onReply) return;
     busy = true;
     try {
@@ -182,30 +184,31 @@
   {#if interactive}
     <div class="border-t border-(--solus-container-border) px-2.5 py-2">
       {#if replying}
-        <!-- Bare field: the first line starts at the top edge, so the mic rides
-             half of the `leading-4` below it. -->
-        <div class="flex flex-col gap-1.5" style="--rc-mic-line-center:0.5rem">
-          <MarkdownTextarea
-            bind:ref={replyEl}
-            bind:value={replyText}
-            bare
-            mic
+        <div class="flex flex-col gap-1.5">
+          <CommentEditor
+            bind:this={replyEl}
+            value={replyText}
+            onValueChange={(markdown) => (replyText = markdown)}
+            onEmptyChange={(empty) => (replyHasContent = !empty)}
             placeholder="Reply… ⌘↵"
-            rows={1}
-            onkeydown={(e: KeyboardEvent) => {
-              if (e.key === "Escape") {
-                e.preventDefault();
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.preventDefault();
                 cancelReply();
               }
+              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                event.preventDefault();
+                void submitReply();
+              }
             }}
-            onSubmit={submitReply}
-            class="min-h-8 max-h-30 overflow-y-auto rounded-md border border-(--solus-container-border) bg-(--solus-input-pill-bg) pl-2"
+            maxHeight={120}
+            class="min-h-8 rounded-md border border-(--solus-container-border) bg-(--solus-input-pill-bg) px-2"
           />
           <div class="flex items-center justify-end gap-1.5">
             <Button variant="ghost" size="sm" onclick={cancelReply} class="text-(--solus-text-tertiary)">
               Cancel
             </Button>
-            <Button size="sm" disabled={busy || !replyText.trim()} onclick={submitReply}>
+            <Button size="sm" disabled={busy || !replyHasContent} onclick={submitReply}>
               Reply
             </Button>
           </div>

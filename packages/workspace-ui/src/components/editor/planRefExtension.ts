@@ -1,6 +1,6 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { serializeReferenceToken } from './reference-tokens'
-import { tokenClassName, TOKEN_ICONS, type TokenVariant } from './tokenStyle'
+import { linkTokenClassName, TOKEN_ICONS, type TokenVariant } from './tokenStyle'
 import { z } from 'zod'
 
 export interface PlanRefAttrs {
@@ -114,7 +114,7 @@ export const PlanRefExtension = Node.create({
     return ['span', mergeAttributes(HTMLAttributes, {
       'data-plan-ref': node.attrs.planId,
       contenteditable: 'false',
-      class: tokenClassName(variant),
+      class: linkTokenClassName(variant),
     }),
       ['span', { class: 'solus-token__icon' }, icon],
       ['span', {}, node.attrs.title],

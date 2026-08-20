@@ -57,7 +57,6 @@
         class:split-primary={split}
         class:is-danger={item.danger}
         class:is-success={item.phase === "success"}
-        class:is-error={item.phase === "error"}
         class:is-loading={item.phase === "loading"}
         class:is-open={!!item.disclosure && menuOpen}
         disabled={item.disabled}
@@ -262,30 +261,6 @@
     100% {
       transform: scale(1);
       opacity: 1;
-    }
-  }
-  @media (prefers-reduced-motion: no-preference) {
-    .menu-row.is-error {
-      animation: shake 0.34s cubic-bezier(0.36, 0.07, 0.19, 0.97);
-    }
-  }
-  @keyframes shake {
-    10%,
-    90% {
-      transform: translateX(-0.0625rem);
-    }
-    20%,
-    80% {
-      transform: translateX(0.125rem);
-    }
-    30%,
-    50%,
-    70% {
-      transform: translateX(-0.125rem);
-    }
-    40%,
-    60% {
-      transform: translateX(0.125rem);
     }
   }
 </style>

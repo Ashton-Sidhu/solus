@@ -27,7 +27,7 @@ describe('task page loading state', () => {
       /ref\.name === "task"[\s\S]*<TaskPageSkeleton \/>/,
     )
     expect(taskPageSource).toMatch(
-      /taskId !== loadedId \|\| loadingTaskId === taskId \|\| !store\.loaded[\s\S]*<TaskPageSkeleton \/>/,
+      /aria-label="Task"[\s\S]*{#if taskId !== loadedId \|\| loadingTaskId === taskId \|\| !store\.loaded}[\s\S]*<TaskPageSkeleton \/>[\s\S]*{:else if task}/,
     )
   })
 

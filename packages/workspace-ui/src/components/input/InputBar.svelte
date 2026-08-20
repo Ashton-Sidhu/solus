@@ -45,7 +45,6 @@
   import { dictation, isDictationTarget } from "../../lib/dictation.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../lib/inputFocus";
-  import { requestFilePreview } from "../../lib/filePreview";
   import { VoiceRetryTracker } from "./lib/voice-retry.svelte";
   import { formatReleaseTime } from "../conversation/lib/queued-prompts";
   import { quotedReplyDraft } from "../../lib/quoted-reply";
@@ -784,10 +783,6 @@
   );
   // ─── Reference composer wiring ───
 
-  function previewFile(path: string) {
-    requestFilePreview({ path, tabId: targetTabId });
-  }
-
   /** Keep the target tab's plan/work/session refs in sync with the editor's tokens. */
   function handleRefsChange(
     nextPlanRefs: PlanReference[],
@@ -1257,7 +1252,7 @@
   {/if}
 
   {#if attachments.length > 0}
-    <div class="-ml-1 pt-1.5">
+    <div class="pt-2">
       <AttachmentChips
         {attachments}
         tabId={targetTabId}
@@ -1338,10 +1333,14 @@
        the waveform inherits the same padding and stands exactly as tall as the
        text well it replaces — entering voice mode must not resize the card. -->
   <div
-    class="[--plain-editor-font-size:var(--text-caption)] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {mode ===
-    'editor'
-      ? '[--plain-editor-padding:1.25rem_0_1.25rem_0]'
-      : ''}"
+    class="[--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {attachments.length >
+    0
+      ? mode === 'editor'
+        ? '[--plain-editor-padding:0.5rem_0_1.25rem_0]'
+        : '[--plain-editor-padding:0.5rem_0_0.9375rem_0.25rem]'
+      : mode === 'editor'
+        ? '[--plain-editor-padding:1.25rem_0_1.25rem_0]'
+        : ''}"
   >
     {#if hasMountedWaveform}
       <div
@@ -1374,13 +1373,6 @@
         onSolusCommand={handleSolusCommand}
         onKeyDown={handleKeyDown}
         onPaste={handlePaste}
-        onPlanRefClick={(planId) => session.openPlanModal(planId)}
-        onWorkRefClick={(workId, title) => session.openWorkModal(workId, title)}
-        onPrRefClick={(number, title) =>
-          void session.enterPrReview(number, title, {
-            ctx: session.ctxForDirectory(composerCwd),
-          })}
-        onFileRefClick={previewFile}
         {placeholder}
         readOnly={isReadOnly}
         disabled={isReadOnly || isConnecting || voiceState === "transcribing"}

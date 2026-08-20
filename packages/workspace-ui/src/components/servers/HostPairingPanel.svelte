@@ -32,11 +32,11 @@
   }
 </script>
 
-<p class="text-2xl font-medium text-(--solus-text-primary)">
+<p class="text-[2em] font-medium text-(--solus-text-primary)">
   {target.name}
 </p>
 <p
-  class="mt-1 truncate text-xs text-(--solus-text-tertiary)"
+  class="mt-1 truncate text-[0.875em] text-(--solus-text-tertiary)"
   style="font-family: 'Geist Mono', ui-monospace, monospace"
 >
   {target.host}:{target.port}
@@ -55,24 +55,24 @@
       <span class="block h-full w-full rounded-full bg-(--solus-status-error)/40"></span>
     {/if}
   </span>
-  <span class="shrink-0 text-xs tabular-nums text-(--solus-text-tertiary)">
+  <span class="shrink-0 text-[0.875em] tabular-nums text-(--solus-text-tertiary)">
     {store.pairingView === "error" ? "Not connected" : "Connecting"}
   </span>
 </div>
 
 <form onsubmit={submit}>
   {#if store.pairingView === "connecting"}
-    <p class="mt-4 text-pretty text-sm leading-[1.6] font-secondary text-(--solus-text-secondary)">
+    <p class="mt-4 text-pretty leading-[1.6] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3">
       Solus is using your existing SSH access to install and start the agent on
       {target.name}. Nothing is installed on this Mac.
     </p>
   {:else if store.pairingView === "error"}
-    <p class="mt-4 text-pretty text-sm leading-[1.6] text-(--solus-status-error)">
+    <p class="mt-4 text-pretty leading-[1.6] text-(--solus-status-error) [.is-laptop-display_&]:mt-3">
       {store.pairingError}
     </p>
   {:else if store.pairingView === "ssh-target"}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-xs leading-[1.55] font-secondary text-(--solus-text-secondary)"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>
@@ -82,14 +82,14 @@
     </p>
     <label class="mt-3.5 block">
       <span
-        class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
+        class="text-[0.875em] font-medium uppercase text-(--solus-text-tertiary)"
         >SSH target</span
       >
       <Input
         bind:ref={sshTargetInput}
         bind:value={store.sshTarget}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-sm text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-sm"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[length:inherit] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit] [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:rounded-md [.is-laptop-display_&]:px-2.5"
         placeholder="user@host"
         autocomplete="off"
         spellcheck={false}
@@ -97,27 +97,27 @@
     </label>
   {:else if store.pairingView === "ssh-password"}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-xs leading-[1.55] font-secondary text-(--solus-text-secondary)"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>
         Enter the SSH password or key passphrase for
         <span
-          class="rounded-md bg-(--solus-surface-hover) px-1 py-0.5 text-xs text-(--solus-text-primary)"
+          class="rounded-md bg-(--solus-surface-hover) px-1 py-0.5 text-[length:inherit] text-(--solus-text-primary)"
           >{store.sshTarget}</span
         >. It is used once and never stored.
       </span>
     </p>
     <label class="mt-3.5 block">
       <span
-        class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
+        class="text-[0.875em] font-medium uppercase text-(--solus-text-tertiary)"
         >Password or passphrase</span
       >
       <Input
         bind:ref={sshPasswordInput}
         bind:value={store.sshPassword}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-sm text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-sm"
+        class="mt-1.5 h-10 w-full rounded-lg border-(--solus-input-border) px-3 text-[length:inherit] text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit] [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:rounded-md [.is-laptop-display_&]:px-2.5"
         type="password"
         placeholder="••••••••"
         autocomplete="current-password"
@@ -125,7 +125,7 @@
     </label>
   {:else}
     <p
-      class="mt-4 flex items-start gap-2 text-pretty text-xs leading-[1.55] font-secondary text-(--solus-text-secondary)"
+      class="mt-4 flex items-start gap-2 text-pretty text-[0.875em] leading-[1.55] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3"
     >
       <InfoIcon size={14} class="mt-[0.1875rem] shrink-0 text-(--solus-text-quaternary)" />
       <span>
@@ -134,14 +134,14 @@
     </p>
     <label class="mt-3.5 block">
       <span
-        class="text-xs font-medium uppercase text-(--solus-text-tertiary)"
-        >{target.claimable ? "Claim code" : "Pair code"}</span
+        class="text-[0.875em] font-medium uppercase text-(--solus-text-tertiary)"
+        >Pair code</span
       >
       <Input
         bind:ref={codeInput}
         bind:value={store.pairCode}
         disabled={store.pairingBusy}
-        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center text-sm tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-sm"
+        class="mt-1.5 h-10 w-full max-w-[12rem] rounded-lg border-(--solus-input-border) px-3 text-center text-[length:inherit] tabular-nums text-(--solus-text-primary) transition-[border-color,box-shadow] duration-150 placeholder:text-(--solus-text-quaternary) focus-visible:border-(--solus-input-focus-border) focus-visible:ring-[3px] focus-visible:ring-(--solus-input-focus-ring) md:text-[length:inherit] [.is-laptop-display_&]:h-8 [.is-laptop-display_&]:max-w-[10rem] [.is-laptop-display_&]:rounded-md [.is-laptop-display_&]:px-2.5"
         placeholder="000000"
         inputmode="numeric"
         maxlength="6"
@@ -149,7 +149,7 @@
       />
     </label>
     {#if store.pairingError}
-      <p class="mt-2 text-pretty text-xs leading-relaxed text-(--solus-status-error)">
+      <p class="mt-2 text-pretty text-[0.875em] leading-relaxed text-(--solus-status-error)">
         {store.pairingError}
       </p>
     {/if}

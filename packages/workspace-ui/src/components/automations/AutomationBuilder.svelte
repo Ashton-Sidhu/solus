@@ -788,13 +788,6 @@
           pluginCommands={session.pluginCommands}
           provider={agentProvider}
           workingDirectory={cwd}
-          onPlanRefClick={(planId) => session.openPlanModal(planId)}
-          onWorkRefClick={(workId, title) =>
-            session.openWorkModal(workId, title)}
-          onPrRefClick={(number, title) =>
-            void session.enterPrReview(number, title, {
-              ctx: session.ctxForDirectory(cwd),
-            })}
           menuPlacement="down"
           placeholder="What should the agent do each run? Use @ for files, / for skills, # for plans, % for docs, ! for PRs."
         />

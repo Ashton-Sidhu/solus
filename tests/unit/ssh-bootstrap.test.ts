@@ -1,13 +1,15 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { mkdtempSync, rmSync } from 'fs'
+import { spawnSync } from 'child_process'
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { issueSshBootstrapCredential, getOwnershipState, resetAuthStateForTests, verifySessionToken } from '@solus/server/server/auth'
+import { issueSshBootstrapCredential, resetAuthStateForTests, verifySessionToken } from '@solus/server/server/auth'
 import {
   bootstrapDiscoveredServerOverSsh,
   isSshAuthFailure,
   parseSshTarget,
   resolveSshBootstrapTarget,
+  SSH_BOOTSTRAP_CREDENTIAL_SCRIPT,
   type SshRunOptions,
 } from '@solus/server/server/ssh-bootstrap'
 import type { DiscoveredServer } from '@solus/contracts/types'
@@ -100,13 +102,54 @@ describe('SSH bootstrap', () => {
     })
   })
 
+  test('finds Solus through the remote account login shell', () => {
+    // WHY: Linuxbrew and version managers often add their bin directory only
+    // in interactive shell startup. The SSH bootstrap still has to use the CLI
+    // that the same account can run in its terminal.
+    const directory = mkdtempSync(join(tmpdir(), 'solus-ssh-path-test-'))
+    const cliDirectory = join(directory, 'cli bin')
+    const cliPath = join(cliDirectory, 'solus')
+    const shellPath = join(directory, 'login-shell')
+    mkdirSync(cliDirectory)
+    writeFileSync(cliPath, `#!/bin/sh
+test "$1" = auth
+test "$2" = session
+test "$3" = create
+printf '{"sessionToken":"token"}\\n'
+`)
+    writeFileSync(shellPath, `#!/bin/sh
+test "$1" = -ilc
+printf '%s\\n' "$SOLUS_TEST_CLI"
+`)
+    chmodSync(cliPath, 0o755)
+    chmodSync(shellPath, 0o755)
+
+    try {
+      const result = spawnSync('/bin/sh', ['-s', '--', 'Test device'], {
+        input: SSH_BOOTSTRAP_CREDENTIAL_SCRIPT,
+        encoding: 'utf8',
+        env: {
+          ...process.env,
+          PATH: '/usr/bin:/bin',
+          SHELL: shellPath,
+          SOLUS_TEST_CLI: cliPath,
+        },
+      })
+
+      expect(result.status).toBe(0)
+      expect(result.stdout.trim()).toBe('{"sessionToken":"token"}')
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  })
+
   test('detects OpenSSH authentication failures', () => {
     expect(isSshAuthFailure('Permission denied (publickey,password).')).toBe(true)
     expect(isSshAuthFailure('Too many authentication failures')).toBe(true)
     expect(isSshAuthFailure('Host key verification failed.')).toBe(false)
   })
 
-  test('SSH-authorized credential issuance claims an unclaimed server and creates a normal session token', () => {
+  test('SSH-authorized credential issuance creates a normal session token', () => {
     const dir = mkdtempSync(join(tmpdir(), 'solus-auth-test-'))
     process.env.SOLUS_DATA_DIR = dir
     resetAuthStateForTests()
@@ -115,34 +158,22 @@ describe('SSH bootstrap', () => {
       const session = verifySessionToken(credential.sessionToken, 1_770_000_000_000)
 
       expect(session?.deviceLabel).toBe('Solus desktop')
-      expect(credential.ownerDeviceId).toBe(session?.deviceId)
-      expect(credential.claimedAt).toBe(1_770_000_000_000)
-      expect(getOwnershipState()).toEqual({
-        owned: {
-          ownerDeviceId: session?.deviceId,
-          claimedAt: 1_770_000_000_000,
-        },
-      })
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('SSH-authorized credential issuance allows another client after the server is owned', () => {
+  test('SSH-authorized credential issuance allows multiple clients', () => {
     const dir = mkdtempSync(join(tmpdir(), 'solus-auth-test-'))
     process.env.SOLUS_DATA_DIR = dir
     resetAuthStateForTests()
     try {
       const first = issueSshBootstrapCredential('First desktop', 1_770_000_000_000)
-      const ownership = getOwnershipState()
       const second = issueSshBootstrapCredential('Second desktop', 1_770_000_001_000)
 
       expect(second.sessionToken).not.toBe(first.sessionToken)
       expect(verifySessionToken(first.sessionToken, 1_770_000_001_000)?.deviceLabel).toBe('First desktop')
       expect(verifySessionToken(second.sessionToken, 1_770_000_001_000)?.deviceLabel).toBe('Second desktop')
-      expect(second.ownerDeviceId).toBeUndefined()
-      expect(second.claimedAt).toBeUndefined()
-      expect(getOwnershipState()).toEqual(ownership)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -155,7 +186,6 @@ function discoveredServer(): DiscoveredServer {
     port: 3000,
     name: 'solus-unconfigured-test-host.invalid',
     installationId: 'remote-installation',
-    claimable: true,
     source: 'tailnet',
   }
 }

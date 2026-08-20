@@ -3,7 +3,11 @@ import { runInputFromContext } from '@solus/server/agents/run-input'
 import { IpcContextBuilder, type IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspace/ipc-context'
 import type { StatusBarCtx } from '@solus/contracts/types'
 
-function statusBar(model: string, reasoningEffort: StatusBarCtx['reasoningEffort']): StatusBarCtx {
+function statusBar(
+  model: string,
+  reasoningEffort: StatusBarCtx['reasoningEffort'],
+  fastMode = false,
+): StatusBarCtx {
   return {
     workingDirectory: '/repo',
     activeAgent: 'codex',
@@ -13,7 +17,7 @@ function statusBar(model: string, reasoningEffort: StatusBarCtx['reasoningEffort
     defaultReasoningEffort: 'high',
     reasoningLevels: ['low', 'medium', 'high'],
     supportsFastMode: false,
-    fastMode: false,
+    fastMode,
     contextWindows: [200_000],
   }
 }
@@ -48,7 +52,7 @@ describe('IPC context', () => {
 
   test("a split tab runs with its own status bar's model and reasoning", () => {
     const primaryStatus = statusBar('primary-model', 'high')
-    const splitStatus = statusBar('split-model', 'low')
+    const splitStatus = statusBar('split-model', 'low', true)
     const deps = {
       tabs: () => ({}),
       sessionFor: () => undefined,
@@ -85,6 +89,7 @@ describe('IPC context', () => {
 
     expect(runInput.model).toBe('split-model')
     expect(runInput.reasoningEffort).toBe('low')
+    expect(runInput.fastMode).toBe(true)
   })
 
   test('an environment context carries its checkout without a tab', () => {

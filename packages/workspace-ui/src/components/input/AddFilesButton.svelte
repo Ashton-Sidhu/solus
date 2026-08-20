@@ -89,7 +89,7 @@
           {disabled}
           class="flex h-full w-[1.5rem] flex-shrink-0 items-center justify-center rounded-lg transition-[color] duration-[var(--duration-quick)] hover:text-(--solus-text-primary) focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary) disabled:opacity-50"
         >
-          <PencilIcon size={15} />
+          <PencilIcon size={13} />
         </button>
             {/snippet}
           </TooltipUI.Trigger>

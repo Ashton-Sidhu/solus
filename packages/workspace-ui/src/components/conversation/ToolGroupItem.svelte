@@ -132,6 +132,7 @@
 <div class="activity-host {skipMotion ? '' : 'animate-msg-in-side'}">
   <ActivityRow
     {expanded}
+    nested={!working && !runningTool}
     onToggle={toggleExpanded}
     target={namedTarget ? targetText : undefined}
     glyphClass={failedTool && !runningTool ? "is-destructive" : ""}
@@ -200,7 +201,7 @@
           <button
             type="button"
             class:is-expanded={expandedToolId === tool.id}
-            class="tool-step-text font-mono"
+            class="tool-step-text text-tool-step font-mono"
             aria-expanded={expandedToolId === tool.id}
             onclick={() => toggleToolExpanded(tool.id)}
           >
@@ -208,7 +209,7 @@
           </button>
           <span class="flex-1"></span>
           {#if tool.toolCompletedAt}
-            <span class="tool-step-duration font-mono shrink-0">
+            <span class="tool-step-duration text-tool-step font-mono shrink-0">
               {formatActivityDuration(tool.toolCompletedAt - tool.timestamp)}
             </span>
           {/if}
@@ -255,6 +256,11 @@
     opacity: 0.5;
   }
 
+  .tool-step-glyph :global(svg) {
+    width: var(--text-tool-step);
+    height: var(--text-tool-step);
+  }
+
   .tool-step-glyph--failed {
     color: var(--destructive);
     opacity: 1;
@@ -270,7 +276,6 @@
     white-space: nowrap;
     text-align: left;
     text-overflow: ellipsis;
-    font-size: var(--text-transcript-meta);
     opacity: 0.8;
     cursor: pointer;
   }
@@ -287,7 +292,6 @@
   }
 
   .tool-step-duration {
-    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.55;
   }

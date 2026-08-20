@@ -1,4 +1,4 @@
-import { claimServer, defaultDeviceLabel, normalizeServerUrl, pairServer, urlHost } from '@solus/client-core/pairing'
+import { defaultDeviceLabel, normalizeServerUrl, pairServer, urlHost } from '@solus/client-core/pairing'
 import { loadServers, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { track } from '@solus/workspace-ui/lib/analytics'
 import { classifyConnectInput, probeServer } from './connect'
@@ -43,8 +43,7 @@ export interface AddHostRequest {
 /**
  * The one pairing path behind the smart connect field, shared by every surface
  * that offers it. A pasted link carries its own token; an address needs the
- * code, which a fresh host takes as a claim and an owned one as a pairing
- * token. Saves the host on success. Throws with a message meant for the user.
+ * code. Saves the host on success. Throws with a message meant for the user.
  */
 export async function addHostFromInput({
   input,
@@ -62,7 +61,7 @@ export async function addHostFromInput({
 
   const deviceLabel = defaultDeviceLabel()
   const label = serverLabel.trim()
-  let method: 'token' | 'claim' = classified.kind === 'link' ? 'token' : 'claim'
+  const method = 'token'
   try {
     let server: SavedServer
     if (classified.kind === 'link') {
@@ -73,25 +72,14 @@ export async function addHostFromInput({
         serverLabel: label,
       }))
     } else {
-      // A fresh, unclaimed server takes its code at /claim; an owned one
-      // treats the same 6 digits as a pairing code.
       const health = await probeServer(classified.url)
-      if (health.claimable) {
-        ({ server } = await claimServer({
-          url: classified.url,
-          code: trimmedCode,
-          deviceLabel,
-          serverLabel: label || health.name,
-        }))
-      } else {
-        method = 'token'
-        ;({ server } = await pairServer({
-          url: classified.url,
-          pairToken: trimmedCode,
-          deviceLabel,
-          serverLabel: label || health.name,
-        }))
-      }
+      const result = await pairServer({
+        url: classified.url,
+        pairToken: trimmedCode,
+        deviceLabel,
+        serverLabel: label || health.name,
+      })
+      server = result.server
     }
     upsertServer(server)
     track('pairing_completed', { method })

@@ -3,7 +3,7 @@ import { createLogger, flushLogs } from '@solus/server/logger'
 import { shutdownAnalytics } from '@solus/server/analytics'
 import { shutdownOtel } from '@solus/server/otel'
 import { coerceGitCredentialAction, runGitCredentialHelper, type GitCredentialAction } from '@solus/server/providers/github/git-credential'
-import { bestEndpoint, extractGitCredentialAction, formatClaimBlock, hostForUrl, parseFlags, parsePort } from '@solus/contracts/entrypoint'
+import { bestEndpoint, extractGitCredentialAction, formatPairBlock, hostForUrl, parseFlags, parsePort } from '@solus/contracts/entrypoint'
 import type { BootCore } from '@solus/server/boot-core'
 
 const log = createLogger('main', 'standalone')
@@ -97,15 +97,14 @@ async function main(): Promise<void> {
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
   process.stdout.write(`Solus server reachable at ${baseUrl}\n`)
 
-  const claimWindow = auth.getActiveClaimWindow() ?? auth.ensureClaimWindow()
-  if (claimWindow) {
-    process.stdout.write([
-      '',
-      'Solus server is unclaimed.',
-      ...formatClaimBlock(`${baseUrl}/claim`, claimWindow.code, claimWindow.expiresAt, auth.getServerFingerprint()),
-      '',
-    ].join('\n'))
-  }
+  const pairToken = auth.generatePairToken()
+  const pairUrl = `${baseUrl}/pair#token=${pairToken.token}`
+  process.stdout.write([
+    '',
+    'Pair a client with this server.',
+    ...formatPairBlock(pairUrl, pairToken.code, pairToken.expiresAt, auth.getServerFingerprint()),
+    '',
+  ].join('\n'))
 
   installShutdownHandlers(core)
 }

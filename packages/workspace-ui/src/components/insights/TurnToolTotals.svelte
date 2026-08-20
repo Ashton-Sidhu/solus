@@ -26,10 +26,10 @@
     aria-label="Longest tool calls"
   >
     <header class="flex h-9 shrink-0 items-center gap-2 pr-1.5 pl-3">
-      <h2 class="m-0 text-[0.6875rem] font-normal text-muted-foreground uppercase">
+      <h2 class="m-0 text-insights-chrome font-normal text-muted-foreground uppercase">
         Longest tool calls
       </h2>
-      <span class="text-[0.6875rem] tabular-nums text-muted-foreground opacity-60"
+      <span class="text-insights-chrome tabular-nums text-muted-foreground opacity-60"
         >{totals.length}</span
       >
     </header>
@@ -40,7 +40,7 @@
              own: a separate track leaves the tool name too narrow to read,
              which is the one thing the list exists to say. -->
         <div
-          class="relative flex h-6 items-center gap-2 overflow-hidden rounded-md px-2 text-[0.6875rem]"
+          class="relative flex h-6 items-center gap-2 overflow-hidden rounded-md px-2 text-insights-summary"
           title="{total.tool} · ×{total.calls} · {formatDuration(total.ms)}"
         >
           <span

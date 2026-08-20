@@ -66,7 +66,11 @@
   {#if trailing}{@render trailing()}{/if}
 
   {#if onOpenInSplit}
-    <PaneSwapButton {isLeading} onMove={onOpenInSplit} />
+    <PaneSwapButton
+      {isLeading}
+      onMove={onOpenInSplit}
+      leadingDestination="pane"
+    />
   {/if}
 
   {#if onToggleMaximize}

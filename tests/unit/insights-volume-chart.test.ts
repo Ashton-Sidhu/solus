@@ -12,8 +12,22 @@ const source = readFileSync(
   join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/VolumeChart.svelte'),
   'utf8',
 )
+const queryConsoleSource = readFileSync(
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/QueryConsole.svelte'),
+  'utf8',
+)
+const sqlEditorSource = readFileSync(
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/insights/SqlEditor.svelte'),
+  'utf8',
+)
 
 describe('Insights volume chart interaction composition', () => {
+  test('the volume plot gives laptop displays more result space', () => {
+    // WHY: the tall-display rule also matches a 14-inch laptop, where a 13rem
+    // plot leaves too little room for the result list below it.
+    expect(source).toContain('[.is-laptop-display_&]:h-36')
+  })
+
   test('the main bars split volume by provider rather than completion status', () => {
     expect(source).toContain('bucket.claudeCode')
     expect(source).toContain('bucket.codex')
@@ -42,6 +56,66 @@ describe('Insights volume chart interaction composition', () => {
     expect(source).toContain('var(--solus-art-1)_8%')
     expect(source).not.toContain('var(--solus-art-5)_8%')
     expect(source).not.toContain('handle:\n              "!top-2.5')
+  })
+})
+
+describe('Insights SQL editor height', () => {
+  test('opens at three laptop lines and five desktop lines', () => {
+    // WHY: a laptop needs more result space beneath the query, while a large
+    // desktop can keep more SQL visible before the user opens the pop-out.
+    expect(sqlEditorSource).toContain("surface = \"inline\"")
+    expect(sqlEditorSource).toContain(
+      ": 'h-[7.5rem] overflow-auto [.is-laptop-display_&]:h-[4.5rem]'",
+    )
+  })
+
+  test('opens the whole query console around a focused, viewport-bounded editor', () => {
+    expect(queryConsoleSource).toContain('aria-label={isPopout ? "Close focused query console" : "Open query console"}')
+    expect(queryConsoleSource).toContain('aria-modal="true"')
+    expect(queryConsoleSource).toContain('{@render consoleSurface(true)}')
+    expect(queryConsoleSource).toContain('bind:this={popoutSqlEditor}')
+    expect(queryConsoleSource).toContain('surface="popout"')
+    expect(queryConsoleSource).toContain('aria-label="Query history"')
+    expect(queryConsoleSource).toContain('aria-label="Schema"')
+    expect(sqlEditorSource).toContain("'min-h-13 overflow-visible'")
+    expect(sqlEditorSource).not.toContain('max-h-[min(62vh,36rem)]')
+  })
+
+  test('keeps the pop-out action in the shared toolbar for Ask and SQL', () => {
+    expect(queryConsoleSource).toContain('{#if !readOnly}')
+    expect(queryConsoleSource).toContain('aria-label={isPopout ? "Close focused query console" : "Open query console"}')
+    expect(queryConsoleSource).not.toContain('isPopout || (form === "sql" && !readOnly)')
+  })
+
+  test('uses wider laptop-aware modal bounds and visible border rings', () => {
+    expect(queryConsoleSource).toContain('w-[min(76rem,calc(100vw-4rem))]')
+    expect(queryConsoleSource).toContain('[.is-laptop-display_&]:w-[min(66rem,calc(100vw-2rem))]')
+    expect(queryConsoleSource).toContain('[.is-laptop-display_&]:max-h-[min(76vh,36rem)]')
+    expect(queryConsoleSource).toContain('0_0_0_0.5px_var(--hairline-strongest)')
+    expect(queryConsoleSource).toContain('0_0_0_3px_color-mix(in_oklch,var(--primary)_11%')
+  })
+
+  test('keeps the scrollbar gutter flush with the modal surface', () => {
+    // WHY: two rounded transparent layers exposed a bright strip beside the
+    // scrollbar. The scroll owner paints the card and owns the only radius.
+    expect(queryConsoleSource).toContain('overflow-x-hidden overflow-y-auto rounded-2xl')
+    expect(queryConsoleSource).toContain('border-(--solus-popover-border) bg-card')
+    expect(queryConsoleSource).toContain("isPopout ? 'rounded-none' : 'rounded-xl'")
+  })
+
+  test('keeps modal tab selection local until a query runs', () => {
+    expect(queryConsoleSource).toContain('let popoutForm = $state<QueryForm>("sql")')
+    expect(queryConsoleSource).toContain('const activeForm = isPopout ? popoutForm : form')
+    expect(queryConsoleSource).toContain('isPopout ? (popoutForm = tab.id) : onFormChange(tab.id)')
+    expect(queryConsoleSource).toContain('onclick={() => onRun(activeForm)}')
+  })
+
+  test('the pop-out does not reference snippets scoped inside the inline console', () => {
+    // WHY: Svelte can compile a snippet reference across this boundary, but it
+    // is undefined when the conditional pop-out first renders at runtime.
+    const popout = queryConsoleSource.slice(queryConsoleSource.indexOf('{#if editorPopoutOpen}'))
+    expect(popout).not.toContain('@render runButton')
+    expect(popout).not.toContain('@render runningSweep')
   })
 })
 

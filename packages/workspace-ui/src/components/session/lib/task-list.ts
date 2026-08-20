@@ -31,6 +31,18 @@ export function hasGlyph(status: TaskStatus): boolean {
   return status !== 'running' && status !== 'idle' && status !== 'done'
 }
 
+/** Error remains visible in the margin after it is read, but only an unread
+ * error uses title weight to call for attention. Selection still emphasizes
+ * every other state; the accent spine is enough to locate a read error. */
+export function shouldEmphasizeTitle(
+  status: TaskStatus,
+  unread: boolean,
+  isCurrent: boolean,
+): boolean {
+  if (status === 'error') return unread
+  return isCurrent || hasGlyph(status)
+}
+
 /** Session output stays unread independently of the durable task lifecycle.
  * A state that needs the user keeps its more specific glyph; otherwise the
  * unread dot wins over idle, running, or done presentation. */
@@ -210,16 +222,16 @@ export function shouldCompleteTaskForPr(
   return !Number.isFinite(prUpdatedAt) || task.updatedAt <= prUpdatedAt
 }
 
-/** A host task appears only after this client opens it. Child tasks render under
+/** A task appears only after this client opens it. Child tasks render under
  * their root, and a local dismissal keeps a root closed until a session reopens
- * it. Lifecycle status does not control row ownership or visibility. */
+ * it. Task status does not add a row by itself. */
 export function shouldShowDurableSidebarTask(
   task: Task,
   isDismissed: boolean,
   hasOpenSession: boolean,
   isOpenOnClient: boolean,
 ): boolean {
-  return !task.parentId && ((!isDismissed && isOpenOnClient) || hasOpenSession)
+  return !task.parentId && (hasOpenSession || (!isDismissed && isOpenOnClient))
 }
 
 /** A session whose task is done is finished work, whatever its tab is doing.

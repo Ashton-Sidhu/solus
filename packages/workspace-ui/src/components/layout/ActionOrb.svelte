@@ -67,7 +67,7 @@
     | "review";
   type PrimaryAction = "stop" | null;
   type OrbBadge = {
-    kind: "running" | "success" | "count" | "branch";
+    kind: "running" | "success" | "count";
     label: string;
     title: string;
   };
@@ -98,10 +98,6 @@
     showDesktopActions && !windowCtx.isWeb,
   );
 
-  const isBranchDiff = $derived(
-    !!sess?.run.gitContext &&
-      sess.run.gitContext.branch !== sess.run.gitContext.targetBranch,
-  );
   const hasSessionChanges = $derived(sessionChangedFiles.length > 0);
   const hasUncommittedChanges = $derived(uncommittedFiles.length > 0);
   // This action reviews one agent session. Never fall back to the branch key:
@@ -128,8 +124,10 @@
     sess?.status === "running" || sess?.status === "connecting",
   );
   const isCreatingWorktree = $derived(session.isContinuingInWorktree(tabId));
+  // The repository can have unrelated uncommitted files. Do not mount an empty
+  // session popover only because that broader repository count is non-zero.
   const showOpenFiles = $derived(
-    showNativeDesktopActions && hasUncommittedChanges,
+    showNativeDesktopActions && hasUncommittedChanges && hasSessionChanges,
   );
   const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
   const remoteHost = $derived.by(() => {
@@ -305,12 +303,6 @@
         title: `${uncommittedFiles.length} uncommitted file${uncommittedFiles.length !== 1 ? "s" : ""}`,
       };
     }
-    if (isBranchDiff)
-      return {
-        kind: "branch",
-        label: "BR",
-        title: "Branch differs from target",
-      };
     return null;
   });
   const orbTooltip = $derived.by(() => {

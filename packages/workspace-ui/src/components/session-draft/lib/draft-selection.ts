@@ -45,5 +45,13 @@ export function draftModelSelection(
         modelConfig: { ...current.run.modelConfig, reasoningEffort: next },
       }
     },
+    get fastMode() {
+      return draft()?.run.modelConfig?.fastMode ?? false
+    },
+    set fastMode(next) {
+      const current = draft()
+      if (!current) return
+      current.run.modelConfig.fastMode = next
+    },
   }
 }

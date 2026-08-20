@@ -55,7 +55,13 @@
 
     // The bar belongs to a caret, so it leaves with focus and comes back with
     // it — a transaction alone doesn't fire when focus simply returns.
-    const onBlur = () => (anchor = null);
+    const onBlur = () => {
+      // Tiptap can emit blur while Svelte is mounting the portalled bar. Defer
+      // the state write so it does not run inside Svelte's template reaction.
+      requestAnimationFrame(() => {
+        anchor = null;
+      });
+    };
 
     ed.on("selectionUpdate", schedule);
     ed.on("transaction", schedule);
