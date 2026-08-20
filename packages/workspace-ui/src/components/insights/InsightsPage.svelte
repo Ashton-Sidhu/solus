@@ -638,6 +638,7 @@
         heading={listLabel}
         selectedIndex={railIndex}
         onOpenItem={openRailItem}
+        onOpenSession={(sessionId) => void openSession(sessionId)}
         {emptyHint}
       />
     </div>

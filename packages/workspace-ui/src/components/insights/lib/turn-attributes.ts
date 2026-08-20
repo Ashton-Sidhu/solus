@@ -121,7 +121,7 @@ export function turnAttributes(root: MetricsSpan, view: TraceView): TurnAttribut
           'duration_ms',
           root.durationMs,
           formatDuration(root.durationMs),
-          view.unattributedMs != null && view.traceCoverage != null
+          view.providerWaitMs != null && view.traceCoverage != null
             ? `${formatPercent(view.traceCoverage)} of it attributed to spans`
             : 'no trace-coverage estimate',
           root.status === 'error' ? 'failure' : 'default',
@@ -221,11 +221,11 @@ export function turnAttributes(root: MetricsSpan, view: TraceView): TurnAttribut
           'between the previous settlement and this dispatch',
         ),
         measure(
-          'unattributed_ms',
-          view.unattributedMs,
-          formatDuration(view.unattributedMs),
-          'turn time no span covers',
-          view.unattributedMs != null && view.traceCoverage != null && view.traceCoverage < 0.5
+          'provider_wait_ms',
+          view.providerWaitMs,
+          formatDuration(view.providerWaitMs),
+          'provider wait outside Thinking and recorded activity',
+          view.providerWaitMs != null && view.traceCoverage != null && view.traceCoverage < 0.5
             ? 'warning'
             : 'default',
         ),

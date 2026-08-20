@@ -163,7 +163,7 @@ export type MetricsGapCategory =
   | 'provider_completion'
   | 'turn_settlement'
   | 'after_last_provider_event'
-  | 'unattributed'
+  | 'provider_wait'
 
 /** One uncovered interval inside a turn. The category describes where the gap
  *  sits between observed lifecycle boundaries; it does not claim what the
@@ -179,11 +179,11 @@ export interface MetricsGapSegment {
 export interface MetricsTurnTrace {
   traceId: string
   spans: MetricsSpan[]
-  /** Root turn time not covered by the union of observed blocking child
-   *  intervals. Null when the trace has no root turn span. */
-  unattributedMs: number | null
+  /** Root turn time outside semantic blocking activity. Null when the trace
+   *  has no root turn span. */
+  providerWaitMs: number | null
   /** The uncovered intervals split at observed provider and settlement
-   *  boundaries. Their durations sum to `unattributedMs`. */
+   *  boundaries. Their durations sum to `providerWaitMs`. */
   gapSegments: MetricsGapSegment[]
 }
 

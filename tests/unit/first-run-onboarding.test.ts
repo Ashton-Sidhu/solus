@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 import {
   ONBOARDING_GESTURES,
@@ -16,6 +18,28 @@ import {
 import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
 
 const SURFACES: OnboardingSurface[] = ['pointer', 'touch']
+
+const onboardingSurfaceSource = readFileSync(
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/onboarding/OnboardingSurface.svelte'),
+  'utf8',
+)
+const onboardingGesturesSource = readFileSync(
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/onboarding/OnboardingGesturesStage.svelte'),
+  'utf8',
+)
+
+describe('desktop onboarding hit testing', () => {
+  test('keeps the appearance and skip controls outside the window drag region', () => {
+    // WHY: these controls overlap the macOS titlebar. Electron treats that row
+    // as a window drag region unless each late-mounted control opts out.
+    expect(onboardingSurfaceSource).toContain(
+      'class="no-drag flex h-6.5 items-center gap-1.5 rounded-full',
+    )
+    expect(onboardingSurfaceSource).toContain(
+      'class="no-drag h-6.5 rounded-full px-2.5 text-xs',
+    )
+  })
+})
 
 describe('first-run onboarding stages', () => {
   test('the start choice is last, because answering it ends the flow', () => {
@@ -99,6 +123,12 @@ describe('choosing a surface', () => {
 })
 
 describe('the getting-around stage', () => {
+  test('imports the tap icon that the touch-only stage renders', () => {
+    // WHY: the web build can succeed with an undefined component value because
+    // it is evaluated only when a phone leaves the welcome stage.
+    expect(onboardingGesturesSource).toContain('Pointer as HandTapIcon')
+  })
+
   test('it teaches as many gestures as its title promises', () => {
     // The stage's title reads "Four ways around".
     expect(ONBOARDING_GESTURES).toHaveLength(4)

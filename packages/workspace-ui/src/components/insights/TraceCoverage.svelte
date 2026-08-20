@@ -3,9 +3,9 @@
   import * as TooltipUI from "../ui/tooltip";
   import { formatDuration, formatPercent } from "./lib/format";
   import {
-    UNATTRIBUTED_CAUSES,
-    UNATTRIBUTED_EXPLANATION,
-    UNATTRIBUTED_KIND,
+    PROVIDER_WAIT_CAUSES,
+    PROVIDER_WAIT_EXPLANATION,
+    PROVIDER_WAIT_KIND,
   } from "./lib/span-palette";
   import { spanDetailLabel, type KindShare, type TraceView } from "./lib/waterfall";
 
@@ -15,8 +15,8 @@
    *
    * The bar and its legend are one reading of the same union — a kind's slice is
    * the time covered by its spans, counted once even when two of them
-   * overlapped. Unattributed time is a coverage remainder, so the gap list says
-   * where each interval sits without claiming what the provider did there.
+   * overlapped. Provider wait is the remaining coverage remainder after the
+   * lead-in to a reported thinking span has been counted as Thinking.
    *
    * Full width, beside the plot it describes rather than shrunk into the rail:
    * a share bar is a picture of the same interval the waterfall draws, and the
@@ -74,7 +74,7 @@
        introduces. -->
   <div class="flex flex-wrap items-baseline gap-x-4 gap-y-1">
     {#each trace.legend as entry (entry.kind)}
-      {#if entry.kind === UNATTRIBUTED_KIND}
+      {#if entry.kind === PROVIDER_WAIT_KIND}
         <!-- The one entry that is a remainder rather than a measurement, so it
              is the one entry a reader has to be told the meaning of. -->
         <TooltipUI.Root>
@@ -97,10 +97,10 @@
             <div class="flex max-w-80 min-w-0 flex-col gap-1.5 p-2.5">
               <div class="font-medium text-(--solus-text-primary)">{entry.label}</div>
               <p class="m-0 text-(--solus-text-secondary) text-pretty">
-                {UNATTRIBUTED_EXPLANATION}
+                {PROVIDER_WAIT_EXPLANATION}
               </p>
               <ul class="m-0 flex list-disc flex-col gap-0.5 pl-3.5 text-(--solus-text-tertiary)">
-                {#each UNATTRIBUTED_CAUSES as cause (cause)}
+                {#each PROVIDER_WAIT_CAUSES as cause (cause)}
                   <li class="text-pretty">{cause}</li>
                 {/each}
               </ul>
@@ -144,7 +144,7 @@
   {#if gapsOpen && trace.gapSummaries.length > 0}
     <div class="flex flex-col gap-1 border-t border-[var(--hairline)] pt-2">
       <p class="m-0 max-w-[70ch] text-muted-foreground opacity-70 text-pretty">
-        These rows locate missing trace coverage. They do not identify model work or idle time.
+        These rows locate provider wait and settlement outside recorded spans.
       </p>
       {#each trace.gapSummaries as gap (gap.category)}
         <div class="flex items-baseline gap-3 text-muted-foreground" title={gap.description}>

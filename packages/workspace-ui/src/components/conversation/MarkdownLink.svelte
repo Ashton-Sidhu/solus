@@ -104,7 +104,7 @@
       e.preventDefault();
       session.openRoute(linkRoute, {
         target: linkRoute.name === "task" ? "new" : "aside",
-        externalFallbackUrl:
+        sourceUrl:
           linkRoute.name === "prReview" && /^https:\/\//i.test(href)
             ? href
             : undefined,

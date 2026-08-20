@@ -6,6 +6,12 @@ import type {
   MetricsViewDescriptor,
 } from '@solus/contracts/observability-types'
 import { SPAN_KINDS, type SpanKind } from './registries'
+import {
+  effectiveDurationSql,
+  effectiveStartedAtSql,
+  providerWaitSql,
+  thinkingTimeSql,
+} from './trace-timing'
 
 // ─── Field registry ───
 //
@@ -85,6 +91,19 @@ const childTime = (name: string, kind: SpanKind, description: string): Registere
   },
 })
 
+const durationExpression = (
+  name: string,
+  sql: string,
+  description: string,
+  group: MetricsFieldGroup,
+): RegisteredField => ({
+  name,
+  type: 'duration',
+  description,
+  group,
+  storage: { source: 'expression', sql },
+})
+
 /** Dimensions and timing shared by every kind's view. */
 export const BASE_FIELDS: RegisteredField[] = [
   ...withGroup('identity', [
@@ -130,7 +149,7 @@ export const SCHEMA_RELATIONSHIPS: string[] = [
   'Two tables answer nearly every question: turns is one row per user-to-agent turn, and '
   + 'events is one row per operation observed inside or beside one — filter events by kind '
   + 'instead of looking for a table per kind.',
-  'turns already carries each per-kind child time sum (tool_time_ms, thinking_time_ms, '
+  'turns already carries provider_wait_ms and each per-kind child time sum (tool_time_ms, thinking_time_ms, '
   + 'streaming_time_ms, setup_time_ms, permission_wait_ms, question_wait_ms, compaction_time_ms, queue_wait_ms, '
   + 'rate_limit_wait_ms, settlement_time_ms), so "… by model, project, or session" needs no join.',
   'An event inside a turn shares its trace_id (a turn root has span_id = trace_id); join '
@@ -173,7 +192,12 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
         attr('time_to_provider_complete_ms', 'timeToProviderCompleteMs', 'duration', 'Turn start to the provider task-complete event received by Solus'),
       ]),
       childTime('tool_time_ms', SPAN_KINDS.toolCall, 'Total tool-call time inside the turn, pre-summed so no join is needed'),
-      childTime('thinking_time_ms', SPAN_KINDS.thinking, 'Total extended-thinking time inside the turn'),
+      durationExpression(
+        'thinking_time_ms',
+        thinkingTimeSql('spans'),
+        'Total Thinking time, including the uncovered lead-in before each reported thinking span',
+        'child_time',
+      ),
       childTime('streaming_time_ms', SPAN_KINDS.responseStream, 'Total response-streaming time inside the turn'),
       childTime('setup_time_ms', SPAN_KINDS.setup, 'Pre-agent setup time inside the turn: git state, worktree, task prep'),
       childTime('permission_wait_ms', SPAN_KINDS.permissionWait, 'Time the turn spent waiting on the user for tool permissions'),
@@ -182,6 +206,12 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
       childTime('queue_wait_ms', SPAN_KINDS.queueWait, 'Time the prompt waited in the queue before the turn started'),
       childTime('rate_limit_wait_ms', SPAN_KINDS.rateLimitWait, 'Time the turn spent waiting on provider rate limits'),
       childTime('settlement_time_ms', SPAN_KINDS.turnSettlement, 'Solus processing after provider completion before authoritative turn settlement'),
+      durationExpression(
+        'provider_wait_ms',
+        providerWaitSql('spans'),
+        'Turn wall-clock time outside recorded blocking activity after Thinking absorbs its lead-ins',
+        'measure',
+      ),
       ...withGroup('dimension', [
         attr('automation', 'automationName', 'string', 'Automation that dispatched the turn, by name'),
         attr('task', 'taskTitle', 'string', 'Task the turn ran under, by title'),
@@ -216,7 +246,7 @@ export const KIND_REGISTRY: Record<SpanKind, KindRegistration> = {
     fields: [],
   },
   [SPAN_KINDS.thinking]: {
-    description: 'a provider-reported extended-thinking interval',
+    description: 'model thinking, including the uncovered lead-in before its provider-reported interval',
     fields: [],
   },
   [SPAN_KINDS.responseStream]: {
@@ -335,6 +365,24 @@ function kindColumnDescription(kinds: SpanKind[]): string {
   return `What happened: ${glossary}`
 }
 
+function semanticEventField(field: RegisteredField): RegisteredField {
+  if (field.name === 'started_at') {
+    return {
+      ...field,
+      description: 'Semantic start time; Thinking includes its uncovered lead-in',
+      storage: { source: 'expression', sql: effectiveStartedAtSql('spans') },
+    }
+  }
+  if (field.name === 'duration_ms') {
+    return {
+      ...field,
+      description: 'Semantic duration; Thinking includes its uncovered lead-in',
+      storage: { source: 'expression', sql: effectiveDurationSql('spans') },
+    }
+  }
+  return field
+}
+
 /** Facts promoted onto `events` for every kind at once; null where a kind does
  *  not record them. Reading a tool fact must not require finding a tool table. */
 const EVENT_FIELDS = (): RegisteredField[] => [
@@ -349,7 +397,7 @@ const EVENT_FIELDS = (): RegisteredField[] => [
       storage: { source: 'expression', sql: `CASE WHEN kind IN ('${SPAN_KINDS.toolCall}', '${SPAN_KINDS.permissionWait}') THEN name END` },
     },
   ]),
-  ...BASE_FIELDS,
+  ...BASE_FIELDS.map(semanticEventField),
   rootAttr('automation', 'automationName', 'string', "Name of the automation whose turn produced the event, when any"),
   rootAttr('task', 'taskTitle', 'string', "Title of the task the event's turn ran under, when any"),
   rootAttr('branch', 'branch', 'string', "Git branch the event's turn ran on, when any"),

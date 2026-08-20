@@ -9,11 +9,16 @@ import type {
 } from '@solus/contracts/observability-types'
 import { getMetricsDb } from './metrics-db'
 import { SPAN_KINDS } from './registries'
+import {
+  blockingIntervals,
+  effectiveTraceSpans,
+  intervalComplement,
+} from './trace-timing'
 
 // ─── Session and turn rollups ───
 //
 // Child spans record only observed intervals and may overlap (parallel or
-// nested tools), so rollups use interval unions and derive unattributed time
+// nested tools), so rollups use interval unions and derive Provider wait
 // from the root turn minus the union — never from synthetic spans.
 
 interface SpanRow {
@@ -86,33 +91,6 @@ export function intervalUnionLength(intervals: Array<[number, number]>): number 
   return total
 }
 
-function blockingIntervals(root: MetricsSpan, children: MetricsSpan[]): Array<[number, number]> {
-  if (root.endedAt === null) return []
-  const intervals: Array<[number, number]> = []
-  for (const child of children) {
-    if (child.kind === SPAN_KINDS.backgroundTask) continue
-    if (child.endedAt === null) continue
-    const start = Math.max(child.startedAt, root.startedAt)
-    const end = Math.min(child.endedAt, root.endedAt)
-    if (end > start) intervals.push([start, end])
-  }
-  return intervals.sort((a, b) => a[0] - b[0])
-}
-
-function intervalComplement(root: MetricsSpan, intervals: Array<[number, number]>): Array<[number, number]> {
-  if (root.endedAt === null) return []
-  const gaps: Array<[number, number]> = []
-  let cursor = root.startedAt
-  for (const [rawStart, rawEnd] of intervals) {
-    const start = Math.max(root.startedAt, rawStart)
-    const end = Math.min(root.endedAt, rawEnd)
-    if (start > cursor) gaps.push([cursor, start])
-    if (end > cursor) cursor = end
-  }
-  if (cursor < root.endedAt) gaps.push([cursor, root.endedAt])
-  return gaps
-}
-
 function boundaryAt(root: MetricsSpan, attrName: string): number | null {
   if (root.endedAt === null) return null
   const offset = attrNumber(root.attrs, attrName)
@@ -156,15 +134,16 @@ function categoryAt(input: {
   if (input.firstActivityAt !== null && input.at >= input.firstActivityAt) {
     return 'between_activities'
   }
-  return 'unattributed'
+  return 'provider_wait'
 }
 
-/** Root turn intervals not covered by blocking child spans. Lifecycle
- *  boundaries split the residual into locations a user can inspect without
- *  pretending that Solus observed the provider's internal work. */
+/** Root turn intervals left after blocking spans and thinking lead-ins.
+ *  Lifecycle boundaries split the remaining provider wait into locations a
+ *  user can inspect. */
 export function gapSegments(root: MetricsSpan, children: MetricsSpan[]): MetricsGapSegment[] {
   if (root.endedAt === null) return []
-  const activity = children.filter((child) => ACTIVITY_KINDS.has(child.kind))
+  const attributedChildren = effectiveTraceSpans(root, children)
+  const activity = attributedChildren.filter((child) => ACTIVITY_KINDS.has(child.kind))
   const firstActivityAt = boundaryAt(root, 'timeToFirstActivityMs')
     ?? (activity.length ? Math.min(...activity.map((span) => span.startedAt)) : null)
   const activityEnds = activity
@@ -182,7 +161,7 @@ export function gapSegments(root: MetricsSpan, children: MetricsSpan[]): Metrics
     lastProviderEventAt,
   ].filter((at): at is number => at !== null)
 
-  return intervalComplement(root, blockingIntervals(root, children)).flatMap(([startedAt, endedAt]) => {
+  return intervalComplement(root, blockingIntervals(root, attributedChildren)).flatMap(([startedAt, endedAt]) => {
     const points = [...new Set([
       startedAt,
       ...cuts.filter((at) => at > startedAt && at < endedAt),
@@ -209,7 +188,7 @@ export function gapSegments(root: MetricsSpan, children: MetricsSpan[]): Metrics
 
 /** Root turn time not covered by blocking child spans, clipped to the root
  *  interval. Background tasks are excluded — they never block the turn. */
-export function unattributedMs(root: MetricsSpan, children: MetricsSpan[]): number | null {
+export function providerWaitMs(root: MetricsSpan, children: MetricsSpan[]): number | null {
   if (root.endedAt === null) return null
   return gapSegments(root, children).reduce((total, segment) => total + segment.durationMs, 0)
 }
@@ -221,12 +200,17 @@ export function turnTrace(traceId: string): MetricsTurnTrace {
   `).all(traceId) as unknown as SpanRow[]
   const spans = rows.map(toSpan)
   const root = spans.find((span) => span.kind === SPAN_KINDS.turn && span.parentSpanId === null)
-  const children = root ? spans.filter((span) => span !== root) : []
+  const rawChildren = root ? spans.filter((span) => span !== root) : []
+  const children = root ? effectiveTraceSpans(root, rawChildren) : []
+  const attributedById = new Map(children.map((span) => [span.spanId, span]))
+  const attributedSpans = spans
+    .map((span) => attributedById.get(span.spanId) ?? span)
+    .sort((a, b) => a.startedAt - b.startedAt || a.spanId.localeCompare(b.spanId))
   const gaps = root ? gapSegments(root, children) : []
   return {
     traceId,
-    spans,
-    unattributedMs: root ? gaps.reduce((total, segment) => total + segment.durationMs, 0) : null,
+    spans: attributedSpans,
+    providerWaitMs: root ? gaps.reduce((total, segment) => total + segment.durationMs, 0) : null,
     gapSegments: gaps,
   }
 }

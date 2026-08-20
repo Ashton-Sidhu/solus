@@ -180,12 +180,15 @@
             taskProjectDirectory: projectCwd ?? task.projectKey,
             linkProjectDirectory: link.targetScope,
           });
-          void session.enterPrReview(number, link.title, {
+          void session.openPullRequest({
+            number,
+            title: link.title,
+            url: link.url,
+          }, {
             ctx: target.projectDirectory
               ? session.ctxForDirectory(target.projectDirectory)
               : session.ctx,
             serverId: target.serverId,
-            taskId: task.id,
           });
         }
         break;

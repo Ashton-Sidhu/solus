@@ -10,6 +10,7 @@ type SpanTableModule = typeof import('@solus/server/observability/span-table')
 type MetricsDbModule = typeof import('@solus/server/observability/metrics-db')
 type FieldRegistryModule = typeof import('@solus/server/observability/field-registry')
 type RegistriesModule = typeof import('@solus/server/observability/registries')
+type RollupsModule = typeof import('@solus/server/observability/rollups')
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 let dataDir: string
@@ -17,6 +18,7 @@ let spanTable: SpanTableModule
 let metricsDb: MetricsDbModule
 let fieldRegistry: FieldRegistryModule
 let registries: RegistriesModule
+let rollups: RollupsModule
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-metrics-views-'))
@@ -25,6 +27,7 @@ beforeAll(async () => {
   metricsDb = await import('@solus/server/observability/metrics-db')
   fieldRegistry = await import('@solus/server/observability/field-registry')
   registries = await import('@solus/server/observability/registries')
+  rollups = await import('@solus/server/observability/rollups')
   metricsDb.closeMetricsDb()
 })
 
@@ -173,7 +176,8 @@ describe.serial('the two-table query model', () => {
     child('tool-b1', 'turn-b', registries.SPAN_KINDS.toolCall, 410, 420)
 
     const rows = metricsDb.getMetricsDb()
-      .prepare(`SELECT span_id, tool_time_ms, thinking_time_ms, permission_wait_ms, settlement_time_ms
+      .prepare(`SELECT span_id, tool_time_ms, thinking_time_ms, permission_wait_ms, settlement_time_ms,
+        provider_wait_ms
         FROM turns WHERE span_id IN ('turn-a', 'turn-b') ORDER BY started_at`)
       .all() as Array<{
         span_id: string
@@ -181,12 +185,51 @@ describe.serial('the two-table query model', () => {
         thinking_time_ms: number | null
         permission_wait_ms: number | null
         settlement_time_ms: number | null
+        provider_wait_ms: number
       }>
     expect(rows).toEqual([
-      // 40 + 60 of tool time, 30 of thinking; no permission wait → NULL, not 0.
-      { span_id: 'turn-a', tool_time_ms: 100, thinking_time_ms: 30, permission_wait_ms: null, settlement_time_ms: 10 },
-      { span_id: 'turn-b', tool_time_ms: 10, thinking_time_ms: null, permission_wait_ms: null, settlement_time_ms: null },
+      // Tools keep cumulative duration. Thinking includes its 180→200 lead-in.
+      { span_id: 'turn-a', tool_time_ms: 100, thinking_time_ms: 50, permission_wait_ms: null, settlement_time_ms: 10, provider_wait_ms: 70 },
+      { span_id: 'turn-b', tool_time_ms: 10, thinking_time_ms: null, permission_wait_ms: null, settlement_time_ms: null, provider_wait_ms: 90 },
     ])
+
+    const thinkingEvent = metricsDb.getMetricsDb()
+      .prepare("SELECT started_at, duration_ms FROM events WHERE span_id = 'think-a'")
+      .get()
+    expect(thinkingEvent).toEqual({ started_at: 180, duration_ms: 50 })
+
+    const trace = rollups.turnTrace('turn-a')
+    expect(trace.providerWaitMs).toBe(rows[0].provider_wait_ms)
+    expect(trace.spans.find((span) => span.spanId === 'think-a')).toMatchObject({
+      startedAt: 180,
+      durationMs: 50,
+    })
+  })
+
+  test('thinking inside an active tool keeps its reported boundary', () => {
+    const service = registries.SPAN_SERVICES.sessions
+    spanTable.writeSpan({
+      kind: registries.SPAN_KINDS.turn, service,
+      spanId: 'turn-nested', traceId: 'turn-nested', name: 'turn',
+      startedAt: 800, endedAt: 900, status: 'ok',
+    })
+    spanTable.writeSpan({
+      kind: registries.SPAN_KINDS.toolCall, service,
+      spanId: 'tool-nested', traceId: 'turn-nested', parentSpanId: 'turn-nested', name: 'Agent',
+      startedAt: 810, endedAt: 880, status: 'ok',
+    })
+    spanTable.writeSpan({
+      kind: registries.SPAN_KINDS.thinking, service,
+      spanId: 'think-nested', traceId: 'turn-nested', parentSpanId: 'tool-nested', name: 'thinking',
+      startedAt: 830, endedAt: 850, status: 'ok',
+    })
+
+    expect(metricsDb.getMetricsDb().prepare(`
+      SELECT started_at, duration_ms FROM events WHERE span_id = 'think-nested'
+    `).get()).toEqual({ started_at: 830, duration_ms: 20 })
+    expect(metricsDb.getMetricsDb().prepare(`
+      SELECT thinking_time_ms, provider_wait_ms FROM turns WHERE span_id = 'turn-nested'
+    `).get()).toEqual({ thinking_time_ms: 20, provider_wait_ms: 30 })
   })
 
   test('snapshotted names and execution-host facts surface on turns, and events inherit them from their trace root', () => {

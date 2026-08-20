@@ -46,7 +46,7 @@ describe.serial('interval unions', () => {
 })
 
 describe.serial('turn trace', () => {
-  test('returns the span tree with unattributed time derived from the blocking-child union', () => {
+  test('returns the span tree with Provider wait derived from the blocking-child union', () => {
     const { turn, toolCall, permissionWait, backgroundTask } = registries.SPAN_KINDS
     const service = registries.SPAN_SERVICES.sessions
     const shared = { traceId: 'trace-1', sessionId: 'session-1', service, status: 'ok' as const }
@@ -63,11 +63,11 @@ describe.serial('turn trace', () => {
     const trace = rollups.turnTrace('trace-1')
     expect(trace.spans.map((span) => span.spanId)).toEqual(['bg-a', 'trace-1', 'tool-a', 'tool-b', 'perm-a'])
     expect(trace.spans[1].attrs).toEqual({})
-    expect(trace.unattributedMs).toBe(100 - 55)
+    expect(trace.providerWaitMs).toBe(100 - 55)
     expect(trace.gapSegments.reduce((total, gap) => total + gap.durationMs, 0)).toBe(100 - 55)
   })
 
-  test('splits unattributed intervals at observed lifecycle boundaries without claiming their cause', () => {
+  test('attributes the lead-in to a reported thinking span as thinking, not idle time', () => {
     const { turn, setup, thinking, toolCall, responseStream } = registries.SPAN_KINDS
     const service = registries.SPAN_SERVICES.sessions
     const shared = { traceId: 'trace-gaps', sessionId: 'session-gaps', service, status: 'ok' as const }
@@ -88,26 +88,35 @@ describe.serial('turn trace', () => {
     spanTable.writeSpan({ ...shared, spanId: 'setup', parentSpanId: 'trace-gaps', kind: setup, name: 'setup', startedAt: 0, endedAt: 5 })
     spanTable.writeSpan({ ...shared, spanId: 'thinking', parentSpanId: 'trace-gaps', kind: thinking, name: 'thinking', startedAt: 20, endedAt: 30 })
     spanTable.writeSpan({ ...shared, spanId: 'tool', parentSpanId: 'trace-gaps', kind: toolCall, name: 'Read', startedAt: 40, endedAt: 60 })
-    spanTable.writeSpan({ ...shared, spanId: 'response', parentSpanId: 'trace-gaps', kind: responseStream, name: 'response_stream', startedAt: 70, endedAt: 75 })
+    spanTable.writeSpan({ ...shared, spanId: 'thinking-after-tool', parentSpanId: 'trace-gaps', kind: thinking, name: 'thinking', startedAt: 70, endedAt: 75 })
+    spanTable.writeSpan({ ...shared, spanId: 'response', parentSpanId: 'trace-gaps', kind: responseStream, name: 'response_stream', startedAt: 80, endedAt: 82 })
 
     const trace = rollups.turnTrace('trace-gaps')
-    expect(trace.unattributedMs).toBe(60)
+    expect(trace.spans.find((span) => span.spanId === 'thinking')).toMatchObject({
+      startedAt: 5,
+      endedAt: 30,
+      durationMs: 25,
+    })
+    expect(trace.spans.find((span) => span.spanId === 'thinking-after-tool')).toMatchObject({
+      startedAt: 60,
+      endedAt: 75,
+      durationMs: 15,
+    })
+    expect(trace.providerWaitMs).toBe(33)
     expect(trace.gapSegments.map((gap) => [gap.category, gap.startedAt, gap.endedAt])).toEqual([
-      ['provider_startup', 5, 10],
-      ['before_first_activity', 10, 20],
       ['between_activities', 30, 40],
-      ['between_activities', 60, 70],
-      ['provider_completion', 75, 85],
+      ['between_activities', 75, 80],
+      ['provider_completion', 82, 85],
       ['turn_settlement', 85, 100],
     ])
   })
 
-  test('a trace with no root turn reports null unattributed time', () => {
+  test('a trace with no root turn reports null Provider wait', () => {
     spanTable.writeSpan({
       spanId: 'orphan', traceId: 'trace-2', kind: registries.SPAN_KINDS.toolCall, name: 'Bash',
       service: registries.SPAN_SERVICES.sessions, startedAt: 0, endedAt: 10, status: 'ok',
     })
-    expect(rollups.turnTrace('trace-2')).toMatchObject({ unattributedMs: null, gapSegments: [] })
+    expect(rollups.turnTrace('trace-2')).toMatchObject({ providerWaitMs: null, gapSegments: [] })
   })
 })
 

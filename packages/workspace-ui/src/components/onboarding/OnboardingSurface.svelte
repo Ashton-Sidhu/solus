@@ -104,7 +104,7 @@
     <span class="flex-1"></span>
     <button
       type="button"
-      class="flex h-6.5 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)]"
+      class="no-drag flex h-6.5 items-center gap-1.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)]"
       title="Toggle appearance"
       onclick={() =>
         settings.update({ themeMode: settings.isDark ? "light" : "dark" })}
@@ -119,7 +119,7 @@
     </button>
     <button
       type="button"
-      class="h-6.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground"
+      class="no-drag h-6.5 rounded-full px-2.5 text-xs text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground"
       onclick={() => finish("chat")}
     >
       Skip setup

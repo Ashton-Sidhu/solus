@@ -1875,7 +1875,7 @@
               pr.author,
             ],
             run: () =>
-              void session.enterPrReview(pr.number, pr.title, {
+              void session.openPullRequest(pr, {
                 ctx: paletteGitTarget?.ctx,
                 via: "palette",
               }),

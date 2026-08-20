@@ -17,8 +17,8 @@ Rules:
 - Return ONLY the SQL text. No prose, no explanation, no markdown fences.
 - One statement, starting with SELECT or WITH. Never write, ATTACH, or PRAGMA.
 - Query turns or events, not the raw spans table, whenever they have the field.
-  turns already sums each child kind's time per turn (tool_time_ms,
-  thinking_time_ms, …) — prefer those columns over joining events onto turns.
+  turns already provides provider_wait_ms and sums each child kind's time per turn
+  (tool_time_ms, thinking_time_ms, …) — prefer those columns over joining events onto turns.
 - started_at and ended_at are epoch milliseconds; duration columns are milliseconds.
 - SQLite has no native percentile: for p95 use ROW_NUMBER() and COUNT() window
   functions ordered by the value, keeping the row where

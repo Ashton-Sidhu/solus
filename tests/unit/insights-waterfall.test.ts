@@ -53,10 +53,10 @@ const root = span({
 
 function trace(
   spans: MetricsSpan[],
-  unattributedMs: number | null = null,
+  providerWaitMs: number | null = null,
   gapSegments: MetricsGapSegment[] = [],
 ): MetricsTurnTrace {
-  return { traceId: 'tr_1', spans, unattributedMs, gapSegments }
+  return { traceId: 'tr_1', spans, providerWaitMs, gapSegments }
 }
 
 describe('unionLength', () => {
@@ -204,12 +204,12 @@ describe('buildTraceView', () => {
     expect(tools?.share).toBeCloseTo(0.6)
   })
 
-  test('unattributed turn time leads the legend when the server derived it', () => {
+  test('provider wait leads the legend when the server derived a remainder', () => {
     const child = span({ spanId: 'c1', parentSpanId: 'root', startedAt: 1_000, endedAt: 1_400, durationMs: 400 })
     const view = buildTraceView(trace([root, child], 600))
     expect(view?.legend[0]).toMatchObject({
-      kind: 'unattributed',
-      label: 'Unattributed turn time',
+      kind: 'provider_wait',
+      label: 'Provider wait',
       ms: 600,
     })
     expect(view?.traceCoverage).toBeCloseTo(0.4)
@@ -232,22 +232,25 @@ describe('buildTraceView', () => {
     ])
   })
 
-  test('draws every uncovered interval as a neutral selectable row', () => {
+  test('keeps between-activity gaps in the summary without interrupting waterfall rows', () => {
     const gaps: MetricsGapSegment[] = [
       { category: 'between_activities', startedAt: 1_200, endedAt: 1_500, durationMs: 300 },
       { category: 'provider_completion', startedAt: 1_800, endedAt: 1_900, durationMs: 100 },
     ]
     const view = buildTraceView(trace([root], 400, gaps))!
-    const rows = view.rows.filter((row) => row.kind === 'unattributed')
+    const rows = view.rows.filter((row) => row.kind === 'provider_wait')
 
-    expect(rows).toHaveLength(2)
+    expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({
-      label: 'Between activities', startOffsetMs: 200, durationMs: 300, depth: 1,
+      label: 'Provider completion', startOffsetMs: 800, durationMs: 100, depth: 1,
     })
     expect(rows[0].span?.attrs).toMatchObject({
-      category: 'between_activities',
-      description: 'Between recorded thinking, response, and tool intervals.',
+      category: 'provider_completion',
+      description: 'After the last recorded activity, before the provider reported completion.',
     })
+    expect(view.gapSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ category: 'between_activities', ms: 300, segments: 1 }),
+    ]))
   })
 
   test('tool totals group repeat calls of the same tool', () => {
@@ -426,9 +429,9 @@ describe('Trace surface composition', () => {
 
   // Why it matters: every other legend entry is a measurement. This one is what
   // is left over, and a reader cannot tell that from its name alone.
-  test('unattributed turn time explains itself on hover', () => {
-    expect(coverage).toContain('UNATTRIBUTED_EXPLANATION')
-    expect(coverage).toContain('UNATTRIBUTED_CAUSES')
+  test('provider wait explains itself on hover', () => {
+    expect(coverage).toContain('PROVIDER_WAIT_EXPLANATION')
+    expect(coverage).toContain('PROVIDER_WAIT_CAUSES')
     expect(coverage).toContain('TooltipUI.Content')
   })
 })

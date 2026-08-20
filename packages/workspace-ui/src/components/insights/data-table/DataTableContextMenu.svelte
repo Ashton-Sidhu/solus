@@ -22,6 +22,7 @@
     x,
     y,
     cell,
+    insightsId,
     actions = [],
     onHideColumn,
     onResetWidths,
@@ -29,11 +30,13 @@
   }: {
     x: number
     y: number
-    cell: CellContext
+    cell?: CellContext
+    /** The trace identifier that owns this row, independent of which cell was clicked. */
+    insightsId?: string | null
     /** Where this row leads — a turn, a session, a span. */
     actions?: DataTableMenuAction[]
     onHideColumn?: () => void
-    onResetWidths: () => void
+    onResetWidths?: () => void
     onClose: () => void
   } = $props()
 
@@ -67,25 +70,37 @@
       <ContextMenu.Separator />
     {/if}
 
-    <ContextMenu.Item disabled={!cell.cellText} onSelect={() => void copy(cell.cellText, 'Cell')}>
-      <CopyIcon />
-      {cell.columnLabel ? `Copy ${cell.columnLabel.toLowerCase()}` : 'Copy cell'}
-    </ContextMenu.Item>
-    <ContextMenu.Item disabled={!cell.rowText} onSelect={() => void copy(cell.rowText, 'Row')}>
-      <CopyIcon />
-      Copy row
-    </ContextMenu.Item>
-
-    <ContextMenu.Separator />
-    {#if onHideColumn}
-      <ContextMenu.Item onSelect={() => select(onHideColumn)}>
-        <EyeSlashIcon />
-        Hide this column
+    {#if insightsId !== undefined}
+      <ContextMenu.Item disabled={!insightsId} onSelect={() => insightsId && void copy(insightsId, 'Insights ID')}>
+        <CopyIcon />
+        Copy Insights ID
       </ContextMenu.Item>
     {/if}
-    <ContextMenu.Item onSelect={() => select(onResetWidths)}>
-      <ArrowsHorizontalIcon />
-      Reset column widths
-    </ContextMenu.Item>
+    {#if cell}
+      <ContextMenu.Item disabled={!cell.cellText} onSelect={() => void copy(cell.cellText, 'Cell')}>
+        <CopyIcon />
+        {cell.columnLabel ? `Copy ${cell.columnLabel.toLowerCase()}` : 'Copy cell'}
+      </ContextMenu.Item>
+      <ContextMenu.Item disabled={!cell.rowText} onSelect={() => void copy(cell.rowText, 'Row')}>
+        <CopyIcon />
+        Copy row
+      </ContextMenu.Item>
+    {/if}
+
+    {#if onHideColumn || onResetWidths}
+      <ContextMenu.Separator />
+      {#if onHideColumn}
+        <ContextMenu.Item onSelect={() => select(onHideColumn)}>
+          <EyeSlashIcon />
+          Hide this column
+        </ContextMenu.Item>
+      {/if}
+      {#if onResetWidths}
+        <ContextMenu.Item onSelect={() => select(onResetWidths)}>
+          <ArrowsHorizontalIcon />
+          Reset column widths
+        </ContextMenu.Item>
+      {/if}
+    {/if}
   </ContextMenu.Content>
 </ContextMenu.Root>

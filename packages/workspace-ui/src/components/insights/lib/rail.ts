@@ -14,6 +14,7 @@ import type { TurnRow } from './turn-rows'
 export interface RailItem {
   key: string
   traceId: string
+  sessionId: string | null
   /** Present on event rows: the panel lands on this span, not just its turn. */
   spanId: string | null
   title: string
@@ -26,6 +27,7 @@ export function railItemsFromTurns(rows: TurnRow[]): RailItem[] {
   return rows.map((row) => ({
     key: row.traceId,
     traceId: row.traceId,
+    sessionId: row.sessionId,
     spanId: null,
     title: singleLine(row.prompt) || '—',
     status: row.status,
@@ -59,6 +61,7 @@ export function railItemsFromEvents(
           {
             key: `${row.traceId}/${row.spanId ?? index}`,
             traceId: row.traceId,
+            sessionId: null,
             spanId: row.spanId,
             title: eventTitle(columns, row, fallback),
             status: row.status ?? 'ok',

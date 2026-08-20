@@ -646,6 +646,7 @@
       x={menu.x}
       y={menu.y}
       cell={menu.cell}
+      insightsId={menu.row.traceId}
       actions={rowMenuActions(menu.row)}
       onHideColumn={hideMenuColumn(menu.cell.columnId)}
       onResetWidths={() => dataTable.resetColumnSizing()}

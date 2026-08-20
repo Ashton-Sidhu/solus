@@ -8,12 +8,29 @@ const turnDetailSource = readFileSync(
   join(import.meta.dir, "../../packages/workspace-ui/src/components/insights/TurnDetailPanel.svelte"),
   "utf8",
 );
+const readInsightsSource = (path: string): string =>
+  readFileSync(join(import.meta.dir, "../../packages/workspace-ui/src/components/insights", path), "utf8");
 
 describe("Insights identifier copy", () => {
   test("the turn panel header can copy the complete trace identifier", () => {
     expect(turnDetailSource).toContain(
       '<CopyButton text={traceId} title="Copy Insights ID" iconOnly />',
     );
+  });
+
+  test("a table row context menu copies its complete Insights identifier", () => {
+    const menu = readInsightsSource("data-table/DataTableContextMenu.svelte");
+    expect(menu).toContain("Copy Insights ID");
+    expect(menu).toContain("copy(insightsId, 'Insights ID')");
+    expect(readInsightsSource("TurnList.svelte")).toContain("insightsId={menu.row.traceId}");
+    expect(readInsightsSource("EventList.svelte")).toContain("insightsId={menu.row.traceId}");
+  });
+
+  test("the open-insight rail reuses the table context menu", () => {
+    const rail = readInsightsSource("InsightsRail.svelte");
+    expect(rail).toContain('import DataTableContextMenu from "./data-table/DataTableContextMenu.svelte"');
+    expect(rail).toContain("oncontextmenu={(event) => openRowMenu(event, item)}");
+    expect(rail).toContain("insightsId={menu.item.traceId}");
   });
 
   test("the breadcrumb shortens the trace identifier but keeps the whole one reachable", () => {

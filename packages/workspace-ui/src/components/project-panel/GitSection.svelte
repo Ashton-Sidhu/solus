@@ -516,7 +516,7 @@ import Icon from "@iconify/svelte";
 
   function openPr(pr: PullRequestSummary) {
     closeRowMenu();
-    void session.enterPrReview(pr.number, pr.title, {
+    void session.openPullRequest(pr, {
       ctx: session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
       serverId: prServerId,
     });

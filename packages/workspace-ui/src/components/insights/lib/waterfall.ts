@@ -3,7 +3,7 @@ import type {
   MetricsSpan,
   MetricsTurnTrace,
 } from '@solus/contracts/observability-types'
-import { UNATTRIBUTED_KIND, colorForKind, labelForKind } from './span-palette'
+import { PROVIDER_WAIT_KIND, colorForKind, labelForKind } from './span-palette'
 
 // One turn's span tree, laid out as a waterfall.
 //
@@ -74,7 +74,7 @@ export interface TraceView {
   spanCount: number
   toolCallCount: number
   deniedPermissions: MetricsSpan[]
-  unattributedMs: number | null
+  providerWaitMs: number | null
   traceCoverage: number | null
   gapSummaries: GapSummary[]
 }
@@ -128,9 +128,9 @@ const GAP_DETAILS = {
     label: 'After last provider event',
     description: 'After the final provider event on a trace without a completion boundary.',
   },
-  unattributed: {
-    label: 'Unclassified gap',
-    description: 'The trace does not contain enough lifecycle boundaries to place this interval.',
+  provider_wait: {
+    label: 'Provider wait',
+    description: 'Waiting for provider activity outside Thinking and recorded activity.',
   },
 } satisfies Record<MetricsGapCategory, { label: string; description: string }>
 
@@ -256,31 +256,33 @@ export function buildTraceView(trace: MetricsTurnTrace | null): TraceView | null
     null
   if (!root) return null
 
-  // Gaps are server-derived coverage intervals, not persisted spans. Give each
-  // one a neutral synthetic row so elapsed time never looks like empty chart
-  // padding. The row says what the trace knows about the location and does not
-  // claim that the model was thinking or idle.
-  const gapSpans: MetricsSpan[] = trace.gapSegments.map((gap, index) => ({
-    spanId: `gap:${index}:${gap.startedAt}`,
-    parentSpanId: root.spanId,
-    traceId: trace.traceId,
-    kind: UNATTRIBUTED_KIND,
-    name: GAP_DETAILS[gap.category].label,
-    service: 'unobserved',
-    sessionId: root.sessionId,
-    provider: root.provider,
-    model: root.model,
-    projectRoot: root.projectRoot,
-    origin: root.origin,
-    startedAt: gap.startedAt,
-    endedAt: gap.endedAt,
-    durationMs: gap.durationMs,
-    status: 'unknown',
-    attrs: {
-      category: gap.category,
-      description: GAP_DETAILS[gap.category].description,
-    },
-  }))
+  // Gaps are server-derived coverage intervals, not persisted spans. Keep
+  // between-activity gaps out of the waterfall so adjacent agent events stay
+  // visually grouped; TraceCoverage still reports that unobserved time. Other
+  // lifecycle gaps remain selectable because their position is meaningful.
+  const gapSpans: MetricsSpan[] = trace.gapSegments
+    .filter((gap) => gap.category !== 'between_activities')
+    .map((gap, index) => ({
+      spanId: `gap:${index}:${gap.startedAt}`,
+      parentSpanId: root.spanId,
+      traceId: trace.traceId,
+      kind: PROVIDER_WAIT_KIND,
+      name: GAP_DETAILS[gap.category].label,
+      service: 'unobserved',
+      sessionId: root.sessionId,
+      provider: root.provider,
+      model: root.model,
+      projectRoot: root.projectRoot,
+      origin: root.origin,
+      startedAt: gap.startedAt,
+      endedAt: gap.endedAt,
+      durationMs: gap.durationMs,
+      status: 'unknown',
+      attrs: {
+        category: gap.category,
+        description: GAP_DETAILS[gap.category].description,
+      },
+    }))
   const displaySpans = [...trace.spans, ...gapSpans]
 
   const latestEnd = displaySpans.reduce(
@@ -349,13 +351,13 @@ export function buildTraceView(trace: MetricsTurnTrace | null): TraceView | null
     })
     .filter((entry) => entry.share > 0.002)
     .sort((a, b) => b.ms - a.ms)
-  if (trace.unattributedMs != null && trace.unattributedMs > 0) {
+  if (trace.providerWaitMs != null && trace.providerWaitMs > 0) {
     legend.unshift({
-      kind: UNATTRIBUTED_KIND,
-      label: labelForKind(UNATTRIBUTED_KIND),
-      color: colorForKind(UNATTRIBUTED_KIND),
-      ms: trace.unattributedMs,
-      share: trace.unattributedMs / totalMs,
+      kind: PROVIDER_WAIT_KIND,
+      label: labelForKind(PROVIDER_WAIT_KIND),
+      color: colorForKind(PROVIDER_WAIT_KIND),
+      ms: trace.providerWaitMs,
+      share: trace.providerWaitMs / totalMs,
     })
   }
 
@@ -392,10 +394,10 @@ export function buildTraceView(trace: MetricsTurnTrace | null): TraceView | null
     deniedPermissions: trace.spans.filter(
       (span) => span.kind === 'permission_wait' && span.attrs.decision === 'denied',
     ),
-    unattributedMs: trace.unattributedMs,
-    traceCoverage: trace.unattributedMs == null
+    providerWaitMs: trace.providerWaitMs,
+    traceCoverage: trace.providerWaitMs == null
       ? null
-      : Math.max(0, Math.min(1, 1 - trace.unattributedMs / totalMs)),
+      : Math.max(0, Math.min(1, 1 - trace.providerWaitMs / totalMs)),
     gapSummaries: summarizeGaps(trace, totalMs),
   }
 }

@@ -46,7 +46,7 @@ const root = span({
 })
 
 function rowsOf(spans: MetricsSpan[]): WaterfallRow[] {
-  return buildTraceView({ traceId: 'tr_1', spans, unattributedMs: null, gapSegments: [] })!.rows
+  return buildTraceView({ traceId: 'tr_1', spans, providerWaitMs: null, gapSegments: [] })!.rows
 }
 
 function treeOf(spans: MetricsSpan[]) {

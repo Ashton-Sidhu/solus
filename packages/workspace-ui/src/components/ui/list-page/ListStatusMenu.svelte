@@ -63,7 +63,7 @@
           : 'bg-[color-mix(in_oklch,var(--primary)_13%,transparent)] text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'}"
         aria-label={ariaLabel}
       >
-        <CircleDashedIcon size={11} class="shrink-0 opacity-75" />
+        <CircleDashedIcon size={14} class="shrink-0 opacity-75" />
         <span>{label}</span>
         <CaretDownIcon size={9} class="shrink-0 opacity-60" />
       </button>

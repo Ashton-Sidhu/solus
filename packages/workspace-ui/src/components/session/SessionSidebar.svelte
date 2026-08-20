@@ -258,10 +258,14 @@
       taskServerId: session.tasksStore.hostFor(task.taskId),
       attemptServerId: task.serverId,
     });
-    void session.enterPrReview(number, pullRequest?.title, {
+    void session.openPullRequest({
+      number,
+      title: pullRequest?.title,
+      url: linkedPr?.url,
+      expectedRepo: linkedParams?.expectedRepo,
+    }, {
       ctx: session.ctxForDirectory(target.projectDirectory),
       serverId: target.serverId,
-      expectedRepo: linkedParams?.expectedRepo,
       target: target.paneTarget,
       via: "click",
     });
@@ -1087,7 +1091,7 @@
     {#snippet taskPicker()}
       <button
         type="button"
-        class="relative flex size-7 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
+        class="relative flex size-7 [.is-laptop-display_&]:size-6 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-[background-color,color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-7 pointer-coarse:before:absolute pointer-coarse:before:left-1/2 pointer-coarse:before:top-1/2 pointer-coarse:before:size-10 pointer-coarse:before:-translate-x-1/2 pointer-coarse:before:-translate-y-1/2 pointer-coarse:before:content-['']"
         aria-label="Open task picker"
         title={`Open task picker (${comboHint("global.task-picker")})`}
         onclick={() => {
@@ -1095,7 +1099,10 @@
           session.taskPickerOpen = true;
         }}
       >
-        <PlusIcon size={15} />
+        <PlusIcon
+          size={15}
+          class="[.is-laptop-display_&]:size-[13px] pointer-coarse:size-[15px]"
+        />
       </button>
     {/snippet}
     <TaskActionBar

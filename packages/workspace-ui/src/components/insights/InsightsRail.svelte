@@ -1,4 +1,5 @@
 <script lang="ts">
+  import DataTableContextMenu from "./data-table/DataTableContextMenu.svelte";
   import type { RailItem } from "./lib/rail";
 
   /**
@@ -13,10 +14,12 @@
     /** Index of the open item, -1 when the panel shows a turn not in the list. */
     selectedIndex: number;
     onOpenItem: (item: RailItem) => void;
+    onOpenSession: (sessionId: string) => void;
     emptyHint: string;
   }
 
-  let { items, heading, selectedIndex, onOpenItem, emptyHint }: Props = $props();
+  let { items, heading, selectedIndex, onOpenItem, onOpenSession, emptyHint }: Props = $props();
+  let rowMenu = $state<{ x: number; y: number; item: RailItem } | null>(null);
 
   function statusLabel(status: string): string | null {
     if (status === "error") return "failed";
@@ -32,6 +35,29 @@
     if (status === "interrupted")
       return `color-mix(in oklch, var(--warning) 10%, ${base})`;
     return base;
+  }
+
+  function openRowMenu(event: MouseEvent, item: RailItem): void {
+    event.preventDefault();
+    event.stopPropagation();
+    rowMenu = { x: event.clientX, y: event.clientY, item };
+  }
+
+  function rowMenuActions(item: RailItem): { label: string; run: () => void }[] {
+    const actions = [
+      {
+        label: item.spanId ? "Open in waterfall" : "Open turn",
+        run: () => onOpenItem(item),
+      },
+    ];
+    const sessionId = item.sessionId;
+    if (sessionId) {
+      actions.push({
+        label: "Open session",
+        run: () => onOpenSession(sessionId),
+      });
+    }
+    return actions;
   }
 </script>
 
@@ -59,6 +85,7 @@
           data-status={item.status}
           aria-label={label ? `${item.title}, ${label}` : item.title}
           onclick={() => onOpenItem(item)}
+          oncontextmenu={(event) => openRowMenu(event, item)}
         >
           <span class="flex w-full min-w-0 items-center gap-2">
             <span
@@ -76,5 +103,16 @@
       <div class="h-3"></div>
     {/if}
   </div>
+
+  {#if rowMenu}
+    {@const menu = rowMenu}
+    <DataTableContextMenu
+      x={menu.x}
+      y={menu.y}
+      insightsId={menu.item.traceId}
+      actions={rowMenuActions(menu.item)}
+      onClose={() => (rowMenu = null)}
+    />
+  {/if}
 
 </section>

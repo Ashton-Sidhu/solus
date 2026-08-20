@@ -11,10 +11,10 @@
 
 <p
   class={cn(
-    "flex items-baseline justify-center gap-1.5 whitespace-nowrap text-workspace-chrome leading-relaxed text-(--solus-text-tertiary)",
+    "flex max-w-full items-baseline justify-center gap-1.5 whitespace-normal text-center text-pretty text-workspace-chrome leading-relaxed text-(--solus-text-tertiary)",
     className,
   )}
 >
   <span class="font-medium text-(--solus-text-secondary)">Tip</span>
-  <span>{tip}</span>
+  <span class="min-w-0">{tip}</span>
 </p>

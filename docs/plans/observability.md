@@ -298,7 +298,7 @@ is the user's collector's job.
 turn (trace root; service solus.sessions)
 ├─ queue_wait          prompt_queued.enqueuedAt → runStartedAt (see threading note below)
 ├─ setup               inside _launchRun: git state, worktree create, task prep
-├─ thinking            provider-reported extended-thinking boundary
+├─ thinking            reasoning lead-in + provider-reported thinking interval
 ├─ response_stream     first visible text chunk → last visible text chunk
 ├─ tool_call           name: tool name; children nested via parentToolUseId
 ├─ permission_wait     name: tool name; attrs.decision: granted | denied
@@ -317,14 +317,15 @@ Turn attrs: `prompt` (capped ~4 KB, `promptTruncated` flag), `promptChars`,
 `timeToFirstActivityMs`, `timeToFirstTextMs`, `timeToFirstProviderEventMs`,
 `timeToLastProviderEventMs`, and `timeToProviderCompleteMs`.
 
-Unattributed turn time is not stored as a synthetic span. Query surfaces
-derive it from the turn interval minus the union of observed blocking child intervals.
-The trace splits that complement at the first provider event, first activity, last
-activity, provider completion, last provider event, and Solus settlement boundaries.
-These segments locate missing trace coverage; they do not claim model work, idle time,
-or any other cause. The waterfall renders these derived segments as neutral,
-selectable rows so uncovered time does not look like chart padding. This keeps capture
-factual and avoids manufacturing attributed spans from provider events.
+Provider wait is not stored as a synthetic span. Query surfaces derive it from
+the turn interval minus the union of observed blocking child intervals. A reported
+thinking span absorbs the immediately preceding uncovered interval because the model
+had to reason before it could send the first thinking event; that interval therefore
+does not count as idle or provider-wait time. The trace splits the remaining complement
+at the first provider event, first activity, last activity, provider completion, last
+provider event, and Solus settlement boundaries. Capture remains factual: persisted
+provider spans are unchanged, and the thinking lead-in is applied only when deriving a
+trace.
 
 Tool-call attrs: size-capped input fields (~8 KB, truncation-flagged),
 `parentToolUseId`, `isSubagent`, provider outcome (exit code / error) where available.
@@ -432,15 +433,17 @@ native percentile).
 `events`, and `internal_events` in `metrics.db` at boot (DROP + CREATE after
 migrations, so a registry change regenerates them; legacy per-kind view names are
 dropped). `turns` answers whole-turn questions without joins because each per-kind
-child-time sum is already a column, computed as a correlated sum over the trace:
+child-time total and Provider wait are already columns. Ordinary child kinds use a
+correlated sum; semantic Thinking and Provider wait use the expressions owned by
+`trace-timing.ts`:
 
 ```sql
 CREATE VIEW turns AS
 SELECT span_id, trace_id, session_id, …,
        (SELECT SUM(child.duration_ms) FROM spans AS child
         WHERE child.trace_id = spans.trace_id AND child.kind = 'tool_call') AS tool_time_ms,
-       … -- thinking_time_ms, streaming_time_ms, setup_time_ms,
-         -- permission_wait_ms, queue_wait_ms, rate_limit_wait_ms
+       … -- thinking_time_ms, provider_wait_ms, streaming_time_ms,
+         -- setup_time_ms, permission_wait_ms, queue_wait_ms, rate_limit_wait_ms
 FROM spans WHERE kind = 'turn';
 
 CREATE VIEW events AS
@@ -495,14 +498,18 @@ These are observed client-side boundaries, not provider claims about internal mo
 compute. Both providers use the normalized question lifecycle to persist
 `question_wait`. Claude's compact boundary supplies a provider duration; Codex's
 compaction items can supply start and stop timestamps. Solus records
-`context_compaction` only from those reported facts. Time inside the root turn that no
-blocking child span covers remains derived
-as **unattributed turn time**. Insights presents its complement as trace coverage and
-groups the uncovered segments by their position between lifecycle boundaries. It can
-include inference without an explicit thinking event, provider queueing, transport
-delay, and settlement overhead, so neither the total nor a segment is presented as a
-cause. Existing traces are not backfilled because they did not persist the event
-boundaries.
+`context_compaction` only from those reported facts. When a thinking span follows an
+uncovered interval, the derived trace extends Thinking backward over that interval.
+The remaining uncovered time is **Provider wait**. Insights presents its complement as
+trace coverage and groups its segments by their position between lifecycle boundaries.
+Existing traces gain this derivation without a data backfill.
+
+`trace-timing.ts` owns this semantic timing model in both its in-memory interval form
+and the SQL expressions used by generated views. The raw `spans` table keeps provider
+boundaries unchanged. The `events` view projects the effective Thinking start and
+duration, while `turns.thinking_time_ms`, `turns.provider_wait_ms`, and the waterfall
+use the same rule. Thus raw capture remains inspectable without letting the query and
+visual surfaces disagree.
 
 **First-response timing.** An agentic turn can think or call tools before it emits
 visible prose. Therefore, visible text is not a valid proxy for the provider's first
@@ -618,7 +625,11 @@ the natural cross-host aggregation point for dispatch.
   (`control-plane.ts:1692`) and a `setup` child owns worktree/git/task-prep time
   inside `_launchRun` — user-visible latency is never excluded from the turn.
 - Child intervals may overlap (parallel or nested tools). Rollups use interval unions,
-  and derive unattributed turn time from the root rather than synthetic child spans.
+  extend Thinking over its immediately preceding uncovered interval, and derive the
+  remaining Provider wait from the root rather than persisted synthetic child spans.
+- Semantic timing is one projection over raw spans. `trace-timing.ts` supplies the
+  interval implementation for trace rollups and the matching SQL expressions for the
+  `events` and `turns` views. Parity tests compare all three surfaces.
 - Ephemeral services get one coarse `agent_run` span, not a child tree.
 - Automation runs sit in the **user** namespace (users care how long their nightly
   automation takes); only scheduler plumbing is `internal.*`.
@@ -803,7 +814,8 @@ the natural cross-host aggregation point for dispatch.
   catalog as UX. Collapsed to `turns` and `events` (plus `internal_events`
   and `spans` as the advanced fact table): a kind is a
   `WHERE kind = …` filter on `events`, not a table to discover, and `turns`
-  carries its per-kind child-time sums (`tool_time_ms`, `thinking_time_ms`,
+  carries Provider wait and its per-kind child-time totals (`provider_wait_ms`,
+  `tool_time_ms`, `thinking_time_ms`,
   `streaming_time_ms`, `setup_time_ms`, `permission_wait_ms`, `queue_wait_ms`,
   `rate_limit_wait_ms`, `settlement_time_ms`) as correlated-sum columns, so "tool time by model" is a
   plain `GROUP BY` on one table. The former join preset is rewritten to exactly
@@ -899,12 +911,11 @@ the natural cross-host aggregation point for dispatch.
   level with the expand control above it, instead of every name in the trace
   being indented past a triangle most rows do not have.
 - **Coverage is the remainder, said once.** The strip printed both
-  "Unattributed turn time 49%" and "51% attributed" — one measurement stated
+  "Provider wait 49%" and "51% attributed" — one measurement stated
   twice, in two directions, on one line. The attributed figure is gone. The
   remainder stays, and because it is the only entry in the key that is a
   left-over rather than a measurement, it is the only one that explains itself:
-  hovering it opens a card saying it names missing trace coverage, not model
-  thinking and not idle time, and listing what such an interval can hold.
+  hovering it opens a card that explains which recorded activities it excludes.
 - **The width a surface gets should match the question it answers.** A section
   about the whole session, in a 19rem rail, has to spend a thread and two lines
   per row to say what one wide row says plainly — and a ranked list of short
@@ -954,7 +965,7 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   including interrupt, failure, parallel tools, queue drain, and Codex
   usage-delta cases.
 - **WP3 — Query engine + RPC + saved queries.** QuerySpec compiler (with percentile
-  pass, interval-union rollups, and derived unattributed time); the field
+  pass, interval-union rollups, and derived Provider wait); the field
   registry and generated per-kind views; the guarded read-only SQL executor;
   the NL→SQL compile flow (`metricsCompileNl` → ephemeral agent, service
   `solus.insights`, execute-and-retry); `observability-handlers.ts`, RPC
@@ -1064,12 +1075,14 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   wide result instead of on the room the reader can see. Tests:
   `tests/unit/insights-table-grid.test.ts`.
 - **WP4.6 — Trace coverage (landed).** The residual formerly labelled
-  "unobserved agent time" is now **unattributed turn time** and the turn fact
+  "unobserved agent time" is now **Provider wait** and the turn fact
   reports trace coverage. `metricsTurnTrace` returns the uncovered intervals split
   into lifecycle locations: before the first provider event, before first activity,
   between activities, provider completion, turn settlement, after the last provider
   event, or unclassified on an old trace. The turn emitter stores first/last provider
   event, provider completion, and Solus settlement durations in the `turns` view.
+  The derived trace extends a thinking span over its immediately preceding uncovered
+  interval, so that model-reasoning lead-in does not count as idle time.
   Claude tool spans now close on `tool_result`, not `content_block_stop`, so actual
   tool execution is no longer misreported as missing coverage. Insights groups gap
   locations with counts and durations and explicitly says that locations are not
@@ -1418,7 +1431,7 @@ Each WP lands green (`bun run build`, focused unit tests) before the next starts
   the 19rem rail while the waterfall it explains was in the main column, so the
   two pictures of one interval never shared an edge. `TraceCoverage` now sits
   inside the Trace card between its header and the plot: the bar, a wrapping
-  legend of kind/share/duration, and the unattributed gaps behind a disclosure
+  legend of kind/share/duration, and the Provider wait gaps behind a disclosure
   rather than always printed. The ranked lists that were beside it — longest
   tool calls, denied permissions — stay in the rail as `TraceHotspots`, which
   the panel renders only when there is something ranked to show. The session

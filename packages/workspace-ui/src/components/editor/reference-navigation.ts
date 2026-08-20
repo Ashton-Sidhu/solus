@@ -22,7 +22,7 @@ export function createReferenceNavigation(
     },
     openPr(number: number, title?: string): void {
       const workingDirectory = scope.workingDirectory()
-      void session.enterPrReview(number, title, {
+      void session.openPullRequest({ number, title }, {
         ctx: workingDirectory
           ? session.ctxForDirectory(workingDirectory)
           : session.ctx,

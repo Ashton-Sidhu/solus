@@ -57,6 +57,18 @@ describe('the served schema documents the fact table, not just the views', () =>
     }
   })
 
+  test('the query schema exposes the same semantic timing model as the waterfall', () => {
+    const schema = metricsSchema()
+    const turns = schema.views.find((view) => view.view === 'turns')
+    const events = schema.views.find((view) => view.view === 'events')
+
+    expect(turns?.columns.find((column) => column.name === 'provider_wait_ms')).toBeDefined()
+    expect(turns?.columns.find((column) => column.name === 'thinking_time_ms')?.description)
+      .toContain('lead-in')
+    expect(events?.columns.find((column) => column.name === 'duration_ms')?.description)
+      .toContain('Thinking includes')
+  })
+
   test('the join key and the fact table are stated, not left to be inferred', () => {
     const facts = SCHEMA_RELATIONSHIPS.join(' ')
     expect(facts).toContain('trace_id')

@@ -30,7 +30,11 @@ function span(overrides: Partial<MetricsSpan> & Pick<MetricsSpan, 'spanId' | 'ki
   }
 }
 
-function traceOf(rootAttrs: MetricsSpan['attrs'], children: MetricsSpan[] = []) {
+function traceOf(
+  rootAttrs: MetricsSpan['attrs'],
+  children: MetricsSpan[] = [],
+  providerWaitMs: number | null = null,
+) {
   const root = span({
     spanId: 'trace-1',
     kind: 'turn',
@@ -39,7 +43,7 @@ function traceOf(rootAttrs: MetricsSpan['attrs'], children: MetricsSpan[] = []) 
   const view = buildTraceView({
     traceId: 'trace-1',
     spans: [root, ...children],
-    unattributedMs: null,
+    providerWaitMs,
     gapSegments: [],
   })
   if (!view) throw new Error('expected a trace view')
@@ -99,6 +103,14 @@ describe('turn attributes', () => {
       expect.arrayContaining(['duration_ms', 'cost_usd', 'input_tokens', 'tool_call_count']),
     )
     expect(findAttribute(root, view, 'tool_call_count').value).toBe('1')
+  })
+
+  test('the remaining uncovered turn time is named provider wait', () => {
+    const { root, view } = traceOf({}, [], 750)
+    const providerWait = findAttribute(root, view, 'provider_wait_ms')
+
+    expect(providerWait.value).toBe('750ms')
+    expect(providerWait.copyValue).toBe('750')
   })
 
   test('a row copies the stored value, not the value it prints', () => {

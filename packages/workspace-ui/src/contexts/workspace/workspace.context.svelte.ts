@@ -1,7 +1,6 @@
 import { createAppContext } from '../app/create-app-context'
 import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, StatusCardState, PrReviewContext, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
-import type { PrReviewTarget } from '@solus/contracts/providers'
-import type { PullRequestSummary } from '@solus/contracts/providers'
+import type { PrReviewTarget, PullRequestSummary, RepoRef } from '@solus/contracts/providers'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
 import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
@@ -43,6 +42,7 @@ import { type WindowContext } from '../app/window.context.svelte'
 import { type StatusBarContext } from '../app/status-bar.context.svelte'
 import { type AgentContext } from '../app/agent.context.svelte'
 import { environmentProjectKey, type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
+
 import { makeSession, makeTab, makePrompt } from './session.factories'
 import {
   SessionDraft,
@@ -91,6 +91,26 @@ import {
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
 import { z } from 'zod'
+
+export interface PullRequestOpenTarget {
+  number: number
+  title?: string
+  /** The original remote link, when this target came from a durable link. */
+  url?: string | null
+  /** Provider identity carried by PR list records. */
+  baseRepo?: RepoRef
+  /** Provider identity parsed from a remote link. */
+  expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
+}
+
+function pullRequestExternalUrl(target: PullRequestOpenTarget): string | undefined {
+  const originalUrl = target.url?.trim()
+  if (originalUrl) return originalUrl
+  const repo = target.expectedRepo ?? target.baseRepo
+  return repo
+    ? `https://${repo.host}/${repo.owner}/${repo.repo}/pull/${target.number}`
+    : undefined
+}
 
 const devSessionLogging = Boolean(import.meta.env.DEV)
 const outboxTaskPayloadSchema = z.object({ taskId: z.string().optional() })
@@ -3628,35 +3648,41 @@ export class WorkspaceContext {
     }
   }
 
-  /** Enter PR review without creating a checkout. A worktree-rooted chat is
-   * created only on demand. */
-  async enterPrReview(
-    number: number,
-    title?: string,
+  /** Open a PR from any surface. Remote identity is part of the target, so the
+   * shared command always tries Solus first and uses the external URL on
+   * failure whenever the caller or cached PR record can provide one. */
+  async openPullRequest(
+    target: PullRequestOpenTarget,
     opts: {
       openChat?: boolean
       ctx?: IpcContext
       via?: Via
       serverId?: string
       target?: NavTarget
-      expectedRepo?: RouteRef<'prReview'>['params']['expectedRepo']
-      externalFallbackUrl?: string
+      tab?: PrReviewTab
     } = {},
   ): Promise<void> {
+    const cachedPr = this.prsStore.get(target.number)
+    const expectedRepo = target.expectedRepo ?? target.baseRepo ?? cachedPr?.baseRepo
+    const externalFallbackUrl = pullRequestExternalUrl(target)
+      ?? (cachedPr ? pullRequestExternalUrl(cachedPr) : undefined)
+    const title = target.title ?? cachedPr?.title
+    const number = target.number
     beginPrReviewProfile(number)
     // Switch to the editor layout up front so the click registers immediately.
     // Transcript web links preflight first so an inaccessible PR never causes
     // a visible mode or pane transition before it falls back to the browser.
-    if (!opts.externalFallbackUrl && this.window.viewMode !== 'editor') {
+    if (!externalFallbackUrl && this.window.viewMode !== 'editor') {
       await this.window.setViewMode('editor')
     }
     const ctx = opts.ctx ?? this.ctx
     const pr = await this.openPrReviewRoute(number, title, ctx, {
+      tab: opts.tab,
       via: opts.via,
       serverId: opts.serverId,
       target: opts.target,
-      expectedRepo: opts.expectedRepo,
-      externalFallbackUrl: opts.externalFallbackUrl,
+      expectedRepo,
+      externalFallbackUrl,
     })
     if (pr && opts.openChat) {
       const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
@@ -3685,8 +3711,11 @@ export class WorkspaceContext {
     opts: { ctx?: IpcContext; tab?: PrReviewTab; serverId?: string } = {},
   ): Promise<void> {
     if (this.router.params('prReview')?.number === number) return
-    beginPrReviewProfile(number)
-    await this.openPrReviewRoute(number, title, opts.ctx ?? this.ctx, { tab: opts.tab, serverId: opts.serverId })
+    await this.openPullRequest({
+      number,
+      title,
+      baseRepo: this.prsStore.get(number)?.baseRepo,
+    }, opts)
   }
 
   /** Step to the PR before or after the open one, in the list's own order —
@@ -3917,7 +3946,7 @@ export class WorkspaceContext {
    */
   openRoute(
     ref: RouteRef,
-    opts: { via?: Via; target?: NavTarget; externalFallbackUrl?: string } = {},
+    opts: { via?: Via; target?: NavTarget; sourceUrl?: string } = {},
   ): void {
     switch (ref.name) {
       case 'plan':
@@ -3937,11 +3966,14 @@ export class WorkspaceContext {
         this.showPage(ref, opts.via ?? 'click', 'tasks', opts.target)
         return
       case 'prReview':
-        void this.enterPrReview(ref.params.number, ref.params.title, {
+        void this.openPullRequest({
+          number: ref.params.number,
+          title: ref.params.title,
+          expectedRepo: ref.params.expectedRepo,
+          url: opts.sourceUrl,
+        }, {
           via: opts.via,
           target: opts.target,
-          expectedRepo: ref.params.expectedRepo,
-          externalFallbackUrl: opts.externalFallbackUrl,
           serverId: ref.params.serverId,
           ctx: ref.params.cwd ? this.ctxForDirectory(ref.params.cwd) : this.ctx,
         })

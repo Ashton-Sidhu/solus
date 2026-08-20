@@ -365,12 +365,15 @@
             taskProjectDirectory: projectCwd,
             linkProjectDirectory: link.targetScope,
           });
-          void session.enterPrReview(number, link.title, {
+          void session.openPullRequest({
+            number,
+            title: link.title,
+            url: link.url,
+          }, {
             ctx: target.projectDirectory
               ? session.ctxForDirectory(target.projectDirectory)
               : session.ctx,
             serverId: target.serverId,
-            externalFallbackUrl: link.url ?? undefined,
           });
         }
         break;

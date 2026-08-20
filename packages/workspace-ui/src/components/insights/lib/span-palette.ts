@@ -5,18 +5,17 @@
 // and the legend, across every turn and both themes. The art ramp already
 // self-inverts in dark mode, so nothing is restated per theme.
 
-/** Time inside the turn that no blocking child span claimed. It is a coverage
- *  remainder, not a claim about model work or agent activity. */
-export const UNATTRIBUTED_KIND = 'unattributed'
+/** Time inside the turn that no blocking child span claimed after a thinking
+ *  span has absorbed its immediately preceding lead-in. */
+export const PROVIDER_WAIT_KIND = 'provider_wait'
 
-/** What the remainder means, for the reader who hovers it. It says what the
- *  trace does not know, and refuses to name a cause the spans never recorded. */
-export const UNATTRIBUTED_EXPLANATION =
-  'Time inside the turn that no recorded span covers. It is what is left after every measured interval is counted once, so it names missing trace coverage — not model thinking, and not idle time.'
+/** What the remaining provider wait means for the reader who hovers it. */
+export const PROVIDER_WAIT_EXPLANATION =
+  'Time spent waiting for provider activity that is not part of Thinking, response streaming, a tool call, or an explicit wait.'
 
 /** The things such an interval can hold. Listed, because a reader who sees a
  *  large remainder asks what could be in it. */
-export const UNATTRIBUTED_CAUSES = [
+export const PROVIDER_WAIT_CAUSES = [
   'provider queueing and rate limiting outside a recorded wait',
   'inference the provider reported without start and stop boundaries',
   'transport delay between the provider and Solus',
@@ -25,7 +24,7 @@ export const UNATTRIBUTED_CAUSES = [
 
 const KIND_COLORS: Record<string, string> = {
   turn: 'var(--muted-foreground)',
-  [UNATTRIBUTED_KIND]: 'var(--solus-art-5)',
+  [PROVIDER_WAIT_KIND]: 'var(--solus-art-5)',
   thinking: 'var(--solus-art-1)',
   response_stream: 'var(--solus-art-2)',
   tool_call: 'var(--solus-art-4)',
@@ -45,7 +44,7 @@ const KIND_COLORS: Record<string, string> = {
 
 const KIND_LABELS: Record<string, string> = {
   turn: 'Turn',
-  [UNATTRIBUTED_KIND]: 'Unattributed turn time',
+  [PROVIDER_WAIT_KIND]: 'Provider wait',
   thinking: 'Thinking',
   response_stream: 'Response streaming',
   tool_call: 'Tool calls',
