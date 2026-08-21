@@ -42,8 +42,8 @@
    * takes it away again.
    */
   const probing = $derived(
-    (setup.readinessLoading && !setup.readiness) ||
-      connectionsStore.providerStatus === null,
+    !setup.readinessError &&
+      (!setup.readiness || connectionsStore.providerStatus === null),
   );
 
   const agentRows = $derived(
@@ -81,6 +81,12 @@
 
   onMount(() => {
     setup.retain();
+    // `start()` probes behind the intro. On a remote client the selected host
+    // can change while the socket settles, so refresh the host this stage is
+    // now reporting before it labels either CLI as absent.
+    if (!setup.readiness && !setup.readinessLoading) {
+      void setup.refreshReadiness();
+    }
     // The GitHub row fetches this too, but it is only mounted when GitHub is
     // *not* connected — which is the answer this is waiting for.
     if (serverId) void connectionsStore.refreshProviderStatus(serverId, session.ctx);
@@ -117,6 +123,15 @@
           <span class="h-2 w-[9.875rem] rounded-full bg-[var(--wash-2)] opacity-60"></span>
         </span>
       </div>
+    {:else if setup.readinessError}
+      <OnboardingRow
+        name="Could not check {hostName}"
+        detail={setup.readinessError}
+        tint="var(--solus-status-error)"
+        state="available"
+        actionLabel="Retry"
+        onaction={() => void setup.refreshReadiness()}
+      />
     {:else if ready}
       <!-- One row rather than none: "it is ready" with an empty column under it
            reads as a stage that failed to load. -->

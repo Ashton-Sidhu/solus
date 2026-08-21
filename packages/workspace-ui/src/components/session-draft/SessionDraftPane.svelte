@@ -2,6 +2,7 @@
   import {
     getWorkspaceContext,
     getSettingsContext,
+    runtime,
   } from "../../contexts";
   import { projectDirLabel } from "../../lib/paths";
   import { homeGitDetails } from "../../lib/git-context";
@@ -41,16 +42,21 @@
   // Beside another pane the composer needs the same seam a split chat draws;
   // in the leading pane it is the leftmost surface and draws none.
   const isAside = $derived(paneId !== session.router.leadingPane.id);
+  let composerInput = $state<ReturnType<typeof InputBar> | null>(null);
 
-  // The conversation composer stays mounted behind this routed surface. When a
-  // draft opens from that input, the generic focus guard sees the old editor as
-  // active and correctly refuses to steal from it. This route knows that editor
-  // is now hidden, so it explicitly gives the visible draft the caret after its
-  // InputBar has mounted. Waiting for the picker to close also covers drafts
-  // opened from its search field.
+  // A draft is its own routed surface, so it owns the focus transition into its
+  // own composer. Address the mounted InputBar directly rather than broadcasting
+  // a workspace focus request. The picker is the one valid temporary owner;
+  // once it closes, the draft takes the caret.
   $effect(() => {
     const draftId = params.draftId;
-    if (!surfaceVisible || !draft || session.sessionPickerOpen) return;
+    if (
+      !surfaceVisible ||
+      !draft ||
+      session.sessionPickerOpen ||
+      runtime.shouldSuppressFocus
+    )
+      return;
     const focusFrame = requestAnimationFrame(() => {
       if (
         surfaceVisible &&
@@ -58,7 +64,7 @@
         params.draftId === draftId &&
         session.sessionDrafts.has(draftId)
       ) {
-        requestInputFocus();
+        composerInput?.focus();
       }
     });
     return () => cancelAnimationFrame(focusFrame);
@@ -252,11 +258,13 @@
         <!-- No session and no tab: the bar composes for nothing that exists yet,
              so Send goes through `dispatch`, which is what mints both. -->
         <InputBar
+          bind:this={composerInput}
           mode="editor"
           sessionId={null}
           isPrimary={!isAside}
           {paneId}
           run={current.run}
+          onRun={(next) => (current.run = next)}
           {pluginCommands}
           boundWorkId={current.boundWorkId}
           onUnbindWork={() => (current.boundWorkId = null)}

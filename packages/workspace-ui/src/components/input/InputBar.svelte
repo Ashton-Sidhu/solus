@@ -92,6 +92,11 @@
      *  same shape in the same position, so @-file search and saved prompts find
      *  their project without asking which of the two they were handed. */
     run?: RunConfig;
+    /** How a draft's run is edited. The draft owns that object, so the change
+     *  goes back to its owner rather than being written through the prop — the
+     *  same seam the model and mode chips use. A started session leaves this
+     *  unset: its run belongs to the store, which edits it in place. */
+    onRun?: (next: RunConfig) => void;
     /** Commands resolved for this composer. Drafts supply their picker-scoped
      *  result because they have no session cache of their own. */
     pluginCommands?: PluginCommandsResult;
@@ -120,6 +125,7 @@
     isPrimary = false,
     paneId,
     run,
+    onRun,
     pluginCommands: suppliedPluginCommands,
     prompt = $bindable(),
     onDispatch,
@@ -710,9 +716,11 @@
 
   // ─── Model / mode shortcuts ───
 
-  // Both edit `run` in place — the very object the model and mode chips below
-  // read — so the change lands on whatever this bar composes for without a
-  // session-versus-draft branch or a tab lookup.
+  // Both land on the very object the model and mode chips below read, so the
+  // change reaches whatever this bar composes for without a tab lookup. A
+  // started session's run is the store's own object and is written in place,
+  // exactly as `setPermissionMode` does; a draft's belongs to the draft, so it
+  // goes back through `onRun` rather than through this bar's prop.
   function cycleModel() {
     if (!run || isBusy) return;
     const metadata = agent.metadata[activeProvider] ?? agent.activeMetadata;
@@ -720,14 +728,18 @@
     if (!models || models.length === 0) return;
     const nextModelId = cycledModelId(run, models, metadata?.defaultModel ?? null);
     if (!nextModelId) return;
-    Object.assign(run.modelConfig, modelConfigForModel(run, nextModelId));
+    const nextConfig = modelConfigForModel(run, nextModelId);
+    if (onRun) onRun({ ...run, modelConfig: { ...run.modelConfig, ...nextConfig } });
+    else Object.assign(run.modelConfig, nextConfig);
     track("model_changed", { via: "keybinding" });
     refocusComposer();
   }
   function cyclePermissionMode() {
     if (!run) return;
-    run.permissionMode = nextPermissionMode(run.permissionMode);
-    track("permission_mode_set", { mode: run.permissionMode, via: "keybinding" });
+    const mode = nextPermissionMode(run.permissionMode);
+    if (onRun) onRun({ ...run, permissionMode: mode });
+    else run.permissionMode = mode;
+    track("permission_mode_set", { mode, via: "keybinding" });
     refocusComposer();
   }
   // A started session hands off to the new agent (a real provider switch); a
@@ -746,13 +758,19 @@
       void session.switchActiveAgent(next.id, targetTabId, "keybinding");
     } else {
       const modelId = defaultModelIdFor(next.id, agent.metadata);
-      run.provider = next.id;
-      run.modelConfig.modelId = modelId;
-      run.modelConfig.reasoningEffort = clampReasoningEffort(
-        next.id,
-        modelId,
-        run.modelConfig.reasoningEffort,
-      );
+      onRun?.({
+        ...run,
+        provider: next.id,
+        modelConfig: {
+          ...run.modelConfig,
+          modelId,
+          reasoningEffort: clampReasoningEffort(
+            next.id,
+            modelId,
+            run.modelConfig.reasoningEffort,
+          ),
+        },
+      });
     }
     refocusComposer();
   }
@@ -1018,6 +1036,12 @@
   }
 
   // ─── Core input handlers ───
+
+  /** Focus this exact composer. Route surfaces use this instead of broadcasting
+   *  a workspace focus request that every mounted InputBar can hear. */
+  export function focus() {
+    composerEl?.focus();
+  }
 
   function sendPrompt(
     text: string,

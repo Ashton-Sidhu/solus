@@ -8,6 +8,7 @@
 
   interface NodeData extends DiagramNode {
     dimmed?: boolean
+    resizable?: boolean
     onLabelChange?: (id: string, label: string) => void
     onResize?: (id: string, width: number, height: number) => void
     onResizeLive?: (
@@ -43,7 +44,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'F2') editor.start(e)
+    if (e.key === 'F2' && data.onLabelChange) editor.start(e)
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       handleClick()
@@ -64,7 +65,7 @@
 
 <!-- Resizing a collapsed group is meaningless (the box is shrunk to its header),
      so the resize handles are hidden until it's expanded again. -->
-{#if !data.collapsed}
+{#if !data.collapsed && data.resizable !== false}
   <NodeResizer
     minWidth={220}
     minHeight={140}
@@ -103,7 +104,7 @@
   role="button"
   tabindex="0"
   aria-label="Select group {data.label}"
-  ondblclick={editor.start}
+  ondblclick={data.onLabelChange ? editor.start : undefined}
   onclick={handleClick}
   onkeydown={handleKeydown}
   oncontextmenu={handleContextMenu}

@@ -44,8 +44,11 @@
   );
 </script>
 
+<!-- No track behind the group and no rule under it: the active tab's own wash is
+     the whole cue. A track would draw a second object into a band whose point is
+     that it holds still. -->
 <div
-  class="flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_9%,transparent)]"
+  class="no-drag flex shrink-0 items-center gap-0.5"
   role="tablist"
   aria-label="Review views"
 >
@@ -56,8 +59,8 @@
       role="tab"
       aria-selected={isActive}
       title={tab.id === "guide" ? guideHint : undefined}
-      class="relative flex h-6 cursor-pointer items-center gap-1 rounded-full px-3 text-xs transition-colors duration-150 {isActive
-        ? 'bg-card font-medium text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
+      class="relative flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 [.is-laptop-display_&]:h-6.5 {isActive
+        ? 'bg-[var(--wash-2)] font-medium text-foreground'
         : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
       onclick={() => onSelect(tab.id)}
     >

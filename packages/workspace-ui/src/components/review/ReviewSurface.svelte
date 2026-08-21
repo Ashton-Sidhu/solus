@@ -48,8 +48,10 @@
     filePath,
     navigationRequestId,
     onClose,
+    onToggleMaximize = null,
+    maximized = false,
     initialSkeletonVisible = false,
-    bordered = true,
+    bordered = false,
   }: {
     sourceTabId: string;
     view: ReviewView;
@@ -62,9 +64,14 @@
      *  mounted for yet. */
     navigationRequestId?: number;
     onClose: () => void;
+    /** Pane maximize, drawn as the band's full-screen control. Absent where the
+     *  surface has no pane of its own (the web client's full-height sheet). */
+    onToggleMaximize?: (() => void) | null;
+    maximized?: boolean;
     /** True when the route boundary already painted the same skeleton. */
     initialSkeletonVisible?: boolean;
-    /** Whether this surface needs a seam against content in another pane. */
+    /** Whether this surface needs a seam against content in another pane. The
+     *  band replaced that rule with space, so it is off by default. */
     bordered?: boolean;
   } = $props();
 
@@ -196,6 +203,16 @@
   const guideUnread = $derived(
     reviewGuideStore.indicatorStatusFor(getApi(), guideIdentity)?.status === "ready",
   );
+  // Whether the cached guide still describes HEAD is state about this change,
+  // so it rides in the panel's header with the rest of it rather than as a chip
+  // inside the narrative it qualifies.
+  const guideHeaderActions = $derived({
+    present: !!loader.guide,
+    stale: loader.stale,
+    regenerating: loader.loading || generating,
+    onRegenerate: () => loader.refresh(),
+  });
+
   const guideState = $derived<"absent" | "generating" | "unread" | "ready">(
     generating
       ? "generating"
@@ -307,6 +324,9 @@
     {mapView}
     {guideView}
     {bordered}
+    {onToggleMaximize}
+    {maximized}
+    guide={guideHeaderActions}
     {initialSkeletonVisible}
   />
 {:else}

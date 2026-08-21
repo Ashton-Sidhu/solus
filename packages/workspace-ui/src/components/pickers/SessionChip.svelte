@@ -368,7 +368,7 @@
             ? fastMode
               ? 'h-5 w-5 text-amber-500 dark:text-amber-300'
               : 'h-5 w-5 rounded-full bg-white text-(--solus-accent)'
-            : ''}"
+            : 'text-(--solus-accent)'}"
         >
           {#if isClaude}
             <ClaudeIcon size={13} />

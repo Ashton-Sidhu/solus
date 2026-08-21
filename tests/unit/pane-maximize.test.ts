@@ -146,7 +146,11 @@ describe('the maximize key across the whole secondary pane', () => {
       join(import.meta.dir, '../../packages/workspace-ui/src/components/diff/DiffPanel.svelte'),
       'utf8',
     )
-    expect(diffPanel).not.toContain('onToggleMaximize')
+    // The review band draws the pane's maximize control, so the panel forwards
+    // a callback — but it must never claim a key for it. The shared global ⌥M
+    // stays the only way to press it.
+    expect(diffPanel).not.toContain('useKeybinding("pane.maximize"')
+    expect(diffPanel).not.toContain('diff-panel.maximize')
     expect(bindingsForScope('diff-panel').some(([id]) => id.endsWith('.maximize'))).toBe(false)
   })
 })

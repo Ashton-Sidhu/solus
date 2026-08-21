@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import {
   findAnchor,
   readTrigger,
@@ -21,6 +23,18 @@ import {
   sessionRefTitle,
 } from '@solus/workspace-ui/components/editor/unified-autocomplete/reference-index.svelte'
 import type { SessionMeta } from '@solus/contracts/types'
+
+const promptEditorSource = readFileSync(
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/ui/PromptEditor.svelte'),
+  'utf8',
+)
+const plainTextEditorSource = readFileSync(
+  join(
+    import.meta.dir,
+    '../../packages/workspace-ui/src/components/ui/plain-text-editor/plain-text-editor.svelte',
+  ),
+  'utf8',
+)
 
 function reference(refKind: RefKind, title: string, meta = ''): MenuItem {
   return {
@@ -152,6 +166,25 @@ describe('trigger grammar', () => {
     })
   })
 
+  test('a space directly after any bare trigger closes autocomplete', () => {
+    // WHY: typing ordinary prose after /, #, or @ must close its picker instead
+    // of treating the rest of the sentence as an autocomplete query.
+    for (const char of ['/', '#', '@']) {
+      expect(readTrigger(`${char} `, 0)).toBeNull()
+      expect(findAnchor(`${char} `)).toBeNull()
+    }
+
+    // Supported queries can still contain spaces once real text has started.
+    expect(readTrigger('/release notes', 0)).toMatchObject({
+      char: '/',
+      query: 'release notes',
+    })
+    expect(readTrigger('@release notes', 0)).toMatchObject({
+      char: '@',
+      query: 'release notes',
+    })
+  })
+
   test('accepting replaces the whole run, scope and spaces included', () => {
     // WHY: the run is what the user sees as one gesture. Leaving the scope slug
     // behind would put `#automations/` in the sent prompt beside the chip.
@@ -162,6 +195,27 @@ describe('trigger grammar', () => {
 })
 
 describe('keyboard selection', () => {
+  test('accepting /, #, or @ refocuses without moving the caret', () => {
+    // WHY: the insertion transaction places the caret after the reference. A
+    // generic focus call moves it to the document end and breaks mid-sentence
+    // completion for every trigger handled by the shared controller.
+    expect(promptEditorSource).toContain(
+      'focus: () => plainTextEditorEl?.focusAtSelection()',
+    )
+    expect(plainTextEditorSource).toMatch(
+      /export function focusAtSelection\(\) \{\s*view\?\.focus\(\);\s*\}/,
+    )
+
+    for (const char of ['/', '#', '@']) {
+      const text = `before ${char}query after`
+      const caret = text.indexOf(' after')
+      const beforeCaret = text.slice(0, caret)
+      expect(beforeCaret.replace(triggerRunPattern(beforeCaret, 7), 'RESULT ')).toBe(
+        'before RESULT ',
+      )
+    }
+  })
+
   test('Tab commits the selected row just like Enter', () => {
     // WHY: hovering a file or any other individual item makes it the selected
     // row. Tab must commit that row, not merely extend a prefix completion.

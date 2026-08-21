@@ -9,10 +9,12 @@ import {
     Clock as ClockIcon,
     FileText as FileTextIcon,
     GitPullRequest as GitPullRequestIcon,
+    ChartNoAxesColumnIncreasing as GraphIcon,
+    Presentation as PresentationIcon,
     LoaderCircle as SpinnerGapIcon,
     CircleX as XCircleIcon,
   } from "@lucide/svelte";
-  import type { Automation } from '@solus/contracts/types'
+  import type { Automation, WorkMeta } from '@solus/contracts/types'
 import type { Task, TaskLink, TaskLinkKind, TaskSessionLink } from '@solus/contracts/task-types'
 import { sessionDisplayName, type AttentionState } from '../../../lib/sessionUtils'
 import { clockTime } from '../../automations/lib/automation-format'
@@ -179,6 +181,22 @@ const LINK_ICONS = {
   automation: ArrowsClockwiseIcon,
 } satisfies Record<TaskLinkKind, RailIcon>
 
+/** A work is three artifacts under one link kind, so the row reads its type
+ *  from the live join (`liveStatus` carries `works.type`) and wears the same
+ *  glyph the workspace ledger gives it. A deleted work has no live type left,
+ *  so it falls back to the document glyph. */
+const WORK_TYPES = {
+  doc: { icon: FileTextIcon, label: 'Doc' },
+  slides: { icon: PresentationIcon, label: 'Slides' },
+  diagram: { icon: GraphIcon, label: 'Diagram' },
+} satisfies Record<WorkMeta['type'], { icon: RailIcon; label: string }>
+
+function workType(link: TaskLink): (typeof WORK_TYPES)[WorkMeta['type']] | null {
+  if (link.kind !== 'work') return null
+  const type = link.liveStatus
+  return type === 'slides' || type === 'diagram' ? WORK_TYPES[type] : WORK_TYPES.doc
+}
+
 const LINK_KIND_LABELS = {
   work: { one: 'doc', many: 'docs' },
   plan: { one: 'plan', many: 'plans' },
@@ -268,11 +286,15 @@ export function railLinkList(
       ? ` ${LINK_KIND_LABELS[[...kinds][0]][hidden.length === 1 ? 'one' : 'many']}`
       : ''
   return {
-    rows: shown.map((link) => ({
-      ...linkRow(link),
-      icon: LINK_ICONS[link.kind],
-      ...linkValue(link, automationFor, now),
-    })),
+    rows: shown.map((link) => {
+      const work = workType(link)
+      return {
+        ...linkRow(link),
+        icon: work?.icon ?? LINK_ICONS[link.kind],
+        ...(work ? { kindLabel: work.label } : {}),
+        ...linkValue(link, automationFor, now),
+      }
+    }),
     moreLabel: hidden.length ? `${hidden.length} more${noun}` : null,
     total: links.length,
   }

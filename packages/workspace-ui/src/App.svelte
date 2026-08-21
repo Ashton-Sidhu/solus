@@ -53,6 +53,7 @@
   } from "./contexts/workspace/run-config";
   import { toasts } from "./lib/toasts";
   import { setPopoverLayer } from "./components/popoverLayer.svelte";
+  import { startFocusTrace } from "./lib/focus-trace";
   import { projectScopeOf, worktreeProjectRoot } from "@solus/contracts/types";
   import type {
     AgentId,
@@ -314,6 +315,8 @@
     },
   });
   serversStore.init();
+  // TEMPORARY: opt-in focus diagnostics (localStorage.solusFocusTrace = '1').
+  startFocusTrace();
 
   let designModeScreenshot = $state<string | null>(null);
   let designModeTargetTabId = $state<string | undefined>(undefined);

@@ -137,7 +137,6 @@ export interface CodingProviderRowsInput {
 export function codingProviderRows(input: CodingProviderRowsInput): ProviderRow[] {
   const { readiness, stages, add } = input
   return SETUP_PROVIDERS.map(({ id, label }) => {
-    const state = readiness?.agents?.[id] ?? { installed: false, signedIn: false }
     const stage = stages[id]
     if (stage)
       return {
@@ -146,6 +145,17 @@ export function codingProviderRows(input: CodingProviderRowsInput): ProviderRow[
         detail: stage === 'install' ? 'Installing…' : 'Waiting on your browser…',
         state: 'busy',
       }
+    // No readiness answer is not evidence that the CLI is absent. This is
+    // common on a remote client while its first host request is still queued,
+    // and calling it "Not installed" sends the user to repair the wrong device.
+    if (!readiness)
+      return {
+        id,
+        label,
+        detail: 'Checking the host…',
+        state: 'busy',
+      }
+    const state = readiness.agents?.[id] ?? { installed: false, signedIn: false }
     const actions = providerSetupActions(state)
     if (actions.length === 0)
       return {

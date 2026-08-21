@@ -350,6 +350,16 @@
     requestInputFocus();
   }
 
+  // Whether the cached guide still describes HEAD is state about this pull
+  // request, so it rides in the header with the rest of it rather than as a
+  // chip inside the narrative it qualifies.
+  const guideHeaderActions = $derived({
+    present: !!guideLoader.guide,
+    stale: guideLoader.stale,
+    regenerating: guideLoader.loading,
+    onRegenerate: () => void regenerateGuide(),
+  });
+
   async function regenerateGuide() {
     try {
       await review.ensureCheckout();
@@ -886,6 +896,7 @@
       number={target.number}
       headRef={pr?.headRef ?? summary?.headRef}
       baseRef={pr?.baseRef ?? summary?.baseRef}
+      tab={sub}
       position={queuePosition}
       total={listOrder.length}
       {fullScreen}
@@ -895,10 +906,14 @@
       isLeading={false}
       onStep={step}
       onClose={exit}
+      onRefresh={() => void refreshPr()}
+      refreshing={refreshingPr}
+      guide={guideHeaderActions}
       tabs={panelTabs}
     >
+      <!-- The band keeps only what states this pull request or acts on it once
+           per visit; refresh and open-page moved into the overflow. -->
       {#snippet actions()}
-        {@render refreshButton()}
         {@render checksChip()}
         {@render checkoutMenu()}
         {@render chatButton()}
@@ -935,15 +950,33 @@
           {@render chatButton()}
 
           {#if sub === "guide" && !showingFullDiff}
+            <!-- The guide's intro no longer says whether it still describes
+                 HEAD, so the control that answers it carries the news: a dot,
+                 which costs the band no width and never moves it. -->
             <Button
               type="button"
               variant="ghost"
-              class="flex size-[26px] shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
-              aria-label="Regenerate review guide"
-              title="Regenerate review"
+              class="relative flex size-[26px] shrink-0 items-center justify-center rounded-full border-0 bg-transparent p-0 text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
+              aria-label={guideLoader.stale
+                ? "Regenerate review guide — new commits since guide"
+                : "Regenerate review guide"}
+              title={guideLoader.stale
+                ? "New commits since guide"
+                : "Regenerate review"}
               onclick={regenerateGuide}
             >
-              <ArrowsClockwiseIcon size={13} />
+              <ArrowsClockwiseIcon
+                size={13}
+                class={guideLoader.loading
+                  ? "animate-spin [animation-duration:1.2s] motion-reduce:animate-none"
+                  : ""}
+              />
+              {#if guideLoader.stale && !guideLoader.loading}
+                <span
+                  class="absolute top-[3px] right-[3px] size-[5px] rounded-full bg-primary"
+                  aria-hidden="true"
+                ></span>
+              {/if}
             </Button>
           {/if}
 

@@ -8,6 +8,7 @@
   import { onboardingStore as store } from "./onboarding.store.svelte";
   import { codingProviderRows } from "../servers/lib/host-onboarding";
   import OnboardingAgentRow from "./OnboardingAgentRow.svelte";
+  import OnboardingRow from "./OnboardingRow.svelte";
   import OnboardingStageActions from "./OnboardingStageActions.svelte";
   import type { SetupAgent } from "@solus/contracts/types";
 
@@ -21,7 +22,9 @@
   );
   const readyCount = $derived(rows.filter((row) => row.state === "done").length);
   /** Nothing has been heard from the host yet, so the rows are placeholders. */
-  const probing = $derived(setup.readinessLoading && !setup.readiness);
+  const probing = $derived(
+    !setup.readiness && !setup.readinessError,
+  );
 
   const title = $derived(
     probing
@@ -35,6 +38,12 @@
 
   onMount(() => {
     setup.retain();
+    // The intro starts a probe early, but a remote client's active host can
+    // settle after that request starts. Probe the host this stage actually
+    // renders instead of turning a missing answer into missing CLIs.
+    if (!setup.readiness && !setup.readinessLoading) {
+      void setup.refreshReadiness();
+    }
     return () => setup.release();
   });
 </script>
@@ -61,6 +70,14 @@
           </span>
         </div>
       {/each}
+    {:else if setup.readinessError}
+      <OnboardingRow
+        name="Could not check this host"
+        detail={setup.readinessError}
+        state="available"
+        actionLabel="Retry"
+        onaction={() => void setup.refreshReadiness()}
+      />
     {:else}
       {#each rows as row, index (row.id)}
         <OnboardingAgentRow

@@ -2,7 +2,8 @@
   import { onMount } from "svelte";
   import { FileDiff, File as PierreFile } from "@pierre/diffs";
   import { getSettingsContext } from "../../contexts";
-  import { parsePatchMetadata } from "../../lib/diff";
+  import { parsePatchMetadata } from "../../lib/pierre-diff";
+  import { diffRenderOptions } from "../../lib/pierre-diff/options";
   import { detectMovedBlocks } from "../../lib/diff-moves";
   import { decorateMovedLines } from "../../lib/diff-move-highlight";
   import {
@@ -97,19 +98,9 @@
   });
 
   function buildDiffOptions() {
-    const themeType = theme.isDark ? "dark" as const : "light" as const;
-    const hunkSeparators = hasFileContents ? "line-info-basic" as const : "metadata" as const;
-    return {
-      theme: getDiffThemeName(theme.isDark),
-      themeType,
-      diffStyle: "unified" as const,
-      diffIndicators: "none" as const,
-      lineDiffType: "word-alt" as const,
-      overflow: "wrap" as const,
-      hunkSeparators,
-      disableFileHeader: true,
-      disableErrorHandling: true,
-      unsafeCSS: DIFFS_THEME_CSS,
+    return diffRenderOptions({
+      isDark: theme.isDark,
+      hunkSeparators: hasFileContents ? "line-info-basic" : "metadata",
       onPostRender: (node: HTMLElement) => {
         if (!fileDiffMeta) return;
         decorateMovedLines(
@@ -118,7 +109,7 @@
           "unified",
         );
       },
-    };
+    });
   }
 
   function renderDiff() {

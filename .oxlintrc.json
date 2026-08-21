@@ -26,6 +26,7 @@
     "anti-slop/require-safety-comment-for-type-assertion": "error",
     "solus/no-broad-unknown-records": "error",
     "solus/no-host-api-escapes": "error",
-    "solus/no-pass-through-wrappers": "error"
+    "solus/no-pass-through-wrappers": "error",
+    "solus/no-pierre-diff-escapes": "error"
   }
 }

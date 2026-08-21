@@ -2856,15 +2856,18 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   color: var(--solus-text-primary);
 }
 
-/* Lists — markers are drawn, not inherited, so the dot/ring/numeral sizes stay
-   on the ladder instead of tracking the font. */
+/* Lists — a bullet is drawn, so its dot/ring size stays on the ladder instead of
+   tracking the font. A numeral is text and stays native: only the browser can
+   put the marker on the first line's baseline and end-align the marker box, so
+   "9." and "10." share a text edge at any font size or zoom. */
 .prose-transcript ul,
 .prose-transcript ol {
   margin: 0.625rem 0;
   padding-left: 1.125rem;
-  list-style: none;
 }
-.prose-transcript ol { padding-left: 1.375rem; }
+.prose-transcript ul { list-style: none; }
+/* Wide enough that a two-digit numeral still hangs inside the gutter. */
+.prose-transcript ol { padding-left: 1.625rem; list-style: decimal; }
 .prose-transcript li {
   position: relative;
   margin: 0 0 0.25rem;
@@ -2891,22 +2894,16 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   box-shadow: inset 0 0 0 0.0625rem
     color-mix(in oklch, var(--foreground) 35%, transparent);
 }
-.prose-transcript ol {
-  counter-reset: tx-ol;
-}
-.prose-transcript ol > li {
-  counter-increment: tx-ol;
-}
-.prose-transcript ol > li::before {
-  content: counter(tx-ol) ".";
-  position: absolute;
-  left: -1.375rem;
+/* The numeral keeps the quiet mono treatment; ::marker takes font and colour
+   only, which is all this needs — position stays the browser's job. */
+.prose-transcript ol > li::marker {
   font-family: var(--solus-code-font-family);
   font-size: calc(0.8125rem * var(--solus-font-scale, 1));
   font-variant-numeric: tabular-nums;
   color: var(--solus-text-tertiary);
 }
-/* A task item supplies its own checkbox, so it drops the drawn marker. */
+/* A task item supplies its own checkbox, so it drops both markers. */
+.prose-transcript li:has(> input[type="checkbox"]) { list-style: none; }
 .prose-transcript li:has(> input[type="checkbox"])::before { content: none; }
 .prose-transcript li > input[type="checkbox"] {
   appearance: none;

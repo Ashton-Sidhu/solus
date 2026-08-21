@@ -107,7 +107,9 @@
         class="flex h-[1.875rem] items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) {open ? 'bg-(--solus-surface-hover)' : ''}"
         style="cursor:{supportsPermissions ? 'pointer' : 'not-allowed'};opacity:{supportsPermissions ? 1 : 0.5}"
       >
-        {#if isPlan}<ShieldPlanIcon size={14} class="w-4 shrink-0 text-(--solus-accent)" />{:else if isAuto}<ShieldCheckIcon size={14} class="w-4 shrink-0 text-(--solus-accent)" />{:else}<ShieldQuestionIcon size={14} class="w-4 shrink-0 text-(--solus-accent)" />{/if}
+        <span class="inline-flex size-[1em] shrink-0 items-center justify-center text-(--solus-accent)" aria-hidden="true">
+          {#if isPlan}<ShieldPlanIcon class="block size-full" />{:else if isAuto}<ShieldCheckIcon class="block size-full" />{:else}<ShieldQuestionIcon class="block size-full" />{/if}
+        </span>
         {#if !compact}<span class="font-medium">{modeLabel}</span>{/if}
         <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
       </button>

@@ -179,7 +179,8 @@
   const session = getWorkspaceContext();
   const diagramEmbedExtension = createDiagramEmbedExtension({
     worksStore: session.worksStore,
-    onOpen: (workId) => session.openWork(workId, "aside"),
+    onOpen: (workId) => session.openWork(workId, "focused"),
+    onOpenSecondary: (workId) => session.openWork(workId, "aside"),
   });
   const editorExtensions = $derived([...extraExtensions, diagramEmbedExtension]);
   const diagramChoices = $derived(

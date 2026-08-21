@@ -902,6 +902,20 @@ export class SessionSidebarStore {
     return this.sessionsByTaskId.get(task.id) ?? this.buildSessionsFor(task)
   }
 
+  /** Mark the durable task and every mounted session represented by its root
+   * row as unread. The task timestamp persists the choice; the tab flags drive
+   * the blue unread indicator in the mounted sidebar. */
+  async markTaskUnread(taskId: string): Promise<void> {
+    const task = this.session.tasksStore.taskForId(taskId)
+    const rootTaskId = task?.parentId ?? taskId
+    const tabIds = this.catalogTasks.find((row) => row.taskId === rootTaskId)?.tabIds ?? []
+    await this.session.tasksStore.markRead(taskId, false)
+    for (const tabId of tabIds) {
+      const tab = this.session.tabs[tabId]
+      if (tab) tab.hasUnread = true
+    }
+  }
+
   /** Put a durable task and every linked attempt back into the sidebar. The
    * picker is an explicit reversal of per-row dismissal, so it restores the
    * whole task tree without changing any task lifecycle state. */

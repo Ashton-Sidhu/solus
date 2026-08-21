@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { RefreshCw as ArrowsClockwiseIcon, Clock as ClockIcon, Sparkles as SparkleIcon } from "@lucide/svelte";
+  import { RefreshCw as ArrowsClockwiseIcon, Clock as ClockIcon } from "@lucide/svelte";
   import type { PrGuideStatus } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import type { GuideDiffCommentSave } from "../pr-review/guide/lib/guide-data";
@@ -66,9 +66,6 @@
       patch={loader.patch}
       loadDiffFiles={loader.loadDiffFiles}
       {meta}
-      guideCurrent={!loader.stale}
-      onRegenerate={() => loader.refresh()}
-      regenerating={loader.loading}
       {onFileJump}
       {comments}
       {onCommentSave}
@@ -114,7 +111,6 @@
               />
               Generating…
             {:else}
-              <SparkleIcon size={13} weight="fill" class="shrink-0" />
               Generate guide
             {/if}
           </Button>

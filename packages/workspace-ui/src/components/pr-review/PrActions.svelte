@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { MessageSquareText as ChatTextIcon, Check as CheckIcon, LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
+  import { MessageSquareText as ChatTextIcon, LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
   import type { PullRequestDetail } from "@solus/contracts/providers";
   import type { IpcContext } from "@solus/contracts/types";
   import type { PrGuideStatus } from "@solus/contracts/review";
@@ -135,7 +135,7 @@
         title={generatingGuide
           ? "Generating the review guide…"
           : guideStatus === "ready"
-            ? "Guide ready — regenerates only if the PR changed"
+            ? "Open the review guide — regenerates only if the PR changed"
             : guideStatus === "failed"
               ? "Guide generation failed — try again"
               : "Generate the review guide in the background"}
@@ -146,12 +146,6 @@
             size={12}
             class="shrink-0 animate-spin [animation-duration:0.9s]"
           />
-        {:else if guideStatus === "ready"}
-          <CheckIcon
-            size={12}
-            weight="bold"
-            class="shrink-0 text-(--solus-art-positive)"
-          />
         {:else}
           <ReviewGuideGlyph size={12} class="shrink-0" />
         {/if}
@@ -160,9 +154,7 @@
             ? "Guide queued"
             : guideStatus === "generating"
               ? "Generating guide…"
-              : guideStatus === "ready"
-                ? "Guide ready"
-                : "Guide"}
+              : "Guide"}
         </span>
       </Button>
     </div>

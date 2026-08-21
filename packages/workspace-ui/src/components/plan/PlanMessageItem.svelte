@@ -135,6 +135,19 @@
         {/await}
       </div>
     {/if}
+
+    {#snippet footer()}
+      <button
+        type="button"
+        class="ref-card-rail-action"
+        onclick={(e) => {
+          e.stopPropagation();
+          openWorkSecondary();
+        }}
+      >
+        Open in split
+      </button>
+    {/snippet}
   </ConversationRefCard>
 {:else if ref.kind === "document"}
   <ConversationRefCard

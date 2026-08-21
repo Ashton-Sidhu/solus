@@ -18,6 +18,7 @@ export interface DiagramEmbedWorkSource {
 interface DiagramEmbedExtensionOptions {
   worksStore: DiagramEmbedWorkSource
   onOpen: (workId: string) => void
+  onOpenSecondary: (workId: string) => void
 }
 
 export const DiagramEmbedMarkdownExtension = Node.create({
@@ -90,6 +91,7 @@ export function createDiagramEmbedExtension(options: DiagramEmbedExtensionOption
             fallbackTitle: String(node.attrs.title ?? ''),
             worksStore: options.worksStore,
             onOpen: options.onOpen,
+            onOpenSecondary: options.onOpenSecondary,
           },
         })
         return {
@@ -100,7 +102,13 @@ export function createDiagramEmbedExtension(options: DiagramEmbedExtensionOption
               && nextNode.attrs.title === node.attrs.title
           },
           stopEvent(event) {
-            return event.target instanceof Element && !!event.target.closest('button')
+            // The embedded canvas handles its own pointer work — panning,
+            // zooming, drilling. ProseMirror must not claim those events as a
+            // block drag or a selection, or the graph cannot be read at all.
+            return (
+              event.target instanceof Element
+              && !!event.target.closest('button, .diagram-embed__canvas')
+            )
           },
           destroy() {
             void unmount(component)

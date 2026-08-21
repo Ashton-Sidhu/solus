@@ -5,8 +5,6 @@
   import { onDestroy, tick } from "svelte";
   import {
     SvelteFlow,
-    Background,
-    BackgroundVariant,
     MiniMap,
     Panel,
     MarkerType,
@@ -27,9 +25,8 @@
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
   import { uuid } from "@solus/contracts/uuid";
   import { formatSavedAgo } from "../document-shell/saveStatus";
-  import DiagramNodeComponent from "./nodes/DiagramNode.svelte";
-  import DiagramGroupNode from "./nodes/DiagramGroupNode.svelte";
-  import DiagramEdgeComponent from "./edges/DiagramEdge.svelte";
+  import DiagramCanvasBackground from "./DiagramCanvasBackground.svelte";
+  import DiagramDrillCrumbs from "./DiagramDrillCrumbs.svelte";
   import DiagramNodeInspector from "./inspector/DiagramNodeInspector.svelte";
   import DiagramNodeRail from "./inspector/DiagramNodeRail.svelte";
   import DiagramInspectorRail from "./inspector/DiagramInspectorRail.svelte";
@@ -85,6 +82,10 @@
     toFlowEdges,
     toFlowNodes,
   } from "./lib/flow-builders";
+  import {
+    DIAGRAM_EDGE_TYPES,
+    DIAGRAM_NODE_TYPES,
+  } from "./lib/canvas-registry";
   import {
     anchorNodeId,
     EDGE_INSPECTOR_TABS,
@@ -463,8 +464,8 @@
   const NEW_NODE_ZOOM_STEP = 0.3;
   const NEW_NODE_ZOOM_CAP = 1.5;
 
-  const nodeTypes = { default: DiagramNodeComponent, group: DiagramGroupNode };
-  const edgeTypes = { default: DiagramEdgeComponent };
+  const nodeTypes = DIAGRAM_NODE_TYPES;
+  const edgeTypes = DIAGRAM_EDGE_TYPES;
 
   // Full backing document. The live `nodes`/`edges` arrays mirror the CURRENT
   // view — the root doc, or a node's `detail` sub-diagram once drilled in. View
@@ -2521,7 +2522,7 @@
         maxZoom={2.5}
         deleteKey={null}
         connectionRadius={40}
-        attributionPosition="bottom-left"
+        proOptions={{ hideAttribution: true }}
         onnodeschange={handleNodesChange}
         onedgeschange={handleEdgesChange}
         onbeforeconnect={handleBeforeConnect}
@@ -2543,14 +2544,7 @@
         onedgeclick={({ edge }) => handleEdgeClick(edge.id)}
         onpaneclick={handlePaneClick}
       >
-        <Background
-          variant={BackgroundVariant.Dots}
-          gap={22}
-          size={1.4}
-          patternColor={theme.isDark
-            ? "rgba(255,255,255,0.08)"
-            : "rgba(42,38,24,0.10)"}
-        />
+        <DiagramCanvasBackground />
         <CanvasToolbar
           onAddNode={() => addNode()}
           onAddGroup={addGroup}
@@ -2576,39 +2570,13 @@
         {/if}
 
         {#if drillPath.length > 0}
-          <!-- The only way back out of a sub-diagram, so it floats over the
-               canvas rather than living in chrome. -->
           <Panel position="top-left">
-            <nav class="drill-crumbs" aria-label="Diagram breadcrumb">
-              <button
-                type="button"
-                class="diagram-shell__crumb"
-                onclick={() => drillTo(0)}
-                title="Back to {title} (Esc)"
-              >
-                {title}
-              </button>
-              {#each drillPath as crumb, i (crumb.id ?? i)}
-                <span class="diagram-shell__crumb-sep" aria-hidden="true">›</span>
-                {#if i === drillPath.length - 1}
-                  <span class="diagram-shell__crumb diagram-shell__crumb--current" aria-current="page">
-                    {crumb.label}
-                  </span>
-                  <!-- Says what kind of level you are standing on, so a nested
-                       graph never reads as the diagram itself. -->
-                  <span class="diagram-shell__crumb-tag">detail</span>
-                {:else}
-                  <button
-                    type="button"
-                    class="diagram-shell__crumb"
-                    onclick={() => drillTo(i + 1)}
-                    title="Back to {crumb.label}"
-                  >
-                    {crumb.label}
-                  </button>
-                {/if}
-              {/each}
-            </nav>
+            <DiagramDrillCrumbs
+              rootLabel={title}
+              path={drillPath}
+              onNavigate={drillTo}
+              rootTitle="Back to {title} (Esc)"
+            />
           </Panel>
         {/if}
 

@@ -34,7 +34,12 @@ function isBareAbsoluteFilePath(run: string): boolean {
 }
 
 function fileRunQuery(run: string): string | null {
-  if (run.startsWith("@")) return run.slice(1);
+  if (run.startsWith("@")) {
+    const query = run.slice(1);
+    // A space directly after a bare trigger continues the sentence. File
+    // names can still contain spaces after the query has started.
+    return /^\s/.test(query) ? null : query;
+  }
   if (
     run.startsWith("~/") ||
     run.startsWith("./") ||
@@ -70,7 +75,12 @@ export function readTrigger(
   const fileQuery = fileRunQuery(run);
   if (fileQuery !== null)
     return { char: "@", anchor, path: [], query: fileQuery };
+  if (char === "@") return null;
   const rest = textBeforeCursor.slice(anchor + 1);
+
+  // A space directly after any bare trigger continues the sentence. Queries
+  // that already contain text can still keep later spaces where supported.
+  if (/^\s/.test(rest)) return null;
 
   // Only `#` scopes. An `@` query may contain `/` because it is a path, so the
   // split is never applied to it.

@@ -6,7 +6,6 @@
   } from "../../contexts/workspace/routing/route-registry";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
-  import PaneChrome from "../ui/PaneChrome.svelte";
   import ReviewSurface from "./ReviewSurface.svelte";
 
   // The review pane as a route: the location owns which change is being read
@@ -42,16 +41,7 @@
   filePath={params.filePath}
   {navigationRequestId}
   initialSkeletonVisible
-  bordered={!pane.isLeading}
-  onClose={pane.closeOverlay}
-/>
-
-<!-- After the content: the toolbar above is a window drag region, and a drag
-     rect later in the DOM would re-cover this cluster's no-drag holes. -->
-<PaneChrome
   onClose={pane.closeOverlay}
   onToggleMaximize={pane.toggleMaximize}
   maximized={pane.maximized}
-  isLeading={pane.isLeading}
-  closeLabel="Close review"
 />

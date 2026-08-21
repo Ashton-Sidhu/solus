@@ -15,7 +15,9 @@
     GitFork as TreeStructureIcon,
     Trash2 as TrashIcon,
     X as XIcon,
+    Clock as ClockIcon,
     Moon as MoonIcon,
+    NotebookPen as NotePencilIcon,
     Sun as SunIcon,
   } from "@lucide/svelte";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
@@ -24,6 +26,10 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
   import TaskStatusGlyph from "../tasks/TaskStatusGlyph.svelte";
+  import {
+    TASK_SNOOZE_CHOICES,
+    taskSnoozeUntil,
+  } from "./lib/task-snooze";
   import { STATUS_META } from "../tasks/lib/tasks-api";
 
   const TASK_STATUSES: TaskStatus[] = [
@@ -49,7 +55,10 @@
     onOpenSource?: () => void;
     onStartRename?: () => void;
     onSetStatus?: (status: TaskStatus) => void;
-    onSnooze?: () => void;
+    /** Snooze to a preset wake time, picked from the hover submenu. */
+    onSnoozeUntil?: (until: number) => void;
+    /** Opens the snooze popover, the only place a reminder note can be typed. */
+    onSnoozeWithNote?: () => void;
     onWake?: () => void;
     onMarkUnread?: () => void;
     onRemove?: () => void;
@@ -81,7 +90,8 @@
     onOpenSource,
     onStartRename,
     onSetStatus,
-    onSnooze,
+    onSnoozeUntil,
+    onSnoozeWithNote,
     onWake,
     onMarkUnread,
     onRemove,
@@ -228,11 +238,32 @@
         <SunIcon />
         Wake now
       </ContextMenu.Item>
-    {:else if onSnooze}
-      <ContextMenu.Item disabled={lifecycleBlocked} onSelect={() => select(onSnooze)}>
-        <MoonIcon />
-        Snooze…
-      </ContextMenu.Item>
+    {:else if onSnoozeUntil}
+      <ContextMenu.Sub>
+        <ContextMenu.SubTrigger disabled={lifecycleBlocked}>
+          <MoonIcon />
+          Snooze
+        </ContextMenu.SubTrigger>
+        <ContextMenu.SubContent>
+          {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
+            {@const ChoiceIcon = choice.isRelative ? ClockIcon : MoonIcon}
+            <ContextMenu.Item
+              onSelect={() =>
+                select(() => onSnoozeUntil?.(taskSnoozeUntil(choice.preset)))}
+            >
+              <ChoiceIcon />
+              {choice.label}
+            </ContextMenu.Item>
+          {/each}
+          {#if onSnoozeWithNote}
+            <ContextMenu.Separator />
+            <ContextMenu.Item onSelect={() => select(() => onSnoozeWithNote?.())}>
+              <NotePencilIcon />
+              With a reminder…
+            </ContextMenu.Item>
+          {/if}
+        </ContextMenu.SubContent>
+      </ContextMenu.Sub>
     {/if}
     {#if onMarkUnread}
       <ContextMenu.Item onSelect={() => select(onMarkUnread)}>

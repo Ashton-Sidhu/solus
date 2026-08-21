@@ -4,6 +4,11 @@
   import { FileTree } from "@pierre/trees";
   import DiffActionBar from "./DiffActionBar.svelte";
   import DiffToolbar, { type HeaderStats } from "./DiffToolbar.svelte";
+  import ReviewPanelHeader from "./ReviewPanelHeader.svelte";
+  import {
+    toChangedFileSummaries,
+    type GuideHeaderActions,
+  } from "./lib/review-header";
   import DiffEmptyState from "./DiffEmptyState.svelte";
   import DiffErrorState from "./DiffErrorState.svelte";
   import DiffLoadingSkeleton from "./DiffLoadingSkeleton.svelte";
@@ -95,6 +100,9 @@
     mapView,
     guideView,
     initialSkeletonVisible = false,
+    onToggleMaximize = null,
+    maximized = false,
+    guide,
   }: {
     tabId: string;
     getCtx?: () => IpcContext;
@@ -157,7 +165,20 @@
      *  takes ownership of loading. Direct mounts still use the delayed state
      *  below so a cached diff does not flash a placeholder. */
     initialSkeletonVisible?: boolean;
+    /** Pane maximize, owned by the review band's window pair. Absent where the
+     *  surface has no pane of its own (the web client's full-height sheet). */
+    onToggleMaximize?: (() => void) | null;
+    maximized?: boolean;
+    /** The guide's own state, drawn in the header band's overflow. The panel
+     *  does not own the guide — the surface above it does — so this is passed
+     *  down rather than derived here. */
+    guide?: GuideHeaderActions;
   } = $props();
+
+  /** The review panel's own chrome: one band that owns the views, the change
+   *  summary, the turn, the overflow, and the window pair. Every other host
+   *  draws its own header above this panel and takes the quieter strip. */
+  const usesReviewBand = $derived(!!viewTabs && !hasHostHeaderRow && !embedded);
 
   const hasExternalCommentStore = $derived(externalComments !== null);
 
@@ -448,6 +469,17 @@
     if (!diff) return null;
     return diffHeaderStats(treeFiles);
   });
+
+  // The band names one ref — what you are reading — and puts what it is read
+  // against in the summary popover's footer, where the question is asked once.
+  const reviewBranchLabel = $derived(
+    isWorkingTreeScope
+      ? "Working tree"
+      : isWorktree
+        ? worktreeBranch
+        : (sess?.run.gitContext?.branch ?? worktreeBranch),
+  );
+  const reviewChangedFiles = $derived(toChangedFileSummaries(treeFiles));
 
   async function handleTurnSelect(index: number | null) {
     selectedScope =
@@ -980,6 +1012,40 @@
   <div class="sr-only" aria-live="polite" aria-atomic="true">
     {diffLoadedAnnouncement}
   </div>
+  {#if usesReviewBand}
+    <ReviewPanelHeader
+      {view}
+      {viewTabs}
+      branchLabel={reviewBranchLabel}
+      branchTitle={branchContext}
+      additions={headerStats?.additions ?? 0}
+      deletions={headerStats?.deletions ?? 0}
+      changedFiles={reviewChangedFiles}
+      baseLabel={targetBranch}
+      turns={patchOverride === null ? turns : []}
+      {selectedTurnIndex}
+      onStepTurn={cycleTurn}
+      diffStyle={effectiveDiffStyle}
+      onSetStyle={setDiffStyle}
+      tokenHighlight={tokenHighlightState}
+      onToggleTokenHighlight={toggleTokenHighlight}
+      {allCollapsed}
+      onToggleCollapseAll={toggleCollapseAll}
+      {treeCollapsed}
+      onToggleTree={toggleTreeCollapsed}
+      onRefresh={() => void handleManualRefresh()}
+      refreshing={manualRefreshing}
+      {guide}
+      onOpenFile={(path) => void openFileFromMap(toTreeDisplayPath(path))}
+      commentsCount={diffComments.length + navigableThreads.length}
+      commentsOpen={commentsPopoverOpen}
+      onToggleComments={() => (commentsPopoverOpen = !commentsPopoverOpen)}
+      commentsAnchorRef={(el) => (commentsAnchorEl = el)}
+      {onToggleMaximize}
+      {maximized}
+      {onClose}
+    />
+  {:else}
   <DiffToolbar
     {isWorktree}
     {worktreeBranch}
@@ -1014,6 +1080,7 @@
     {view}
     {viewTabs}
   />
+  {/if}
 
   <!-- The guide is not a view of the diff load: it has its own loader and its
        own progress screen, so it sits outside the states below rather than

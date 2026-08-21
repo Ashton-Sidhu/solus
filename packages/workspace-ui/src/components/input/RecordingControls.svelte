@@ -235,7 +235,7 @@
   /* field idle / transcribing mic button */
   .rc-mic {
     position: absolute;
-    right: 0.25rem;
+    right: var(--rc-mic-right, 0.25rem);
     top: 50%;
     transform: translateY(-50%);
     width: 1.75rem;

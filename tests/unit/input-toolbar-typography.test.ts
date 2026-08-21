@@ -25,4 +25,15 @@ describe('input toolbar typography', () => {
     )
     expect(savedPrompts).toContain('lg:text-workspace-chrome')
   })
+
+  test('scales the permission shield with its responsive label', () => {
+    // WHY: fixed pixel dimensions made the shield and label change at different
+    // rates between 12px laptop text and 14px mobile/large-desktop text.
+    const permissionPicker = readRendererSource('pickers/PermissionModePicker.svelte')
+    expect(permissionPicker).toContain(
+      'class="inline-flex size-[1em] shrink-0 items-center justify-center text-(--solus-accent)"',
+    )
+    expect(permissionPicker.match(/class="block size-full"/g)).toHaveLength(3)
+    expect(permissionPicker).not.toMatch(/Shield(?:Plan|Check|Question)Icon size=/)
+  })
 })

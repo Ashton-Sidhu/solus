@@ -1,4 +1,5 @@
 import type { FileDiffMetadata, Hunk } from '@pierre/diffs'
+import { collapseHunks } from './pierre-diff'
 
 export type DiffNoiseKind = 'lockfile' | 'generated' | 'format-only'
 
@@ -119,7 +120,11 @@ export function analyzeDiffNoise(file: FileDiffMetadata): DiffNoiseAnalysis {
   return result
 }
 
-/** Omits only format-only hunks while retaining the surviving line anchors. */
+/**
+ * Omits only format-only hunks. Which hunks are noise is this module's call;
+ * keeping the survivors' line arrays and row offsets consistent afterwards is
+ * `collapseHunks`', so the renderer contract has one owner.
+ */
 export function collapseFormatOnlyHunks(file: FileDiffMetadata): FileDiffMetadata {
   const analysis = analyzeDiffNoise(file)
   if (
@@ -129,59 +134,7 @@ export function collapseFormatOnlyHunks(file: FileDiffMetadata): FileDiffMetadat
   const cached = formatCollapsedCache.get(file)
   if (cached) return cached
 
-  const omitted = new Set(analysis.formatOnlyHunks)
-  let splitLineStart = 0
-  let unifiedLineStart = 0
-  const additionLines: string[] = []
-  const deletionLines: string[] = []
-  const hunks = file.hunks
-    .filter((_, index) => !omitted.has(index))
-    .map((hunk) => {
-      const additionLineIndex = additionLines.length
-      const deletionLineIndex = deletionLines.length
-      additionLines.push(
-        ...file.additionLines.slice(
-          hunk.additionLineIndex,
-          hunk.additionLineIndex + hunk.additionCount,
-        ),
-      )
-      deletionLines.push(
-        ...file.deletionLines.slice(
-          hunk.deletionLineIndex,
-          hunk.deletionLineIndex + hunk.deletionCount,
-        ),
-      )
-      const adjusted = {
-        ...hunk,
-        additionLineIndex,
-        deletionLineIndex,
-        splitLineStart,
-        unifiedLineStart,
-        hunkContent: hunk.hunkContent.map((content) => ({
-          ...content,
-          additionLineIndex:
-            additionLineIndex + content.additionLineIndex - hunk.additionLineIndex,
-          deletionLineIndex:
-            deletionLineIndex + content.deletionLineIndex - hunk.deletionLineIndex,
-        })),
-      }
-      splitLineStart += hunk.splitLineCount
-      unifiedLineStart += hunk.unifiedLineCount
-      return adjusted
-    })
-  const collapsed: FileDiffMetadata = {
-    ...file,
-    hunks,
-    additionLines,
-    deletionLines,
-    // The surviving hunks' `collapsedBefore` gaps describe omitted regions that
-    // are not available in these compacted line arrays, so this filtered view
-    // cannot support hunk expansion.
-    isPartial: true,
-    splitLineCount: splitLineStart,
-    unifiedLineCount: unifiedLineStart,
-    cacheKey: file.cacheKey ? `${file.cacheKey}:solus-format-collapsed` : undefined,
-  }
+  const collapsed = collapseHunks(file, analysis.formatOnlyHunks)
   formatCollapsedCache.set(file, collapsed)
   return collapsed
 }

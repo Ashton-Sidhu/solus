@@ -468,6 +468,11 @@
             tabId={pillDraft ? undefined : session.activeTabId}
             isPrimary
             run={pillDraft ? pillDraft.run : session.activeSession?.run}
+            onRun={pillDraft
+              ? (next) => {
+                  if (pillDraft) pillDraft.run = next;
+                }
+              : undefined}
             boundWorkId={pillDraft?.boundWorkId}
             onUnbindWork={pillDraft
               ? () => {

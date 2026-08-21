@@ -1,13 +1,17 @@
 <script lang="ts">
-  import { Moon as MoonIcon, NotebookPen as NotePencilIcon } from "@lucide/svelte";
+  import {
+    Clock as ClockIcon,
+    Moon as MoonIcon,
+    NotebookPen as NotePencilIcon,
+  } from "@lucide/svelte";
   import * as Popover from "../ui/popover";
   import { menuRowVariants } from "../ui/menu/menu-row";
   import { cn } from "@solus/workspace-ui/lib/tw";
   import {
+    TASK_SNOOZE_CHOICES,
     taskSnoozeAnchorTarget,
     taskSnoozeUntil,
     type TaskSnoozeAnchor,
-    type TaskSnoozePreset,
   } from "./lib/task-snooze";
 
   interface Props {
@@ -23,13 +27,6 @@
   let note = $state("");
   let rowsEl: HTMLDivElement | undefined = $state();
   const anchorTarget = $derived(taskSnoozeAnchorTarget(anchor));
-
-  const choices: Array<{ preset: TaskSnoozePreset; label: string }> = [
-    { preset: "hour", label: "One hour" },
-    { preset: "evening", label: "This evening" },
-    { preset: "tomorrow", label: "Tomorrow morning" },
-    { preset: "week", label: "Next week" },
-  ];
 
   /** Presets take focus on open, so the menu answers ↓/↑/⏎ the way every other
    *  menu does. The note is one Shift+Tab away for the rarer case. */
@@ -75,13 +72,14 @@
       />
     </div>
     <div bind:this={rowsEl} class="p-1.5" onkeydown={onRowsKeydown} role="none">
-      {#each choices as choice (choice.preset)}
+      {#each TASK_SNOOZE_CHOICES as choice (choice.preset)}
+        {@const ChoiceIcon = choice.isRelative ? ClockIcon : MoonIcon}
         <button
           type="button"
           class={cn(menuRowVariants(), "w-full")}
           onclick={() => onConfirm(taskSnoozeUntil(choice.preset), note.trim())}
         >
-          <MoonIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
+          <ChoiceIcon size={13} class="shrink-0 text-(--solus-text-tertiary)" />
           <span class="min-w-0 flex-1 truncate text-left">{choice.label}</span>
         </button>
       {/each}

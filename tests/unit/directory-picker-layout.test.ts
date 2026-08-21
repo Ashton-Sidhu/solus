@@ -31,4 +31,13 @@ describe("directory picker layout", () => {
     expect(directoryPicker).not.toContain("{dirEntries.length} folders");
     expect(directoryPicker).toContain("Open in {fileManagerName}");
   });
+
+  test("blocks a stale parent selection while navigation loads", () => {
+    // WHY: on touch screens, a user can tap a folder and then the footer action
+    // before Svelte starts the new directory request. Submission must stop
+    // synchronously so the old resolved parent cannot become the chosen project.
+    expect(directoryPicker).toMatch(
+      /function navigateTo\(next: string\) \{[\s\S]*highlightedIndex = -1;[\s\S]*loading = true;[\s\S]*path = next;/,
+    );
+  });
 });

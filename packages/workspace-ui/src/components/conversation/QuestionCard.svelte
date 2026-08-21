@@ -434,7 +434,12 @@
         <!-- Permanent: an off-menu reply must never require abandoning the card.
              Card fill, not a grey well — it is an alternative, not the emphasis. -->
         <div class="px-[1.125rem] pt-3 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:pt-2.5">
-          <div class="answer-field flex items-center gap-2 rounded-lg px-2.5 py-2 pointer-fine:[.is-laptop-display_&]:gap-1.5 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2 pointer-fine:[.is-laptop-display_&]:py-1.5">
+          <!-- The mic overlays the textarea, so its offsets are measured against
+               that box, not this row: `--rc-mic-line-center` centres it on the
+               first line of a padding-free field (leading-4 → 0.5rem), and
+               `--rc-mic-right` pulls it into the row gap so the mic sits 4px
+               from the ⏎ chip at either gap rung. -->
+          <div class="answer-field flex items-center gap-2 rounded-lg px-2.5 py-2 [--rc-mic-line-center:0.5rem] [--rc-mic-right:-0.25rem] pointer-fine:[.is-laptop-display_&]:gap-1.5 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2 pointer-fine:[.is-laptop-display_&]:py-1.5 pointer-fine:[.is-laptop-display_&]:[--rc-mic-right:-0.125rem]">
             <ChatTeardropTextIcon size={14} class="shrink-0 text-(--muted-foreground)" />
             <Textarea
               value={getComment(currentQuestion)}

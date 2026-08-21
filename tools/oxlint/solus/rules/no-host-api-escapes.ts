@@ -5,24 +5,35 @@ import type { ESTree } from '@oxlint/plugins'
 
 type TypeAssertion = ESTree.TSAsExpression | ESTree.TSTypeAssertion
 
+// The modules that legitimately construct or adapt a host API handle.
 const allowedFiles = new Set([
-  'src/client-core/host-api.ts',
-  'src/renderer/main.ts',
-  'src/client-core/native-api-overlay.ts',
-  'src/client-core/local-api.ts',
-  'client/src/main.ts',
+  'packages/client-core/src/host-api.ts',
+  'packages/client-core/src/native-api-overlay.ts',
+  'packages/client-core/src/local-api.ts',
+  'apps/desktop/src/renderer/main.ts',
+  'apps/client/src/main.ts',
 ])
+
+// Client-side code, where an ambient or counterfeit API defeats the host
+// boundary. The server has no renderer and no window.
+const checkedRoots = [
+  'packages/workspace-ui/src/',
+  'packages/client-core/src/',
+  'apps/desktop/src/',
+  'apps/client/src/',
+]
 
 function repositoryPath(cwd: string, filename: string): string {
   return relative(cwd, filename).split(sep).join('/')
 }
 
 function isAllowedFile(path: string): boolean {
-  return allowedFiles.has(path) || path.startsWith('src/preload/')
+  // The preload bridge is where the ambient API is defined, so it may name it.
+  return allowedFiles.has(path) || path.startsWith('apps/desktop/src/preload/')
 }
 
 function isCheckedFile(path: string): boolean {
-  return path.startsWith('src/') || path.startsWith('client/src/')
+  return checkedRoots.some((root) => path.startsWith(root))
 }
 
 function assertedTypeName(node: TypeAssertion): string | null {

@@ -128,7 +128,7 @@
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
   const snoozeReminder = $derived(
-    session.tasksStore.snoozeReminderForSession(sess?.agentSessionId),
+    session.tasksStore.snoozeReminderForSession(sess),
   );
   setMarkdownImageContext({
     cwd: () => sess?.run.workingDirectory,

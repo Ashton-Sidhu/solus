@@ -128,7 +128,7 @@
   const autocompleteEditor: AutocompleteEditor = {
     textBeforeCursor: () => plainTextEditorEl?.textBeforeCursor() ?? "",
     cursorRect: () => plainTextEditorEl?.getCursorRect() ?? null,
-    focus: () => plainTextEditorEl?.focus(),
+    focus: () => plainTextEditorEl?.focusAtSelection(),
     replaceTrigger: (pattern, replacement) =>
       plainTextEditorEl?.replaceTrigger(pattern, replacement) ?? false,
     insertReference: (token, pattern) =>

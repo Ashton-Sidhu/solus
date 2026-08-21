@@ -1,6 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { taskSnoozeAnchorTarget } from "@solus/workspace-ui/components/session/lib/task-snooze";
+import {
+  taskSnoozeAnchorTarget,
+  taskSnoozeUntil,
+} from "@solus/workspace-ui/components/session/lib/task-snooze";
 
 const dom = new JSDOM("<button id=\"snooze\"></button>");
 Object.assign(globalThis, {
@@ -34,5 +37,33 @@ describe("taskSnoozeAnchorTarget", () => {
   test("turns a context-menu point into a rect at that point", () => {
     const rect = taskSnoozeAnchorTarget({ x: 120, y: 240 }).getBoundingClientRect();
     expect([rect.left, rect.top, rect.width, rect.height]).toEqual([120, 240, 0, 0]);
+  });
+});
+
+/** "Not now, soon" is the common snooze, so the short presets must wake exactly
+ *  that span from now — never at a clock time that could already have passed. */
+describe("taskSnoozeUntil", () => {
+  const now = new Date("2026-08-21T14:37:12.500Z");
+
+  const relative = [
+    { preset: "15m", minutes: 15 },
+    { preset: "30m", minutes: 30 },
+    { preset: "1h", minutes: 60 },
+    { preset: "3h", minutes: 180 },
+    { preset: "6h", minutes: 360 },
+    { preset: "12h", minutes: 720 },
+    { preset: "24h", minutes: 1440 },
+  ] as const;
+
+  for (const { preset, minutes } of relative) {
+    test(`${preset} wakes ${minutes} minutes from now`, () => {
+      expect(taskSnoozeUntil(preset, now) - now.getTime()).toBe(minutes * 60 * 1000);
+    });
+  }
+
+  test("clock-time presets stay in the future", () => {
+    for (const preset of ["evening", "tomorrow", "week"] as const) {
+      expect(taskSnoozeUntil(preset, now)).toBeGreaterThan(now.getTime());
+    }
   });
 });

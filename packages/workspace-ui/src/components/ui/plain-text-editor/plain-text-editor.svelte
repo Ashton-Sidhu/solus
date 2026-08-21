@@ -286,24 +286,32 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
     ];
   }
 
+  // The view is built for its host element and depends on nothing else — every
+  // prop below reaches the live editor through a compartment. Untracking each
+  // argument is not enough: `EditorState.create` runs the reference state field,
+  // which reads `referenceConfig`, so the view became a dependent of the
+  // slash-command list. A draft loads its commands after mounting, and that
+  // arrival rebuilt the editor under the user's caret.
   $effect(() => {
-    if (!editorHost) return;
-    const initialValue = untrack(() => value);
-    const extensions = untrack(() => editorExtensions());
-    const editorView = new EditorView({
-      parent: editorHost,
-      state: EditorState.create({
-        doc: initialValue,
-        selection: { anchor: initialValue.length },
-        extensions,
-      }),
+    const host = editorHost;
+    if (!host) return;
+    return untrack(() => {
+      const initialValue = value;
+      const editorView = new EditorView({
+        parent: host,
+        state: EditorState.create({
+          doc: initialValue,
+          selection: { anchor: initialValue.length },
+          extensions: editorExtensions(),
+        }),
+      });
+      view = editorView;
+      onEmptyChange?.(initialValue.length === 0);
+      return () => {
+        editorView.destroy();
+        if (view === editorView) view = null;
+      };
     });
-    view = editorView;
-    untrack(() => onEmptyChange?.(initialValue.length === 0));
-    return () => {
-      editorView.destroy();
-      if (view === editorView) view = null;
-    };
   });
 
   $effect(() => {
@@ -387,6 +395,10 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
         referenceChips ? references.extension : [],
       ),
     });
+    // The compartment holds the same extension when only the config behind it
+    // changed, so reconfiguring alone leaves the chips drawn from the old slash
+    // commands. Ask the field to rebuild them.
+    if (referenceChips) references.refresh(view);
   });
 
   function editorValue(): string {
@@ -398,6 +410,12 @@ import { ghostCompletion, showGhost } from "./lib/ghost-completion";
     view.focus();
     const end = view.state.doc.length;
     view.dispatch({ selection: { anchor: end }, scrollIntoView: true });
+  }
+
+  /** Restore DOM focus without changing the selection established by an
+   * editor transaction, such as an autocomplete insertion in mid-sentence. */
+  export function focusAtSelection() {
+    view?.focus();
   }
 
   export function setValueAndCursor(

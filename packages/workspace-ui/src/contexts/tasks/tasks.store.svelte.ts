@@ -18,8 +18,9 @@ import type {
   TaskStatus,
   TaskUpdatePatch,
 } from '@solus/contracts/task-types'
+import type { Session } from '@solus/contracts/types'
 import { upstreamTaskDetails } from './upstream-task-details'
-import { resolveTaskSnoozeReminder, type TaskSnoozeReminder } from './task-snooze'
+import { sessionSnoozeReminder, type TaskSnoozeReminder } from './task-snooze'
 import type { HostApi } from '@solus/client-core/host-api'
 import { taskTitleRegenerationInput } from './task-title-regeneration'
 
@@ -274,8 +275,10 @@ export class TasksStore {
     return [...new Map(links.map((link) => [link.sessionId, link])).values()]
   }
 
-  snoozeReminderForSession(sessionId: string | null | undefined): TaskSnoozeReminder | null {
-    return resolveTaskSnoozeReminder(this.taskForSession(sessionId), this.lifecycleNow)
+  snoozeReminderForSession(
+    session: Pick<Session, 'id' | 'handoffId' | 'agentSessionId'> | null | undefined,
+  ): TaskSnoozeReminder | null {
+    return sessionSnoozeReminder(session, this, this.lifecycleNow)
   }
 
   providerStatus(cwd: string | null | undefined): TaskProviderStatus | null {

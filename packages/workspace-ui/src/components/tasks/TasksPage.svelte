@@ -720,7 +720,7 @@ import Icon from "@iconify/svelte";
       .map((id) => taskById(id))
       .filter((task): task is Task => !!task);
     selection.clear();
-    for (const task of tasks) await store.markRead(task.id, false);
+    for (const task of tasks) await sessionSidebar.markTaskUnread(task.id);
   }
 
   async function confirmBulkSnooze(until: number, note: string) {
@@ -1344,6 +1344,7 @@ import Icon from "@iconify/svelte";
         onOpenTask={() => onOpen(menuTask)}
         onOpenSource={menuTask.url ? () => onOpenLink(menuTask) : undefined}
         onSetStatus={(status) => void onSetStatus(menuTask, status)}
+        onMarkUnread={() => void sessionSidebar.markTaskUnread(menuTask.id)}
         onDelete={menuTask.providerId === "local"
           ? () => onDelete(menuTask)
           : undefined}

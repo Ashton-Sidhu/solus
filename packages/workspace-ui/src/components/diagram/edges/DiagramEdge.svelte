@@ -202,6 +202,8 @@
   let lastClickAt = 0;
 
   function handleEdgeClick(e: MouseEvent) {
+    // Read-only canvases pass no commit handler; there is nothing to open.
+    if (!data?.onLabelChange) return;
     const now = Date.now();
     if (now - lastClickAt < DOUBLE_CLICK_MS) {
       lastClickAt = 0;
@@ -362,7 +364,7 @@
         onclick={(e) => e.stopPropagation()}
       />
     </EdgeLabel>
-  {:else if label}
+  {:else if label && data?.onLabelChange}
     <EdgeLabel x={labelX} y={selected ? labelY - SELECTED_LABEL_OFFSET : labelY} selectEdgeOnClick>
       <button
         type="button"
@@ -371,6 +373,11 @@
         aria-label="Edit edge label"
         onclick={editor.start}>{label}</button
       >
+    </EdgeLabel>
+  {:else if label}
+    <!-- Read-only: the same chip, minus the edit affordance. -->
+    <EdgeLabel x={labelX} y={labelY}>
+      <span class="edge-label-display edge-label-display--static">{label}</span>
     </EdgeLabel>
   {/if}
 </g>
@@ -445,9 +452,14 @@
     stroke-width: 4;
   }
 
-  .edge-label-display:hover {
+  .edge-label-display:not(.edge-label-display--static):hover {
     color: var(--solus-text-secondary);
     background: var(--solus-surface-hover);
+  }
+
+  /* Nothing to click on a reading canvas, so the chip doesn't offer a caret. */
+  .edge-label-display--static {
+    cursor: default;
   }
 
   .edge-label-display--selected {

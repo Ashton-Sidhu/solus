@@ -1,7 +1,7 @@
 <script lang="ts">
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { FileDiffContentsLoader } from "@pierre/diffs";
-  import { RefreshCw as ArrowsClockwiseIcon, Clock as ClockIcon } from "@lucide/svelte";
+  import { Clock as ClockIcon } from "@lucide/svelte";
   import type { ReviewGuide, ReviewLedger } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import {
@@ -27,9 +27,6 @@
     patch,
     loadDiffFiles,
     meta,
-    guideCurrent = true,
-    onRegenerate,
-    regenerating = false,
     onFileJump,
     comments = [],
     onCommentSave,
@@ -42,13 +39,6 @@
     /** PR identity for the intro header's metadata line (`repo#number · base ←
      *  branch`). Absent for standalone local-branch reviews. */
     meta?: { repo?: string; number?: number; baseRef: string; branch: string };
-    /** Whether the cached guide describes the checkout's current HEAD. */
-    guideCurrent?: boolean;
-    /** Rewrite the guide against the current HEAD. Absent where the host has no
-     *  way to regenerate, which leaves the new-commits marker inert but honest. */
-    onRegenerate?: () => void;
-    /** A regeneration already in flight, so the marker can say so. */
-    regenerating?: boolean;
     /** Forwarded to each section so file chips can route to a host Diff tab. */
     onFileJump?: (path: string) => void;
     /** Review-draft comments + handlers, forwarded to every section's diff cards.
@@ -113,6 +103,11 @@
                 <span class="opacity-50">·</span>
               {/if}
               {#if guide.generatedAt}
+                <!-- When it was written, and nothing else. Whether it still
+                     describes HEAD — and the regenerate that answers it — moved
+                     up to the panel header, where every other piece of state
+                     about this change already lives. A banner inside the
+                     narrative was one more thing to read past. -->
                 <span
                   class="inline-flex items-center gap-1 tabular-nums"
                   title={generatedTitle ? `Generated ${generatedTitle}` : undefined}
@@ -120,33 +115,6 @@
                   <ClockIcon size={12} weight="bold" />
                   Generated {generatedTime ?? "recently"}
                 </span>
-                <span class="opacity-50">·</span>
-                {#if guideCurrent}
-                  <span class="font-secondary font-medium text-(--solus-text-secondary)">
-                    Current
-                  </span>
-                {:else if onRegenerate}
-                  <!-- The new-commits marker *is* the fix: rather than a full-width
-                       strip above the guide announcing new commits, the line that
-                       already dates the guide carries the one action it implies. -->
-                  <button
-                    type="button"
-                    class="inline-flex h-[1.375rem] cursor-pointer items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 font-medium text-amber-700 transition-colors duration-150 hover:bg-amber-500/20 disabled:cursor-progress dark:text-amber-300"
-                    title="New commits since this guide was written"
-                    disabled={regenerating}
-                    onclick={onRegenerate}
-                  >
-                    <ArrowsClockwiseIcon
-                      size={11}
-                      class={regenerating
-                        ? "shrink-0 animate-spin [animation-duration:1.2s] motion-reduce:animate-none"
-                        : "shrink-0"}
-                    />
-                    {regenerating ? "Regenerating…" : "New commits since guide"}
-                  </button>
-                {:else}
-                  <span class="font-medium text-amber-700 dark:text-amber-400">New commits since guide</span>
-                {/if}
               {/if}
             </div>
           {/if}

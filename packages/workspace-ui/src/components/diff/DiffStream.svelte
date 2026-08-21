@@ -11,16 +11,13 @@
   } from "@pierre/diffs";
   import type { DiffComment } from "@solus/contracts/types";
   import type { ReviewComment } from "@solus/contracts/providers";
-  import {
-    DIFFS_THEME_CSS,
-    DIFF_FIND_HIGHLIGHT_CSS,
-  } from "../../lib/diffTheme";
+  import { DIFF_FIND_HIGHLIGHT_CSS } from "../../lib/diffTheme";
+  import { diffRenderOptions } from "../../lib/pierre-diff/options";
   import { DiffFindHighlighter } from "../../lib/diff-find-highlight";
   import type { DiffFindMatch } from "../../lib/diff-state.svelte";
   import { detectMovedBlocks } from "../../lib/diff-moves";
   import { decorateMovedLines } from "../../lib/diff-move-highlight";
   import {
-    getDiffThemeName,
     onDiffWorkerPoolReady,
     setDiffWorkerPoolTheme,
     setDiffWorkerPoolLineDiffType,
@@ -553,28 +550,21 @@
 
   function buildOptions() {
     return {
-      theme: getDiffThemeName(isDark),
-      themeType: isDark ? ("dark" as const) : ("light" as const),
-      diffStyle,
-      diffIndicators: "none" as const,
-      // Token (word-level) highlighting within changed lines; "none" falls back
-      // to plain line-level backgrounds when the user toggles it off.
-      lineDiffType: "none" as const,
+      ...diffRenderOptions({
+        isDark,
+        diffStyle,
+        // Token (word-level) highlighting within changed lines; "none" falls back
+        // to plain line-level backgrounds when the user toggles it off.
+        lineDiffType: "none",
+        // "line-info-basic" trades the @@-metadata rule for "N unchanged lines"
+        // with up/down/expand-all controls. @pierre/diffs requests full contents
+        // through loadDiffFiles only when the reader expands a partial patch.
+        hunkSeparators: "line-info-basic",
+        loadDiffFiles,
+        disableFileHeader: false,
+        extraCSS: DIFF_FIND_HIGHLIGHT_CSS,
+      }),
       lineHoverHighlight: "number" as const,
-      overflow: "wrap" as const,
-      // "line-info-basic" trades the @@-metadata rule for "N unchanged lines"
-      // with up/down/expand-all controls. @pierre/diffs requests full contents
-      // through loadDiffFiles only when the reader expands a partial patch.
-      hunkSeparators: "line-info-basic" as const,
-      loadDiffFiles,
-      // Lines revealed per click (library default 100 — too big a jump to keep
-      // your place) and the gap size below which we just render the lines
-      // inline instead of asking for a click (default 1).
-      expansionLineCount: 20,
-      collapsedContextThreshold: 10,
-      disableFileHeader: false,
-      // Hydration failures are non-fatal: @pierre/diffs keeps the partial patch.
-      disableErrorHandling: !loadDiffFiles,
       enableLineSelection: !commentingDisabled,
       enableGutterUtility: !commentingDisabled,
       stickyHeaders: true,
@@ -584,7 +574,6 @@
         gap: 8,
       },
       itemMetrics: { diffHeaderHeight },
-      unsafeCSS: `${DIFFS_THEME_CSS}\n${DIFF_FIND_HIGHLIGHT_CSS}`,
       onPostRender: () => {
         paintItemBackgrounds();
         scheduleMoveDecorations();

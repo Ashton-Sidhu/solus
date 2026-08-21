@@ -37,6 +37,22 @@ describe('draft model selection', () => {
     expect(composing.run.modelConfig.reasoningEffort).toBe('low')
   })
 
+  test('a write hands the draft a new run instead of editing the one it holds', () => {
+    // WHY: the draft owns its run. A chip that edits that object in place is
+    // writing through state it does not own — Svelte rejects it
+    // (ownership_invalid_mutation) and the owner never learns of the change.
+    const composing = draft()
+    const runBefore = composing.run
+    const configBefore = composing.run.modelConfig
+    const selection = draftModelSelection(() => composing, () => 'codex')
+
+    selection.fastMode = true
+
+    expect(composing.run.modelConfig.fastMode).toBe(true)
+    expect(composing.run).not.toBe(runBefore)
+    expect(configBefore.fastMode).toBe(false)
+  })
+
   test('falls back to the app agent until the draft names one', () => {
     expect(draftModelSelection(() => draft(), () => 'codex').provider).toBe('codex')
   })

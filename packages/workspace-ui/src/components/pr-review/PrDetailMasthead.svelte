@@ -40,7 +40,10 @@
   } = $props();
 </script>
 
-<div class="flex items-center gap-2.5">
+<!-- The same container name the panel band declares, so the shared tab group
+     reads its rungs off this row's width here too rather than falling back to
+     its narrowest step on a full-width page. -->
+<div class="@container/band flex items-center gap-2.5">
   {#if headRef && baseRef}
     <!-- head → base, reading in merge direction. -->
     <span class="flex min-w-0 items-center gap-1.5 font-mono text-xs text-muted-foreground">

@@ -9,7 +9,8 @@
   } from "@pierre/diffs";
   import type { DiffComment } from "@solus/contracts/types";
   import { getSettingsContext } from "../../../contexts";
-  import { parsePatchMetadata } from "../../../lib/diff";
+  import { parsePatchMetadata } from "../../../lib/pierre-diff";
+  import { diffRenderOptions } from "../../../lib/pierre-diff/options";
   import {
     detectMovedBlocks,
     type DiffMoveAnalysis,
@@ -20,10 +21,8 @@
     collapseFormatOnlyHunks,
     diffNoiseLabel,
   } from "../../../lib/diff-noise";
-  import { DIFFS_THEME_CSS } from "../../../lib/diffTheme";
   import {
     getDiffWorkerPool,
-    getDiffThemeName,
     isDiffWorkerPoolReady,
     onDiffWorkerPoolReady,
     setDiffWorkerPoolTheme,
@@ -205,26 +204,15 @@
   }
 
   function buildDiffOptions() {
-    const base = {
-      theme: getDiffThemeName(theme.isDark),
-      themeType: theme.isDark ? "dark" as const : "light" as const,
-      diffStyle: "unified" as const,
-      diffIndicators: "none" as const,
-      lineDiffType: "word-alt" as const,
-      overflow: "wrap" as const,
+    const base = diffRenderOptions({
+      isDark: theme.isDark,
       // "line-info-basic" over "metadata": the guide's concern-scoped cards often
       // hold several disjoint hunks, and a @@ rule at every boundary reads as
       // line noise in a walkthrough meant for reading. This one says how many
       // lines it skipped and, once the file's contents are loaded, lets the
       // reader pull them in without leaving the card.
-      hunkSeparators: "line-info-basic" as const,
+      hunkSeparators: "line-info-basic",
       loadDiffFiles,
-      expansionLineCount: 20,
-      collapsedContextThreshold: 10,
-      disableFileHeader: true,
-      // Hydration failures are non-fatal: @pierre/diffs keeps the partial patch.
-      disableErrorHandling: !loadDiffFiles,
-      unsafeCSS: DIFFS_THEME_CSS,
       onPostRender: (node: HTMLElement) => {
         decorateMovedLines(
           [{ id: filePath, element: node }],
@@ -232,7 +220,7 @@
           "unified",
         );
       },
-    };
+    });
     if (!commentsEnabled) return base;
     return {
       ...base,

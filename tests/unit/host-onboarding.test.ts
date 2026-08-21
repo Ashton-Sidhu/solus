@@ -317,6 +317,24 @@ describe('provider choice rows', () => {
     expect(codex.disabled).not.toBe(true)
     expect(codex.run).toBeDefined()
   })
+
+  test('does not report agents as missing before the host answers', () => {
+    // WHY: remote clients can render onboarding while the first readiness RPC
+    // is still queued. An absent answer must not become a false instruction to
+    // install CLIs that already exist on the connected host.
+    const rows = codingProviderRows({
+      readiness: null,
+      stages: { claude: null, codex: null },
+      add: noop,
+    })
+
+    expect(rows.map((row) => row.detail)).toEqual([
+      'Checking the host…',
+      'Checking the host…',
+    ])
+    expect(rows.every((row) => row.state === 'busy')).toBe(true)
+    expect(rows.every((row) => row.run === undefined)).toBe(true)
+  })
 })
 
 describe('host setup sessions', () => {

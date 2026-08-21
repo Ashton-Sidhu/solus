@@ -106,7 +106,9 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
-    if (e.key === 'F2') { editor.start(e); return }
+    // No commit handler means no editing affordance at all — a read-only canvas
+    // must not open an input the user's typing would fall out of.
+    if (e.key === 'F2') { if (data.onLabelChange) editor.start(e); return }
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault()
       data.onSelect?.(data.id)
@@ -200,7 +202,7 @@
   role="button"
   tabindex="0"
   aria-label="Select node {data.label}"
-  ondblclick={editor.start}
+  ondblclick={data.onLabelChange ? editor.start : undefined}
   onclick={handleClick}
   onkeydown={handleKeydown}
   oncontextmenu={handleContextMenu}

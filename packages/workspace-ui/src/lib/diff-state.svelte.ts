@@ -2,6 +2,7 @@ import { GIT_DIFF_FILE_BREAK_REGEX, parsePatchFiles, processFile, type FileDiffM
 import type { DiffResult, DiffScope, IpcContext } from '@solus/contracts/types'
 import type { WorkspaceContext } from '../contexts'
 import { loadDiffFiles as loadScopedDiffFiles } from './diff-file-loader'
+import { compactPartialHunkOffsets } from './pierre-diff'
 import type { HostApi } from '@solus/client-core/host-api'
 
 interface DiffStateOptions {
@@ -269,12 +270,16 @@ export class DiffState {
    * `parsePatchFiles` over the whole string — but skips reparsing untouched files
    * on a live mid-turn refresh. Anything that isn't a plain leading-`diff --git`
    * patch (e.g. format-patch commit metadata) falls back to the whole-patch
-   * parse, preserving exact semantics.
+   * parse, preserving exact semantics. Both paths normalize through
+   * `compactPartialHunkOffsets`, so the cached chunk and the fresh parse hand the
+   * renderer the same row coordinate space.
    */
   private parsePatchReusingFiles(patch: string): FileDiffMetadata[] {
     if (!patch.startsWith('diff --git')) {
       this.fileChunkCache = new Map()
-      return parsePatchFiles(patch).flatMap((parsedPatch) => parsedPatch.files)
+      return parsePatchFiles(patch).flatMap((parsedPatch) =>
+        parsedPatch.files.map(compactPartialHunkOffsets),
+      )
     }
     const nextCache = new Map<string, FileDiffMetadata>()
     const files: FileDiffMetadata[] = []
@@ -282,8 +287,9 @@ export class DiffState {
       if (!chunk.startsWith('diff --git')) continue
       let file = this.fileChunkCache.get(chunk)
       if (!file) {
-        file = processFile(chunk, { isGitDiff: true })
-        if (!file) continue
+        const parsed = processFile(chunk, { isGitDiff: true })
+        if (!parsed) continue
+        file = compactPartialHunkOffsets(parsed)
       }
       nextCache.set(chunk, file)
       files.push(file)

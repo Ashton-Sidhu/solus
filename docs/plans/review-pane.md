@@ -62,18 +62,87 @@ Two legacy forms still parse, so persisted locations and shared links survive:
 
 `ReviewSurface.svelte` owns which view is showing, the guide, and the map.
 `DiffPanel` stays the engine: it owns the patch, the file tree, the stream, the
-toolbar the tab row sits in, and the one footer every view sends from. The map
+band the tab row sits in, and the one footer every view sends from. The map
 and the guide are snippets the surface hands down, so both describe the panel's
 own files rather than parsing the same patch a second time.
 
 ```
-ReviewPane            the `review` route: params ↔ props, plus PaneChrome
+ReviewPane            the `review` route: params ↔ props
   ReviewSurface       scope, guide, and which view is showing
-    DiffPanel         toolbar, file tree, stream, and the one footer
-      ReviewViewTabs  Map · Guide · Diff, drawn in the toolbar
+    DiffPanel         header band, file tree, stream, and the one footer
+      ReviewPanelHeader        the band — six fixed slots
+        ReviewViewTabs         Map · Guide · Diff, pinned left
+        ChangeSummaryPopover   branch + counts, opening the changed-file list
+        ReviewPanelOverflowMenu  whatever the active view can configure
       DiffHeatMap     the map, over the panel's files
       GuideSurface    the guide, unchanged from the PR pane
 ```
+
+### The header band
+
+One row, six slots, in this order: the tab group pinned left, flexible space,
+the change summary, the turn scrubber, the overflow, then maximize and close.
+Nothing appears or disappears between a phone-width panel and full screen —
+copy shortens (the branch name, the turn label's noun), positions do not move.
+
+The band carries **navigation and state only**. Configuration is not state:
+unified/split, refresh, the file tree, collapse-all and token highlighting are
+settings for one view, used once and then remembered, so they live under the
+overflow, whose contents follow the active tab. Only the menu is contextual;
+the band's slots are fixed. The menu is never empty — Refresh is on every view,
+because every view reads the same patch.
+
+The band also owns the window pair, so the review pane draws no floating
+`PaneChrome` cluster. Two rules were retired with it: the panel's `border-left`
+and the header's `border-bottom`. Space separates, lines do not.
+
+Every width rung is a container query on the band itself (`@container/band`),
+never a window or viewport reading — a review panel is legally ~356px wide
+beside a companion pane.
+
+Height stays `--solus-chrome-row-h` rather than a flat 46px: the band shares a
+baseline with the tab strip in the pane beside it, and macOS grows that row to
+clear the traffic lights.
+
+### One band, both reviews
+
+`PrPanelHeader` — the pull-request review that slides out beside the list — is
+the same band, because reading a pull request and reading a branch are the same
+job. Its slots map one for one:
+
+| Local review | Pull-request panel |
+|---|---|
+| Map · Guide · Diff tabs | Activity · Map · Guide · Diff tabs |
+| Change summary (branch, `+adds −dels`) | Identity (`#411`, head → base) |
+| — | Checks chip, checkout, Ask Solus |
+| Turn scrubber | Queue scrubber (`3 of 12`, J/K) |
+| Overflow (view config, refresh) | Overflow (refresh PR, open page, regenerate guide) |
+| Maximize · Close | Swap · Full screen · Close |
+
+`ReviewViewTabs` and `PrViewTabs` are deliberately the same shape — trackless
+text buttons on the `text-workspace-chrome` rung — and both read their width
+rungs off a `@container/band`, which `PrDetailMasthead` also declares so the
+page-shaped review's tabs scale the same way.
+
+The page-shaped PR route keeps its breadcrumb band: its way back is a switcher
+into the list, which is a different fact from anything the panel carries.
+
+### Where the guide says it is stale
+
+Nowhere in the guide. `GuideView`'s intro dates itself — "Generated 20 minutes
+ago" — and stops there. Whether the cached guide still describes HEAD is state
+about the change, so it lives with the rest of that state in the header:
+
+- The overflow's Guide row reads **New commits since guide** instead of
+  *Regenerate guide*, and carries a primary dot.
+- The overflow **trigger** carries the same dot, so staleness is visible at
+  rest without opening the menu.
+- The page-shaped PR route puts the dot on its own regenerate button.
+
+A dot rather than a chip because the band's claim is that its slots hold still:
+a cue that reserves or claims width would make the band contextual after all.
+`GuideHeaderActions` (`diff/lib/review-header.ts`) is the contract both hosts
+fill from their `GuideLoader`.
 
 Each view is mounted on first visit and then hidden with `display: none`, so
 switching tabs never loses diff scroll position, map drill state, or a typed
@@ -109,7 +178,9 @@ hidden behind a panel the user has to know about:
 - No guide: the centred offer, with a cost hint sized from the change.
 - Queued or generating: the stepped progress screen, driven by the durable
   `reviewGuideStore` status, so leaving and returning shows the same progress.
-- Ready but not yet opened: a clear `Ready` cue on the tab.
+- Ready but not yet opened: the tab stays quiet. The guide itself makes its
+  state clear when opened, and a badge on a tab in a band whose point is that it
+  holds still is one more thing to stop reading.
 
 `Review changes` is the one local-review entry in both the Git panel and the
 conversation action row. It queues generation *and* opens the pane on the Diff

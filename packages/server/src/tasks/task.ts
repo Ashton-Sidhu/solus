@@ -14,6 +14,8 @@ import {
   taskFromRow,
 } from './task-store'
 import { deleteSessionLink, taskSessions, writeSessionLink, type SessionLinkDetails } from './task-sessions'
+import { stableSessionIdForProviderThread } from '../sessions/session-lineage'
+import { createLogger } from '../logger'
 import { wakeTaskForActivity } from './task-lifecycle'
 import { loadProjectConfig } from '../project-config/project-config'
 import {
@@ -41,6 +43,7 @@ import type {
 } from '@solus/contracts/task-types'
 import { z } from 'zod'
 
+const log = createLogger('main', 'task')
 const taskIdRowSchema = z.object({ task_id: z.string() })
 const taskPrRowSchema = z.object({ pr: z.string().nullable() })
 
@@ -138,16 +141,26 @@ export class Task implements TaskRecord {
   }
 
   /** Resolve the task that owns a session before invoking task-owned domain
-   * operations such as `linkPullRequest`. */
+   * operations such as `linkPullRequest`. Accepts either session id: agent
+   * tools carry the provider thread id, while the attempt row is keyed on the
+   * stable Solus id once the session enters a lineage, so asking with the raw
+   * id alone silently found nothing and the artifact stayed unlinked. */
   static async forSession(sessionId: string): Promise<Task | null> {
+    const stableSessionId = stableSessionIdForProviderThread(sessionId) ?? sessionId
     const parsed = taskIdRowSchema.safeParse(database().prepare(`
       SELECT task_id
       FROM task_session_links
-      WHERE task_session_links.session_id = ?
+      WHERE task_session_links.session_id IN (?, ?)
       ORDER BY task_session_links.linked_at DESC
       LIMIT 1
-    `).get(sessionId))
-    return parsed.success ? Task.byId(parsed.data.task_id) : null
+    `).get(sessionId, stableSessionId))
+    if (!parsed.success) {
+      // A task-free session is ordinary, so this is not a warning. It is the
+      // only trace a missed artifact link leaves, so it must be greppable.
+      log.debug('task_for_session_unresolved', { sessionId, stableSessionId })
+      return null
+    }
+    return Task.byId(parsed.data.task_id)
   }
 
   /** Attach an object produced inside a session to that session's owning task.

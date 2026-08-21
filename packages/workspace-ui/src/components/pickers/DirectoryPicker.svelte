@@ -384,6 +384,10 @@
 
   function navigateTo(next: string) {
     highlightedIndex = -1;
+    // A touch user can tap a folder and the footer action before the reactive
+    // directory load starts. Block submission now, or the action can commit
+    // the previously resolved parent while the path already names its child.
+    loading = true;
     path = next;
     if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
   }

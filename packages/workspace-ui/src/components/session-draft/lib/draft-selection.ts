@@ -51,7 +51,10 @@ export function draftModelSelection(
     set fastMode(next) {
       const current = draft()
       if (!current) return
-      current.run.modelConfig.fastMode = next
+      current.run = {
+        ...current.run,
+        modelConfig: { ...current.run.modelConfig, fastMode: next },
+      }
     },
   }
 }

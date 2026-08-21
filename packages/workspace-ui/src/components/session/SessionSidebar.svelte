@@ -416,7 +416,7 @@
     for (const row of selectedTasks()) {
       if (!row.taskId) continue;
       try {
-        await session.tasksStore.markRead(row.taskId, false);
+        await sidebarStore.markTaskUnread(row.taskId);
       } catch (error) {
         toasts.error(`Stopped after “${row.title}”`, {
           description: error instanceof Error ? error.message : String(error),
@@ -626,6 +626,12 @@
     const targets = snoozeTargets;
     snoozeTargets = [];
     snoozeAnchor = null;
+    await applySnooze(targets, until, note);
+  }
+
+  /** Shared by the snooze popover and the context menu's preset submenu, which
+   *  skips the popover entirely and therefore carries no reminder note. */
+  async function applySnooze(targets: Task[], until: number, note: string) {
     if (!targets.length) return;
     const task = targets[0];
     const row =
@@ -1457,7 +1463,11 @@
         }}
         onStartRename={() => startRename({ taskId: menuTask.id })}
         onSetStatus={(status) => void setTaskStatus(menuTask.id, status)}
-        onSnooze={menuTask.status === "done" ||
+        onSnoozeUntil={menuTask.status === "done" ||
+        (menuTask.snoozedUntil ?? 0) > Date.now()
+          ? undefined
+          : (until) => void applySnooze([menuTask], until, "")}
+        onSnoozeWithNote={menuTask.status === "done" ||
         (menuTask.snoozedUntil ?? 0) > Date.now()
           ? undefined
           : () => {
@@ -1468,7 +1478,7 @@
           ? () => void wakeTask(menuTask)
           : undefined}
         onMarkUnread={() =>
-          void session.tasksStore.markRead(menuTask.id, false)}
+          void sidebarStore.markTaskUnread(menuTask.id)}
         onRemove={undefined}
         sessionId={leafSession?.sessionId ?? null}
         onFork={leafTabId && leafSess?.agentSessionId
