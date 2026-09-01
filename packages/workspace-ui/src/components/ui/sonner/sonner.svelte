@@ -41,19 +41,19 @@
   /* Sonner's action buttons never shrink, so a long message beside them
      squeezes to one word per line and then breaks mid-word. Give the content
      the leftover row width instead: text wraps at word boundaries while the
-     icon and buttons keep Sonner's stock single-row shadcn layout. */
+     icon and buttons keep Sonner's stock single-row shadcn layout.
+
+     A backend error can contain a full command and hundreds of paths, so the
+     content also carries the height cap that keeps the card inside the
+     viewport; the description below truncates while the Copy action still
+     exposes the complete message. The cap sits here and not on the card,
+     because the card must not clip its own overhanging close button. */
   :global(.toaster [data-sonner-toast][data-styled="true"] [data-content]) {
     flex: 1 1 0%;
     min-width: 0;
     min-height: 0;
     overflow-wrap: break-word;
-  }
-
-  /* A backend error can contain a full command and hundreds of paths. Keep the
-     card inside the viewport; the description below truncates while the Copy
-     action still exposes the complete message. */
-  :global(.toaster [data-sonner-toast][data-styled="true"]) {
-    max-height: calc(100dvh - 2rem);
+    max-height: calc(100dvh - 4rem);
     overflow: hidden;
   }
 
@@ -103,7 +103,8 @@
   }
 
   /* Sonner parks the close button on the leading edge, which collides with the
-     status icon. Move it to the trailing corner and use Solus surface tokens. */
+     status icon. Move it to the trailing corner and use Solus surface tokens.
+     It overhangs the corner, so nothing above it may clip overflow. */
   :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]) {
     left: unset;
     right: 0;
@@ -111,6 +112,22 @@
     background: var(--color-popover);
     border-color: var(--color-border);
     color: var(--color-muted-foreground);
+  }
+
+  /* The mark itself stays small, but a dismiss should not need a precise aim.
+     Grow only the hit target, past the corner the badge already overhangs. */
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]::after) {
+    content: "";
+    position: absolute;
+    inset: -8px;
+    border-radius: 9999px;
+  }
+
+  /* A thumb needs the full 44px target. */
+  @media (pointer: coarse) {
+    :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]::after) {
+      inset: -12px;
+    }
   }
 
   :global(.toaster [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover) {
