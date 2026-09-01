@@ -1,0 +1,9 @@
+{
+  "name": "@solus/workspace-ui",
+  "private": true,
+  "type": "module",
+  "exports": { "./*": "./src/*" },
+  "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
+  "dependencies": { "@solus/contracts": "workspace:*", "@solus/client-core": "workspace:*" },
+  "devDependencies": { "typescript": "^5.9.3" }
+}

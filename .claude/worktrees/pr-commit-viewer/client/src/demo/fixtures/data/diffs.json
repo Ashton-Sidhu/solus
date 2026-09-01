@@ -1,0 +1,54 @@
+{
+  "demo-tab-webhooks": {
+    "patch": "diff --git a/src/webhooks/deliveryWorker.ts b/src/webhooks/deliveryWorker.ts\nindex c932bd1..8ce0b0f 100644\n--- a/src/webhooks/deliveryWorker.ts\n+++ b/src/webhooks/deliveryWorker.ts\n@@ -5,17 +5,13 @@ import { backoff } from './retryPolicy'\n-const attempts = new Map<string, number>()\n-\n export async function deliver(job: DeliveryJob) {\n-  const attempt = (attempts.get(job.endpointId) ?? 0) + 1\n-  attempts.set(job.endpointId, attempt)\n   const response = await fetch(job.url, requestFor(job))\n   if (response.ok) {\n     await queue.acknowledge(job.id)\n-    attempts.delete(job.endpointId)\n     return\n   }\n-  await queue.retry(job, backoff(attempt))\n+  await queue.retry(job, backoff(job.attempt + 1))\n }\ndiff --git a/src/queue/webhookQueue.ts b/src/queue/webhookQueue.ts\nindex 3f4821a..62a77e4 100644\n--- a/src/queue/webhookQueue.ts\n+++ b/src/queue/webhookQueue.ts\n@@ -18,8 +18,12 @@ export interface DeliveryJob {\n-export async function retry(job: DeliveryJob, delayMs: number) {\n+export async function retry(\n+  job: DeliveryJob,\n+  delayMs: number,\n+  now: () => number = Date.now,\n+) {\n   await redis.zadd(\n     RETRY_KEY,\n-    Date.now() + delayMs,\n+    now() + delayMs,\n     JSON.stringify({ ...job, attempt: job.attempt + 1 }),\n   )\n }\ndiff --git a/src/webhooks/deliveryWorker.test.ts b/src/webhooks/deliveryWorker.test.ts\nindex 593d221..eb51a06 100644\n--- a/src/webhooks/deliveryWorker.test.ts\n+++ b/src/webhooks/deliveryWorker.test.ts\n@@ -76,6 +76,31 @@ test('acknowledges a successful delivery once', async () => {\n   expect(queue.retry).not.toHaveBeenCalled()\n })\n+\n+test('keeps attempts isolated across interleaved deliveries', async () => {\n+  const first = deliveryJob({ id: 'job-a', endpointId: 'endpoint-1', attempt: 0 })\n+  const second = deliveryJob({ id: 'job-b', endpointId: 'endpoint-1', attempt: 3 })\n+  fetchMock.mockResolvedValue(response(503))\n+\n+  await Promise.all([deliver(first), deliver(second)])\n+\n+  expect(queue.retry).toHaveBeenCalledWith(first, 1000)\n+  expect(queue.retry).toHaveBeenCalledWith(second, 8000)\n+})\n+\n+test('schedules retries against the injected clock', async () => {\n+  const now = () => Date.parse('2026-07-14T16:00:00.000Z')\n+  await queue.retry(deliveryJob({ attempt: 1 }), 2000, now)\n+  expect(redis.zadd).toHaveBeenCalledWith(\n+    'webhook:retries',\n+    Date.parse('2026-07-14T16:00:02.000Z'),\n+    expect.any(String),\n+  )\n+})\n",
+    "stats": [
+      { "path": "src/webhooks/deliveryWorker.ts", "additions": 1, "deletions": 7 },
+      { "path": "src/queue/webhookQueue.ts", "additions": 7, "deletions": 3 },
+      { "path": "src/webhooks/deliveryWorker.test.ts", "additions": 25, "deletions": 0 }
+    ],
+    "turnSnapshots": [
+      {
+        "index": 0,
+        "sha": "1e872d9e92f58be6f35a2f4e62aa75ea740ebc11",
+        "timestamp": 1784044839000,
+        "partial": false,
+        "userMessagePreview": "Fix the flaky retry logic in webhook delivery",
+        "filesChanged": 1,
+        "additions": 1,
+        "deletions": 7
+      },
+      {
+        "index": 1,
+        "sha": "5f2c3771fc279a2a2581f80b47df04cf0f4bd8f0",
+        "timestamp": 1784044920000,
+        "partial": false,
+        "userMessagePreview": "Make the timing tests deterministic",
+        "filesChanged": 3,
+        "additions": 33,
+        "deletions": 10
+      }
+    ],
+    "changedFiles": ["src/webhooks/deliveryWorker.ts", "src/queue/webhookQueue.ts", "src/webhooks/deliveryWorker.test.ts"]
+  },
+  "demo-tab-ratelimit": {
+    "patch": "diff --git a/src/ratelimit/tokenBucket.ts b/src/ratelimit/tokenBucket.ts\nnew file mode 100644\nindex 0000000..72bc1f0\n--- /dev/null\n+++ b/src/ratelimit/tokenBucket.ts\n@@ -0,0 +1,28 @@\n+import type { Redis } from '../infra/redis'\n+\n+const TOKEN_BUCKET_SCRIPT = `\n+local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens')) or tonumber(ARGV[1])\n+local updated_at = tonumber(redis.call('HGET', KEYS[1], 'updated_at')) or tonumber(ARGV[3])\n+local elapsed = math.max(0, tonumber(ARGV[3]) - updated_at)\n+tokens = math.min(tonumber(ARGV[1]), tokens + elapsed * tonumber(ARGV[2]) / 1000)\n+local allowed = tokens >= 1\n+if allowed then tokens = tokens - 1 end\n+redis.call('HSET', KEYS[1], 'tokens', tokens, 'updated_at', ARGV[3])\n+return { allowed and 1 or 0, math.floor(tokens) }\n+`\n+\n+export async function consumeTokenBucket(redis: Redis, key: string, capacity: number, refill: number, nowMs: number) {\n+  const [allowed, remaining] = await redis.eval(TOKEN_BUCKET_SCRIPT, [key], [capacity, refill, nowMs])\n+  return { allowed: allowed === 1, limit: capacity, remaining }\n+}\ndiff --git a/src/middleware/rateLimit.ts b/src/middleware/rateLimit.ts\nnew file mode 100644\nindex 0000000..bc912be\n--- /dev/null\n+++ b/src/middleware/rateLimit.ts\n@@ -0,0 +1,22 @@\n+import { consumeTokenBucket } from '../ratelimit/tokenBucket'\n+\n+export function rateLimit(deps: RateLimitDeps): Middleware {\n+  return async (request, next) => {\n+    const apiKeyId = request.context.apiKey.id\n+    const decision = await consumeTokenBucket(deps.redis, `ratelimit:${apiKeyId}`, deps.capacity, deps.refill, deps.now())\n+    request.response.headers.set('RateLimit-Limit', String(decision.limit))\n+    request.response.headers.set('RateLimit-Remaining', String(decision.remaining))\n+    if (!decision.allowed) return request.json({ error: { code: 'rate_limit_exceeded', requestId: request.id } }, 429)\n+    return next()\n+  }\n+}\ndiff --git a/src/api/router.ts b/src/api/router.ts\nindex 90a3bf2..1ab214a 100644\n--- a/src/api/router.ts\n+++ b/src/api/router.ts\n@@ -1,5 +1,6 @@\n import { authenticateApiKey } from '../auth/apiKey'\n+import { rateLimit } from '../middleware/rateLimit'\n@@ -12,6 +13,7 @@ export function createApiRouter(deps: ApiDeps) {\n   api.use('/v1/*', authenticateApiKey(deps.apiKeys))\n+  api.use('/v1/*', rateLimit(deps.rateLimit))\n   api.route('/v1/links', linkRoutes(deps))\n",
+    "stats": [
+      { "path": "src/ratelimit/tokenBucket.ts", "additions": 28, "deletions": 0 },
+      { "path": "src/middleware/rateLimit.ts", "additions": 22, "deletions": 0 },
+      { "path": "src/api/router.ts", "additions": 2, "deletions": 0 }
+    ],
+    "turnSnapshots": [
+      {
+        "index": 0,
+        "sha": "58ec21a99ae74f30b6ff7b112374231055de6c42",
+        "timestamp": 1784041500000,
+        "partial": false,
+        "userMessagePreview": "Add per-key rate limiting to the public API",
+        "filesChanged": 3,
+        "additions": 52,
+        "deletions": 0
+      }
+    ],
+    "changedFiles": ["src/ratelimit/tokenBucket.ts", "src/middleware/rateLimit.ts", "src/api/router.ts"]
+  }
+}

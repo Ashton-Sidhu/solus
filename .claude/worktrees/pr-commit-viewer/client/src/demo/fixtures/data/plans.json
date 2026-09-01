@@ -1,0 +1,105 @@
+[
+  {
+    "descriptor": {
+      "provider": "claude-code",
+      "planToolUseId": "plan-billing-migration",
+      "sessionId": "demo-session-billing",
+      "projectPath": "/home/demo/acme",
+      "cwd": "/home/demo/acme",
+      "timestamp": 1783609920000,
+      "title": "Migrate billing to usage-based pricing",
+      "excerpt": "Build an invoice-grade usage ledger, reconcile in shadow mode, and migrate Stripe prices through staged cohorts.",
+      "status": "pending",
+      "commentCount": 2,
+      "bookmarked": false,
+      "planFilePath": "/home/demo/.claude/plans/migrate-usage-billing.md",
+      "revisions": []
+    },
+    "content": "# Migrate billing to usage-based pricing\n\n## Goal\n\nMove acme from flat subscriptions to metered API usage without double-billing, dropping late events, or changing an existing customer invoice before the numbers have been reconciled.\n\n## 1. Establish an invoice-grade usage ledger\n\nAdd `usage_events` and `usage_rollups` to `src/db/schema/billing.ts`. Every billable request records an immutable event with a unique request id, account id, API key id, quantity, source, and occurred-at timestamp. Keep the existing analytics counter unchanged during migration so it remains an independent comparison.\n\n## 2. Meter in shadow mode\n\nCreate `src/billing/usageRecorder.ts` behind `BILLING_USAGE_METERING`. Batch accepted events into hourly rollups, publish them to Stripe with deterministic idempotency keys, and persist each Stripe event id. A failed publish retries from the ledger rather than recounting requests.\n\n## 3. Backfill and reconcile\n\nBackfill the current period from request logs with a distinct `backfill` source. Run `src/billing/reconcileUsage.ts` daily to compare local ledger totals, analytics totals, and Stripe meter summaries. Produce account-level variance and block rollout above 0.5%.\n\n## 4. Migrate products and subscriptions\n\nCreate versioned Stripe prices; never mutate the active flat price. Roll out to internal accounts, then 5%, 25%, and 100% of new subscriptions. Existing customers migrate only after notice and a stored effective date.\n\n## 5. Dashboard and communication\n\nShow current-period billable requests, included quota, projected overage, and data freshness. Send customer notices 30 days ahead and publish example invoices in the billing settings page.\n\n## Rollback\n\nDisable metering and Stripe publication while leaving flat subscription items active. Keep the append-only ledger so the team can reconcile and replay after remediation.\n\n## Verification\n\n- Unit tests for deduplication, retry idempotency, late events, and UTC month boundaries.\n- Stripe test-clock run through invoice preview, payment, and rollback.\n- Two complete billing cycles in shadow mode with account-level variance below 0.5%.\n- Finance sign-off on sampled invoices before each cohort expands.",
+    "annotations": {
+      "version": 1,
+      "sessionId": "demo-session-billing",
+      "projectPath": "/home/demo/acme",
+      "cwd": "/home/demo/acme",
+      "planToolUseId": "plan-billing-migration",
+      "title": "Migrate billing to usage-based pricing",
+      "status": "pending",
+      "comments": [
+        {
+          "id": "billing-comment-variance",
+          "selectedText": "block rollout above 0.5%",
+          "comment": "Can we break this down by account tier? A single enterprise import could hide drift in the self-serve cohort."
+        },
+        {
+          "id": "billing-comment-notice",
+          "selectedText": "Send customer notices 30 days ahead",
+          "comment": "Legal needs the final copy one week before the first email. Add that dependency to the rollout checklist."
+        }
+      ],
+      "bookmarked": false,
+      "updatedAt": 1783610100000
+    }
+  },
+  {
+    "descriptor": {
+      "provider": "claude-code",
+      "planToolUseId": "plan-webhook-retries",
+      "sessionId": "demo-session-webhooks",
+      "projectPath": "/home/demo/acme",
+      "cwd": "/home/demo/acme",
+      "timestamp": 1784044850000,
+      "title": "Stabilize webhook retries",
+      "excerpt": "Make retry attempts job-scoped, inject scheduling time, and lock the concurrency bug down with interleaving tests.",
+      "status": "accepted",
+      "commentCount": 0,
+      "bookmarked": true,
+      "bookmarkedAt": 1784044860000,
+      "planFilePath": "/home/demo/.claude/plans/stabilize-webhook-retries.md",
+      "revisions": []
+    },
+    "content": "# Stabilize webhook retries\n\n## Problem\n\n`src/webhooks/deliveryWorker.ts` keeps attempt counts in a process-global map keyed by endpoint. Concurrent deliveries to the same endpoint can therefore inherit each other's backoff and make timing assertions flaky.\n\n## Changes\n\n1. Remove the worker-level attempt map and treat `DeliveryJob.attempt` as authoritative.\n2. Keep retry increments inside `src/queue/webhookQueue.ts`, where the serialized job is persisted.\n3. Inject a `now()` dependency into retry scheduling rather than mocking the global clock.\n4. Add an interleaving regression test for two jobs targeting one endpoint.\n5. Verify that successful deliveries acknowledge once and never enqueue a retry.\n\n## Verification\n\n- Run `bun test src/webhooks` five consecutive times.\n- Run `bun run typecheck`.\n- Confirm the failure path enqueues exactly one job with `attempt + 1`.",
+    "annotations": {
+      "version": 1,
+      "sessionId": "demo-session-webhooks",
+      "projectPath": "/home/demo/acme",
+      "cwd": "/home/demo/acme",
+      "planToolUseId": "plan-webhook-retries",
+      "title": "Stabilize webhook retries",
+      "status": "accepted",
+      "comments": [],
+      "bookmarked": true,
+      "bookmarkedAt": 1784044860000,
+      "updatedAt": 1784045880000
+    }
+  },
+  {
+    "descriptor": {
+      "provider": "claude-code",
+      "planToolUseId": "plan-api-key-rotation",
+      "sessionId": "demo-session-ratelimit",
+      "projectPath": "/home/demo/acme",
+      "cwd": "/home/demo/acme",
+      "timestamp": 1783000800000,
+      "title": "Zero-downtime API key rotation",
+      "excerpt": "Support overlapping key generations, audit every transition, and revoke old hashes after a customer-controlled grace period.",
+      "status": "accepted",
+      "commentCount": 0,
+      "bookmarked": false,
+      "planFilePath": "/home/demo/.claude/plans/api-key-rotation.md",
+      "revisions": []
+    },
+    "content": "# Zero-downtime API key rotation\n\n## Data model\n\nReplace the single account key hash with versioned rows in `src/db/schema/apiKeys.ts`. Store only the hash, prefix, generation, creation time, optional expiry, and revocation time.\n\n## Rotation flow\n\nCreate the next generation and return its secret once. Keep the prior generation valid for a customer-selected grace period of 1 hour, 24 hours, or 7 days. Display both prefixes and their expiry in the dashboard.\n\n## Request authentication\n\nAuthenticate active, unexpired generations in `src/auth/apiKey.ts`. Emit the key id and generation into request context so rate limits and audit logs never depend on the plaintext secret.\n\n## Revocation and audit\n\nA scheduled worker revokes expired generations. Every create, rotate, and revoke operation writes an immutable audit event with actor and request id.\n\n## Verification\n\n- Concurrent requests using old and new keys succeed during the grace period.\n- The old key fails immediately after expiry or manual revocation.\n- Logs, errors, and analytics never contain a full secret.",
+    "annotations": {
+      "version": 1,
+      "sessionId": "demo-session-ratelimit",
+      "projectPath": "/home/demo/acme",
+      "cwd": "/home/demo/acme",
+      "planToolUseId": "plan-api-key-rotation",
+      "title": "Zero-downtime API key rotation",
+      "status": "accepted",
+      "comments": [],
+      "bookmarked": false,
+      "updatedAt": 1783001700000
+    }
+  }
+]

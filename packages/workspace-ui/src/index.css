@@ -1,0 +1,4273 @@
+@import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400..600;1,400..600&display=swap');
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/* Explicitly tell Tailwind which folders to scan. Required because the web
+   client and the demo set their Vite root to their own folder, which excludes
+   this package from Tailwind's automatic content detection. Paths are relative
+   to this CSS file, so they must follow the source tree: a path that resolves
+   to nothing is not an error, it is a stylesheet missing every class only that
+   folder uses. */
+@source ".";
+@source "../../../apps/client/src";
+
+/* Class-based dark mode: the app toggles a `.dark` class on the root rather
+   than relying on prefers-color-scheme, so map Tailwind's `dark:` variant to it. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* shadcn-svelte registry styles target bare data-checked/data-open/… attributes
+   (an upcoming bits-ui convention), but released bits-ui still emits
+   data-state="checked|unchecked|open|closed". Bridge both forms so stock
+   generated components (switch track/thumb colors, select open/close
+   animations, …) work without editing them. */
+@custom-variant data-checked (&[data-checked], &[data-state="checked"]);
+@custom-variant data-unchecked (&[data-unchecked], &[data-state="unchecked"]);
+@custom-variant data-open (&[data-open], &[data-state="open"]);
+@custom-variant data-closed (&[data-closed], &[data-state="closed"]);
+@custom-variant data-active (&[data-active], &[data-state="active"]);
+@custom-variant data-inactive (&[data-inactive], &[data-state="inactive"]);
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('@geist-fonts/geist-mono/GeistMono-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('@geist-fonts/geist-sans/Geist-Variable.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* Inter, bundled locally (was a Google-Fonts CDN webfont). Self-hosting kills the
+   network round-trip + the SF→Inter fallback flash, and lets us pin the opsz
+   (optical-size) variable axis. Real italics included so `em` doesn't fall back to
+   a synthesised oblique. Latin + latin-ext only; subset by unicode-range. */
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource-variable/inter/files/inter-latin-opsz-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource-variable/inter/files/inter-latin-ext-opsz-normal.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource-variable/inter/files/inter-latin-opsz-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+  unicode-range: U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('@fontsource-variable/inter/files/inter-latin-ext-opsz-italic.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: italic;
+  font-display: swap;
+  unicode-range: U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF;
+}
+
+/* DM Sans, self-hosted (variable weight axis) so the UI-font option renders
+   regardless of whether the user has it installed. Latin subset only. */
+@font-face {
+  font-family: 'DM Sans';
+  src: url('@fontsource-variable/dm-sans/files/dm-sans-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 1000;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'DM Sans';
+  src: url('@fontsource-variable/dm-sans/files/dm-sans-latin-wght-italic.woff2') format('woff2');
+  font-weight: 100 1000;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* JetBrains Mono, self-hosted (variable weight axis) so the code-font option
+   renders regardless of whether the user has it installed. Latin subset only. */
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  src: url('@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-italic.woff2') format('woff2');
+  font-weight: 100 800;
+  font-style: italic;
+  font-display: swap;
+}
+
+/*
+ * ─── Theme CSS Variables ───
+ * Defined statically here for light (`:root`) and dark (`.dark`).
+ * The theme context toggles `.dark` on <html> to switch themes.
+ */
+
+:root {
+  --solus-font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --solus-code-font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --solus-code-font-scale: 1;
+  --solus-document-font-family: var(--solus-font-family);
+  --solus-document-heading-font-family: 'Lora', Georgia, 'Times New Roman', serif;
+  --solus-document-font-scale: 1;
+  /* 0.75rem = 12px at the 16px design-reference root (DEFAULT_CODE_FONT_SIZE).
+     rem-based so the code/diff font scales with the screen; the scale var carries
+     the user's "Code font size" preference. */
+  --solus-code-font-size: calc(0.75rem * var(--solus-code-font-scale, 1));
+  /* Centered reading column — shared by the message stream, progress tracker,
+     status bars and the input dock so the whole thread lines up as one column.
+     It takes most of the available conversation pane on laptops and smaller
+     viewports, then caps at 68rem so a 5K or ultrawide display gains useful
+     width without turning the transcript into a full-width wall of text. The
+     percentage resolves against each consumer's container, so splits and side
+     panels resize the column with the pane rather than with the outer window.
+     Below the 30rem floor, max-width remains a limit rather than a forced width,
+     so the column still contracts to the available space.
+
+     Keep `conversation/lib/minimap.ts` in step — it mirrors this in TypeScript
+     to place the message navigator, and `tests/unit/panel-sizing.test.ts` reads
+     this line back to prove the two agree. */
+  --solus-reading-max: clamp(30rem, 80%, 68rem);
+  /* SF Pro Text first-paint defaults. Runtime font preferences replace these
+     with the selected face's named Regular or Medium instance. */
+  --solus-font-weight-body: 400;
+  --solus-font-weight-secondary: 400;
+  --solus-font-weight-user-content: 400;
+  /* macOS traffic-light safe area. These values stay at zero on web, Windows,
+     Linux, and the frameless Pill window. */
+  --solus-titlebar-height: 0px;
+  --solus-traffic-light-inset: 0px;
+  --solus-chrome-row-h: 2.5rem;
+  --solus-titlebar-control-size: 1.75rem;
+  --solus-titlebar-control-gap: 0.75rem;
+  --solus-titlebar-control-left: max(
+    0.625rem,
+    var(--solus-traffic-light-inset)
+  );
+  --solus-titlebar-control-top: max(
+    0.625rem,
+    calc(
+      (var(--solus-titlebar-height) - var(--solus-titlebar-control-size)) / 2
+    )
+  );
+  --solus-titlebar-content-inset: calc(
+    var(--solus-titlebar-control-left) + var(--solus-titlebar-control-size) +
+      var(--solus-titlebar-control-gap)
+  );
+  /* Container */
+  --solus-edge-bg: #fbfaf6;
+  --solus-container-bg: #fefefc;
+  --solus-container-bg-collapsed: #faf9f4;
+  --solus-container-border: #d2cfc5;
+  --solus-sidebar-bg: #f9f8f4;
+  --solus-sidebar-bg-left: #fffdf8;
+  --solus-sidebar-bg-right: #fffdf8;
+  /* The navigation surface, wherever it appears: the session sidebar, the
+     settings column, the workspace rail. A shade above `card`, which is itself
+     above `background` — light means nearer, so the pane you steer from reads as
+     lying on top of the pane you work in. Defined once against `--card` rather
+     than as two hardcoded values: the same mix lifts the panel in dark mode,
+     where `--card` is dark and the 8% white is what raises it. */
+  --solus-sidebar-surface: color-mix(in oklch, var(--card) 92%, #fff);
+  --solus-container-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.04), 0 0.5rem 2rem rgba(0,0,0,0.12), 0 0.125rem 0.375rem rgba(0,0,0,0.06);
+  --solus-card-shadow: 0 0 0 0.0625rem rgba(0,0,0,0.04), 0 0.5rem 2rem rgba(0,0,0,0.12), 0 0.125rem 0.375rem rgba(0,0,0,0.06);
+  --solus-card-shadow-collapsed: 0 0.25rem 1rem rgba(0,0,0,0.09), 0 0.0625rem 0.25rem rgba(0,0,0,0.05);
+  /* Surface */
+  --solus-surface-primary: #faf3e4;
+  --solus-surface-secondary: #dddad2;
+  --solus-surface-hover: rgba(0, 0, 0, 0.04);
+  --solus-surface-active: rgba(0, 0, 0, 0.06);
+  /* Input */
+  --solus-input-bg: transparent;
+  --solus-input-border: #dddad2;
+  --solus-input-focus-border: rgba(217, 119, 87, 0.45);
+  --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
+  --solus-input-pill-bg: rgba(255, 255, 255, 0.99);
+  --solus-pill-opaque-bg: #ffffff;
+  /* Text — darker than original for better contrast */
+  --solus-text-primary: #2a2618;
+  --solus-text-secondary: #484538;
+  --solus-text-tertiary: #7d7a6e;
+  --solus-text-muted: #dddad2;
+  /* Brand ink for a provider's own logo and its bar on the volume histogram.
+     Claude's clay reads too light over a pale surface at glyph weight, so the
+     mark takes the darker terracotta the app has always drawn it in. Codex
+     takes the blue of its own app icon, pulled clear of the violet end of that
+     icon's gradient: a mark and a bar have to say "blue" at a glance and at a
+     few pixels, which a blue-violet does not. Both hold in either theme, so
+     neither is overridden in the dark block. */
+  --brand-claude: #c15f2c;
+  --brand-codex: #1a7de0;
+  /* Accent */
+  --solus-accent: #d97757;
+  --solus-accent-light: rgba(217, 119, 87, 0.07);
+  --solus-accent-soft: rgba(217, 119, 87, 0.12);
+  --solus-accent-border: rgba(217, 119, 87, 0.19);
+  --solus-accent-border-medium: rgba(217, 119, 87, 0.25);
+  /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
+  --solus-accent-wash: rgba(217, 119, 87, 0.18);
+  /* Paintbrush texture for unread items. Two masks multiplied together: an
+     anisotropic "bristle" streak (long in x, thin in y, so it drags like brush
+     hairs) and a low-frequency "load" blotch where the paint pools thick and
+     thins out. Fuller/wetter coverage than a pencil. Alpha-only, defined once. */
+  --solus-brush-streak: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='bs'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.11 0.055' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1.2 0.18'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23bs)'/%3E%3C/svg%3E");
+  --solus-brush-load: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='320' height='200'%3E%3Cfilter id='bl'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.014 0.04' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1.05 0.12'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23bl)'/%3E%3C/svg%3E");
+  /* Status */
+  --solus-status-idle: #8a8a80;
+  --solus-status-running: #d97757;
+  /* A running session is motion, not an alert. Keep its spinner neutral so
+     terracotta remains reserved for attention states. */
+  --solus-status-running-icon: var(--solus-text-tertiary);
+  --solus-status-running-bg: rgba(217, 119, 87, 0.1);
+  /* Live service (a running process/server) — reads as healthy, so green, not
+     the brand orange that signals "agent working" elsewhere. */
+  --solus-status-live: #5a9e6f;
+  --solus-status-live-bg: rgba(90, 158, 111, 0.1);
+  --solus-status-live-glow: rgba(90, 158, 111, 0.3);
+  --solus-status-complete: #5a9e6f;
+  --solus-status-complete-bg: rgba(90, 158, 111, 0.1);
+  --solus-status-error: #c47060;
+  --solus-status-error-bg: rgba(196, 112, 96, 0.06);
+  --solus-status-dead: #c47060;
+  --solus-status-permission: #d97757;
+  /* Finished with output nobody has read yet. Blue because every other status
+     colour is spoken for by something that wants a decision — unread only wants
+     a glance, so it sits outside the terracotta/red/amber family entirely.
+     Tuned against --solus-sidebar-bg, *not* borrowed from --solus-art-5: the
+     chart ramp is muted on purpose so a dozen series can coexist, which left the
+     dot washed out once the row hover wash landed on top of it. This is the
+     lightest blue that still clears 3:1 hovered (3.46 plain, 3.17 hovered) —
+     anything brighter reads as a smudge on the warm off-white. */
+  --solus-status-unread: #3b82f6;
+  /* Tab */
+  --solus-tab-active: #f1efe7;
+  --solus-tab-active-border: #dddad2;
+  --solus-tab-inactive: transparent;
+  --solus-tab-hover: rgba(0, 0, 0, 0.04);
+  /* Bare "canvas" behind the brushed unread strokes — a light wash so the gaps
+     read whiter than the surrounding bar, giving the strokes more contrast. */
+  --solus-unread-canvas: rgba(255, 255, 255, 0.6);
+  /* Ink for the unread brush strokes + dot — currently the brand accent. */
+  --solus-unread-ink: var(--solus-accent);
+  /* User bubble */
+  --solus-user-bubble: var(--solus-surface-primary);
+  --solus-user-bubble-text: #2a2618;
+  /* Tool card */
+  --solus-tool-bg: #f1efe7;
+  --solus-tool-border: #dddad2;
+  --solus-tool-running-border: rgba(217, 119, 87, 0.3);
+  --solus-tool-running-bg: rgba(217, 119, 87, 0.05);
+  /* Timeline */
+  --solus-timeline-line: #dddad2;
+  --solus-timeline-node: rgba(217, 119, 87, 0.2);
+  --solus-timeline-node-active: #d97757;
+  --solus-timeline-node-done: rgba(90, 158, 111, 0.25);
+  /* Scrollbar */
+  --solus-scroll-thumb: rgba(0, 0, 0, 0.14);
+  --solus-scroll-thumb-hover: rgba(0, 0, 0, 0.28);
+  /* Buttons */
+  --solus-stop-bg: #ef4444;
+  --solus-stop-hover: #dc2626;
+  --solus-send-bg: #d97757;
+  --solus-send-hover: #c96442;
+  --solus-send-disabled: rgba(217, 119, 87, 0.3);
+  --solus-send-glow: rgba(217, 119, 87, 0.20);
+  --solus-btn-disabled: #c8c5bc;
+  --solus-btn-hover-color: #2a2618;
+  --solus-btn-hover-bg: #f1efe7;
+  /* Popover */
+  --solus-popover-bg: #fcfbf8;
+  --solus-popover-border: #dddad2;
+  --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.65), 0 0.0625rem 0.125rem rgba(0,0,0,0.05), 0 0.625rem 1.75rem rgba(60,45,30,0.14);
+  /* Menu — the floating command surface (dropdowns, context menus, selects,
+     the branch/project/model pickers). Deliberately separate from the popover
+     tokens above: a menu draws its edge as a hairline *inside* the shadow
+     stack, where a modal or toast still wants a real border. */
+  /* Fully opaque. A menu floats over whatever the app happens to sit on — in
+     pill mode that's a transparent window, so even a sliver of alpha lets the
+     desktop bleed through and the surface stops reading as a solid object.
+     Derived, not hard-coded, so dark mode needs no second value. */
+  --solus-menu-bg: var(--solus-popover-bg);
+  /* Four layers, no border. The ring is a spread-only hairline, so it adds
+     nothing to the box and doesn't harden the corner radius; being foreground
+     ink rather than --border, it darkens against whatever the panel sits on.
+     Contact is what actually separates the panel from the surface beneath —
+     without it the panel looks pasted on however large the blur. Key sets the
+     light direction; ambient is the wide pool that reads as height. Opacity
+     escalates as blur escalates, which is inverted from intuition but correct:
+     24% spread over a 70px blur lands as a whisper per pixel, where 6% over 4px
+     stays crisp. Negative spread on all three pulls each rect in before blurring
+     so the falloff runs downward instead of haloing sideways into a glow. Pure
+     black, not tinted — a warm shadow on warm parchment goes muddy and stains
+     the panel into the page instead of lifting it off. */
+  --solus-menu-shadow:
+    0 0 0 0.03125rem color-mix(in srgb, var(--solus-text-primary) 10%, transparent),
+    0 0.125rem 0.25rem -0.125rem rgba(0, 0, 0, 0.06),
+    0 0.875rem 1.875rem -0.75rem rgba(0, 0, 0, 0.18),
+    0 2.25rem 4.375rem -1.875rem rgba(0, 0, 0, 0.24);
+  /* Dividers are the same technique at lower ink, so nothing in the panel
+     reaches for --border and the whole object stays one tonal family.
+     Mixed in srgb, never oklch: `transparent` is rgb(0 0 0 / 0), whose oklch
+     hue is 0, and a polar space interpolates that hue — so a 2.5% tint of the
+     warm brown text colour comes out pink. srgb has no hue channel, so the
+     mix means what it reads as. */
+  --solus-menu-hairline: color-mix(in srgb, var(--solus-text-primary) 8%, transparent);
+  /* Layered as an inset shadow rather than a background so hovering the
+     current row washes over its state instead of erasing it. */
+  --solus-menu-hover-ink: rgba(42, 38, 24, 0.04);
+  --solus-menu-footer-bg: color-mix(in srgb, var(--solus-text-primary) 2.5%, transparent);
+  /* Code */
+  --solus-code-bg: #f4f2ec;
+  --solus-code-shadow: 0 0.0625rem 0.125rem rgba(0,0,0,0.04);
+  /* Warm parchment for prose code blocks — a desaturated sand panel that stays
+     on-theme without competing with the warm/orange syntax tokens (peach tints
+     in the accent's own hue muddy the keywords). */
+  --solus-code-tint: #fcfaf5;
+  /* Balanced syntax palette — spread across the hue wheel so tokens separate
+     from each other and from the warm surface. Orange is reserved for numbers;
+     keywords move to rose so they stop echoing the brand accent. */
+  --solus-syntax-comment: #9c9486;
+  --solus-syntax-keyword: #b0566a;
+  --solus-syntax-number: #c07d39;
+  --solus-syntax-string: #5f8a52;
+  --solus-syntax-function: #3a7ca5;
+  --solus-syntax-type: #2f8f86;
+  --solus-syntax-attr: #8767bf;
+  --solus-syntax-deletion: #c2603f;
+  --solus-syntax-addition: #5a9e6f;
+  /* Mic */
+  --solus-mic-bg: #f1efe7;
+  --solus-mic-color: #484538;
+  --solus-mic-disabled: #c8c5bc;
+  /* Rail */
+  --solus-rail-bg: #f4f2eb;
+  --solus-rail-border: #e8e4da;
+  --solus-rail-icon: rgba(0, 0, 0, 0.4);
+  --solus-rail-icon-hover: rgba(0, 0, 0, 0.7);
+  --solus-rail-icon-hover-bg: rgba(0, 0, 0, 0.06);
+  --solus-rail-danger-color: #dc2626;
+  --solus-rail-danger-bg: rgba(239, 68, 68, 0.1);
+  /* Misc */
+  --solus-placeholder: #b0ada4;
+  --solus-text-on-accent: #ffffff;
+  /* Permissions */
+  --solus-permission-border: rgba(245, 158, 11, 0.3);
+  /* Diff */
+  --solus-diff-added-text: #3f704f;
+  --solus-diff-added-bg: rgba(63, 112, 79, 0.18);
+  --solus-diff-added-bg-write: rgba(63, 112, 79, 0.32);
+  --solus-diff-removed-text: #b06a5a;
+  --solus-diff-removed-bg: rgba(176, 106, 90, 0.18);
+  --solus-diff-gutter-bg: rgba(0, 0, 0, 0.015);
+  --solus-diff-gutter-text: rgba(42, 38, 24, 0.42);
+  --solus-diff-hunk-bg: rgba(0, 0, 0, 0.025);
+  --solus-diff-hunk-text: rgba(42, 38, 24, 0.85);
+  --solus-diff-selection-bg: rgba(138, 92, 28, 0.28);
+  /* Opaque stand-in for the pane surface. Two jobs, both needing opacity that
+     --solus-container-bg doesn't have in dark mode: it's the base every diff
+     row-tint color-mix() blends against, and it fills the sticky file headers so
+     code can't be read through them while scrolling. Nothing else paints it —
+     the pane background stays --solus-container-bg so the diff matches the panes
+     beside it. Keep in sync with --solus-container-bg. */
+  --solus-diff-surface: #fefefc;
+  /* Line selection is a different job from text selection (--solus-diff-selection-bg
+     above, which is applied directly). @pierre/diffs blends this one into the row
+     at ~18%, so it has to start strong to land as a visible band. */
+  --solus-diff-line-selection-bg: color-mix(in oklab, var(--solus-accent) 65%, transparent);
+  /* Caret line in the editable file/markdown surfaces. Painted directly (not a
+     mix target), so it must stay faint enough to sit under code without
+     competing with the add/remove tints or the hover wash. */
+  --solus-diff-active-line-bg: rgba(42, 38, 24, 0.045);
+  /* Diff (vivid) — diff-view only. Consumed solely by diffTheme.ts; never reuse
+     for chrome that must stay on-brand (permission cards, file-write previews).
+     Derived from the on-brand sage (--solus-art-3) and stop red, which are
+     already mode-aware — so unlike the tokens above these are declared once and
+     the .dark block does not restate them.
+     The percentages are deliberately ~2x the design's flat 9%/7% row tints:
+     @pierre/diffs treats these as a *mix target*, blending only 12% (light) /
+     20% (dark) of them into the surface, so the rendered wash lands back near
+     the design's value. Tune these, not diffTheme.ts. */
+  --solus-diff-added-text-vivid: var(--solus-art-3);
+  --solus-diff-added-bg-vivid: color-mix(in oklab, var(--solus-art-3) 18%, transparent);
+  --solus-diff-added-number-vivid: color-mix(in oklab, var(--solus-art-3) 18%, transparent);
+  --solus-diff-added-emphasis-vivid: color-mix(in oklab, var(--solus-art-3) 16%, transparent);
+  --solus-diff-removed-text-vivid: var(--solus-stop-bg);
+  --solus-diff-removed-bg-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
+  --solus-diff-removed-number-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
+  --solus-diff-removed-emphasis-vivid: color-mix(in oklab, var(--solus-stop-bg) 14%, transparent);
+  --solus-diff-gutter-text-vivid: rgba(42, 38, 24, 0.6);
+  /* Find-in-diff highlight (CSS Custom Highlight API; see diffTheme.ts). Active
+     match is the emphasized amber; the rest are a softer fill. */
+  --solus-diff-find-bg: rgba(217, 161, 32, 0.32);
+  --solus-diff-find-text: inherit;
+  --solus-diff-find-active-bg: rgba(217, 119, 87, 0.85);
+  --solus-diff-find-active-text: #ffffff;
+  /* File slot */
+  --solus-file-slot-well: rgba(0, 0, 0, 0.025);
+  --solus-file-slot-well-focused: rgba(217, 119, 87, 0.06);
+  --solus-file-slot-divider: rgba(0, 0, 0, 0.06);
+  --solus-file-header-bg: #f4f2eb;
+  --solus-file-header-name: #8a7a5a;
+  /* Polish */
+  --solus-tool-result-badge-bg: rgba(0, 0, 0, 0.05);
+  --solus-empty-state-bg: rgba(217, 119, 87, 0.06);
+  --solus-activity-strip-bg-from: rgba(250, 249, 246, 0);
+  --solus-message-divider: rgba(0, 0, 0, 0.04);
+  /* Soft input background — used by textareas / inline forms */
+  --solus-input-bg-soft: rgba(0, 0, 0, 0.025);
+  /* File token */
+  /* Work token */
+  --solus-work-token: #8b5e83;
+  /* Plan modal scrim */
+  --solus-modal-scrim: rgba(40, 30, 20, 0.32);
+  /* Shared motion language */
+  --ease-premium: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-modal: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-quick: 120ms;
+  --duration-base: 160ms;
+  --duration-modal: 200ms;
+  /* Responsive sizing — desktop defaults */
+  --solus-tap-target: 2rem;
+  --solus-tap-target-lg: 2.5rem;
+  --solus-font-ui: 0.75rem;
+  --solus-font-ui-sm: 0.75rem;
+  --solus-font-ui-lg: 0.8125rem;
+  /* ─── HTML artifact palette ───
+     Warm, brand-coherent colours injected into rendered HTML artifacts (see
+     ArtifactView THEME_VARS). Replaces the generic grey the design tool used to
+     default to: neutrals are parchment/sand rather than grey, and the
+     categorical data colours are a curated spread of the brand hues
+     (terracotta → plum) drawn from the same family as the syntax/status tokens,
+     so every chart sits naturally on the warm theme. */
+  --solus-art-surface: #fffdf8;
+  --solus-art-raised: #f6efe1;
+  --solus-art-border: #ece2cf;
+  --solus-art-border-strong: #d8c8a8;
+  --solus-art-1: #d97757; /* terracotta (brand accent) */
+  --solus-art-2: #c9883f; /* amber */
+  --solus-art-3: #5a9e6f; /* sage */
+  --solus-art-4: #2f8f86; /* teal */
+  --solus-art-5: #4f7fa8; /* dusty blue */
+  --solus-art-6: #8767bf; /* plum */
+  --solus-art-positive: #5a9e6f;
+  --solus-art-negative: #c2603f;
+}
+
+
+/* Touch devices (iPad, touch laptops) — larger tap targets */
+@media (pointer: coarse) {
+  :root {
+    --solus-tap-target: 2.5rem;
+    --solus-tap-target-lg: 3rem;
+  }
+}
+
+/* Phone-sized screens — largest targets, bigger text */
+@media (max-width: 767px) {
+  :root {
+    --solus-tap-target: 2.5rem;
+    --solus-tap-target-lg: 3rem;
+    --solus-font-ui: 0.8125rem;
+    --solus-font-ui-sm: 0.75rem;
+    --solus-font-ui-lg: 0.875rem;
+  }
+}
+
+.dark {
+  /* Container */
+  --solus-edge-bg: #21201d;
+  --solus-container-bg: #262522fa;
+  --solus-container-bg-collapsed: #222120fa;
+  --solus-container-border: #ffffff20;
+  --solus-sidebar-bg: #262522;
+  --solus-sidebar-bg-left: #262522;
+  --solus-sidebar-bg-right: #262522;
+  --solus-container-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.50), 0 0.125rem 0.5rem rgba(0,0,0,0.30);
+  --solus-card-shadow: 0 0 0 0.0625rem rgba(255,255,255,0.04), 0 0.5rem 2rem rgba(0,0,0,0.50), 0 0.125rem 0.5rem rgba(0,0,0,0.30);
+  --solus-card-shadow-collapsed: 0 0.25rem 1.25rem rgba(0,0,0,0.40), 0 0.0625rem 0.375rem rgba(0,0,0,0.25);
+  /* Surface */
+  --solus-surface-primary: #3d2c1f;
+  --solus-surface-secondary: #3a3935;
+  --solus-surface-hover: #ffffff14;
+  --solus-surface-active: #ffffff1f;
+  /* Input */
+  --solus-input-bg: transparent;
+  --solus-input-border: #ffffff1f;
+  --solus-input-focus-border: rgba(217, 119, 87, 0.45);
+  --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
+  --solus-input-pill-bg: #222120fa;
+  --solus-pill-opaque-bg: #222120;
+  /* Text */
+  --solus-text-primary: #f0ede5;
+  --solus-text-secondary: #bdbab3;
+  --solus-text-tertiary: #8d8a83;
+  --solus-text-muted: #302f2b;
+  /* Accent */
+  --solus-accent: #e68e6b;
+  --solus-accent-light: #e68e6b1a;
+  --solus-accent-soft: #e68e6b29;
+  --solus-accent-border: #e68e6b3d;
+  --solus-accent-border-medium: #e68e6b4d;
+  /* Selection wash tuned to preserve Shiki contrast — sits under diff add/remove bg */
+  --solus-accent-wash: #e68e6b38;
+  /* Status */
+  --solus-status-idle: #8d8a83;
+  --solus-status-running: var(--solus-accent);
+  --solus-status-running-icon: var(--solus-text-tertiary);
+  --solus-status-running-bg: rgba(230, 142, 107, 0.10);
+  --solus-status-live: #6fc884;
+  --solus-status-live-bg: rgba(111, 200, 132, 0.10);
+  --solus-status-live-glow: rgba(111, 200, 132, 0.4);
+  --solus-status-complete: #6fc884;
+  --solus-status-complete-bg: rgba(111, 200, 132, 0.10);
+  --solus-status-error: #e3645e;
+  --solus-status-error-bg: rgba(227, 100, 94, 0.08);
+  --solus-status-dead: var(--solus-status-error);
+  --solus-status-permission: var(--solus-accent);
+  /* Lifted off the dark sidebar rather than the chart ramp, same as light. */
+  --solus-status-unread: #7cc0ea;
+  --solus-brand-gold: #dcb872;
+  /* Tab */
+  --solus-tab-active: #302f2b;
+  --solus-tab-active-border: #ffffff1f;
+  --solus-tab-inactive: transparent;
+  --solus-tab-hover: #ffffff14;
+  --solus-unread-canvas: rgba(255, 255, 255, 0.05);
+  --solus-unread-ink: var(--solus-accent);
+  /* User bubble */
+  --solus-user-bubble: var(--solus-surface-primary);
+  --solus-user-bubble-text: var(--solus-text-primary);
+  /* Tool card */
+  --solus-tool-bg: #302f2b;
+  --solus-tool-border: #ffffff1f;
+  --solus-tool-running-border: rgba(230, 142, 107, 0.3);
+  --solus-tool-running-bg: rgba(230, 142, 107, 0.06);
+  /* Timeline */
+  --solus-timeline-line: #3a3935;
+  --solus-timeline-node: rgba(230, 142, 107, 0.2);
+  --solus-timeline-node-active: var(--solus-accent);
+  --solus-timeline-node-done: rgba(111, 200, 132, 0.35);
+  /* Scrollbar */
+  --solus-scroll-thumb: rgba(255, 255, 255, 0.14);
+  --solus-scroll-thumb-hover: rgba(255, 255, 255, 0.28);
+  /* Buttons */
+  --solus-stop-bg: #ef4444;
+  --solus-stop-hover: #dc2626;
+  --solus-send-bg: #e68e6b;
+  --solus-send-hover: #d87f5c;
+  --solus-send-disabled: rgba(230, 142, 107, 0.3);
+  --solus-send-glow: rgba(230, 142, 107, 0.35);
+  --solus-btn-disabled: #3a3935;
+  --solus-btn-hover-color: var(--solus-text-secondary);
+  --solus-btn-hover-bg: #33322e;
+  /* Popover */
+  --solus-popover-bg: #353430fc;
+  --solus-popover-border: #ffffff20;
+  --solus-popover-shadow: inset 0 0.0625rem 0 rgba(255,255,255,0.09), 0 0.125rem 0.375rem rgba(0,0,0,0.35), 0 0.875rem 2.25rem rgba(0,0,0,0.45);
+  /* Menu — see the light-mode block. --solus-menu-bg, the ring and the dividers
+     are all derived from tokens this block already redefines, so they re-resolve
+     here on their own. Only the drop layers need dark values: pure black at
+     light-mode alphas disappears against a dark canvas. */
+  --solus-menu-shadow:
+    0 0 0 0.03125rem color-mix(in srgb, var(--solus-text-primary) 16%, transparent),
+    0 0.125rem 0.25rem -0.125rem rgba(0, 0, 0, 0.30),
+    0 0.875rem 1.875rem -0.75rem rgba(0, 0, 0, 0.45),
+    0 2.25rem 4.375rem -1.875rem rgba(0, 0, 0, 0.55);
+  --solus-menu-hover-ink: rgba(255, 255, 255, 0.055);
+  /* Code */
+  --solus-code-bg: #393834;
+  --solus-code-shadow: 0 0.0625rem 0.1875rem rgba(0,0,0,0.25), 0 0 0 0.0625rem rgba(255,255,255,0.04);
+  /* Warm parchment for prose code blocks (dark twin of the light sand panel). */
+  --solus-code-tint: #3d3c38;
+  /* Balanced syntax palette (dark twin) — brighter, still muted. */
+  --solus-syntax-comment: #8a8475;
+  --solus-syntax-keyword: #e08a9b;
+  --solus-syntax-number: #e0a05f;
+  --solus-syntax-string: #8fbf7e;
+  --solus-syntax-function: #6fb3df;
+  --solus-syntax-type: #5cc4b8;
+  --solus-syntax-attr: #b79ae8;
+  --solus-syntax-deletion: #e0846a;
+  --solus-syntax-addition: #7fc08e;
+  /* Mic */
+  --solus-mic-bg: #393834;
+  --solus-mic-color: var(--solus-text-secondary);
+  --solus-mic-disabled: #3a3935;
+  /* Rail */
+  --solus-rail-bg: #1a1916;
+  --solus-rail-border: #131210;
+  --solus-rail-icon: rgba(255, 255, 255, 0.5);
+  --solus-rail-icon-hover: rgba(255, 255, 255, 0.85);
+  --solus-rail-icon-hover-bg: rgba(255, 255, 255, 0.1);
+  --solus-rail-danger-color: #fecaca;
+  --solus-rail-danger-bg: rgba(239, 68, 68, 0.5);
+  /* Misc */
+  --solus-placeholder: #838079;
+  --solus-text-on-accent: #2c1a12;
+  /* Permissions */
+  --solus-permission-border: rgba(245, 158, 11, 0.3);
+  /* Diff */
+  --solus-diff-added-text: #8cbf9a;
+  --solus-diff-added-bg: rgba(140, 191, 154, 0.16);
+  --solus-diff-added-bg-write: rgba(140, 191, 154, 0.12);
+  --solus-diff-removed-text: #d4897c;
+  --solus-diff-removed-bg: rgba(212, 137, 124, 0.16);
+  --solus-diff-gutter-bg: rgba(255, 255, 255, 0.015);
+  --solus-diff-gutter-text: rgba(240, 237, 229, 0.40);
+  --solus-diff-hunk-bg: rgba(255, 255, 255, 0.03);
+  --solus-diff-hunk-text: rgba(240, 237, 229, 0.80);
+  --solus-diff-selection-bg: rgba(190, 135, 52, 0.30);
+  /* Opaque twin of --solus-container-bg — see the light
+     block. --solus-diff-line-selection-bg is declared there and resolves through
+     the mode-aware accent, so it isn't restated here. */
+  --solus-diff-surface: #262522;
+  /* Caret line — see the light block. */
+  --solus-diff-active-line-bg: rgba(240, 237, 229, 0.05);
+  /* Diff (vivid) — the added/removed tokens are declared once in the light block
+     above; they resolve through --solus-art-3 / --solus-stop-bg, which are
+     already mode-aware. Only the neutral gutter text needs a dark value. */
+  --solus-diff-gutter-text-vivid: rgba(240, 237, 229, 0.58);
+  /* Find-in-diff highlight — see light-mode block above. */
+  --solus-diff-find-bg: rgba(230, 184, 64, 0.30);
+  --solus-diff-find-text: inherit;
+  --solus-diff-find-active-bg: rgba(230, 142, 107, 0.85);
+  --solus-diff-find-active-text: #1a1814;
+  /* File slot */
+  --solus-file-slot-well: rgba(255, 255, 255, 0.03);
+  --solus-file-slot-well-focused: rgba(230, 142, 107, 0.08);
+  --solus-file-slot-divider: rgba(255, 255, 255, 0.06);
+  --solus-file-header-bg: #393834;
+  --solus-file-header-name: #c8b889;
+  /* Polish */
+  --solus-tool-result-badge-bg: rgba(255, 255, 255, 0.06);
+  --solus-empty-state-bg: rgba(230, 142, 107, 0.07);
+  --solus-activity-strip-bg-from: rgba(38, 37, 34, 0);
+  --solus-message-divider: #ffffff12;
+  /* Soft input background — used by textareas / inline forms */
+  --solus-input-bg-soft: #ffffff0d;
+  /* File token */
+  /* Work token */
+  --solus-work-token: #c58cb9;
+  /* Plan modal scrim */
+  --solus-modal-scrim: rgba(0, 0, 0, 0.60);
+  /* ─── HTML artifact palette (dark twin) ───
+     Same warm family as the light ramp, brightened for dark surfaces. Neutrals
+     stay warm brown (never grey); borders carry a faint sand tint so hairlines
+     read warm rather than cold. */
+  --solus-art-surface: #2b2a26;
+  --solus-art-raised: #35342f;
+  --solus-art-border: rgba(232, 200, 150, 0.13);
+  --solus-art-border-strong: rgba(232, 200, 150, 0.24);
+  --solus-art-1: var(--solus-accent); /* terracotta (brand accent) */
+  --solus-art-2: #e0a85f; /* amber */
+  --solus-art-3: #6ec98b; /* sage */
+  --solus-art-4: #5cc4b8; /* teal */
+  --solus-art-5: #6fb3df; /* dusty blue */
+  --solus-art-6: #b79ae8; /* plum */
+  --solus-art-positive: #6fc884;
+  --solus-art-negative: #e0846a;
+}
+
+/* shadcn-svelte theme bridge — maps the semantic vars that shadcn components
+   consume onto Solus tokens. Because `.dark` toggles on the same element as
+   `:root`, these var() references resolve to the correct mode automatically;
+   do NOT duplicate this block under `.dark`.
+   Naming gotcha: shadcn `primary` = brand accent (terracotta); shadcn
+   `accent` = subtle hover wash, NOT the brand color.
+   shadcn's `@layer base` global resets (`* { @apply border-border }` etc.)
+   are deliberately omitted — a global border-color reset would ripple
+   through the whole app. */
+:root {
+  --background: var(--solus-container-bg);
+  --foreground: var(--solus-text-primary);
+  --card: var(--solus-container-bg);
+  --card-foreground: var(--solus-text-primary);
+  --popover: var(--solus-popover-bg);
+  --popover-foreground: var(--solus-text-primary);
+  --primary: var(--solus-accent);
+  --primary-foreground: var(--solus-text-on-accent);
+  /* Carries the Solus "soft" button look; revisit if a neutral secondary is ever needed. */
+  --secondary: var(--solus-accent-light);
+  --secondary-foreground: var(--solus-accent);
+  /* The current registry drives ghost/outline hover and toggle pressed washes
+     through `muted` (older shadcn used `accent`), so muted must be the app's
+     subtle hover wash — not a solid panel color — or every ghost button hover
+     renders as a heavy tool-bg block. */
+  --muted: var(--solus-surface-hover);
+  --muted-foreground: var(--solus-text-tertiary);
+  --accent: var(--solus-surface-hover);
+  --accent-foreground: var(--solus-text-primary);
+  --destructive: var(--solus-stop-bg);
+  --destructive-foreground: var(--solus-text-on-accent);
+  --border: var(--solus-container-border);
+  --input: var(--solus-input-border);
+  --ring: var(--solus-input-focus-border);
+  --chart-1: var(--solus-art-1);
+  --chart-2: var(--solus-art-2);
+  --chart-3: var(--solus-art-3);
+  --chart-4: var(--solus-art-4);
+  --chart-5: var(--solus-art-5);
+  --sidebar: var(--solus-sidebar-bg);
+  --sidebar-foreground: var(--solus-text-primary);
+  --sidebar-primary: var(--solus-accent);
+  --sidebar-primary-foreground: var(--solus-text-on-accent);
+  --sidebar-accent: var(--solus-surface-hover);
+  --sidebar-accent-foreground: var(--solus-text-primary);
+  --sidebar-border: var(--solus-container-border);
+  --sidebar-ring: var(--solus-input-focus-border);
+  --radius: 0.5rem;
+
+  /* Transcript chrome (see the "Conversation assets" spec). A card is an object
+     on the transcript, not a run of text: its own surface, a hairline stating
+     the edge, a short shadow holding it a step off the page, and one white
+     inset catching the light. Shallow on purpose — the transcript is a reading
+     surface first, so the card reads as raised without becoming furniture.
+     Consume with the type hint — `shadow-[shadow:var(--solus-tx-card-shadow)]` —
+     or tailwind-merge files it under shadow-*colour* and `shadow-md` wins. */
+  --solus-tx-hairline: 0 0 0 0.03125rem
+    color-mix(in oklch, var(--foreground) 11%, transparent);
+  /* Paper white against the warm page. In dark mode the fill does most of the
+     lifting, since a shadow has little to darken — see the .dark block below. */
+  --solus-tx-card-bg: #ffffff;
+  /* White in both themes: it stands for a light source, not a colour. */
+  --solus-tx-card-highlight: rgba(255, 255, 255, 0.55);
+  /* The lift on its own, so a card carrying a state ring (open, failed) keeps
+     its own ring and still sits at the same height as every other card. */
+  --solus-tx-card-lift:
+    0 0.0625rem 0.125rem rgba(60, 45, 30, 0.035),
+    0 0.25rem 0.625rem -0.3125rem rgba(60, 45, 30, 0.06);
+  --solus-tx-card-shadow:
+    0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent),
+    inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
+    var(--solus-tx-card-lift);
+  /* Hover, on the cards that open something: the same object, one step out. */
+  --solus-tx-card-lift-hover:
+    0 0.0625rem 0.1875rem rgba(60, 45, 30, 0.05),
+    0 0.5rem 1.125rem -0.5rem rgba(60, 45, 30, 0.1);
+  --solus-tx-card-shadow-hover:
+    0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 16%, transparent),
+    inset 0 0.0625rem 0 var(--solus-tx-card-highlight),
+    var(--solus-tx-card-lift-hover);
+  /* An interrupt card is a raised object on the canvas, not a flush message —
+     it is the one transcript surface that lifts. Routed through --foreground so
+     the lift reads the same in dark mode. */
+  --solus-tx-raised-shadow:
+    0 0.0625rem 0.125rem color-mix(in oklch, var(--foreground) 6%, transparent),
+    0 0.75rem 2rem -0.75rem color-mix(in oklch, var(--foreground) 20%, transparent);
+  --solus-tx-rule: color-mix(in oklch, var(--foreground) 6%, transparent);
+  --solus-tx-rule-strong: color-mix(in oklch, var(--foreground) 8%, transparent);
+  /* Agent exchange card (the "Agent exchange" spec, § card shell). Not the
+     transcript card shell above: its edge is an *inset* hairline, so the ring
+     reads at the same weight on all four sides instead of the top edge losing
+     to a lift that only darkens the other three. The lift is one short shadow.
+     Split from the shadow so a state ring — 1px of chart-2 or destructive —
+     swaps the hairline for colour without changing the card's height. */
+  --solus-agent-card-lift: 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.05);
+  --solus-agent-card-shadow:
+    inset 0 0 0 0.03125rem color-mix(in oklch, var(--foreground) 12%, transparent),
+    var(--solus-agent-card-lift);
+  /* Every rule inside an exchange card — header, message block, footer. */
+  --solus-agent-card-rule: color-mix(in oklch, var(--foreground) 9%, transparent);
+}
+
+/* List-page surface (the "List pages — Tasks & Pull requests" spec, Part A).
+   The two list surfaces sit directly on --background with no panel, so their
+   depth comes entirely from washes and half-pixel rings rather than borders and
+   fills. Both are foreground percentages, so they self-invert in dark mode and
+   there is nothing to restate under `.dark`.
+
+   Consume as arbitrary values — `bg-[var(--wash-1)]`, `bg-[var(--hairline)]`.
+   These are deliberately plain custom properties rather than Tailwind theme
+   keys: promoting them would mint `bg-wash-1` utilities that tailwind-merge
+   cannot classify, and each would then need registering in lib/tw.ts. */
+:root {
+  /* Washes. wash-1 is the row hover, wash-2 the held/selected fill and the
+     keycap skin, wash-3 the inert counter badge. */
+  --wash-1: color-mix(in oklch, var(--foreground) 3%, transparent);
+  --wash-2: color-mix(in oklch, var(--foreground) 4%, transparent);
+  --wash-3: color-mix(in oklch, var(--foreground) 7%, transparent);
+  /* wash-4 is the deepest inert fill — an empty histogram bar, a scrollbar
+     thumb: present, but never mistakable for data. */
+  --wash-4: color-mix(in oklch, var(--foreground) 11%, transparent);
+  /* Rules. The group-header rule is the quiet one; -strong is for section
+     dividers that have to survive against a wash, and -strongest is the ring a
+     board card takes while it is the selected one. */
+  --hairline: color-mix(in oklch, var(--foreground) 7%, transparent);
+  --hairline-strong: color-mix(in oklch, var(--foreground) 11%, transparent);
+  --hairline-strongest: color-mix(in oklch, var(--foreground) 14%, transparent);
+  /* Status semantics. Aliases, so a chart-palette change cannot silently
+     repaint lifecycle state — a row's colour means one specific thing. */
+  --running: var(--chart-5);
+  --review: var(--solus-art-6);
+  --warning: var(--chart-2);
+  --success: var(--chart-3);
+  --failure: var(--destructive);
+  /* Not-started-yet. The one status that is an absence, so it borrows the
+     neutral grey rather than a palette hue. */
+  --idle: var(--solus-status-idle);
+
+  /* Elevation — rings, not borders. A ring costs no layout, never doubles
+     between adjacent surfaces, and renders true sub-pixel. Both halves are
+     foreground percentages, so nothing is restated under `.dark`. */
+  --elev-flat: inset 0 0 0 0.5px var(--hairline);
+  --elev-ring: 0 0 0 0.5px var(--hairline-strong);
+  --elev-lift:
+    0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.05),
+    0 0.75rem 1.75rem -0.75rem rgba(0, 0, 0, 0.2);
+
+  /* Insights is a dashboard, not a list page: its console, chart, and listing
+     are three stacked objects that must read as three. In light mode --card
+     *is* --background, so a half-pixel ring is the only thing holding those
+     panels apart and nobody can see it. The page keeps its own colour — the
+     card does the separating, with a real lift instead of a ring. */
+  --insights-card-shadow:
+    0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(60, 45, 30, 0.06),
+    0 0.5rem 1.125rem -0.875rem rgba(60, 45, 30, 0.22);
+
+  /* The spend line drawn over the volume bars. It is a second measure, not a
+     third backend, so it takes the ramp's plum — off both bar hues — and sits
+     at the opposite end of the lightness range from the bars, which are mixed
+     72% toward the card. The weighting has to differ per theme rather than
+     relying on --foreground to self-invert: on paper the plum must darken, and
+     on a dark page it must lift, so one mix cannot serve both. Lead with the
+     plum here; 55% foreground crushed the chroma to 0.056 and the line read as
+     a near-black bar. */
+  --insights-cost-line: color-mix(in oklch, var(--foreground) 30%, var(--solus-art-6));
+}
+
+/* LayerChart reads four variables off its own root container for axis text,
+   grid lines, and default marks. Bridged to Solus tokens here so a chart picks
+   up the theme — including dark mode — without every call site restating it.
+   Portaled tooltips render outside the container, so they are bridged too. */
+.lc-root-container,
+.lc-tooltip-root {
+  --color-primary: var(--solus-accent);
+  --color-surface-100: var(--card);
+  --color-surface-200: var(--wash-1);
+  --color-surface-300: var(--hairline);
+  --color-surface-content: var(--foreground);
+}
+
+/* Dark mode inverts which half of the card shell does the work: the fill lifts
+   (a dark page can't be out-shadowed the way paper can), the shadow turns to
+   real black for contact, and the light-source inset drops to a whisper. Lives
+   here, not in the .dark block above, so it stays beside the light values it
+   mirrors — same specificity, later in the file, so it wins. */
+.dark {
+  --card: #302f2b;
+  --popover: #353430fc;
+  --solus-tx-hairline: 0 0 0 0.03125rem
+    color-mix(in oklch, var(--foreground) 9%, transparent);
+  --solus-tx-card-bg: color-mix(in oklch, white 4%, var(--solus-container-bg));
+  --solus-tx-card-highlight: rgba(255, 255, 255, 0.07);
+  --solus-tx-card-lift:
+    0 0.0625rem 0.125rem rgba(0, 0, 0, 0.22),
+    0 0.375rem 0.875rem -0.375rem rgba(0, 0, 0, 0.3);
+  --solus-tx-card-lift-hover:
+    0 0.125rem 0.1875rem rgba(0, 0, 0, 0.28),
+    0 0.625rem 1.25rem -0.5rem rgba(0, 0, 0, 0.4);
+  /* Real black on a dark page: there is nothing there for a shadow to shade. */
+  --insights-card-shadow:
+    0 0 0 0.5px var(--hairline-strong), 0 0.0625rem 0.125rem -0.0625rem rgba(0, 0, 0, 0.4),
+    0 0.625rem 1.375rem -1rem rgba(0, 0, 0, 0.6);
+  /* Inverted: the bars go dark here, so the line lifts instead of darkening.
+     Leading with the plum again keeps it a colour — 55% of the near-white
+     foreground washed it to chroma 0.028, a grey. Deliberately lighter than the
+     categorical fill band: the line is a different measure and must not read as
+     a peer of the bars it crosses. */
+  --insights-cost-line: color-mix(in oklch, var(--solus-art-6) 85%, var(--foreground));
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: var(--radius);
+  --radius-lg: var(--radius);
+  --radius-xl: 1rem;
+}
+
+/* Shiki dual-theme support */
+:root .shiki span {
+  color: var(--shiki-light) !important;
+}
+.dark .shiki span {
+  color: var(--shiki-dark) !important;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  background: transparent !important;
+  overflow: hidden;
+  user-select: none;
+  font-family: var(--solus-font-family);
+  letter-spacing: -0.0115em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1, 'ss01' 1;
+  font-variant-numeric: tabular-nums;
+  /* `auto` snaps glyphs to the device-pixel grid (geometricPrecision forces
+     fractional sub-pixel positioning, which softens small UI text). */
+  text-rendering: auto;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Uppercase eyebrow labels need positive tracking to remain legible. Code and
+   monospace text keep their own metrics instead of inheriting UI tracking. */
+:where(.uppercase) {
+  letter-spacing: 0.09em;
+}
+:where(code, pre, .font-mono) {
+  letter-spacing: normal;
+}
+:where(.uppercase .normal-case) {
+  letter-spacing: -0.0115em;
+}
+
+/* The web shell's page background is deliberately NOT declared here. It has to
+   be the opaque form of `--solus-container-bg` — the colour every web surface
+   paints edge to edge, and the colour the `theme-color` meta is derived from so
+   Safari's toolbars match the page. `--solus-edge-bg` is a different, darker
+   colour, and an `!important` rule on <html> outranks the boot style in
+   `apps/client/index.html` *and* the inline background `applyTheme` writes, so
+   one rule here silently made the page and the browser chrome two different
+   blacks. The boot style owns this; leave <html> alone. */
+
+/* Secondary UI labels carry the typeface's crisp Regular or Medium weight (see
+   APP_FONT_FAMILIES in settings.context). `inline` resolves the live runtime variable
+   applyFontFamily() writes onto <html>, not a build-time snapshot. */
+@theme inline {
+  --font-weight-secondary: var(--solus-font-weight-secondary);
+}
+
+/* ─── Type scale: two ladders (ADR-0013) ───
+   Chrome and reading surfaces have opposite needs, so they get separate
+   ladders rather than one list of sizes serving both.
+
+   A rung is declared once, on the *surface* — a panel, a menu, the transcript —
+   and inherited. An element inside a surface says nothing about its size unless
+   it genuinely differs (a badge, a timestamp, a heading). That is what keeps the
+   scale from regrowing into hundreds of leaves that must be kept in agreement by
+   hand; `tests/unit/type-scale-standard.test.ts` enforces it.
+
+   Every rung carries its own leading through the `--text-*--line-height`
+   convention, so one class sets both and the two can never drift apart. */
+/* Chrome normally uses **stock Tailwind** — `text-xs` 12, `text-sm` 14,
+   `text-base` 16. Workspace chrome is the one responsive rung: navigation and
+   the two rails must agree with the client display rather than independently
+   changing when one container is resized.
+
+   The split is legible from the class itself:
+     stock class  -> chrome, fixed size, scaled by zoom alone
+     --text-* rung -> content, multiplied by the user's text preference
+
+   Content — reading surfaces, on a x1.25 ladder off a 16px body: 16 -> 20 ->
+   25 -> 31. Separate from the UI block because these carry the user's text
+   preference: the whole point of that setting is to grow prose relative to
+   chrome, so the multiply belongs here and nowhere else.
+
+   Not `@theme inline`: these must stay `var()` references so a live change to
+   --solus-font-scale reflows the type without a rebuild. */
+@theme {
+  --text-workspace-chrome: 0.875rem;
+  --text-workspace-chrome--line-height: 1.1875rem;
+  /* Message gutter timestamps stay below the persistent rails they annotate:
+     12px on desktop and touch, then 10px on a precise-pointer laptop. */
+  --text-conversation-gutter: 0.75rem;
+  --text-conversation-gutter--line-height: 1;
+  /* The dense chrome rung: list pages, breadcrumbs, builders. 12px wherever a
+     pointer is precise, 14px on touch. It is a *rung*, not a variant of the one
+     above — six surfaces used to reach it by overwriting
+     `--text-workspace-chrome` inline, which made every one of them restate the
+     laptop and coarse-pointer boundary by hand. A rung is named and its value is
+     set here; a surface picks one, and never redefines what one means. */
+  --text-chrome-dense: 0.75rem;
+  --text-chrome-dense--line-height: 1.1875rem;
+  /* Insights is a data-dense workspace surface. Its controls and chart labels
+     use one compact rung: 12px on desktop and touch, 10px on a precise-pointer
+     laptop. */
+  --text-insights-chrome: 0.75rem;
+  --text-insights-chrome--line-height: 1rem;
+  /* The question itself is not chrome: it is the one field a user composes in,
+     so it reads a rung above the controls around it — 14px on a desktop
+     display, 12px on a precise-pointer laptop. */
+  --text-insights-query: 0.875rem;
+  --text-insights-query--line-height: 1.25rem;
+  /* Result table headers and cells use 13px on desktop and touch, then step down
+     to 11px on a precise-pointer laptop. */
+  --text-insights-table: 0.8125rem;
+  --text-insights-table--line-height: 1.125rem;
+  /* Recorded conversation inside the Insights Summary card stays readable on a
+     large display without taking the main transcript's body rung. Both values
+     still carry the user's text preference, then step down on a laptop below. */
+  --text-insights-summary: calc(0.875rem * var(--solus-font-scale, 1));
+  --text-insights-summary--line-height: 1.7;
+  --text-insights-summary-heading: calc(1rem * var(--solus-font-scale, 1));
+  --text-insights-summary-heading--line-height: 1.5;
+  /* The shelf-label rung: the collapsible section headings that sit above a list
+     of chrome rows ("Snoozed", "Completed"). It has to stay a step under
+     `--text-workspace-chrome` at every width, because that is the whole cue —
+     a heading the same size as its rows can only separate itself by weight, and
+     a bolder-than-its-contents heading is what a laptop used to show once the
+     chrome rung shrank to 12px and closed the gap. One value at every width;
+     on a laptop it ties the chrome rung rather than clearing it, and the weight
+     carries the cue there. The project rail is dense enough that the weight
+     alone did not read, so `ProjectPanel.svelte` restates this rung a notch
+     down for its own subtree. */
+  --text-chrome-shelf: 0.75rem;
+  --text-chrome-shelf--line-height: 1rem;
+  /* The micro rung: the bottom of the chrome ladder, spent on what annotates a
+     row rather than what the row says — keycaps, pill and rail counts, the
+     "changed" flag, and the review surface's uppercase letterspaced captions.
+     It has to sit clearly under whatever rung its row took, because that gap is
+     the whole cue: a keycap the same size as its label competes with it, which
+     is what the overlay's 12px caps were doing.
+
+     10px, not the design system's literal 9.5 or 10.5. Every rung in this file
+     bottoms out at 10px on its largest display, and two neighbouring rungs half
+     a pixel apart are a choice nobody can make and no display can render — the
+     value snaps, and it snaps differently per glyph. This was `text-review-label`
+     until the keybindings surfaces needed the same step and declared a second
+     one beside it.
+
+     Leading is 1.25 rather than 1 because this rung also carries the mono
+     directory line under a file name, where unit leading clips the descenders in
+     a path. A keycap sets `leading-none` on itself and is unaffected. */
+  --text-micro: 0.625rem;
+  --text-micro--line-height: 1.25;
+  /* The pull request review's rungs. This surface is the one place in the
+     workspace that puts a reading column and a dense reference rail side by
+     side, and the two want opposite things from a single rung: at the chrome
+     rung's 14px the rail's refs, verdicts and churn shout over the prose they
+     annotate, and the labelled meta band under the title reads as a second
+     heading rather than as a caption. The design system draws it as three
+     steps — 12.5px rows, 11px meta and sub-lines, and a letterspaced caption
+     that is the shared `--text-micro` rung above, not a review-owned one — so
+     they are named here rather than restated per component. Each steps down
+     on a precise-pointer laptop for the same reason every rung above does;
+     touch keeps the desktop size. */
+  --text-review-row: 0.78125rem;
+  --text-review-row--line-height: 1.5;
+  --text-review-meta: 0.6875rem;
+  --text-review-meta--line-height: 1.45;
+  /* The transcript-card rungs: the setup, permission, question, rate-limit,
+     diff-summary and subagent cards that interrupt the reading column. They are
+     a surface of their own — not rails, not prose — so they get a rung pair
+     rather than borrowing the chrome one: a card carries a label line and a
+     meta line, and the two must stay one step apart at every width. Both follow
+     the display for the same reason the chrome rung does, because a laptop
+     spends the card's height on reading column it cannot recover. Touch keeps
+     the larger size, the same guard every rung above uses. */
+  --text-transcript-card: 0.875rem;
+  --text-transcript-card--line-height: 1.3;
+  --text-transcript-meta: 0.75rem;
+  --text-transcript-meta--line-height: 1.35;
+  /* Turn-level activity is an intentionally compact exception: it stays above
+     nested tool detail without taking the full transcript-card rung. */
+  --text-activity-label: 0.8125rem;
+  /* Expanded tool groups are diagnostic detail below the transcript caption.
+     Keep each tool call at 12px on large and touch displays, then step it down
+     to 10px on a precise-pointer laptop without tightening the row height. */
+  --text-tool-step: 0.75rem;
+  --text-tool-step--line-height: 1rem;
+  /* The content ladder's annotation rung: the subtitle, field row, badge or
+     metric inside a content card. 12px at the default preference. It exists
+     because a canvas card is content — the user's text setting has to reach it
+     — and the stock 12px chrome class deliberately does not carry the scale. */
+  --text-footnote: calc(0.75rem * var(--solus-font-scale, 1));
+  --text-footnote--line-height: 1.35;
+  --text-caption: calc(0.875rem * var(--solus-font-scale, 1));
+  --text-caption--line-height: 1.5;
+  --text-body: calc(1rem * var(--solus-font-scale, 1));
+  --text-body--line-height: 1.6;
+  --text-h3: calc(1.25rem * var(--solus-font-scale, 1));
+  --text-h3--line-height: 1.35;
+  --text-h2: calc(1.5625rem * var(--solus-font-scale, 1));
+  --text-h2--line-height: 1.3;
+  --text-h1: calc(1.9375rem * var(--solus-font-scale, 1));
+  --text-h1--line-height: 1.25;
+}
+
+/* The runtime owns the laptop boundary through LAPTOP_SCREEN_MAX_WIDTH and
+   stamps this class on the document. Keep the responsive type decision here,
+   at the canonical rung, so rails do not recreate that boundary themselves.
+   Coarse-pointer clients retain the touch-readable desktop size. */
+@media (pointer: fine) {
+  html.is-laptop-display {
+    --text-workspace-chrome: 0.75rem;
+    --text-conversation-gutter: 0.625rem;
+    --text-insights-chrome: 0.625rem;
+    --text-insights-query: 0.75rem;
+    --text-insights-table: 0.6875rem;
+    --text-insights-summary: calc(0.75rem * var(--solus-font-scale, 1));
+    --text-insights-summary-heading: calc(0.875rem * var(--solus-font-scale, 1));
+    /* `--text-menu` and `--text-chrome-shelf` are deliberately absent here. A
+       menu is a decision surface, not a band you scan past, so it holds 14px on
+       both displays and its shortcut hints hold 12px. Stepping them made a
+       laptop menu read as squinted-at rather than quiet, which is what this
+       block is for everywhere else. */
+    --text-review-row: 0.6875rem;
+    --text-review-meta: 0.625rem;
+    --text-micro: 0.5625rem;
+    --text-transcript-card: 0.75rem;
+    --text-transcript-meta: 0.6875rem;
+    --text-activity-label: 0.6875rem;
+    --text-tool-step: 0.625rem;
+  }
+}
+
+/* Touch keeps the readable size on the dense rung too. */
+@media (pointer: coarse) {
+  html {
+    --text-chrome-dense: 0.875rem;
+  }
+}
+
+/* The floor under every inheriting primitive.
+   Shared controls (button, input, select, …) declare `text-[length:inherit]`
+   rather than pinning a size, so a surface can set type once and have its
+   controls obey. Inheritance needs something to inherit *from*: with no
+   font-size anywhere on the ancestor chain a control resolves against the root,
+   which is the browser's 16px — larger than any chrome rung and worse than the
+   pinned 14px it replaced. This is that guarantee.
+
+   On `#root`, not `html`: `rem` stays anchored to the 16px root (ADR-0010), so
+   every rem-based size in the app keeps its meaning. */
+#root {
+  font-size: var(--text-workspace-chrome);
+  line-height: var(--text-workspace-chrome--line-height);
+}
+
+/* ─── Touch scrolling — native-feel on mobile/touch devices ─── */
+@media (pointer: coarse) {
+  * {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ─── Scrollbar — hairline, overlay-style ───
+   One rule for every scroller in the app. The track stays 0.5rem so the thumb
+   is still grabbable, but a transparent padding-box border shrinks the ink to a
+   0.1875rem hairline pill floating in the middle of that gutter.
+
+   Idle thumbs are invisible. `data-scrolling` is stamped by lib/scroll-reveal
+   while a scroller is actually moving, so the bar reads as a position rather
+   than as a rule drawn down the side of every pane — hover is not the trigger,
+   because a scroller fills its pane and is hovered the whole time you read it.
+   Pointing at the gutter still resolves the thumb, so it stays grabbable.
+   Chromium does not animate scrollbar pseudo-elements: this is a swap, not a
+   fade.
+
+   Never set `scrollbar-width` on a scroller: in Chromium any non-`auto` value
+   opts the element out of ::-webkit-scrollbar entirely and it falls back to the
+   chunky native bar. Use `.no-scrollbar` below to hide one instead. */
+::-webkit-scrollbar {
+  width: 0.5rem;
+  height: 0.5rem;
+}
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: transparent;
+  background-clip: padding-box;
+  border: 0.15625rem solid transparent;
+  border-radius: 9999px;
+  min-height: 2rem;
+}
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background: var(--solus-scroll-thumb);
+  background-clip: padding-box;
+}
+/* Small bounded lists can opt in to revealing their standard thumb when the
+   pointer enters the list. Full-pane scrollers must keep the movement-only
+   behavior above because they remain hovered while the user reads the pane. */
+.scrollbar-on-hover:hover::-webkit-scrollbar-thumb {
+  background: var(--solus-scroll-thumb);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--solus-scroll-thumb-hover);
+  background-clip: padding-box;
+}
+.scrollbar-on-hover:hover::-webkit-scrollbar-thumb:hover {
+  background: var(--solus-scroll-thumb-hover);
+  background-clip: padding-box;
+}
+
+.no-scrollbar {
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+/* Scroll owners represented by the workspace-edge scrollbar keep their native
+   tracks hidden so the same scroll position is not shown twice. */
+.outer-scroll-source {
+  scrollbar-width: none;
+}
+.outer-scroll-source::-webkit-scrollbar {
+  display: none;
+}
+
+/* ─── Toast typography ───
+   Sonner ships its own unlayered `:global` rules: a system-font stack on the
+   toaster and a hard 13px/12px on the toast and its buttons. Those beat every
+   Tailwind utility (unlayered outranks @layer), so toast text ignored both the
+   font-family picker and --solus-font-scale. Unlayered here for the same
+   reason, and doubled attribute selectors so the win doesn't depend on which
+   of the two stylesheets Vite emits last. */
+[data-sonner-toaster][data-sonner-toaster] {
+  font-family: var(--solus-font-family);
+}
+[data-sonner-toast][data-sonner-toast] {
+  font-size: var(--text-workspace-chrome);
+  line-height: var(--text-workspace-chrome--line-height);
+}
+[data-sonner-toast][data-styled='true'] [data-title][data-title] {
+  font-weight: var(--font-weight-secondary);
+}
+[data-sonner-toast][data-styled='true'] [data-button][data-button] {
+  font-family: inherit;
+  font-size: 0.875em;
+  font-weight: var(--font-weight-secondary);
+}
+
+/* ─── Glass surface — shared card/pill style ─── */
+.glass-surface {
+  background: var(--solus-container-bg);
+  border: 0.0625rem solid var(--solus-container-border);
+  box-shadow: var(--solus-card-shadow);
+}
+
+/* ─── Textarea reset ───
+   In `@layer base` deliberately. Unlayered declarations outrank every layered
+   one no matter the specificity, so as plain CSS this `font-size: inherit` beat
+   the `text-*` utility on every textarea in the app — including the shadcn
+   primitive's own `text-xs` — and each field silently took its parent's size.
+   From the base layer it still supplies the default for a bare <textarea>, and
+   any utility or component rule now wins as intended. Keep it layered. */
+@layer base {
+  textarea {
+    font-family: inherit;
+    font-size: inherit;
+    cursor: text;
+  }
+  textarea:focus {
+    outline: none;
+  }
+}
+textarea::placeholder,
+input::placeholder {
+  color: var(--solus-placeholder);
+}
+
+/* ─── Shared prose primitives (code, pre, table) ───
+   Every rich prose context (.prose-cloud, .solus-doc-editor)
+   inherits these base styles. Override per-context with CSS custom properties
+   or by re-declaring the property on a more-specific selector. */
+
+.prose-cloud code,
+.solus-doc-editor .ProseMirror code {
+  background: transparent;
+  /* Toned toward the text colour — full-saturation accent on every inline span
+     reads as static rather than emphasis. (pre code keeps `inherit` below.) */
+  color: color-mix(in srgb, var(--solus-accent) 72%, var(--solus-text-primary));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-feature-settings: 'calt' 1, 'liga' 0;
+  font-weight: 400;
+  margin-inline: 0.1em;
+}
+
+.prose-cloud pre,
+.solus-doc-editor .ProseMirror pre {
+  background: transparent;
+  border: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 60%, transparent);
+  border-radius: 0.5rem;
+  line-height: 1.65;
+  overflow-x: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-feature-settings: 'calt' 1, 'liga' 0;
+  font-weight: 400;
+}
+
+.prose-cloud pre code,
+.solus-doc-editor .ProseMirror pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  font-size: 1em;
+}
+
+.prose-cloud table,
+.solus-doc-editor .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.prose-cloud th,
+.prose-cloud td,
+.solus-doc-editor .ProseMirror th,
+.solus-doc-editor .ProseMirror td {
+  border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
+  padding: 0.45em 0.7em;
+  text-align: left;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.prose-cloud th,
+.solus-doc-editor .ProseMirror th {
+  background: var(--solus-surface-primary);
+  font-weight: 500;
+}
+
+/* Shared decorations — identical across every prose context. */
+.prose-cloud blockquote,
+.solus-doc-editor .ProseMirror blockquote {
+  border-left: 0.1875rem solid var(--solus-tool-running-border);
+  padding-left: 0.8em;
+  color: var(--solus-text-secondary);
+  margin: 0.5em 0;
+}
+
+.prose-cloud hr,
+.solus-doc-editor .ProseMirror hr {
+  border: none;
+  border-top: 0.0625rem solid var(--solus-container-border);
+  margin: 1em 0;
+  opacity: 0.6;
+}
+
+.prose-cloud a,
+.solus-doc-editor .ProseMirror a {
+  /* Tailwind's reset strips the user-agent link treatment. Use the platform
+     link color without the browser's separate purple visited-link treatment. */
+  color: LinkText;
+  text-decoration: underline;
+}
+
+/*
+ * ─── Inline reference tokens (spec §7) ───
+ * Shared shape for the plan / file / pr / work / session / slash atoms — both
+ * the ones composed into the input editor and the ones rendered into a
+ * transcript.
+ *
+ * A chip is a *reference*, not a button, so every type shares one glyph colour
+ * (`currentColor` at 55%) and one neutral wash: a line with four chips still
+ * reads as a line of prose, and the icon shape alone carries the type. Height
+ * comes from the line box — no fixed height, no vertical margin — so a chip
+ * never makes a paragraph's leading uneven.
+ *
+ * `--solus-token-color` survives for the one thing that is genuinely a state
+ * and not a type: the ProseMirror selected-node outline.
+ */
+.solus-token {
+  /* Deliberately not flex. Every child of a flex container is blockified, and
+     the clipboard serializer starts a new line at each block box — so a chip
+     inside a sentence copied as three lines (`see \n@src/foo.ts\n here`).
+     Inline-block keeps the atomic shape and copies inline with the prose.
+     `line-height: 1` then keeps the chip from claiming more of the line box
+     than the text around it; the wash height comes from the padding below,
+     which is why that padding is larger than a bare text chip's. */
+  display: inline-block;
+  padding: 0.25rem 0.375rem 0.25rem 0.3125rem;
+  border-radius: 0.25rem;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  font-weight: 400;
+  line-height: 1;
+  vertical-align: baseline;
+  white-space: nowrap;
+  cursor: pointer;
+  color: inherit;
+  background: color-mix(in oklch, var(--foreground) 5%, transparent);
+  transition: background 120ms ease;
+}
+/* A chip is a reference inside a sentence, so it has to highlight and copy with
+   the prose around it. `user-select: none` lived here to make the button read
+   as a control; it also made a selection dragged across a chip skip it, so the
+   file never reached the clipboard. */
+button.solus-token {
+  border: none;
+  touch-action: manipulation;
+}
+/* Inline and zero-size: it must stay an inline box, because a block one would
+   put the rest of the chip on its own line in a copy. `display: none` and
+   `visibility: hidden` are both dropped by the clipboard serializer; a zero
+   font size is not, so the text copies while taking no space. */
+.solus-token__copy-only {
+  font-size: 0;
+}
+/* The top match completed ahead of the caret in grey, with the key that takes
+   it. Not selectable and not part of the value — purely a preview. */
+.solus-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  vertical-align: baseline;
+  user-select: none;
+  pointer-events: none;
+}
+.solus-ghost__text {
+  color: var(--solus-text-tertiary);
+  opacity: 0.7;
+  white-space: pre;
+}
+.solus-ghost__key {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  padding: 0.0625rem 0.25rem;
+  border-radius: 0.1875rem;
+  color: var(--solus-text-tertiary);
+  background: color-mix(in srgb, var(--solus-text-primary) 4%, transparent);
+  box-shadow:
+    0 0 0 0.03125rem color-mix(in srgb, var(--solus-text-primary) 12%, transparent),
+    inset 0 -0.0625rem 0 color-mix(in srgb, var(--solus-text-primary) 9%, transparent);
+}
+
+.solus-token--slash { cursor: default; }
+.solus-token:hover {
+  background: color-mix(in oklch, var(--foreground) 9%, transparent);
+}
+/* The chip is no longer a flex row, so the glyph carries its own gap and sits on
+   the text by optical alignment rather than `align-items: center`. */
+.solus-token__icon {
+  width: 0.6875rem;
+  height: 0.6875rem;
+  display: inline-block;
+  /* Measured: lands the glyph's centre on the chip's optical centre without the
+     icon joining the line box the way `align-items: center` did. */
+  vertical-align: -0.04em;
+  margin-right: 0.375rem;
+  color: currentColor;
+  opacity: 0.55;
+}
+/* Block, so the glyph does not sit on a text baseline inside its own box and
+   add a descender's worth of height to the chip. */
+.solus-token__icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.solus-token--mono {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+}
+/* Per-type rules carry shape only — size, tracking, whether it's mono. Colour
+   is deliberately absent: the glyph shape is the type cue. */
+.solus-token--plan-accepted {
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+}
+.solus-token--session,
+.solus-token--work,
+.solus-token--pr,
+.solus-token--task,
+.solus-token--automation {
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+}
+/* A file chip is the only mono one, and it carries the line number. */
+.solus-token--file {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+}
+/* Rendered into a transcript rather than composed: the base shape already
+   matches, so this only drops the 1px optical lift the composer needs. */
+.solus-token--output-link {
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+}
+.solus-token--output-file-link {
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+}
+.solus-token__line-number {
+  opacity: 0.5;
+  font-weight: 400;
+}
+.solus-token__dir {
+  opacity: 0.5;
+  font-weight: 400;
+}
+/* The one exception: a slash command is an *action* you are about to run, not a
+   reference to something that exists, so it keeps the accent. */
+.solus-token--slash {
+  --solus-token-color: var(--solus-accent);
+  color: var(--solus-accent);
+  background: color-mix(in srgb, var(--solus-accent) 10%, transparent);
+}
+.solus-token--slash .solus-token__icon {
+  color: var(--solus-accent);
+  opacity: 1;
+}
+
+/* Selected (cursor adjacent) state — Tiptap adds .ProseMirror-selectednode. */
+.solus-token.ProseMirror-selectednode {
+  outline: 0.0938rem solid var(--solus-token-color, var(--solus-accent));
+  outline-offset: 0.0625rem;
+}
+
+/* ─── Document editor (long-form: plans, SKILL.md, etc.) ─── */
+.solus-doc-editor-wrap {
+  position: relative;
+  width: 100%;
+}
+.solus-doc-editor-wrap .doc-mode-hidden {
+  display: none !important;
+}
+.solus-doc-editor .ProseMirror {
+  outline: none;
+  border: none;
+  background: transparent;
+  width: 100%;
+  /* Reading measure: centered, carried by --solus-doc-measure so the plan
+     action-bar composer lines up under the same column. The doc shell sets it
+     to a fixed ladder off *pane* width (see the doc-shell block below); the
+     clamp fallback here covers any other .solus-doc-editor host. Box-sizing is
+     border-box, so the box carries the measure *plus* its own gutters —
+     otherwise the padding would eat ~8ch out of the line. --doc-pad-x keeps
+     the two in step at every breakpoint. */
+  --doc-pad-x: 2rem;
+  max-width: calc(var(--solus-doc-measure, clamp(68ch, 76%, 120ch)) + 2 * var(--doc-pad-x));
+  margin-inline: auto;
+  font-family: inherit;
+  /* Body at 400 (Regular) — at the 16px reading size, the app-wide 500 body
+     weight reads heavy, and 400 gives the 600 headings room to anchor. */
+  font-weight: 400;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.7;
+  color: var(--solus-text-primary);
+  padding: 0.75rem var(--doc-pad-x) 3rem;
+  min-height: 12.5rem;
+  word-break: break-word;
+  white-space: pre-wrap;
+  cursor: text;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'ss01' 1;
+}
+/* Prompt-editor usage (task composer/detail) fills its container instead of the
+   centered long-form column, and trims the wide long-form padding so the field
+   reads edge-to-edge. Left padding stays ~1.25rem as the gutter the block drag
+   handle sits in (it's drawn ~18px left of the text), matching the document
+   editor's left-of-line grip. */
+.doc-prompt-editor .solus-doc-editor .ProseMirror {
+  max-width: none;
+  margin-inline: 0;
+  padding: 0.5rem 0.75rem 0.75rem 1.25rem;
+  /* Input surface, not a reading surface — keep the compact pre-redesign scale
+     (app body size/weight, tight paragraphs, small unadorned headings). */
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: var(--solus-font-weight-body);
+}
+/* Comment box: one line of input that grows, not a page. Every metric here is
+   the PR composer's plain-text field (see plain-text-editor's theme) so the two
+   composers are the same object — 0.8125rem at the font's own leading, a
+   1.25rem resting well, and no gutter padding, since the pill supplies it. */
+.doc-prompt-editor.doc-prompt-compact .solus-doc-editor .ProseMirror {
+  /* Six lines at rest, so a paragraph-length comment lands whole without the
+     field resizing under you. `em` so it tracks the font scale. */
+  min-height: 7.2em;
+  padding: 0.25rem 0;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  line-height: normal;
+}
+.doc-prompt-editor.doc-prompt-compact .solus-doc-editor .ProseMirror p {
+  margin: 0;
+}
+.doc-prompt-editor .solus-doc-editor .ProseMirror p { margin: 0.35em 0; }
+/* Composer preview: one rung down from the document ladder, because a prompt is
+   read in a small box rather than a reading column. */
+.doc-prompt-editor .solus-doc-editor .ProseMirror h1 {
+  font-size: var(--text-h2); line-height: var(--text-h2--line-height);
+  margin: 1.2em 0 0.35em;
+}
+.doc-prompt-editor .solus-doc-editor .ProseMirror h2 {
+  font-size: var(--text-h3); line-height: var(--text-h3--line-height);
+  margin: 1em 0 0.3em;
+  border-bottom: none; padding-bottom: 0;
+}
+.solus-doc-editor .ProseMirror > * + * {
+  margin-top: 0.5em;
+}
+/* 0.75em between paragraphs — margins collapse, so the pair reads as one gap.
+   Loose enough to break the block at a 1.7 line-height, tight enough that
+   consecutive paragraphs still read as one section. */
+.solus-doc-editor .ProseMirror p {
+  margin: 0.75em 0;
+  text-wrap: pretty;
+}
+.solus-doc-editor .ProseMirror strong { font-weight: 500; }
+.solus-doc-editor .ProseMirror em { font-style: italic; }
+.solus-doc-editor .ProseMirror h1,
+.solus-doc-editor .ProseMirror h2,
+.solus-doc-editor .ProseMirror h3 {
+  text-wrap: balance;
+}
+/* The ×1.25 content ladder — h1 31, h2 25, h3 20 — which this block described
+   for a long time while rendering all three at 24. Big gap above a heading
+   separates the prior section, tight gap below bonds it to its content. */
+.solus-doc-editor .ProseMirror h1 {
+  font-size: var(--text-h1); line-height: var(--text-h1--line-height);
+  font-weight: 500; margin: 1.8em 0 0.45em;
+}
+.solus-doc-editor .ProseMirror h1:first-child { margin-top: 0; }
+.solus-doc-editor .ProseMirror h2 {
+  font-size: var(--text-h2); line-height: var(--text-h2--line-height);
+  font-weight: 500; margin: 1.8em 0 0.4em;
+  border-bottom: 0.0625rem solid var(--solus-art-border);
+  padding-bottom: 0.25em;
+}
+.solus-doc-editor .ProseMirror h3 {
+  font-size: var(--text-h3); line-height: var(--text-h3--line-height);
+  font-weight: 500; margin: 1.45em 0 0.3em;
+}
+.solus-doc-editor .ProseMirror h2 + h3,
+.solus-doc-editor .ProseMirror h2 + p,
+.solus-doc-editor .ProseMirror h3 + p {
+  margin-top: 0.4em;
+}
+.solus-doc-editor .ProseMirror ul {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+  list-style: disc;
+}
+.solus-doc-editor .ProseMirror ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+  list-style: decimal;
+}
+.solus-doc-editor .ProseMirror li { margin: 0.2em 0; }
+.solus-doc-editor .ProseMirror li p { margin: 0; }
+/* Inline code reads as code by shape (mono) and a half-strength terracotta
+   tint — no chip. A filled chip behind every span pockmarks dense technical
+   prose, and full accent ink reads as a link. Chat prose keeps the shared 72%
+   mix above; only the long-form column tones down this far. */
+.solus-doc-editor .ProseMirror code {
+  color: color-mix(in srgb, var(--solus-accent) 50%, var(--solus-text-primary));
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+}
+/* Block code is the one thing in the column that gets a fill — the parchment
+   raised tone, which is the only step of the palette that reads as filled in
+   light mode too (--solus-art-surface is within a hair of the page there). */
+.solus-doc-editor .ProseMirror pre {
+  background: var(--solus-art-raised);
+  border-color: var(--solus-art-border);
+  padding: 0.9em 1.1em;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  margin: 0.9em 0;
+}
+/* Task list */
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] {
+  list-style: none;
+  padding-left: 0;
+}
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] li {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5em;
+  margin: 0.25em 0;
+}
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] li > label {
+  margin-top: 0.125rem;
+  flex-shrink: 0;
+}
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  accent-color: var(--solus-accent);
+  width: 0.875rem;
+  height: 0.875rem;
+  cursor: pointer;
+}
+.solus-doc-editor .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--solus-text-tertiary);
+  text-decoration: line-through;
+}
+/* Table */
+/* Tiptap's TableView wraps every table in div.tableWrapper. Let wide tables
+   scroll horizontally here instead of overflowing the editor (or, on mobile,
+   squishing columns to an unreadable width). */
+.solus-doc-editor .ProseMirror .tableWrapper {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.solus-doc-editor .ProseMirror table {
+  border-collapse: collapse;
+  /* Fixed layout is what prosemirror-tables' colgroup widths are written for:
+     columns start out even and only move when the reader drags a resize
+     handle. Under auto layout the browser sizes columns off cell content
+     instead, which both ignores a resized column and starves a short column
+     ("SURFACE" wrapping to "SURFAC / E") to feed a long one. */
+  table-layout: fixed;
+  width: 100%;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  margin: 0.9em 0;
+}
+/* Horizontal rules only — a full grid boxes every cell and fights the prose. */
+.solus-doc-editor .ProseMirror th,
+.solus-doc-editor .ProseMirror td {
+  border: none;
+  border-bottom: 0.0625rem solid var(--solus-art-border);
+  padding: 0.45em 0.7em;
+  /* `anywhere` — unlike `break-word` — also shrinks the cell's min-content
+     width to a single character, so it must not come back: it is what let the
+     layout squeeze columns to nothing before a wide table would scroll. */
+  overflow-wrap: break-word;
+  /* Contain the .selectedCell::after overlay to its own cell. Without this the
+     absolutely-positioned overlay escapes to .solus-doc-editor-wrap and fills
+     the whole editor — and a full-table CellSelection (e.g. while dragging)
+     stacks one sheet per cell into a heavy accent wash. */
+  position: relative;
+}
+.solus-doc-editor .ProseMirror th {
+  border-bottom: 0.0625rem solid var(--solus-art-border-strong);
+  background: transparent;
+  font-weight: 500;
+}
+.solus-doc-editor .ProseMirror .selectedCell::after {
+  background: var(--solus-accent-light);
+  content: "";
+  left: 0; right: 0; top: 0; bottom: 0;
+  pointer-events: none;
+  position: absolute;
+  z-index: 2;
+}
+.solus-doc-editor .ProseMirror .column-resize-handle {
+  position: absolute;
+  right: -0.125rem; top: 0; bottom: -0.125rem;
+  width: 0.25rem;
+  background: var(--solus-accent);
+  pointer-events: none;
+}
+/* Placeholder — first-child carries the whole-doc placeholder; `is-empty`
+   (applied only to the cursor's node by Placeholder's showOnlyCurrent) carries
+   the per-line "/" command hint. */
+.solus-doc-editor .ProseMirror p.is-editor-empty:first-child::before,
+.solus-doc-editor .ProseMirror p.is-empty::before {
+  content: attr(data-placeholder);
+  color: var(--solus-placeholder);
+  pointer-events: none;
+  float: left;
+  height: 0;
+}
+
+/* ─── Lowlight syntax highlighting tokens (in document editor code blocks) ───
+   Tokens run at 70% intensity (mixed toward secondary text) so code blocks
+   inside prose read as quiet exhibits, not the loudest thing on the page —
+   still enough saturation to tell a string from a keyword at 13px. */
+.solus-doc-editor .hljs-comment,
+.solus-doc-editor .hljs-quote { color: var(--solus-syntax-comment); font-style: italic; }
+.solus-doc-editor .hljs-keyword,
+.solus-doc-editor .hljs-selector-tag,
+.solus-doc-editor .hljs-subst { color: color-mix(in srgb, var(--solus-syntax-keyword) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-number,
+.solus-doc-editor .hljs-literal,
+.solus-doc-editor .hljs-variable,
+.solus-doc-editor .hljs-template-variable,
+.solus-doc-editor .hljs-tag .hljs-attr { color: color-mix(in srgb, var(--solus-syntax-number) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-string,
+.solus-doc-editor .hljs-doctag { color: color-mix(in srgb, var(--solus-syntax-string) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-title,
+.solus-doc-editor .hljs-section,
+.solus-doc-editor .hljs-selector-id { color: color-mix(in srgb, var(--solus-syntax-function) 70%, var(--solus-text-secondary)); font-weight: 500; }
+.solus-doc-editor .hljs-type,
+.solus-doc-editor .hljs-class .hljs-title { color: color-mix(in srgb, var(--solus-syntax-type) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-attribute,
+.solus-doc-editor .hljs-name { color: color-mix(in srgb, var(--solus-syntax-attr) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-regexp,
+.solus-doc-editor .hljs-link { color: color-mix(in srgb, var(--solus-syntax-string) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-symbol,
+.solus-doc-editor .hljs-bullet { color: color-mix(in srgb, var(--solus-syntax-number) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-built_in,
+.solus-doc-editor .hljs-builtin-name { color: color-mix(in srgb, var(--solus-syntax-type) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-meta { color: var(--solus-syntax-comment); }
+.solus-doc-editor .hljs-deletion { color: color-mix(in srgb, var(--solus-syntax-deletion) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-addition { color: color-mix(in srgb, var(--solus-syntax-addition) 70%, var(--solus-text-secondary)); }
+.solus-doc-editor .hljs-emphasis { font-style: italic; }
+.solus-doc-editor .hljs-strong { font-weight: 500; }
+
+/* ─── Document editor: compact / mobile ─── */
+@media (max-width: 1100px) {
+  .solus-doc-editor .ProseMirror {
+    --doc-pad-x: 1rem;
+  }
+}
+@media (max-width: 767px) {
+  /* Body stays at the 16px reading size (also the iOS no-zoom floor); headings
+     run a compressed scale so h1 doesn't dominate a phone screen. */
+  .solus-doc-editor .ProseMirror {
+    --doc-pad-x: 0.75rem;
+    padding: 0.5rem var(--doc-pad-x) 0.75rem;
+    line-height: 1.6;
+  }
+  /* Phone: one rung down each, so a heading anchors a section without
+     dominating the screen. The ladder keeps its ×1.25 shape. */
+  .solus-doc-editor .ProseMirror h1 {
+    font-size: var(--text-h2); line-height: var(--text-h2--line-height);
+  }
+  .solus-doc-editor .ProseMirror h2 {
+    font-size: var(--text-h3); line-height: var(--text-h3--line-height);
+  }
+  .solus-doc-editor .ProseMirror h3 {
+    font-size: var(--text-body);
+  }
+}
+
+/* ─── Doc shell: the long-form reading column ───────────────────────────────
+   Scoped to .doc-shell-root on purpose — .solus-doc-editor is *also* the
+   prompt editor (.doc-prompt-editor, TaskDetail), which must not inherit a
+   long-form measure, type scale or heading rhythm.
+
+   Everything below is expressed in `em` off two variables, so the responsive
+   step is one declaration and the whole column rescales with it:
+     --solus-doc-size     body size (and therefore every em-derived size)
+     --solus-doc-measure  reading measure (also read by the plan action bar)
+
+   They live on .doc-shell-column, not .doc-shell-root, because an element is
+   never its own query container — the container-query ladder further down has
+   to target a descendant of the shell root. The column is the nearest common
+   ancestor of the text column and the plan composer that follows it.
+
+   Three faces carry the column, and each one means something:
+     --solus-doc-serif  Lora — sets structure (h1/h2 only). It is the one face
+                        in Solus that reads as paper rather than product, and
+                        nothing in the chrome uses it, so the serif alone says
+                        "this is the document".
+     Inter (inherited)  carries prose and subsection headings.
+     --solus-doc-mono   Geist Mono — code, section numerals, micro labels.
+   Both are column-scoped: the app's own mono and body faces don't move.
+
+   Ink does the hierarchy, not colour. Four steps — primary (body, headings),
+   an 86% mix (subheads, code text), tertiary (meta and labels), and the warm
+   raised wash (code fill, hairlines). Terracotta is only ever something you
+   can click; amber is only ever human annotation; sage is only ever saved or
+   resolved. */
+.doc-shell-root .doc-shell-column {
+  /* Document typography is independent from interface typography. The default
+     values preserve the existing Solus preset: 16px prose, interface body face,
+     and Lora for structural headings. */
+  --solus-font-scale: var(--solus-document-font-scale);
+  /* These tokens are also declared on the root. Redeclare them here because an
+     inherited custom property keeps the root element's resolved scale; changing
+     only --solus-font-scale on this descendant does not recompute that value. */
+  --text-body: calc(1rem * var(--solus-document-font-scale));
+  --text-h3: calc(1.25rem * var(--solus-document-font-scale));
+  --text-h2: calc(1.5625rem * var(--solus-document-font-scale));
+  --text-h1: calc(1.9375rem * var(--solus-document-font-scale));
+  --solus-doc-size: var(--text-body);
+  /* Measure grows with the pane rather than sitting at a fixed 68ch. The root
+     font-size is a fixed 16px, so a fixed ch measure stays the same physical
+     width however wide the window gets — which reads as a narrow ribbon on a
+     large monitor. `cqi` is the doc shell's own inline size, so this tracks
+     the pane: a split pane still gets a narrow column on the same screen. The
+     bounds keep it a reading measure at both ends instead of a full-bleed
+     line. */
+  --solus-doc-measure: clamp(66ch, 68cqi, 112ch);
+  --solus-doc-serif: var(--solus-document-heading-font-family);
+  --solus-doc-mono: 'Geist Mono', var(--solus-code-font-family);
+  --solus-doc-ink-strong: color-mix(in srgb, var(--solus-text-primary) 88%, var(--solus-text-tertiary));
+  --solus-doc-ink-lead: color-mix(in srgb, var(--solus-text-primary) 82%, var(--solus-text-tertiary));
+  --solus-doc-rule: color-mix(in srgb, var(--solus-art-border) 55%, transparent);
+  /* Left gutter the hanging section numerals and the block drag handle share. */
+  --solus-doc-gutter: 3.25rem;
+  /* Side gutter, on the column rather than on .ProseMirror, because the source
+     view needs the same one: toggling between rendered and source must not slide
+     the first character sideways. It carries its own name because the base
+     editor declares --doc-pad-x on .ProseMirror itself, and a property declared
+     on an element beats one inherited from an ancestor. The responsive ladder
+     further down steps this single declaration; the prose column maps it into
+     --doc-pad-x below. */
+  --solus-doc-pad-x: 3.5rem;
+}
+/* A laptop display has no spare width to give the outline, so the measure gives
+   it instead: a narrower reading column, and the margin beside it is deep
+   enough for the contents to unfold into rather than over the first lines. The
+   column still tracks the pane — this only lowers the share it takes and the
+   ceiling it stops at. Peek sets its own measure and is excluded, because a
+   19rem preview column has no margin to win back. */
+html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
+  --solus-doc-measure: clamp(66ch, 48cqi, 80ch);
+}
+.doc-shell-root .solus-doc-editor .ProseMirror {
+  --doc-pad-x: var(--solus-doc-pad-x);
+  font-size: var(--solus-doc-size);
+  font-family: var(--solus-document-font-family);
+  line-height: 1.72;
+  /* Leave enough room to edit the final line without turning the document's
+     end into a second, mostly empty viewport. */
+  padding: 2.75rem var(--doc-pad-x) 4rem;
+  /* Drives the hanging mono numeral on each h2. */
+  counter-reset: doc-section;
+}
+/* Vertical rhythm is bottom-margin only, with much larger gaps above headings —
+   so the blanket top-margin the base editor applies has to go first. */
+.doc-shell-root .solus-doc-editor .ProseMirror > * + * {
+  margin-top: 0;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror p {
+  margin: 0 0 1.15em;
+}
+/* Lora sets structure. Only h1 and h2 take the serif — h3 is a subsection
+   inside the prose, so it stays Inter and separates by weight instead. */
+.doc-shell-root .solus-doc-editor .ProseMirror h1 {
+  font-family: var(--solus-doc-serif);
+  font-size: var(--text-h1);
+  font-weight: 500;
+  /* Tighter than the rung's own leading: a serif title at this size sets its
+     own rhythm and the shell gives it the space instead. */
+  line-height: 1.12;
+  margin: 2.6em 0 0.7em;
+}
+/* Byline: the document's own meta line, sitting under the title where the
+   reading stats belong — the header keeps only where you are and whether it
+   saved. The text arrives as --solus-doc-byline off the shell, so this hangs
+   off the H1 the document itself owns rather than becoming more chrome above
+   it. Unset resolves to `none`, which renders no box and no margin at all. */
+.doc-shell-root .solus-doc-editor .ProseMirror h1:first-child {
+  margin-bottom: 0.42em;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror h1:first-child::after {
+  content: var(--solus-doc-byline, none);
+  display: block;
+  margin-bottom: 1.9em;
+  /* Inter, not the H1's Lora — the serif is reserved for structure. */
+  font-family: var(--solus-font-family);
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.55;
+  color: var(--solus-text-tertiary);
+  /* Decoration, not prose — never a caret target or a selection. */
+  user-select: none;
+  pointer-events: none;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror h2 {
+  position: relative;
+  font-family: var(--solus-doc-serif);
+  font-size: var(--text-h2);
+  font-weight: 500;
+  line-height: var(--text-h2--line-height);
+  margin: 1.9em 0 0.55em;
+  counter-increment: doc-section;
+  /* The design separates sections by whitespace alone. */
+  border-bottom: none;
+  padding-bottom: 0;
+}
+/* Section numbers hang in the gutter in mono, so headings stay scannable and
+   the prose column keeps a clean left edge. The block drag handle lives in the
+   same gutter — on hover the numeral yields, because the numeral is decoration
+   and the grip is a control. */
+.doc-shell-root .solus-doc-editor .ProseMirror h2::before {
+  content: counter(doc-section, decimal-leading-zero);
+  position: absolute;
+  left: calc(-1 * var(--solus-doc-gutter));
+  top: 0.34em;
+  font-family: var(--solus-doc-mono);
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--solus-text-tertiary);
+  pointer-events: none;
+  transition: opacity var(--duration-quick) var(--ease-premium);
+}
+.doc-shell-root .solus-doc-editor .ProseMirror h2:hover::before {
+  opacity: 0;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror h3 {
+  font-size: var(--text-h3);
+  font-weight: 500;
+  line-height: var(--text-h3--line-height);
+  margin: 2em 0 0.6em;
+  color: var(--solus-doc-ink-strong);
+}
+/* Lead: the paragraph that opens the document reads a step larger and a step
+   lighter, so the eye enters the column before it starts scanning sections. */
+.doc-shell-root .solus-doc-editor .ProseMirror h1 + p {
+  font-size: var(--text-h3);
+  line-height: 1.62;
+  color: var(--solus-doc-ink-lead);
+  margin-bottom: 1.4em;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror h1:first-child,
+.doc-shell-root .solus-doc-editor .ProseMirror h2:first-child,
+.doc-shell-root .solus-doc-editor .ProseMirror h3:first-child {
+  margin-top: 0;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror ul,
+.doc-shell-root .solus-doc-editor .ProseMirror ol {
+  margin: 0 0 1.15em;
+  padding-left: 1.35em;
+}
+/* Task lists carry their own checkbox layout — keep them flush. */
+.doc-shell-root .solus-doc-editor .ProseMirror ul[data-type="taskList"] {
+  padding-left: 0;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror li {
+  margin: 0 0 0.4em;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror li::marker {
+  color: var(--solus-text-tertiary);
+}
+.doc-shell-root .solus-doc-editor .ProseMirror hr {
+  margin: 0 0 1.6em;
+}
+/* Callout: a labelled band, not a tinted box — it interrupts the column
+   without becoming a second surface. There is no fill and no left bar; the
+   accent hairline on top plus a mono label in the gutter carry it. The label
+   is absolute (not a flex item) so a multi-paragraph callout still stacks. */
+.doc-shell-root .solus-doc-editor .ProseMirror blockquote {
+  position: relative;
+  margin: 0 0 1.5em;
+  padding: 0.9em 0 0.9em 4.75rem;
+  border: none;
+  border-top: 0.0625rem solid color-mix(in srgb, var(--solus-accent) 35%, transparent);
+  border-bottom: 0.0625rem solid var(--solus-doc-rule);
+  background: none;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.66;
+  color: var(--solus-doc-ink-strong);
+}
+.doc-shell-root .solus-doc-editor .ProseMirror blockquote::before {
+  content: "Note";
+  position: absolute;
+  left: 0;
+  top: calc(0.9em + 0.1875rem);
+  width: 3.875rem;
+  font-family: var(--solus-doc-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--solus-accent);
+  /* Decoration, not content — never a caret target or a selection. */
+  user-select: none;
+  pointer-events: none;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror blockquote > *:last-child {
+  margin-bottom: 0;
+}
+/* Inline code is ink on a warm wash, never accent ink. In a document that is
+   largely code, painting every static span terracotta spends the brand accent
+   on things you can't click — and kills every real link beside them. */
+.doc-shell-root .solus-doc-editor .ProseMirror code {
+  font-family: var(--solus-doc-mono);
+  color: var(--solus-doc-ink-strong);
+  background: var(--solus-art-raised);
+  padding: 0.1em 0.34em;
+  border-radius: 0.3125rem;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+}
+.doc-shell-root .solus-doc-editor .ProseMirror pre code,
+.markdown-file-document-editor .solus-doc-editor .ProseMirror pre code {
+  color: inherit;
+  background: none;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+}
+/* Code blocks are a rule and a caption, not a filled card — nothing in the
+   document sits on a fill or a shadow. The left rule turns terracotta while
+   the caret is inside the block (see .doc-code-block below). */
+.doc-shell-root .solus-doc-editor .ProseMirror pre,
+.markdown-file-document-editor .solus-doc-editor .ProseMirror pre {
+  margin: 0 0 1.6em;
+  padding: 0 0 0 1rem;
+  border: none;
+  border-left: 0.0625rem solid var(--solus-art-border);
+  border-radius: 0;
+  background: none;
+  font-family: var(--solus-doc-mono);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.8;
+  color: var(--solus-doc-ink-strong);
+  transition: border-color var(--duration-quick) var(--ease-premium);
+}
+/* Focused code block: the caption row is already the control strip, so the
+   only thing focus adds is the rule turning terracotta. No new furniture. */
+.doc-shell-root .solus-doc-editor .doc-code-block--focused pre,
+.markdown-file-document-editor .solus-doc-editor .doc-code-block--focused pre {
+  border-left-color: var(--solus-accent);
+  border-left-width: 0.09375rem;
+}
+/* Caption row — controls sit in the gutter above the rule, where a filename
+   would already be. The block's own margin moves to the wrapper, so the
+   caption and the code read as one unit. */
+.solus-doc-editor .ProseMirror .doc-code-block {
+  margin: 0 0 1.6em;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror .doc-code-block pre,
+.markdown-file-document-editor .solus-doc-editor .ProseMirror .doc-code-block pre {
+  margin: 0;
+}
+/* The files panel mounts the same editor outside the document shell, so the
+   two faces the code block reads with have to come from its own host. Only the
+   code block is adopted — the file view keeps the base editor's prose scale. */
+.markdown-file-document-editor {
+  --solus-doc-mono: 'Geist Mono', var(--solus-code-font-family);
+  --solus-doc-ink-strong: color-mix(in srgb, var(--solus-text-primary) 88%, var(--solus-text-tertiary));
+}
+.doc-code-block__caption {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+  font-family: var(--solus-doc-mono);
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--solus-text-tertiary);
+  /* The strip is chrome, not content — never a drop target for the caret. */
+  user-select: none;
+}
+.doc-code-block__controls {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  opacity: 0;
+  transition: opacity var(--duration-quick) var(--ease-premium);
+}
+.doc-code-block:hover .doc-code-block__controls,
+.doc-code-block--focused .doc-code-block__controls,
+.doc-code-block__controls:focus-within {
+  opacity: 1;
+}
+.doc-code-block__btn {
+  height: 1.375rem;
+  padding: 0 0.5rem;
+  border: none;
+  border-radius: 0.3125rem;
+  background: transparent;
+  font-family: inherit;
+  font-size: 0.75rem;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--solus-text-tertiary);
+  cursor: pointer;
+  transition:
+    background var(--duration-quick) var(--ease-premium),
+    color var(--duration-quick) var(--ease-premium);
+}
+.doc-code-block__btn:hover {
+  background: var(--solus-surface-hover);
+  color: var(--solus-doc-ink-strong);
+}
+.doc-code-block__btn--on {
+  background: var(--solus-surface-hover);
+  color: var(--solus-doc-ink-strong);
+}
+.doc-code-block__btn:focus-visible {
+  outline: 0.125rem solid var(--solus-accent-border);
+  outline-offset: 0.0625rem;
+}
+/* Wrap toggle — off by default (long lines scroll), on wraps in place. */
+.doc-code-block--wrap pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+/* Tables are hairlines and captions: rules top and bottom, a mono uppercase
+   header row on no fill, and a lighter rule between rows. */
+/* A table is an exhibit, so it gets the same air above as below rather than
+   living off the previous block's bottom margin — and that air above is also
+   the lane the column grips stand in, which would otherwise be the last line
+   of the paragraph before it. */
+.doc-shell-root .solus-doc-editor .ProseMirror .tableWrapper {
+  margin: 1.8em 0;
+  border: none;
+  border-top: 0.0625rem solid var(--solus-art-border);
+  border-bottom: 0.0625rem solid var(--solus-art-border);
+  border-radius: 0;
+  background: none;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror table {
+  margin: 0;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+}
+.doc-shell-root .solus-doc-editor .ProseMirror th,
+.doc-shell-root .solus-doc-editor .ProseMirror td {
+  border: none;
+}
+/* Headers keep their label treatment but share the body cells' type size and
+   row rhythm, so they stay legible rather than shrinking into microcopy. */
+.doc-shell-root .solus-doc-editor .ProseMirror th {
+  background: none;
+  padding: 0.72em 0.72em 0.72em 0;
+  font-family: var(--solus-doc-mono);
+  font-size: 1em;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--solus-text-tertiary);
+}
+.doc-shell-root .solus-doc-editor .ProseMirror td {
+  padding: 0.72em 0.72em 0.72em 0;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror th:not(:first-child) {
+  padding-left: 0.72em;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror td:not(:first-child) {
+  padding-left: 0.72em;
+}
+.doc-shell-root .solus-doc-editor .ProseMirror tr + tr {
+  border-top: 0.0625rem solid var(--solus-doc-rule);
+}
+/* The cell the caret is in takes a terracotta ring — the one place the accent
+   is allowed inside the prose column, because it is the only thing there you
+   are actively editing. Keep the ring flush with the cell bounds; an inset
+   outline makes a large cell look like only its contents were selected. */
+.solus-doc-editor .ProseMirror .doc-cell-focus {
+  border-radius: 0.375rem;
+  box-shadow: inset 0 0 0 0.09375rem var(--solus-accent);
+}
+
+/* Responsive ladder — driven off the *pane*, not the window, so a narrow split
+   pane on a wide monitor steps down too. */
+@container doc-shell (max-width: 73.75rem) {
+  .doc-shell-root .doc-shell-column {
+    --solus-doc-pad-x: 2.5rem;
+  }
+}
+@container doc-shell (max-width: 56.25rem) {
+  .doc-shell-root .doc-shell-column {
+    /* Below the wide gutter the numerals would hang off the pane, so they pull
+       in to sit just clear of the text. */
+    --solus-doc-gutter: 2.25rem;
+    --solus-doc-pad-x: 1.75rem;
+  }
+}
+@container doc-shell (max-width: 45rem) {
+  .doc-shell-root .doc-shell-column {
+    --solus-doc-size: var(--text-caption);
+    --solus-doc-pad-x: 1.375rem;
+  }
+  /* No room left to hang anything — the numeral would collide with the text. */
+  .doc-shell-root .solus-doc-editor .ProseMirror h2::before {
+    display: none;
+  }
+}
+/* A phone is not a narrow split pane: thumb-distance reading wants a *larger*
+   body than the ladder's last step, so the viewport wins here. Everything else
+   is em-relative, so this one variable rescales the whole column. */
+@media (max-width: 767px) {
+  .doc-shell-root .doc-shell-column {
+    --solus-doc-size: var(--text-body);
+  }
+  .doc-shell-root .solus-doc-editor .ProseMirror {
+    line-height: 1.7;
+    padding-top: 1.25rem;
+  }
+}
+
+/* Workspace peek — the document itself, shrunk to the preview column. It joins
+   the doc shell rather than the base editor precisely so it inherits the face
+   that makes a document look like a document: Lora on h1/h2, the hanging mono
+   numerals, the ink ladder, the whitespace rhythm. Everything below is the two
+   size variables plus the page furniture; the type scale follows on its own,
+   which is what those variables are for.
+
+   Placed after the responsive ladder and qualified on the root so neither the
+   `@container doc-shell` steps nor the phone `@media` rule can outrank it. */
+.doc-shell-root.doc-peek .doc-shell-column {
+  --solus-doc-size: var(--text-caption);
+  /* A 19rem column *is* the measure — there is nothing to hold it in. */
+  --solus-doc-measure: 100%;
+  /* Just clear of the text, the way the narrow-pane step pulls them in. */
+  --solus-doc-gutter: 1.5rem;
+  --solus-doc-pad-x: 0rem;
+}
+.doc-shell-root.doc-peek .solus-doc-editor .ProseMirror {
+  /* Only the left gutter survives, and only because the numerals hang in it. */
+  padding: 0 0 0 var(--solus-doc-gutter);
+  min-height: 0;
+  /* Rendered markdown, not a ProseMirror doc: the whitespace between blocks is
+     real text under pre-wrap and would print as blank lines. */
+  white-space: normal;
+  cursor: default;
+}
+/* The ledger row's title is already the pane's headline, so the document's own
+   H1 would print it twice. Hiding it leaves the lead paragraph to open the
+   preview — which is the rule immediately below it in the shell. */
+.doc-shell-root.doc-peek .solus-doc-editor .ProseMirror > h1:first-child {
+  display: none;
+}
+.doc-shell-root.doc-peek .solus-doc-editor .ProseMirror > h1:first-child + * {
+  margin-top: 0;
+}
+
+/* ─── Annotation marks ─────────────────────────────────────────────────────
+   Amber is human annotation and nothing else; sage is resolved; terracotta —
+   dashed, so it never reads as a link — is an edit Solus made; red is a
+   conflict. Every state has to be legible with the thread hidden, because
+   that is exactly what split view does to the rail.
+
+   Overlaps deepen the wash rather than adding a second hue: nested marks
+   re-mix the same amber, so a doubly-annotated span reads as more annotation
+   rather than as a different kind of it. */
+.plan-comment-saved {
+  background: color-mix(in srgb, var(--solus-art-2) 24%, transparent);
+  border-bottom: 0.125rem solid color-mix(in srgb, var(--solus-art-2) 58%, transparent);
+  border-radius: 0.125rem;
+  padding: 0.0625rem 0.0625rem;
+  color: inherit;
+  cursor: pointer;
+  transition: background var(--duration-quick) var(--ease-premium);
+}
+.plan-comment-saved:hover {
+  background: color-mix(in srgb, var(--solus-art-2) 32%, transparent);
+}
+/* Focused: the deeper wash plus a bar in the margin, so the thread the rail is
+   showing is findable in the text without reading the rail. */
+.plan-comment-active {
+  position: relative;
+  background: color-mix(in srgb, var(--solus-art-2) 40%, transparent);
+  border-bottom: 0.125rem solid var(--solus-art-2);
+  border-radius: 0.125rem;
+  padding: 0.0625rem 0.0625rem;
+  color: inherit;
+}
+.plan-comment-active::before {
+  content: "";
+  position: absolute;
+  left: -0.6875rem;
+  top: 0.15em;
+  bottom: 0.15em;
+  width: 0.125rem;
+  border-radius: 9999px;
+  background: var(--solus-art-2);
+  pointer-events: none;
+}
+/* Resolved keeps a dotted trace so the reader can still see where the
+   conversation happened — it never disappears silently. */
+.plan-comment-resolved {
+  background: none;
+  border-bottom: 0.0625rem dotted color-mix(in srgb, var(--solus-art-3) 75%, transparent);
+  padding: 0.0625rem 0.0625rem;
+  color: inherit;
+  cursor: pointer;
+}
+/* An edit Solus made. Dashed, never solid — a solid accent underline is a link. */
+.plan-comment-solus {
+  background: none;
+  border-bottom: 0.09375rem dashed color-mix(in srgb, var(--solus-accent) 70%, transparent);
+  padding: 0.0625rem 0.0625rem;
+  color: inherit;
+  cursor: pointer;
+}
+.plan-comment-solus::after {
+  content: "✦";
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  vertical-align: super;
+  padding-left: 0.1875rem;
+  color: var(--solus-accent);
+}
+.plan-comment-conflict {
+  background: color-mix(in srgb, var(--solus-stop-bg) 14%, transparent);
+  border-bottom: 0.125rem solid color-mix(in srgb, var(--solus-stop-bg) 55%, transparent);
+  border-radius: 0.125rem;
+  padding: 0.0625rem 0.0625rem;
+  color: inherit;
+  cursor: pointer;
+}
+@keyframes plan-comment-flash {
+  0%   { box-shadow: 0 0 0 0 var(--solus-art-2); background: color-mix(in srgb, var(--solus-art-2) 48%, transparent); }
+  50%  { box-shadow: 0 0 0 0.3125rem color-mix(in srgb, var(--solus-art-2) 22%, transparent); }
+  100% { box-shadow: 0 0 0 0 transparent; background: color-mix(in srgb, var(--solus-art-2) 24%, transparent); }
+}
+.plan-comment-flash {
+  animation: plan-comment-flash 720ms var(--ease-premium);
+}
+
+/* ─── Mode shell enter animation ─── */
+.mode-shell {
+  transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+  opacity: 1;
+}
+
+@starting-style {
+  .mode-shell {
+    opacity: 0;
+  }
+}
+
+/* ─── Message entrance animations (CSS — zero JS overhead vs Framer Motion) ─── */
+@keyframes msg-in-up {
+  from { opacity: 0; transform: translateY(0.375rem); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes msg-in-side {
+  from { opacity: 0; transform: translate(-0.25rem, 0.375rem); }
+  to   { opacity: 1; transform: translate(0, 0); }
+}
+/* The curve is a hard decelerate: ~90% of the travel lands in the first third,
+   then it settles. That keeps the entrance as prompt as the old 0.15s ease-out
+   while removing its abrupt stop, so a flushed prose block eases in instead of
+   clipping into place. Longer than this and consecutive rows read as drift. */
+.animate-msg-in-up {
+  /* `backwards` (not `both`) so no transform lingers after the animation —
+     a retained transform keeps the element on its own GPU layer and renders text blurry. */
+  animation: msg-in-up 0.26s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+.animate-msg-in-side {
+  /* see note above: `backwards` avoids the post-animation blurry-text compositing layer */
+  animation: msg-in-side 0.26s cubic-bezier(0.16, 1, 0.3, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-msg-in-up,
+  .animate-msg-in-side {
+    animation: none;
+  }
+}
+
+/* ─── Allow text selection in conversation content and diff panel ─── */
+.prose-cloud,
+.conversation-selectable,
+.diff-panel-selectable,
+.diff-panel-selectable * {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* ─── Prose overrides for markdown ─── */
+.prose-cloud {
+  color: var(--solus-text-primary);
+  font-weight: var(--solus-font-weight-body);
+  font-size: var(--text-body);
+  /* Looser than the body rung's own leading: a transcript is skimmed as much as
+     read, and the extra air separates turns. */
+  line-height: 1.7;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1;
+}
+.prose-cloud > * + * {
+  margin-top: 0.75em;
+}
+.prose-cloud p {
+  margin: 0.45em 0;
+}
+.prose-cloud pre {
+  padding: 0.65em 0.9em;
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  margin: 0.6em 0;
+}
+.prose-cloud code {
+  padding: 0;
+  margin-inline: 0.1em;
+}
+.prose-cloud pre code {
+  margin-inline: 0;
+}
+
+/* ─── Chat code blocks (CodeBlock.svelte) ───
+   A self-contained surface: header strip (language + copy) over a recessed
+   well, with hljs syntax tokens and horizontal edge-fades. Scoped to
+   .solus-code-block so it works wherever the component is mounted. */
+.solus-code-block {
+  margin: 0.7em 0;
+  border-radius: 0.625rem;
+  border: 0.0625rem solid
+    color-mix(in srgb, var(--solus-container-border) 60%, transparent);
+  background: var(--solus-code-tint);
+  overflow: hidden;
+}
+.solus-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.45rem 0.3rem 0.75rem;
+  border-bottom: 0.0625rem solid
+    color-mix(in srgb, var(--solus-container-border) 45%, transparent);
+}
+.solus-code-lang {
+  font-family: var(--solus-code-font-family);
+  font-size: 0.75rem;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+  color: var(--solus-text-tertiary);
+  user-select: none;
+}
+.solus-code-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.15rem 0.4rem;
+  border-radius: 0.375rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  color: var(--solus-text-tertiary);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0.65;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+.group\/code:hover .solus-code-copy,
+.solus-code-copy:focus-visible {
+  opacity: 1;
+}
+@media (hover: none) {
+  .solus-code-copy {
+    opacity: 1;
+  }
+}
+.solus-code-copy:hover {
+  background: var(--solus-surface-hover);
+  color: var(--solus-text-secondary);
+}
+.solus-code-copy.is-copied {
+  opacity: 1;
+  color: var(--solus-status-complete);
+  background: var(--solus-status-complete-bg);
+}
+.solus-code-copy .icon-swap {
+  position: relative;
+  display: inline-flex;
+  width: 0.6875rem;
+  height: 0.6875rem;
+  align-items: center;
+  justify-content: center;
+}
+.solus-code-body {
+  position: relative;
+}
+.solus-code-block pre {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  line-height: 1.55;
+  overflow-x: auto;
+}
+/* Edge-fades — shown only when the code actually overflows in that direction. */
+.solus-code-body::before,
+.solus-code-body::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1.75rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 1;
+}
+.solus-code-body::before {
+  left: 0;
+  background: linear-gradient(to right, var(--solus-code-tint), transparent);
+}
+.solus-code-body::after {
+  right: 0;
+  background: linear-gradient(to left, var(--solus-code-tint), transparent);
+}
+.solus-code-body:has(pre.fade-l)::before,
+.solus-code-body:has(pre.fade-r)::after {
+  opacity: 1;
+}
+
+/* hljs syntax tokens for chat code blocks — shares the --solus-syntax-* palette
+   with the doc editor so chat and the plan modal stay identical. */
+.solus-code-block .hljs-comment,
+.solus-code-block .hljs-quote {
+  color: var(--solus-syntax-comment);
+  font-style: italic;
+}
+.solus-code-block .hljs-keyword,
+.solus-code-block .hljs-selector-tag,
+.solus-code-block .hljs-subst {
+  color: var(--solus-syntax-keyword);
+}
+.solus-code-block .hljs-number,
+.solus-code-block .hljs-literal,
+.solus-code-block .hljs-variable,
+.solus-code-block .hljs-template-variable,
+.solus-code-block .hljs-tag .hljs-attr {
+  color: var(--solus-syntax-number);
+}
+.solus-code-block .hljs-string,
+.solus-code-block .hljs-doctag {
+  color: var(--solus-syntax-string);
+}
+.solus-code-block .hljs-title,
+.solus-code-block .hljs-section,
+.solus-code-block .hljs-selector-id {
+  color: var(--solus-syntax-function);
+  font-weight: 500;
+}
+.solus-code-block .hljs-type,
+.solus-code-block .hljs-class .hljs-title {
+  color: var(--solus-syntax-type);
+}
+.solus-code-block .hljs-attribute,
+.solus-code-block .hljs-name {
+  color: var(--solus-syntax-attr);
+}
+.solus-code-block .hljs-regexp,
+.solus-code-block .hljs-link {
+  color: var(--solus-syntax-string);
+}
+.solus-code-block .hljs-symbol,
+.solus-code-block .hljs-bullet {
+  color: var(--solus-syntax-number);
+}
+.solus-code-block .hljs-built_in,
+.solus-code-block .hljs-builtin-name {
+  color: var(--solus-syntax-type);
+}
+.solus-code-block .hljs-meta {
+  color: var(--solus-syntax-comment);
+}
+.solus-code-block .hljs-deletion {
+  color: var(--solus-syntax-deletion);
+}
+.solus-code-block .hljs-addition {
+  color: var(--solus-syntax-addition);
+}
+.solus-code-block .hljs-emphasis {
+  font-style: italic;
+}
+.solus-code-block .hljs-strong {
+  font-weight: 500;
+}
+
+.prose-cloud ul {
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+  list-style: disc;
+}
+.prose-cloud ol {
+  padding-left: 1.4em;
+  margin: 0.4em 0;
+  list-style: decimal;
+}
+.prose-cloud li {
+  margin: 0.25em 0;
+}
+.prose-cloud li > p {
+  margin: 0.1em 0;
+}
+/* Margins are in `em`, so each level's rhythm follows its own rung. Leading
+   comes from the rung too — a heading's line-height is part of its size, not a
+   blanket value applied across four of them. */
+.prose-cloud h1, .prose-cloud h2, .prose-cloud h3, .prose-cloud h4 {
+  margin: 1.4em 0 0.4em;
+  font-weight: 500;
+  color: var(--solus-text-primary);
+  text-wrap: balance;
+}
+.prose-cloud h1:first-child,
+.prose-cloud h2:first-child,
+.prose-cloud h3:first-child { margin-top: 0; }
+.prose-cloud h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); }
+.prose-cloud h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); }
+.prose-cloud h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); }
+/* h4 is the level where size runs out: it takes the body rung and separates
+   itself by colour instead. Declaring no size would work too, but the explicit
+   rung documents that this is the floor of the ladder, not an oversight. */
+.prose-cloud h4 { font-size: var(--text-body); color: var(--solus-text-secondary); }
+.github-markdown h5,
+.github-markdown h6 {
+  margin: 1.4em 0 0.4em;
+  font-weight: 500;
+  color: var(--solus-text-primary);
+  line-height: 1.3;
+}
+.github-markdown h5:first-child,
+.github-markdown h6:first-child { margin-top: 0; }
+/* Below h4 the ladder is out of rungs, so these two separate by colour and
+   weight alone — h5 sits at body, h6 drops to the caption rung. */
+.github-markdown h5 { font-size: var(--text-body); }
+.github-markdown h6 { font-size: var(--text-caption); color: var(--solus-text-secondary); }
+.github-markdown details {
+  margin: 0.5em 0;
+}
+.github-markdown summary {
+  min-height: 2.5rem;
+  align-content: center;
+  color: var(--solus-text-primary);
+  font-weight: 500;
+  cursor: pointer;
+}
+.github-markdown summary::marker {
+  color: var(--solus-text-tertiary);
+}
+.github-markdown summary:focus-visible {
+  outline: 0.125rem solid color-mix(in srgb, var(--solus-accent) 55%, transparent);
+  outline-offset: 0.125rem;
+  border-radius: 0.25rem;
+}
+.github-markdown details[open] > summary {
+  margin-bottom: 0.4em;
+}
+.github-markdown details > :last-child {
+  margin-bottom: 0;
+}
+.github-markdown .markdown-alert {
+  --markdown-alert-color: var(--solus-art-5);
+  margin: 0.75em 0;
+  padding: 0.15em 1em;
+  border-left: 0.25rem solid var(--markdown-alert-color);
+  color: var(--solus-text-primary);
+}
+.github-markdown .markdown-alert-note { --markdown-alert-color: var(--solus-art-5); }
+.github-markdown .markdown-alert-tip { --markdown-alert-color: var(--solus-art-3); }
+.github-markdown .markdown-alert-important { --markdown-alert-color: var(--solus-art-6); }
+.github-markdown .markdown-alert-warning { --markdown-alert-color: var(--solus-art-2); }
+.github-markdown .markdown-alert-caution { --markdown-alert-color: var(--solus-art-negative); }
+.github-markdown .markdown-alert-title {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+  margin-bottom: 0.3em;
+  color: var(--markdown-alert-color);
+  font-weight: 500;
+  line-height: 1.5;
+}
+.github-markdown .markdown-alert-title svg {
+  flex: none;
+}
+.github-markdown .markdown-alert-body > :first-child,
+.github-markdown .markdown-alert-body > :first-child > :first-child {
+  margin-top: 0;
+}
+.github-markdown .markdown-alert-body > :last-child,
+.github-markdown .markdown-alert-body > :last-child > :last-child {
+  margin-bottom: 0;
+}
+.github-markdown .markdown-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45em;
+  margin-left: -1.4em;
+  list-style: none;
+}
+.github-markdown .markdown-task-checkbox {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 0.95em;
+  height: 0.95em;
+  margin-top: 0.36em;
+  border: 0.0625rem solid color-mix(in srgb, var(--solus-text-tertiary) 75%, transparent);
+  border-radius: 0.1875rem;
+  color: var(--solus-text-on-accent);
+}
+.github-markdown .markdown-task-checked .markdown-task-checkbox {
+  border-color: var(--solus-accent);
+  background: var(--solus-accent);
+}
+.github-markdown .markdown-task-content {
+  min-width: 0;
+  flex: 1;
+}
+.github-markdown .markdown-task-content > p {
+  margin: 0.1em 0;
+}
+.prose-cloud table {
+  font-size: var(--text-caption);
+}
+.prose-cloud th {
+  border-bottom-color: var(--solus-container-border);
+}
+.prose-cloud strong {
+  font-weight: 500;
+}
+
+/* ─── Assistant reading prose — clean sans at a comfortable reading size ─── */
+/* Applied alongside `.prose-cloud` on assistant + streaming output only.
+   Uses the app font (same as the rest of the UI) but at a slightly larger
+   size with looser leading and proportional figures, so Claude's narration
+   reads cleanly and sits a touch above the dense tool rows / user bubbles.
+   Code (`pre`/`code`) stays monospace via the `.prose-cloud` rules above. */
+.prose-reading {
+  font-size: var(--text-body);
+  line-height: 1.78;
+  /* 400 (Regular) is a *named* master instance — hinted, so glyphs snap to the
+     pixel grid and stay crisp at the ~12–13px sizes the reading text hits once
+     the root font-size floors on a laptop screen. (An interpolated weight like
+     520 falls between masters, renders un-hinted, and reads soft.) We deliberately
+     run body at 400 — not 500 — so the jump to 600 headings / strong is a full
+     200 units and emphasis actually separates from the surrounding prose. */
+  font-weight: 400;
+  font-variant-numeric: normal;
+  -webkit-font-smoothing: antialiased;
+  /* `auto` (not optimizeLegibility) snaps glyphs to the pixel grid — matches the
+     root rule's reasoning and keeps the main reading text from softening. Ligatures
+     and kerning are already enabled explicitly via .prose-cloud font-feature-settings. */
+  text-rendering: auto;
+}
+.prose-reading p { text-wrap: pretty; }
+/* Looser list rhythm so bullets breathe instead of reading as a packed block. */
+.prose-reading li { margin: 0.45em 0; }
+/* Nudge table text up from the dense .prose-cloud base — too small to read in narration. */
+.prose-reading table { font-size: var(--text-caption); }
+/* A comparison table is usually the point of the message, so make it the most
+   scannable element, not the least: filled header row, roomier cells, and body
+   cells dropped to the secondary tone so the header + first column lead. */
+.prose-reading th, .prose-reading td { padding: 0.5em 0.9em; }
+.prose-reading th {
+  background: var(--solus-surface-primary);
+  color: var(--solus-text-primary);
+}
+.prose-reading td { color: var(--solus-text-secondary); }
+/* Asymmetric spacing — a big gap *above* a heading separates the previous
+   section; a tight gap *below* bonds the heading to the content it leads.
+   (First-child margin-top:0 from .prose-cloud still wins via higher specificity.) */
+.prose-reading h1, .prose-reading h2, .prose-reading h3, .prose-reading h4 {
+  margin-top: 2em;
+  margin-bottom: 0.45em;
+}
+/* Sizes come from the shared content ladder (ADR-0013). This surface used to
+   collapse h1 and h2 onto one size and then drop h3 to body, because there was
+   no rung between 14 and 24 to land on. */
+.prose-reading h1 { font-size: var(--text-h1); line-height: var(--text-h1--line-height); }
+.prose-reading h2 { font-size: var(--text-h2); line-height: var(--text-h2--line-height); }
+.prose-reading h3 { font-size: var(--text-h3); line-height: var(--text-h3--line-height); }
+.prose-reading h4 { font-size: var(--text-body); }
+
+/* Review-guide narration belongs to the surrounding review chrome rather than
+   the transcript's reading ladder. Inherit the responsive workspace rung so the
+   guide steps down with the rest of the review surface on a laptop. */
+.prose-reading.prose-review-guide { font-size: inherit; }
+
+/* Pill mode keeps the same readable body rung as Editor mode. The shell's
+   display zoom already makes this about 14px on a laptop; stepping it down
+   again made the primary conversation text read closer to 12px. */
+.pill-shell .prose-reading {
+  font-size: var(--text-body);
+}
+
+/* ─── Transcript prose (the "Conversation assets" spec, §4 · §5 · §14) ───
+   Applied alongside `.prose-cloud .prose-reading` on assistant turns only —
+   `.prose-reading` is shared with the PR review guide, which keeps its own
+   larger ladder, so every transcript-specific value lands here instead.
+
+   Two rules govern the whole mapping: no element introduces a colour (emphasis
+   is weight, quotes are a rule, code is a wash), and no element introduces a
+   size outside the ladder — which is why `###` and every deeper level collapse
+   onto the body rung rather than growing a fourth and fifth step.
+
+   Last in the prose region on purpose: most declarations here tie on
+   specificity with a `.prose-cloud` / `.prose-reading` rule above, so source
+   order is what decides them. */
+.prose-transcript {
+  /* A share of the reading column, not a fixed measure — matches the 88% the
+     conversation cards take, so prose and cards read as one column at every
+     pane width. */
+  max-width: 88%;
+  /* Primary conversation text uses the body rung. On the laptop's default 90%
+     display zoom this resolves to about 14px instead of the previous 12.6px. */
+  font-size: var(--text-body);
+  /* Set by the tallest thing a paragraph can hold, not by the text. A chip box is
+     ~22px; at 1.62 the borders of stacked lines nearly touch. */
+  line-height: 1.75;
+  font-weight: 400;
+  color: var(--solus-text-primary);
+  text-wrap: pretty;
+}
+@media (pointer: fine) {
+  html.is-laptop-display .prose-transcript-main { max-width: 82%; }
+}
+/* Element margins alone set the rhythm; the generic sibling step would add to
+   the asymmetric heading spacing below. */
+.prose-transcript > * + * { margin-top: 0; }
+.prose-transcript p { margin: 0 0 0.625rem; }
+.prose-transcript > :first-child { margin-top: 0; }
+.prose-transcript > :last-child { margin-bottom: 0; }
+
+/* Headings — two steps, never more. */
+.prose-transcript h1,
+.prose-transcript h2 {
+  margin: 1.375rem 0 0.4375rem;
+  line-height: 1.35;
+  color: var(--solus-text-primary);
+}
+.prose-transcript h1 {
+  font-size: calc(1.25rem * var(--solus-font-scale, 1));
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.prose-transcript h1::after {
+  content: "";
+  display: block;
+  width: 100%;
+  height: 0.0625rem;
+  margin-top: 0.625rem;
+  border-radius: 9999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in oklch, var(--foreground) 18%, transparent),
+    color-mix(in oklch, var(--foreground) 7%, transparent) 70%,
+    transparent
+  );
+}
+.prose-transcript h2 {
+  font-size: var(--text-body);
+  font-weight: 500;
+}
+.prose-transcript h3,
+.prose-transcript h4,
+.prose-transcript h5,
+  .prose-transcript h6 {
+  margin: 1rem 0 0.3125rem;
+  font-size: var(--text-body);
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--solus-text-primary);
+}
+
+/* Lists — a bullet is drawn, so its dot/ring size stays on the ladder instead of
+   tracking the font. A numeral is text and stays native: only the browser can
+   put the marker on the first line's baseline and end-align the marker box, so
+   "9." and "10." share a text edge at any font size or zoom. */
+.prose-transcript ul,
+.prose-transcript ol {
+  margin: 0.625rem 0;
+  padding-left: 1.125rem;
+}
+.prose-transcript ul { list-style: none; }
+/* Wide enough that a two-digit numeral still hangs inside the gutter. */
+.prose-transcript ol { padding-left: 1.625rem; list-style: decimal; }
+.prose-transcript li {
+  position: relative;
+  margin: 0 0 0.25rem;
+  line-height: 1.55;
+}
+.prose-transcript li > p { margin: 0; }
+.prose-transcript ul > li::before {
+  content: "";
+  position: absolute;
+  left: -1.125rem;
+  top: 0.5625rem;
+  width: 0.1875rem;
+  height: 0.1875rem;
+  border-radius: 9999px;
+  background: color-mix(in oklch, var(--foreground) 35%, transparent);
+}
+/* One level of nesting only — the marker becomes a ring and anything deeper
+   flattens onto it rather than inventing a third marker. */
+.prose-transcript ul ul > li::before {
+  top: 0.5rem;
+  width: 0.25rem;
+  height: 0.25rem;
+  background: none;
+  box-shadow: inset 0 0 0 0.0625rem
+    color-mix(in oklch, var(--foreground) 35%, transparent);
+}
+/* The numeral keeps the quiet mono treatment; ::marker takes font and colour
+   only, which is all this needs — position stays the browser's job. */
+.prose-transcript ol > li::marker {
+  font-family: var(--solus-code-font-family);
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  font-variant-numeric: tabular-nums;
+  color: var(--solus-text-tertiary);
+}
+/* A task item supplies its own checkbox, so it drops both markers. */
+.prose-transcript li:has(> input[type="checkbox"]) { list-style: none; }
+.prose-transcript li:has(> input[type="checkbox"])::before { content: none; }
+.prose-transcript li > input[type="checkbox"] {
+  appearance: none;
+  width: 0.8125rem;
+  height: 0.8125rem;
+  margin: 0 0.5rem 0 -1.125rem;
+  vertical-align: -0.125rem;
+  border-radius: 0.1875rem;
+  box-shadow: inset 0 0 0 0.0625rem
+    color-mix(in oklch, var(--foreground) 20%, transparent);
+}
+.prose-transcript li > input[type="checkbox"]:checked {
+  background: color-mix(in oklch, var(--chart-3) 16%, transparent)
+    center / 0.5rem no-repeat
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2 6.3l2.7 2.7L10 3.4'/%3E%3C/svg%3E");
+  box-shadow: none;
+}
+.prose-transcript li:has(> input[type="checkbox"]:checked) {
+  opacity: 0.6;
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+}
+
+/* Emphasis is weight and a rule — never a hue. */
+.prose-transcript strong { font-weight: 500; color: inherit; }
+.prose-transcript em { font-style: italic; }
+.prose-transcript del,
+.prose-transcript s {
+  opacity: 0.6;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 30%, transparent);
+}
+.prose-transcript blockquote {
+  margin: 0.875rem 0 0.625rem;
+  padding-left: 0.75rem;
+  border-left: 0.09375rem solid
+    color-mix(in oklch, var(--foreground) 12%, transparent);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-style: normal;
+  color: var(--solus-text-tertiary);
+}
+.prose-transcript hr {
+  margin: 1.125rem 0;
+  border: none;
+  border-top: 0.0625rem solid var(--solus-tx-rule-strong);
+  opacity: 1;
+}
+
+/* §4 — table: prose, not a card. Hairlines only, no filled header and no outer
+   box, so the head reads as a heading without a wash. Tables use the assistant
+   body rung and a little extra separation from the prose around them. */
+.prose-transcript table {
+  margin: 1rem 0;
+  font-size: var(--text-body);
+  border-collapse: collapse;
+}
+.prose-transcript th {
+  padding: 0 0.625rem 0.375rem 0;
+  border-bottom: none;
+  background: none;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--solus-text-tertiary);
+}
+.prose-transcript td {
+  padding: 0.5rem 0.625rem 0.5rem 0;
+  line-height: 1.5;
+  color: var(--solus-text-primary);
+  text-wrap: pretty;
+  border-bottom: none;
+  /* The head reads as a heading because its rule is a step darker than the
+     body's; every later row shares the lighter one. */
+  border-top: 0.0625rem solid var(--solus-tx-rule);
+}
+.prose-transcript tbody tr:first-child td {
+  border-top: 0.0625rem solid var(--solus-tx-rule-strong);
+}
+.prose-transcript th:last-child,
+.prose-transcript td:last-child { padding-right: 0; }
+.prose-transcript td code {
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+}
+
+/* §5 — inline reference chips. One shell for everything atomic and copyable in a
+   message: code spans, file paths, PR and session refs. Card fill under a
+   hairline border — lighter than the message it sits in, never a tinted
+   highlight — so the token reads as a discrete object sitting on the surface,
+   which is what makes it feel clickable. A wash did the opposite: it read as
+   highlighter and dissolved the token back into the sentence.
+
+   Monochrome at rest — no terracotta, no underline, text at the prose colour.
+   Colour is reserved for hover, and only the interactive variant has one.
+
+   The outline is a real border, never a box-shadow: shadows ignore
+   `box-decoration-break`, so a wrapped code chip would draw an open-ended box.
+
+   References in the input bar use this same shell so file, plan, work, PR, and
+   session links do not change visual language between composing and reading.
+   Only slash-command/skill tokens keep their distinct composer treatment. */
+.prose-transcript code,
+.prose-transcript-user code,
+.prose-transcript .solus-token,
+.prose-transcript-user .solus-token,
+.solus-token--link-chip {
+  padding: 0.15625rem 0.40625rem;
+  border: 0.0625rem solid
+    color-mix(in oklch, var(--foreground) 11%, transparent);
+  border-radius: var(--radius-md);
+  margin-inline: 0;
+  background: var(--card);
+  color: inherit;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+}
+/* A code chip is a literal, not a control: no hover, no cursor change. It may
+   wrap across lines, and both halves keep a full border. */
+.prose-transcript code,
+.prose-transcript-user code {
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+/* The ref variant — an object in the product. Same shell plus a leading glyph, a
+   label that never splits, and the one bit of colour in the system. */
+.prose-transcript .solus-token,
+.prose-transcript-user .solus-token,
+.solus-token--link-chip {
+  /* The shared shell above sets the padding a `code` chip wants, whose height
+     still comes from the line box. A token's does not, so it restates the block
+     padding that holds the ~22px box the transcript's leading is tuned for. */
+  padding: 0.21875rem 0.40625rem 0.21875rem 0.3125rem;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: border-color 120ms ease;
+}
+.prose-transcript .solus-token:hover,
+.prose-transcript-user .solus-token:hover,
+.solus-token--link-chip:hover {
+  background: var(--card);
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+}
+.prose-transcript .solus-token__icon,
+.prose-transcript-user .solus-token__icon,
+.solus-token--link-chip .solus-token__icon {
+  width: 0.625rem;
+  height: 0.625rem;
+  /* Replaces the tighter `gap` this variant used to set on the flex row. */
+  margin-right: 0.1875rem;
+  opacity: 0.45;
+}
+/* A fenced block already carries its own chrome, so the inner `code` drops the
+   chip shell rather than drawing a second box inside the first. */
+.prose-transcript pre code,
+.prose-transcript-user pre code,
+.prose-transcript .solus-code-block code {
+  padding: 0;
+  border: none;
+  background: none;
+  font-size: 1em;
+}
+/* The block trades its 1px border for a hairline and sits on a 1.5% wash over
+   card — enough to separate from prose without becoming a dark slab. */
+.prose-transcript .solus-code-block {
+  margin: 0.75rem 0 0.875rem;
+  border: none;
+  border-radius: 0.75rem;
+  background: color-mix(in oklch, var(--foreground) 1.5%, var(--card));
+  box-shadow: 0 0 0 0.03125rem
+    color-mix(in oklch, var(--foreground) 10%, transparent);
+}
+.prose-transcript .solus-code-head {
+  padding: 0.4375rem 0.75rem;
+  border-bottom: none;
+  background: color-mix(in oklch, var(--foreground) 3.5%, transparent);
+}
+.prose-transcript .solus-code-lang {
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+.prose-transcript .solus-code-block pre {
+  padding: 0.75rem 0.875rem;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  line-height: 1.7;
+}
+
+/* §8 — links. A link is body text with an underline: it inherits currentColor,
+   so a paragraph with four links still reads as one paragraph. Terracotta
+   appears on hover only — it is the affordance, not the label. */
+.prose-transcript a,
+.prose-transcript-user a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-thickness: 0.0625rem;
+  text-decoration-color: color-mix(in oklch, var(--foreground) 28%, transparent);
+  text-underline-offset: 0.1875rem;
+  transition: text-decoration-color 120ms ease;
+}
+.prose-transcript a:hover,
+.prose-transcript-user a:hover {
+  text-decoration-color: var(--primary);
+}
+/* On the bubble's own fill the underline steps up — 28% goes soft against the
+   wash — and the offset tightens with the smaller type. */
+.prose-transcript-user a {
+  text-decoration-color: color-mix(in oklch, var(--foreground) 32%, transparent);
+  text-underline-offset: 0.15625rem;
+}
+/* A transcript is not a browser: no visited state. */
+.prose-transcript a:visited,
+.prose-transcript-user a:visited {
+  color: inherit;
+}
+.prose-transcript .solus-link__favicon,
+.prose-transcript-user .solus-link__favicon {
+  display: inline-block;
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-right: 0.25rem;
+  border-radius: 0.125rem;
+  object-fit: contain;
+  vertical-align: -0.09375rem;
+  outline: 0.0625rem solid rgba(0, 0, 0, 0.1);
+}
+.dark .prose-transcript .solus-link__favicon,
+.dark .prose-transcript-user .solus-link__favicon {
+  outline-color: rgba(255, 255, 255, 0.1);
+}
+/* ─── Interrupt-card prose (§11 — the model writes the question) ───
+   Applied alongside `.prose-transcript` on a question body, so the model's own
+   markdown renders at assistant scale inside the card — §14 minus headings and
+   images, because the card title is already the heading and an image would
+   out-weigh the options. A fenced block keeps its chrome and its Copy: a
+   question about code the reader can't copy is one they answer blind.
+
+   Must sit after `.prose-transcript` — that ruleset is unlayered, so a Tailwind
+   `max-w-none` at the call site could never beat its `max-width: 88%`. */
+.prose-interrupt {
+  max-width: none;
+}
+.prose-interrupt h1,
+.prose-interrupt h2,
+.prose-interrupt h3,
+.prose-interrupt h4,
+.prose-interrupt h5,
+.prose-interrupt h6 {
+  margin: 0 0 0.375rem;
+  font-size: inherit;
+  font-weight: 500;
+}
+.prose-interrupt img {
+  display: none;
+}
+/* Hand-drawn ASCII in an unfenced question body keeps its indentation — and
+   still wraps at the card edge rather than overflowing it. */
+.prose-interrupt p {
+  white-space: pre-wrap;
+}
+
+/* ─── Report prose (2a — the sub-agent's answer) ───
+   Two steps, both applied alongside `.prose-transcript`: the verdict the report
+   leads with, and the section bodies under it. Section headings are drawn as
+   kickers outside the prose, so nothing in here has to carry section weight.
+
+   A report is the chip-densest prose in the product — every file, symbol, and
+   line reference is a ~22px chip box — so it keeps the transcript's 1.75
+   leading everywhere, including list items, where the transcript's tighter
+   1.55 lets stacked chip borders touch.
+
+   The measure is set by the report's own column, so the 88% share is released;
+   pinning it here instead would compound against that column.
+
+   Must sit after `.prose-transcript` — that ruleset is unlayered, so a Tailwind
+   `text-[…]` or `max-w-none` at the call site could never beat it. */
+.prose-report-lead {
+  max-width: none;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.75;
+}
+.prose-report {
+  max-width: none;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.75;
+}
+.prose-report p,
+.prose-report-lead p {
+  margin-bottom: 0.75rem;
+}
+.prose-report li,
+.prose-report-lead li {
+  margin-bottom: 0.375rem;
+  line-height: 1.75;
+}
+
+/* ─── Agent exchange card prose (the other agent's reply) ───
+   A reply is rendered by the transcript's own markdown renderer — one dialect,
+   no second implementation — under two constraints: nothing inside a card may
+   be larger than the card's own body type, and a card is already a section, so
+   it cannot contain a heading that reads as one. Every level therefore lands on
+   the body's own size at 600.
+
+   Applied alongside `.prose-transcript`, which is what draws the reference-chip
+   shell on code spans (`.prose-transcript code`); dropping it would silently
+   revert them to the accent-coloured borderless treatment. Must sit after that
+   ruleset — it is unlayered, so a Tailwind class at the call site could never
+   beat its `max-width: 88%`. */
+.prose-agent-card {
+  max-width: none;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.62;
+}
+.prose-agent-card h1,
+.prose-agent-card h2,
+.prose-agent-card h3,
+.prose-agent-card h4,
+.prose-agent-card h5,
+.prose-agent-card h6 {
+  margin: 0.875rem 0 0;
+  font-size: inherit;
+  font-weight: 500;
+}
+.prose-agent-card ul,
+.prose-agent-card ol {
+  margin: 0.5625rem 0 0;
+  padding-left: 1.125rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+/* One nesting level. A card is too narrow for a tree, so a deeper list flattens
+   onto its parent's indent rather than marching off the right edge. */
+.prose-agent-card ul ul,
+.prose-agent-card ol ol,
+.prose-agent-card ul ol,
+.prose-agent-card ol ul {
+  margin-top: 0.375rem;
+  padding-left: 0;
+}
+.prose-agent-card blockquote {
+  border-left: 0.125rem solid color-mix(in oklch, var(--foreground) 14%, transparent);
+  color: var(--muted-foreground);
+}
+/* A table scrolls rather than reflows, for the same reason a code block does: a
+   shrunk-to-fit table is harder to read than a scrollbar. */
+.prose-agent-card table {
+  display: block;
+  overflow-x: auto;
+  margin: 0.625rem 0 0;
+  font-size: 0.8125rem;
+}
+.prose-agent-card th,
+.prose-agent-card td {
+  padding: 0.375rem 0.625rem;
+  white-space: nowrap;
+}
+.prose-agent-card th {
+  font-weight: 500;
+}
+/* A rule invents a section break the agent didn't write, and an image
+   out-weighs everything else in a 150px card — it arrives as an attachment row
+   instead. */
+.prose-agent-card hr,
+.prose-agent-card img {
+  display: none;
+}
+
+/* Settled body. Once an exchange is over the whole card steps back — accent
+   drops to muted, the clock and footer go — and a full-strength reply was left
+   shouting over its own header. It lands just short of tertiary: quiet enough
+   that nothing in a finished card pops, still ahead of the header chrome so the
+   words stay the one thing with any weight left.
+
+   Lives here rather than as a `text-*` utility because `.prose-transcript` sets
+   `color` unlayered on the root, every heading and `td`, which outranks any
+   layered utility; these tie on specificity and win on source order. */
+.prose-agent-card-rest,
+.prose-agent-card-rest h1,
+.prose-agent-card-rest h2,
+.prose-agent-card-rest h3,
+.prose-agent-card-rest h4,
+.prose-agent-card-rest h5,
+.prose-agent-card-rest h6,
+.prose-agent-card-rest td {
+  color: color-mix(in oklch, var(--solus-text-tertiary) 72%, var(--solus-text-primary));
+}
+
+/* ─── User bubble prose (§14, reduced set) ───
+   A bubble renders enough for a pasted sentence, not enough to become a
+   document: headings of every level flatten onto one 13.5px/600 line and
+   quotes lose their rule. */
+.prose-transcript-user,
+.prose-transcript-user h1,
+.prose-transcript-user h2,
+.prose-transcript-user h3,
+.prose-transcript-user h4 {
+  color: inherit;
+}
+.prose-transcript-user {
+  /* Match assistant prose: this is primary reading content, not dense chrome. */
+  font-size: var(--text-body);
+  /* Same 1.75 as the transcript, and for the same reason: a bubble can hold a
+     chip, so the chip sets the leading. */
+  line-height: 1.75;
+  font-weight: 400;
+  text-wrap: pretty;
+}
+.prose-transcript-user h1,
+.prose-transcript-user h2,
+.prose-transcript-user h3,
+.prose-transcript-user h4 {
+  margin: 0.35em 0 0.15em;
+  font-size: var(--text-body);
+  font-weight: 500;
+}
+.prose-transcript-user > * + * { margin-top: 0.35em; }
+.prose-transcript-user p { margin: 0.2em 0; }
+.prose-transcript-user ul, .prose-transcript-user ol { margin: 0.2em 0; }
+/* A quoted reply is the main thing people paste into a bubble, so it keeps its
+   rule rather than flattening to a plain line — just scaled to bubble type. */
+.prose-transcript-user blockquote {
+  margin: 0.35em 0;
+  padding-left: 0.625rem;
+  border-left: 0.09375rem solid
+    color-mix(in oklch, var(--foreground) 20%, transparent);
+  font-style: normal;
+  opacity: 0.75;
+}
+/* Code and reference chips share one shell with the transcript — see §5. A bubble
+   adds nothing: the spec's whole point is that the chip is identical on both
+   surfaces, and the card fill is what separates it from the 2% wash. */
+.prose-transcript-user pre {
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  margin: 0.35em 0;
+}
+
+/* ─── PR prose ───
+   Applied to pull request and task descriptions, review-thread comments, and
+   both activity timelines. One ruleset for all of them — a reply is the same
+   kind of writing as the description it answers, so it gets the same
+   typography. That body may be other people's markdown, so the ruleset covers
+   every element an author might reach for, not just the ones our own PRs happen
+   to use. Three rules carry it:
+
+   · Body is muted, structure is solid. Paragraphs sit on the tertiary tone;
+     headings, strong, em and code step up to primary. That single contrast
+     step does all the hierarchy work — no extra weights or sizes needed.
+   · One accent, used sparingly. Terracotta is spent on links and commit SHAs
+     only; a description with six accent words reads as a warning, not a doc.
+   · Generous leading, tight spacing. Space belongs *between* sections — 32px
+     before a heading, 10px after it — not inside them.
+
+   Last in the prose region on purpose: nearly every declaration here ties on
+   specificity with a `.prose-cloud` / `.github-markdown` rule above, so source
+   order is what decides them. */
+.prose-pr,
+.task-description-prose .solus-doc-editor .ProseMirror {
+  /* Every size below is a ratio of this one, so a denser surface (the inline
+     diff card) re-scales the whole ruleset by setting it once. */
+  --prose-pr-size: var(--text-caption);
+  font-size: var(--prose-pr-size);
+  line-height: 1.75;
+  font-weight: 400;
+  /* Secondary, not tertiary: a description is a document to read, not a caption
+     beside one. Headings and bold still carry the primary end of the step. */
+  color: var(--solus-text-secondary);
+  text-wrap: pretty;
+}
+/* The task description is that same prose in an editable shell, so the two
+   things the shell adds have to come back off: the prompt editor's left gutter
+   (a drag-handle lane the task header doesn't use) indents the body off the
+   title's left edge, and the editor's own letter-spacing/feature set differs
+   from the `.prose-cloud` one every other body on this ruleset gets. */
+.task-description-prose .solus-doc-editor .ProseMirror {
+  line-height: 1.8;
+  padding-left: 0;
+  padding-right: 0;
+  font-feature-settings: 'kern' 1, 'liga' 1, 'calt' 1, 'cv02' 1, 'cv03' 1, 'cv04' 1, 'cv11' 1;
+}
+
+/* Only the description runs the full width of the pane, so only it needs a
+   measure — comments are already columned by their card. `ch` is the advance of
+   "0", which is wider than the average proportional glyph, so this lands well
+   past the nominal 78ch the 1.75 leading is tuned for — deliberate, so the
+   column doesn't strand a band of empty canvas beside a body whose tables and
+   bullet rows want the room. The `main` column's own 1000px cap is the real
+   ceiling on a wide display; this keeps a narrower pane from setting lines the
+   full width of the window. */
+.prose-pr-description { max-width: 104ch; }
+
+/* The editable PR body uses the same shared document editor as task and plan
+   descriptions. Remove the long-form document measure so editing stays inline
+   with the rendered PR description instead of introducing a separate card. */
+.pr-description-editor .solus-doc-editor .ProseMirror {
+  max-width: none;
+  min-height: 9rem;
+  margin-inline: 0;
+  padding: 0;
+  font-family: inherit;
+  font-weight: 400;
+}
+
+/* Description descendants that set their own size stay on the same shared
+   description, posted-comment, and composer rung. */
+@media (pointer: fine) {
+  :is(.prose-pr-description, .task-description-prose .solus-doc-editor .ProseMirror)
+    :is(h1, h2, h3, h4, h5, h6, li, blockquote, .markdown-alert) {
+    font-size: var(--prose-pr-size);
+  }
+}
+/* Element margins alone set the rhythm — the generic sibling step would add to
+   the asymmetric heading spacing below. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) > * + * { margin-top: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) > :last-child { margin-bottom: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) p { margin: 0 0 0.75rem; }
+
+/* An h1 in the body is demoted to h2 — the PR title is the page's h1. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h1,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h2 {
+  margin: 2rem 0 0.625rem;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--solus-text-primary);
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h3,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h4,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h5,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h6 {
+  margin: 1.25rem 0 0.375rem;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-weight: 500;
+  line-height: 1.4;
+  color: var(--solus-text-primary);
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h1:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h2:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h3:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h4:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h5:first-child,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h6:first-child { margin-top: 0; }
+
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) strong { font-weight: 500; color: var(--solus-text-primary); }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) em { font-style: italic; color: var(--solus-text-primary); }
+
+/* Mono runs at 0.9× whatever surrounds them — never equal, or the chip reads
+   as a size change rather than a change of voice. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) code {
+  padding: 0.0625rem 0.25rem;
+  border-radius: 0.25rem;
+  background: var(--solus-surface-hover);
+  color: var(--solus-text-primary);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+}
+/* A commit SHA is an address, not a literal you'd retype: accent, no chip. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) code.markdown-sha {
+  padding: 0;
+  background: none;
+  color: var(--solus-accent);
+}
+
+/* Markers live in their own gutter rather than in the text flow, so a list
+   stays aligned at any nesting depth and a wrapped line never tucks under its
+   own bullet. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ul {
+  margin: 0.75rem 0;
+  padding-left: 0;
+  list-style: none;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ol {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+  list-style: decimal;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li {
+  margin: 0;
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.7;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li + li { margin-top: 0.75rem; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li > p { margin: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li > p + p { margin-top: 0.375rem; }
+/* A nested list belongs to its parent item, not to the gap between items. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li > ul,
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li > ol { margin: 0.375rem 0 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ul > li {
+  position: relative;
+  padding-left: 1.25rem;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ul > li::before {
+  content: "";
+  position: absolute;
+  left: 0.25rem;
+  /* Optical centre of the first line, which sits a hair above the true one. */
+  top: 0.63em;
+  width: 0.25rem;
+  height: 0.25rem;
+  border-radius: 9999px;
+  background: currentColor;
+}
+/* Nested bullets hollow out, so depth reads without a second indent cue. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li ul > li::before {
+  top: 0.56em;
+  width: 0.3125rem;
+  height: 0.3125rem;
+  background: none;
+  border: 0.0625rem solid currentColor;
+}
+/* Mono numerals, muted, right-aligned in the gutter (list-style-position:
+   outside) so a two-digit item never shifts the text column. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ol > li::marker {
+  font-family: var(--solus-code-font-family);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  color: var(--solus-text-tertiary);
+}
+
+/* Task rows carry their own marker, so they opt out of the bullet gutter. */
+.prose-pr .markdown-task-item,
+.task-description-prose .solus-doc-editor .ProseMirror ul[data-type="taskList"] > li {
+  margin-left: 0;
+  padding-left: 0;
+  gap: 0.625rem;
+}
+.prose-pr .markdown-task-item::before,
+.task-description-prose .solus-doc-editor .ProseMirror ul[data-type="taskList"] > li::before { content: none; }
+.prose-pr .markdown-task-checkbox {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  margin-top: 0.25rem;
+  border-radius: 0.25rem;
+}
+.task-description-prose .solus-doc-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  width: 0.8125rem;
+  height: 0.8125rem;
+  margin-top: 0.125rem;
+  accent-color: var(--solus-art-3);
+}
+/* Sage tick; the label stays muted rather than struck — a done item is still
+   part of the description. */
+.prose-pr .markdown-task-checked .markdown-task-checkbox {
+  border-color: var(--solus-art-3);
+  background: var(--solus-art-3);
+}
+.task-description-prose .solus-doc-editor .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div {
+  color: var(--solus-text-tertiary);
+  text-decoration: none;
+}
+
+/* Quiet, not decorative: a wash and a leading hairline, same muted text. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border-left: 0.125rem solid var(--solus-container-border);
+  border-radius: 0.5rem;
+  background: var(--solus-surface-hover);
+  color: var(--solus-text-tertiary);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.7;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote > :first-child { margin-top: 0; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote > :last-child { margin-bottom: 0; }
+
+/* Callouts earn a tinted card instead of a bare left rule — they're for the
+   one caveat that changes what the reviewer should do. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 0.0625rem solid color-mix(in srgb, var(--markdown-alert-color) 28%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, var(--markdown-alert-color) 10%, transparent);
+  color: var(--solus-text-tertiary);
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  line-height: 1.7;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title { margin-bottom: 0.25rem; }
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title svg { width: 0.9375rem; height: 0.9375rem; }
+
+/* No chrome and no language label — a fenced block is a quotation of a
+   terminal, and it scrolls rather than wrapping. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) pre {
+  margin: 1rem 0;
+  padding: 0.75rem 0.875rem;
+  border: none;
+  border-radius: 0.5rem;
+  background: var(--solus-code-tint);
+  color: var(--solus-text-primary);
+  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  line-height: 1.65;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) hr {
+  margin: 1.5rem 0 1rem;
+  border-top: 0.0625rem solid var(--solus-container-border);
+  opacity: 1;
+}
+/* The "Generated with …" line under a closing rule sits below the document. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) hr + p:last-child {
+  margin-bottom: 0;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+}
+
+/* An image sits in the line it was written in — a logo beside heading text, a
+   badge mid-sentence. Blanket `display: block` broke those onto their own line
+   and split the heading around them (the Cloudflare deploy comment reads
+   "Deploying with" / logo / "Cloudflare Workers" over three lines). Only an
+   image that is a paragraph of its own is a figure, so only it gets the block
+   treatment and the frame that goes with it. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) img {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror)
+  p:has(> img:only-child)
+  > img {
+  display: block;
+  margin: 1rem 0;
+  border: 0.0625rem solid var(--solus-container-border);
+  border-radius: 0.5rem;
+}
+
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table {
+  margin: 1rem 0;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+}
+/* Cells wrap — a row whose label runs three lines must still start level with
+   its value, so alignment is top, never the UA's middle. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) :is(th, td) {
+  vertical-align: top;
+}
+/* The header row is the only emphasis a table gets. Cells carry whatever weight
+   the author wrote — promoting the first column to 500/primary bolded every row
+   of a table whose left column is a sentence rather than a label, so the two
+   columns read as emphasis-vs-aside instead of as one row. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) th {
+  padding: 0 0.7em 0.5em 0;
+  border-bottom: 0.0625rem solid var(--solus-container-border);
+  background: none;
+  font-weight: 500;
+  color: var(--solus-text-primary);
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) td {
+  padding: 0.55em 0.7em 0.55em 0;
+  border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) tr:last-child td { border-bottom: none; }
+/* Two columns is usually a label→value pair, so it reads lighter than a grid:
+   smaller type step, tighter rows, no rules between them. The label column gets
+   a *floor* rather than a fixed width — pinning it at 8.75rem starved first
+   cells that hold a sentence instead of a word, squeezing them into a ragged
+   column beside a mostly-empty value. Auto layout then splits the width by how
+   much content each column actually carries. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) {
+  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) :is(th, td) {
+  padding: 0.5em 1.25em 0.5em 0;
+  border-bottom: none;
+  line-height: 1.7;
+}
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) :is(th, td):first-child {
+  min-width: 8.75rem;
+}
+
+/* The inline diff card runs 11px chrome in a column the width of a hunk, so it
+   takes the same ruleset a step down: type via the ratio variable, block
+   rhythm halved by hand — description spacing is tuned for a full pane, and
+   32px above a heading would be most of the card. */
+.github-markdown.prose-cloud.prose-pr-compact {
+  --prose-pr-size: calc(0.75rem * var(--solus-font-scale, 1));
+  line-height: 1.65;
+}
+.github-markdown.prose-cloud.prose-pr-compact p { margin-bottom: 0.5rem; }
+.github-markdown.prose-cloud.prose-pr-compact :is(h1, h2) { margin: 1rem 0 0.375rem; }
+.github-markdown.prose-cloud.prose-pr-compact :is(h3, h4, h5, h6) { margin: 0.625rem 0 0.25rem; }
+.github-markdown.prose-cloud.prose-pr-compact :is(ul, ol) { margin: 0.5rem 0; }
+.github-markdown.prose-cloud.prose-pr-compact li + li { margin-top: 0.375rem; }
+.github-markdown.prose-cloud.prose-pr-compact :is(pre, blockquote, .markdown-alert) { margin: 0.625rem 0; }
+.github-markdown.prose-cloud.prose-pr-compact hr { margin: 0.875rem 0 0.625rem; }
+
+/* ─── Pulsing dot animation ─── */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.85); }
+}
+.animate-pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
+}
+
+/* ─── Agent exchange: the other agent is writing ───
+   Three dots in the agent's colour, in the position its reply will occupy —
+   the same signal a messaging app uses, and the reason the card carries no
+   spinner, no status sentence and no elapsed clock beside it. */
+@keyframes tdot {
+  0%, 62%, 100% { transform: translateY(0); opacity: 0.42; }
+  31% { transform: translateY(-0.21875rem); opacity: 1; }
+}
+.agent-typing-dot {
+  animation: tdot 1.25s ease-in-out infinite;
+}
+.agent-typing-dot:nth-child(2) { animation-delay: 0.16s; }
+.agent-typing-dot:nth-child(3) { animation-delay: 0.32s; }
+
+/* The header's direction dot travels toward whoever the in-flight message is
+   going to: leftward while the agent is replying to you, rightward while your
+   prompt is on its way out. */
+@keyframes flowL {
+  0% { transform: translateX(2.0625rem); opacity: 0; }
+  18%, 82% { opacity: 1; }
+  100% { transform: translateX(0); opacity: 0; }
+}
+@keyframes flowR {
+  0% { transform: translateX(0); opacity: 0; }
+  18%, 82% { opacity: 1; }
+  100% { transform: translateX(2.0625rem); opacity: 0; }
+}
+.agent-flow-dot--to-you {
+  animation: flowL 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+.agent-flow-dot--to-agent {
+  animation: flowR 1.9s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+}
+
+/* Folding the body away. A grid track rather than max-height: the body's real
+   height is whatever the reply is, and a max-height guess either clips a long
+   one or spends the first half of the animation travelling through empty space.
+   0fr → 1fr measures it, so every card folds at the same speed regardless of
+   how much it holds.
+
+   The body stays mounted while folded — it is the transcript this card exists
+   to keep, and unmounting it would re-run the markdown parse on every open. */
+.agent-card-fold {
+  display: grid;
+  grid-template-rows: 1fr;
+  /* Decelerating: the fold leaves quickly and arrives gently, which is what
+     makes it read as the card settling rather than as a panel being driven. */
+  transition:
+    grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 140ms ease-out;
+}
+.agent-card-fold--closed {
+  grid-template-rows: 0fr;
+  /* Faster out than in, so the words are gone before the height finishes
+     closing and nothing is caught mid-crush. */
+  opacity: 0;
+  transition:
+    grid-template-rows 220ms cubic-bezier(0.32, 0.72, 0, 1),
+    opacity 90ms ease-in;
+}
+
+/* Dots, the direction dot and the fold are the only motion this component has,
+   so this is the whole of its reduced-motion contract. */
+@media (prefers-reduced-motion: reduce) {
+  .agent-typing-dot,
+  .agent-flow-dot--to-you,
+  .agent-flow-dot--to-agent {
+    animation: none;
+    opacity: 0.7;
+  }
+  .agent-card-fold,
+  .agent-card-fold--closed {
+    transition: none;
+  }
+}
+
+/* Native prose fields that do not use the shared field primitives still show
+   the active dictation state. Outline-color is paint-only and state-bounded. */
+[data-solus-voice-state="recording"] {
+  outline: 0.125rem solid color-mix(in srgb, var(--solus-accent) 85%, transparent) !important;
+  outline-offset: 0.125rem;
+  animation: solus-native-voice-pulse 900ms ease-in-out infinite alternate;
+}
+[data-solus-voice-state="transcribing"] {
+  outline: 0.125rem solid color-mix(in srgb, var(--solus-accent) 55%, transparent) !important;
+  outline-offset: 0.125rem;
+}
+@keyframes solus-native-voice-pulse {
+  from { outline-color: color-mix(in srgb, var(--solus-accent) 35%, transparent); }
+  to { outline-color: color-mix(in srgb, var(--solus-accent) 90%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-solus-voice-state="recording"] {
+    animation: none;
+  }
+}
+
+/* ─── Bouncing dots for thinking ─── */
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-0.25rem); }
+}
+.animate-bounce-dot {
+  animation: bounce-dot 1.2s ease-in-out infinite;
+}
+
+/* ─── Breathing glow for activity dots (replaces bounce) ─── */
+@keyframes breathing-glow {
+  0% { opacity: 0.45; transform: scale(0.95); }
+  38% { opacity: 0.9; transform: scale(1.08); }
+  58% { opacity: 0.75; transform: scale(1.04); }
+  100% { opacity: 0.45; transform: scale(0.95); }
+}
+.animate-breathing {
+  animation: breathing-glow 2.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* ─── Spin for running status icon ─── */
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 0.9s linear infinite;
+}
+
+/* ─── Top scroll fade — sticky pseudo-element ─── */
+.has-scroll-fade-top {
+  position: relative;
+}
+.has-scroll-fade-top::before {
+  content: '';
+  position: sticky;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1.25rem;
+  display: block;
+  background: linear-gradient(to bottom, var(--solus-container-bg), transparent);
+  pointer-events: none;
+  z-index: 1;
+  margin-bottom: -1.25rem;
+}
+
+/* ─── Click-through shell ─── */
+.click-through-shell {
+  pointer-events: none;
+}
+.click-through-shell > * {
+  pointer-events: auto;
+}
+
+/* ─── Drag region for frameless window ─── */
+.drag-region {
+  -webkit-app-region: drag;
+}
+.no-drag,
+.no-drag * {
+  -webkit-app-region: no-drag;
+}
+
+/* The macOS editor keeps edge-to-edge content under native traffic lights. */
+html.is-mac-editor {
+  --solus-titlebar-height: 3.25rem;
+  --solus-traffic-light-inset: 5.625rem;
+  --solus-chrome-row-h: var(--solus-titlebar-height);
+}
+
+/* One titlebar contract for every real Editor header: the row owns window
+   movement and its controls opt out. */
+html.is-mac-editor .workspace-titlebar {
+  -webkit-app-region: drag;
+}
+html.is-mac-editor
+  .workspace-titlebar
+  :where(button, input, textarea, select, a, [contenteditable="true"]) {
+  -webkit-app-region: no-drag;
+}
+
+/* ─── Dropdown menu item stagger ─── */
+@theme {
+  --animate-menu-item-in: menu-item-in 0.18s ease-out backwards;
+  @keyframes menu-item-in {
+    from { opacity: 0; transform: translateY(-0.1875rem); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+}
+@utility menu-item-stagger {
+  animation: var(--animate-menu-item-in);
+  &:nth-child(2) { animation-delay: 50ms; }
+  &:nth-child(3) { animation-delay: 100ms; }
+  &:nth-child(4) { animation-delay: 150ms; }
+  &:nth-child(5) { animation-delay: 200ms; }
+  &:nth-child(n + 6) { animation-delay: 250ms; }
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+}
+
+/* ─── Menu surface, rows and headings ───────────────────────────────────────
+   One command surface for every menu in the app: dropdowns, context menus,
+   selects, and the branch/project/model pickers all compose from these three.
+   The metrics are deliberate — a 32px row carrying a 13px label reads as an
+   app menu, where the taller/smaller pairing reads as a website's. */
+@theme {
+  --animate-menu-pop-in: menu-pop-in 0.16s ease-out;
+  @keyframes menu-pop-in {
+    from { opacity: 0; transform: translateY(0.3125rem) scale(0.985); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  /* A menu is chrome, not content: plain rem, never scaled by
+     --solus-font-scale (that preference belongs to the transcript).
+     A menu item is a label you read to make a decision, which is the rule that
+     put every other row label in the app on the 14px rung — so menus join them,
+     with their shortcut hints a step below at 12px. Neither steps on a laptop:
+     see the note in the `html.is-laptop-display` block.
+     Kept as a token, unlike the rest of chrome, while the value settles: one
+     edit here moves every menu in the app. Fold it into `text-sm` once it has. */
+  --text-menu: 0.875rem;
+}
+
+@utility menu-surface {
+  overflow: hidden;
+  border: 0;
+  /* Ten call sites restate their own radius over this one, and they mean it —
+     GitSection's menu is deliberately 8px where the pickers are 16px. Stepping
+     the radius *here* on a laptop would compile to `html.is-laptop-display
+     .menu-surface`, which outranks every one of those utilities and would
+     inflate the 8px menu rather than shrink it. The surfaces that want the step
+     opt into it themselves. */
+  border-radius: 1rem;
+  /* A menu is a *portalled* surface: bits-ui mounts it on `document.body`, so it
+     sits outside `#root` and inherits nothing from the page that opened it. Its
+     rows therefore cannot take a rung by inheritance the way in-page controls
+     do — the menu has to declare one, and this is the single place every
+     portalled menu passes through (dropdown, select, context menu, command).
+     Without it, rows that inherit resolve against the bare 16px root.
+     A call site's own `text-*` still wins: utilities compile after this. */
+  font-size: var(--text-workspace-chrome);
+  line-height: var(--text-workspace-chrome--line-height);
+  /* One row type everywhere: regular. Weight is spent on the current row and
+     the group headings, never on the list at rest. */
+  font-weight: 400;
+  background: var(--solus-menu-bg);
+  /* Set both. Any `ring-*` utility — including the `ring-0` every menu uses to
+     kill the stock ring — re-declares `box-shadow` as Tailwind's composite, and
+     being a utility it lands after this one and wins. Feeding `--tw-shadow` too
+     means the stack survives that composite instead of being blanked by it. */
+  --tw-shadow: var(--solus-menu-shadow);
+  box-shadow: var(--solus-menu-shadow);
+  animation: var(--animate-menu-pop-in);
+  @media (prefers-reduced-motion: reduce) { animation: none; }
+}
+
+/* The current row is weight + check — two quiet signals rather than one loud
+   fill. `data-state=checked` covers bits-ui radio/checkbox items;
+   `data-menu-current` is the manual hook for Command rows, whose own
+   `data-selected` means keyboard-highlighted, not chosen. */
+@utility menu-row {
+  /* Anchors the absolutely-positioned check indicator on radio/checkbox rows. */
+  position: relative;
+  transition: box-shadow var(--duration-quick) var(--ease-premium),
+              color var(--duration-quick) var(--ease-premium);
+
+  &:hover:not(:disabled):not([data-disabled]),
+  &[data-highlighted],
+  &[data-selected] {
+    box-shadow: inset 0 0 0 62rem var(--solus-menu-hover-ink);
+    color: var(--solus-text-primary);
+  }
+
+  &[data-state="checked"],
+  &[data-menu-current] {
+    color: var(--solus-text-primary);
+    font-weight: 500;
+  }
+}
+
+/* A finger needs 44px. The composer draws its plus, mic and send at 30–36px
+   because a disc that big would dominate the pill, so under a coarse pointer
+   this grows the hit *area* to 44px around the painted control rather than the
+   control itself — the other half of `--solus-tap-target`, which sizes a
+   control that is free to grow. The pseudo-element is out of flow, so no row
+   gets taller and no neighbour moves.
+
+   Adjacent tap targets need at least 0.5rem of gap between their painted
+   boxes. Below that the two 44px areas overlap and the later sibling — this
+   pseudo-element is positioned, so it paints above a plain neighbour — takes
+   taps meant for the other control.
+
+   Always spell it `pointer-coarse:tap-area` at the call site. The variant is
+   not optional, and folding it in here does not work: wrapping these
+   declarations in a `@media` inside `@utility` compiled to the declarations
+   without the media query, which puts an invisible 44px box over every control
+   on a mouse-driven display — where the tighter 4px gaps mean it covers the
+   neighbour. Read the compiled sheet before trying that again. */
+@utility tap-area {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    translate: -50% -50%;
+  }
+}
+
+@utility menu-heading {
+  padding: 0.5rem 0.625rem 0.3125rem;
+  /* Tracks the row inset it labels, so the heading stays left-aligned with the
+     rows under it once those step to 8px. */
+  @media (pointer: fine) {
+    html.is-laptop-display & {
+      padding: 0.375rem 0.5rem 0.25rem;
+    }
+  }
+  /* The shelf rung, the same one every other heading-above-a-list takes: a
+     group heading has to stay a step under its rows at *both* display sizes,
+     and a flat 12px met the rows once they stepped down to 12px on a laptop. */
+  font-size: var(--text-chrome-shelf);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--solus-text-tertiary);
+}
+
+@keyframes backdrop-fade {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes skeleton-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* ─── Session picker motion ─── */
+@keyframes picker-enter {
+  from { opacity: 0; transform: translate3d(0, 0.25rem, 0) scale(0.985); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+}
+@keyframes search-glow-pulse {
+  0%, 100% { opacity: 0.2; }
+  50%      { opacity: 0.85; }
+}
+@keyframes count-scale-bump {
+  0%   { transform: scale(1.12); color: var(--solus-accent); }
+  100% { transform: scale(1); color: inherit; }
+}
+@keyframes scanning-ellipsis {
+  0%   { width: 0; }
+  25%  { width: 0.33em; }
+  50%  { width: 0.66em; }
+  75%  { width: 1em; }
+  100% { width: 0; }
+}
+/* ─── Plan modal motion ─── */
+@keyframes plan-modal-enter {
+  from { opacity: 0; transform: translate3d(0, 0.375rem, 0) scale(0.985); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0)   scale(1); }
+}
+@keyframes plan-backdrop-enter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes plan-save-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.92); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+.doc-shell-root--floating {
+  /* `backwards`, not `both`: a retained end transform would pin the entire
+     document editor to a compositing layer and blur its text (see msg-in-up). */
+  animation: plan-modal-enter var(--duration-modal) var(--ease-modal) backwards;
+  transform-origin: center top;
+}
+.doc-shell-backdrop {
+  animation: plan-backdrop-enter var(--duration-modal) var(--ease-premium) both;
+}
+.doc-shell-save-dot {
+  animation: plan-save-pulse 1.4s ease-in-out infinite;
+}
+
+/* ─── Pairing motion (consumed via [animation:…] utilities in HostPairingPanel.svelte) ─── */
+@keyframes connect-progress-slide {
+  from { transform: translateX(-100%); }
+  to   { transform: translateX(250%); }
+}
+
+/* ─── Reduced motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  .doc-shell-root--floating,
+  .doc-shell-backdrop,
+  .plan-comment-flash,
+  .doc-shell-save-dot {
+    animation: none !important;
+  }
+  .plan-comment-flash { background: color-mix(in srgb, var(--solus-art-2) 32%, transparent); }
+  .doc-shell-root .solus-doc-editor .ProseMirror h2::before,
+  .doc-shell-root .solus-doc-editor .ProseMirror pre,
+  .markdown-file-document-editor .solus-doc-editor .ProseMirror pre {
+    transition: none !important;
+  }
+}
+
+.icon-swap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ─── First-run onboarding motion ──────────────────────────────────────────────
+   Transform and opacity only. Every one of these runs on a dozen elements at
+   once — a `filter: blur()` in the keyframe re-rasterizes each of them on every
+   frame, and animating `left`/`width` relayouts the whole stage. Both were in
+   here and both were the jank. Nothing below touches paint or layout, so the
+   compositor can run the lot off the main thread. */
+@keyframes onboarding-enter {
+  from { opacity: 0; transform: translate3d(0, 0.625rem, 0); }
+  to   { opacity: 1; transform: none; }
+}
+
+/* The stage title and its supporting line: same curve, a touch more travel. */
+.onboarding-enter,
+.onboarding-title {
+  animation: onboarding-enter 0.44s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.onboarding-title {
+  animation-duration: 0.52s;
+}
+
+.onboarding-fade {
+  animation: onboarding-fade 0.5s ease-out 0.24s both;
+}
+@keyframes onboarding-fade {
+  from { opacity: 0 }
+  to   { opacity: 1 }
+}
+
+/* An install or a sign-in has no percentage to report, so the row draws an
+   indeterminate sweep. A fixed-width bar translated across its clip beats
+   animating `left` — same picture, no layout per frame. */
+@keyframes onboarding-sweep {
+  from { transform: translate3d(-100%, 0, 0) }
+  to   { transform: translate3d(250%, 0, 0) }
+}
+
+.onboarding-caret {
+  animation: onboarding-blink 1.05s step-end infinite;
+}
+@keyframes onboarding-blink {
+  0%, 45%  { opacity: 1 }
+  50%, 95% { opacity: 0.15 }
+  100%     { opacity: 1 }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-enter,
+  .onboarding-title,
+  .onboarding-fade,
+  .onboarding-caret {
+    animation: none;
+  }
+}

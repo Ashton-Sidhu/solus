@@ -1,0 +1,204 @@
+{
+  "list": [
+    {
+      "number": 142,
+      "title": "Add per-key rate limiting to public API",
+      "baseRepo": { "owner": "acme", "repo": "acme", "host": "github.com" },
+      "author": "acme-dev",
+      "authorAvatarUrl": "",
+      "state": "open",
+      "createdAt": "2026-07-11T14:22:00.000Z",
+      "updatedAt": "2026-07-14T15:40:00.000Z",
+      "draft": false,
+      "labels": [
+        { "name": "api", "color": "2563eb" },
+        { "name": "reliability", "color": "7c3aed" }
+      ],
+      "additions": 229,
+      "deletions": 12
+    }
+  ],
+  "overview": {
+    "detail": {
+      "number": 142,
+      "title": "Add per-key rate limiting to public API",
+      "baseRepo": { "owner": "acme", "repo": "acme", "host": "github.com" },
+      "author": "acme-dev",
+      "authorAvatarUrl": "",
+      "state": "open",
+      "createdAt": "2026-07-11T14:22:00.000Z",
+      "updatedAt": "2026-07-14T15:40:00.000Z",
+      "draft": false,
+      "labels": [
+        { "name": "api", "color": "2563eb" },
+        { "name": "reliability", "color": "7c3aed" }
+      ],
+      "additions": 229,
+      "deletions": 12,
+      "body": "## Summary\n\nAdds a Redis-backed token bucket for authenticated public API requests. Limits are applied per API key after authentication, with standard rate-limit headers on every response.\n\n## Rollout\n\nThe limiter defaults to shadow mode and fails open on Redis transport errors. See `docs/api/rate-limits.md` for plan limits, response headers, and rollout stages.\n\n## Verification\n\n- token bucket boundary and refill tests\n- concurrent consume test against Redis\n- middleware header and 429 response tests\n- `bun test src/ratelimit src/middleware`",
+      "baseRef": "main",
+      "headRef": "feat/rate-limiting",
+      "baseSha": "6c3d1af8b4258e80f4b07c90af3c0a934f2214d2",
+      "headSha": "a9f742ce6db11b6d0d7482387ec3b293dcf2f41c",
+      "changedFiles": 6,
+      "mergeable": true,
+      "mergeStateStatus": "clean",
+      "headRepo": { "owner": "acme", "repo": "acme", "isFork": false }
+    },
+    "commits": [
+      { "sha": "d1c20c18af706f08821b7524121a80a52dd1eaa3", "message": "Add atomic Redis token bucket", "author": "acme-dev", "committedAt": "2026-07-11T14:18:00.000Z" },
+      { "sha": "58ec21a99ae74f30b6ff7b112374231055de6c42", "message": "Wire limiter into authenticated API routes", "author": "acme-dev", "committedAt": "2026-07-12T10:05:00.000Z" },
+      { "sha": "74bd8d62b46a03c7f77dc9f6b5934338dfd23e81", "message": "Cover refill boundaries and concurrent consumption", "author": "acme-dev", "committedAt": "2026-07-13T16:44:00.000Z" },
+      { "sha": "a9f742ce6db11b6d0d7482387ec3b293dcf2f41c", "message": "Document limits and staged rollout", "author": "acme-dev", "committedAt": "2026-07-14T15:36:00.000Z" }
+    ],
+    "reviewers": [
+      { "login": "maya-platform", "state": "COMMENTED" },
+      { "login": "leo-infra", "state": "PENDING" }
+    ]
+  },
+  "changedFiles": [
+    { "path": "src/ratelimit/tokenBucket.ts", "additions": 58, "deletions": 0 },
+    { "path": "src/middleware/rateLimit.ts", "additions": 51, "deletions": 0 },
+    { "path": "src/config.ts", "additions": 12, "deletions": 2 },
+    { "path": "src/api/router.ts", "additions": 9, "deletions": 5 },
+    { "path": "src/ratelimit/tokenBucket.test.ts", "additions": 69, "deletions": 0 },
+    { "path": "docs/api/rate-limits.md", "additions": 30, "deletions": 5 }
+  ],
+  "threads": [
+    {
+      "id": "demo-thread-clock-skew",
+      "filePath": "src/ratelimit/tokenBucket.ts",
+      "line": 31,
+      "side": "RIGHT",
+      "isResolved": false,
+      "isOutdated": false,
+      "comments": [
+        {
+          "id": "demo-comment-clock-skew",
+          "author": "maya-platform",
+          "body": "Could app-server clock skew ever move `nowMs` behind the timestamp stored by another replica and effectively mint extra tokens? Should the Lua script use Redis `TIME` instead?",
+          "createdAt": "2026-07-14T12:10:00.000Z",
+          "diffHunk": "@@ -0,0 +1,58 @@\n+export async function consumeTokenBucket(\n+  redis: Redis,\n+  key: string,\n+  policy: RateLimitPolicy,\n+  nowMs: number,\n+): Promise<RateLimitDecision> {"
+        },
+        {
+          "id": "demo-comment-clock-skew-reply",
+          "author": "acme-dev",
+          "body": "Good catch. The script clamps elapsed time at zero, so skew cannot mint tokens, but it can delay refill. I’ll switch to Redis `TIME` in a follow-up commit so all replicas share one clock.",
+          "createdAt": "2026-07-14T13:02:00.000Z"
+        }
+      ]
+    },
+    {
+      "id": "demo-thread-fail-open",
+      "filePath": "src/middleware/rateLimit.ts",
+      "line": 39,
+      "side": "RIGHT",
+      "isResolved": true,
+      "isOutdated": false,
+      "comments": [
+        {
+          "id": "demo-comment-fail-open",
+          "author": "leo-infra",
+          "body": "Please make the fail-open path observable. Otherwise a Redis incident silently removes the protection exactly when traffic may be elevated.",
+          "createdAt": "2026-07-13T17:20:00.000Z",
+          "diffHunk": "@@ -0,0 +1,51 @@\n+  } catch (error) {\n+    request.log.warn({ error, apiKeyId }, 'rate limiter unavailable')\n+    return next()\n+  }"
+        },
+        {
+          "id": "demo-comment-fail-open-reply",
+          "author": "acme-dev",
+          "body": "Added the structured warning and `rate_limit_decisions_total{outcome=\"fail_open\"}` increment. The alert in the rollout notes keys off that metric.",
+          "createdAt": "2026-07-13T18:05:00.000Z"
+        }
+      ]
+    }
+  ],
+  "guide": {
+    "version": 1,
+    "key": "demo-pr-142",
+    "headSha": "a9f742ce6db11b6d0d7482387ec3b293dcf2f41c",
+    "baseSha": "6c3d1af8b4258e80f4b07c90af3c0a934f2214d2",
+    "title": "Review per-key API rate limiting",
+    "summary": "Start with the atomic token-bucket math and its clock assumptions, then follow the decision through middleware wiring, rollout configuration, and concurrency-focused tests. The implementation intentionally fails open during the staged launch.",
+    "sections": [
+      {
+        "id": "guide-core-algorithm",
+        "title": "Atomic token-bucket algorithm",
+        "order": 1,
+        "significance": "core",
+        "explanation": "The Lua script is the correctness boundary. Verify refill math, capacity clamping, TTL behavior, and whether time is consistent across app replicas. A bug here either blocks healthy clients or permits bursts above policy.",
+        "ledgerRefs": [],
+        "files": [
+          {
+            "path": "src/ratelimit/tokenBucket.ts",
+            "additions": 58,
+            "deletions": 0,
+            "hunks": "diff --git a/src/ratelimit/tokenBucket.ts b/src/ratelimit/tokenBucket.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/ratelimit/tokenBucket.ts\n@@ -0,0 +1,58 @@\n+const TOKEN_BUCKET_SCRIPT = `\n+local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens')) or tonumber(ARGV[1])\n+local updated_at = tonumber(redis.call('HGET', KEYS[1], 'updated_at')) or tonumber(ARGV[3])\n+local elapsed = math.max(0, tonumber(ARGV[3]) - updated_at)\n+tokens = math.min(tonumber(ARGV[1]), tokens + elapsed * tonumber(ARGV[2]) / 1000)\n+local allowed = tokens >= 1\n+if allowed then tokens = tokens - 1 end"
+          }
+        ]
+      },
+      {
+        "id": "guide-api-wiring",
+        "title": "API wiring and response contract",
+        "order": 2,
+        "significance": "core",
+        "explanation": "The middleware must run after API-key authentication, attach headers to allowed responses, and preserve the existing error envelope on 429. The catch path is deliberately fail-open and must remain observable.",
+        "ledgerRefs": [],
+        "files": [
+          {
+            "path": "src/middleware/rateLimit.ts",
+            "additions": 51,
+            "deletions": 0,
+            "hunks": "diff --git a/src/middleware/rateLimit.ts b/src/middleware/rateLimit.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/middleware/rateLimit.ts\n@@ -0,0 +1,51 @@\n+export function rateLimit(deps: RateLimitDeps): Middleware {\n+  return async (request, next) => {\n+    const apiKeyId = request.context.apiKey.id\n+    const decision = await consumeTokenBucket(deps.redis, `ratelimit:${apiKeyId}`, deps.policy, deps.now())\n+    setRateLimitHeaders(request.response, decision)\n+    if (!decision.allowed) return rateLimitExceeded(request, decision)"
+          },
+          {
+            "path": "src/api/router.ts",
+            "additions": 9,
+            "deletions": 5,
+            "hunks": "diff --git a/src/api/router.ts b/src/api/router.ts\n--- a/src/api/router.ts\n+++ b/src/api/router.ts\n@@ -12,8 +12,12 @@ export function createApiRouter(deps: ApiDeps) {\n   const api = new Hono<ApiContext>()\n-  api.use('/v1/*', authenticateApiKey(deps.apiKeys))\n+  api.use('/v1/*', authenticateApiKey(deps.apiKeys))\n+  api.use('/v1/*', rateLimit({ redis: deps.redis, policy: deps.config.rateLimit, now: Date.now }))"
+          }
+        ]
+      },
+      {
+        "id": "guide-config-limits",
+        "title": "Configuration and rollout limits",
+        "order": 3,
+        "significance": "supporting",
+        "explanation": "Defaults should match the public contract and remain safe for local development. Check that shadow mode is the production default for launch and that invalid numeric environment values fail during startup.",
+        "ledgerRefs": [],
+        "files": [
+          {
+            "path": "src/config.ts",
+            "additions": 12,
+            "deletions": 2,
+            "hunks": "diff --git a/src/config.ts b/src/config.ts\n--- a/src/config.ts\n+++ b/src/config.ts\n@@ -18,6 +18,16 @@ export const config = {\n+  rateLimit: {\n+    mode: env.RATE_LIMIT_MODE ?? 'shadow',\n+    capacity: intEnv('RATE_LIMIT_CAPACITY', 200),\n+    refillPerSecond: intEnv('RATE_LIMIT_REFILL_PER_SECOND', 50),\n+  },"
+          },
+          { "path": "docs/api/rate-limits.md", "additions": 30, "deletions": 5 }
+        ]
+      },
+      {
+        "id": "guide-tests",
+        "title": "Boundary and concurrency tests",
+        "order": 4,
+        "significance": "supporting",
+        "explanation": "The tests encode the business invariants: capacity cannot be exceeded, fractional refill accumulates correctly, concurrent consumers cannot both take the final token, and denied requests receive actionable headers.",
+        "ledgerRefs": [],
+        "files": [
+          {
+            "path": "src/ratelimit/tokenBucket.test.ts",
+            "additions": 69,
+            "deletions": 0,
+            "hunks": "diff --git a/src/ratelimit/tokenBucket.test.ts b/src/ratelimit/tokenBucket.test.ts\nnew file mode 100644\n--- /dev/null\n+++ b/src/ratelimit/tokenBucket.test.ts\n@@ -0,0 +1,69 @@\n+test('only one concurrent request consumes the final token', async () => {\n+  await seedBucket(redis, key, { tokens: 1, updatedAt: now })\n+  const decisions = await Promise.all([consume(), consume()])\n+  expect(decisions.filter((decision) => decision.allowed)).toHaveLength(1)\n+})"
+          }
+        ]
+      }
+    ]
+  },
+  "filePatches": {
+    "src/ratelimit/tokenBucket.ts": "diff --git a/src/ratelimit/tokenBucket.ts b/src/ratelimit/tokenBucket.ts\nnew file mode 100644\nindex 0000000..72bc1f0\n--- /dev/null\n+++ b/src/ratelimit/tokenBucket.ts\n@@ -0,0 +1,58 @@\n+import type { Redis } from '../infra/redis'\n+\n+export interface RateLimitPolicy {\n+  capacity: number\n+  refillPerSecond: number\n+}\n+\n+export interface RateLimitDecision {\n+  allowed: boolean\n+  limit: number\n+  remaining: number\n+  resetAfterMs: number\n+}\n+\n+const TOKEN_BUCKET_SCRIPT = `\n+local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens')) or tonumber(ARGV[1])\n+local updated_at = tonumber(redis.call('HGET', KEYS[1], 'updated_at')) or tonumber(ARGV[3])\n+local elapsed = math.max(0, tonumber(ARGV[3]) - updated_at)\n+tokens = math.min(tonumber(ARGV[1]), tokens + elapsed * tonumber(ARGV[2]) / 1000)\n+local allowed = tokens >= 1\n+if allowed then tokens = tokens - 1 end\n+redis.call('HSET', KEYS[1], 'tokens', tokens, 'updated_at', ARGV[3])\n+redis.call('PEXPIRE', KEYS[1], math.ceil(tonumber(ARGV[1]) / tonumber(ARGV[2]) * 2000))\n+local reset_ms = math.ceil(math.max(0, 1 - tokens) / tonumber(ARGV[2]) * 1000)\n+return { allowed and 1 or 0, math.floor(tokens), reset_ms }\n+`\n+\n+export async function consumeTokenBucket(\n+  redis: Redis,\n+  key: string,\n+  policy: RateLimitPolicy,\n+  nowMs: number,\n+): Promise<RateLimitDecision> {\n+  const [allowed, remaining, resetAfterMs] = await redis.eval(\n+    TOKEN_BUCKET_SCRIPT,\n+    [key],\n+    [policy.capacity, policy.refillPerSecond, nowMs],\n+  ) as [number, number, number]\n+\n+  return {\n+    allowed: allowed === 1,\n+    limit: policy.capacity,\n+    remaining,\n+    resetAfterMs,\n+  }\n+}\n",
+    "src/middleware/rateLimit.ts": "diff --git a/src/middleware/rateLimit.ts b/src/middleware/rateLimit.ts\nnew file mode 100644\nindex 0000000..bc912be\n--- /dev/null\n+++ b/src/middleware/rateLimit.ts\n@@ -0,0 +1,51 @@\n+import type { Middleware } from '../api/types'\n+import type { Redis } from '../infra/redis'\n+import { consumeTokenBucket, type RateLimitPolicy } from '../ratelimit/tokenBucket'\n+import { rateLimitDecisions } from '../telemetry/metrics'\n+\n+interface RateLimitDeps {\n+  redis: Redis\n+  policy: RateLimitPolicy\n+  mode: 'shadow' | 'enforce'\n+  now: () => number\n+}\n+\n+export function rateLimit(deps: RateLimitDeps): Middleware {\n+  return async (request, next) => {\n+    const apiKeyId = request.context.apiKey.id\n+    try {\n+      const decision = await consumeTokenBucket(\n+        deps.redis,\n+        `ratelimit:${apiKeyId}`,\n+        deps.policy,\n+        deps.now(),\n+      )\n+      request.response.headers.set('RateLimit-Limit', String(decision.limit))\n+      request.response.headers.set('RateLimit-Remaining', String(decision.remaining))\n+      request.response.headers.set('RateLimit-Reset', String(Math.ceil(decision.resetAfterMs / 1000)))\n+\n+      if (!decision.allowed && deps.mode === 'enforce') {\n+        rateLimitDecisions.add(1, { outcome: 'blocked' })\n+        request.response.headers.set('Retry-After', String(Math.ceil(decision.resetAfterMs / 1000)))\n+        return request.json({ error: { code: 'rate_limit_exceeded', message: 'Too many requests', requestId: request.id } }, 429)\n+      }\n+\n+      rateLimitDecisions.add(1, { outcome: decision.allowed ? 'allowed' : 'shadow_blocked' })\n+      return next()\n+    } catch (error) {\n+      request.log.warn({ error, apiKeyId }, 'rate limiter unavailable')\n+      rateLimitDecisions.add(1, { outcome: 'fail_open' })\n+      return next()\n+    }\n+  }\n+}\n",
+    "src/config.ts": "diff --git a/src/config.ts b/src/config.ts\nindex e712af1..8e7db3f 100644\n--- a/src/config.ts\n+++ b/src/config.ts\n@@ -2,6 +2,8 @@ import { env } from './env'\n+const intEnv = (name: string, fallback: number) => Number.parseInt(env[name] ?? String(fallback), 10)\n+\n export const config = {\n   port: Number(env.PORT ?? 3000),\n-  redisUrl: env.REDIS_URL,\n+  redisUrl: env.REDIS_URL ?? 'redis://localhost:6379',\n+  rateLimit: {\n+    mode: (env.RATE_LIMIT_MODE ?? 'shadow') as 'shadow' | 'enforce',\n+    capacity: intEnv('RATE_LIMIT_CAPACITY', 200),\n+    refillPerSecond: intEnv('RATE_LIMIT_REFILL_PER_SECOND', 50),\n+  },\n }\n",
+    "src/api/router.ts": "diff --git a/src/api/router.ts b/src/api/router.ts\nindex 90a3bf2..1ab214a 100644\n--- a/src/api/router.ts\n+++ b/src/api/router.ts\n@@ -1,5 +1,6 @@\n import { Hono } from 'hono'\n import { authenticateApiKey } from '../auth/apiKey'\n+import { rateLimit } from '../middleware/rateLimit'\n import { linkRoutes } from './links'\n@@ -12,9 +13,12 @@ export function createApiRouter(deps: ApiDeps) {\n   const api = new Hono<ApiContext>()\n-  api.use('/v1/*', authenticateApiKey(deps.apiKeys))\n-  api.route('/v1/links', linkRoutes(deps))\n+  api.use('/v1/*', authenticateApiKey(deps.apiKeys))\n+  api.use('/v1/*', rateLimit({ redis: deps.redis, policy: deps.config.rateLimit, mode: deps.config.rateLimit.mode, now: Date.now }))\n+  api.route('/v1/links', linkRoutes(deps))\n   return api\n }\n",
+    "src/ratelimit/tokenBucket.test.ts": "diff --git a/src/ratelimit/tokenBucket.test.ts b/src/ratelimit/tokenBucket.test.ts\nnew file mode 100644\nindex 0000000..149e61d\n--- /dev/null\n+++ b/src/ratelimit/tokenBucket.test.ts\n@@ -0,0 +1,69 @@\n+import { afterAll, beforeEach, expect, test } from 'bun:test'\n+import { redis } from '../test/redis'\n+import { consumeTokenBucket } from './tokenBucket'\n+\n+const key = 'test:ratelimit:key-1'\n+const policy = { capacity: 2, refillPerSecond: 1 }\n+const now = Date.parse('2026-07-14T12:00:00.000Z')\n+\n+beforeEach(() => redis.del(key))\n+afterAll(() => redis.disconnect())\n+\n+test('allows requests until capacity is exhausted', async () => {\n+  expect((await consumeTokenBucket(redis, key, policy, now)).allowed).toBe(true)\n+  expect((await consumeTokenBucket(redis, key, policy, now)).allowed).toBe(true)\n+  const denied = await consumeTokenBucket(redis, key, policy, now)\n+  expect(denied.allowed).toBe(false)\n+  expect(denied.remaining).toBe(0)\n+  expect(denied.resetAfterMs).toBe(1000)\n+})\n+\n+test('refills fractional tokens without exceeding capacity', async () => {\n+  await consumeTokenBucket(redis, key, policy, now)\n+  await consumeTokenBucket(redis, key, policy, now)\n+  expect((await consumeTokenBucket(redis, key, policy, now + 500)).allowed).toBe(false)\n+  expect((await consumeTokenBucket(redis, key, policy, now + 1000)).allowed).toBe(true)\n+  expect((await consumeTokenBucket(redis, key, policy, now + 10000)).remaining).toBe(1)\n+})\n+\n+test('only one concurrent request consumes the final token', async () => {\n+  await consumeTokenBucket(redis, key, { capacity: 1, refillPerSecond: 1 }, now)\n+  await redis.hset(key, { tokens: 1, updated_at: now })\n+  const consume = () => consumeTokenBucket(redis, key, { capacity: 1, refillPerSecond: 1 }, now)\n+  const decisions = await Promise.all([consume(), consume()])\n+  expect(decisions.filter((decision) => decision.allowed)).toHaveLength(1)\n+})\n",
+    "docs/api/rate-limits.md": "diff --git a/docs/api/rate-limits.md b/docs/api/rate-limits.md\nindex c1d22d0..d8a035a 100644\n--- a/docs/api/rate-limits.md\n+++ b/docs/api/rate-limits.md\n@@ -1,8 +1,33 @@\n # API limits\n \n-The API may reject unusually high traffic.\n+acme applies a token bucket to each API key. Short bursts are allowed up to the plan capacity; tokens then refill continuously.\n+\n+| Plan | Sustained rate | Burst capacity |\n+| --- | ---: | ---: |\n+| Free | 5 req/s | 20 |\n+| Pro | 50 req/s | 200 |\n+| Business | 200 req/s | 800 |\n+\n+Every authenticated response includes:\n+\n+- `RateLimit-Limit`: bucket capacity\n+- `RateLimit-Remaining`: whole tokens remaining\n+- `RateLimit-Reset`: seconds until one token is available\n+\n+Rejected requests return `429 Too Many Requests` and include `Retry-After`.\n+\n+```json\n+{\n+  \"error\": {\n+    \"code\": \"rate_limit_exceeded\",\n+    \"message\": \"Too many requests\",\n+    \"requestId\": \"req_01J2...\"\n+  }\n+}\n+```\n \n Contact support before planned traffic spikes.\n"
+  }
+}

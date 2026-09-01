@@ -1,0 +1,53 @@
+name: Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A newer push to the same branch makes the in-flight run obsolete. Cancel it
+# instead of paying for a build whose result nobody will read.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # setup-bun caches the bun binary, not the packages it downloads. Without
+      # these, every run refetches the whole dependency set plus the ~100 MB
+      # Electron binary that `postinstall` pulls down.
+      - name: Cache dependency downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.bun/install/cache
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+          key: deps-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock') }}
+          restore-keys: |
+            deps-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # Runs before the build: the suite takes seconds, so failing here saves
+      # the several minutes the Electron build costs. `--parallel` (in the
+      # script) gives each file a fresh global and module registry — without it
+      # ~80 files that call `mock.module` leak their mocks into every file that
+      # runs after them, and the suite reports failures that no file actually has.
+      - name: Run unit tests
+        run: bun run test:unit
+
+      - name: Build app
+        env:
+          NODE_OPTIONS: --max-old-space-size=4096
+        run: bun run build

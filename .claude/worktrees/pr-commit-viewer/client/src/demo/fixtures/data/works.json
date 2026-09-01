@@ -1,0 +1,56 @@
+[
+  {
+    "meta": {
+      "id": "demo-work-rollout-notes",
+      "title": "Rate limiting rollout notes",
+      "preview": "Rate limiting rollout notes\n\nOwner: API Platform · Target launch: July 21, 2026 · Status: Staged rollout\n\nThis runbook covers the first production release of per-key token-bucket limits",
+      "type": "doc",
+      "createdAt": "2026-07-10T13:00:00.000Z",
+      "updatedAt": "2026-07-14T15:42:00.000Z",
+      "sessionId": "demo-session-ratelimit",
+      "sessionIds": ["demo-session-ratelimit"],
+      "agentProvider": "claude-code",
+      "cwd": "/home/demo/acme",
+      "storage": { "kind": "project", "projectRoot": "/home/demo/acme", "relativePath": ".solus/works/rate-limiting-rollout-notes.json" },
+      "pinned": true
+    },
+    "content": "# Rate limiting rollout notes\n\n**Owner:** API Platform · **Target launch:** July 21, 2026 · **Status:** Staged rollout\n\nThis runbook covers the first production release of per-key token-bucket limits for acme's public short-link API. The goal is predictable protection without surprising healthy integrations.\n\n## Decision summary\n\n- Limit by API key ID, never by raw credential or source IP.\n- Use a Redis Lua token bucket so refill and consume are atomic.\n- Fail open for Redis transport errors during the first rollout, but emit an alert.\n\nThe limiter runs after API-key authentication and before route dispatch. This prevents anonymous traffic from consuming customer quotas and keeps rejected requests out of product analytics.\n\n## Default limits\n\n| Plan | Sustained | Burst |\n| --- | ---: | ---: |\n| Free | 5 req/s | 20 |\n| Pro | 50 req/s | 200 |\n| Business | 200 req/s | 800 |\n\nEnterprise overrides remain explicit configuration keyed by account ID. Support cannot create an unlimited key; the maximum override is 2,000 requests per second.\n\n## Response contract\n\nEvery authenticated response carries `RateLimit-Limit`, `RateLimit-Remaining`, and `RateLimit-Reset`. A rejected request returns `429` with `Retry-After` rounded up to a whole second.\n\n```http\nHTTP/1.1 429 Too Many Requests\nRateLimit-Limit: 50\nRateLimit-Remaining: 0\nRateLimit-Reset: 2\nRetry-After: 2\n```\n\nThe JSON error code is `rate_limit_exceeded`. Existing error envelopes and request IDs remain unchanged, so SDK parsing does not need a special path.\n\n## Rollout stages\n\n### Stage 0 — shadow metrics\n\nRun the limiter for all traffic without rejecting. Compare would-block counts with request volume and inspect the top twenty keys for seven days.\n\n### Stage 1 — internal and free plan\n\nEnable enforcement for acme-owned keys and 10% of free-plan keys. Hold for 24 hours with an engineer on call.\n\n### Stage 2 — paid cohorts\n\nExpand to all free keys, then 10%, 50%, and 100% of paid keys. Each cohort requires healthy Redis latency and no unexplained increase in support contacts.\n\n## Launch checklist\n\n- [x] Token-bucket unit and concurrency tests pass.\n- [x] Dashboards split allowed, blocked, and fail-open decisions by plan.\n- [ ] Publish limits and header examples in the API docs.\n- [ ] Notify support and attach the customer override runbook.\n- [ ] Confirm a rollback owner for each rollout window.\n\n## Observability\n\n- `rate_limit_decisions_total` by outcome, route, and plan.\n- `rate_limit_redis_duration_seconds` at p50, p95, and p99.\n- `rate_limit_fail_open_total` with the Redis error class.\n\nPage the API on-call if Redis p99 exceeds 40 ms for ten minutes or fail-open decisions exceed 0.1% of authenticated traffic.\n\n## Rollback\n\nSet `RATE_LIMIT_MODE=shadow` and redeploy the API. This stops rejection immediately while preserving decision metrics. Do not flush Redis; bucket state is harmless and useful during investigation.\n\nRollback triggers are a sustained API error-rate increase above 0.5 percentage points, Redis saturation above 80%, or a confirmed customer blocked below their documented plan limit.\n\n## Open questions\n\n- Should batch link creation consume one token per request or one per created link?\n- When should fail-open switch to fail-closed for abuse-sensitive routes?\n\n**Next review:** July 16, after the first 48 hours of shadow data. Record decisions here so the launch history stays attached to the implementation.",
+    "annotations": {
+      "version": 1,
+      "workId": "demo-work-rollout-notes",
+      "comments": [
+        { "id": "rollout-comment-batch", "selectedText": "one token per request or one per created link", "comment": "Confirm with Product before Stage 1; the SDK currently retries whole batches." }
+      ],
+      "updatedAt": 1784043720000
+    },
+    "previous": {
+      "content": "# Rate limiting rollout notes\n\n**Draft owner:** API Platform · **Proposed launch:** July 21, 2026\n\n## Initial decisions\n\n- Limit by API key ID.\n- Use Redis for shared bucket state.\n\n## Proposed rollout\n\nStart in shadow mode, enable internal keys, then expand by plan after reviewing blocked-request metrics.\n\n## Draft checklist\n\n- [x] Choose the token-bucket algorithm.\n- [ ] Finalize plan limits.\n- [ ] Write rollback criteria.",
+      "updatedAt": "2026-07-12T17:30:00.000Z"
+    }
+  },
+  {
+    "meta": {
+      "id": "demo-work-acme-architecture",
+      "title": "acme architecture",
+      "preview": "8 nodes · 10 connections",
+      "type": "diagram",
+      "createdAt": "2026-07-08T14:00:00.000Z",
+      "updatedAt": "2026-07-13T18:20:00.000Z",
+      "sessionId": "demo-session-ratelimit",
+      "sessionIds": ["demo-session-ratelimit", "demo-session-billing"],
+      "agentProvider": "claude-code",
+      "cwd": "/home/demo/acme",
+      "storage": { "kind": "project", "projectRoot": "/home/demo/acme", "relativePath": ".solus/works/acme-architecture.json" },
+      "pinned": false
+    },
+    "content": "{\"nodes\":[{\"id\":\"cdn\",\"label\":\"CDN\",\"icon\":\"cdn\",\"subtitle\":\"TLS · redirects · static dashboard\",\"badges\":[\"global\"],\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"focus\"}}]},{\"id\":\"gateway\",\"label\":\"API Gateway\",\"icon\":\"gateway\",\"subtitle\":\"Hono · authentication\",\"metrics\":{\"P95\":\"38 ms\",\"RPS\":\"620\"},\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"details\"}}]},{\"id\":\"limiter\",\"label\":\"Rate Limiter\",\"icon\":\"function\",\"subtitle\":\"Per-key token bucket\",\"badges\":[\"shadow ready\"],\"body\":\"Atomically refills and consumes tokens in Redis. Emits standard RateLimit headers.\",\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"expand\"}}]},{\"id\":\"app\",\"label\":\"App Server\",\"icon\":\"service\",\"subtitle\":\"Links API · dashboard\",\"badges\":[\"TypeScript\",\"3 replicas\"],\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"focus\"}}]},{\"id\":\"postgres\",\"label\":\"PostgreSQL\",\"icon\":\"logos:postgresql\",\"subtitle\":\"Primary system of record\",\"fields\":[{\"name\":\"links.id\",\"type\":\"uuid\",\"key\":\"pk\"},{\"name\":\"links.slug\",\"type\":\"varchar(12)\",\"key\":\"unique\"},{\"name\":\"api_keys.id\",\"type\":\"uuid\",\"key\":\"pk\"},{\"name\":\"usage_events.request_id\",\"type\":\"uuid\",\"key\":\"unique\"}]},{\"id\":\"redis\",\"label\":\"Redis\",\"icon\":\"logos:redis\",\"subtitle\":\"Buckets · cache · queues\",\"metrics\":{\"P95\":\"3.2 ms\",\"Memory\":\"41%\"}},{\"id\":\"billing\",\"label\":\"Billing Worker\",\"icon\":\"queue\",\"subtitle\":\"Usage rollups · reconciliation\",\"badges\":[\"hourly\"],\"actions\":[{\"on\":\"click\",\"action\":{\"do\":\"openFile\",\"path\":\"src/billing/usageRecorder.ts\"}}]},{\"id\":\"stripe\",\"label\":\"Stripe\",\"icon\":\"logos:stripe\",\"subtitle\":\"Subscriptions · metered invoices\",\"badges\":[\"external\"]}],\"edges\":[{\"id\":\"edge-cdn-gateway\",\"source\":\"cdn\",\"target\":\"gateway\",\"label\":\"HTTPS API\",\"kind\":\"sync\"},{\"id\":\"edge-cdn-app\",\"source\":\"cdn\",\"target\":\"app\",\"label\":\"dashboard assets\",\"kind\":\"sync\"},{\"id\":\"edge-gateway-limiter\",\"source\":\"gateway\",\"target\":\"limiter\",\"label\":\"authenticated key\",\"kind\":\"sync\"},{\"id\":\"edge-limiter-redis\",\"source\":\"limiter\",\"target\":\"redis\",\"label\":\"EVALSHA\",\"kind\":\"data\"},{\"id\":\"edge-limiter-app\",\"source\":\"limiter\",\"target\":\"app\",\"label\":\"allowed request\",\"kind\":\"sync\"},{\"id\":\"edge-app-postgres\",\"source\":\"app\",\"target\":\"postgres\",\"label\":\"links and accounts\",\"kind\":\"data\"},{\"id\":\"edge-app-redis\",\"source\":\"app\",\"target\":\"redis\",\"label\":\"cache and jobs\",\"kind\":\"data\"},{\"id\":\"edge-redis-billing\",\"source\":\"redis\",\"target\":\"billing\",\"label\":\"usage queue\",\"kind\":\"async\",\"animated\":true},{\"id\":\"edge-billing-postgres\",\"source\":\"billing\",\"target\":\"postgres\",\"label\":\"rollups and cursor\",\"kind\":\"data\"},{\"id\":\"edge-billing-stripe\",\"source\":\"billing\",\"target\":\"stripe\",\"label\":\"meter events\",\"kind\":\"async\",\"animated\":true}]}",
+    "annotations": {
+      "version": 1,
+      "workId": "demo-work-acme-architecture",
+      "comments": [
+        { "id": "architecture-comment-limiter", "selectedText": "Rate Limiter", "comment": "Revisit fail-open after the first month of production data.", "nodeId": "limiter" }
+      ],
+      "updatedAt": 1783966800000
+    }
+  }
+]

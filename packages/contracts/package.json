@@ -1,0 +1,20 @@
+{
+  "name": "@solus/contracts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": "./src/*.ts",
+    "./model-profiles.json": "./src/model-profiles.json"
+  },
+  "scripts": {
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^3.1.1",
+    "dompurify": "^3.4.13",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

@@ -1,0 +1,16 @@
+[
+  "packages/workspace-ui/src/components/conversation/RateLimitCard.svelte",
+  "packages/workspace-ui/src/components/diagram/DiagramShell.css",
+  "packages/workspace-ui/src/components/diagram/DiagramThumbnail.svelte",
+  "packages/workspace-ui/src/components/diagram/inspector/EdgeRouteTab.svelte",
+  "packages/workspace-ui/src/components/editor/EditorLinkPreview.svelte",
+  "packages/workspace-ui/src/components/insights/SaveQueryDialog.svelte",
+  "packages/workspace-ui/src/components/insights/TraceCoverage.svelte",
+  "packages/workspace-ui/src/components/insights/TraceWaterfall.svelte",
+  "packages/workspace-ui/src/components/insights/TurnAttributes.svelte",
+  "packages/workspace-ui/src/components/pickers/DirectoryPicker.svelte",
+  "packages/workspace-ui/src/components/pickers/DirectoryRow.svelte",
+  "packages/workspace-ui/src/components/session-draft/SessionDraftPane.svelte",
+  "packages/workspace-ui/src/components/tasks/task-page/TaskActivityFeed.svelte",
+  "packages/workspace-ui/src/components/ui/list-page/PageCrumbLine.svelte"
+]

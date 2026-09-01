@@ -1,0 +1,16 @@
+diff --git a/dist/Parser.svelte b/dist/Parser.svelte
+index ca45d65..f042d03 100644
+--- a/dist/Parser.svelte
++++ b/dist/Parser.svelte
+@@ -492,6 +492,11 @@
+                     {/if}
+                 </HtmlComponent>
+             {/if}
++        {:else if !htmlTag}
++            <!-- Marked emits an unpaired HTML-looking tag without a structured
++                 tag name. Keep it visible as escaped text while the stream is
++                 incomplete instead of dropping it from the output. -->
++            <renderers.rawtext text={sanitizedRest.raw} {...sanitizedRest} />
+         {:else}
+             {@const fallbackRest = Object.fromEntries(
+                 Object.entries(localRest).filter(([key]) => key !== 'tokens')

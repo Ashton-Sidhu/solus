@@ -1,0 +1,34 @@
+<script lang="ts">
+	import { DropdownMenu as DropdownMenuPrimitive } from "bits-ui";
+	import CheckIcon from '@lucide/svelte/icons/check';
+	import { cn, type WithoutChild } from "@renderer/lib/utils.js";
+
+	let {
+		ref = $bindable(null),
+		class: className,
+		children: childrenProp,
+		...restProps
+	}: WithoutChild<DropdownMenuPrimitive.RadioItemProps> = $props();
+</script>
+
+<DropdownMenuPrimitive.RadioItem
+	bind:ref
+	data-slot="dropdown-menu-radio-item"
+	class={cn(
+		"data-highlighted:bg-(--solus-accent-light) data-highlighted:text-(--solus-text-primary) gap-2 rounded-md py-1.5 pr-8 pl-3 text-[0.6875rem] lg:text-xs text-(--solus-text-secondary) data-[state=checked]:font-semibold data-inset:pl-7 [&_svg:not([class*='size-'])]:size-4 relative flex cursor-default items-center outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+		className
+	)}
+	{...restProps}
+>
+	{#snippet children({ checked })}
+		<span
+			class="absolute right-2 flex items-center justify-center pointer-events-none"
+			data-slot="dropdown-menu-radio-item-indicator"
+		>
+			{#if checked}
+				<CheckIcon  />
+			{/if}
+		</span>
+		{@render childrenProp?.({ checked })}
+	{/snippet}
+</DropdownMenuPrimitive.RadioItem>

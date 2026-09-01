@@ -1,0 +1,6 @@
+{
+  "window-read packages/workspace-ui/src/components/conversation/ConversationView.svelte": 2,
+  "window-read packages/workspace-ui/src/components/insights/InsightsPage.svelte": 1,
+  "window-read packages/workspace-ui/src/components/layout/AsidePaneShell.svelte": 1,
+  "window-read packages/workspace-ui/src/components/settings/SettingsPage.svelte": 2
+}

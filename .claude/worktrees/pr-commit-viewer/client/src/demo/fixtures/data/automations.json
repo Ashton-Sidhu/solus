@@ -1,0 +1,82 @@
+{
+  "list": [
+    {
+      "id": "demo-automation-dependency-audit",
+      "name": "Nightly dependency audit",
+      "enabled": true,
+      "favorite": true,
+      "action": {
+        "prompt": "Run the dependency security audit. Summarize new advisories by severity, identify whether a patched version exists, and open a task for any high or critical finding. Do not upgrade packages automatically.",
+        "agentProvider": "claude-code",
+        "modelId": "claude-sonnet-5",
+        "reasoningEffort": "high",
+        "cwd": "/home/demo/acme",
+        "useWorktree": true
+      },
+      "trigger": { "type": "cron", "expr": "0 2 * * *", "timezone": "America/Toronto" },
+      "nextRunAt": "2026-07-16T06:00:00.000Z",
+      "createdAt": "2026-07-02T13:00:00.000Z",
+      "updatedAt": "2026-07-14T06:04:00.000Z",
+      "createdBy": { "kind": "user" },
+      "lastRunId": "demo-automation-run-audit-success",
+      "lastRunStatus": "succeeded",
+      "lastRunAt": "2026-07-14T06:00:00.000Z"
+    },
+    {
+      "id": "demo-automation-pr-triage",
+      "name": "PR triage on open",
+      "enabled": false,
+      "favorite": false,
+      "action": {
+        "prompt": "Review open pull requests that have no reviewer. Add a concise risk summary as a comment and suggest the most relevant code owner. Never approve or request changes.",
+        "agentProvider": "claude-code",
+        "modelId": "claude-sonnet-5",
+        "reasoningEffort": "medium",
+        "cwd": "/home/demo/acme",
+        "useWorktree": false
+      },
+      "trigger": { "type": "cron", "expr": "*/30 * * * *", "timezone": "America/Toronto" },
+      "createdAt": "2026-07-05T16:45:00.000Z",
+      "updatedAt": "2026-07-12T18:32:00.000Z",
+      "createdBy": { "kind": "agent", "agentProvider": "claude-code", "sessionId": "demo-session-webhooks" },
+      "lastRunId": "demo-automation-run-triage",
+      "lastRunStatus": "dispatched",
+      "lastRunAt": "2026-07-12T18:30:00.000Z"
+    }
+  ],
+  "runs": {
+    "demo-automation-dependency-audit": [
+      {
+        "id": "demo-automation-run-audit-success",
+        "automationId": "demo-automation-dependency-audit",
+        "startedAt": "2026-07-14T06:00:00.000Z",
+        "finishedAt": "2026-07-14T06:04:00.000Z",
+        "status": "succeeded",
+        "output": "Audited 428 packages. No critical or high advisories. One moderate advisory in a development-only glob dependency has a compatible patch available; created a maintenance task for the next dependency window.",
+        "agentSessionId": "demo-automation-session-audit-success",
+        "branch": "automation/dependency-audit-2026-07-14"
+      },
+      {
+        "id": "demo-automation-run-audit-failed",
+        "automationId": "demo-automation-dependency-audit",
+        "startedAt": "2026-07-13T06:00:00.000Z",
+        "finishedAt": "2026-07-13T06:00:42.000Z",
+        "status": "failed",
+        "error": "Registry audit endpoint returned 503 after three retries; no dependency state was changed.",
+        "agentSessionId": "demo-automation-session-audit-failed",
+        "branch": "automation/dependency-audit-2026-07-13"
+      }
+    ],
+    "demo-automation-pr-triage": [
+      {
+        "id": "demo-automation-run-triage",
+        "automationId": "demo-automation-pr-triage",
+        "startedAt": "2026-07-12T18:30:00.000Z",
+        "finishedAt": "2026-07-12T18:32:00.000Z",
+        "status": "dispatched",
+        "output": "Triaged PR #142 and suggested API Platform plus Infrastructure reviewers. Posted a risk summary covering Redis availability, per-key isolation, and response-header compatibility.",
+        "agentSessionId": "demo-automation-session-triage"
+      }
+    ]
+  }
+}

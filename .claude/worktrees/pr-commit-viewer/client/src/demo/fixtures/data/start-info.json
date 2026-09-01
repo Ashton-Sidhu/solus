@@ -1,0 +1,48 @@
+{
+  "version": "0.18.0",
+  "projectPath": "/home/demo/acme",
+  "homePath": "/home/demo",
+  "workspacePath": "/home/demo/acme",
+  "agents": [
+    {
+      "id": "claude-code",
+      "label": "Claude Code",
+      "models": [
+        { "id": "claude-sonnet-5", "label": "Sonnet 5" },
+        { "id": "claude-opus-4-8", "label": "Opus 4.8" }
+      ],
+      "defaultModel": "claude-sonnet-5",
+      "available": true,
+      "capabilities": {
+        "planMode": true,
+        "permissions": true,
+        "fileRewind": true,
+        "terminalResume": true,
+        "transport": "sdk"
+      }
+    },
+    {
+      "id": "codex",
+      "label": "Codex",
+      "models": [
+        { "id": "gpt-5.6-sol", "label": "Gpt 5.6 Sol" },
+        { "id": "gpt-5.6-terra", "label": "Gpt 5.6 Terra" },
+        { "id": "gpt-5.6-luna", "label": "Gpt 5.6 Luna" },
+        { "id": "gpt-5.5", "label": "Gpt 5.5" },
+        { "id": "gpt-5.5-pro", "label": "Gpt 5.5 Pro" },
+        { "id": "gpt-5.4", "label": "Gpt 5.4" },
+        { "id": "gpt-5.4-mini", "label": "Gpt 5.4 Mini" },
+        { "id": "gpt-5.3-codex", "label": "Gpt 5.3 Codex" }
+      ],
+      "defaultModel": "gpt-5.6-sol",
+      "available": true,
+      "capabilities": {
+        "planMode": true,
+        "permissions": true,
+        "fileRewind": false,
+        "terminalResume": false,
+        "transport": "codex-app-server"
+      }
+    }
+  ]
+}

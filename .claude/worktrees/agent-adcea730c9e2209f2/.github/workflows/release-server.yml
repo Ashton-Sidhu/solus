@@ -1,0 +1,137 @@
+name: Release Server
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin
+            arch: arm64
+          - platform: linux
+            arch: x64
+          - platform: linux
+            arch: arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build app and web client
+        run: bun run build
+
+      - name: Package server
+        run: bun scripts/package-server.ts --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
+
+      - name: Upload packaged server
+        uses: actions/upload-artifact@v4
+        with:
+          name: solus-server-${{ matrix.platform }}-${{ matrix.arch }}
+          path: release/solus-server-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
+
+  publish:
+    runs-on: ubuntu-latest
+    needs: package
+    steps:
+      - name: Download packaged servers
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+
+      - name: Write SHA256SUMS
+        run: |
+          cd release
+          find . -name 'solus-server-*.tar.gz' -type f -print0 | sort -z | xargs -0 sha256sum | sed 's#  ./[^/]*/#  #' > SHA256SUMS
+
+      - name: Publish server artifacts
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/**/*.tar.gz
+            release/SHA256SUMS
+          generate_release_notes: true
+
+  bump-tap:
+    runs-on: ubuntu-latest
+    needs: publish
+    # Skip prereleases so the tap only tracks stable versions.
+    if: ${{ !github.event.release.prerelease }}
+    steps:
+      - name: Download packaged servers
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+
+      - name: Extract version and SHA256s
+        id: sums
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Recompute per-target SHA256s from the downloaded tarballs.
+          for target in darwin-arm64 linux-x64 linux-arm64; do
+            file=$(find release -name "solus-server-$target.tar.gz" -type f | head -n1)
+            if [ -z "$file" ]; then
+              echo "Missing tarball for $target" >&2
+              exit 1
+            fi
+            sha=$(sha256sum "$file" | cut -d' ' -f1)
+            # Underscore key: GitHub expression dot-access can't read hyphens.
+            echo "sha_${target//-/_}=$sha" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Checkout tap repo
+        uses: actions/checkout@v4
+        with:
+          repository: Ashton-Sidhu/homebrew-tap
+          token: ${{ secrets.TAP_GITHUB_TOKEN }}
+          path: homebrew-tap
+
+      - name: Rewrite formula
+        env:
+          VERSION: ${{ steps.sums.outputs.version }}
+          SHA_DARWIN_ARM64: ${{ steps.sums.outputs.sha_darwin_arm64 }}
+          SHA_LINUX_X64: ${{ steps.sums.outputs.sha_linux_x64 }}
+          SHA_LINUX_ARM64: ${{ steps.sums.outputs.sha_linux_arm64 }}
+        run: |
+          formula="homebrew-tap/Formula/solus.rb"
+          # version line
+          sed -i -E "s|^(  version )\"[^\"]*\"|\1\"$VERSION\"|" "$formula"
+          # Each sha256 line is matched by its trailing `# target: <t>` anchor,
+          # so this replaces both first-run PLACEHOLDER_* values and real hashes.
+          replace_sha() {
+            sed -i -E "s|(sha256 )\"[^\"]*\"( # target: $1)|\1\"$2\"\2|" "$formula"
+          }
+          replace_sha "darwin-arm64" "$SHA_DARWIN_ARM64"
+          replace_sha "linux-x64" "$SHA_LINUX_X64"
+          replace_sha "linux-arm64" "$SHA_LINUX_ARM64"
+          echo "---- updated formula ----"
+          cat "$formula"
+
+      - name: Commit and push
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet; then
+            echo "Formula already up to date; nothing to commit."
+            exit 0
+          fi
+          git add Formula/solus.rb
+          git commit -m "solus ${{ steps.sums.outputs.version }}"
+          git push

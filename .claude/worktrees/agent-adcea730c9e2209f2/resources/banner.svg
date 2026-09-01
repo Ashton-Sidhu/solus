@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="400" viewBox="0 0 1200 400">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&amp;family=JetBrains+Mono:wght@300;400&amp;display=swap');
+    </style>
+
+    <!-- Subtle vignette -->
+    <radialGradient id="vignette" cx="50%" cy="50%" r="75%">
+      <stop offset="0%" stop-color="#141b27" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#060a0f" stop-opacity="0.7"/>
+    </radialGradient>
+
+    <!-- Gold glow for logo -->
+    <filter id="goldGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Subtle text glow -->
+    <filter id="subtleGlow" x="-10%" y="-30%" width="120%" height="160%">
+      <feGaussianBlur stdDeviation="8" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Clip path for the banner -->
+    <clipPath id="bannerClip">
+      <rect width="1200" height="400" rx="0" ry="0"/>
+    </clipPath>
+  </defs>
+
+  <!-- ─── Background ─── -->
+  <rect width="1200" height="400" fill="#0d1117"/>
+
+  <!-- Vignette overlay -->
+  <rect width="1200" height="400" fill="url(#vignette)"/>
+
+  <!-- ─── Subtle grid ─── -->
+  <g clip-path="url(#bannerClip)" opacity="0.04">
+    <!-- Vertical lines -->
+    <line x1="100" y1="0" x2="100" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="200" y1="0" x2="200" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="300" y1="0" x2="300" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="400" y1="0" x2="400" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="500" y1="0" x2="500" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="600" y1="0" x2="600" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="700" y1="0" x2="700" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="800" y1="0" x2="800" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="900" y1="0" x2="900" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="1000" y1="0" x2="1000" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="1100" y1="0" x2="1100" y2="400" stroke="#c9a84c" stroke-width="0.5"/>
+    <!-- Horizontal lines -->
+    <line x1="0" y1="80" x2="1200" y2="80" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="0" y1="160" x2="1200" y2="160" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="0" y1="240" x2="1200" y2="240" stroke="#c9a84c" stroke-width="0.5"/>
+    <line x1="0" y1="320" x2="1200" y2="320" stroke="#c9a84c" stroke-width="0.5"/>
+  </g>
+
+  <!-- ─── Background code snippets (far left, faded) ─── -->
+  <g font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace" font-size="11" fill="#c9a84c" opacity="0.06" clip-path="url(#bannerClip)">
+    <text x="30" y="55">const session = await claude.start()</text>
+    <text x="30" y="74">panel.show({ floating: true })</text>
+    <text x="30" y="93">// always on top</text>
+    <text x="30" y="340">import { Solus } from 'solus-app'</text>
+    <text x="30" y="359">await solus.attach(workspace)</text>
+  </g>
+
+  <!-- Background code snippets (far right, faded) -->
+  <g font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace" font-size="11" fill="#c9a84c" opacity="0.06" clip-path="url(#bannerClip)" text-anchor="end">
+    <text x="1170" y="55">⌘ + Space → focus</text>
+    <text x="1170" y="74">mode: 'flow'</text>
+    <text x="1170" y="93">always: true</text>
+    <text x="1170" y="340">{ "theme": "dark" }</text>
+    <text x="1170" y="359">status: "in-flow" ▋</text>
+  </g>
+
+  <!-- ─── Thin horizontal accent line ─── -->
+  <line x1="80" y1="200" x2="1120" y2="200" stroke="#c9a84c" stroke-width="0.3" opacity="0.08"/>
+
+  <!-- ─── Logo mark — arc corona (solid core, three sweeping rays) ─── -->
+  <!-- Positioned at x=170, y=200 (center of logo area) -->
+  <g transform="translate(170, 200)" filter="url(#goldGlow)">
+
+    <!-- Solid core -->
+    <circle cx="0" cy="0" r="31.2" fill="#c9a84c" opacity="0.95"/>
+
+    <!-- Three corona arcs sweeping clockwise (r=52) -->
+    <g fill="none" stroke="#c9a84c" stroke-width="10.4" stroke-linecap="round" opacity="0.95">
+      <path d="M 0,-52 A 52,52 0 0 1 52,0"/>
+      <path d="M 43.68,35.36 A 52,52 0 0 1 -16.64,49.92"/>
+      <path d="M -43.68,35.36 A 52,52 0 0 1 -52,-16.64"/>
+    </g>
+
+  </g>
+
+  <!-- ─── Wordmark: "solus" ─── -->
+  <text
+    x="285"
+    y="215"
+    font-family="'Inter', 'Helvetica Neue', Arial, sans-serif"
+    font-size="88"
+    font-weight="600"
+    letter-spacing="-2"
+    fill="#f0ece4"
+    dominant-baseline="middle"
+    filter="url(#subtleGlow)"
+  >solus</text>
+
+  <!-- ─── Tagline: "stay in flow" ─── -->
+  <text
+    x="288"
+    y="268"
+    font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace"
+    font-size="15"
+    font-weight="300"
+    letter-spacing="3"
+    fill="#c9a84c"
+    dominant-baseline="middle"
+    opacity="0.75"
+  >stay in flow</text>
+
+  <!-- ─── Thin vertical separator between logo and wordmark ─── -->
+  <line x1="237" y1="155" x2="237" y2="245" stroke="#c9a84c" stroke-width="0.8" opacity="0.2"/>
+
+  <!-- ─── Terminal cursor blink hint (decorative, static) ─── -->
+  <rect x="780" y="185" width="9" height="18" fill="#c9a84c" opacity="0.18" rx="1"/>
+
+  <!-- ─── Subtle corner marks (top-left, bottom-right) ─── -->
+  <g stroke="#c9a84c" stroke-width="1" fill="none" opacity="0.15">
+    <!-- Top-left -->
+    <polyline points="30,50 30,30 50,30"/>
+    <!-- Top-right -->
+    <polyline points="1150,30 1170,30 1170,50"/>
+    <!-- Bottom-left -->
+    <polyline points="50,370 30,370 30,350"/>
+    <!-- Bottom-right -->
+    <polyline points="1150,370 1170,370 1170,350"/>
+  </g>
+
+  <!-- ─── Electron / macOS badge — subtle bottom right ─── -->
+  <g transform="translate(1100, 340)" opacity="0.3">
+    <rect x="-40" y="-12" width="80" height="22" rx="3" fill="none" stroke="#c9a84c" stroke-width="0.8"/>
+    <text
+      x="0" y="5"
+      font-family="'JetBrains Mono', 'Fira Code', 'Courier New', monospace"
+      font-size="10"
+      fill="#c9a84c"
+      text-anchor="middle"
+      letter-spacing="1"
+    >electron + claude</text>
+  </g>
+
+</svg>

@@ -1,0 +1,9 @@
+{
+  "name": "@solus/server",
+  "private": true,
+  "type": "module",
+  "exports": { "./*": "./src/*.ts" },
+  "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
+  "dependencies": { "@solus/contracts": "workspace:*" },
+  "devDependencies": { "typescript": "^5.9.3" }
+}

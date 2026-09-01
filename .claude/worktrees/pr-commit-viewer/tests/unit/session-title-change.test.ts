@@ -1,0 +1,56 @@
+import { describe, expect, test } from 'bun:test'
+import type { Session } from '../../src/shared/types'
+import { applySessionTitleChange } from '../../src/renderer/contexts/workspace/session-title-change'
+
+function workspace() {
+  return {
+    sessions: {
+      'local-session': { run: { serverId: 'local', taskServerId: 'local' }, agentSessionId: 'agent-1', title: 'Opening prompt', titleCustom: false } as Session,
+      'remote-session': { run: { serverId: 'remote', taskServerId: 'local' }, agentSessionId: 'agent-1', title: 'Remote title', titleCustom: false } as Session,
+      'other-session': { run: { serverId: 'local', taskServerId: 'local' }, agentSessionId: 'agent-2', title: 'Other title', titleCustom: false } as Session,
+    },
+  }
+}
+
+describe('session title changes', () => {
+  test('names the changed session on the emitting host and no other', () => {
+    // WHY: the name belongs to the conversation, so one write reaches every tab
+    // watching it — but two hosts can issue the same agent session id, and a
+    // sibling session on this host must keep its own name.
+    const state = workspace()
+
+    expect(applySessionTitleChange(state, 'local', {
+      sessionId: 'agent-1',
+      title: 'Generated Title',
+      source: 'generated',
+    })).toEqual([{ sessionId: 'local-session', taskServerId: 'local' }])
+    expect(state.sessions['local-session'].title).toBe('Generated Title')
+    expect(state.sessions['local-session'].titleCustom).toBe(true)
+    expect(state.sessions['remote-session'].title).toBe('Remote title')
+    expect(state.sessions['other-session'].title).toBe('Other title')
+  })
+
+  test('clearing a title restores prompt-derived display behavior', () => {
+    const state = workspace()
+    state.sessions['local-session'].title = 'Custom Title'
+    state.sessions['local-session'].titleCustom = true
+
+    applySessionTitleChange(state, 'local', { sessionId: 'agent-1', title: null, source: 'manual' })
+
+    expect(state.sessions['local-session'].title).toBe('New Tab')
+    expect(state.sessions['local-session'].titleCustom).toBe(false)
+  })
+
+  test('identifies the task host that must receive a dispatched rename', () => {
+    // WHY: the execution host owns the real session index, but the project host
+    // owns the proxy row used to name closed attempts. Both need the same title.
+    const state = workspace()
+
+    expect(applySessionTitleChange(state, 'remote', {
+      sessionId: 'agent-1',
+      title: 'Dispatched Session Name',
+      source: 'generated',
+      generatedDescription: 'Keep the task-host proxy in sync.',
+    })).toEqual([{ sessionId: 'remote-session', taskServerId: 'local' }])
+  })
+})

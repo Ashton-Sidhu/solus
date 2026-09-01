@@ -1,0 +1,264 @@
+// Host-neutral code-host DTOs shared across main, preload, and renderer. These
+// never leak Octokit/GraphQL response types — that is the whole point of the
+// provider adapter. The main-side `Provider`/`ProviderAuth`/`ReviewProvider`
+// interfaces (which carry Promise-returning methods) stay in
+// `src/main/providers/types.ts` and re-export these.
+
+import type { ReviewEffort } from './effort-types'
+
+/** owner/repo + host, derived from the local `origin` remote. */
+export interface RepoRef {
+  owner: string
+  repo: string
+  /** e.g. `github.com` or a GHE hostname. Selects the provider. */
+  host: string
+}
+
+export interface PrFilter {
+  state?: 'open' | 'closed' | 'all'
+  author?: string
+}
+
+export interface PrListPage {
+  items: PullRequestSummary[]
+  page: number
+  hasMore: boolean
+}
+
+export interface PrEffortRequest {
+  number: number
+  headSha: string
+}
+
+export interface PrEffortResult extends PrEffortRequest {
+  effort?: ReviewEffort
+  /** Diff totals loaded alongside effort because PR list responses omit them. */
+  additions?: number
+  deletions?: number
+}
+
+export interface PullRequestSummary {
+  number: number
+  title: string
+  /** Current host head, used to key derived list metadata without another request. */
+  headSha: string
+  /** Base repository remote identity for opening the PR on its host. */
+  baseRepo?: RepoRef
+  author: string
+  authorAvatarUrl: string
+  state: 'open' | 'closed' | 'merged'
+  createdAt: string
+  updatedAt: string
+  draft: boolean
+  labels: { name: string; color: string }[]
+  additions: number
+  deletions: number
+  /** Pacing guidance only; review always opens the complete diff. */
+  effort?: ReviewEffort
+  /** Host logins currently requested to review this PR. */
+  requestedReviewers?: string[]
+  /** Host logins currently assigned to this PR. */
+  assignees?: string[]
+  /** Why this PR belongs in the connected viewer's review queue. */
+  reviewAttention?: 'requested' | 'assigned'
+  needsMyReview?: boolean
+  /** List responses already carry these fields; stack detection reuses them without detail calls. */
+  body?: string
+  baseRef?: string
+  headRef?: string
+  isCrossRepository?: boolean
+}
+
+export interface PullRequestDetail extends PullRequestSummary {
+  body: string
+  baseRef: string
+  headRef: string
+  baseSha: string
+  headSha: string
+  changedFiles: number
+  /** Host-computed mergeability; null while the host is still computing it. */
+  mergeable: boolean | null
+  /** Host-specific merge state, e.g. GitHub REST's `dirty` for merge conflicts. */
+  mergeStateStatus: string | null
+  /** Where the head branch lives; `isFork` true when it differs from the base repo. */
+  headRepo: { owner: string; repo: string; isFork: boolean }
+  capabilities: PrReviewCapabilities
+  viewerPermissions: PrViewerPermissions
+}
+
+export type PrReviewVerdict = 'comment' | 'approve' | 'request-changes'
+export type PrLifecycleAction = 'merge' | 'close' | 'reopen' | 'ready' | 'draft'
+
+/** Canonical lifecycle fields returned by a provider mutation. The mutation
+ * response owns these values; callers must not immediately re-read an
+ * eventually consistent list/detail endpoint to discover them. */
+export type PrLifecycleUpdate = Pick<PullRequestSummary, 'state' | 'draft' | 'updatedAt'>
+export type PrMergeMethod = 'merge' | 'squash' | 'rebase'
+
+/** Operations supported by the provider and repository configuration. */
+export interface PrReviewCapabilities {
+  diff: boolean
+  diffFileContents: boolean
+  inlineComments: boolean
+  threadReplies: boolean
+  threadResolution: boolean
+  reviewVerdicts: PrReviewVerdict[]
+  actions: PrLifecycleAction[]
+  mergeMethods: PrMergeMethod[]
+  reviewerRequests: boolean
+  reviewerCandidates: boolean
+}
+
+/** Operations the connected viewer may perform on this pull request. */
+export interface PrViewerPermissions {
+  actions: PrLifecycleAction[]
+  reviewVerdicts: PrReviewVerdict[]
+  comment: boolean
+  resolveThreads: boolean
+  requestReviewers: boolean
+}
+
+export interface PrReviewerCandidate {
+  login: string
+  avatarUrl?: string
+}
+
+/** Exact host revision shown by PR review. It deliberately contains no local path. */
+export interface PrReviewTarget {
+  host: string
+  owner: string
+  repo: string
+  number: number
+  title: string
+  baseRef: string
+  headRef: string
+  baseSha: string
+  headSha: string
+  headRepo: { owner: string; repo: string; isFork: boolean }
+}
+
+export interface PrDiffRequest {
+  number: number
+  baseSha: string
+  /** Reject the response if the pull request moved after the review opened. */
+  headSha: string
+  /** Provider-owned opaque page cursor. */
+  cursor?: string
+  commitSha?: string
+}
+
+export interface PrDiffSlice {
+  /** Complete unified file patches. A slice never ends inside one file patch. */
+  patch: string
+  truncated: boolean
+  nextCursor: string | null
+}
+
+export type PrDiffChangeType = 'change' | 'rename-pure' | 'rename-changed' | 'new' | 'deleted'
+
+export interface PrDiffFileContentsRequest {
+  number: number
+  baseSha: string
+  headSha: string
+  commitSha?: string
+  oldPath: string
+  newPath: string
+  changeType: PrDiffChangeType
+}
+
+export interface PrDiffFileContents {
+  oldContents: string
+  newContents: string
+}
+
+/** Mutable pull-request content. State/base changes stay behind their dedicated
+ * workflows so a generic edit cannot accidentally close or retarget a PR. */
+export interface PullRequestUpdate {
+  title?: string
+  body?: string
+}
+
+export interface PullRequestOverview {
+  detail: PullRequestDetail
+  commits: PrCommit[]
+  reviewers: PrReviewer[]
+}
+
+export interface ReviewComment {
+  id: string
+  author: string
+  /** The author's GitHub avatar; absent for a deleted/ghost account. */
+  authorAvatarUrl?: string
+  body: string
+  createdAt: string
+  /**
+   * Unified-diff snippet GitHub anchors this comment to (a few lines ending at
+   * the commented line). Only the thread's first comment carries one; replies
+   * leave it undefined.
+   */
+  diffHunk?: string
+}
+
+/** One commit on a PR, for the Activity timeline. */
+export interface PrCommit {
+  /** Full commit SHA; render the first 7 chars. */
+  sha: string
+  /** First line of the commit message. */
+  message: string
+  /** Author's GitHub login, falling back to the git author name. */
+  author: string
+  committedAt: string
+}
+
+export interface ReviewThread {
+  /** GraphQL thread node id (needed to reply/resolve). */
+  id: string
+  filePath: string
+  /** null = outdated (the anchor no longer exists in the current diff). */
+  line: number | null
+  side: 'LEFT' | 'RIGHT'
+  isResolved: boolean
+  isOutdated: boolean
+  comments: ReviewComment[]
+}
+
+/** A reviewer requested on (or who has reviewed) a PR. */
+export interface PrReviewer {
+  login: string
+  /** Current review state; null when the user was requested but hasn't reviewed yet. */
+  state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING' | null
+}
+
+export interface DraftReviewComment {
+  path: string
+  /** Last line of the range — anchors the comment. */
+  line: number
+  /** Set for a multi-line range; the first line of the range. */
+  startLine?: number
+  side: 'LEFT' | 'RIGHT'
+  body: string
+}
+
+export interface DraftReview {
+  body: string
+  event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES'
+  /** Head SHA the comments are anchored to (the head we rendered to the user). */
+  commitId: string
+  /** Exact merge-base used by the rendered diff, persisted after a successful review. */
+  baseSha?: string
+  comments: DraftReviewComment[]
+}
+
+/** A top-level PR conversation entry, distinct from an inline review thread. */
+export interface PrConversationItem {
+  id: string
+  kind: 'comment' | 'review'
+  author: string
+  /** The author's GitHub avatar; absent for a deleted/ghost account. */
+  authorAvatarUrl?: string
+  body: string
+  createdAt: string
+  /** Present only for review bodies; uses the host's canonical review state. */
+  reviewState?: Exclude<PrReviewer['state'], null>
+  url?: string
+}

@@ -1,0 +1,1298 @@
+<script lang="ts">
+  import { onMount, tick, untrack, type Snippet } from "svelte";
+  import { uuid } from "@solus/contracts/uuid";
+  import { FileTree } from "@pierre/trees";
+  import DiffActionBar from "./DiffActionBar.svelte";
+  import DiffToolbar, { type HeaderStats } from "./DiffToolbar.svelte";
+  import ReviewPanelHeader from "./ReviewPanelHeader.svelte";
+  import {
+    toChangedFileSummaries,
+    type GuideHeaderActions,
+  } from "./lib/review-header";
+  import { isStackedPane } from "../../lib/pane-width";
+  import DiffEmptyState from "./DiffEmptyState.svelte";
+  import DiffErrorState from "./DiffErrorState.svelte";
+  import DiffLoadingSkeleton from "./DiffLoadingSkeleton.svelte";
+  import DiffMobileFileSheet from "./DiffMobileFileSheet.svelte";
+  import DiffCommentsPopover from "./DiffCommentsPopover.svelte";
+  import DiffStream from "./DiffStream.svelte";
+  import { FindBar } from "../ui/find-bar";
+  import DiffResizableContent from "./DiffResizableContent.svelte";
+  import { DiffState, type DiffFindMatch } from "../../lib/diff-state.svelte";
+  import { orderDiffFiles } from "../../lib/diff-order";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import {
+    toGitStatusEntries,
+    toTreeDisplayPath,
+    diffFilePath,
+    diffHeaderStats,
+  } from "../../lib/diffTreeAdapter";
+  import {
+    getWorkspaceContext,
+    getSettingsContext,
+    hostCapabilitiesStore,
+    runtime,
+  } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
+  import {
+    InlineCommentDraft,
+    setInlineCommentDraft,
+  } from "./diff-comment-draft.store.svelte";
+  import { openInConfiguredEditor } from "../../lib/openExternalEditor";
+  import {
+    useKeybinding,
+    useScope,
+  } from "../../lib/keybindings/use-keybinding.svelte";
+  import type { DiffComment, DiffScope, GitCheckout, IpcContext } from "@solus/contracts/types";
+  import type { ReviewComment } from "@solus/contracts/providers";
+  import type { DiffReviewThread } from "./lib/interdiff-annotations";
+  import {
+    mountDiffFileTree,
+    uniqueDiffTreePaths,
+  } from "./lib/diff-file-tree";
+  import type { HostApi } from "@solus/client-core/host-api";
+  import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
+  import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
+  import { serverConnections } from "@solus/client-core/server-connections";
+  import { hostPolicy } from "@solus/client-core/host-policy";
+  import { supportsEditor } from "@solus/client-core/host-capabilities";
+  import { worktreeDisplayName } from "../../lib/git-context";
+
+  type ExternalDiffCommentSave = {
+    id?: string;
+    filePath: string;
+    startLine: number;
+    endLine: number;
+    side: "old" | "new";
+    selectedCode: string;
+    comment: string;
+    createdAt?: number;
+  };
+
+  let {
+    tabId,
+    getCtx,
+    getApi: getApiProp,
+    projectPath,
+    worktreePath,
+    worktreeBranch,
+    targetBranch,
+    reviewLabel,
+    isWorktree = false,
+    onClose,
+    initialScope = { kind: "session" },
+    initialFilePath,
+    navigationRequestId,
+    embedded = false,
+    bordered = true,
+    hasHostHeaderRow = false,
+    commentingDisabled = false,
+    commitSha = null,
+    onClearCommitScope,
+    externalComments = null,
+    onExternalCommentSave,
+    onExternalCommentDelete,
+    reviewThreads = [],
+    patchOverride = null,
+    patchOverrideFileLoader,
+    emptyState,
+    onThreadReply,
+    onThreadResolve,
+    view = $bindable("diff"),
+    viewTabs,
+    mapView,
+    guideView,
+    initialSkeletonVisible = false,
+    onToggleMaximize = null,
+    maximized = false,
+    guide,
+    feedbackToNewSession = false,
+    feedbackSessionTarget,
+  }: {
+    tabId: string;
+    getCtx?: () => IpcContext;
+    getApi?: () => HostApi;
+    projectPath: string;
+    worktreePath?: string;
+    worktreeBranch: string;
+    targetBranch: string;
+    /** Stable identity for a review whose checkout is not owned by `tabId`. */
+    reviewLabel?: string;
+    isWorktree?: boolean;
+    onClose: () => void;
+    initialScope?: DiffScope;
+    initialFilePath?: string;
+    navigationRequestId?: number;
+    /** Hosted as a content tab inside another surface (PR review). Hides the
+     *  panel's own close/maximize chrome (the host's tabs and exit button own
+     *  navigation) and the session turn stepper (turn scopes would silently
+     *  replace the host's PR scope with no way back). */
+    embedded?: boolean;
+    bordered?: boolean;
+    /** The host draws its own header row directly above this panel, so the diff
+     *  toolbar drops the branch identity it would repeat and the gutters it
+     *  reserves for window and pane chrome. Separate from `embedded`: a pane
+     *  hosting the diff still floats its chrome over the toolbar's own row. */
+    hasHostHeaderRow?: boolean;
+    /** Disable inline commenting. For views whose line numbers no other surface
+     *  shares (a commit-scoped patch): an anchored comment would point at
+     *  different code once read against the full diff. */
+    commentingDisabled?: boolean;
+    /** Commit identity shown in the diff toolbar while the panel is scoped to
+     *  one pull-request commit. */
+    commitSha?: string | null;
+    /** Return from a commit-scoped patch to the full pull-request diff. */
+    onClearCommitScope?: () => void;
+    /** Optional externally-owned comment list for surfaces that persist comments
+     *  outside the active tab while still reusing the diff UI. */
+    externalComments?: DiffComment[] | null;
+    onExternalCommentSave?: (comment: ExternalDiffCommentSave) => void;
+    onExternalCommentDelete?: (id: string) => void;
+    /** GitHub PR review threads to surface inline in the diff. Interactive when
+     *  the reply / resolve callbacks below are supplied. */
+    reviewThreads?: DiffReviewThread[];
+    /** Precomputed unified patch; null keeps the normal scope-backed RPC path. */
+    patchOverride?: string | null;
+    /** Full-file loader for a provider-backed patch with omitted context. */
+    patchOverrideFileLoader?: FileDiffContentsLoader;
+    emptyState?: { title: string; description: string };
+    onThreadReply?: (threadId: string, body: string) => Promise<ReviewComment>;
+    onThreadResolve?: (threadId: string, resolved: boolean) => Promise<void>;
+    /** Which face of the change is showing. The panel owns Diff and drives this
+     *  back to it on any file- or line-targeted navigation; the host owns the
+     *  other two and supplies them below. */
+    view?: ReviewView;
+    /** The host's Map · Guide · Diff row, drawn in the toolbar. */
+    viewTabs?: Snippet;
+    /** The map, handed this panel's ordered files so both views describe the
+     *  same change without a second parse of the same patch. */
+    mapView?: Snippet<[FileDiffMetadata[]]>;
+    guideView?: Snippet<[FileDiffMetadata[]]>;
+    /** Keep an already-visible route skeleton continuous while this panel
+     *  takes ownership of loading. Direct mounts still use the delayed state
+     *  below so a cached diff does not flash a placeholder. */
+    initialSkeletonVisible?: boolean;
+    /** Pane maximize, owned by the review band's window pair. Absent where the
+     *  surface has no pane of its own (the web client's full-height sheet). */
+    onToggleMaximize?: (() => void) | null;
+    maximized?: boolean;
+    /** The guide's own state, drawn in the header band's overflow. The panel
+     *  does not own the guide — the surface above it does — so this is passed
+     *  down rather than derived here. */
+    guide?: GuideHeaderActions;
+    /** A detached review target, such as an external pull request, does not
+     *  belong to the source conversation. Send its feedback to a fresh session. */
+    feedbackToNewSession?: boolean;
+    feedbackSessionTarget?: {
+      workingDirectory: string;
+      gitContext: GitCheckout | null;
+      serverId?: string;
+    };
+  } = $props();
+
+  /** The review panel's own chrome: one band that owns the views, the change
+   *  summary, the turn, the overflow, and the window pair. Every other host
+   *  draws its own header above this panel and takes the quieter strip. */
+  const usesReviewBand = $derived(!!viewTabs && !hasHostHeaderRow && !embedded);
+
+  const hasExternalCommentStore = $derived(externalComments !== null);
+
+  const session = getWorkspaceContext();
+  const theme = getSettingsContext();
+  const sess = $derived(session.sessionFor(tabId));
+  const getApi = () => getApiProp?.() ?? session.apiFor(tabId);
+  const editorServerId = $derived(serverConnections.serverIdForApi(getApi()));
+  const canOpenInEditor = $derived(
+    !!theme.defaultEditor &&
+      hostPolicy.isClientMachine(editorServerId) &&
+      supportsEditor(hostCapabilitiesStore.for(editorServerId), theme.defaultEditor),
+  );
+
+  $effect(() => {
+    void hostCapabilitiesStore.load(editorServerId);
+  });
+
+  // The in-progress inline-comment draft. Owned here and shared down to
+  // DiffStream (this panel's only consumer) via context, so the selection /
+  // editing / unsaved-text state isn't threaded through as props.
+  const draft = new InlineCommentDraft();
+  setInlineCommentDraft(draft);
+
+  const diffState = new DiffState({
+    session,
+    getTabId: () => tabId,
+    getCtx: () => getCtx?.() ?? session.ctxFor(tabId),
+    getApi,
+  });
+  const diff = $derived(diffState.diff);
+  const loadError = $derived(diffState.loadError);
+
+  /**
+   * The patch this panel currently holds — empty while its load is in flight.
+   *
+   * This panel is the engine that owns the patch, so a host rendering a second
+   * reading of the *same* comparison beside it (the review guide, which quotes
+   * snippets out of these bytes) reads them here rather than requesting the
+   * same diff a second time. Reactive: reading it tracks the panel's own load.
+   */
+  export function currentPatch(): string {
+    return diffState.patch;
+  }
+
+  // The skeleton is delayed, not floored: a load that resolves within
+  // SKELETON_DELAY_MS never shows the skeleton at all, so cached/fast opens feel
+  // instant instead of paying a fixed minimum. Once the skeleton does appear it
+  // stays for SKELETON_MIN_MS so a load finishing just after the delay can't
+  // flash it. The pre-skeleton window is covered by a blank branch in the
+  // template (guarded on diffState.loading) so the empty state never flashes.
+  const SKELETON_DELAY_MS = 120;
+  const SKELETON_MIN_MS = 140;
+  let showLoading = $state(untrack(() => initialSkeletonVisible));
+  let skeletonShownAt = showLoading ? performance.now() : 0;
+  $effect(() => {
+    if (diffState.loading) {
+      if (showLoading) return;
+      const timer = setTimeout(() => {
+        skeletonShownAt = performance.now();
+        showLoading = true;
+      }, SKELETON_DELAY_MS);
+      return () => clearTimeout(timer);
+    }
+    if (!showLoading) return;
+    const remaining = SKELETON_MIN_MS - (performance.now() - skeletonShownAt);
+    if (remaining <= 0) {
+      showLoading = false;
+    } else {
+      const timer = setTimeout(() => {
+        showLoading = false;
+      }, remaining);
+      return () => clearTimeout(timer);
+    }
+  });
+
+  const turns = $derived(
+    session.turnSnapshots[session.tabs[tabId]?.sessionId ?? ""] ?? [],
+  );
+  let selectedScope = $state<DiffScope>({ kind: "session" });
+  const selectedTurnIndex = $derived(
+    selectedScope.kind === "turn" ? selectedScope.index : null,
+  );
+  const isWorkingTreeScope = $derived(selectedScope.kind === "working-tree");
+  const startsNewFeedbackSession = $derived(
+    isWorkingTreeScope || feedbackToNewSession,
+  );
+  const initialScopeKey = $derived(
+    initialScope.kind === "turn"
+      ? `turn:${initialScope.index}`
+      : initialScope.kind === "pr"
+        ? `pr:${initialScope.baseSha}:${initialScope.ownDeltaBaseSha ?? "target"}`
+        : initialScope.kind,
+  );
+
+  let panelWidth = $state(0);
+  // This pane's own box, not the window it sits in. A 380px diff pane on a 27"
+  // display is as narrow as a phone and needs the same one-column treatment.
+  const stacked = $derived(isStackedPane(panelWidth));
+  let commentsPopoverOpen = $state(false);
+  let commentsAnchorEl: HTMLButtonElement | null = $state(null);
+  let treeCollapsed = $state(false);
+  let mobileTreeOpen = $state(false);
+  let treeInstance: FileTree | null = $state(null);
+  let streamRef: DiffStream | null = $state(null);
+  let findBarRef: FindBar | null = $state(null);
+  let findOpen = $state(false);
+  let findQuery = $state("");
+  let findIndex = $state(0);
+  const savedDiffStyle = localStorage.getItem("solus-diff-style");
+  let diffStyleState = $state<"unified" | "split">(
+    savedDiffStyle === "split" ? "split" : "unified",
+  );
+  // Each view is mounted on first visit and then hidden with display:none, so
+  // the stream's scroll position, collapse state, and loaded file contents —
+  // and the map's drill state — all survive switching tabs.
+  let hasMountedMap = $state(untrack(() => view === "map"));
+  let hasMountedGuide = $state(untrack(() => view === "guide"));
+  $effect(() => {
+    if (view === "map") hasMountedMap = true;
+    else if (view === "guide") hasMountedGuide = true;
+  });
+
+  /** Every file- or line-targeted navigation lands in the diff view. */
+  function showDiffView() {
+    if (view !== "diff") view = "diff";
+  }
+
+  /** Open a file the host's map drilled into. Exported because the map lives
+   *  with the host now, while the stream it has to move stays here. */
+  export async function openFileFromMap(displayPath: string) {
+    const fullPath = toFullPath(displayPath);
+    view = "diff";
+    await tick();
+    draft.clear();
+    streamRef?.scrollToFile(fullPath);
+    syncTreeTo(fullPath);
+  }
+  // Token (word-level) highlighting inside changed lines. Defaults on; only an
+  // explicit "off" stored value disables it.
+  let tokenHighlightState = $state<boolean>(
+    localStorage.getItem("solus-diff-token-highlight") !== "off",
+  );
+  const TREE_AUTO_OPEN_WIDTH = 640;
+  let prevAboveTreeThreshold: boolean | null = null;
+  $effect(() => {
+    if (stacked) {
+      treeCollapsed = true;
+      return;
+    }
+    const w = panelWidth;
+    if (w === 0) return;
+    const isAbove = w >= TREE_AUTO_OPEN_WIDTH;
+    if (prevAboveTreeThreshold === isAbove) return;
+    prevAboveTreeThreshold = isAbove;
+    untrack(() => {
+      treeCollapsed = !isAbove;
+    });
+  });
+
+  function restoreDraftIfAny() {
+    const saved = sess?.diffCommentDraft;
+    if (!saved) return;
+    draft.range = {
+      startLine: saved.startLine,
+      endLine: saved.endLine,
+      side: saved.side,
+    };
+    draft.filePath = saved.filePath;
+    draft.editingCommentId = saved.editingCommentId;
+    draft.value = saved.value;
+  }
+
+  async function startLoad() {
+    if (patchOverride !== null) {
+      diffState.setPatch(selectedScope, patchOverride);
+      return;
+    }
+    await diffState.refresh(selectedScope);
+  }
+
+  let mounted = false;
+  let prevInitialScopeKey = untrack(() => initialScopeKey);
+  $effect(() => {
+    const key = initialScopeKey;
+    if (!mounted) return;
+    if (key === prevInitialScopeKey) return;
+    prevInitialScopeKey = key;
+    selectedScope = initialScope;
+    draft.clear();
+    void startLoad();
+  });
+
+  let prevPatchOverride = untrack(() => patchOverride);
+  $effect(() => {
+    const patch = patchOverride;
+    if (!mounted || patch === prevPatchOverride) return;
+    prevPatchOverride = patch;
+    selectedScope = initialScope;
+    draft.clear();
+    void startLoad();
+  });
+
+  onMount(() => {
+    mounted = true;
+    selectedScope = initialScope;
+    if (sess) void session.refreshTurnSnapshots(sess.id);
+    void startLoad();
+    restoreDraftIfAny();
+    return () => {
+      diffState.dispose();
+    };
+  });
+
+  // Refresh when the snapshot list grows (a new turn was just snapshotted).
+  let prevTurnCount = untrack(() => turns.length);
+  $effect(() => {
+    const count = turns.length;
+    if (count !== prevTurnCount) {
+      prevTurnCount = count;
+      void startLoad();
+    }
+  });
+
+  // Live mid-turn refresh: changedFiles is recomputed each time a Write/Edit
+  // tool completes, so the panel can follow the agent instead of going stale
+  // until the turn snapshot lands. Debounced and silent (no skeleton flash).
+  const LIVE_REFRESH_DEBOUNCE_MS = 600;
+  const changedFilesSignal = $derived((sess?.sessionChangedFiles ?? []).join("\n"));
+  let prevChangedFilesSignal = untrack(() => changedFilesSignal);
+  $effect(() => {
+    const signal = changedFilesSignal;
+    if (signal === prevChangedFilesSignal) return;
+    prevChangedFilesSignal = signal;
+    if (patchOverride !== null || (selectedScope.kind !== "session" && selectedScope.kind !== "working-tree")) return;
+    const timer = setTimeout(() => {
+      void diffState.refresh(selectedScope, { silent: true });
+    }, LIVE_REFRESH_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  });
+
+  let manualRefreshing = $state(false);
+  async function handleManualRefresh() {
+    if (manualRefreshing) return;
+    manualRefreshing = true;
+    const startedAt = performance.now();
+    if (patchOverride !== null) diffState.setPatch(selectedScope, patchOverride);
+    else await diffState.refresh(selectedScope, { silent: true });
+    // Let the spinner complete at least one revolution so fast refreshes
+    // still read as "something happened".
+    const remaining = 400 - (performance.now() - startedAt);
+    if (remaining > 0) await new Promise((r) => setTimeout(r, remaining));
+    manualRefreshing = false;
+  }
+
+  // Shared reset for tab switches and same-tab session resumes: clear all
+  // selection/draft state and reload the diff for the new transcript.
+  function resetForNewTranscript() {
+    selectedScope = initialScope;
+    draft.clear();
+    diffState.dispose();
+    if (sess) void session.refreshTurnSnapshots(sess.id);
+    void startLoad();
+  }
+
+  let prevTabId = untrack(() => tabId);
+  $effect(() => {
+    if (tabId === prevTabId) return;
+    prevTabId = tabId;
+    commentsPopoverOpen = false;
+    resetForNewTranscript();
+    restoreDraftIfAny();
+  });
+
+  // Same-tab session resume: agentSessionId flips from the previous session to
+  // the loaded one. The panel was already mounted (so onMount won't fire), and
+  // local selection/draft state needs to be reset for the resumed transcript.
+  let prevAgentSessionId = untrack(() => sess?.agentSessionId ?? null);
+  $effect(() => {
+    const current = sess?.agentSessionId ?? null;
+    if (current === prevAgentSessionId) return;
+    prevAgentSessionId = current;
+    resetForNewTranscript();
+  });
+
+  const treeFiles = $derived(diff ? diffState.fileDiffs : []);
+
+  const diffComments = $derived(
+    externalComments ?? (sess?.diffComments?.slice() ?? []),
+  );
+  // Split view needs room for two columns; below the tree-open threshold the
+  // panel can't fit them without squashing, so fall back to unified while
+  // narrow. The user's stored preference is untouched and resumes when widened.
+  const SPLIT_MIN_WIDTH = 640;
+  const effectiveDiffStyle = $derived<"unified" | "split">(
+    diffStyleState === "split" && panelWidth > 0 && panelWidth < SPLIT_MIN_WIDTH
+      ? "unified"
+      : diffStyleState,
+  );
+
+  const branchContext = $derived(
+    isWorktree ? `${worktreeBranch} → ${targetBranch}` : undefined,
+  );
+  const displayedWorktreeBranch = $derived(worktreeDisplayName(worktreeBranch));
+  const displayedBranchContext = $derived(
+    isWorktree ? `${displayedWorktreeBranch} → ${targetBranch}` : undefined,
+  );
+
+  const headerStats = $derived.by((): HeaderStats | null => {
+    if (!diff) return null;
+    return diffHeaderStats(treeFiles);
+  });
+
+  // The band names one ref — what you are reading — and puts what it is read
+  // against in the summary popover's footer, where the question is asked once.
+  const reviewBranchLabel = $derived(
+    reviewLabel
+      ? reviewLabel
+      : isWorkingTreeScope
+      ? "Working tree"
+      : isWorktree
+        ? displayedWorktreeBranch
+        : (sess?.run.gitContext?.branch ?? worktreeBranch),
+  );
+  const reviewChangedFiles = $derived(toChangedFileSummaries(treeFiles));
+
+  async function handleTurnSelect(index: number | null) {
+    selectedScope =
+      index === null ? { kind: "session" } : { kind: "turn", index };
+    draft.clear();
+    await startLoad();
+    await tick();
+    const first = orderedFiles[0] ? diffFilePath(orderedFiles[0]) : undefined;
+    if (first) {
+      await tick();
+      streamRef?.scrollToFile(first);
+    }
+  }
+
+  function setDiffStyle(style: "unified" | "split") {
+    diffStyleState = style;
+    localStorage.setItem("solus-diff-style", style);
+  }
+
+  function toggleTokenHighlight() {
+    tokenHighlightState = !tokenHighlightState;
+    localStorage.setItem(
+      "solus-diff-token-highlight",
+      tokenHighlightState ? "on" : "off",
+    );
+  }
+
+  let allCollapsed = $state(false);
+  function toggleCollapseAll() {
+    allCollapsed = !allCollapsed;
+    streamRef?.setAllCollapsed(allCollapsed);
+  }
+  // ── External navigation (guide file chips, activity threads, pending tray).
+  // The stream may not be live yet — the Diff tab mounts lazily and the diff
+  // loads async — so the request is buffered and replayed once it is.
+  let pendingNavigate: { path: string; line?: number; side: "old" | "new" } | null =
+    $state(null);
+
+  export function navigateTo(
+    path: string,
+    line?: number,
+    side: "old" | "new" = "new",
+  ) {
+    pendingNavigate = { path, line, side };
+  }
+
+  let handledNavigationRequestId = 0;
+  $effect(() => {
+    const requestId = navigationRequestId;
+    const path = initialFilePath;
+    if (!path || requestId == null || requestId === handledNavigationRequestId)
+      return;
+    handledNavigationRequestId = requestId;
+    navigateTo(path);
+  });
+
+  $effect(() => {
+    const nav = pendingNavigate;
+    const stream = streamRef;
+    if (!nav || !stream || !diff) return;
+    pendingNavigate = null;
+    showDiffView();
+    void tick().then(() => {
+      stream.ensureExpanded(nav.path);
+      if (nav.line != null) stream.scrollToLine(nav.path, nav.line, nav.side);
+      else stream.scrollToFile(nav.path);
+    });
+  });
+
+  function openFileInEditor(path: string) {
+    const fileRoot = worktreePath ?? projectPath;
+    const api = getApi?.() ?? session.apiFor(tabId);
+    openInConfiguredEditor(getCtx?.() ?? session.ctxFor(tabId), {
+      api,
+      serverId: serverConnections.serverIdForApi(api),
+      filePaths: [path],
+      editorId: theme.defaultEditor,
+      fallbackTerminalId: theme.fallbackTerminal,
+      cwd: fileRoot,
+    });
+  }
+
+  // Single entry point for both selection gestures — the gutter "+" button
+  // (onLineRange) and dragging the line-number column (onLineSelect). Both open
+  // the comment form so the behaviour is consistent regardless of where the drag
+  // starts. Re-selecting within the same draft keeps any text already typed so
+  // adjusting the range doesn't wipe the in-progress comment.
+  function handleStreamLineRange(
+    filePath: string,
+    start: number,
+    end: number,
+    side: "old" | "new",
+  ) {
+    if (commentingDisabled) return;
+    const sameDraft = draft.filePath === filePath && draft.editingCommentId === null;
+    draft.range = { startLine: start, endLine: end, side };
+    draft.filePath = filePath;
+    if (!sameDraft) {
+      draft.editingCommentId = null;
+      draft.value = "";
+    }
+    persistDraft();
+  }
+
+  function handleLineClearSelect(_filePath: string) {
+    if (!draft.filePath) {
+      draft.range = null;
+    }
+  }
+
+  function persistDraft() {
+    if (!draft.filePath || !draft.range) {
+      session.setDiffCommentDraft(null);
+      return;
+    }
+    session.setDiffCommentDraft({
+      filePath: draft.filePath,
+      startLine: draft.range.startLine,
+      endLine: draft.range.endLine,
+      side: draft.range.side,
+      editingCommentId: draft.editingCommentId,
+      value: draft.value,
+    });
+  }
+
+  function resetCommentForm() {
+    draft.clear();
+    session.setDiffCommentDraft(null);
+    streamRef?.clearSelectedLines();
+  }
+
+  // Entering a commenting-disabled view (a commit-scoped patch) discards any
+  // in-progress draft: its line anchors belong to the diff being left.
+  $effect(() => {
+    if (commentingDisabled) untrack(() => resetCommentForm());
+  });
+
+  function handleSaveComment(comment: string) {
+    if (hasExternalCommentStore && onExternalCommentSave) {
+      if (draft.editingCommentId) {
+        const existing = diffComments.find((c) => c.id === draft.editingCommentId);
+        if (existing) onExternalCommentSave({ ...existing, comment });
+        resetCommentForm();
+        return;
+      }
+      if (!draft.range || !draft.filePath) return;
+      const range = draft.range;
+      const file = draft.filePath;
+      onExternalCommentSave({
+        filePath: file,
+        startLine: range.startLine,
+        endLine: range.endLine,
+        side: range.side,
+        selectedCode: diffState.selectedTextForRange(file, range),
+        comment,
+      });
+      resetCommentForm();
+      return;
+    }
+    if (draft.editingCommentId) {
+      session.updateDiffComment(draft.editingCommentId, comment);
+      draft.clear();
+      session.setDiffCommentDraft(null);
+      return;
+    }
+    if (!draft.range || !draft.filePath) return;
+
+    const range = draft.range;
+    const file = draft.filePath;
+
+    const newComment: DiffComment = {
+      id: uuid(),
+      filePath: file,
+      startLine: range.startLine,
+      endLine: range.endLine,
+      side: range.side,
+      selectedCode: diffState.selectedTextForRange(file, range),
+      comment,
+      createdAt: Date.now(),
+    };
+
+    draft.clear();
+    session.setDiffCommentDraft(null);
+    session.addDiffComment(newComment);
+  }
+
+  function handleCancelComment() {
+    draft.clear();
+    session.setDiffCommentDraft(null);
+  }
+
+  function handleEditComment(c: DiffComment) {
+    draft.range = {
+      startLine: c.startLine,
+      endLine: c.endLine,
+      side: c.side,
+    };
+    draft.editingCommentId = c.id;
+    draft.filePath = c.filePath;
+    draft.value = c.comment;
+    persistDraft();
+  }
+
+  // Deleting an inline comment is one mis-click away from losing review
+  // feedback, so it's soft: remove immediately, then offer a brief undo toast
+  // that restores the comment at its original position.
+  function handleDeleteComment(id: string) {
+    if (hasExternalCommentStore) {
+      onExternalCommentDelete?.(id);
+      return;
+    }
+    const list = sess?.diffComments;
+    if (!list) return;
+    const index = list.findIndex((c) => c.id === id);
+    if (index === -1) return;
+    const comment = list[index];
+    session.removeDiffComment(id);
+    toasts.undo("Comment deleted", () => session.restoreDiffComment(comment, index));
+  }
+
+  function navigateToComment(c: DiffComment) {
+    draft.range = {
+      startLine: c.startLine,
+      endLine: c.endLine,
+      side: c.side,
+    };
+    showDiffView();
+    void tick().then(() => streamRef?.scrollToLine(c.filePath, c.endLine, c.side));
+  }
+
+  // Only line-anchored threads can be scrolled to; outdated ones (line === null)
+  // have no anchor in the current diff and live in the Activity timeline.
+  const navigableThreads = $derived(reviewThreads.filter((t) => t.line != null));
+
+  function navigateToThread(t: DiffReviewThread) {
+    if (t.line == null) return;
+    const line = t.line;
+    const side = t.side === "LEFT" ? "old" : "new";
+    draft.range = { startLine: line, endLine: line, side };
+    showDiffView();
+    void tick().then(() => streamRef?.scrollToLine(t.filePath, line, side));
+  }
+
+  // ── Find in diff ───────────────────────────────────────────────────────────
+  // Matches are computed over narrative order — exactly what DiffStream
+  // paints — so next/prev cycle in visual top-to-bottom order. Recomputes
+  // automatically on live mid-turn refresh (derived over reactive fileDiffs).
+  const findMatches = $derived.by<DiffFindMatch[]>(() => {
+    // A 1-character query on a large diff yields hundreds of thousands of match
+    // objects and a full stream repaint; wait for a query that can narrow.
+    if (findQuery.trim().length < 2) return [];
+    return diffState.findMatches(
+      findQuery,
+      orderedFiles.map((f) => f.name),
+    );
+  });
+  const activeMatch = $derived<DiffFindMatch | null>(
+    findMatches[findIndex] ?? null,
+  );
+
+  // Keep the active index inside the (possibly shrunk) match list.
+  $effect(() => {
+    const len = findMatches.length;
+    if (findIndex >= len) findIndex = len === 0 ? 0 : len - 1;
+    else if (findIndex < 0) findIndex = 0;
+  });
+  // Push match set + active match into the stream's highlighter.
+  $effect(() => {
+    streamRef?.setFindMatches(findMatches);
+  });
+  $effect(() => {
+    streamRef?.setFindActive(activeMatch);
+  });
+
+  function openFind() {
+    if (treeFiles.length === 0) return;
+    // Find matches live in the stream, which the map view keeps hidden.
+    showDiffView();
+    findOpen = true;
+    void tick().then(() => findBarRef?.focusInput());
+  }
+
+  function closeFind() {
+    findOpen = false;
+    findQuery = "";
+    findIndex = 0;
+    streamRef?.clearFind();
+    requestInputFocus();
+  }
+
+  // Expand (if collapsed), scroll into view, and emphasize a match.
+  async function revealMatch(match: DiffFindMatch) {
+    streamRef?.ensureExpanded(match.path);
+    await tick();
+    streamRef?.scrollToLine(match.path, match.lineNo, match.side);
+    streamRef?.setFindActive(match);
+  }
+
+  // Editing the query jumps to the first match (like browser/editor find), so
+  // results are visible without an extra keypress. tick() lets the derived
+  // recompute against the new query before we read it.
+  async function revealFirstMatch() {
+    await tick();
+    const match = findMatches[0];
+    if (match) await revealMatch(match);
+  }
+
+  async function findNav(dir: 1 | -1) {
+    const total = findMatches.length;
+    if (total === 0) return;
+    findIndex = (((findIndex + dir) % total) + total) % total;
+    await revealMatch(findMatches[findIndex]);
+    findBarRef?.focusInput(false);
+  }
+
+  useScope("diff-panel");
+
+  useKeybinding("diff-panel.close", () => {
+    if (findOpen) {
+      closeFind();
+      return;
+    }
+    if (commentsPopoverOpen) {
+      commentsPopoverOpen = false;
+      return;
+    }
+    if (draft.filePath) handleCancelComment();
+    else if (draft.range) draft.range = null;
+    else onClose();
+  });
+  useKeybinding("diff-panel.next-file", () => cycleFile(1));
+  useKeybinding("diff-panel.prev-file", () => cycleFile(-1));
+  useKeybinding("diff-panel.start-comment", () => startCommentOnCurrentLine());
+  useKeybinding("diff-panel.next-comment", () => cycleComment(1));
+  useKeybinding("diff-panel.prev-comment", () => cycleComment(-1));
+  useKeybinding("diff-panel.next-turn", () => cycleTurn(1));
+  useKeybinding("diff-panel.prev-turn", () => cycleTurn(-1));
+  useKeybinding("diff-panel.toggle-view", () =>
+    setDiffStyle(diffStyleState === "unified" ? "split" : "unified"),
+  );
+  useKeybinding("diff-panel.toggle-token-hl", () => toggleTokenHighlight());
+  useKeybinding("diff-panel.toggle-tree", () => toggleTreeCollapsed());
+  useKeybinding("diff-panel.refresh", () => void handleManualRefresh());
+  useKeybinding("diff-panel.submit", () => submitFromShortcut());
+  useKeybinding("diff-panel.find", () => openFind());
+
+  async function submitFromShortcut() {
+    handleBeforeSend();
+    if (hasExternalCommentStore) return;
+    const general = sess?.diffGeneralComment?.trim() ?? "";
+    // Detached changes aren't bound to the current agent turn, so feedback
+    // always spawns a fresh session — matching the action bar's only send target.
+    const sent = startsNewFeedbackSession
+      ? await session.submitDiffFeedbackToNewSession({
+          generalComment: general,
+          filePath: draft.filePath,
+          diffText: diffState.patch,
+          branchContext,
+          sourceTabId: tabId,
+          sessionTarget: feedbackSessionTarget,
+        })
+      : session.submitDiffFeedback(general, tabId);
+    if (sent) onClose();
+  }
+
+  function cycleFile(dir: 1 | -1) {
+    const paths = orderedFiles.map((f) => diffFilePath(f));
+    if (paths.length === 0) return;
+    const current = streamRef?.getFocusedFile();
+    const idx = current ? paths.indexOf(current) : -1;
+    const next = ((idx === -1 ? 0 : idx + dir) + paths.length) % paths.length;
+    draft.clear();
+    showDiffView();
+    void tick().then(() => {
+      streamRef?.scrollToFile(paths[next]);
+      syncTreeTo(paths[next]);
+    });
+  }
+
+  function cycleTurn(dir: 1 | -1) {
+    if (embedded || isWorkingTreeScope || patchOverride !== null) return;
+    if (turns.length === 0) return;
+    if (selectedTurnIndex === null) {
+      void handleTurnSelect(
+        dir === 1 ? turns[0].index : turns[turns.length - 1].index,
+      );
+      return;
+    }
+    const idx = turns.findIndex((t) => t.index === selectedTurnIndex);
+    const next = idx + dir;
+    if (next < 0 || next >= turns.length) void handleTurnSelect(null);
+    else void handleTurnSelect(turns[next].index);
+  }
+
+  function cycleComment(dir: 1 | -1) {
+    if (diffComments.length === 0) return;
+    const current = streamRef?.getFocusedFile();
+    const idx = diffComments.findIndex(
+      (c) =>
+        c.filePath === current &&
+        draft.range?.startLine === c.startLine &&
+        draft.range?.endLine === c.endLine &&
+        draft.range?.side === c.side,
+    );
+    const next =
+      ((idx === -1 ? 0 : idx + dir) + diffComments.length) %
+      diffComments.length;
+    navigateToComment(diffComments[next]);
+  }
+
+  function startCommentOnCurrentLine() {
+    if (commentingDisabled) return;
+    const file = streamRef?.getFocusedFile();
+    if (!file) return;
+    if (draft.range) {
+      draft.filePath = file;
+      draft.editingCommentId = null;
+      draft.value = "";
+      persistDraft();
+    }
+  }
+
+  function handleBeforeSend() {
+    if (draft.filePath && draft.value.trim().length > 0) {
+      handleSaveComment(draft.value.trim());
+    }
+  }
+
+  const pendingFormHasContent = $derived(
+    draft.filePath !== null && draft.value.trim().length > 0,
+  );
+
+  const diffLoadedAnnouncement = $derived.by(() => {
+    if (showLoading || loadError) return "";
+    if (!headerStats) return "";
+    const f = headerStats.files;
+    return `${f} file${f === 1 ? "" : "s"} changed, ${headerStats.additions} additions, ${headerStats.deletions} deletions.`;
+  });
+
+  const treePaths = $derived(treeFiles.map((f) => diffFilePath(f)));
+  const displayedTreePaths = $derived(
+    uniqueDiffTreePaths(treePaths.map((p) => toTreeDisplayPath(p))),
+  );
+  const fullPathByDisplay = $derived.by(() => {
+    const map = new Map<string, string>();
+    for (const path of treePaths) {
+      map.set(toTreeDisplayPath(path), path);
+    }
+    return map;
+  });
+  const treeGitStatus = $derived(toGitStatusEntries(treeFiles));
+
+  // Keep the stream, keyboard navigation, find results, and mobile file sheet
+  // in the same hierarchical order as the file tree.
+  const orderedFiles = $derived(orderDiffFiles(treeFiles));
+
+  function toFullPath(p: string): string {
+    return fullPathByDisplay.get(p) ?? p;
+  }
+
+  function toggleTreeCollapsed() {
+    treeCollapsed = !treeCollapsed;
+  }
+
+  function syncTreeTo(path: string) {
+    if (!treeInstance) return;
+    const displayPath = toTreeDisplayPath(path);
+    const current = treeInstance.getSelectedPaths();
+    if (current.length === 1 && current[0] === displayPath) return;
+    for (const p of current) treeInstance.getItem(p)?.deselect();
+    treeInstance.getItem(displayPath)?.select();
+  }
+
+  function handleTreeSelect(path: string) {
+    const fullPath = toFullPath(path);
+    draft.clear();
+    streamRef?.scrollToFile(fullPath);
+  }
+
+  // Mobile file navigation: the desktop tree is hidden on phones, so a
+  // bottom-sheet list is the only way to jump between changed files.
+  async function handleMobileFileSelect(path: string) {
+    draft.clear();
+    mobileTreeOpen = false;
+    if (view !== "diff") {
+      view = "diff";
+      await tick();
+    }
+    streamRef?.scrollToFile(path);
+  }
+
+  function mountFileTree(node: HTMLDivElement) {
+    const mounted = mountDiffFileTree({
+      node,
+      paths: displayedTreePaths,
+      gitStatus: treeGitStatus,
+      files: treeFiles,
+      comments: diffComments,
+      onSelect: handleTreeSelect,
+    });
+    treeInstance = mounted.tree;
+
+    return {
+      destroy() {
+        mounted.destroy();
+        treeInstance = null;
+      },
+    };
+  }
+
+  $effect(() => {
+    if (!treeInstance) return;
+    treeInstance.resetPaths(displayedTreePaths);
+  });
+
+  $effect(() => {
+    if (!treeInstance) return;
+    treeInstance.setGitStatus(treeGitStatus);
+  });
+
+</script>
+
+<div
+  class="relative flex h-full flex-col diff-panel-selectable"
+  class:diff-panel-bordered={bordered && !embedded}
+  style="background:var(--solus-container-bg)"
+  bind:clientWidth={panelWidth}
+  role="region"
+  aria-label="Diff panel"
+  data-testid="diff-panel"
+>
+  <div class="sr-only" aria-live="polite" aria-atomic="true">
+    {diffLoadedAnnouncement}
+  </div>
+  {#if usesReviewBand}
+    <ReviewPanelHeader
+      {view}
+      {viewTabs}
+      branchLabel={reviewBranchLabel}
+      branchTitle={displayedBranchContext ?? reviewBranchLabel}
+      additions={headerStats?.additions ?? 0}
+      deletions={headerStats?.deletions ?? 0}
+      changedFiles={reviewChangedFiles}
+      baseLabel={targetBranch}
+      turns={patchOverride === null ? turns : []}
+      {selectedTurnIndex}
+      onStepTurn={cycleTurn}
+      diffStyle={effectiveDiffStyle}
+      onSetStyle={setDiffStyle}
+      tokenHighlight={tokenHighlightState}
+      onToggleTokenHighlight={toggleTokenHighlight}
+      {allCollapsed}
+      onToggleCollapseAll={toggleCollapseAll}
+      {treeCollapsed}
+      onToggleTree={toggleTreeCollapsed}
+      onRefresh={() => void handleManualRefresh()}
+      refreshing={manualRefreshing}
+      {guide}
+      onOpenFile={(path) => void openFileFromMap(toTreeDisplayPath(path))}
+      commentsCount={diffComments.length + navigableThreads.length}
+      commentsOpen={commentsPopoverOpen}
+      onToggleComments={() => (commentsPopoverOpen = !commentsPopoverOpen)}
+      commentsAnchorRef={(el) => (commentsAnchorEl = el)}
+      {onToggleMaximize}
+      {maximized}
+      {onClose}
+    />
+  {:else}
+  <DiffToolbar
+    {isWorktree}
+    {worktreeBranch}
+    {targetBranch}
+    fallbackBranch={sess?.run.gitContext?.branch ?? null}
+    {headerStats}
+    diffStyle={effectiveDiffStyle}
+    onSetStyle={setDiffStyle}
+    tokenHighlight={tokenHighlightState}
+    onToggleTokenHighlight={toggleTokenHighlight}
+    {allCollapsed}
+    onToggleCollapseAll={toggleCollapseAll}
+    filesCount={treeFiles.length}
+    {treeCollapsed}
+    onToggleTree={toggleTreeCollapsed}
+    onRefresh={() => void handleManualRefresh()}
+    refreshing={manualRefreshing}
+    onOpenFiles={() => (mobileTreeOpen = true)}
+    commentsCount={diffComments.length + navigableThreads.length}
+    commentsOpen={commentsPopoverOpen}
+    onToggleComments={() => (commentsPopoverOpen = !commentsPopoverOpen)}
+    commentsAnchorRef={(el) => (commentsAnchorEl = el)}
+    turns={patchOverride === null && !embedded ? turns : []}
+    {selectedTurnIndex}
+    onTurnSelect={handleTurnSelect}
+    onStepTurn={cycleTurn}
+    turnRunning={sess?.status === "running" || sess?.status === "connecting"}
+    mode={isWorkingTreeScope ? "working-tree" : "session"}
+    {hasHostHeaderRow}
+    {commitSha}
+    {onClearCommitScope}
+    {view}
+    {viewTabs}
+  />
+  {/if}
+
+  <!-- The guide is not a view of the diff load: it has its own loader and its
+       own progress screen, so it sits outside the states below rather than
+       being covered by a skeleton for a patch it does not read. -->
+  {#if hasMountedGuide}
+    <div
+      class="flex min-h-0 flex-1 flex-col"
+      class:panel-view-hidden={view !== "guide"}
+    >
+      {@render guideView?.(treeFiles)}
+    </div>
+  {/if}
+
+  <div
+    class="flex min-h-0 flex-1 flex-col"
+    class:panel-view-hidden={view === "guide"}
+  >
+  {#if showLoading}
+    <DiffLoadingSkeleton variant={view === "map" ? "map" : "diff"} {stacked} />
+  {:else if diffState.loading}
+    <!-- Pre-skeleton window: a fast load resolves here and swaps straight to
+         content without ever flashing the skeleton or the empty state. -->
+    <div class="flex-1 min-h-0"></div>
+  {:else if loadError}
+    <DiffErrorState
+      title="Couldn't load the diff"
+      message={loadError}
+      onRetry={startLoad}
+      {stacked}
+    />
+  {:else if treeFiles.length === 0}
+    <DiffEmptyState
+      {selectedTurnIndex}
+      {isWorkingTreeScope}
+      {isWorktree}
+      {targetBranch}
+      onClose={embedded ? undefined : onClose}
+      title={emptyState?.title}
+      description={emptyState?.description}
+      {stacked}
+    />
+  {:else}
+    {#if hasMountedMap}
+      <div
+        class="min-h-0 flex-1"
+        class:panel-view-hidden={view !== "map"}
+      >
+        {@render mapView?.(treeFiles)}
+      </div>
+    {/if}
+    <div
+      class="flex min-h-0 flex-1 flex-col"
+      class:panel-view-hidden={view !== "diff"}
+    >
+    <DiffResizableContent
+      {panelWidth}
+      {treeCollapsed}
+      {mountFileTree}
+      onToggleTree={toggleTreeCollapsed}
+    >
+        <div class="relative flex h-full min-h-0 min-w-0">
+        {#if findOpen}
+          <div class="absolute top-2 right-3 z-20">
+            <FindBar
+              bind:this={findBarRef}
+              query={findQuery}
+              current={findMatches.length === 0 ? 0 : findIndex + 1}
+              total={findMatches.length}
+              placeholder="Find in diff"
+              ariaLabel="Find in diff"
+              debounceMs={120}
+              minQueryLength={2}
+              onQueryChange={(v) => {
+                findQuery = v;
+                findIndex = 0;
+                void revealFirstMatch();
+              }}
+              onNext={() => findNav(1)}
+              onPrev={() => findNav(-1)}
+              onClose={closeFind}
+            />
+          </div>
+        {/if}
+        <DiffStream
+          {panelWidth}
+          bind:this={streamRef}
+          fileDiffs={orderedFiles}
+          loadDiffFiles={patchOverride === null ? diffState.loadDiffFiles : patchOverrideFileLoader}
+          isBinaryFile={(path) => diffState.isBinaryFile(path)}
+          isDark={theme.isDark}
+          diffStyle={effectiveDiffStyle}
+          tokenHighlight={tokenHighlightState}
+          comments={diffComments}
+          {commentingDisabled}
+          {reviewThreads}
+          {onThreadReply}
+          {onThreadResolve}
+          onDraftSave={handleSaveComment}
+          onDraftCancel={handleCancelComment}
+          onDraftValueChange={(v) => {
+            draft.value = v;
+            session.updateDiffCommentDraftValue(v);
+          }}
+          {canOpenInEditor}
+          onOpenInEditor={openFileInEditor}
+          onLineRange={handleStreamLineRange}
+          onLineSelect={handleStreamLineRange}
+          onLineClearSelect={handleLineClearSelect}
+          onEditComment={handleEditComment}
+          onDeleteComment={handleDeleteComment}
+        />
+        </div>
+    </DiffResizableContent>
+    </div>
+  {/if}
+  </div>
+
+  <DiffCommentsPopover
+    open={commentsPopoverOpen}
+    comments={diffComments}
+    threads={navigableThreads}
+    anchor={commentsAnchorEl}
+    onClose={() => (commentsPopoverOpen = false)}
+    onNavigate={navigateToComment}
+    onNavigateThread={navigateToThread}
+  />
+
+  {#if !hasExternalCommentStore}
+    <!-- One footer for every view: a comment written on a guide's diff card and
+         one written in the stream are the same comment, and this is what sends
+         them. Feedback targets lines you are reading, and the map has none, so
+         the bar hides there — display:none keeps the typed draft alive. -->
+    <div class="contents" class:panel-view-hidden={view === "map"}>
+      <DiffActionBar
+        {tabId}
+        pendingInlineDraft={pendingFormHasContent}
+        filePath={draft.filePath}
+        diffText={diffState.patch}
+        {branchContext}
+        feedbackToNewSession={startsNewFeedbackSession}
+        {feedbackSessionTarget}
+        onSubmitted={onClose}
+        beforeSend={handleBeforeSend}
+        onShowComments={() => (commentsPopoverOpen = true)}
+      />
+    </div>
+  {/if}
+
+  {#if mobileTreeOpen && stacked}
+    <DiffMobileFileSheet
+      files={orderedFiles}
+      onClose={() => (mobileTreeOpen = false)}
+      onSelect={handleMobileFileSelect}
+    />
+  {/if}
+</div>
+
+<style>
+  /* Keeps the inactive panel view mounted (stream scroll/collapse state, map
+     drill state) while removing it from layout, paint, and hit testing. */
+  .panel-view-hidden {
+    display: none !important;
+  }
+
+  :global(.diff-panel-bordered) {
+    border-left: 0.0625rem solid
+      color-mix(in srgb, var(--solus-container-border) 45%, transparent);
+  }
+  @media (max-width: 767px) {
+    :global(.diff-panel-bordered) {
+      border-left: none;
+    }
+  }
+</style>

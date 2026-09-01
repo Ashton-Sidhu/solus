@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="en" class="dark solus-web">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <!-- Safari tints its toolbars with this, then lays its own translucent
+         material over the result — so the value here is the dark edge colour
+         pre-compensated for that material, not the edge colour itself. It must
+         *render* as the opaque form of `--solus-container-bg`, which the web
+         shell fills the viewport with, or the top and bottom seams read as two
+         different blacks. `toolbarTint` in settings.context owns the maths and
+         restates this on every theme change. -->
+    <meta name="theme-color" content="#100f0c" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Solus</title>
+    <style>
+      html, body, #root { height: 100%; margin: 0; }
+      html:root, html:root body, html:root #root { background: #262522 !important; overscroll-behavior: none; }
+      html:root.light, html:root.light body, html:root.light #root { background: #fefefc !important; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="./src/main.ts"></script>
+  </body>
+</html>

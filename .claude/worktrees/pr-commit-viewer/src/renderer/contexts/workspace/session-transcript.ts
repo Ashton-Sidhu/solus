@@ -1,0 +1,407 @@
+import type { AgentId, AutomationTrigger, IpcContext, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session } from '../../../shared/types'
+import { encodePathAsFolder } from '../../../shared/types'
+import type { AgentConversationResultProjection, WireSessionLoadMessage } from '../../../shared/session-history'
+import { uuid } from '../../../shared/uuid'
+import { isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
+import type { WorkspaceContext } from './workspace.context.svelte'
+import { serverConnections } from '@client-core/server-connections'
+
+// ─── Transcript loader ───
+
+// Initial/restored surfaces render 100 rows at a time. Keep one extra page in
+// memory for instant upward scroll and leave the rest on the host until asked.
+export const RESTORED_TRANSCRIPT_LIMIT = 200
+
+/** Matches both Claude (`mcp__solus__create_work`) and Codex (`create_work`). */
+function isCreateWorkTool(name: string | undefined): boolean {
+  return !!name && name.endsWith('create_work')
+}
+
+/** Matches both Claude (`mcp__solus__render_artifact`) and Codex (`render_artifact`). */
+function isRenderArtifactTool(name: string | undefined): boolean {
+  return !!name && name.endsWith('render_artifact')
+}
+
+function isCodexImageGenerationTool(name: string | undefined): boolean {
+  return name === 'ImageGeneration'
+}
+
+/** Matches create_automation/update_automation for both Claude (mcp__solus__*)
+ *  and Codex (bare name). */
+function isAutomationSaveTool(name: string | undefined): boolean {
+  return !!name && (name.endsWith('create_automation') || name.endsWith('update_automation'))
+}
+
+/**
+ * Resolve the automation a historical create/update call targeted so its card
+ * can re-render. update carries the exact `automation_id`; create only has the
+ * name, so we match by name (skipping ids already claimed this pass). Returns
+ * undefined if nothing matches (the automation was since deleted) — the card is
+ * then skipped, leaving just the tool row.
+ */
+function resolveSavedAutomation(
+  ctx: WorkspaceContext,
+  input: { automation_id?: string; name?: string },
+  claimed: Set<string>,
+): { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean } | undefined {
+  const items = ctx.automationsStore.items
+  let found = input.automation_id ? items.find((a) => a.id === input.automation_id) : undefined
+  if (!found && input.name) found = items.find((a) => a.name === input.name && !claimed.has(a.id))
+  if (!found) return undefined
+  claimed.add(found.id)
+  return { automationId: found.id, name: found.name, trigger: found.trigger, enabled: found.enabled }
+}
+
+function agentConversationResultFor(
+  history: WireSessionLoadMessage[],
+  toolId: string | undefined,
+): AgentConversationResultProjection | undefined {
+  if (!toolId) return undefined
+  return history.find((m) => m.role === 'tool_result' && m.toolResultForId === toolId)?.agentConversationResult
+}
+
+/**
+ * Resolve the persisted work for a historical create_work call. The tool result
+ * carrying the real id is dropped during history parsing, so we correlate by
+ * title among works this session collaborated on, skipping ids already claimed
+ * earlier in the same transcript pass. Returns '' if nothing matches (the card
+ * still renders its title, just without a load target).
+ */
+function resolveCreatedWork(ctx: WorkspaceContext, title: string, sessionId: string, claimed: Set<string>): string {
+  const works = Object.values(ctx.worksStore.works)
+  const bySessionAndTitle = works.find(
+    (w) => w.title === title && !claimed.has(w.id) && (w.sessionIds?.includes(sessionId) || w.sessionId === sessionId),
+  )
+  if (bySessionAndTitle) { claimed.add(bySessionAndTitle.id); return bySessionAndTitle.id }
+  const byTitle = works.find((w) => w.title === title && !claimed.has(w.id))
+  if (byTitle) { claimed.add(byTitle.id); return byTitle.id }
+  return ''
+}
+
+export interface SessionTranscriptLoadArgs {
+  sessionId: string
+  loadPath: string
+  displayCwd: string
+  provider: AgentId
+  ctx: IpcContext
+  /** Hydrate only the most recent `limit` messages for a fast initial paint. */
+  limit?: number
+  shouldApply?: () => boolean
+}
+
+export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<{ messages: any[]; planIds: string[]; progress: any; truncated: boolean }> {
+  const api = ctx.apiForSession(args.ctx.session.sessionId)
+  const serverId = serverConnections.serverIdForApi(api)
+  const history = await api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
+  // A full window of messages means older ones were left on disk.
+  const truncated = !!args.limit && history.length >= args.limit
+  if (args.shouldApply && !args.shouldApply()) {
+    return { messages: [], planIds: [], progress: null, truncated: false }
+  }
+
+  const projectPath = encodePathAsFolder(args.displayCwd)
+  const planIds: string[] = []
+  const messages: any[] = []
+  // Work ids already mapped to a card this pass, so repeated titles across
+  // multiple create_work calls don't all resolve to the same work.
+  const claimedWorks = new Set<string>()
+  const claimedAutomations = new Set<string>()
+  // Tool messages by tool_use id (main thread + nested) so sub-agent children
+  // and the Agent tool's own result can be reattached to their tool message.
+  const toolById = new Map<string, any>()
+  // Agent-conversation cards rebuild from session-tool rows + [session report] user turns,
+  // mirroring the live AgentConversationTracker's one-card-per-agent-per-turn keying.
+  const agentConversations = new AgentConversationTranscriptBuilder(messages)
+
+  // Automation cards resolve against the store; ensure it's hydrated if this
+  // transcript created/updated any automations.
+  if ((history as WireSessionLoadMessage[]).some((m) => m.role === 'tool' && isAutomationSaveTool(m.toolName)) && !ctx.automationsStore.loaded) {
+    await ctx.automationsStore.loadAll()
+  }
+
+  const loadedHistory = history as WireSessionLoadMessage[]
+  // Thinking is never rendered as a turn — only its duration is, folded onto the
+  // tool call it preceded (mirrors the live reducer's thinkingSpans). Replay has
+  // no span boundaries, so the run of reasoning turns is bracketed by the first
+  // one's timestamp and the message that ends the run.
+  let thinkingRunStartedAt: number | null = null
+  for (const m of loadedHistory) {
+    // Reasoning/thinking turns ride along in the transcript for provider handoffs;
+    // the conversation view shows how long they took, never their text.
+    if (m.role === 'reasoning') {
+      if (thinkingRunStartedAt === null) thinkingRunStartedAt = m.timestamp ?? null
+      continue
+    }
+    if (m.role === 'tool_result') {
+      // Land the result on its tool message — the Agent tool's own result flips
+      // its card to done; an inner tool's result lands in subMessages. Never a
+      // flat user/system bubble, so reloads don't re-leak sub-agent output.
+      const target = m.toolResultForId ? toolById.get(m.toolResultForId) : undefined
+      if (target) {
+        target.report = m.report
+        target.errorHead = m.errorHead
+        target.contentBytes = m.contentBytes
+        target.toolStatus = m.status === 'error' ? 'error' : 'completed'
+        if (m.timestamp) target.toolCompletedAt = m.timestamp
+      }
+      continue
+    }
+
+    // Whatever message follows the run of reasoning turns ends it, whether or not
+    // it has anywhere to print the figure.
+    const thinkingRunEndedAt = thinkingRunStartedAt
+    thinkingRunStartedAt = null
+
+    // Sub-agent activity reconstructs into the spawning tool's nested transcript,
+    // mirroring the live reducer — never the flat thread.
+    if (m.parentToolUseId) {
+      const parent = toolById.get(m.parentToolUseId)
+      if (parent) {
+        if (!parent.subMessages) parent.subMessages = []
+        if (m.role === 'tool' && m.toolName) {
+          const child = {
+            id: nextMsgId(),
+            role: 'tool' as const,
+            content: m.content,
+            toolName: m.toolName,
+            toolId: m.toolId,
+            toolInput: m.toolInput,
+            toolStatus: m.status === 'error' || m.toolStatus === 'error' ? 'error' as const : 'completed' as const,
+            report: m.report,
+            errorHead: m.errorHead,
+            contentBytes: m.contentBytes,
+            timestamp: m.timestamp ?? Date.now(),
+          }
+          parent.subMessages.push(child)
+          if (m.toolId) toolById.set(m.toolId, child)
+        } else if (m.role === 'assistant' && m.content) {
+          parent.subMessages.push({
+            id: nextMsgId(),
+            role: 'assistant' as const,
+            content: m.content,
+            timestamp: m.timestamp ?? Date.now(),
+          })
+        }
+        continue
+      }
+      // Parent missing (truncated window) → fall through to render inline.
+    }
+
+    const msgTimestamp = m.timestamp ?? Date.now()
+    const msg: any = {
+      id: nextMsgId(),
+      role: m.role,
+      content: m.content,
+      toolName: m.toolName,
+      toolId: m.toolId,
+      toolInput: m.toolInput,
+      toolStatus: m.toolStatus ?? (m.toolName ? 'completed' : undefined),
+      planToolUseId: m.planToolUseId,
+      timestamp: msgTimestamp,
+    }
+    // Only a tool call keeps the figure — the activity block is the one place
+    // with somewhere to print it.
+    if (thinkingRunEndedAt !== null && m.role === 'tool') {
+      const ms = msgTimestamp - thinkingRunEndedAt
+      if (ms > 0) msg.thinkingMs = ms
+    }
+    if (m.role === 'tool' && m.toolId) toolById.set(m.toolId, msg)
+    if (m.role === 'tool' && m.report) msg.report = m.report
+    if (m.role === 'tool') {
+      msg.errorHead = m.errorHead
+      msg.contentBytes = m.contentBytes
+    }
+
+    // A subagent tool call (Task/Agent, codex_subagent, or claude_subagent) renders as a
+    // SubagentGroup row, not a plain tool row. The live reducer sets subMessages via isSubagent; reload
+    // has no such flag, so re-seed it here. The tool_result pass above reattaches the answer.
+    if (m.role === 'tool' && m.isSubagent) {
+      msg.subMessages = []
+      msg.subagentType = m.subagentType
+    } else if (m.role === 'tool' && m.toolName === 'mcp__solus__codex_subagent') {
+      msg.subMessages = []
+      msg.subagentType = 'codex'
+    } else if (m.role === 'tool' && m.toolName?.slice(m.toolName.lastIndexOf('.') + 1) === 'claude_subagent') {
+      msg.subMessages = []
+      msg.subagentType = 'claude'
+      msg.report = m.report
+    } else if (m.role === 'tool' && (m.toolName === 'Task' || m.toolName === 'Agent')) {
+      msg.subMessages = []
+      msg.subagentType = 'claude'
+    }
+
+    if (m.role === 'plan' && m.planContent) {
+      const toolUseId = m.planToolUseId || uuid()
+      msg.planToolUseId = toolUseId
+      msg.planId = ctx.planStore.upsertFromHistory({
+        serverId,
+        sessionId: args.sessionId,
+        planToolUseId: toolUseId,
+        projectPath,
+        cwd: args.displayCwd,
+        content: m.planContent,
+        filePath: m.planFilePath,
+        timestamp: m.timestamp ?? Date.now(),
+      })
+      planIds.push(msg.planId)
+    } else if (m.role === 'tool' && isCreateWorkTool(m.toolName)) {
+      // A create_work call replays as a tool row (debug visibility) followed by its
+      // work card. The real id lived in the dropped tool result, so resolve by title.
+      messages.push(msg)
+      let title = 'Untitled'
+      let docType: 'doc' | 'slides' | 'diagram' = 'doc'
+      try {
+        const input = JSON.parse(m.toolInput || '{}') as { title?: string; doc_type?: string }
+        if (input.title) title = input.title
+        if (input.doc_type === 'slides' || input.doc_type === 'diagram') docType = input.doc_type
+      } catch {}
+      const workId = resolveCreatedWork(ctx, title, args.sessionId, claimedWorks)
+      messages.push({
+        id: nextMsgId(),
+        role: 'assistant' as const,
+        content: '',
+        workRef: { workId, title, workType: docType },
+        timestamp: m.timestamp ?? Date.now(),
+      })
+      continue
+    } else if (m.role === 'tool' && isAutomationSaveTool(m.toolName)) {
+      // A create/update_automation call replays as a tool row (debug visibility)
+      // followed by its automation card. The id lived in the dropped tool result,
+      // so resolve against the store by id (update) or name (create).
+      messages.push(msg)
+      let input: { automation_id?: string; name?: string } = {}
+      try {
+        input = JSON.parse(m.toolInput || '{}')
+      } catch {}
+      const automationRef = resolveSavedAutomation(ctx, input, claimedAutomations)
+      if (automationRef) {
+        messages.push({
+          id: nextMsgId(),
+          role: 'assistant' as const,
+          content: '',
+          automationRef,
+          timestamp: m.timestamp ?? Date.now(),
+        })
+      }
+      continue
+    } else if (m.role === 'tool' && isRenderArtifactTool(m.toolName)) {
+      // A render_artifact call replays as a tool row (debug visibility) followed by
+      // its rendered artifact. The tool input carries everything to re-render.
+      messages.push(msg)
+      try {
+        const input = JSON.parse(m.toolInput || '{}') as { kind?: string; html?: string; path?: string }
+        const kind = input.kind === 'image' ? 'image' : 'html'
+        let path = typeof input.path === 'string' ? input.path : undefined
+        // The stored path may be relative to the working directory; resolve it so
+        // the solus-artifact protocol can locate the file on reload.
+        if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
+        messages.push({
+          id: nextMsgId(),
+          role: 'assistant' as const,
+          content: '',
+          artifact: { kind, html: input.html, path },
+          timestamp: m.timestamp ?? Date.now(),
+        })
+      } catch {}
+      continue
+    } else if (m.role === 'tool' && isAgentConversationTool(m.toolName)) {
+      // A session-orchestration call replays as a tool row (debug visibility)
+      // followed by its agent-conversation card; report user turns below fill replies in.
+      messages.push(msg)
+      agentConversations.applyToolRow(
+        m.toolName!,
+        m.toolInput,
+        m.agentConversationResult ?? agentConversationResultFor(loadedHistory, m.toolId),
+        m.timestamp ?? Date.now(),
+      )
+      continue
+    } else if (m.role === 'user') {
+      // A [session report] turn is model context, never a bubble — its payload
+      // lands in the agent-conversation card it settles. A genuine user turn cuts the
+      // one-card-per-agent-per-turn boundary.
+      if (agentConversations.applyUserRow(m.content || '', msgTimestamp)) continue
+      if (!isAgentNotice(m.content || '')) agentConversations.closeTurn()
+    } else if (m.role === 'tool' && isCodexImageGenerationTool(m.toolName)) {
+      // The image path was already resolved in the main process (codexItemToMessage).
+      try {
+        const input = JSON.parse(m.toolInput || '{}') as { path?: string }
+        let path = typeof input.path === 'string' ? input.path : undefined
+        if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
+        if (path) {
+          messages.push({
+            id: nextMsgId(),
+            role: 'assistant' as const,
+            content: '',
+            artifact: { kind: 'image', path },
+            timestamp: m.timestamp ?? Date.now(),
+          })
+          continue
+        }
+      } catch {}
+    }
+
+    messages.push(msg)
+  }
+
+  return {
+    messages,
+    planIds,
+    progress: progressFromMessages(messages),
+    truncated,
+  }
+}
+
+/** Initial hydration always leaves older messages on the host, including both
+ * sides of a provider handoff. Full history expansion uses loadSessionTranscript
+ * directly after the user asks for it. */
+export function loadRestoredSessionTranscript(
+  ctx: WorkspaceContext,
+  args: Omit<SessionTranscriptLoadArgs, 'limit'>,
+): ReturnType<typeof loadSessionTranscript> {
+  return loadSessionTranscript(ctx, { ...args, limit: RESTORED_TRANSCRIPT_LIMIT })
+}
+
+// ─── Pending input sync ───
+
+export function syncPendingInputFromEvent(ctx: WorkspaceContext, session: Session, events: NormalizedEvent[]): void {
+  const newPermissions: PermissionRequest[] = []
+  const newQuestions: QuestionRequest[] = []
+  const hasPlanEvent = events.some((e) => e.type === 'plan')
+  for (const event of events) {
+    if (event.type === 'permission_request') newPermissions.push(toPermissionRequest(event as Extract<NormalizedEvent, { type: 'permission_request' }>))
+    else if (event.type === 'question_request') newQuestions.push(toQuestionRequest(event as Extract<NormalizedEvent, { type: 'question_request' }>))
+  }
+  session.permissionQueue.splice(0, session.permissionQueue.length, ...newPermissions)
+  session.questionQueue.splice(0, session.questionQueue.length, ...newQuestions)
+
+  if (!hasPlanEvent && session.agentSessionId) {
+    ctx.clearPlanWaiting(session.agentSessionId)
+  }
+}
+
+export function reconcileQueuedPromptsForSession(session: Session, queuedPrompts: QueuedPromptSnapshot[]): void {
+  const serverClientPromptIds = new Set(
+    queuedPrompts.flatMap((prompt) => prompt.clientPromptId ? [prompt.clientPromptId] : []),
+  )
+  const localPrompts = session.outboundPrompts.filter(
+    (prompt) => prompt.state !== 'queued' && !serverClientPromptIds.has(prompt.clientPromptId),
+  )
+  const serverPrompts = queuedPrompts.map((prompt) => {
+    const existing = prompt.clientPromptId
+      ? session.outboundPrompts.find((outbound) => outbound.clientPromptId === prompt.clientPromptId)
+      : undefined
+    return {
+      ...existing,
+      ...prompt,
+      clientPromptId: prompt.clientPromptId ?? `queued:${prompt.queueId}`,
+      state: 'queued' as const,
+    }
+  })
+  session.outboundPrompts.splice(
+    0,
+    session.outboundPrompts.length,
+    ...localPrompts,
+    ...serverPrompts,
+  )
+}

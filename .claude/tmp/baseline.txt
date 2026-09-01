@@ -1,0 +1,78 @@
+(fail) anchoring > a quote carrying markdown syntax is refused rather than written unanchored
+(fail) anchoring > a quote in the rendered text anchors at its offset in that projection
+(fail) anchoring > an ambiguous quote is refused — it would anchor to the wrong place
+(fail) anchoring > one bad quote in a batch writes none of them
+(fail) authorship > authorAgent survives save/load, so the rail can say which agent wrote it
+(fail) automation templates > keeps the codebase audit manual and read-only
+(fail) ClaudeAgent turn input lifetime > carries the turn through an aborted request reported as aborted_streaming
+(fail) ClaudeAgent turn input lifetime > carries the turn through an aborted request reported as aborted_tools
+(fail) ClaudeAgent turn input lifetime > closes the stream at the result when nothing is backgrounded
+(fail) ClaudeAgent turn input lifetime > does not settle the user turn again for a task-notification continuation
+(fail) ClaudeAgent turn input lifetime > holds the stream open past the result while a background task is in flight
+(fail) Codex model profiles > matches the current Codex defaults
+(fail) ControlPlane agent reply hold > does not hold a fire-and-forget caller
+(fail) ControlPlane agent reply hold > keeps a caller running when its run exits while a notifying watch is armed
+(fail) ControlPlane agent reply hold > releases the hold after the peer settles and the report run completes
+(fail) ControlPlane agent reply hold > stopping a target settles watches attached to prompts still in its queue
+(fail) ControlPlane agent reply hold > stopSession also disarms a held reply for tool-driven stops
+(fail) ControlPlane agent reply hold > the tab Stop action disarms a held reply and settles its exchange card
+(fail) ControlPlane headless sessions > cancels a new run before session_init through the shared lifecycle
+(fail) ControlPlane headless sessions > keeps changed-file state in the control plane across session turns
+(fail) ControlPlane headless sessions > starts a headless session without creating tab-scoped state
+(fail) ControlPlane provider handoff > rejects an idle provider mismatch that has no pending handoff
+(fail) getCodexSessionsWithMessages > returns only the ids that have an indexed body
+(fail) getIndexedSession > maps stored provider "claude" back to claude-code
+(fail) getIndexedSession > resolves a non-resident session written by persistIndexedSessionStart
+(fail) getIndexedSession > returns null for an unknown id
+(fail) getSessionMessages > returns user/assistant messages in ts order
+(fail) GitHub repository loading > a repository request failure does not claim the connected host is signed out
+(fail) indexSessionMessages > drops tool and empty messages
+(fail) indexSessionMessages > produces an FTS hit for an indexed Codex session
+(fail) indexSessionMessages > re-indexing replaces rather than duplicates messages
+(fail) open project host scoping > a reply from a host you switched away from and back to is still stale
+(fail) open project host scoping > a reply that outlived its host is dropped instead of describing the new one
+(fail) open project host scoping > every call for a host goes to that host, never to the active one
+(fail) open project host scoping > moving to another host rebinds every later call to it
+(fail) open project steps > a clone finishing after the dialog was reopened returns no path and leaves the new state alone
+(fail) open project steps > a clone takes over the panel, and hands it back to the form when it fails
+(fail) open project steps > an entry point that names a machine binds that one instead of the first
+(fail) open project steps > back returns to home from anywhere the flow can go
+(fail) open project steps > cancelling the folder browser a clone opened keeps the URL that sent it there
+(fail) open project steps > each intent from home lands on the screen that can answer it
+(fail) open project steps > opening lands on home with a machine already bound
+(fail) open project steps > the chip rebinds without moving off the screen it was used from
+(fail) placing a route > an 'aside' route never takes the leading pane
+(fail) project_root (git-root grouping) > a project scope includes its worktrees
+(fail) project_root (git-root grouping) > collapses a worktree cwd to its originating project root
+(fail) project_root (git-root grouping) > listProjectRoots returns distinct roots with names and counts
+(fail) project_root (git-root grouping) > populates project_root from a plain cwd
+(fail) read_plan > a resolved thread stops being served back
+(fail) read_plan > omitting plan_tool_use_id resolves the session's latest plan and serves its open threads
+(fail) recent project persistence > a worktree is stored as its actual project root
+(fail) recent project persistence > the most recently tracked projects are capped and ordered first
+(fail) replies and resolution round-trip through both stores > a plan nobody has annotated yet takes its first thread, creating the row
+(fail) replies and resolution round-trip through both stores > a plan thread takes a reply and then resolves
+(fail) replies and resolution round-trip through both stores > a work thread takes a reply and then resolves
+(fail) replies and resolution round-trip through both stores > an unknown target and an unknown thread are both refused by name
+(fail) resetSession > clears indexed messages but never de-lists the session
+(fail) review mode presentation model > rail rows expose a held decision without treating it as a settled core outcome
+(fail) review_plan — a blocking plan (Claude ExitPlanMode) > approve answers the permission with the event's own allow id and rides revised_plan through it
+(fail) review_plan — a blocking plan (Claude ExitPlanMode) > request_changes denies the permission, then queues the revision in plan mode and re-arms the watch
+(fail) review_plan — a non-blocking plan (Codex) > approve prompts the plan back with permissionMode ask, and answers no permission
+(fail) review_plan — the ruling is recorded > a ruling flips the caller card to answered
+(fail) review_plan — the ruling is recorded > an approval is recorded as accepted
+(fail) review_plan — the ruling is recorded > the decision and its comment land on the plan, so the gallery reads like a human ruling
+(fail) route codec > every destination is covered by a sample
+(fail) search_sessions executor > ambiguous project returns candidates instead of guessing
+(fail) searchIndexedSessions filters > projectRoot scopes to one git-root
+(fail) searchIndexedSessions filters > role filter narrows to assistant messages
+(fail) searchIndexedSessions filters > searches all projects by default
+(fail) searchIndexedSessions filters > sinceTs excludes messages older than the cutoff
+(fail) task context on a task-bound dispatch > create_session mints a subtask and injects its parent context before the worker starts
+(fail) task context on a task-bound dispatch > reaches the agent through the system prompt, never the transcript
+(fail) what home offers > a pasted clone URL is read as a repository to clone, not as a filter
+(fail) what home offers > only the newest few are offered, so the actions below them stay on screen
+(fail) what home offers > the search box narrows recents by name and by path
+(fail) where a project lands > a retry re-uses the destination the first attempt chose
+(fail) where a project lands > choosing a location clones into that folder under the repo name
+(fail) where a project lands > the primary action names no destination, so the host de-duplicates its own root

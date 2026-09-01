@@ -1,0 +1,389 @@
+import { afterEach, describe, expect, mock, test } from 'bun:test'
+import type { PullRequestDetail, PullRequestSummary } from '../../src/shared/providers'
+import type { IpcContext } from '../../src/shared/types'
+import { singleHostServerConnections } from './helpers/server-connections-mock'
+
+const serverConnectionsMock = singleHostServerConnections()
+mock.module('@client-core/server-connections', () => ({
+  serverConnections: serverConnectionsMock,
+}))
+
+const api = () => serverConnectionsMock.primaryApi()
+const serverId = 'local'
+
+const previousWindow = globalThis.window
+const previousDocument = globalThis.document
+const previousState = (globalThis as unknown as { $state?: unknown }).$state
+
+afterEach(() => {
+  serverConnectionsMock.reset()
+  if (previousWindow === undefined) delete (globalThis as unknown as { window?: Window }).window
+  else Object.defineProperty(globalThis, 'window', { configurable: true, writable: true, value: previousWindow })
+  if (previousDocument === undefined) delete (globalThis as unknown as { document?: Document }).document
+  else Object.defineProperty(globalThis, 'document', { configurable: true, writable: true, value: previousDocument })
+  if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
+  else (globalThis as unknown as { $state: unknown }).$state = previousState
+})
+
+const ctx = {
+  session: { projectPath: '/repo', workingDirectory: '/repo' },
+  window: {},
+  settings: {},
+  statusBar: {},
+} as IpcContext
+
+function listItem(): PullRequestSummary {
+  return {
+    number: 33,
+    title: 'Keep host selection stable',
+    headSha: 'head-33',
+    author: 'sidhu',
+    authorAvatarUrl: '',
+    state: 'open',
+    createdAt: '2026-01-01T00:00:00Z',
+    updatedAt: '2026-01-01T00:00:00Z',
+    draft: false,
+    labels: [],
+    additions: 0,
+    deletions: 0,
+  }
+}
+
+function installWindow(prGetEfforts: () => Promise<unknown>): void {
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    writable: true,
+    value: {
+      solus: {
+        prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
+        prGetEfforts,
+        prChecks: async () => { throw new Error('not relevant') },
+        prGuideMetadata: async () => { throw new Error('not relevant') },
+      },
+    },
+  })
+}
+
+function installStateRune(): void {
+  ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
+    <T>(value: T) => value,
+    { snapshot: <T>(value: T) => value },
+  )
+}
+
+describe('PR list effort metadata', () => {
+  test('keeps diff totals when a later list refresh recreates the same PR head', async () => {
+    // WHY: GitHub list responses omit diff totals. Once the visible-row fetch
+    // enriches a head, refreshing the list must not replace those facts with 0/0.
+    installStateRune()
+    let effortCalls = 0
+    installWindow(async () => {
+      effortCalls++
+      return [{
+        number: 33,
+        headSha: 'head-33',
+        additions: 71_029,
+        deletions: 22_450,
+        effort: { band: 'involved', minutes: 60, signals: ['large'] },
+      }]
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+
+    await store.loadAll(api(), serverId, ctx)
+    await store.loadEfforts(api(), serverId, ctx, [33])
+    await store.loadAll(api(), serverId, ctx, { force: true })
+    await store.loadEfforts(api(), serverId, ctx, [33])
+
+    expect(store.get(33)?.additions).toBe(71_029)
+    expect(store.get(33)?.deletions).toBe(22_450)
+    expect(effortCalls).toBe(1)
+  })
+
+  test('does not cache an unavailable enrichment as successfully loaded', async () => {
+    // WHY: a transient host failure must remain retryable instead of pinning a
+    // real PR to the list endpoint's placeholder 0/0 for the store lifetime.
+    installStateRune()
+    let effortCalls = 0
+    installWindow(async () => {
+      effortCalls++
+      return effortCalls === 1
+        ? [{ number: 33, headSha: 'head-33' }]
+        : [{
+            number: 33,
+            headSha: 'head-33',
+            additions: 12,
+            deletions: 4,
+            effort: { band: 'quick', minutes: 4, signals: ['tiny'] },
+          }]
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+
+    await store.loadAll(api(), serverId, ctx)
+    await store.loadEfforts(api(), serverId, ctx, [33])
+    await store.loadEfforts(api(), serverId, ctx, [33])
+
+    expect(store.get(33)?.additions).toBe(12)
+    expect(store.get(33)?.deletions).toBe(4)
+    expect(effortCalls).toBe(2)
+  })
+
+  test('evicts old project entries instead of retaining every PR payload forever', async () => {
+    // WHY: the store spans project switches. A TTL makes stale values unusable,
+    // but without cardinality eviction their full provider payloads still stay
+    // strongly reachable for the lifetime of the renderer.
+    installStateRune()
+    let detailCalls = 0
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          prGetDetail: async () => {
+            detailCalls++
+            return { number: 33, title: 'bounded' }
+          },
+        },
+      },
+    })
+    const { PR_CACHE_MAX_ENTRIES, PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+
+    for (let index = 0; index <= PR_CACHE_MAX_ENTRIES; index++) {
+      await store.loadDetail(api(), serverId, {
+        ...ctx,
+        session: { ...ctx.session, projectPath: `/repo/${index}` },
+      } as IpcContext, 33)
+    }
+    await store.loadDetail(api(), serverId, ctx, 33)
+
+    expect(detailCalls).toBe(PR_CACHE_MAX_ENTRIES + 2)
+  })
+
+  test('publishes edited PR content to the list and detail cache', async () => {
+    // WHY: saving from Activity must update every mounted PR surface instead of
+    // leaving the list title and a warm detail cache on the pre-edit snapshot.
+    installStateRune()
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          prList: async () => ({ items: [listItem()], page: 1, hasMore: false }),
+          prGetEfforts: async () => [],
+          prUpdate: async () => ({
+            ...listItem(),
+            title: 'Edited title',
+            body: 'Edited description',
+            updatedAt: '2026-01-02T00:00:00Z',
+          }),
+          prChecks: async () => { throw new Error('not relevant') },
+          prGuideMetadata: async () => { throw new Error('not relevant') },
+        },
+      },
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    await store.loadAll(api(), serverId, ctx)
+
+    await store.updatePullRequest(api(), serverId, ctx, 33, {
+      title: 'Edited title',
+      body: 'Edited description',
+    })
+
+    expect(store.get(33)).toMatchObject({
+      title: 'Edited title',
+      body: 'Edited description',
+    })
+    expect(store.cachedActivity(serverId, ctx, 33).detail).toMatchObject({
+      title: 'Edited title',
+      body: 'Edited description',
+    })
+  })
+
+  test('keeps the same PR context isolated between hosts', async () => {
+    // WHY: the same checkout path and PR number can exist on two hosts with
+    // different provider data. A cache hit from one host must not cross over.
+    installStateRune()
+    let hostACalls = 0
+    let hostBCalls = 0
+    serverConnectionsMock.registerPrimary('host-a', {
+      prGetDetail: async () => ({ number: 33, title: `Host A ${++hostACalls}` }),
+    })
+    serverConnectionsMock.registerHost('host-b', {
+      prGetDetail: async () => ({ number: 33, title: `Host B ${++hostBCalls}` }),
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+
+    const hostA = await store.loadDetail(serverConnectionsMock.apiFor('host-a'), 'host-a', ctx, 33)
+    const hostB = await store.loadDetail(serverConnectionsMock.apiFor('host-b'), 'host-b', ctx, 33)
+    const hostAAgain = await store.loadDetail(serverConnectionsMock.apiFor('host-a'), 'host-a', ctx, 33)
+    const hostBAgain = await store.loadDetail(serverConnectionsMock.apiFor('host-b'), 'host-b', ctx, 33)
+
+    expect(hostA.title).toBe('Host A 1')
+    expect(hostB.title).toBe('Host B 1')
+    expect(hostAAgain.title).toBe('Host A 1')
+    expect(hostBAgain.title).toBe('Host B 1')
+    expect([hostACalls, hostBCalls]).toEqual([1, 1])
+  })
+
+  test('invalidates only the cache owned by the emitting host', async () => {
+    // WHY: a checkout change on host A must not evict the same path and PR
+    // cached for host B.
+    installStateRune()
+    let hostACalls = 0
+    let hostBCalls = 0
+    serverConnectionsMock.registerPrimary('host-a', {
+      prGetDetail: async () => ({ number: 33, title: `Host A ${++hostACalls}` }),
+    })
+    serverConnectionsMock.registerHost('host-b', {
+      prGetDetail: async () => ({ number: 33, title: `Host B ${++hostBCalls}` }),
+    })
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        setInterval: () => 1,
+        clearInterval: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+    })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      writable: true,
+      value: { visibilityState: 'hidden' },
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const hostAApi = serverConnectionsMock.apiFor('host-a')
+    const hostBApi = serverConnectionsMock.apiFor('host-b')
+    await store.loadDetail(hostAApi, 'host-a', ctx, 33)
+    await store.loadDetail(hostBApi, 'host-b', ctx, 33)
+    const unsubscribe = store.subscribeNeedsReview(() => ({ api: hostAApi, serverId: 'host-a', ctx }))
+
+    serverConnectionsMock.emit('host-a', 'prs.invalidated', { projectRoot: '/repo' })
+    await store.loadDetail(hostAApi, 'host-a', ctx, 33)
+    await store.loadDetail(hostBApi, 'host-b', ctx, 33)
+    unsubscribe()
+
+    expect([hostACalls, hostBCalls]).toEqual([2, 1])
+  })
+})
+
+describe('PR mutation results', () => {
+  test('applies lifecycle events to the visible row and cached list page', async () => {
+    // WHY: another connected client can change a PR while this list stays
+    // mounted. Applying the delta must not wait for a provider reload, and a
+    // later cache hit must not restore the old draft value.
+    installStateRune()
+    installWindow(async () => [])
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    await store.loadAll(api(), serverId, ctx)
+    const unsubscribe = store.subscribeLifecycleChanges()
+    const detail = {
+      ...listItem(),
+      draft: true,
+      body: '',
+      baseRef: 'main',
+      headRef: 'feature',
+      baseSha: 'base-33',
+      changedFiles: 1,
+      mergeable: true,
+      mergeStateStatus: 'clean',
+      headRepo: { owner: 'acme', repo: 'app', isFork: false },
+      capabilities: {
+        diff: true,
+        diffFileContents: true,
+        inlineComments: true,
+        threadReplies: true,
+        threadResolution: true,
+        reviewVerdicts: ['comment', 'approve', 'request-changes'],
+        actions: ['merge', 'close', 'reopen', 'ready', 'draft'],
+        mergeMethods: ['squash'],
+        reviewerRequests: true,
+        reviewerCandidates: true,
+      },
+      viewerPermissions: {
+        actions: ['ready'],
+        reviewVerdicts: ['comment'],
+        comment: true,
+        resolveThreads: true,
+        requestReviewers: false,
+      },
+    } satisfies PullRequestDetail
+
+    serverConnectionsMock.emit(serverId, 'pr.lifecycleChanged', { projectRoot: '/repo', detail })
+    expect(store.get(33)?.draft).toBe(true)
+
+    await store.loadAll(api(), serverId, ctx)
+    expect(store.get(33)?.draft).toBe(true)
+    unsubscribe()
+  })
+
+  test('patches the visible row and detail cache without reloading the PR surface', async () => {
+    // WHY: an in-UI lifecycle action already returns canonical provider state.
+    // Reloading commits, comments, files, and threads adds latency and visual churn.
+    installStateRune()
+    installWindow(async () => [])
+    let detailLoads = 0
+    const detail = {
+      ...listItem(),
+      state: 'closed',
+      body: '',
+      baseRef: 'main',
+      headRef: 'feature',
+      baseSha: 'base-33',
+      changedFiles: 1,
+      mergeable: true,
+      mergeStateStatus: 'clean',
+      headRepo: { owner: 'acme', repo: 'app', isFork: false },
+      capabilities: {
+        diff: true,
+        diffFileContents: true,
+        inlineComments: true,
+        threadReplies: true,
+        threadResolution: true,
+        reviewVerdicts: ['comment', 'approve', 'request-changes'],
+        actions: ['merge', 'close', 'reopen', 'ready', 'draft'],
+        mergeMethods: ['squash'],
+        reviewerRequests: true,
+        reviewerCandidates: true,
+      },
+      viewerPermissions: {
+        actions: ['reopen'],
+        reviewVerdicts: ['comment', 'approve', 'request-changes'],
+        comment: true,
+        resolveThreads: true,
+        requestReviewers: true,
+      },
+    } satisfies PullRequestDetail
+    Object.assign((globalThis as unknown as { window: { solus: object } }).window.solus, {
+      prGetDetail: async () => {
+        detailLoads++
+        throw new Error('The mutation result should seed this cache')
+      },
+      prUpdateLifecycle: async () => detail,
+    })
+    const { PrsStore } = await import('../../src/renderer/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    await store.loadAll(api(), serverId, ctx)
+
+    await store.updateLifecycle(api(), serverId, ctx, 33, 'close', 'head-33')
+
+    expect(store.get(33)?.state).toBe('closed')
+    expect(await store.loadDetail(api(), serverId, ctx, 33)).toBe(detail)
+    expect(detailLoads).toBe(0)
+
+    await store.loadAll(api(), serverId, ctx)
+    expect(store.get(33)?.state).toBe('closed')
+
+    const mergedDetail = { ...detail, state: 'merged' as const }
+    store.applyDetail(serverId, ctx, 33, mergedDetail)
+    expect(store.get(33)?.state).toBe('merged')
+    expect(await store.loadDetail(api(), serverId, ctx, 33)).toBe(mergedDetail)
+  })
+})

@@ -1,0 +1,5 @@
+{"method":"item/started","params":{"threadId":"thread-1","turnId":"turn-1","item":{"id":"cmd-1","type":"commandExecution","command":"pwd"}}}
+{"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1","turnId":"turn-1","itemId":"cmd-1","delta":"/Users/sidhu/solus\n"}}
+{"method":"item/completed","params":{"threadId":"thread-1","turnId":"turn-1","item":{"id":"cmd-1","type":"commandExecution","aggregatedOutput":"/Users/sidhu/solus\n","status":"completed"}}}
+{"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"turn-1","tokenUsage":{"last":{"inputTokens":100,"cachedInputTokens":40,"outputTokens":12,"reasoningOutputTokens":5},"total":{"inputTokens":150,"cachedInputTokens":50,"outputTokens":20},"modelContextWindow":200000}}}
+{"method":"turn/completed","params":{"threadId":"thread-1","turnId":"turn-1","turn":{"id":"turn-1","status":"completed","durationMs":123}}}

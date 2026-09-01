@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="420" viewBox="0 0 1200 420" role="img" aria-label="Solus — the best Agentic Editor for building software">
+  <defs>
+    <radialGradient id="warmth" cx="50%" cy="34%" r="62%">
+      <stop offset="0%" stop-color="#D4AF6A" stop-opacity="0.14"/>
+      <stop offset="100%" stop-color="#D4AF6A" stop-opacity="0"/>
+    </radialGradient>
+
+    <radialGradient id="markHalo" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#D97757" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#D97757" stop-opacity="0"/>
+    </radialGradient>
+
+    <linearGradient id="rule" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#D4AF6A" stop-opacity="0"/>
+      <stop offset="50%" stop-color="#D4AF6A" stop-opacity="0.45"/>
+      <stop offset="100%" stop-color="#D4AF6A" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Canvas: the site's warm paper tone -->
+  <rect width="1200" height="420" fill="#FAF9F6"/>
+  <rect width="1200" height="420" fill="url(#warmth)"/>
+  <rect x="0.5" y="0.5" width="1199" height="419" fill="none" stroke="#D4AF6A" stroke-opacity="0.22" stroke-width="1"/>
+
+  <!-- Logo lockup -->
+  <circle cx="493" cy="148" r="86" fill="url(#markHalo)"/>
+
+  <g transform="translate(493, 148)">
+    <circle cx="0" cy="0" r="19.2" fill="#B45A3C"/>
+    <g fill="none" stroke="#D97757" stroke-width="6.4" stroke-linecap="round">
+      <path d="M 0,-32 A 32,32 0 0 1 32,0"/>
+      <path d="M 26.88,21.76 A 32,32 0 0 1 -10.24,30.72"/>
+      <path d="M -26.88,21.76 A 32,32 0 0 1 -32,-10.24"/>
+    </g>
+  </g>
+
+  <text
+    x="552"
+    y="148"
+    font-family="'Satoshi', 'Inter', 'Helvetica Neue', Arial, sans-serif"
+    font-size="76"
+    font-weight="700"
+    letter-spacing="-2"
+    fill="#1A1714"
+    dominant-baseline="central"
+  >solus</text>
+
+  <!-- Hairline rule -->
+  <rect x="360" y="212" width="480" height="1" fill="url(#rule)"/>
+
+  <!-- Slogan -->
+  <text
+    x="600"
+    y="266"
+    font-family="'Satoshi', 'Inter', 'Helvetica Neue', Arial, sans-serif"
+    font-size="34"
+    font-weight="700"
+    letter-spacing="-0.8"
+    fill="#1A1714"
+    text-anchor="middle"
+  >The best Agentic Editor <tspan fill="#B98A3E">for building software.</tspan></text>
+
+  <text
+    x="600"
+    y="308"
+    font-family="'Inter', 'Helvetica Neue', Arial, sans-serif"
+    font-size="16"
+    font-weight="400"
+    fill="#6B6158"
+    text-anchor="middle"
+  >Plan, review, and ship work with Claude Code or Codex — from your desktop, browser, or phone.</text>
+
+  <!-- Platform pills -->
+  <g font-family="'Geist Mono', 'JetBrains Mono', 'SF Mono', monospace" font-size="12" font-weight="500" fill="#9A7B36">
+    <rect x="474" y="344" width="92" height="30" rx="15" fill="none" stroke="#D4AF6A" stroke-opacity="0.4"/>
+    <text x="520" y="359" text-anchor="middle" dominant-baseline="central">macOS</text>
+
+    <rect x="576" y="344" width="150" height="30" rx="15" fill="none" stroke="#D4AF6A" stroke-opacity="0.4"/>
+    <text x="651" y="359" text-anchor="middle" dominant-baseline="central">keyboard-first</text>
+  </g>
+</svg>

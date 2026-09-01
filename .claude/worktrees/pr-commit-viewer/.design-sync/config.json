@@ -1,0 +1,8 @@
+{
+  "projectId": "e0e1a381-e315-4b36-bc74-947334914d7c",
+  "shape": "foundations",
+  "readmeHeader": ".design-sync/conventions.md",
+  "outDir": "ds-bundle",
+  "buildEntry": ".ds-work/entry.css",
+  "sourceStylesheet": "src/renderer/index.css"
+}

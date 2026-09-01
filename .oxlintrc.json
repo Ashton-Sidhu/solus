@@ -1,0 +1,38 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": [
+    "src/main/agents/codex/generated/**",
+    "client/src/demo/**",
+    "**/tests/**"
+  ],
+  "jsPlugins": [
+    { "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
+    { "name": "solus", "specifier": "./tools/oxlint/solus/index.ts" }
+  ],
+  "rules": {
+    "anti-slop/no-chained-type-assertions": "error",
+    "anti-slop/no-conditional-empty-object-spread": "error",
+    "anti-slop/no-known-value-widening": "error",
+    "anti-slop/no-module-mocking": "error",
+    "anti-slop/no-object-parameters": "error",
+    "anti-slop/no-reflect-apply": "error",
+    "anti-slop/no-reflect-get": "error",
+    "anti-slop/no-runtime-typeof": "error",
+    "anti-slop/no-shape-in-symbol-names": "error",
+    "anti-slop/no-unknown-parameters": "error",
+    "anti-slop/no-unknown-returns": "error",
+    "anti-slop/no-unknown-type-aliases": "error",
+    "anti-slop/no-unsafe-dictionary-type": "error",
+    "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/require-safety-comment-for-type-assertion": "error",
+    "solus/no-broad-unknown-records": "error",
+    "solus/no-github-task-escapes": "error",
+    "solus/no-host-api-escapes": "error",
+    "solus/no-pass-through-wrappers": "error",
+    "solus/no-pierre-diff-escapes": "error",
+    "solus/no-pr-context-escapes": "error",
+    "solus/no-tailwind-class-variables": "error",
+    "solus/require-resolved-cwd": "error",
+    "complexity": "error"
+  }
+}

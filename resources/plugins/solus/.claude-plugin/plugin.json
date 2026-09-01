@@ -1,0 +1,5 @@
+{
+  "name": "solus",
+  "description": "Solus's bundled skills. Includes visual-artifacts for rich local artifacts, diagrams for editable architecture views, and solus-review for reusable structured review guides.",
+  "version": "0.1.0"
+}

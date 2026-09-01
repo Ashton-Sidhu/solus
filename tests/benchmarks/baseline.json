@@ -1,0 +1,66 @@
+[
+  {
+    "name": "computeCurrentActivity idle scan (5k msgs × 2k calls)",
+    "unit": "ms",
+    "legacy": 28.359417000000008,
+    "current": 28.502833999999893
+  },
+  {
+    "name": "turnDurationMs (320-item turn × 20k calls)",
+    "unit": "ms",
+    "legacy": 28.234666999999945,
+    "current": 26.856874999999945
+  },
+  {
+    "name": "tool-input parse, 400 tools re-read 50×",
+    "unit": "ms",
+    "legacy": 4.786082999999962,
+    "current": 4.331500000000233
+  },
+  {
+    "name": "agent-conversation card lookup (5k msgs × 5k calls, mirror)",
+    "unit": "ms",
+    "legacy": 75.81991599999992,
+    "current": 0.041208000000096945
+  },
+  {
+    "name": "codex activity timestamp, 4.5 MB / 20k-line JSONL (per scan)",
+    "unit": "ms",
+    "legacy": 12.231816699999944,
+    "current": 47.05155829999994
+  },
+  {
+    "name": "turn sidecar serialize, 500-turn session × 500 writes",
+    "unit": "ms",
+    "legacy": 66.70370900000034,
+    "current": 25.374374999999418,
+    "note": "payload 106 KB → 72 KB"
+  },
+  {
+    "name": "git watcher fire, 500-file status × 500 fires (mirror)",
+    "unit": "ms",
+    "legacy": 17.1884170000003,
+    "current": 51.31470900000022,
+    "note": "retained/cwd 53 KB → 8 B"
+  },
+  {
+    "name": "find-bar 1-char query on 120k-line diff (mirror)",
+    "unit": "ms",
+    "legacy": 5.567749999999251,
+    "current": 0.00004199999966658652,
+    "note": "240,000 match objects → 0"
+  },
+  {
+    "name": "lowlight registry init (37 grammars → 16)",
+    "unit": "ms",
+    "legacy": 0.3662500000000364,
+    "current": 0.18758299999990413
+  },
+  {
+    "name": "interactive login-shell probe (potential sync boot stall)",
+    "unit": "ms",
+    "legacy": 679.9420420000006,
+    "current": 0,
+    "note": "after: resolved async off the boot path"
+  }
+]

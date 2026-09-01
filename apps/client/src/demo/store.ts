@@ -1,0 +1,697 @@
+import type { SessionPreviewResult } from '@solus/contracts/session-history'
+import type {
+  Automation,
+  AutomationAction,
+  AutomationCreator,
+  AutomationRun,
+  AutomationTrigger,
+  FilePreviewResult,
+  IpcContext,
+  PinnedSession,
+  PlanAnnotations,
+  PlanDescriptor,
+  PrReviewContext,
+  ProjectFilesResult,
+  Work,
+  WorkAnnotations,
+  WorkPrevious,
+  WorktreeEntry,
+  WriteFileResult,
+} from '@solus/contracts/types'
+import type { DraftReview, PrConversationItem, ReviewComment, ReviewThread } from '@solus/contracts/providers'
+import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '@solus/contracts/review'
+import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '@solus/contracts/task-types'
+import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '@solus/contracts/git-types'
+import { DEMO_PROJECT, DEMO_VIEWER, type DemoFixtures } from './fixtures/types'
+
+/** A unified diff the demo serves for one scope. */
+interface DemoDiff {
+  patch: string
+}
+
+const FIXTURE_EPOCH = Date.parse('2026-01-15T15:00:00.000Z')
+
+/** How long before this visit the newest recorded message is said to have
+ *  landed. The replayed turn continues that history, so the gap is what the
+ *  visitor reads as "this conversation was live a moment ago". */
+const HISTORY_ENDS_BEFORE_NOW_MS = 90_000
+
+type WorkPatch = Partial<Pick<Work, 'title' | 'preview' | 'content'>>
+type AutomationPatch = {
+  name?: string
+  enabled?: boolean
+  favorite?: boolean
+  action?: Partial<AutomationAction>
+  trigger?: AutomationTrigger
+}
+
+export class DemoStore {
+  readonly fixtures: DemoFixtures
+  private readonly pinnedSessions = new Map<string, PinnedSession>()
+  private readonly reviewStates = new Map<string, ReviewState>()
+  /** The pull request's top-level conversation. The capture holds none, so it
+   *  starts empty and grows with whatever the visitor writes. */
+  private readonly prConversation: PrConversationItem[] = []
+  private workCounter = 0
+  private taskCounter = 0
+  private taskLinks = new Map<string, TaskLink[]>()
+  private commentCounter = 0
+  private automationCounter = 0
+  private runCounter = 0
+  private timestampCounter = 0
+  private submittedReview: DraftReview | null = null
+
+  constructor(fixtures: DemoFixtures) {
+    this.fixtures = structuredClone(fixtures)
+    this.rebaseSessionHistory()
+    // A task that already carries its docs, plan and automation is the normal
+    // state, so the fixture seeds those edges rather than starting empty.
+    // These reach the page through `tasksGet` only: `upstreamTaskDetails` sets
+    // `links: []`, so a provider-owned ticket shows none of them.
+    for (const [taskId, links] of Object.entries(this.fixtures.tasks.links)) {
+      this.taskLinks.set(taskId, links)
+    }
+  }
+
+  /** Recorded transcripts carry absolute timestamps, so a fixture authored
+   *  months ago makes the replayed turn measure its own length from then —
+   *  the finished turn reported "Worked for 46878m". Slide each history
+   *  forward so its own newest message sits just before this visit. Per
+   *  session, not one shared shift: the replay continues whichever session it
+   *  targets, and that one must be the fresh one no matter where it fell in
+   *  the fixture's recording order. The shape of each conversation is
+   *  preserved; only its era moves. */
+  private rebaseSessionHistory(): void {
+    const now = Date.now()
+    for (const session of this.fixtures.sessions) {
+      let newest = 0
+      for (const message of session.messages) {
+        if (message.timestamp > newest) newest = message.timestamp
+      }
+      if (!newest) continue
+      const shift = now - HISTORY_ENDS_BEFORE_NOW_MS - newest
+      for (const message of session.messages) {
+        message.timestamp += shift
+      }
+      session.meta.lastTimestamp = new Date(Date.parse(session.meta.lastTimestamp) + shift).toISOString()
+    }
+  }
+
+  private nextTimestamp(): number {
+    this.timestampCounter += 1
+    return FIXTURE_EPOCH + this.timestampCounter * 1_000
+  }
+
+  private nextIso(): string {
+    return new Date(this.nextTimestamp()).toISOString()
+  }
+
+  startInfo() {
+    return this.fixtures.startInfo
+  }
+
+  gitStatus() {
+    return this.fixtures.gitStatus
+  }
+
+  listSessions() {
+    return this.fixtures.sessions.map(({ meta }) => meta)
+  }
+
+  searchSessions(request: { query: string; projectPath?: string; limit?: number }) {
+    const query = request.query.trim().toLowerCase()
+    const matches = this.fixtures.sessions
+      .filter(({ meta }) => !request.projectPath || meta.cwd === request.projectPath || meta.projectPath === request.projectPath)
+      .filter(({ meta }) => !query || `${meta.firstMessage ?? ''} ${meta.slug ?? ''}`.toLowerCase().includes(query))
+      .map(({ meta }) => ({
+        session: meta,
+        snippet: meta.firstMessage ?? meta.slug ?? meta.sessionId,
+        ts: Date.parse(meta.lastTimestamp),
+      }))
+    return request.limit === undefined ? matches : matches.slice(0, request.limit)
+  }
+
+  loadSession(sessionId: string, limit?: number) {
+    const messages = this.fixtures.sessions.find((session) => session.meta.sessionId === sessionId)?.messages ?? []
+    return limit === undefined ? messages : messages.slice(-limit)
+  }
+
+  loadSessionPreview(sessionId: string): SessionPreviewResult {
+    const messages = this.loadSession(sessionId)
+    const head = messages.slice(0, 2)
+    const tail = messages.slice(Math.max(head.length, messages.length - 2))
+    return { head, tail, totalMessages: messages.length }
+  }
+
+  getSessionInfo(sessionId: string) {
+    return this.fixtures.sessions.find((session) => session.meta.sessionId === sessionId)?.meta ?? null
+  }
+
+  listPinnedSessions(): PinnedSession[] {
+    return [...this.pinnedSessions.values()].sort((a, b) => b.pinnedAt - a.pinnedAt)
+  }
+
+  togglePinnedSession(session: PinnedSession): PinnedSession[] {
+    if (this.pinnedSessions.has(session.sessionId)) this.pinnedSessions.delete(session.sessionId)
+    else this.pinnedSessions.set(session.sessionId, session)
+    return this.listPinnedSessions()
+  }
+
+  listPlans(): PlanDescriptor[] {
+    return this.fixtures.plans.map(({ descriptor }) => descriptor)
+  }
+
+  private findPlan(sessionId: string, planToolUseId: string) {
+    return this.fixtures.plans.find((plan) =>
+      plan.descriptor.sessionId === sessionId && plan.descriptor.planToolUseId === planToolUseId)
+  }
+
+  loadPlanContent(sessionId: string, planToolUseId: string): string | null {
+    return this.findPlan(sessionId, planToolUseId)?.content ?? null
+  }
+
+  loadPlanAnnotations(sessionId: string, planToolUseId: string): PlanAnnotations | null {
+    return this.findPlan(sessionId, planToolUseId)?.annotations ?? null
+  }
+
+  savePlanAnnotations(annotations: PlanAnnotations): boolean {
+    const plan = this.findPlan(annotations.sessionId, annotations.planToolUseId)
+    if (!plan) return false
+    plan.annotations = annotations
+    plan.descriptor.title = annotations.title
+    plan.descriptor.status = annotations.status
+    plan.descriptor.commentCount = annotations.comments.length
+    plan.descriptor.bookmarked = annotations.bookmarked
+    plan.descriptor.bookmarkedAt = annotations.bookmarkedAt
+    return true
+  }
+
+  toggleBookmarkPlan(
+    sessionId: string,
+    projectPath: string,
+    cwd: string,
+    planToolUseId: string,
+    title: string,
+  ): PlanAnnotations {
+    const plan = this.findPlan(sessionId, planToolUseId)
+    if (!plan) throw new Error(`Plan not found: ${sessionId}/${planToolUseId}`)
+    const bookmarked = !plan.annotations.bookmarked
+    const updatedAt = this.nextTimestamp()
+    plan.annotations = {
+      ...plan.annotations,
+      projectPath,
+      cwd,
+      title,
+      bookmarked,
+      ...(bookmarked ? { bookmarkedAt: updatedAt } : { bookmarkedAt: undefined }),
+      updatedAt,
+    }
+    plan.descriptor.title = title
+    plan.descriptor.bookmarked = bookmarked
+    plan.descriptor.bookmarkedAt = plan.annotations.bookmarkedAt
+    return plan.annotations
+  }
+
+  writePlanFile(filePath: string, content: string): boolean {
+    const plan = this.fixtures.plans.find(({ descriptor }) => descriptor.planFilePath === filePath)
+    if (!plan) return false
+    plan.content = content
+    plan.descriptor.excerpt = content.replace(/\s+/g, ' ').slice(0, 180)
+    return true
+  }
+
+  private findWorkEntry(id: string) {
+    return this.fixtures.works.find(({ meta }) => meta.id === id)
+  }
+
+  listWorks() {
+    return this.fixtures.works
+      .map(({ meta }) => meta)
+      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  }
+
+  loadWork(id: string): Work | null {
+    const entry = this.findWorkEntry(id)
+    return entry ? { ...entry.meta, content: entry.content } : null
+  }
+
+  saveWork(id: string, patch: WorkPatch): Work {
+    const entry = this.findWorkEntry(id)
+    if (!entry) throw new Error(`Work not found: ${id}`)
+    if (patch.title !== undefined) entry.meta.title = patch.title
+    if (patch.preview !== undefined) entry.meta.preview = patch.preview
+    if (patch.content !== undefined) entry.content = patch.content
+    entry.meta.updatedAt = this.nextIso()
+    return { ...entry.meta, content: entry.content }
+  }
+
+  createWork(
+    title: string,
+    type: Work['type'],
+    content: string | undefined,
+    preview: string | undefined,
+    sessionId: string | undefined,
+    agentProvider: Work['agentProvider'],
+    cwd: string | undefined,
+    requestedId: string | undefined,
+  ): Work {
+    const id = requestedId ?? `demo-work-${++this.workCounter}`
+    const createdAt = this.nextIso()
+    const work: Work = {
+      id,
+      title,
+      type,
+      content: content ?? '',
+      preview: preview ?? '',
+      createdAt,
+      updatedAt: createdAt,
+      sessionId,
+      sessionIds: sessionId ? [sessionId] : [],
+      agentProvider,
+      cwd: cwd ?? DEMO_PROJECT,
+      storage: { kind: 'local' },
+    }
+    const { content: storedContent, ...meta } = work
+    this.fixtures.works.push({ meta, content: storedContent })
+    return work
+  }
+
+  duplicateWork(id: string): Work {
+    const source = this.loadWork(id)
+    if (!source) throw new Error(`Work not found: ${id}`)
+    return this.createWork(
+      `${source.title} copy`,
+      source.type,
+      source.content,
+      source.preview,
+      undefined,
+      source.agentProvider,
+      source.cwd,
+      undefined,
+    )
+  }
+
+  deleteWork(id: string): void {
+    const index = this.fixtures.works.findIndex(({ meta }) => meta.id === id)
+    if (index !== -1) this.fixtures.works.splice(index, 1)
+  }
+
+  setWorkPinned(id: string, pinned: boolean): void {
+    const entry = this.findWorkEntry(id)
+    if (!entry) return
+    if (pinned) entry.meta.pinned = true
+    else delete entry.meta.pinned
+  }
+
+  loadWorkAnnotations(id: string): WorkAnnotations | null {
+    return this.findWorkEntry(id)?.annotations ?? null
+  }
+
+  saveWorkAnnotations(annotations: WorkAnnotations): void {
+    const entry = this.findWorkEntry(annotations.workId)
+    if (entry) entry.annotations = annotations
+  }
+
+  loadWorkPrevious(id: string): WorkPrevious | null {
+    return this.findWorkEntry(id)?.previous ?? null
+  }
+
+  prList() {
+    return this.fixtures.pr.list
+  }
+
+  prOverview() {
+    return this.fixtures.pr.overview
+  }
+
+  prThreads(): ReviewThread[] {
+    return this.fixtures.pr.threads
+  }
+
+  prChangedFiles(): ChangedFileStat[] {
+    return this.fixtures.pr.changedFiles
+  }
+
+  prGuide() {
+    return this.fixtures.pr.guide
+  }
+
+  prComments(): PrConversationItem[] {
+    return this.prConversation
+  }
+
+  addPrComment(body: string): void {
+    this.prConversation.push({
+      id: `demo-pr-comment-${++this.commentCounter}`,
+      kind: 'comment',
+      author: DEMO_VIEWER,
+      body,
+      createdAt: this.nextIso(),
+    })
+  }
+
+  deletePrComment(commentId: string): void {
+    const index = this.prConversation.findIndex((item) => item.id === commentId)
+    if (index >= 0) this.prConversation.splice(index, 1)
+  }
+
+  replyToPrThread(threadId: string, body: string): ReviewComment {
+    const thread = this.fixtures.pr.threads.find((candidate) => candidate.id === threadId)
+    if (!thread) throw new Error(`Review thread not found: ${threadId}`)
+    const comment: ReviewComment = {
+      id: `demo-review-comment-${++this.commentCounter}`,
+      author: DEMO_VIEWER,
+      body,
+      createdAt: this.nextIso(),
+    }
+    thread.comments.push(comment)
+    return comment
+  }
+
+  setPrThreadResolved(threadId: string, isResolved: boolean): void {
+    const thread = this.fixtures.pr.threads.find((candidate) => candidate.id === threadId)
+    if (!thread) throw new Error(`Review thread not found: ${threadId}`)
+    thread.isResolved = isResolved
+  }
+
+  submitPrReview(review: DraftReview): void {
+    this.submittedReview = review
+  }
+
+  readReviewState(key: string): ReviewState | null {
+    return this.reviewStates.get(key) ?? null
+  }
+
+  writeReviewState(state: ReviewState): boolean {
+    this.reviewStates.set(state.key, state)
+    return true
+  }
+
+  reviewContext(ctx: IpcContext): ReviewContext {
+    const detail = this.fixtures.pr.overview.pullRequest
+    const pr = ctx.session.prReview
+    return {
+      key: this.fixtures.pr.guide.key,
+      branch: pr?.branch ?? detail.headRef,
+      targetBranch: pr?.baseRef ?? detail.baseRef,
+      baseSha: pr?.baseSha ?? detail.baseSha,
+      headSha: pr?.headSha ?? detail.headSha,
+      repoRoot: DEMO_PROJECT,
+      prUrl: detail.url,
+    }
+  }
+
+  /** The demo ships its review already written. Generating one needs an agent,
+   *  and a visitor who clicks "Review changes" has no way to wait for one — so
+   *  the report is reported ready and the button reads "View report" from the
+   *  first frame. */
+  reviewGuideStatus(ctx: IpcContext, scope: 'branch' | 'session'): ReviewGuideStatusEvent {
+    // The key must be the one the renderer derives, and the renderer derives it
+    // from the checkout `gitRefreshState` reports — one state for the whole demo
+    // project, whatever branch an individual tab remembers starting on.
+    const branch = this.fixtures.gitStatus.branch ?? 'main'
+    return {
+      repoRoot: this.fixtures.gitStatus.repoRoot,
+      key: reviewGuideKeyFor(branch, scope, ctx.session.agentSessionId),
+      scope,
+      status: 'ready',
+      headSha: this.fixtures.gitStatus.headSha,
+      updatedAt: FIXTURE_EPOCH,
+    }
+  }
+
+  prReviewContext(number: number): PrReviewContext {
+    const detail = this.fixtures.pr.overview.pullRequest
+    return {
+      host: 'github.com',
+      owner: 'acme',
+      repo: 'acme',
+      number,
+      title: detail.title,
+      baseRef: detail.baseRef,
+      headRef: detail.headRef,
+      headSha: detail.headSha,
+      baseSha: detail.baseSha,
+      headRepo: detail.headRepo,
+      worktreePath: DEMO_PROJECT,
+      branch: detail.headRef,
+    }
+  }
+
+  private commentsForTask(id: string): TaskCommentData[] {
+    return this.fixtures.tasks.comments[id] ??= []
+  }
+
+  private hydrateTask(task: Task): Task {
+    // SAFETY: the demo's task fixtures carry their provider payload as a plain object
+    // whose only field the demo reads back is `comments`.
+    const raw = Object.prototype.toString.call(task.raw) === '[object Object]'
+      ? task.raw as { comments?: TaskCommentData[] }
+      : {}
+    return { ...task, raw: { ...raw, comments: this.commentsForTask(task.id) } }
+  }
+
+  listTasks() {
+    return { ...this.fixtures.tasks.list, tasks: this.fixtures.tasks.list.tasks.map((task) => this.hydrateTask(task)) }
+  }
+
+  getTask(id: string): Task {
+    const task = this.fixtures.tasks.details[id] ?? this.fixtures.tasks.list.tasks.find((candidate) => candidate.id === id)
+    if (!task) throw new Error(`Task not found: ${id}`)
+    return this.hydrateTask(task)
+  }
+
+  private storeTask(task: Task): Task {
+    this.fixtures.tasks.details[task.id] = task
+    const index = this.fixtures.tasks.list.tasks.findIndex((candidate) => candidate.id === task.id)
+    if (index === -1) this.fixtures.tasks.list.tasks.unshift(task)
+    else this.fixtures.tasks.list.tasks[index] = task
+    return this.hydrateTask(task)
+  }
+
+  updateTask(id: string, patch: Partial<Task>): Task {
+    const current = this.getTask(id)
+    return this.storeTask({ ...current, ...patch, id, updatedAt: this.nextTimestamp() })
+  }
+
+  createTask(input: Partial<Task>): Task {
+    const id = `demo-task-${++this.taskCounter}`
+    const task: Task = {
+      providerId: 'local',
+      kind: input.kind ?? 'task',
+      title: input.title ?? 'Untitled task',
+      body: input.body ?? '',
+      status: input.status ?? 'todo',
+      url: null,
+      labels: input.labels ?? [],
+      canEditPlanningFields: true,
+      updatedAt: this.nextTimestamp(),
+      raw: {},
+      ...input,
+      id,
+    }
+    this.fixtures.tasks.comments[id] = []
+    return this.storeTask(task)
+  }
+
+  commentTask(id: string, body: string): Task {
+    this.getTask(id)
+    this.commentsForTask(id).push({
+      id: `demo-task-comment-${++this.commentCounter}`,
+      author: { login: 'you' },
+      body,
+      createdAt: this.nextIso(),
+    })
+    return this.updateTask(id, {})
+  }
+
+  deleteTask(id: string): boolean {
+    const index = this.fixtures.tasks.list.tasks.findIndex((task) => task.id === id)
+    if (index === -1) return false
+    this.fixtures.tasks.list.tasks.splice(index, 1)
+    delete this.fixtures.tasks.details[id]
+    delete this.fixtures.tasks.comments[id]
+    delete this.fixtures.tasks.sessions[id]
+    return true
+  }
+
+  taskSessions(): Record<string, TaskSessionLink[]> {
+    return this.fixtures.tasks.sessions
+  }
+
+  linkTaskSession(taskId: string, sessionId: string): void {
+    const links = this.fixtures.tasks.sessions[taskId] ??= []
+    if (!links.some((link) => link.sessionId === sessionId)) {
+      links.push({
+        sessionId,
+        sessionTitle: this.getSessionInfo(sessionId)?.firstMessage ?? null,
+        provider: this.getSessionInfo(sessionId)?.provider ?? null,
+        lastActivityAt: null,
+        linkedAt: this.nextTimestamp(),
+      })
+    }
+  }
+
+  taskLinksFor(taskId: string): TaskLink[] {
+    return this.taskLinks.get(taskId) ?? []
+  }
+
+  linkTask(taskId: string, input: TaskLinkInput): void {
+    this.getTask(taskId)
+    const targetScope = input.targetScope ?? ''
+    const links = this.taskLinksFor(taskId)
+      .filter((link) => !(link.kind === input.kind && link.targetScope === targetScope && link.targetKey === input.targetKey))
+    const link: TaskLink = {
+      taskId,
+      kind: input.kind,
+      targetScope,
+      targetKey: input.targetKey,
+      title: input.title?.trim() || (input.kind === 'pr' ? `#${input.targetKey}` : 'Untitled'),
+      createdBy: input.createdBy ?? 'user',
+      linkedAt: this.nextTimestamp(),
+    }
+    if (input.url) link.url = input.url
+    links.push(link)
+    this.taskLinks.set(taskId, links)
+  }
+
+  unlinkTask(taskId: string, kind: TaskLink['kind'], targetKey: string, targetScope: string): void {
+    this.taskLinks.set(taskId, this.taskLinksFor(taskId)
+      .filter((link) => !(link.kind === kind && link.targetScope === targetScope && link.targetKey === targetKey)))
+  }
+
+  listAutomations(): Automation[] {
+    return this.fixtures.automations.list
+  }
+
+  readAutomation(id: string): Automation | null {
+    return this.fixtures.automations.list.find((automation) => automation.id === id) ?? null
+  }
+
+  updateAutomation(id: string, patch: AutomationPatch): Automation | null {
+    const automation = this.readAutomation(id)
+    if (!automation) return null
+    if (patch.name !== undefined) automation.name = patch.name
+    if (patch.enabled !== undefined) automation.enabled = patch.enabled
+    if (patch.favorite !== undefined) automation.favorite = patch.favorite
+    if (patch.action) automation.action = { ...automation.action, ...patch.action }
+    if (patch.trigger !== undefined) automation.trigger = patch.trigger
+    automation.updatedAt = this.nextIso()
+    return automation
+  }
+
+  createAutomation(
+    name: string,
+    action: AutomationAction,
+    createdBy: AutomationCreator,
+    enabled = true,
+    trigger: AutomationTrigger = { type: 'manual' },
+  ): Automation {
+    const timestamp = this.nextIso()
+    const automation: Automation = {
+      id: `demo-automation-${++this.automationCounter}`,
+      name,
+      action,
+      createdBy,
+      enabled,
+      trigger,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    }
+    this.fixtures.automations.list.unshift(automation)
+    this.fixtures.automations.runs[automation.id] = []
+    return automation
+  }
+
+  deleteAutomation(id: string): boolean {
+    const index = this.fixtures.automations.list.findIndex((automation) => automation.id === id)
+    if (index === -1) return false
+    this.fixtures.automations.list.splice(index, 1)
+    delete this.fixtures.automations.runs[id]
+    return true
+  }
+
+  listAutomationRuns(id: string): AutomationRun[] {
+    return this.fixtures.automations.runs[id] ?? []
+  }
+
+  readAutomationRun(automationId: string, runId: string): AutomationRun | null {
+    return this.listAutomationRuns(automationId).find((run) => run.id === runId) ?? null
+  }
+
+  startAutomationRun(id: string): { automation: Automation; run: AutomationRun } | null {
+    const automation = this.readAutomation(id)
+    if (!automation?.enabled) return null
+    const run: AutomationRun = {
+      id: `demo-automation-run-${++this.runCounter}`,
+      automationId: id,
+      startedAt: this.nextIso(),
+      status: 'running',
+    }
+    ;(this.fixtures.automations.runs[id] ??= []).unshift(run)
+    automation.lastRunId = run.id
+    automation.lastRunStatus = run.status
+    automation.lastRunAt = run.startedAt
+    return { automation, run }
+  }
+
+  finishAutomationRun(automationId: string, runId: string): { automation: Automation; run: AutomationRun } | null {
+    const automation = this.readAutomation(automationId)
+    const run = this.readAutomationRun(automationId, runId)
+    if (!automation || !run) return null
+    run.status = 'succeeded'
+    run.finishedAt = this.nextIso()
+    run.output = 'Demo automation completed successfully.'
+    automation.lastRunStatus = run.status
+    return { automation, run }
+  }
+
+  diff(ctx: IpcContext, request: DiffRequest): DemoDiff {
+    if (request.scope.kind === 'pr') {
+      const selected = request.livePaths?.length
+        ? request.livePaths.map((path) => this.fixtures.pr.filePatches[path]).filter((patch): patch is string => !!patch)
+        : Object.values(this.fixtures.pr.filePatches)
+      return { patch: selected.join('\n') }
+    }
+    return { patch: this.diffFixture(ctx)?.patch ?? '' }
+  }
+
+  diffStats(ctx: IpcContext, request: DiffRequest): ChangedFileStat[] {
+    const stats = request.scope.kind === 'pr' ? this.fixtures.pr.changedFiles : this.diffFixture(ctx)?.stats ?? []
+    return request.livePaths?.length ? stats.filter((stat) => request.livePaths?.includes(stat.path)) : stats
+  }
+
+  turnSnapshots(ctx: IpcContext): TurnSnapshot[] {
+    return this.diffFixture(ctx)?.turnSnapshots ?? []
+  }
+
+  worktrees(): WorktreeEntry[] {
+    return [{ path: DEMO_PROJECT, branch: this.fixtures.gitStatus.branch ?? 'main', lastModified: FIXTURE_EPOCH }]
+  }
+
+  listProjectFiles(): ProjectFilesResult {
+    return {
+      ok: true,
+      root: this.fixtures.files.root,
+      files: this.fixtures.files.files,
+      truncated: false,
+      source: 'index',
+    }
+  }
+
+  readProjectFile(path: string): FilePreviewResult {
+    const contents = this.fixtures.files.contents[path]
+    if (contents === undefined) return { ok: false, path, error: `File not found: ${path}` }
+    return { ok: true, path, displayPath: path, contents, size: contents.length, isReadOnly: false }
+  }
+
+  writeFile(path: string, contents: string): WriteFileResult {
+    this.fixtures.files.contents[path] = contents
+    if (!this.fixtures.files.files.includes(path)) this.fixtures.files.files.push(path)
+    return { ok: true, path, displayPath: path, size: contents.length }
+  }
+
+  private diffFixture(ctx: IpcContext) {
+    return this.fixtures.diffs[ctx.session.sessionId]
+  }
+}

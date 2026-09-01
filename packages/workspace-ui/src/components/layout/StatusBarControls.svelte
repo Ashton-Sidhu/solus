@@ -1,0 +1,346 @@
+<script lang="ts">
+  import { FolderOpen as FolderOpenIcon, GitBranch as GitBranchIcon, GitFork as GitForkIcon } from "@lucide/svelte";
+  import type { Snippet } from "svelte";
+  import {
+    getWorkspaceContext,
+    getWindowContext,
+    getStatusBarContext,
+    getSessionEnvironmentStore,
+  } from "../../contexts";
+  import { displayDirName } from "../../lib/paths";
+  import { worktreeDisplayName } from "../../lib/git-context";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import type { RunConfig, WorktreeEntry } from "@solus/contracts/types";
+  import ContextMeter from "../ContextMeter.svelte";
+  import GitDropdown from "../GitDropdown.svelte";
+  import RunOnPicker from "../servers/RunOnPicker.svelte";
+  import { isRunOnHostLocked } from "../servers/run-on";
+  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
+  import { comboHint } from "../../lib/keybindings/manifest";
+
+  interface Props {
+    mode?: "pill" | "editor";
+    showDirIcon?: boolean;
+    /** The tab or session draft these controls describe and edit. Both own the
+     *  same `run`, which is all this row reads, so it names either without
+     *  branching on which one it holds. */
+    sourceId?: string;
+    /** These are the workspace's own controls, not a pane's. */
+    isPrimary?: boolean;
+    trailingActions?: Snippet;
+  }
+  let { mode = "pill", showDirIcon = true, sourceId, isPrimary = false, trailingActions }: Props = $props();
+
+  const session = getWorkspaceContext();
+  const windowCtx = getWindowContext();
+  const statusBar = getStatusBarContext();
+  const environmentStore = getSessionEnvironmentStore();
+  // "Pinned" means these controls belong to a pane of their own rather than to
+  // the workspace's composer — the workspace one is the only place that opens a
+  // project or answers the git-dropdown shortcut.
+  const isPinned = $derived(!isPrimary);
+  // Nothing falls back to whichever tab is active: an unnamed source describes
+  // the defaults, never the conversation a draft happens to cover.
+  const source = $derived(sourceId ?? "");
+  const sess = $derived(session.sessionFor(source));
+  const draft = $derived(session.sessionDrafts.get(source));
+  const run = $derived(session.runFor(source));
+  const ctx = $derived(statusBar.ctxForRun(run));
+  // Focus routes to a tab by id; a draft's composer claims bare focus as the
+  // primary bar, so it takes no target.
+  const focusTarget = $derived(sess ? { tabId: source } : undefined);
+  const isBusy = $derived(
+    sess?.status === "running" || sess?.status === "connecting",
+  );
+  const displayDir = $derived(
+    displayDirName(ctx.workingDirectory, session.staticInfo?.workspacePath),
+  );
+  const dirTooltip = $derived(ctx.workingDirectory);
+  const projectDir = $derived(run?.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~");
+  const defaultGitContext = $derived(session.tabCtx.gitContext);
+  const worktreePath = $derived(run?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null);
+  const gitStatusCwd = $derived(worktreePath ?? projectDir);
+  const git = $derived(environmentStore.statusFor(gitStatusCwd));
+  $effect(() => {
+    if (mode !== "pill") return;
+    const cwd = gitStatusCwd;
+    if (!cwd || cwd === "~") return;
+    void environmentStore.refresh(cwd);
+  });
+
+  const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
+  // One environment model drives the pill echo. displayBranch stays the raw
+  // branch (the GitDropdown switches by exact name); pending comes from env.
+  const env = $derived(environmentStore.environmentFor(run));
+  const worktrees = $derived(
+    environmentStore.refsFor(env.repoRoot ?? git?.repoRoot).worktrees,
+  );
+  const worktreeModePending = $derived(env.pending);
+  const creatingWorktree = $derived(session.isContinuingInWorktree(source));
+  // While the worktree is being created, hold the pending label instead of the
+  // live base branch so the pill doesn't read "main" and then teleport.
+  const pendingDispatch = $derived(
+    run?.pendingHostDispatch?.intent === "dispatch"
+      ? run.pendingHostDispatch
+      : null,
+  );
+  const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
+  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
+  const displayBranch = $derived(
+    selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch
+      ? "New worktree"
+      : creatingWorktree
+      ? "Creating worktree"
+      : worktreeModePending
+        ? env.name
+        : git === undefined
+          ? env.branch
+          : (git?.branch ?? null)),
+  );
+  const displayBranchLabel = $derived(
+    selectedDispatchWorktree || env.isolated
+      ? worktreeDisplayName(displayBranch ?? "")
+      : displayBranch,
+  );
+
+  let gitOpen = $state(false);
+  let gitInitialView: "worktrees" | "branches" = $state("branches");
+  let gitTriggerEl: HTMLButtonElement | null = $state(null);
+  // This cluster now lives on the full-width input toolbar row, so the old
+  // width-based collapse no longer applies: dir + usage always show, and branch
+  // shows in pill mode as before. Text truncates to degrade gracefully.
+  const showBranch = $derived(mode === "pill");
+  const showDirLabel = true;
+  const showUsage = $derived(mode !== "pill");
+
+  $effect(() => {
+    if (isPinned) return;
+    const handler = (event: Event) => {
+      if (mode !== windowCtx.viewMode || !displayBranch) return;
+      if (gitOpen) {
+        gitOpen = false;
+      } else {
+        // The worktree shortcut opens the worktree list; the branch shortcut
+        // asks for the branch list instead.
+        const detail: { view?: "worktrees" | "branches" } | undefined =
+          event instanceof CustomEvent ? event.detail : undefined;
+        gitInitialView = detail?.view === "branches" ? "branches" : "worktrees";
+        gitOpen = true;
+      }
+    };
+    window.addEventListener("solus:toggle-git-dropdown", handler);
+    return () =>
+      window.removeEventListener("solus:toggle-git-dropdown", handler);
+  });
+
+  function handleChooseDirectory() {
+    // The Open project flow re-aims whatever asked for it; a pinned strip shows
+    // the directory as a plain label instead. A draft is named the same way a
+    // tab is — the flow resolves which kind the id belongs to — so the project
+    // lands on the session being composed rather than opening a second one and
+    // orphaning the prompt already typed into it.
+    if (isBusy || isPinned) return;
+    window.dispatchEvent(
+      new CustomEvent("solus:open-project", { detail: { tabId: source } }),
+    );
+  }
+
+  // The pill names a branch, so it always opens the branch list.
+  function toggleGitMenu() {
+    if (!displayBranch) return;
+    gitInitialView = pendingDispatch ? "worktrees" : "branches";
+    gitOpen = !gitOpen;
+  }
+
+  async function selectBranch(branch: string) {
+    if (!source) return;
+    if (pendingDispatch) return;
+    const entry = worktrees.find((worktree) => worktree.branch === branch);
+    if (entry) {
+      await selectWorktree(entry);
+      return;
+    }
+    const ok = await session.switchToBranch(branch, source);
+    if (!ok) {
+      requestInputFocus(focusTarget);
+      return;
+    }
+    settleOnDestination();
+  }
+
+  async function selectWorktree(worktree: WorktreeEntry) {
+    if (!source) return;
+    if (pendingDispatch) {
+      session.setDispatchWorktree(worktree, source);
+      requestInputFocus(focusTarget);
+      return;
+    }
+    await session.switchToWorktree(worktree.path, source);
+    settleOnDestination();
+  }
+
+  function selectNewDispatchWorktree(baseBranch?: string) {
+    if (!source) return;
+    if (baseBranch) session.setDispatchBaseBranch(baseBranch, source);
+    else session.setDispatchWorktree(null, source);
+    requestInputFocus(focusTarget);
+  }
+
+  /** Every destination choice this row offers lands on whichever the source is:
+   *  a started session's run, or the draft's, which stays inert until Send. */
+  function applyRun(next: RunConfig) {
+    const target = sess ?? draft;
+    if (target) target.run = next;
+  }
+
+  function settleOnDestination() {
+    const nextRun = session.runFor(source);
+    const nextCwd =
+      nextRun?.gitContext?.worktreePath ??
+      nextRun?.workingDirectory ??
+      session.globalDefaults.gitContext?.worktreePath ??
+      session.globalDefaults.workingDirectory;
+    if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
+    requestInputFocus(focusTarget);
+  }
+
+</script>
+
+<!--
+  The dir/branch + destination cluster. Rendered inline on the input toolbar
+  row (right of the mode/model pills), so it stays compact rather than spanning
+  a full-width status bar. Editor mode keeps context usage here; Pill mode puts
+  it in the tab-strip action cluster.
+-->
+<div class="relative flex min-w-0 items-center gap-2 text-workspace-chrome">
+  <!-- Composer ladder, rung 3: the whole status cluster goes below 22rem. It is
+       what the row reads, not what the row does — every fact here is also in the
+       input bar's header strip or the project panel.
+
+       `contents` rather than a flex box, so the wrapper does not swallow the
+       row's gaps at the widths where nothing is hidden; `hidden` then takes the
+       subtree out at the rung. `trailingActions` is deliberately OUTSIDE this
+       wrapper: on web it holds connection-retry, the push bell, and Switch
+       server, which are the only entry points to those, so a narrow composer
+       must not be the thing that removes them. -->
+  <div class="contents @max-[22rem]/composer:hidden">
+  <!-- Project info (dir + branch). Editor mode says this in the input bar's
+       header strip instead, where it can also be changed. -->
+  {#if mode === "pill"}
+    {@render projectInfo()}
+  {/if}
+
+  {#if showUsage}
+    <ContextMeter tabId={sess ? source : ""} />
+  {/if}
+  <!-- Transient status, not destination config, so it stays in both modes. -->
+  {#if !isPinned && session.runtimeSyncing}
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <span {...tooltipProps}
+      class="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md bg-(--solus-surface-hover) px-2 text-xs tabular-nums text-(--solus-text-tertiary)"
+    >
+      <span class="h-1.5 w-1.5 animate-pulse rounded-full bg-(--solus-status-complete)"></span>
+      <span>Syncing...</span>
+    </span>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={"Syncing runtime state"} />
+    </TooltipUI.Root>
+  {/if}
+  {#if mode === "pill" && !isPinned}
+    <RunOnPicker
+      run={run ?? session.defaultRunConfig}
+      requesterId={source}
+      locked={draft ? false : isRunOnHostLocked(sess)}
+      onRun={applyRun}
+    />
+  {/if}
+  </div>
+  {@render trailingActions?.()}
+</div>
+
+{#if mode === "pill" && displayBranch}
+  <GitDropdown
+    bind:open={gitOpen}
+    initialView={gitInitialView}
+    triggerEl={gitTriggerEl}
+    {displayBranch}
+    selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? worktreeBaseBranch ?? displayBranch}
+    workingDirectory={ctx.workingDirectory}
+    {run}
+    onSelectBranch={selectBranch}
+    onSelectWorktree={selectWorktree}
+    onSelectNewWorktree={selectNewDispatchWorktree}
+  />
+{/if}
+
+{#snippet projectInfo()}
+  <div
+    class="flex min-w-0 items-center gap-2 overflow-hidden"
+  >
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <button {...tooltipProps}
+      onclick={handleChooseDirectory}
+      disabled={isBusy || isPinned}
+      class="flex h-[1.875rem] shrink-0 items-center gap-1.5 rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,opacity,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none"
+      style="max-width:240px;cursor:{isPinned ? 'default' : isBusy ? 'not-allowed' : 'pointer'};opacity:{isBusy ? 0.5 : 1}"
+    >
+      {#if showDirIcon}
+        <FolderOpenIcon size={14} class="shrink-0 opacity-70" />
+      {/if}
+      {#if showDirLabel}
+        <span class="truncate">{displayDir}</span>
+      {/if}
+    </button>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content value={isPinned
+        ? dirTooltip
+        : {
+            label: "Change the project for this chat",
+            shortcut: comboHint("global.select-project"),
+          }} />
+    </TooltipUI.Root>
+
+    {#if showBranch && displayBranch}
+      <TooltipUI.Root>
+        <TooltipUI.Trigger>
+          {#snippet child({ props: tooltipProps })}
+            <!-- `overflow-hidden` pairs with the `min-w-0`: the fork glyph and
+                 the "Creating…" label are rigid, so a clipless box lets them
+                 paint over whatever sits to the right of the branch chip. -->
+            <button {...tooltipProps}
+        bind:this={gitTriggerEl}
+        type="button"
+        onclick={toggleGitMenu}
+        aria-haspopup="menu"
+        aria-expanded={gitOpen}
+        class="flex h-[1.875rem] min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:bg-(--solus-accent-light) focus-visible:outline-none"
+        style="max-width:16rem"
+      >
+        {#if pendingDispatch}
+          <GitForkIcon size={14} class="shrink-0 opacity-70" />
+        {:else}
+          <GitBranchIcon size={14} class="shrink-0 opacity-70" />
+        {/if}
+        <span class="truncate">{displayBranchLabel}</span>
+        {#if creatingWorktree || worktreeModePending}
+          <GitForkIcon
+            size={9}
+            class={`flex-shrink-0 text-(--solus-accent) ${creatingWorktree ? "animate-spin" : ""}`}
+          />
+          <span class="flex-shrink-0 text-(--solus-accent)">Creating…</span>
+        {/if}
+      </button>
+          {/snippet}
+        </TooltipUI.Trigger>
+        <TooltipUI.Content value={displayBranchLabel} />
+      </TooltipUI.Root>
+    {/if}
+
+  </div>
+{/snippet}

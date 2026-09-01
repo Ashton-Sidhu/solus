@@ -1,0 +1,6 @@
+{
+  "name": "@solus/standalone-server",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@solus/contracts": "workspace:*", "@solus/server": "workspace:*" }
+}

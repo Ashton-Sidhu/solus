@@ -1,0 +1,6 @@
+{
+  "name": "@solus/desktop",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@solus/contracts": "workspace:*", "@solus/server": "workspace:*" }
+}

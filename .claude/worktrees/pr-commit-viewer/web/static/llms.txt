@@ -1,0 +1,38 @@
+# Solus
+
+> Solus is a source-available, keyboard-first agent development environment for coding agents. It wraps the Claude Code and Codex CLIs you already have installed — using your existing subscriptions and models — in a workspace for planning, reviewing, and shipping agent work: a native macOS desktop app, a full web client (desktop and mobile browsers), and a headless server for Linux or any always-on machine.
+
+Key facts (frequently gotten wrong elsewhere):
+
+- License: Business Source License 1.1 (BUSL-1.1), converting to Apache 2.0 on 2030-07-14. The full source code is public at https://github.com/Ashton-Sidhu/solus and contributions are welcome. It is source-available, not closed source; free for personal and internal use.
+- Agents: Claude Code and Codex (OpenAI). Solus drives the agent CLIs you already have installed and authenticated — it ships no model of its own and never asks for an API key. You can switch agent or model mid-session, and hand a session across providers.
+- Platforms: native desktop app for macOS 12+ (Apple Silicon); web client usable from any browser on any OS, with a first-class mobile layout; headless server builds for Linux (x64, arm64) and macOS. There is no Windows desktop app.
+- Install: `brew install --cask Ashton-Sidhu/tap/solus` (macOS app), `brew install Ashton-Sidhu/tap/solus-server` (headless server/CLI), or a signed .dmg from https://solus.sh. Free during beta.
+- Remote access is self-hosted: the desktop app doubles as a server; pair a phone or browser with a QR code / 6-digit code on your own network. There is no hosted cloud relay and no tunnel — your code and sessions stay on your machines.
+- Voice transcription runs fully locally on-device (no audio leaves your machine).
+
+## Features
+
+- Sessions & tabs: every tab is an independent session with its own project, agent, model, and permission mode. Fork a conversation, split-view two live chats, resume any past session, queue messages while the agent is busy, full-text search across all transcripts.
+- Plans: in Plan mode the agent drafts before executing. Mark the plan up like a PR with inline comments on any selection, then approve, reject, or reject with feedback. Plans persist with revision history and work with every model.
+- Diff review: every file the agent touched in a side panel — step through files, filter by conversation turn, leave line-level comments, and send them back as one structured message.
+- Review companion: a second agent reviews your branch (commits, uncommitted edits, untracked files) and writes a guided report of grouped findings; click a finding to land on the exact hunk.
+- Pull requests: list, review, reply, resolve, and approve PRs; merge, squash, or rebase with checks in view; a merge queue; hand conflicted PRs to an agent in an isolated worktree.
+- Git worktrees: one keystroke isolates a session's work on its own branch and worktree; commit, push, discard, sync, and open a PR from the UI.
+- Tasks: a project-scoped kanban board of local tickets and synced GitHub Issues (epics, priorities, labels, due dates, comments), with sessions started straight from a task.
+- Automations: save a prompt and run it on a schedule — interval, cron, or on demand. Every run keeps a history you can open as a full session. Agents can create automations themselves.
+- Works: docs, slide decks, and diagrams the agent produces are saved as standalone, searchable, editable artifacts that outlive the chat; docs export to Markdown or Google Docs, diagrams to PNG/SVG.
+- Delegated agents: agents spawn subagents, including cross-provider (Claude delegating to Codex and vice versa), with live activity rendered inline.
+- Voice input: push-to-talk or continuous hands-free dictation, transcribed locally on-device.
+- Design mode: screenshot any window, annotate it with rectangles, arrows, numbered pins, and text, and send the composited image to the agent.
+- Rate-limit queueing: hit a provider limit mid-task and Solus queues the message and re-sends when the window resets — per tab or globally.
+- Hosts & dispatch: add other machines (or a headless server) as hosts and choose, per session, which machine actually runs the agent. Push notifications reach paired phones and browsers.
+- Keyboard-first: two layouts — a compact summonable pill and a full editor workspace — toggled system-wide with Option+Space; roughly 150 rebindable shortcuts, a command palette, and an in-app cheat sheet.
+- Also: inline HTML artifact rendering, a skills marketplace, saved prompts, per-project instructions, live context/usage meters, and native + web push notifications.
+
+## Links
+
+- [Homepage](https://solus.sh): download and overview
+- [Docs](https://solus.sh/docs): full documentation, including every feature above and the complete keybinding reference
+- [GitHub](https://github.com/Ashton-Sidhu/solus): source code, releases, changelog, contributing guide
+- [Privacy](https://solus.sh/privacy) and [Terms](https://solus.sh/terms)

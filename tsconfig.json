@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "declaration": true,
+    "baseUrl": ".",
+    "paths": {
+      "@solus/contracts/*": ["packages/contracts/src/*"],
+      "@solus/client-core/*": ["packages/client-core/src/*"],
+      "@solus/server/*": ["packages/server/src/*"],
+      "@solus/workspace-ui/*": ["packages/workspace-ui/src/*"],
+      "@solus/desktop-main/*": ["apps/desktop/src/main/*"]
+    }
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts"],
+  "exclude": ["node_modules", "dist", "packages/server/src/agents/codex/generated/**"]
+}

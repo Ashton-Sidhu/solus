@@ -1,0 +1,112 @@
+/// <reference types="bun-types" />
+import { describe, expect, test } from "bun:test";
+import {
+  modelPickerNavigationTarget,
+  isSessionSettingsShortcutTarget,
+  supportsFastModeFor,
+} from "@solus/workspace-ui/components/pickers/lib/picker-selection";
+
+describe("model picker shortcut target", () => {
+  test("opens the primary draft picker when the shortcut is unaddressed", () => {
+    // WHY: a new-session draft has no tab id, but its local model choice is the
+    // one the visible primary composer will use when it starts the session.
+    expect(
+      isSessionSettingsShortcutTarget({
+        isPrimary: true,
+        tabId: undefined,
+        targetTabId: undefined,
+      }),
+    ).toBe(true);
+  });
+
+  test("keeps an addressed shortcut scoped to its session", () => {
+    expect(
+      isSessionSettingsShortcutTarget({
+        isPrimary: true,
+        tabId: undefined,
+        targetTabId: "tab-1",
+      }),
+    ).toBe(false);
+    expect(
+      isSessionSettingsShortcutTarget({
+        isPrimary: false,
+        tabId: "tab-1",
+        targetTabId: "tab-1",
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("model picker keyboard navigation", () => {
+  test("vertical movement stays in its visual column", () => {
+    expect(
+      modelPickerNavigationTarget({
+        key: "ArrowDown",
+        column: "model",
+        index: 2,
+        columnLength: 4,
+        oppositeColumnLength: 5,
+        preferredOppositeIndex: 1,
+      }),
+    ).toEqual({ column: "model", index: 3 });
+
+    expect(
+      modelPickerNavigationTarget({
+        key: "ArrowDown",
+        column: "model",
+        index: 3,
+        columnLength: 4,
+        oppositeColumnLength: 5,
+        preferredOppositeIndex: 1,
+      }),
+    ).toEqual({ column: "model", index: 3 });
+  });
+
+  test("right reaches the preferred reasoning level without traversing every model", () => {
+    expect(
+      modelPickerNavigationTarget({
+        key: "ArrowRight",
+        column: "model",
+        index: 2,
+        columnLength: 4,
+        oppositeColumnLength: 5,
+        preferredOppositeIndex: 3,
+      }),
+    ).toEqual({ column: "reasoning", index: 3 });
+  });
+
+  test("left returns to the model whose reasoning is being previewed", () => {
+    expect(
+      modelPickerNavigationTarget({
+        key: "ArrowLeft",
+        column: "reasoning",
+        index: 3,
+        columnLength: 5,
+        oppositeColumnLength: 4,
+        preferredOppositeIndex: 2,
+      }),
+    ).toEqual({ column: "model", index: 2 });
+  });
+
+  test("right remains available to open the Agent submenu", () => {
+    expect(
+      modelPickerNavigationTarget({
+        key: "ArrowRight",
+        column: "reasoning",
+        index: 4,
+        columnLength: 5,
+        oppositeColumnLength: 4,
+        preferredOppositeIndex: 2,
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("model picker fast mode", () => {
+  test("offers fast mode only when the selected provider model supports it", () => {
+    expect(supportsFastModeFor("codex", "gpt-5.6-sol")).toBe(true);
+    expect(supportsFastModeFor("codex", "gpt-5.3-codex")).toBe(false);
+    expect(supportsFastModeFor("claude-code", "claude-opus-5")).toBe(false);
+  });
+
+});

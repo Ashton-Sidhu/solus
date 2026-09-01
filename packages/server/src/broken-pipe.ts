@@ -1,0 +1,51 @@
+import { z } from 'zod'
+
+const errorCodeSchema = z.object({ code: z.string().optional() })
+
+interface ErrorStream {
+  on(event: 'error', listener: (error: z.input<typeof errorCodeSchema>) => void): ErrorStream
+}
+
+export interface BrokenPipeGuard {
+  readonly isBroken: boolean
+  write(callback: () => void): void
+}
+
+function isBrokenPipeError(error: z.input<typeof errorCodeSchema>): boolean {
+  const parsed = errorCodeSchema.safeParse(error)
+  return parsed.success && parsed.data.code === 'EPIPE'
+}
+
+/**
+ * A closed launcher pipe is a normal shutdown condition. Keep its asynchronous
+ * stream error from becoming an uncaught exception, then skip later writes.
+ */
+export function installBrokenPipeGuard(stream: ErrorStream): BrokenPipeGuard {
+  let isBroken = false
+
+  stream.on('error', (error) => {
+    if (isBrokenPipeError(error)) {
+      isBroken = true
+      return
+    }
+    throw error
+  })
+
+  return {
+    get isBroken() {
+      return isBroken
+    },
+    write(callback) {
+      if (isBroken) return
+      try {
+        callback()
+      } catch (error) {
+        if (isBrokenPipeError(error)) {
+          isBroken = true
+          return
+        }
+        throw error
+      }
+    },
+  }
+}

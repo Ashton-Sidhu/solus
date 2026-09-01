@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="860" viewBox="0 0 1200 860">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@600;700&amp;family=JetBrains+Mono:wght@400&amp;display=swap');
+    </style>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#E4C684"/>
+      <stop offset="55%" stop-color="#D4AF6A"/>
+      <stop offset="100%" stop-color="#B8924E"/>
+    </linearGradient>
+    <filter id="soft" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1200" height="860" fill="#080a0f"/>
+  <text x="600" y="48" text-anchor="middle" font-family="'Inter',sans-serif" font-size="26" font-weight="700" fill="#f0ece4" letter-spacing="2">solus · S monogram explorations</text>
+
+  <!-- ============ TILE 1: Corona-S (arc-built S inside sun) ============ -->
+  <g transform="translate(80,90)">
+    <rect width="300" height="300" rx="68" fill="#0F1117" stroke="#1c2030" stroke-width="1.5"/>
+    <g transform="translate(150,150)" filter="url(#soft)">
+      <!-- S from two opposing arcs, the corona language -->
+      <path d="M 58,-66 A 66,66 0 0 0 -8,-66 A 50,50 0 0 0 -8,34 A 50,50 0 0 1 -8,134"
+            fill="none" stroke="url(#gold)" stroke-width="34" stroke-linecap="round"
+            transform="translate(0,-34)"/>
+    </g>
+    <text x="150" y="338" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#7a8290">01 · arc-S</text>
+  </g>
+
+  <!-- ============ TILE 2: Negative-space S in solid disc ============ -->
+  <g transform="translate(450,90)">
+    <rect width="300" height="300" rx="68" fill="#0F1117" stroke="#1c2030" stroke-width="1.5"/>
+    <g transform="translate(150,150)">
+      <circle r="98" fill="url(#gold)"/>
+      <path d="M 40,-44 A 40,40 0 0 0 -18,-44 A 30,30 0 0 0 -18,16 A 30,30 0 0 1 -18,76 A 40,40 0 0 1 -40,60"
+            fill="none" stroke="#0F1117" stroke-width="26" stroke-linecap="round"
+            transform="translate(0,-16) scale(1.05)"/>
+    </g>
+    <text x="150" y="338" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#7a8290">02 · disc cut-out</text>
+  </g>
+
+  <!-- ============ TILE 3: Geometric blocky S (cut terminals) ============ -->
+  <g transform="translate(820,90)">
+    <rect width="300" height="300" rx="68" fill="#0F1117" stroke="#1c2030" stroke-width="1.5"/>
+    <g transform="translate(150,152)" fill="url(#gold)" filter="url(#soft)">
+      <path d="M 62,-78 L 62,-46 L -20,-46 A 6,6 0 0 0 -26,-40 L -26,-22 A 6,6 0 0 0 -20,-16 L 36,-16 A 26,26 0 0 1 62,10 L 62,52 A 26,26 0 0 1 36,78 L -62,78 L -62,46 L 20,46 A 6,6 0 0 0 26,40 L 26,22 A 6,6 0 0 0 20,16 L -36,16 A 26,26 0 0 1 -62,-10 L -62,-52 A 26,26 0 0 1 -36,-78 Z"/>
+    </g>
+    <text x="150" y="338" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#7a8290">03 · geometric block</text>
+  </g>
+
+  <!-- ============ TILE 4: Flowing ribbon S (stay in flow) ============ -->
+  <g transform="translate(80,460)">
+    <rect width="300" height="300" rx="68" fill="#0F1117" stroke="#1c2030" stroke-width="1.5"/>
+    <g transform="translate(150,150)" filter="url(#soft)">
+      <path d="M 70,-58 C 70,-92 12,-100 -22,-78 C -56,-56 -54,-12 -8,-4 C 38,4 60,12 60,46 C 60,86 4,98 -34,76 C -56,63 -68,46 -70,30"
+            fill="none" stroke="url(#gold)" stroke-width="30" stroke-linecap="round"/>
+    </g>
+    <text x="150" y="338" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#7a8290">04 · flowing ribbon</text>
+  </g>
+
+  <!-- ============ TILE 5: Eclipse-S (two half-rings) ============ -->
+  <g transform="translate(450,460)">
+    <rect width="300" height="300" rx="68" fill="#0F1117" stroke="#1c2030" stroke-width="1.5"/>
+    <g transform="translate(150,150)" filter="url(#soft)">
+      <circle r="22" fill="url(#gold)"/>
+      <path d="M 64,-58 A 62,62 0 0 0 -34,-44" fill="none" stroke="url(#gold)" stroke-width="26" stroke-linecap="round"/>
+      <path d="M -64,58 A 62,62 0 0 0 34,44" fill="none" stroke="url(#gold)" stroke-width="26" stroke-linecap="round"/>
+    </g>
+    <text x="150" y="338" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#7a8290">05 · eclipse halves</text>
+  </g>
+
+  <!-- ============ TILE 6: Refined type S (Inter 700, tight) ============ -->
+  <g transform="translate(820,460)">
+    <rect width="300" height="300" rx="68" fill="#0F1117" stroke="#1c2030" stroke-width="1.5"/>
+    <text x="150" y="150" text-anchor="middle" dominant-baseline="central"
+          font-family="'Inter',sans-serif" font-size="240" font-weight="700"
+          fill="url(#gold)" filter="url(#soft)" letter-spacing="-6">s</text>
+    <text x="150" y="338" text-anchor="middle" font-family="'JetBrains Mono',monospace" font-size="14" fill="#7a8290">06 · refined type</text>
+  </g>
+</svg>

@@ -1,0 +1,27 @@
+import { notificationSessionRoute } from '@solus/contracts/notification-types'
+import type { SavedServer } from '@solus/client-core/server-registry'
+
+export interface PushClickPayload {
+  route?: string | null
+  sessionId?: string | null
+  installationId?: string | null
+  entryKey?: string | null
+}
+
+export function serverIdForInstallation(
+  installationId: string | null | undefined,
+  servers: SavedServer[],
+): string | null {
+  if (!installationId) return null
+  return servers.find((server) => server.installationId === installationId)?.id ?? null
+}
+
+export function routeForPushClick(payload: PushClickPayload, servers: SavedServer[]): string | null {
+  if (payload.route) return payload.route
+  if (!payload.sessionId) return null
+  const serverId = serverIdForInstallation(payload.installationId, servers)
+  // A push naming a host this client no longer knows opens the app plain: a
+  // host-less chat route would resolve against whichever host answers first.
+  if (!serverId) return null
+  return notificationSessionRoute(payload.sessionId, serverId)
+}
