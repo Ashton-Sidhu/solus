@@ -1,6 +1,7 @@
 import { generatePairToken, listRevokedDevices, revokeDevice, getInstallationId } from '../auth'
 import { discoverTailnetServers, listReachableEndpoints } from '../endpoints'
 import { createLogger } from '../../logger'
+import { captureServerEvent } from '../../analytics'
 import { bootstrapDiscoveredServerOverSsh } from '../ssh-bootstrap'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import type { SolusServer } from '../server'
@@ -82,6 +83,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
   server.register('connectionsGeneratePairToken', () => {
     const t = generatePairToken()
     log.info('pair_token_generated', { code: t.code, expiresInMinutes: 5 })
+    captureServerEvent('pair_token_generated', {})
     return t
   })
 

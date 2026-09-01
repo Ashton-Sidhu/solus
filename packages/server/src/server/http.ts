@@ -18,6 +18,7 @@ import { listReachableEndpoints } from './endpoints'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
+import { captureServerEvent } from '../analytics'
 import { isInsideRoot } from '../paths'
 import { completeGoogleOAuthCallback } from '../google/oauth'
 import { listProjects } from '../project-config/projects-manifest'
@@ -162,6 +163,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     if (!verifyPairOpenAdminRequest(c.env.incoming.headers)) return c.json({ error: 'Unauthorized' }, 401)
     const pairToken = generatePairToken()
     log.info('pair_token_generated', { code: pairToken.code, expiresInMinutes: 5 })
+    captureServerEvent('pair_token_generated', {})
     return c.json({
       token: pairToken.token,
       code: pairToken.code,

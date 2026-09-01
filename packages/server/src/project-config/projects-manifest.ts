@@ -6,6 +6,7 @@ import { getDb, withTx } from '../db'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { resolveProjectKey } from './project-config'
+import { listRecentProjects } from '../recent-projects'
 import { z } from 'zod'
 
 const log = createLogger('main', 'projects-manifest')
@@ -69,8 +70,6 @@ export async function listProjects(): Promise<ProjectEntry[]> {
   const byKey = new Map(manifest.map((project) => [project.key, project]))
 
   let mutated = false
-  // Lazy because recent-projects calls recordProject after tracking a path.
-  const { listRecentProjects } = await import('../recent-projects')
   const recents = await listRecentProjects()
   for (const recent of recents) {
     const key = resolveProjectKey(recent.path)

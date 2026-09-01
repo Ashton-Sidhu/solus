@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import TabStrip from "./TabStrip.svelte";
   import GoalSection from "../project-panel/GoalSection.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
@@ -155,7 +155,7 @@
   );
   // Seeded from the current value so the common launch (straight into a
   // conversation) paints the pool on the very first frame.
-  let hasMountedConversationPool = $state(conversationPoolVisible);
+  let hasMountedConversationPool = $state(untrack(() => conversationPoolVisible));
   $effect(() => {
     if (conversationPoolVisible) hasMountedConversationPool = true;
   });

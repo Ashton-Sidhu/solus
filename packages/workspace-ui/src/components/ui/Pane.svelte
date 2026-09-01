@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from "svelte";
   import type { PaneEntry } from "../../contexts/workspace/routing/location";
   import { visibleRef } from "../../contexts/workspace/routing/location";
   import { ROUTES } from "../../contexts/workspace/routing/route-registry";
@@ -45,7 +44,7 @@
   let { pane, surfaceVisible = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
-  const actions = paneActions(untrack(() => pane.id));
+  const actions = paneActions(() => pane.id);
   const ref = $derived(visibleRef(pane));
   const descriptor = $derived(ref ? ROUTES[ref.name] : null);
   // Pages used to size themselves with `flex-1` as children of the content

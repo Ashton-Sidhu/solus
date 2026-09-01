@@ -1,12 +1,10 @@
 import { type Attributes, type Histogram } from '@opentelemetry/api'
-import { SeverityNumber, type Logger as OtelLogger } from '@opentelemetry/api-logs'
-import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs'
-import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-node'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 import { otelResource } from './otel-resource'
+import { replaceOtlpSpanProcessor } from './observability/tracer'
 import type { OtelActiveSignals, OtelSettings } from '@solus/contracts/types'
 import { z } from 'zod'
 
@@ -42,12 +40,11 @@ interface SignalTarget {
 }
 
 interface SignalEndpoints {
-  logs: SignalTarget | null
   metrics: SignalTarget | null
   traces: SignalTarget | null
 }
 
-const NOTHING_EXPORTED: SignalEndpoints = { logs: null, metrics: null, traces: null }
+const NOTHING_EXPORTED: SignalEndpoints = { metrics: null, traces: null }
 
 /** `key=value, key2=value2` — the form every OTLP tool accepts, and the one an
  *  operator pastes from their collector's docs. A malformed pair is dropped
@@ -66,14 +63,12 @@ function parseHeaders(raw: string) {
 
 function environmentEndpoints(): SignalEndpoints | null {
   const base = process.env.OTEL_EXPORTER_OTLP_ENDPOINT
-  const logs = process.env.OTEL_EXPORTER_OTLP_LOGS_ENDPOINT
   const metrics = process.env.OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
   const traces = process.env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-  if (!base && !logs && !metrics && !traces) return null
+  if (!base && !metrics && !traces) return null
   // Left undefined so each exporter reads OTEL_* itself, keeping every
   // convention an operator already relies on — protocol, headers, timeouts.
   return {
-    logs: base || logs ? { url: '', headers: {} } : null,
     metrics: base || metrics ? { url: '', headers: {} } : null,
     traces: base || traces ? { url: '', headers: {} } : null,
   }
@@ -89,7 +84,6 @@ let endpoints: SignalEndpoints = environmentEndpoints() ?? NOTHING_EXPORTED
 
 export function otelActiveSignals(): OtelActiveSignals {
   return {
-    logs: endpoints.logs !== null,
     metrics: endpoints.metrics !== null,
     traces: endpoints.traces !== null,
   }
@@ -111,16 +105,13 @@ export async function configureOtel(settings: OtelSettings): Promise<void> {
     endpoints = !settings.enabled || !base
       ? NOTHING_EXPORTED
       : {
-        logs: settings.exportLogs ? { url: `${base}/v1/logs`, headers } : null,
         metrics: settings.exportMetrics ? { url: `${base}/v1/metrics`, headers } : null,
         traces: settings.exportTraces ? { url: `${base}/v1/traces`, headers } : null,
       }
   }
-  // Logs and metrics build their provider on first use; a trace copy cannot,
-  // because the spans come from a tracer that is already running. The processor
-  // is attached to it here instead, and detached when the operator turns
-  // traces off.
-  const { replaceOtlpSpanProcessor } = await import('./observability/tracer')
+  // Metrics build their provider on first use. A trace copy cannot because the
+  // spans come from a tracer that is already running, so its processor is
+  // attached here and detached when the operator turns traces and logs off.
   await replaceOtlpSpanProcessor(
     endpoints.traces
       ? new BatchSpanProcessor(new OTLPTraceExporter(exporterConfig(endpoints.traces)))
@@ -128,37 +119,17 @@ export async function configureOtel(settings: OtelSettings): Promise<void> {
   )
 }
 
-const SEVERITY = {
-  debug: SeverityNumber.DEBUG,
-  info: SeverityNumber.INFO,
-  warn: SeverityNumber.WARN,
-  error: SeverityNumber.ERROR,
-} satisfies Record<'debug' | 'info' | 'warn' | 'error', SeverityNumber>
-
 const stringAttributeSchema = z.string()
 const scalarAttributeSchema = z.union([z.number(), z.boolean()])
 const bigintAttributeSchema = z.bigint()
 
-let loggerProvider: LoggerProvider | null = null
 let meterProvider: MeterProvider | null = null
-let otelLogger: OtelLogger | null = null
 const histograms = new Map<string, Histogram>()
 
 /** An empty url means the environment is in charge, so the exporter is built
  *  with no config and reads every `OTEL_*` convention itself. */
 function exporterConfig(signal: SignalTarget) {
   return signal.url ? { url: signal.url, headers: signal.headers } : undefined
-}
-
-function getLogger(signal: SignalTarget): OtelLogger {
-  if (!otelLogger) {
-    loggerProvider = new LoggerProvider({
-      resource: otelResource(),
-      processors: [new BatchLogRecordProcessor({ exporter: new OTLPLogExporter(exporterConfig(signal)) })],
-    })
-    otelLogger = loggerProvider.getLogger('solus')
-  }
-  return otelLogger
 }
 
 function getHistogram(
@@ -206,23 +177,6 @@ function toAttributes<Data extends object>(data: Data): Attributes {
   return attributes
 }
 
-export function emitOtelLog<Data extends object>(
-  level: 'debug' | 'info' | 'warn' | 'error',
-  msg: string,
-  data: Data,
-): void {
-  const signal = endpoints.logs
-  if (!signal) return
-  try {
-    getLogger(signal).emit({
-      severityNumber: SEVERITY[level],
-      severityText: level.toUpperCase(),
-      body: msg,
-      attributes: toAttributes(data),
-    })
-  } catch {}
-}
-
 export function recordOtelDuration<Data extends object>(label: string, durationMs: number, data: Data): void {
   const signal = endpoints.metrics
   if (!signal) return
@@ -233,17 +187,14 @@ export function recordOtelDuration<Data extends object>(label: string, durationM
 
 export async function shutdownOtel(): Promise<void> {
   const closing = [
-    loggerProvider?.shutdown(),
     meterProvider?.shutdown(),
     // Only the copy stops: the record's sink is synchronous and has nothing in
     // flight, and a span ended during shutdown still belongs in `metrics.db`.
-    import('./observability/tracer').then(({ replaceOtlpSpanProcessor }) => replaceOtlpSpanProcessor(null)),
+    replaceOtlpSpanProcessor(null),
   ]
   // Cleared before awaiting, so a reconfiguration builds its providers fresh
   // rather than reusing ones that are on their way out.
-  loggerProvider = null
   meterProvider = null
-  otelLogger = null
   histograms.clear()
   let timeout: ReturnType<typeof setTimeout> | null = null
   try {

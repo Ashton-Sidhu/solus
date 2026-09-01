@@ -4,14 +4,16 @@ import type { ReadableSpan, SpanExporter } from '@opentelemetry/sdk-trace-node'
 import { z } from 'zod'
 import { createLogger } from '../logger'
 import {
+  LOG_EVENT_ATTRS,
   SPAN_ATTRS,
   assertRegisteredSpanKind,
   assertRegisteredSpanService,
+  isLogEventMetadataAttr,
   isSpanColumnAttr,
   type SpanAttributes,
   type SpanStatus,
 } from './registries'
-import { writeSpan, type SpanRow } from './span-table'
+import { writeSpanRecord, type LogEventRow, type SpanRow } from './span-table'
 
 // ─── metrics.db as a span exporter ───
 //
@@ -31,6 +33,7 @@ const log = createLogger('SqliteSpanExporter', 'sqlite-exporter.ts')
 // leaves as one of the three a column or an `attrs` value can hold. These parse
 // that boundary once, rather than each reader guessing at the representation.
 const spanStatusSchema = z.enum(['ok', 'error', 'interrupted', 'unknown'])
+const logLevelSchema = z.enum(['debug', 'info', 'warn', 'error'])
 const namedValueSchema = z.string().min(1)
 const columnValueSchema = z.union([
   z.string(),
@@ -64,6 +67,16 @@ function remainingAttrs(attributes: Record<string, AttributeValue | undefined>):
     const scalar = columnValueSchema.safeParse(value)
     // An array is the one shape OTel allows that a JSON attr value does not;
     // it is stored as its own JSON so `json_extract` can still reach into it.
+    attrs[key] = scalar.success ? scalar.data : JSON.stringify(value)
+  }
+  return attrs
+}
+
+function remainingLogAttrs(attributes: Record<string, AttributeValue | undefined>): SpanAttributes {
+  const attrs: SpanAttributes = {}
+  for (const [key, value] of Object.entries(attributes)) {
+    if (value === undefined || isLogEventMetadataAttr(key)) continue
+    const scalar = columnValueSchema.safeParse(value)
     attrs[key] = scalar.success ? scalar.data : JSON.stringify(value)
   }
   return attrs
@@ -119,12 +132,37 @@ function spanRow(span: ReadableSpan): SpanRow {
   }
 }
 
+function logEventRows(span: ReadableSpan): LogEventRow[] {
+  const { traceId, spanId } = span.spanContext()
+  const storedSpanId = dbSpanId(traceId, spanId)
+  const rows: LogEventRow[] = []
+  for (const event of span.events) {
+    const attributes = event.attributes ?? {}
+    if (attributes[LOG_EVENT_ATTRS.marker] !== true) continue
+    const level = logLevelSchema.safeParse(attributes[LOG_EVENT_ATTRS.level])
+    const tag = namedValueSchema.safeParse(attributes[LOG_EVENT_ATTRS.tag])
+    const file = namedValueSchema.safeParse(attributes[LOG_EVENT_ATTRS.file])
+    if (!level.success || !tag.success || !file.success) continue
+    rows.push({
+      traceId,
+      spanId: storedSpanId,
+      occurredAt: epochMs(event.time),
+      level: level.data,
+      name: event.name,
+      tag: tag.data,
+      file: file.data,
+      attrs: remainingLogAttrs(attributes),
+    })
+  }
+  return rows
+}
+
 /** Writes finished spans into `metrics.db`, the record Insights reads. */
 export class SqliteSpanExporter implements SpanExporter {
   export(spans: ReadableSpan[], resultCallback: (result: ExportResult) => void): void {
     for (const span of spans) {
       try {
-        writeSpan(spanRow(span))
+        writeSpanRecord(spanRow(span), logEventRows(span))
       } catch (error) {
         // One unwritable span must not cost the rest of the batch, and an
         // exporter that throws would take the ending span's caller with it.

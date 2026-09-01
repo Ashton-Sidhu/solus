@@ -112,7 +112,6 @@ export const DEFAULT_OTEL_SETTINGS: OtelSettings = {
   enabled: false,
   endpoint: '',
   headers: '',
-  exportLogs: true,
   exportMetrics: true,
   exportTraces: true,
 }
@@ -132,7 +131,6 @@ const otelPatchSchema = z.object({
   enabled: z.boolean().optional(),
   endpoint: z.string().optional(),
   headers: z.string().optional(),
-  exportLogs: z.boolean().optional(),
   exportMetrics: z.boolean().optional(),
   exportTraces: z.boolean().optional(),
 }).strict()
@@ -162,7 +160,6 @@ export function normalizeOtelSettings(otel: Partial<OtelSettings> | undefined): 
     enabled: otel.enabled === true && endpoint.length > 0,
     endpoint,
     headers: (otel.headers ?? '').trim(),
-    exportLogs: otel.exportLogs !== false,
     exportMetrics: otel.exportMetrics !== false,
     exportTraces: otel.exportTraces !== false,
   }

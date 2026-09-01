@@ -3,6 +3,7 @@ import { basename } from 'node:path'
 import { isRemoteDispatchCheckoutPath, worktreeProjectRoot, type RecentProject } from '@solus/contracts/types'
 import { getDb, withTx } from './db'
 import { isWorkspacePath } from './workspace'
+import { recordProject } from './project-config/projects-manifest'
 import { z } from 'zod'
 
 const MAX_PROJECTS = 10
@@ -52,9 +53,7 @@ export async function trackRecentProject(path: string): Promise<void> {
       )
     `).run(MAX_PROJECTS)
   })
-  // Recents are capped; the manifest keeps the full, permanent list. Keep this
-  // import lazy because listProjects reads recents when rebuilding its index.
-  const { recordProject } = await import('./project-config/projects-manifest')
+  // Recents are capped; the manifest keeps the full, permanent list.
   await recordProject(path).catch(() => {})
 }
 

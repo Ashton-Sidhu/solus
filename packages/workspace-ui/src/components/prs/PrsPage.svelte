@@ -103,7 +103,7 @@ import Icon from "@iconify/svelte";
 
   const session = getWorkspaceContext();
   const pullRequests = getPullRequestsContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
   const settings = getSettingsContext();
   const sessionSidebar = getSessionSidebarStore();
   const store = pullRequests.projects;

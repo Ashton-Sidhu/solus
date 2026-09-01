@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import {
     createColumnHelper,
     createTable,
@@ -97,7 +98,7 @@
     onSearchChange,
   }: Props = $props();
 
-  const serverPaged = totalRows !== undefined;
+  const serverPaged = $derived(totalRows !== undefined);
 
   let collapsed = $state<Record<string, boolean>>({});
   /** A session's turns are a bounded window, so a turn opened from anywhere but
@@ -241,8 +242,12 @@
       return statusRows;
     },
     columns,
-    manualPagination: serverPaged,
-    manualSorting: serverPaged,
+    get manualPagination() {
+      return serverPaged;
+    },
+    get manualSorting() {
+      return serverPaged;
+    },
     get rowCount() {
       return totalRows;
     },
@@ -272,7 +277,9 @@
       }
     },
     columnResizeMode: "onChange",
-    initialState: { pagination: { pageIndex: 0, pageSize: serverPaged ? 100 : 25 } },
+    initialState: {
+      pagination: { pageIndex: 0, pageSize: untrack(() => serverPaged) ? 100 : 25 },
+    },
   });
 
   const filteredSortedRows = $derived(

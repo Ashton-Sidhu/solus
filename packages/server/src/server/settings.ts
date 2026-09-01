@@ -28,20 +28,11 @@ const legacySourceControlWritingSchema = z.object({
   customInstructions: z.string().optional(),
   followPullRequestTemplate: z.boolean().optional(),
 }).strict()
-const legacyOtelSchema = z.object({
-  enabled: z.boolean().optional(),
-  endpoint: z.string().optional(),
-  headers: z.string().optional(),
-  exportLogs: z.boolean().optional(),
-  exportMetrics: z.boolean().optional(),
-  exportTraces: z.boolean().optional(),
-}).strict()
-
 /**
  * The legacy keys are the pre-host-config shape of this file. They are still
- * read, because an installation that set an otel endpoint or a text-generation
- * model before the move must not silently lose it — they seed host config on
- * first load. They are no longer written.
+ * read, because an installation that set analytics consent or a text-generation
+ * model before the move must not silently lose it. They seed host config on the
+ * first load and are no longer written.
  */
 const persistedServerSettingsSchema = z.object({
   remoteAccess: z.boolean().optional(),
@@ -51,7 +42,6 @@ const persistedServerSettingsSchema = z.object({
   projectsBaseDirectory: z.string().optional(),
   hostConfig: hostConfigPatchSchema.optional(),
   analytics: z.boolean().optional(),
-  otel: legacyOtelSchema.optional(),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).optional(),
   textGenerationModel: legacyModelSelectionSchema.optional(),
   backupTextGenerationModel: legacyModelSelectionSchema.optional(),
@@ -125,14 +115,12 @@ type PersistedSettings = z.infer<typeof persistedServerSettingsSchema>
  * The starting point for a host that has never been written to, built from the
  * keys this file used to hold at top level.
  *
- * Every one of these is a choice someone already made: an analytics opt-out, an
- * otel collector, a text-generation model. Falling back to the plain defaults
- * would silently reverse all of them — turning collection back on for a user who
- * refused it, and pointing summaries at a model the operator did not pick.
+ * Every one of these is a choice someone already made: an analytics opt-out or
+ * a text-generation model. Falling back to the plain defaults would silently
+ * reverse those choices.
  */
 function seedHostConfig(legacy: PersistedSettings | undefined): HostConfig {
   const patch: HostConfigPatch = { analyticsEnabled: legacy?.analytics !== false }
-  if (legacy?.otel) patch.otel = legacy.otel
   if (legacy?.agentTaskLifecyclePolicy) patch.agentTaskLifecyclePolicy = legacy.agentTaskLifecyclePolicy
   if (legacy?.textGenerationModel) patch.textGenerationModel = legacy.textGenerationModel
   if (legacy?.backupTextGenerationModel) {

@@ -46,7 +46,7 @@
   let { paneId }: InlinePageProps = $props();
 
   const session = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
   const windowCtx = getWindowContext();
   const store = session.automationsStore;
   const pageProject = $derived(

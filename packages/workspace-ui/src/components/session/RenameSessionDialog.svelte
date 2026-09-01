@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { Input } from "../ui/input";
   import { Button } from "../ui/button";
   import { getWorkspaceContext } from "../../contexts";
@@ -20,7 +21,7 @@
 
   // Seeded from what the tab currently shows, so clearing the field is an
   // explicit "go back to the prompt-derived name" rather than the default.
-  let value = $state(sess ? sessionTitle(sess) : "");
+  let value = $state(untrack(() => (sess ? sessionTitle(sess) : "")));
 
   function close(): void {
     onClose();

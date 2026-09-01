@@ -11,7 +11,7 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
 
   const activePlan = $derived.by(() => {
     const plan = params.planId ? planStore.get(params.planId) : planStore.previewPlan;

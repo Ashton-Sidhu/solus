@@ -263,7 +263,9 @@ describe('the plate as a surface', () => {
     // WHY: six frames that each take a tab stop make the transcript unwalkable
     // for anyone who does not use a pointer.
     expect(gallerySource).toContain('tabindex={index === rovingIndex ? 0 : -1}')
-    expect(gallerySource).toContain('onkeydown={onPlateKeydown}')
+    // The arrow keys ride the tile that has focus, not the plate around it: the
+    // plate is a `role="group"` and a group is not a thing that takes keys.
+    expect(gallerySource).toContain('onkeydown={onTileKeydown}')
   })
 
   test('never scales a frame past its own size to fill a cell', () => {
@@ -348,7 +350,9 @@ describe('a frame opened at full size', () => {
     // WHY: the carousel re-initialises when its options change identity. A
     // `startIndex` wired to live state would yank the reel back to the frame the
     // reader first clicked on every single step.
-    expect(lightboxSource).toContain('const carouselOptions = { loop: true, startIndex,')
+    // `untrack` is the read-once: the options object is built at mount from the
+    // frame the reader clicked and never re-derived from the prop after that.
+    expect(lightboxSource).toContain('startIndex: untrack(() => startIndex)')
     expect(lightboxSource).not.toContain('$derived(carouselOptions')
   })
 

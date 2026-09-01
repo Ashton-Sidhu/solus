@@ -3,6 +3,7 @@ import type { AgentId, IpcContext, SessionMeta, SessionScanEvent, SessionTitleCh
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger, isDebugEnabled } from '../../logger'
+import { recordOtelDuration } from '../../otel'
 import type { SolusServer } from '../server'
 import { getIndexedSession, searchIndexedSessions, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
@@ -66,7 +67,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
           events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'done', totalSessions: sessions.length } satisfies SessionScanEvent)
         }
       }
-      log.metric('list_sessions', Date.now() - t0, { count: sessions.length })
+      recordOtelDuration('list_sessions', Date.now() - t0, { count: sessions.length })
       return sessions
     } catch (err) {
       log.error('list_sessions_failed', { error: String(err), projectPath, streamId })
@@ -98,7 +99,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const t0 = Date.now()
     try {
       const projects = await listRecentProjects()
-      log.metric('list_recent_projects', Date.now() - t0, { count: projects.length })
+      recordOtelDuration('list_recent_projects', Date.now() - t0, { count: projects.length })
       return projects
     } catch (err) {
       log.error('list_recent_projects_failed', { error: String(err) })
@@ -239,7 +240,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const t0 = Date.now()
     try {
       const plans = await controlPlane.listPlansForProviders(controlPlane.getBackendIds(), projectPath, !!allProjects)
-      log.metric('list_plans', Date.now() - t0, { count: plans.length, allProjects: !!allProjects })
+      recordOtelDuration('list_plans', Date.now() - t0, { count: plans.length, allProjects: !!allProjects })
       return plans
     } catch (err) {
       log.error('list_plans_failed', { error: String(err), projectPath })
@@ -254,7 +255,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     const t0 = Date.now()
     try {
       const content = await controlPlane.loadPlanContent(agentId, sessionId, projectPath, planToolUseId)
-      log.metric('load_plan_content', Date.now() - t0, { sessionId, planToolUseId })
+      recordOtelDuration('load_plan_content', Date.now() - t0, { sessionId, planToolUseId })
       return content
     } catch (err) {
       log.error('load_plan_content_failed', { error: String(err), sessionId, planToolUseId })

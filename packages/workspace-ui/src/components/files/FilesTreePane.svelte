@@ -9,7 +9,7 @@
   let { params, paneId }: RouteSurfaceProps<"files"> = $props();
 
   const session = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
   const api = $derived(serverConnections.apiFor(params.serverId));
   const ctx = $derived(session.ctxForEnvironment(params.cwd, null));
 </script>

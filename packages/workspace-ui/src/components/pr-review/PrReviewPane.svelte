@@ -559,7 +559,7 @@
   // Popped-out mode redirects the Diff tab to Activity + pane (effect below);
   // mounting the inline panel there would keep a full hidden duplicate of the
   // popped-out diff (a second CodeView and parsed patch) alive for the tab's life.
-  let mountedDiff = $state(untrack(() => sub === "diff") && (headless || embedded));
+  let mountedDiff = $state(untrack(() => sub === "diff" && (headless || embedded)));
   let mountedActivity = $state(untrack(() => sub === "activity"));
   let mountedMap = $state(untrack(() => sub === "map"));
   $effect(() => {

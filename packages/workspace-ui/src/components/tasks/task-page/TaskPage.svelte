@@ -86,7 +86,7 @@
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
   const outbox = session.outboxStore;
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
 
   const taskId = $derived(params.taskId);
   // Writes an agent recorded on another host that have not landed here yet

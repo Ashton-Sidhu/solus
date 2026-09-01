@@ -4,11 +4,8 @@ import type {
   GitActionProgressEvent,
   GitActionResult,
 } from '@solus/contracts/types'
-import {
-  toolsStore,
-  type WorkspaceContext,
-  type SessionEnvironmentStore,
-} from '../contexts'
+import type { WorkspaceContext, SessionEnvironmentStore } from '../contexts'
+import { toolsStore } from '../contexts/app/tools.store.svelte'
 import { connectionsStore } from '../contexts/connections/connections.store.svelte'
 import { toasts } from './toasts'
 import { requestInputFocus } from './inputFocus'

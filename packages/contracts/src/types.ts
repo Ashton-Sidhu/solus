@@ -2075,16 +2075,14 @@ export interface OtelSettings {
   endpoint: string
   /** `key=value` pairs, comma separated — how a hosted collector is authorized. */
   headers: string
-  exportLogs: boolean
   exportMetrics: boolean
-  /** Every span Solus records: turns, tools, waits, and dispatch steps. */
+  /** Every span Solus records and the structured log events attached to it. */
   exportTraces: boolean
 }
 
 /** What is exporting right now — the answer to "is this actually on?", which
  *  the saved settings alone cannot give once the environment overrides them. */
 export interface OtelActiveSignals {
-  logs: boolean
   metrics: boolean
   traces: boolean
 }

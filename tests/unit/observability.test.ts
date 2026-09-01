@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import { ROOT_CONTEXT, trace } from '@opentelemetry/api'
+import { ROOT_CONTEXT, context, trace } from '@opentelemetry/api'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -29,6 +29,17 @@ interface PersistedSpanRow {
   ended_at: number
   duration_ms: number
   status: string
+  attrs: string
+}
+
+interface PersistedLogEventRow {
+  trace_id: string
+  span_id: string
+  occurred_at: number
+  level: string
+  name: string
+  tag: string
+  file: string
   attrs: string
 }
 
@@ -188,6 +199,43 @@ describe.serial('the span record', () => {
       .toEqual({ spans: 200 })
   })
 
+  test('a structured log is persisted as an event of its active span', async () => {
+    const { createLogger } = await import('@solus/server/logger')
+    const span = tracer.startSolusSpan({
+      kind: registries.SPAN_KINDS.internalRpc,
+      name: 'historyList',
+      service: registries.SPAN_SERVICES.rpc,
+      startedAt: 7_000,
+      parent: ROOT_CONTEXT,
+    })
+    const spanContext = span.spanContext()
+    context.with(trace.setSpan(ROOT_CONTEXT, span), () => {
+      createLogger('server', 'server.ts').child({ sessionId: 'session-1' }).info(
+        'rpc_method_completed',
+        { method: 'historyList', result: { count: 2 } },
+      )
+    })
+    tracer.endSolusSpan(span, { endedAt: 7_100, status: 'ok' })
+
+    const row = metricsDb.getMetricsDb()
+      .prepare('SELECT trace_id, span_id, occurred_at, level, name, tag, file, attrs FROM log_events')
+      .get() as PersistedLogEventRow
+    expect(row).toMatchObject({
+      trace_id: spanContext.traceId,
+      span_id: spanContext.traceId,
+      level: 'info',
+      name: 'rpc_method_completed',
+      tag: 'server',
+      file: 'server.ts',
+    })
+    expect(row.occurred_at).toBeGreaterThan(0)
+    expect(JSON.parse(row.attrs)).toEqual({
+      sessionId: 'session-1',
+      method: 'historyList',
+      result: '{"count":2}',
+    })
+  })
+
   test('the OTLP copy is attached and detached without touching the record', async () => {
     // The settings toggle moves one processor. The record is not a sink among
     // several that an operator can turn off — it is the one Insights reads.
@@ -228,6 +276,10 @@ describe.serial('the span record', () => {
       spanId: 'old', traceId: 'old', kind: registries.SPAN_KINDS.turn, name: 'old', service: registries.SPAN_SERVICES.sessions,
       startedAt: 9_999, endedAt: 10_000, status: 'ok',
     })
+    metricsDb.getMetricsDb().prepare(`
+      INSERT INTO log_events (trace_id, span_id, occurred_at, level, name, tag, file, attrs)
+      VALUES ('old', 'old', 9_999, 'info', 'old_event', 'test', 'test.ts', '{}')
+    `).run()
     spanTable.writeSpan({
       spanId: 'cutoff', traceId: 'cutoff', kind: registries.SPAN_KINDS.turn, name: 'cutoff', service: registries.SPAN_SERVICES.sessions,
       startedAt: 10_000, endedAt: 10_001, status: 'ok',
@@ -242,6 +294,8 @@ describe.serial('the span record', () => {
       { span_id: 'cutoff' },
       { span_id: 'new' },
     ])
+    expect(metricsDb.getMetricsDb().prepare('SELECT COUNT(*) AS events FROM log_events').get())
+      .toEqual({ events: 0 })
   })
 
   test('a span outside the registered vocabulary never enters the record', () => {

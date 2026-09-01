@@ -1,6 +1,7 @@
 <script lang="ts">
   import ConversationView from "@solus/workspace-ui/components/conversation/ConversationView.svelte";
   import SessionBreadcrumb from "@solus/workspace-ui/components/conversation/SessionBreadcrumb.svelte";
+  import SessionDraftPane from "@solus/workspace-ui/components/session-draft/SessionDraftPane.svelte";
   import SessionPicker from "@solus/workspace-ui/components/session/SessionPicker.svelte";
   import TaskPicker from "@solus/workspace-ui/components/session/TaskPicker.svelte";
   // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
@@ -361,16 +362,13 @@ import {
         {/await}
       {:else}
         {#if leadingDraftParams}
-          {#await import("@solus/workspace-ui/components/session-draft/SessionDraftPane.svelte")}
-            {@render loadingSurface("Loading composer…")}
-          {:then draftModule}
-            {@const SessionDraftPane = draftModule.default}
-            <SessionDraftPane
-              params={leadingDraftParams}
-              paneId={router.leadingPane.id}
-              composerActions={isMobile ? draftComposerActions : undefined}
-            />
-          {/await}
+          <!-- Static: `ui/Pane` already imports the draft pane into the main
+               chunk, so a lazy load here only bought a needless loading flash. -->
+          <SessionDraftPane
+            params={leadingDraftParams}
+            paneId={router.leadingPane.id}
+            composerActions={isMobile ? draftComposerActions : undefined}
+          />
         {:else}
           <!-- The band belongs to the pane, not to the transcript: the desktop
                body draws it over its leading column, and this is that column.

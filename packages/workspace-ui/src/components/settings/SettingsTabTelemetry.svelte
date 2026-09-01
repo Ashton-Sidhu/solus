@@ -75,7 +75,10 @@
 
   const activeSignals = $derived(
     snapshot
-      ? (["logs", "metrics", "traces"] as const).filter((signal) => snapshot.active[signal])
+      ? [
+          ...(snapshot.active.traces ? ["traces and logs"] : []),
+          ...(snapshot.active.metrics ? ["metrics"] : []),
+        ]
       : [],
   );
 
@@ -176,8 +179,8 @@
 
 <SettingsSection label="Signals" visible={isVisible("signals")}>
   <SettingsRow
-    label="Traces"
-    description="Every span Solus records: turns, tool calls, waits, and the dispatch steps behind setup. The same trace ids Insights shows."
+    label="Traces and logs"
+    description="Every span Solus records and its structured log events. The same trace ids Insights shows."
     visible={isVisible("signals")}
   >
     {#snippet control()}
@@ -185,22 +188,7 @@
         checked={settings?.exportTraces === true}
         disabled={locked}
         onCheckedChange={(exportTraces) => void update({ exportTraces })}
-        aria-label="Export traces"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Logs"
-    description="This host's structured log records, the same entries written to dev.log."
-    visible={isVisible("signals")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={settings?.exportLogs === true}
-        disabled={locked}
-        onCheckedChange={(exportLogs) => void update({ exportLogs })}
-        aria-label="Export logs"
+        aria-label="Export traces and logs"
       />
     {/snippet}
   </SettingsRow>

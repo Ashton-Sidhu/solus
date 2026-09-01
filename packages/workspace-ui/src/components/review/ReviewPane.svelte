@@ -14,7 +14,7 @@
   let { params, paneId }: RouteSurfaceProps<"review"> = $props();
 
   const session = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
 
   const view = $derived<ReviewView>(params.view ?? "diff");
 

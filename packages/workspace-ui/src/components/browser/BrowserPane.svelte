@@ -1,5 +1,4 @@
 <script lang="ts">
-  import { untrack } from "svelte";
   import { GitBranch, Plus, X } from "@lucide/svelte";
   import type {
     BrowserAppearance,
@@ -54,7 +53,7 @@
     $props();
 
   const session = getWorkspaceContext();
-  const actions = paneActions(untrack(() => paneId));
+  const actions = paneActions(() => paneId);
   const serverId = $derived(params.serverId ?? session.fallbackServerId);
 
   // The route names a page when the user deep-linked one; otherwise the pane

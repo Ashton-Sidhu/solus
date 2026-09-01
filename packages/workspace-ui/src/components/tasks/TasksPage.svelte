@@ -112,7 +112,7 @@
   let { paneId }: InlinePageProps = $props();
 
   const session = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
   const sessionSidebar = getSessionSidebarStore();

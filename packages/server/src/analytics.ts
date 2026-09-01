@@ -1,30 +1,13 @@
 import { PostHog } from 'posthog-node'
 import { getInstallationId } from './server/auth'
 import { getHostConfig } from './server/settings'
-import { createLogger, setLogEventSink } from './logger'
+import { createLogger } from './logger'
 import type { ServerEventMap } from '@solus/contracts/analytics-events'
 
 const log = createLogger('main', 'analytics')
 const SHUTDOWN_TIMEOUT_MS = 1_500
 
 let client: PostHog | null = null
-
-type BridgedLogEvent = Extract<keyof ServerEventMap,
-  'worktree_created' | 'automation_run_succeeded' | 'automation_run_failed' |
-  'skill_installed' | 'pair_token_generated' | 'model_installed'>
-
-export const BRIDGED_LOG_EVENTS = new Set<string>([
-  'worktree_created',
-  'automation_run_succeeded',
-  'automation_run_failed',
-  'skill_installed',
-  'pair_token_generated',
-  'model_installed',
-])
-
-function isBridgedLogEvent(message: string): message is BridgedLogEvent {
-  return BRIDGED_LOG_EVENTS.has(message)
-}
 
 function getClient(): PostHog | null {
   const apiKey = process.env.SOLUS_POSTHOG_KEY
@@ -55,22 +38,6 @@ export function captureServerEvent<E extends keyof ServerEventMap>(event: E, pro
     properties: props,
   })
 }
-
-export function captureBridgedLogEvent(
-  msg: string,
-  capture: (event: BridgedLogEvent, props: ServerEventMap[BridgedLogEvent]) => void = captureServerEvent,
-): void {
-  if (isBridgedLogEvent(msg)) {
-    capture(msg, {})
-  }
-}
-
-/** Installs the privacy-safe logger bridge without introducing a logger-to-analytics import. */
-export function initLogEventBridge(): void {
-  setLogEventSink((msg) => captureBridgedLogEvent(msg))
-}
-
-initLogEventBridge()
 
 export async function shutdownAnalytics(): Promise<void> {
   if (!client) return

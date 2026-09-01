@@ -344,10 +344,25 @@ export interface MetricsGapSegment {
   durationMs: number
 }
 
+export type MetricsLogLevel = 'debug' | 'info' | 'warn' | 'error'
+
+/** One structured logger emission owned by a span in the trace. */
+export interface MetricsLogEvent {
+  traceId: string
+  spanId: string
+  occurredAt: number
+  level: MetricsLogLevel
+  name: string
+  tag: string
+  file: string
+  attrs: Record<string, string | number | boolean>
+}
+
 /** One turn's full span tree for the waterfall. */
 export interface MetricsTurnTrace {
   traceId: string
   spans: MetricsSpan[]
+  logEvents: MetricsLogEvent[]
   /** Root turn time outside semantic blocking activity. Null when the trace
    *  has no root turn span. */
   providerWaitMs: number | null

@@ -355,13 +355,6 @@
 </div>
 
 <style>
-  .empty {
-    margin: 0;
-    padding: 0.125rem 0;
-    color: var(--solus-text-tertiary);
-    font-size: var(--text-xs);
-  }
-
   .env {
     display: flex;
     flex-direction: column;

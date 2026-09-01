@@ -60,6 +60,20 @@ export const SPAN_ATTRS = {
   origin: 'solus.origin',
 } as const
 
+/** Metadata carried by a structured logger emission when it is attached to the
+ * active span. The marker separates logger events from other OTel span events;
+ * the SQLite exporter persists only events that state this contract. */
+export const LOG_EVENT_ATTRS = {
+  marker: 'solus.log_event',
+  level: 'log.level',
+  tag: 'solus.log_tag',
+  file: 'code.filepath',
+} as const
+
+export function isLogEventMetadataAttr(key: string): boolean {
+  return Object.values(LOG_EVENT_ATTRS).some((attribute) => attribute === key)
+}
+
 /** True for a key the exporter promotes to a column, so it must not be repeated
  *  inside the `attrs` JSON. */
 export function isSpanColumnAttr(key: string): boolean {

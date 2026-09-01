@@ -203,13 +203,11 @@ describe('the agent write policy', () => {
 })
 
 describe('operator settings folded in from the legacy file shape', () => {
-  test('an otel collector and model choice set before the move survive it', async () => {
-    // These were top-level keys with their own setters. Falling back to the
-    // plain defaults would point summaries at a model the operator did not pick
-    // and silently stop shipping telemetry to a collector they configured.
+  test('a model choice set before the move survives it', async () => {
+    // This was a top-level key with its own setter. Falling back to the plain
+    // defaults would point summaries at a model the operator did not pick.
     const legacyDir = mkdtempSync(join(tmpdir(), 'solus-legacy-operator-'))
     writeFileSync(join(legacyDir, 'server-settings.json'), JSON.stringify({
-      otel: { enabled: true, endpoint: 'https://otlp.example.com', exportMetrics: false },
       agentTaskLifecyclePolicy: 'autonomous',
       textGenerationModel: { provider: 'claude-code', model: 'claude-haiku-4-5-20251001' },
     }))
@@ -223,9 +221,6 @@ describe('operator settings folded in from the legacy file shape', () => {
       const { config, seeded } = legacySettings.getHostConfig()
 
       expect(seeded).toBe(false)
-      expect(config.otel.endpoint).toBe('https://otlp.example.com')
-      expect(config.otel.enabled).toBe(true)
-      expect(config.otel.exportMetrics).toBe(false)
       expect(config.agentTaskLifecyclePolicy).toBe('autonomous')
       expect(config.textGenerationModel.model).toBe('claude-haiku-4-5-20251001')
     } finally {

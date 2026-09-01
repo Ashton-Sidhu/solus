@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import type { BrowserSnapshotRef } from "@solus/contracts/browser-types";
   import {
     Camera as CameraIcon,
@@ -68,7 +69,7 @@
   }: Props = $props();
 
   let api = $state<CarouselAPI | undefined>(undefined);
-  let selected = $state(startIndex);
+  let selected = $state(untrack(() => startIndex));
   /** The reader's ask, not the state: a frame already at or below its own size
    *  has nothing to zoom to, and `viewing` is what actually applies. */
   let wantsZoom = $state(false);
@@ -85,7 +86,11 @@
   // change identity, which would yank the reel back to the opening frame every
   // time the reader steps. `watchDrag` is a stable function reading live state,
   // so a zoomed frame pans under the pointer instead of stepping the reel.
-  const carouselOptions = { loop: true, startIndex, watchDrag: () => !zoomed };
+  const carouselOptions = {
+    loop: true,
+    startIndex: untrack(() => startIndex),
+    watchDrag: () => !zoomed,
+  };
 
   const snapshot = $derived(snapshots[selected]);
   const title = $derived(snapshotTitle(snapshot));
@@ -160,7 +165,7 @@
   // exclusive: while a capture is up the arrows step the reel rather than also
   // moving the transcript underneath it.
   useScope("snapshot-lightbox", { exclusive: true });
-  useKeybinding("snapshot-lightbox.close", onClose);
+  useKeybinding("snapshot-lightbox.close", () => onClose());
   useKeybinding("snapshot-lightbox.previous", () => api?.scrollPrev());
   useKeybinding("snapshot-lightbox.next", () => api?.scrollNext());
 
@@ -171,14 +176,13 @@
   });
 </script>
 
+<!-- The scrim is the backdrop, not the dialog: it only dismisses on a click
+     that lands on itself, so it stays presentational and the card below is the
+     thing screen readers enter. Escape is bound above for the keyboard. -->
 <div
-  bind:this={dialogEl}
   data-solus-ui
   use:portal={document.body}
-  role="dialog"
-  aria-modal="true"
-  aria-label="{title} — capture {selected + 1} of {snapshots.length}"
-  tabindex="-1"
+  role="presentation"
   class="fixed inset-0 z-[9999] grid place-items-center bg-[color-mix(in_oklch,var(--foreground)_28%,transparent)] p-6 backdrop-blur-[2px] focus-visible:outline-none"
   onclick={(event) => {
     if (event.target === event.currentTarget) onClose();
@@ -188,7 +192,12 @@
        own proportion until the display runs out, and the height follows from
        it, so the card never letterboxes and never scales a page past its size. -->
   <div
-    class="text-transcript-meta browser-snapshot-reel @container flex max-w-full flex-col overflow-hidden rounded-2xl bg-[var(--card)] shadow-[shadow:var(--elev-lift),0_0_0_0.5px_var(--hairline-strong)]"
+    bind:this={dialogEl}
+    role="dialog"
+    aria-modal="true"
+    aria-label="{title} — capture {selected + 1} of {snapshots.length}"
+    tabindex="-1"
+    class="text-transcript-meta browser-snapshot-reel @container flex max-w-full flex-col overflow-hidden rounded-2xl bg-[var(--card)] shadow-[shadow:var(--elev-lift),0_0_0_0.5px_var(--hairline-strong)] focus-visible:outline-none"
     style:--frame-aspect={aspect}
   >
     <div class="flex items-center gap-1.5 px-3 py-2.5">

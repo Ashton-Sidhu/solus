@@ -19,6 +19,7 @@ import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { Task } from '../../tasks/task'
+import { completeTasksForMergedPullRequest } from '../../tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
 import type { ReviewTarget } from '@solus/contracts/review'
 import { ensureManagedPrCheckout } from '../../review/managed-pr-checkout'
@@ -497,7 +498,6 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       const result = await provider.review.mergePullRequest(repo, number, method)
       if (!result.merged) return result
       const projectPath = projectScopeOf(ctx.session)
-      const { completeTasksForMergedPullRequest } = await import('../../tasks/sync-engine')
       await completeTasksForMergedPullRequest(projectPath, number)
       const detailAfterMerge = await pullRequest.readFresh()
       // A merge is a lifecycle change like any other, so it is announced the

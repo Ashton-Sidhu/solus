@@ -53,7 +53,13 @@ describe.serial('turn trace', () => {
     // Root turn [0, 100]; the root's span id IS the trace id.
     spanTable.writeSpan({ ...shared, spanId: 'trace-1', kind: turn, name: 'turn', startedAt: 0, endedAt: 100 })
     // Overlapping tools [10,40] and [30,60] → union [10,60] = 50.
-    spanTable.writeSpan({ ...shared, spanId: 'tool-a', parentSpanId: 'trace-1', kind: toolCall, name: 'Bash', startedAt: 10, endedAt: 40 })
+    spanTable.writeSpanRecord(
+      { ...shared, spanId: 'tool-a', parentSpanId: 'trace-1', kind: toolCall, name: 'Bash', startedAt: 10, endedAt: 40 },
+      [{
+        traceId: 'trace-1', spanId: 'tool-a', occurredAt: 20, level: 'info',
+        name: 'tool_started', tag: 'ControlPlane', file: 'control-plane.ts', attrs: { tool: 'Bash' },
+      }],
+    )
     spanTable.writeSpan({ ...shared, spanId: 'tool-b', parentSpanId: 'trace-1', kind: toolCall, name: 'Read', startedAt: 30, endedAt: 60 })
     // Permission [90,95] adds 5.
     spanTable.writeSpan({ ...shared, spanId: 'perm-a', parentSpanId: 'trace-1', kind: permissionWait, name: 'Bash', startedAt: 90, endedAt: 95 })
@@ -63,6 +69,16 @@ describe.serial('turn trace', () => {
     const trace = rollups.turnTrace('trace-1')
     expect(trace.spans.map((span) => span.spanId)).toEqual(['bg-a', 'trace-1', 'tool-a', 'tool-b', 'perm-a'])
     expect(trace.spans[1].attrs).toEqual({})
+    expect(trace.logEvents).toEqual([{
+      traceId: 'trace-1',
+      spanId: 'tool-a',
+      occurredAt: 20,
+      level: 'info',
+      name: 'tool_started',
+      tag: 'ControlPlane',
+      file: 'control-plane.ts',
+      attrs: { tool: 'Bash' },
+    }])
     expect(trace.providerWaitMs).toBe(100 - 55)
     expect(trace.gapSegments.reduce((total, gap) => total + gap.durationMs, 0)).toBe(100 - 55)
   })

@@ -8,14 +8,14 @@ export const AGENT_INSIGHTS_ROW_CAP = 500
 
 const queryInsightsFields = {
   sql: z.string().trim().min(1).describe(
-    'One read-only SQLite SELECT or WITH statement. Query turns for one row per agent turn, events for operations within turns, internal_events for Solus operations, or spans for raw cross-kind data.',
+    'One read-only SQLite SELECT or WITH statement. Query turns for one row per agent turn, events for operations within turns, internal_events for Solus operations, log_events for structured logs attached to spans, or spans for raw cross-kind data.',
   ),
 } as const
 
 const QUERY_INSIGHTS_DESCRIPTION = [
   'Run a read-only SQLite query against the current Solus Insights database.',
   'Use this whenever an insights question needs database facts instead of estimates.',
-  'The main views are `turns` (one row per user-to-agent turn), `events` (one row per observed operation; filter by `kind`), and `internal_events` (Solus operations). `spans` is the raw fact table. Times are epoch milliseconds and durations are milliseconds.',
+  'The main views are `turns` (one row per user-to-agent turn), `events` (one row per observed operation; filter by `kind`), `internal_events` (Solus operations), and `log_events` (structured logs correlated by trace_id and span_id). `spans` is the raw span fact table. Times are epoch milliseconds and durations are milliseconds.',
   "To discover columns, query `pragma_table_info`, for example: SELECT name, type FROM pragma_table_info('turns').",
   'Only one SELECT or WITH statement is accepted. Writes, ATTACH, and PRAGMA statements are rejected. Results are JSON with columns, rows, rowCount, and truncated; at most 500 rows are returned.',
 ].join('\n')

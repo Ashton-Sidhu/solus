@@ -38,6 +38,8 @@
   let { pageKey, page, active }: Props = $props();
 
   let canvas = $state<HTMLCanvasElement | null>(null);
+  /** The focusable, keyboard-driven wrapper around the canvas. */
+  let surface = $state<HTMLDivElement | null>(null);
   let textBridge = $state<HTMLInputElement | null>(null);
   let hasFrame = $state(false);
   let streamError = $state<string | null>(null);
@@ -217,8 +219,8 @@
     if (dragTool) return;
     const point = viewportPoint(event);
     if (!point) return;
-    canvas?.focus();
-    // A canvas can receive a hardware keyboard, but it cannot open a phone's
+    surface?.focus();
+    // The surface can receive a hardware keyboard, but it cannot open a phone's
     // soft keyboard. Focus a real input in the same tap gesture on touch-first
     // clients, then forward its input below.
     if (window.matchMedia("(pointer: coarse)").matches) {
@@ -298,10 +300,21 @@
 </script>
 
 <div class="absolute inset-0">
-  <!-- role="application": the canvas is a live interactive view, driven by the
-       pointer and keyboard handlers rather than being a static image. -->
-  <canvas
-    bind:this={canvas}
+  <!-- role="application" belongs on the wrapper, not on the canvas: the canvas
+       is the paint target and ARIA gives it no interactive role to take. The
+       wrapper is the live view — driven by the pointer and keyboard handlers
+       rather than being a static image — and shares the canvas box exactly, so
+       the rects the handlers read off the canvas still line up.
+
+       The two ignores below are the compiler's role table, not a real defect:
+       aria-query types `application` as a window rather than a widget, so
+       Svelte reads it as non-interactive. `application` is precisely the role
+       for a surface that takes the keyboard itself, which is what this is —
+       every key goes to the guest page rather than to the client. -->
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+  <div
+    bind:this={surface}
     tabindex="0"
     role="application"
     aria-label="Live browser of {page.label}"
@@ -318,7 +331,9 @@
     ontouchmove={onTouchMove}
     ontouchend={() => (panFrom = null)}
     onkeydown={onKeydown}
-  ></canvas>
+  >
+    <canvas bind:this={canvas} class="block h-full w-full"></canvas>
+  </div>
 
   <input
     bind:this={textBridge}

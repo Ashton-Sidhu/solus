@@ -84,7 +84,9 @@
 </div>
 
 <style>
-  details[open] .details-chevron {
+  /* The chevron is rendered by an icon component, so the class never picks up
+     this component's scope hash — the rule has to reach it globally. */
+  details[open] :global(.details-chevron) {
     transform: rotate(180deg);
   }
 </style>

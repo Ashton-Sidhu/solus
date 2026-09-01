@@ -9,7 +9,7 @@
 
   const session = getWorkspaceContext();
   const environmentStore = getSessionEnvironmentStore();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
 
   const environment = $derived(environmentStore.environmentFor(session.runFor(params.sourceId)));
   const file = $derived({

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { fade } from "svelte/transition";
   import {
     committedRenameValue,
@@ -30,7 +30,7 @@
     onCancel,
   }: Props = $props();
 
-  let draft = $state(value);
+  let draft = $state(untrack(() => value));
   let committed = false;
   let input = $state<HTMLInputElement | null>(null);
 

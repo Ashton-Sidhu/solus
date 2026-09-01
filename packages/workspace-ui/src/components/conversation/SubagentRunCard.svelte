@@ -201,27 +201,8 @@
     color: var(--muted-foreground);
   }
 
-  .run-card__arc {
-    transform-origin: center;
-    will-change: transform;
-    animation: run-card-arc 1.2s linear infinite;
-  }
-
   /* The live seam stays visible without a second perpetual animation. */
   .run-card__sweep {
     width: 100%;
-  }
-
-  @keyframes run-card-arc {
-    to {
-      transform: rotate(360deg);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .run-card__arc {
-      animation: none;
-      will-change: auto;
-    }
   }
 </style>

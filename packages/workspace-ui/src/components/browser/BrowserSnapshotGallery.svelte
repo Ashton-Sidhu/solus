@@ -121,7 +121,7 @@
     if (opened !== null) tileAt(opened)?.focus();
   }
 
-  function onPlateKeydown(event: KeyboardEvent) {
+  function onTileKeydown(event: KeyboardEvent) {
     const columns = layout.mode === "rail" ? tiles.length : layout.columns;
     const step = {
       ArrowRight: 1,
@@ -192,7 +192,6 @@
       style:--plate-tile-height={layout.tileHeight}
       role="group"
       aria-label={heading}
-      onkeydown={onPlateKeydown}
     >
       <!-- Keyed by position, not by asset: the asset id is a content hash, so two
            frames of a page that did not change are the same asset. The pass is a
@@ -211,6 +210,7 @@
           aria-label="Open {tile.alt}"
           onclick={() => (openIndex = index)}
           onfocus={() => (rovingIndex = index)}
+          onkeydown={onTileKeydown}
         >
           <div
             class="flex h-full w-full items-start justify-center [&_img]:w-full {layout.mode ===

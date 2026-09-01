@@ -6,7 +6,7 @@
 
   let { params, paneId }: RouteSurfaceProps<"subagent"> = $props();
 
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
 </script>
 
 {#await import("./SubagentPane.svelte")}

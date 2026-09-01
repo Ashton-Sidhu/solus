@@ -18,7 +18,7 @@
   let { params, paneId }: RouteSurfaceProps<"prReview"> = $props();
 
   const session = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
   const embedded = $derived(!pane.isLeading);
   // The workspace binds the maximize key to the companion pane, which is where
   // this route usually sits. Leading it — a review with the workspace to itself —

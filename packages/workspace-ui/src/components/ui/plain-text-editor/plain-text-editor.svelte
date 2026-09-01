@@ -170,7 +170,11 @@
       // The room the tightened leading gives up comes back here, so a one-line
       // composer stands the height it always has.
       padding: "var(--plain-editor-padding, 0.9375rem 0 0.9375rem 0.25rem)",
-      paddingRight: mic && micPlacement === "inside" ? "4.25rem" : undefined,
+      // The theme is a CodeMirror extension built once at mount, so this reads
+      // the placement this composer opened with rather than tracking it.
+      paddingRight: untrack(() => (mic && micPlacement === "inside"))
+        ? "4.25rem"
+        : undefined,
       // The caret is text, so it takes the text's colour — never the accent.
       caretColor: "currentColor",
       wordBreak: "break-word",

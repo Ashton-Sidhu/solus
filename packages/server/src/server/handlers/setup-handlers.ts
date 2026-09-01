@@ -18,6 +18,8 @@ import { hasGithubCliScopes, parseGithubScopes } from '@solus/contracts/github-a
 import { PARAKEET_MODEL_DIR } from '../../model-downloader'
 import { getHostConfig, getServerSettings, setProjectsBaseDirectory, setServerName } from '../settings'
 import { WORKSPACE_DIR } from '../../workspace'
+import { listProjects, recordProject } from '../../project-config/projects-manifest'
+import { resolveProjectKey } from '../../project-config/project-config'
 import { expandHome } from './lib/host-path'
 import { sshConnectionOptions } from './lib/ssh-options'
 import {
@@ -122,9 +124,6 @@ export interface CapabilityProbeOptions {
 }
 
 export async function probeServerCapabilities(opts: CapabilityProbeOptions): Promise<ServerCapabilities> {
-  // The manifest is loaded on demand because it pulls in `node:sqlite`, which
-  // only the packaged runtime has.
-  const { listProjects } = await import('../../project-config/projects-manifest')
   const projects = await listProjects().catch(() => [])
   return {
     headless: opts.headless,
@@ -258,12 +257,8 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   const hasCommand = deps.hasCommand ?? commandExists
   const loadStoredGithubToken = deps.loadGithubToken ?? loadGithubToken
   const projectsRoot = deps.projectsRoot ?? setupProjectsRoot
-  /** The last step of both cloning and adopting; returns the key both promise. Loaded on demand — see `probeServerCapabilities`. */
+  /** The last step of both cloning and adopting; returns the key both promise. */
   const registerProject = deps.registerProject ?? (async (path: string) => {
-    const [{ recordProject }, { resolveProjectKey }] = await Promise.all([
-      import('../../project-config/projects-manifest'),
-      import('../../project-config/project-config'),
-    ])
     await recordProject(path)
     return resolveProjectKey(path)
   })

@@ -323,6 +323,7 @@
         <div
           class="group/saved flex h-6 shrink-0 items-center rounded-md pr-0.5 transition-[background-color,box-shadow] hover:bg-[var(--wash-1)] hover:shadow-[shadow:var(--elev-ring)]"
           oncontextmenu={(event) => openSavedMenu(saved, event)}
+          role="group"
         >
           <button
             type="button"

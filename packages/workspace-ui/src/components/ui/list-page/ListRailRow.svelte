@@ -70,6 +70,7 @@
     : 'hover:bg-[var(--wash-1)]'}"
   data-selected={selected}
   oncontextmenu={onContextMenu}
+  role="group"
 >
   {#if leading}{@render leading()}{/if}
 

@@ -8,7 +8,7 @@
   let { params, paneId }: RouteSurfaceProps<"automation"> = $props();
 
   const session = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
 
   // The builder seeds its drafts from this prop at mount, so for a saved
   // automation we wait until the store has it (it loads on open) before

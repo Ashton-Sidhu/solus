@@ -19,6 +19,7 @@ import {
   type IndexedPlanInput,
 } from '../../plans/plan-index'
 import { createLogger } from '../../logger'
+import { recordOtelDuration } from '../../otel'
 import { resolveHomePath } from '../../platform/paths'
 import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
@@ -458,7 +459,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       // The index could not answer, so this list came off the disk: a head-read
       // of every transcript in the project and its worktrees. Timed separately
       // from `list_sessions` so the two paths stay tellable apart.
-      log.metric('session_list_disk_scan', Date.now() - scanStartedAt, { dirs: dirsToScan.length, sessions: sessions.length })
+      recordOtelDuration('session_list_disk_scan', Date.now() - scanStartedAt, { dirs: dirsToScan.length, sessions: sessions.length })
       return sessions
     })()
     _sessionScanInFlight.set(cacheKey, scan)

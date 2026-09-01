@@ -2,6 +2,8 @@ import type {
   MetricsSpanAttrs,
   MetricsGapCategory,
   MetricsGapSegment,
+  MetricsLogEvent,
+  MetricsLogLevel,
   MetricsSessionSummary,
   MetricsSpan,
   MetricsTurnSummary,
@@ -40,6 +42,17 @@ interface SpanRow {
   attrs: string
 }
 
+interface LogEventRow {
+  trace_id: string
+  span_id: string
+  occurred_at: number
+  level: MetricsLogLevel
+  name: string
+  tag: string
+  file: string
+  attrs: string
+}
+
 /** The one boundary where the stored JSON blob becomes typed attributes. The
  *  emitter writes it from the same registry the read type is declared from. */
 function parseAttrs(raw: string): MetricsSpanAttrs {
@@ -72,6 +85,28 @@ function toSpan(row: SpanRow): MetricsSpan {
     durationMs: row.duration_ms,
     status: row.status,
     attrs: parseAttrs(row.attrs),
+  }
+}
+
+function toLogEvent(row: LogEventRow): MetricsLogEvent {
+  let attrs: MetricsLogEvent['attrs'] = {}
+  try {
+    const parsed: unknown = JSON.parse(row.attrs)
+    if (Object.prototype.toString.call(parsed) === '[object Object]') {
+      // SAFETY: `log_events.attrs` is written only by the structured logger
+      // exporter, which accepts the same scalar values this contract declares.
+      attrs = parsed as MetricsLogEvent['attrs']
+    }
+  } catch {}
+  return {
+    traceId: row.trace_id,
+    spanId: row.span_id,
+    occurredAt: row.occurred_at,
+    level: row.level,
+    name: row.name,
+    tag: row.tag,
+    file: row.file,
+    attrs,
   }
 }
 
@@ -214,6 +249,13 @@ export function turnTrace(traceId: string): MetricsTurnTrace {
   // names one-for-one.
   const rows = rawRows as SpanRow[]
   const spans = rows.map(toSpan)
+  const rawLogRows: unknown = getMetricsDb().prepare(`
+    SELECT trace_id, span_id, occurred_at, level, name, tag, file, attrs
+    FROM log_events WHERE trace_id = ? ORDER BY occurred_at, event_id
+  `).all(traceId)
+  // SAFETY: the SELECT names every `LogEventRow` column one-for-one, and the
+  // writer constrains `level` to `MetricsLogLevel`.
+  const logEvents = (rawLogRows as LogEventRow[]).map(toLogEvent)
   const root = spans.find((span) => span.kind === SPAN_KINDS.turn && span.parentSpanId === null)
   const rawChildren = root ? spans.filter((span) => span !== root) : []
   const children = root ? effectiveTraceSpans(root, rawChildren) : []
@@ -225,6 +267,7 @@ export function turnTrace(traceId: string): MetricsTurnTrace {
   return {
     traceId,
     spans: attributedSpans,
+    logEvents,
     providerWaitMs: root ? gaps.reduce((total, segment) => total + segment.durationMs, 0) : null,
     gapSegments: gaps,
   }

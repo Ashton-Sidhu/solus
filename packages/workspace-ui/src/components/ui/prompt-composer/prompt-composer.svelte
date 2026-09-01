@@ -87,7 +87,7 @@
   });
   // Panes outlive the tab they were opened for, so re-seed when the dispatch
   // target moves — otherwise a send applies the previous session's model.
-  let seededFor = tabId ?? untrack(() => session.activeTabId);
+  let seededFor = untrack(() => tabId ?? session.activeTabId);
   $effect(() => {
     const target = tabId ?? session.activeTabId;
     if (target === seededFor) return;

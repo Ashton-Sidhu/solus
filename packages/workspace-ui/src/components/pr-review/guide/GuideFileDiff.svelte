@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { mount, unmount, onMount } from "svelte";
+  import { mount, unmount, onMount, untrack } from "svelte";
   import {
     FileDiff,
     type DiffLineAnnotation,
@@ -99,7 +99,9 @@
   );
   let expanded = $state(false);
   let formatExpanded = $state(false);
-  let previousMetadata = fileDiffMeta;
+  // The sentinel the effect below compares against, so it starts as the file
+  // this instance mounted with rather than tracking it.
+  let previousMetadata = untrack(() => fileDiffMeta);
   const formatOnlyCollapsed = $derived(
     !!fileDiffMeta &&
       !formatExpanded &&

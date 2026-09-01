@@ -3,6 +3,7 @@ import { join } from 'path'
 import { utilityProcess, type UtilityProcess } from 'electron'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 import { createLogger } from '@solus/server/logger'
+import { recordOtelDuration } from '@solus/server/otel'
 import { ensureParakeetModel, getVoiceModelStatus, isParakeetModelReady } from '@solus/server/model-downloader'
 
 const log = createLogger('main', 'transcription/index.ts')
@@ -88,7 +89,7 @@ function ensureWorker(): UtilityProcess {
       if (request.worker !== child) continue
       pending.delete(id)
       clearTimeout(request.timer)
-      log.metric('transcribe_audio', Date.now() - request.startedAt, { backend: BACKEND, success: false })
+      recordOtelDuration('transcribe_audio', Date.now() - request.startedAt, { backend: BACKEND, success: false })
       request.resolve({ error: `Transcription stopped unexpectedly (exit code ${code})`, transcript: null })
     }
     if (worker === child) {
@@ -107,7 +108,7 @@ function handleWorkerMessage(sourceWorker: UtilityProcess, message: WorkerRespon
   clearTimeout(request.timer)
   const durationMs = Date.now() - request.startedAt
   const success = message.type === 'result'
-  log.metric('transcribe_audio', durationMs, {
+  recordOtelDuration('transcribe_audio', durationMs, {
     ...message.phaseMs,
     audio_duration_ms: Math.round(request.samplesLength / 16),
     speedup_x: durationMs > 0 ? Math.round((request.samplesLength / 16) / durationMs * 10) / 10 : null,
@@ -174,7 +175,7 @@ export async function transcribeAudio(samples: Float32Array): Promise<{ error: s
   if (!(await isParakeetModelReady())) {
     void ensureParakeetModel().catch(() => {})
     const error = modelNotReadyMessage()
-    log.metric('transcribe_audio', Date.now() - startedAt, { backend: BACKEND, success: false })
+    recordOtelDuration('transcribe_audio', Date.now() - startedAt, { backend: BACKEND, success: false })
     return { error, transcript: null }
   }
 
@@ -189,7 +190,7 @@ export async function transcribeAudio(samples: Float32Array): Promise<{ error: s
       const request = pending.get(id)
       if (!request || request.worker !== transcriptionWorker) return
       pending.delete(id)
-      log.metric('transcribe_audio', Date.now() - request.startedAt, {
+      recordOtelDuration('transcribe_audio', Date.now() - request.startedAt, {
         backend: BACKEND,
         success: false,
         timeout: true,

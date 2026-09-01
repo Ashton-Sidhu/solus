@@ -2618,6 +2618,7 @@ export class ControlPlane extends EventEmitter {
         if (existingSession) existingSession.gitContext = gitContext
         effectiveGitCtx = gitContext
         log.info('worktree_created', { sessionId, branch: gitContext.branch, worktreePath: gitContext.worktreePath })
+        captureServerEvent('worktree_created', {})
         this._emit(sessionId, { type: 'git_context', gitContext })
         // Worktree done → advance to "Linking thread workspace".
         this._emit(sessionId, { type: 'status_card', card: buildWorktreeCard(1) })

@@ -84,7 +84,7 @@
   let { params, paneId }: RouteSurfaceProps<"insights"> = $props();
 
   const workspace = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
   const store = insightsStore;
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 

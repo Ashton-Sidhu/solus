@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, untrack } from "svelte";
   import { FileDiff, File as PierreFile } from "@pierre/diffs";
   import { getSettingsContext } from "../../contexts";
   import { parsePatchMetadata } from "../../lib/pierre-diff";
@@ -65,7 +65,9 @@
   );
   let expanded = $state(false);
   let formatExpanded = $state(false);
-  let previousMetadata = fileDiffMeta;
+  // The sentinel the effect below compares against, so it starts as the file
+  // this instance mounted with rather than tracking it.
+  let previousMetadata = untrack(() => fileDiffMeta);
   const formatOnlyCollapsed = $derived(
     !!fileDiffMeta &&
       !formatExpanded &&

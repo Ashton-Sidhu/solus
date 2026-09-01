@@ -11,6 +11,7 @@ import { execFile } from 'child_process'
 import { promisify } from 'util'
 import { getCliEnv } from '../cli-env'
 import { createLogger } from '../logger'
+import { captureServerEvent } from '../analytics'
 import type { AgentId, RemoteSkill, SkillInstallResult } from '@solus/contracts/types'
 import { z } from 'zod'
 
@@ -121,6 +122,7 @@ export async function installSkill(id: string, agentIds: AgentId[]): Promise<Ski
       maxBuffer: 4 * 1024 * 1024,
     })
     log.info('skill_installed', { skillId: id })
+    captureServerEvent('skill_installed', {})
     return { ok: true, agents: agentIds }
   } catch (err) {
     const msg = errorMessage(err)

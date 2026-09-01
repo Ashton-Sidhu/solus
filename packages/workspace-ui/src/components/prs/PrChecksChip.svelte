@@ -119,9 +119,14 @@
         : display.state === "failing" || display.state === "unavailable"
           ? "text-(--solus-art-negative)"
           : "text-muted-foreground"}
-  <!-- Stop list-row activation while the checks popover is being used. -->
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <span class="inline-flex shrink-0" onclick={(event) => event.stopPropagation()}>
+  <!-- Stop list-row activation while the checks popover is being used. The
+       span carries no behaviour of its own — the trigger inside is the control,
+       and it is reachable by keyboard without the row also activating. -->
+  <span
+    class="inline-flex shrink-0"
+    role="none"
+    onclick={(event) => event.stopPropagation()}
+  >
     <Popover.Root bind:open onOpenChange={(next) => { if (!next) requestInputFocus(); }}>
       <Popover.Trigger>
         {#snippet child({ props })}

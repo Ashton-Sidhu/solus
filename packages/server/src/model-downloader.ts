@@ -6,6 +6,7 @@ import { join } from 'path'
 import { Readable } from 'stream'
 import { pipeline } from 'stream/promises'
 import { createLogger } from './logger'
+import { captureServerEvent } from './analytics'
 import type { VoiceModelStatus } from '@solus/contracts/types'
 
 const log = createLogger('main', 'model-downloader.ts')
@@ -118,6 +119,7 @@ async function downloadAndInstall(): Promise<string> {
     await rm(PARAKEET_MODEL_DIR, { recursive: true, force: true })
     await rename(tempDir, PARAKEET_MODEL_DIR)
     log.info('model_installed', { model: MODEL_NAME, version: MODEL_VERSION })
+    captureServerEvent('model_installed', {})
     setStatus({ state: 'ready' }, { immediate: true })
     return PARAKEET_MODEL_DIR
   } catch (err) {

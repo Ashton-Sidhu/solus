@@ -248,7 +248,7 @@
   const SKELETON_DELAY_MS = 120;
   const SKELETON_MIN_MS = 140;
   let showLoading = $state(untrack(() => initialSkeletonVisible));
-  let skeletonShownAt = showLoading ? performance.now() : 0;
+  let skeletonShownAt = untrack(() => showLoading) ? performance.now() : 0;
   $effect(() => {
     if (diffState.loading) {
       if (showLoading) return;

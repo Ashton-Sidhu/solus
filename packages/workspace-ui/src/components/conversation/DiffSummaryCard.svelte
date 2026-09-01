@@ -1,6 +1,6 @@
 <script lang="ts">
   import Icon from "@iconify/svelte";
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import {
     ChevronRight as CaretRightIcon,
     FileText as FileTextIcon,
@@ -70,7 +70,7 @@
   let cardEl = $state<HTMLElement>();
   // Opening the popover is already the "show me the files" click, so it lands on
   // the top-level tree; only the transcript card arrives on its count line.
-  let isExpanded = $state(embedded);
+  let isExpanded = $state(untrack(() => embedded));
   let expanded = $state<ReadonlySet<string>>(new Set());
   let unfolded = $state<ReadonlySet<string>>(new Set());
 

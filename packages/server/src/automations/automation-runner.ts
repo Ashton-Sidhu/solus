@@ -1,6 +1,7 @@
 import { createWorktree } from '../git/worktree-manager'
 import { expandHome } from '../server/handlers/lib/host-path'
 import { createLogger } from '../logger'
+import { captureServerEvent } from '../analytics'
 import { startRun, attachRunSession, finishRun } from './automations-store'
 import { composeAutomationPrompt } from './compose-prompt'
 import type { Automation, AutomationRun, AgentId, GitCheckout, ReasoningEffort } from '@solus/contracts/types'
@@ -243,6 +244,7 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       branch,
     })
     log.info('automation_run_succeeded', { automationId: automation.id, runId, sessionId: agentSessionId })
+    captureServerEvent('automation_run_succeeded', {})
   } catch (err: any) {
     if (entry.cancelled) {
       await finishRun(automation.id, runId, { status: 'cancelled', agentSessionId, branch })
@@ -256,5 +258,6 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       error: String(err?.message ?? err),
     })
     log.error('automation_run_failed', { automationId: automation.id, runId, error: err instanceof Error ? err.message : String(err) })
+    captureServerEvent('automation_run_failed', {})
   }
 }

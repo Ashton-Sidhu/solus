@@ -47,18 +47,23 @@ describe('OTel host settings', () => {
     expect(setOtel({ endpoint: '  https://otlp.example.com/  ' }).endpoint).toBe('https://otlp.example.com')
   })
 
-  test('defaults ship every signal once export is on', () => {
+  test('defaults ship both signal groups once export is on', () => {
     const saved = setOtel({ endpoint: 'https://otlp.example.com', enabled: true })
-    expect(saved).toMatchObject({ exportLogs: true, exportMetrics: true, exportTraces: true })
+    expect(saved).toMatchObject({ exportMetrics: true, exportTraces: true })
   })
 
   test('a signal can be turned off without turning export off', () => {
-    const saved = setOtel({ exportLogs: false })
-    expect(saved).toMatchObject({ enabled: true, exportLogs: false, exportTraces: true })
+    const saved = setOtel({ exportTraces: false })
+    expect(saved).toMatchObject({ enabled: true, exportTraces: false, exportMetrics: true })
   })
 
   test('settings reach disk, so they survive a restart of the host', () => {
-    setOtel({ endpoint: 'https://otlp.example.com', enabled: true, exportMetrics: false })
+    setOtel({
+      endpoint: 'https://otlp.example.com',
+      enabled: true,
+      exportMetrics: false,
+      exportTraces: true,
+    })
     const persisted = JSON.parse(
       readFileSync(join(dataDir, 'server-settings.json'), 'utf-8'),
     ) as { hostConfig?: { otel?: OtelSettings } }
@@ -76,14 +81,13 @@ function snapshot(endpoint: string): OtelSettingsSnapshot {
     enabled: true,
     endpoint,
     headers: '',
-    exportLogs: true,
     exportMetrics: true,
     exportTraces: true,
   }
   return {
     settings: otelSettings,
     managedByEnvironment: false,
-    active: { logs: true, metrics: true, traces: true },
+    active: { metrics: true, traces: true },
   }
 }
 

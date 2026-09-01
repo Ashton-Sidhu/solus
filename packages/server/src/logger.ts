@@ -1,10 +1,11 @@
 import { appendFile, appendFileSync, existsSync, mkdirSync, writeFileSync } from 'fs'
 import { inspect } from 'util'
 import { join } from 'path'
+import { trace, type AttributeValue, type Attributes } from '@opentelemetry/api'
 import { isPackagedRuntime, logsDir } from './platform/paths'
 import { platformServices } from './platform/services'
 import { installBrokenPipeGuard } from './broken-pipe'
-import { emitOtelLog, recordOtelDuration } from './otel'
+import { LOG_EVENT_ATTRS } from './observability/registries'
 
 type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
@@ -13,7 +14,6 @@ export interface Logger {
   info<Data extends object>(msg: string, data?: Data): void
   warn<Data extends object>(msg: string, data?: Data): void
   error<Data extends object>(msg: string, data?: Data): void
-  metric<Data extends object>(label: string, durationMs: number, data?: Data): void
   /** Returns a logger that stamps `bound` fields (e.g. `{ sessionId }`) onto every entry. */
   child<Bound extends object>(bound: Bound): Logger
 }
@@ -24,8 +24,9 @@ interface LogEntry {
   tag: string
   file: string
   msg?: string
-  label?: string
   count?: number
+  traceId?: string
+  spanId?: string
 }
 
 // Resolved lazily, never at module load. `isPackagedRuntime()` reads the
@@ -63,7 +64,6 @@ const LEVEL_COLORS = {
   warn: '\x1b[33m',
   error: '\x1b[31m',
 } as const satisfies Record<LogLevel, string>
-const METRIC_COLOR = '\x1b[35m'
 const RESET = '\x1b[0m'
 const DIM = '\x1b[2m'
 
@@ -124,13 +124,6 @@ let bufferedBytes = 0
 let timer: ReturnType<typeof setInterval> | null = null
 let activeWrite: string | null = null
 let droppedEntries = 0
-let logEventSink: ((msg: string) => void) | null = null
-
-/** Registers the optional analytics bridge for info-level log event names. */
-export function setLogEventSink(sink: ((msg: string) => void) | null): void {
-  logEventSink = sink
-}
-
 /**
  * The durable log the installed app keeps: always `<logsDir>/solus.log`, on
  * every runtime. Unlike `logFilePath()` this never answers `dev.log`, because
@@ -171,7 +164,7 @@ export function logFilePath(): string {
   return logPath
 }
 
-function boundedLogJson(entry: LogEntry): string {
+function boundedLogJson<Entry extends LogEntry>(entry: Entry): string {
   const seen = new WeakSet<object>()
   const depths = new WeakMap<object, number>()
   let nodes = 0
@@ -225,6 +218,37 @@ function boundedLogJson(entry: LogEntry): string {
     msg: entry.msg,
     logError: 'unserializable data',
   })
+}
+
+function spanEventAttributes<Data extends object>(data: Data | undefined): Attributes {
+  const attributes: Attributes = {}
+  if (!data) return attributes
+  for (const [key, value] of Object.entries(data)) {
+    const valueTag = Object.prototype.toString.call(value)
+    let normalized: AttributeValue | undefined
+    if (valueTag === '[object String]') normalized = String(value).slice(0, MAX_STRING_LENGTH)
+    else if (valueTag === '[object Number]') {
+      const numberValue = Number(value)
+      normalized = Number.isFinite(numberValue) ? numberValue : String(value)
+    } else if (valueTag === '[object Boolean]') normalized = Boolean(value)
+    else if (valueTag === '[object BigInt]') normalized = String(value)
+    else if (value != null) {
+      try {
+        const encoded = boundedLogJson({
+          ts: '', level: 'info', tag: 'logger', file: 'logger.ts', value,
+        })
+        const valueStart = encoded.indexOf('"value":')
+        const text = valueStart >= 0
+          ? encoded.slice(valueStart + '"value":'.length, -1)
+          : String(value)
+        normalized = text.length > MAX_STRING_LENGTH ? `${text.slice(0, MAX_STRING_LENGTH)}…` : text
+      } catch {
+        normalized = String(value).slice(0, MAX_STRING_LENGTH)
+      }
+    }
+    if (normalized !== undefined) attributes[key] = normalized
+  }
+  return attributes
 }
 
 export function serializeLogEntry(entry: LogEntry): string {
@@ -330,15 +354,23 @@ function emit<Bound extends object, Data extends object>(
     }
   }
 
-  const entry: LogEntry = { ts: new Date().toISOString(), level, tag, file, msg }
-  if (merged) Object.assign(entry, merged)
-  pushEntry(entry)
-  emitOtelLog(level, msg, { tag, file, ...merged })
-  if (level === 'info' && logEventSink) {
-    try {
-      logEventSink(msg)
-    } catch {}
+  const now = new Date()
+  const activeSpan = trace.getActiveSpan()
+  const spanContext = activeSpan?.spanContext()
+  const entry: LogEntry = { ts: now.toISOString(), level, tag, file, msg }
+  if (spanContext) {
+    entry.traceId = spanContext.traceId
+    entry.spanId = spanContext.spanId
   }
+  if (merged) Object.assign(entry, merged)
+  activeSpan?.addEvent(msg, {
+    ...spanEventAttributes(merged),
+    [LOG_EVENT_ATTRS.marker]: true,
+    [LOG_EVENT_ATTRS.level]: level,
+    [LOG_EVENT_ATTRS.tag]: tag,
+    [LOG_EVENT_ATTRS.file]: file,
+  }, now)
+  pushEntry(entry)
 }
 
 // ─── Public API ───
@@ -358,16 +390,6 @@ function makeLogger<Bound extends object = never>(tag: string, file: string, bou
     info: (msg, data?) => emit('info', tag, file, bound, msg, data),
     warn: (msg, data?) => emit('warn', tag, file, bound, msg, data),
     error: (msg, data?) => emit('error', tag, file, bound, msg, data),
-    metric<Data extends object>(label: string, durationMs: number, data?: Data) {
-      const payload = bound ? { durationMs, ...bound, ...data } : { durationMs, ...data }
-      if (isDevRuntime()) {
-        const t = new Date().toISOString().slice(11, 23)
-        const prefix = `${DIM}${t}${RESET} ${METRIC_COLOR}METRIC${RESET} ${DIM}[${tag}]${RESET} ${DIM}(${file})${RESET}`
-        consoleGuard('info').write(() => console.log(`${prefix} ${label}\n${formatDevData(payload)}`))
-      }
-      pushEntry({ ts: new Date().toISOString(), level: 'metric', tag, file, label, ...payload })
-      recordOtelDuration(label, durationMs, { tag, ...bound, ...data })
-    },
     child: (extra) => makeLogger(tag, file, { ...bound, ...extra }),
   }
 }

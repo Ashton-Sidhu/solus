@@ -18,7 +18,7 @@
   let { params, paneId }: RouteSurfaceProps<"work"> = $props();
 
   const session = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
 
   const work = $derived(session.worksStore.get(params.workId));
   const sess = $derived(session.sessionFor(session.activeTabId));

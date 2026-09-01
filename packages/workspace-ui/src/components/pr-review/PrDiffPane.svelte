@@ -24,7 +24,7 @@
   let { params, paneId }: RouteSurfaceProps<"prDiff"> = $props();
 
   const session = getWorkspaceContext();
-  const pane = paneActions(paneId);
+  const pane = paneActions(() => paneId);
 
   // Never created here: this pane exists only alongside a review that already
   // opened, and state it invented would have no worktree to read. The review's
@@ -41,7 +41,7 @@
   const pr = $derived<PrReviewTarget | null>(review?.pr ?? null);
   const checkout = $derived(review?.checkout ?? null);
 
-  const reviewTabId = `pr-diff-${params.number}`;
+  const reviewTabId = $derived(`pr-diff-${params.number}`);
 
   let diffPanelRef: DiffPanel | null = $state(null);
 

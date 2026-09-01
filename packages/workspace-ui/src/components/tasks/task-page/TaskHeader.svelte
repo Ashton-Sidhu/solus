@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Snippet } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import type { AgentId } from "@solus/contracts/types";
   import type { Task } from "@solus/contracts/task-types";
   import { getAgentContext, getWorkspaceContext } from "../../../contexts";
@@ -35,11 +35,11 @@
   const bars = $derived(priorityBars(task.priority));
   const openedAt = $derived(task.createdAt ? relativeTime(task.createdAt) : "");
 
-  let titleDraft = $state(task.title);
-  let bodyDraft = $state(task.body);
+  let titleDraft = $state(untrack(() => task.title));
+  let bodyDraft = $state(untrack(() => task.body));
   // Re-seed when the route swaps to another task: the same component instance
   // is reused, so drafts must follow the id rather than the mount.
-  let seededId = task.id;
+  let seededId = untrack(() => task.id);
   $effect(() => {
     if (task.id === seededId) return;
     seededId = task.id;

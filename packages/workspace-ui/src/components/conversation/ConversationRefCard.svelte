@@ -293,29 +293,6 @@
     outline-offset: 0.125rem;
   }
 
-  .conversation-ref-card__body {
-    position: relative;
-    padding: 0.875rem 1rem 0;
-    border-top: 0.0625rem solid var(--solus-tx-rule);
-    font-size: var(--text-transcript-card);
-    line-height: 1.6;
-    color: var(--muted-foreground);
-    text-wrap: pretty;
-  }
-
-  .conversation-ref-card__body.is-bleed {
-    padding: 0;
-  }
-
-  .conversation-ref-card__fade {
-    height: 1.875rem;
-    background: linear-gradient(
-      to bottom,
-      transparent,
-      var(--solus-tx-card-bg)
-    );
-  }
-
   .conversation-ref-card__rail {
     padding: 0.5rem 0.625rem;
     border-top: 0.0625rem solid var(--solus-tx-rule);

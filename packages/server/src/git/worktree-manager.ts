@@ -5,6 +5,10 @@ import { isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitDis
 import { createLogger } from '../logger'
 import { dispatchStep } from '../observability/session-emitter'
 import { git, runAsync } from './exec'
+// `git-helpers` imports this module back for the branch and default-branch
+// helpers. Both sides only reach across inside function bodies, so the cycle
+// resolves at call time.
+import { resolveRepoRef } from './git-helpers'
 import { worktreeBranchName } from './worktree-branch-name'
 import { worktreePathFor } from './worktree-path'
 
@@ -441,13 +445,9 @@ const existingPrCache = new Map<string, { at: number; url: Promise<string | null
  */
 async function queryExistingPR(branch: string, cwd: string): Promise<string | null> {
   try {
-    // Imported here rather than at the top: `git-helpers` imports this module
-    // for the branch and default-branch helpers, so naming it up there would
-    // close a cycle between the two.
-    const [{ resolveRepoRef }, { providerForRepo }] = await Promise.all([
-      import('./git-helpers'),
-      import('../providers/registry'),
-    ])
+    // The provider registry stays lazy: it pulls in every code-host client and
+    // only a branch that already has a pull request needs one.
+    const { providerForRepo } = await import('../providers/registry')
     const repo = await resolveRepoRef(cwd)
     const provider = repo ? providerForRepo(repo) : null
     if (!repo || !provider) return null
