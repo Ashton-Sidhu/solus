@@ -178,3 +178,29 @@ describe('the pull request title', () => {
     }
   })
 })
+
+describe('the partial-load banner', () => {
+  test('uses the shared chrome rung so it scales down on a laptop display', () => {
+    // WHY: a fixed `text-sm` left the banner and Retry button at desktop size
+    // while the pull request surface around them stepped down on laptops.
+    const activityFeed = source('ActivityFeed.svelte')
+    const banner = activityFeed.slice(
+      activityFeed.indexOf('{#if anyLoadFailed}'),
+      activityFeed.indexOf('{#if masthead}'),
+    )
+    expect(banner.match(/text-workspace-chrome/g)).toHaveLength(2)
+    expect(banner).not.toContain('text-sm')
+  })
+})
+
+describe('the split pull request list', () => {
+  test('gives up its page breadcrumb while the detail panel is open', () => {
+    // WHY: the split column is navigation for the review beside it, not a
+    // second page. Keeping the page crumb spent laptop height on stale chrome.
+    const page = readFileSync(
+      join(UI_ROOT, 'components/prs/PrsPage.svelte'),
+      'utf8',
+    )
+    expect(page).toContain('hideHeader={splitList}')
+  })
+})

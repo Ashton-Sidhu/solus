@@ -5,8 +5,7 @@ const UI = new URL('../../packages/workspace-ui/src/', import.meta.url).pathname
 
 const overlays = [
   'components/pickers/DirectoryPicker.svelte',
-  'components/session/SessionPicker.svelte',
-  'components/session/TaskPicker.svelte',
+  'components/session/unified-picker/UnifiedPicker.svelte',
   'components/project-panel/commit-composer/CommitComposer.svelte',
   'components/project-panel/publish-repository/PublishRepositoryDialog.svelte',
 ]

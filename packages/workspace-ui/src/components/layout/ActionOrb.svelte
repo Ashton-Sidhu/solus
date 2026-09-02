@@ -448,7 +448,7 @@
         session.serverIdFor(tabId),
         session.ctxFor(tabId),
         identity,
-        { ...resolveReviewAgent(theme, agentContext), scope: "session" },
+        { ...resolveReviewAgent(theme), scope: "session" },
       );
     } catch (error) {
       toasts.error("Couldn't start review", {

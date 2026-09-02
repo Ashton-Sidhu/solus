@@ -83,6 +83,9 @@ export type ReviewTarget =
 export interface ReviewGuideReference {
   target: ReviewTarget
   key: string
+  agent: AgentId
+  model: string | null
+  reasoningEffort: ReasoningEffort | null
   changeFingerprint?: string
 }
 
@@ -90,6 +93,10 @@ export interface ReviewGuideRequestOptions {
   agent?: AgentId
   model?: string | null
   reasoningEffort?: ReasoningEffort | null
+  /** Instructions supplied with this review request, such as skill input. */
+  instructions?: string
+  /** Report this background guide as the requesting session's active turn. */
+  reportSessionLifecycle?: boolean
   target?: ReviewTarget
   /** Compatibility fields for callers that have not moved to `target` yet. */
   scope?: 'branch' | 'session'
@@ -105,8 +112,7 @@ export interface ReviewCommand {
   mode: ReviewCommandMode
   argument?: string
   /** Prompt text the client appended below the command line — the bound task
-   *  and bound work packets. Carried through the rewrite so the binding is not
-   *  lost when the command is routed to the skill. */
+   *  and bound work packets, or explicit multiline review instructions. */
   context?: string
 }
 
@@ -133,13 +139,6 @@ export function parseReviewCommand(input: string): ReviewCommand | null {
   if (argument) command.argument = argument
   if (context) command.context = context
   return command
-}
-
-/** The command line in canonical form, with the implicit modes resolved. Mirrors
- *  the target mapping the review skill reads, so the skill never has to infer a
- *  mode from what the user happened to type. */
-export function formatReviewCommand(command: ReviewCommand): string {
-  return command.argument ? `/review:${command.mode} ${command.argument}` : `/review:${command.mode}`
 }
 
 /** Stable storage key for the latest guide for one review target. Branch

@@ -1,9 +1,16 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { hostname } from 'os'
 import { z } from 'zod'
-import type { Server as HttpServer } from 'http'
+import { createServer as createNodeHttpServer, type IncomingMessage, type Server as HttpServer } from 'http'
 import { SolusServer } from './server'
 import { buildHttpServer } from './http'
+import { HostGrantVerifier } from './host-grants'
+import { CloudflaredConnector, resolveCloudflaredBinary } from './uplink/connector'
+import { UplinkLinkManager } from './uplink/link'
+import type { UplinkLinkConfig } from '@solus/contracts/uplink'
+import { registerUplinkHandlers } from './handlers/uplink-handlers'
+import { hostOperatingSystem } from '../platform/host-operating-system'
 import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { isTrustedRequesterAddress } from './trusted-requesters'
@@ -110,6 +117,12 @@ export interface BootedServer {
 
 /** Fixed port for the Solus web UI. Override with the SOLUS_PORT env var. */
 export const WEB_UI_PORT = parseInt(process.env.SOLUS_PORT ?? '') || DEFAULT_SERVER_PORT
+/**
+ * Loopback port the tunnel connector forwards to (docs/plans/personal-uplink.md, H3).
+ * A second listener on the same routes, tagged so nothing arriving through it is ever
+ * a trusted requester. Override with SOLUS_TUNNEL_PORT.
+ */
+export const DEFAULT_TUNNEL_LISTENER_PORT = parseInt(process.env.SOLUS_TUNNEL_PORT ?? '') || 34118
 const SESSION_INDEX_POLL_MS = 60_000
 const SESSION_INDEX_POLL_JITTER_MS = 5_000
 const SESSION_INDEX_POLL_MAX_BACKOFF_MS = 5 * 60_000
@@ -395,7 +408,33 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     events.broadcast('session.statusChanged', event)
   })
 
-  const { server: http } = buildHttpServer({
+  // Personal Uplink: the tunnel listener, the link to the control plane, and the
+  // verifier for its grants. All three exist on every host; only a linked host uses them.
+  let tunnelPort = 0
+  const isTunnelRequest = (incoming: IncomingMessage): boolean =>
+    tunnelPort !== 0 && incoming.socket.localPort === tunnelPort
+  // One verifier per link: it follows the link record, and a host with no link
+  // treats every grant as a stranger's.
+  let grantVerifier: HostGrantVerifier | null = null
+  const followLink = (link: UplinkLinkConfig | null): void => {
+    grantVerifier = link ? new HostGrantVerifier({ link }) : null
+  }
+  let uplinkManager: UplinkLinkManager
+  const uplinkConnector = new CloudflaredConnector({
+    resolveBinary: resolveCloudflaredBinary,
+    onObservation: (observation) => uplinkManager.handleConnectorObservation(observation),
+  })
+  uplinkManager = new UplinkLinkManager({
+    installationId: getInstallationId,
+    hostLabel: () => getServerSettings().name ?? hostname() ?? 'Solus host',
+    os: hostOperatingSystem,
+    proxiedPort: () => tunnelPort,
+    connector: uplinkConnector,
+    onLinkChanged: followLink,
+  })
+  followLink(uplinkManager.currentLink())
+
+  const { server: http, requestListener } = buildHttpServer({
     host,
     port,
     staticDir: opts.staticDir,
@@ -403,6 +442,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     getPort: () => actualPort,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
+    isTunnelRequest,
+    verifyHostGrant: (grant) => grantVerifier
+      ? grantVerifier.verify(grant)
+      : Promise.resolve({ ok: false, reason: 'not-linked' }),
     transcribeAudio: opts.transcribeAudio,
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
@@ -411,6 +454,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     browserFrames,
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
+    isTunnelRequest,
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
       checksHandlers.handleClientConnected(clientId)
@@ -511,6 +555,41 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     log.warn('lock_acquisition_failed')
   }
 
+  // The proxied listener: same routes, loopback only, never trusted. `cloudflared`
+  // forwards the tunnel here, so every remote caller is loopback on the wire and the
+  // listener — not the address — is what tells the policy it came from outside.
+  const tunnelHttp = createNodeHttpServer(requestListener)
+  tunnelHttp.on('upgrade', (request, socket, head) => {
+    if (request.url?.startsWith('/ws')) ws.handleUpgrade(request, socket, head)
+    else socket.destroy()
+  })
+  // The port is part of the link: the tunnel's ingress points at it. No fallback to
+  // another port — a listener the tunnel cannot reach would only make the status lie.
+  // A linked host whose port is taken reports that instead (`resume` checks it).
+  const tunnelListenerPort = uplinkManager.currentLink()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        tunnelHttp.off('listening', onListening)
+        reject(err)
+      }
+      const onListening = () => {
+        tunnelHttp.off('error', onError)
+        resolve()
+      }
+      tunnelHttp.once('error', onError)
+      tunnelHttp.once('listening', onListening)
+      tunnelHttp.listen(tunnelListenerPort, '127.0.0.1')
+    })
+    tunnelPort = tunnelListenerPort
+    log.info('tunnel_listener_bound', { port: tunnelPort })
+  } catch (err) {
+    log.error('tunnel_listener_failed', { port: tunnelListenerPort, error: err instanceof Error ? err.message : String(err) })
+  }
+  void uplinkManager.resume().catch((err) => {
+    log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
+  })
+
   const noLanDiscovery: LanDiscoveryService = {
     discoverServers: async () => [],
     close: async () => {},
@@ -550,6 +629,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       browserFrames,
       requireAuth: () => requireAuth,
       isTrustedRequester: isTrustedRequesterAddress,
+      isTunnelRequest,
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {
         checksHandlers.handleClientConnected(clientId)
@@ -587,6 +667,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       trustLocalNetwork: setTrustLocalNetwork(trustLocalNetwork).trustLocalNetwork,
     }),
   })
+  registerUplinkHandlers(server, { manager: uplinkManager })
 
   log.info('server_listening', { host, port: actualPort })
   console.log(`\n  Solus web UI → http://localhost:${actualPort}\n`)
@@ -609,9 +690,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null
         await lanDiscovery.close()
+        await uplinkConnector.stop()
         checksHandlers.handleTransportClosed()
         try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
+        await new Promise<void>((resolve) => tunnelHttp.close(() => resolve()))
         lock?.release()
       })()
       return shutdownPromise

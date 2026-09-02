@@ -55,6 +55,8 @@ jobs:
           SOLUS_GOOGLE_CLIENT_ID: ${{ secrets.SOLUS_GOOGLE_CLIENT_ID }}
           SOLUS_GOOGLE_CLIENT_SECRET: ${{ secrets.SOLUS_GOOGLE_CLIENT_SECRET }}
           SOLUS_GITHUB_CLIENT_ID: ${{ secrets.SOLUS_GITHUB_CLIENT_ID }}
+          SOLUS_ATLASSIAN_CLIENT_ID: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_ID }}
+          SOLUS_ATLASSIAN_CLIENT_SECRET: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_SECRET }}
         run: bun scripts/package-server.ts --platform ${{ matrix.platform }} --arch ${{ matrix.arch }}
 
       - name: Upload packaged server

@@ -181,46 +181,6 @@ describe('SessionEventReducer card stream boundaries', () => {
     expect(session.currentActivity).toBe('Thinking...')
   })
 
-  test('replaces a session review skeleton with one durable card after authoring', async () => {
-    const { reducer, session } = await createReducer([])
-    session.run.gitContext = { repoRoot: '/repo', branch: 'main', targetBranch: 'main' }
-
-    reducer.apply('session-1', {
-      type: 'tool_call',
-      toolName: 'request_review_guide',
-      toolId: 'review-1',
-      toolInput: '',
-    })
-
-    reducer.apply('session-1', {
-      type: 'tool_call_update',
-      toolId: 'review-1',
-      toolInput: '{"target":{"kind":"session"}}',
-    })
-
-    // WHY: the running tool row owns the skeleton. The reducer must not create
-    // a second transcript message until it has a durable result to anchor.
-    expect(session.messages).toHaveLength(1)
-    expect(session.messages[0]).toMatchObject({
-      role: 'tool',
-      toolId: 'review-1',
-      toolStatus: 'running',
-    })
-    reducer.apply('session-1', {
-      type: 'tool_call_complete',
-      toolName: 'request_review_guide',
-      toolId: 'review-1',
-      toolInput: '{"target":{"kind":"session"}}',
-    })
-
-    expect(session.messages).toHaveLength(2)
-    expect(session.messages[0]?.toolStatus).toBe('completed')
-    expect(session.messages[1]?.reviewGuideRef).toEqual({
-      target: { kind: 'session' },
-      key: 'session-current',
-    })
-  })
-
   test('adds an interrupt divider immediately and deduplicates the provider confirmation', async () => {
     const { reducer, session } = await createReducer([
       {

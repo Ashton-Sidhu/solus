@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { createServer, type Server as HttpServer } from 'http'
-import { issueSessionToken, issueWsTicket, resetAuthStateForTests, revokeDevice, verifySessionToken } from '@solus/server/server/auth'
+import { issueGrantWsTicket, issueSessionToken, issueWsTicket, resetAuthStateForTests, revokeDevice, verifySessionToken } from '@solus/server/server/auth'
 import { io } from 'socket.io-client'
 import { SolusServer } from '@solus/server/server/server'
 import { ClientEventRegistry } from '@solus/server/events/client-event-registry'
@@ -19,9 +19,11 @@ interface Harness {
 }
 
 const cleanups: Array<() => void> = []
+const spentGrants = new Set<string>()
 
 afterEach(() => {
   for (const cleanup of cleanups.splice(0).reverse()) cleanup()
+  spentGrants.clear()
   resetAuthStateForTests()
 })
 
@@ -176,6 +178,47 @@ describe('Socket.IO transport', () => {
     expect(authFailures).toBe(1)
   })
 
+  test('an Uplink client mints one grant per dial, so a reconnect never replays a spent grant', async () => {
+    // WHY: the host consumes a grant's jti at the ticket exchange (docs/adr/0019 §1).
+    // A cached grant would 401 on every reconnect and block the host after two drops.
+    const harness = await createHarness(true)
+    const minted: string[] = []
+    let authFailures = 0
+    const client = createClient(harness.url, {
+      sessionToken: '',
+      acquireGrant: async () => {
+        const grant = `grant:${minted.length + 1}`
+        minted.push(grant)
+        return grant
+      },
+      onAuthFailed: () => { authFailures++ },
+    })
+
+    client.start()
+    await waitForStatus(client, 'connected')
+    expect(minted).toEqual(['grant:1'])
+
+    closeClientEngine(client, true)
+    await waitForStatus(client, 'reconnecting')
+    await waitForStatus(client, 'connected')
+    expect(minted).toEqual(['grant:1', 'grant:2'])
+    expect(authFailures).toBe(0)
+  })
+
+  test('a grant-admitted socket ends when its grant expires', async () => {
+    // WHY: "its live one dies within ten minutes" — revocation is grant expiry plus
+    // a re-dial the revoked device cannot complete. Nothing else ends the socket.
+    const harness = await createHarness(true)
+    const ticket = issueGrantWsTicket({ userId: 'user_1', deviceId: 'session_1', expiresAt: Date.now() + 200 })
+    const socket = io(harness.url, { path: '/ws', transports: ['websocket'], reconnection: false, auth: { ticket } })
+    cleanups.push(() => socket.disconnect())
+    const reasons: string[] = []
+    socket.on('disconnect', (reason) => reasons.push(reason))
+    await waitFor(() => socket.connected)
+    await waitFor(() => reasons.length === 1)
+    expect(reasons).toEqual(['io server disconnect'])
+  })
+
   test('replays CSR events without reset and resets after a fresh Socket.IO session', async () => {
     const harness = await createHarness(false)
     const client = createClient(harness.url)
@@ -229,9 +272,12 @@ async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHo
   const http = createServer((request, response) => {
     if (request.method === 'POST' && request.url === '/auth/ws-ticket') {
       const authorization = request.headers.authorization
-      const ticket = authorization?.startsWith('Bearer ')
-        ? issueWsTicket(authorization.slice('Bearer '.length))
-        : null
+      const bearer = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : ''
+      // A stand-in for the grant path: `grant:<n>` is a "verified grant" whose jti is
+      // the grant itself, spent on first presentation the way the host spends a real one.
+      const ticket = bearer.startsWith('grant:')
+        ? (spentGrants.has(bearer) ? null : (spentGrants.add(bearer), issueGrantWsTicket({ userId: 'user_1', deviceId: 'session_1', expiresAt: Date.now() + 600_000 })))
+        : issueWsTicket(bearer)
       response.statusCode = ticket ? 200 : 401
       response.setHeader('content-type', 'application/json')
       response.end(JSON.stringify(ticket ? { ticket } : { error: 'unauthorized' }))

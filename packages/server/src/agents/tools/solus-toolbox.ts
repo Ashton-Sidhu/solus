@@ -77,7 +77,6 @@ import {
   browserTypeAgentTool,
   browserWaitForAgentTool,
 } from '../../browser/browser-tools'
-import { requestReviewGuideAgentTool } from '../../review/review-request-tool'
 import { readConfigAgentTool, updateConfigAgentTool } from '../../server/config-tools'
 
 export const solusToolbox = {
@@ -164,9 +163,6 @@ export const solusToolbox = {
     replyThread: replyPrThreadAgentTool,
     resolveThread: resolvePrThreadAgentTool,
     submitReview: submitPrReviewAgentTool,
-  },
-  review: {
-    request: requestReviewGuideAgentTool,
   },
   config: {
     read: readConfigAgentTool,

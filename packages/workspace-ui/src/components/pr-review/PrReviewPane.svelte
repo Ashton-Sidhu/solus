@@ -236,7 +236,7 @@
     getKey: () => effectiveGuideKey,
     getScope: () => "branch",
     getOwnDeltaBase: () => ownDeltaBase,
-    getAgent: () => resolveReviewAgent(settings, agentContext),
+    getAgent: () => resolveReviewAgent(settings),
   });
   const guideStatus = $derived(
     pullRequests.guides.statusFor(serverId, prCtx(), target.number),

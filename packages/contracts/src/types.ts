@@ -1664,6 +1664,8 @@ export interface SettingsCtx {
   reviewAgent: AgentId | null
   reviewModel: string | null
   reviewReasoning: ReasoningEffort | null
+  /** User instructions applied only when a review guide is authored. */
+  reviewGuideInstructions: string
   /** Experimental: infer pull request lineage and present stacked PRs. */
   stackedPrsEnabled: boolean
   /** Per-project opt-in resolved by the renderer before crossing IPC. */

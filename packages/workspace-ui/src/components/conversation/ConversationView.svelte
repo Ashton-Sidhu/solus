@@ -54,11 +54,6 @@
   import { describeBackgroundWait } from "./lib/activity-summary";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
-  import ReviewGuideSkeleton from "../review/ReviewGuideSkeleton.svelte";
-  import {
-    reviewGuideTargetLabel,
-    runningReviewGuideReference,
-  } from "../review/lib/review-guide-reference";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
@@ -129,11 +124,13 @@
     forceVisible = false,
     surfaceVisible = true,
     retainTranscriptRows = true,
+    bandAbove = true,
   }: {
     tabId: string;
     forceVisible?: boolean;
     surfaceVisible?: boolean;
     retainTranscriptRows?: boolean;
+    bandAbove?: boolean;
   } = $props();
 
   // The pool instance is on screen only while its tab is active; the split-pane
@@ -199,7 +196,14 @@
   // `AsidePaneShell` puts it in its chrome row. Only the leading one floats, so
   // only the pool instance reserves room under it — a pinned instance
   // (forceVisible) sits below a row that already took its own height.
-  const reservesBandRoom = $derived(isEditorMode && isVisible && !forceVisible);
+  // A shell that draws no band at all passes `bandAbove={false}`: the mobile web
+  // shell states project / task / state in its own opaque navbar instead, and
+  // reserving room for a band nobody painted left dead space above the first
+  // message. Only the shell knows, so it tells us rather than us guessing from a
+  // viewport width that is equally narrow in a desktop split.
+  const reservesBandRoom = $derived(
+    bandAbove && isEditorMode && isVisible && !forceVisible,
+  );
   // 46px of band plus the gap under it.
   const CRUMB_OFFSET = CONVERSATION_BREADCRUMB_OFFSET;
   let stripMenu = $state<{ tabId: string; x: number; y: number } | null>(null);
@@ -1019,11 +1023,6 @@
                   >
                     {#each turn.body as item, itemIdx (itemKey(item))}
                       {#if item.kind === "tool-group"}
-                        {@const runningReviewGuide = runningReviewGuideReference(
-                          item.messages,
-                          sess.run.gitContext?.branch,
-                          sess.agentSessionId,
-                        )}
                         <!-- §16 — the transcript keeps its order, but the row at
                            the tail of a working turn is where the run *is*: it
                            takes the spinner rather than letting a second row
@@ -1041,12 +1040,6 @@
                             ? describeBackgroundWait(turn.body)
                             : null}
                         />
-                        {#if runningReviewGuide && !turn.body.some((entry) => entry.kind === "review-guide")}
-                          <ReviewGuideSkeleton
-                            label={reviewGuideTargetLabel(runningReviewGuide.target)}
-                            {skipMotion}
-                          />
-                        {/if}
                       {:else}
                         {@render transcriptItem(item, skipMotion)}
                       {/if}

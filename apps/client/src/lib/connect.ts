@@ -23,12 +23,13 @@ export function classifyConnectInput(raw: string): ConnectInput {
 /**
  * A pairing QR encodes `http://host:port/pair#token=…`. Opening it in a browser
  * lands on the server's own SPA at `/pair`, so the token in the fragment is the
- * whole handshake — scan, open, paired.
+ * whole handshake — scan, open, paired. `base` is where the client is mounted:
+ * `/` on a host, `/app/` on the account origin.
  */
-export function pairTokenFromLocation(href: string): string | null {
+export function pairTokenFromLocation(href: string, base = '/'): string | null {
   try {
     const url = new URL(href)
-    if (url.pathname !== '/pair') return null
+    if (url.pathname !== `${base}pair`) return null
     return new URLSearchParams(url.hash.replace(/^#/, '')).get('token')
   } catch {
     return null

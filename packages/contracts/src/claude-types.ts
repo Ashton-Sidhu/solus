@@ -98,8 +98,9 @@ export interface UserEvent {
   uuid: string
   /** Present on a tool_result the SDK synthesizes. An async sub-agent launch
    *  reports `status:'async_launched'` here the instant it starts — the block's
-   *  text is launch metadata, not the agent's answer. */
-  tool_use_result?: { isAsync?: boolean; status?: string; agentId?: string }
+   *  text is launch metadata, not the agent's answer. A TaskStop result names the
+   *  task it killed in `task_id`; that stop is the task's only terminal signal. */
+  tool_use_result?: { isAsync?: boolean; status?: string; agentId?: string; task_id?: string }
 }
 
 export type UserContentBlock =

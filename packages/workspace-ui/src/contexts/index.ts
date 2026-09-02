@@ -73,6 +73,9 @@ export {
   hostStatusDotClass,
   hostStatusLabel,
 } from './connections/host-affinity'
+/** Personal Uplink: a host's link to the owner's Solus cloud account, and how hosts are reached. */
+export { uplinkStore } from './connections/uplink.store.svelte'
+export { routeBadges, uplinkStatusDescription } from './connections/host-routes'
 
 /** Cloudflare deployment profile: status, connect/disconnect, connect requests. */
 export {

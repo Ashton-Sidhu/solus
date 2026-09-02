@@ -4,7 +4,6 @@ import {
   githubComparedHeadSha,
   githubFilesToUnifiedPatch,
 } from '@solus/server/providers/github/provider'
-import type { GitHubAuth } from '@solus/server/providers/github/auth'
 import type { GitHubClient } from '@solus/server/providers/github/octokit'
 import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 
@@ -80,8 +79,42 @@ const detail = {
   number: 7,
   baseSha: 'base-sha',
   headSha: 'head-sha',
+  headRef: 'deleted-after-merge',
   headRepo: { owner: 'acme', repo: 'app', isFork: false },
 } as PullRequest
+
+class DiffBaseGitHubProvider extends GitHubProvider {
+  comparedBasehead = ''
+
+  protected override async clients(): Promise<GitHubClient[]> {
+    return [{
+      rest: {
+        repos: {
+          compareCommitsWithBasehead: async (params: { basehead: string }) => {
+            this.comparedBasehead = params.basehead
+            return {
+              data: {
+                merge_base_commit: { sha: 'merge-base-sha' },
+                commits: [{ sha: 'head-sha' }],
+              },
+            }
+          },
+        },
+      },
+    } as unknown as GitHubClient]
+  }
+}
+
+describe('GitHub pull request diff base', () => {
+  test('compares through the durable pull ref when the source branch is gone', async () => {
+    // WHY: GitHub keeps refs/pull/<number>/head after a merged branch is deleted.
+    // Comparing owner:branch instead makes old pull requests fail with HTTP 404.
+    const provider = new DiffBaseGitHubProvider()
+
+    expect(await provider.getPullRequestDiffBase(repo, detail)).toBe('merge-base-sha')
+    expect(provider.comparedBasehead).toBe('base-sha...refs/pull/7/head')
+  })
+})
 
 interface RecordedContentRead {
   owner: string
@@ -89,7 +122,7 @@ interface RecordedContentRead {
   ref: string
 }
 
-/** The provider with its network seams replaced: `client()` yields a scripted
+/** The provider with its network seams replaced: `clients()` yields a scripted
  *  REST surface, and the PR lookups return fixed revisions. */
 class ScriptedGitHubProvider extends GitHubProvider {
   listFilesCalls = 0
@@ -97,10 +130,10 @@ class ScriptedGitHubProvider extends GitHubProvider {
   contentReads: RecordedContentRead[] = []
 
   constructor(private readonly commitFilesLink?: string) {
-    super({} as GitHubAuth)
+    super()
   }
 
-  protected override client(): Promise<GitHubClient> {
+  protected override async clients(): Promise<GitHubClient[]> {
     const rest = {
       pulls: {
         listFiles: async () => {
@@ -133,7 +166,7 @@ class ScriptedGitHubProvider extends GitHubProvider {
         getCommit: async () => ({ data: { parents: [{ sha: 'parent-sha' }] } }),
       },
     }
-    return Promise.resolve({ rest } as unknown as GitHubClient)
+    return [{ rest } as unknown as GitHubClient]
   }
 
   override async getPullRequest(): Promise<PullRequest> {

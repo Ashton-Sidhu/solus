@@ -9,8 +9,7 @@ import { runAsync } from '../git/exec'
 import { createGitAskpassHelper, gitAuthEnv } from '../git/git-auth-env'
 import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
-import { ghAuthToken } from '../providers/github/gh-cli'
-import { loadToken } from '../providers/github/token-store'
+import { githubCredentialChain } from '../providers/github/credentials'
 
 const log = createLogger('review', 'managed-pr-checkout.ts')
 
@@ -32,14 +31,6 @@ export function managedPrCheckoutPath(
 
 function githubCloneUrl(repo: RepoRef): string {
   return `https://${repo.host}/${repo.owner}/${repo.repo}.git`
-}
-
-function storedGithubToken(): string | null {
-  try {
-    return loadToken()?.accessToken ?? null
-  } catch {
-    return null
-  }
 }
 
 async function reusableCheckout(
@@ -107,9 +98,7 @@ export async function ensureManagedPrCheckout(
 
   const cloneUrl = options.cloneUrl ?? githubCloneUrl(repo)
   const isHttps = cloneUrl.startsWith('https://')
-  const token = isHttps
-    ? storedGithubToken() ?? await ghAuthToken(repo.host).catch(() => null)
-    : null
+  const token = isHttps ? (await githubCredentialChain(repo.host))[0]?.token ?? null : null
   const askpass = token ? await createGitAskpassHelper() : null
   const env = gitAuthEnv({ isHttps, token, askpassPath: askpass?.path ?? null })
   try {

@@ -24,7 +24,13 @@
 </script>
 
 {#if os === "macos"}
-  <AppleLogoIcon {size} class={className} aria-label={ariaLabel} />
+  <AppleLogoIcon
+    {size}
+    fill="currentColor"
+    strokeWidth={0}
+    class={className}
+    aria-label={ariaLabel}
+  />
 {:else if os === "windows"}
   <WindowsLogoIcon {size} class={className} aria-label={ariaLabel} />
 {:else if os === "linux"}

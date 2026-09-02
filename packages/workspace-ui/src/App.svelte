@@ -442,15 +442,11 @@
   // toggling. Switching modes surfaces the other OS window via switchMode.
   const viewMode = $derived(windowCtx.viewMode);
   const isEditorMode = $derived(viewMode === "editor");
-  let documentVisible = $state(document.visibilityState !== "hidden");
-  $effect(() => {
-    const update = () =>
-      (documentVisible = document.visibilityState !== "hidden");
-    document.addEventListener("visibilitychange", update);
-    return () => document.removeEventListener("visibilitychange", update);
-  });
-  const editorSurfaceActive = $derived(isEditorMode && documentVisible);
-  const pillSurfaceActive = $derived(!isEditorMode && documentVisible);
+  // Native hide/show leaves the mounted surface active. Electron preserves the
+  // DOM exactly, so summoning the same window causes no renderer state change.
+  // `active` only selects which mounted layout is on screen in the web client.
+  const editorSurfaceActive = $derived(isEditorMode);
+  const pillSurfaceActive = $derived(!isEditorMode);
   type PillLayoutModule =
     typeof import("./components/layout/PillLayout.svelte");
   const initialViewMode = untrack(() => windowCtx.viewMode);
@@ -1191,9 +1187,11 @@
   useKeybinding("global.session-picker-j", () =>
     window.dispatchEvent(new CustomEvent("solus:toggle-session-picker")),
   );
+  // Tasks and sessions are one list now, so the task shortcut and the session
+  // shortcut open the same surface. Both are kept: the muscle memory for either
+  // one lands somewhere correct.
   useKeybinding("global.task-picker", () => {
-    session.sessionPickerOpen = false;
-    session.taskPickerOpen = !session.taskPickerOpen;
+    session.unifiedPickerOpen = !session.unifiedPickerOpen;
   });
   useKeybinding("global.toggle-expanded", () => session.toggleExpanded(), {
     enabled: () => viewMode === "pill",

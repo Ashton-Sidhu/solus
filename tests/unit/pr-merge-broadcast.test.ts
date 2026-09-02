@@ -1,4 +1,5 @@
 import { describe, expect, mock, test } from 'bun:test'
+import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import { Database } from 'bun:sqlite'
 import type { PullRequest as PullRequestFacts } from '@solus/contracts/providers'
 import type { IpcContext } from '@solus/contracts/types'
@@ -80,7 +81,7 @@ describe('merging a pull request', () => {
     mergeAnswer = { merged: true }
     const { server, broadcasts } = serverWithEvents()
 
-    await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA])
+    await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
 
     expect(broadcasts).toEqual([
       { type: 'pr.lifecycleChanged', payload: { projectRoot: '/repo', detail: mergedFacts } },
@@ -92,7 +93,7 @@ describe('merging a pull request', () => {
     mergeAnswer = { merged: false }
     const { server, broadcasts } = serverWithEvents()
 
-    await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA])
+    await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
 
     expect(broadcasts).toEqual([])
   })

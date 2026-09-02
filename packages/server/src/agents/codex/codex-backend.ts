@@ -33,7 +33,6 @@ import type {
 } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { MODEL_PROFILES } from '@solus/contracts/types'
-import { reviewSkillPrompt } from '../review-command'
 import { MemoryCache } from '@solus/contracts/cache'
 import {
   cacheIndexedSessions,
@@ -382,7 +381,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
 
       const isPlanMode = request.permissionMode === 'plan' && !request.unattended
-      const input = await this.buildTurnInput(reviewSkillPrompt(request.prompt, 'codex'), request.cwd, request.imageAttachments)
+      const input = await this.buildTurnInput(request.prompt, request.cwd, request.imageAttachments)
       const turnParams: CodexTurnStartParams = {
         threadId,
         input,

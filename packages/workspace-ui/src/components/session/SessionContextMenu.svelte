@@ -48,6 +48,9 @@
     onCloseTab?: (tabId: string) => void;
     closeTabLabel?: string;
     closeTabIsDestructive?: boolean;
+    /** Where the menu portals to. Overlay callers must keep the menu in their
+     *  own layer so it paints above the surface that opened it. */
+    portalTarget?: HTMLElement | null;
     onClose: () => void;
   }
 
@@ -64,6 +67,7 @@
     onCloseTab,
     closeTabLabel = "Close Tab",
     closeTabIsDestructive = true,
+    portalTarget,
     onClose,
   }: Props = $props();
 
@@ -191,7 +195,10 @@
   }}
 >
   <ContextMenu.PointTrigger {x} {y} />
-  <ContextMenu.Content class="min-w-44">
+  <ContextMenu.Content
+    class="min-w-44"
+    portalProps={portalTarget ? { to: portalTarget } : undefined}
+  >
     {#if copyableSessionId}
       <ContextMenu.Item onSelect={copySessionId}>
         <CopyIcon />

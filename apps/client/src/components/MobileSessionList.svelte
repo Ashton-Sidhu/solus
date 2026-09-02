@@ -355,8 +355,7 @@
         type="button"
         class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-(--wash-3) text-(--muted-foreground) transition-transform duration-[120ms] active:scale-[0.96] [-webkit-tap-highlight-color:transparent]"
         onclick={() => {
-          session.sessionPickerOpen = false;
-          session.taskPickerOpen = true;
+          session.unifiedPickerOpen = true;
           onSessionSelect();
         }}
         aria-label="Open a task from the board"

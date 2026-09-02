@@ -1,7 +1,6 @@
 import { readFile, stat } from 'fs/promises'
 import { z } from 'zod'
-import { buildClient } from './octokit'
-import { GitHubAuth } from './auth'
+import type { GitHubClient } from './octokit'
 import { storedAssetPath } from '../../server/asset-paths'
 import { createLogger } from '../../logger'
 
@@ -76,13 +75,12 @@ const targetCache = new Map<string, GithubUploadTarget>()
  * needs and validates. `permissions` is present because the request is
  * authenticated as a user.
  */
-export async function resolveUploadTarget(owner: string, repo: string): Promise<GithubUploadTarget> {
+export async function resolveUploadTarget(client: GitHubClient, owner: string, repo: string): Promise<GithubUploadTarget> {
   const key = `${owner}/${repo}`
   const cached = targetCache.get(key)
   if (cached) return cached
 
-  const { rest } = await buildClient(new GitHubAuth())
-  const { data } = await rest.repos.get({ owner, repo })
+  const { data } = await client.rest.repos.get({ owner, repo })
   const permissions = data.permissions
   const permission = permissions?.admin
     ? 'admin'
@@ -136,9 +134,11 @@ function assetTypeFor(assetId: string): UploadableAssetType {
  *
  * This is a hand-built request rather than an Octokit call for the same reason
  * the GitHub CLI builds it by hand: the endpoint requires `Content-Type` and
- * `Content-Length` per request, and the REST client sets neither.
+ * `Content-Length` per request, and the REST client sets neither. It is signed
+ * with the credential of `client`, the one that just resolved the target.
  */
 export async function uploadGithubAsset(
+  client: GitHubClient,
   target: GithubUploadTarget,
   assetId: string,
   options: { assetsDir?: string } = {},
@@ -148,7 +148,7 @@ export async function uploadGithubAsset(
   const size = (await stat(path)).size
   assertCanUpload(target, assetType, size)
 
-  const token = await new GitHubAuth().getAccessToken()
+  const token = client.credential.token
   const url = new URL('/user-attachments/assets', UPLOAD_ORIGIN)
   // The asset id is used as the name because its extension always agrees with
   // the content type. A user-facing label does not, and a disagreement is a 422.

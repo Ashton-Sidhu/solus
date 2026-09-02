@@ -4,10 +4,13 @@ import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } f
 import { createSolusConnection, savedServerTarget } from '@solus/client-core/server-connection'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
-import { clearActiveServerId, getActiveServerId, loadServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
+import { clearActiveServerId, getActiveServerId, loadServers, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
 import { defaultDeviceLabel, pairServer } from '@solus/client-core/pairing'
+import { adoptCloudOriginIfPresent, uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import HostlessHome from './routes/HostlessHome.svelte'
 import { pairTokenFromLocation, probeServer } from './lib/connect'
+import { cloudOrigin } from './lib/cloud-origin.svelte'
 import { webState } from './lib/web-state.svelte'
 import { webPushState } from './lib/web-push.svelte'
 import { toasts } from '@solus/workspace-ui/lib/toasts'
@@ -18,6 +21,9 @@ import { isStaleBuildError, reportStaleBuild } from './lib/stale-build'
 import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
 import { createNoHostSolusApi } from '@solus/client-core/no-host-api'
 import { z } from 'zod'
+
+/** Where this bundle is mounted: `/` when a host serves it, `/app/` on the account origin. */
+const BASE = import.meta.env.BASE_URL
 
 const serviceWorkerMessageSchema = z.object({
   type: z.string().optional(),
@@ -218,7 +224,7 @@ installWindowSolusApi(createNoHostSolusApi())
  * against our own origin and drop straight into the workspace, no forms.
  */
 async function pairFromLocation(pairToken: string): Promise<void> {
-  history.replaceState({}, '', '/')
+  history.replaceState({}, '', BASE)
   try {
     void loadWorkspaceApp().catch(() => {})
     const { server } = await pairServer({
@@ -263,9 +269,30 @@ async function servingOriginEntry(): Promise<SavedServer | null> {
  * candidate whose credential is rejected before mount simply yields to the
  * next — never a reload, never a forced picker.
  */
+/**
+ * Served from the account origin (decision U8), the cookie is the way into the
+ * owner's host directory: fold it into the saved hosts before the catalog boot so
+ * a phone that never paired anything still finds the linked Mac.
+ */
+async function adoptCloudDirectory(): Promise<void> {
+  // Only the account origin mounts this bundle under a sub-path; a host serves it at
+  // `/`, and asking a host for `/v1/hosts` would just cost a round trip through its
+  // SPA fallback before the first dial.
+  if (BASE === '/') {
+    cloudOrigin.kind = 'not-cloud'
+    return
+  }
+  cloudOrigin.kind = await adoptCloudOriginIfPresent(location.origin)
+  if (cloudOrigin.kind !== 'signed-in') return
+  const directory = await uplinkAccountSource()?.listDirectory()
+  if (!directory) return
+  saveServers(mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now()))
+}
+
 async function bootFromCatalog(): Promise<void> {
   // The workspace loads on any success — overlap the import with the probe.
   void loadWorkspaceApp().catch(() => {})
+  await adoptCloudDirectory()
   const servers = loadServers()
   const origin = await servingOriginEntry()
   const activeServer = resolveActiveSavedServer(servers)
@@ -296,7 +323,7 @@ async function bootFromCatalog(): Promise<void> {
   tryCandidate(0)
 }
 
-const bootPairToken = pairTokenFromLocation(location.href)
+const bootPairToken = pairTokenFromLocation(location.href, BASE)
 
 if (bootPairToken) {
   void pairFromLocation(bootPairToken)

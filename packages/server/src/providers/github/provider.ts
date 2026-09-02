@@ -1,5 +1,6 @@
 import { GitHubAuth } from './auth'
-import { buildClient, type GitHubClient } from './octokit'
+import { clientFor, GitHubReauthRequiredError, type GitHubClient } from './octokit'
+import { githubCredentialChain } from './credentials'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
 import type {
@@ -31,8 +32,6 @@ import {
   type GqlChecksResponse,
 } from './checks'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
-import { withAdapterCliFallback } from '../adapter-cli-fallback'
-import { ghGetPullRequest, ghGetPullRequestDiffBase, ghListChecks, ghListPullRequestsPage } from './gh-cli'
 import {
   githubPullRequestAccessFor,
   listGithubReviewerCandidates,
@@ -593,6 +592,36 @@ function toThread(t: GqlThread): ReviewThread {
   }
 }
 
+/** The REST client targets api.github.com whatever `RepoRef.host` a caller
+ *  passes, so the viewer identity is always the github.com one. */
+const GITHUB_HOST = 'github.com'
+
+/** Login of the account a client is signed in as, read once per client. */
+const viewerLoginByClient = new WeakMap<GitHubClient, Promise<string>>()
+
+function viewerLogin(client: GitHubClient): Promise<string> {
+  let login = viewerLoginByClient.get(client)
+  if (!login) {
+    login = client.rest.users.getAuthenticated()
+      .then(({ data }) => data.login)
+      .catch((error) => {
+        viewerLoginByClient.delete(client)
+        throw error
+      })
+    viewerLoginByClient.set(client, login)
+  }
+  return login
+}
+
+/**
+ * Access for one row. `githubPullRequestAccessFor` memoises the repository
+ * settings per client, so a whole page costs one `repos.get` and one viewer
+ * read no matter how many distinct authors it holds.
+ */
+async function accessFor(client: GitHubClient, repo: RepoRef, author: string): Promise<PullRequestAccess> {
+  return githubPullRequestAccessFor(client, repo, await viewerLogin(client), author)
+}
+
 /**
  * Typed GitHub operations for PR review mode over REST + GraphQL. The consuming
  * layer imports `ReviewProvider`/DTOs only — never `@octokit/*`. Reads, threads,
@@ -600,38 +629,47 @@ function toThread(t: GqlThread): ReviewThread {
  */
 export class GitHubProvider implements ReviewProvider {
   private diffBaseCache = new Map<string, Promise<string>>()
-  private viewerCache: { token: string; login: Promise<string> } | null = null
 
-  constructor(private readonly auth: GitHubAuth) {}
-
-  /** Lazily build an authenticated client (REST + GraphQL). */
-  protected client(): Promise<GitHubClient> {
-    return buildClient(this.auth)
-  }
-
-  async getViewer(): Promise<string> {
-    const token = await this.auth.getAccessToken()
-    if (this.viewerCache?.token === token) return this.viewerCache.login
-
-    const login: Promise<string> = this.client()
-      .then(({ rest }) => rest.users.getAuthenticated())
-      .then(({ data }) => data.login)
-      .catch((err) => {
-        if (this.viewerCache?.login === login) this.viewerCache = null
-        throw err
-      })
-    this.viewerCache = { token, login }
-    return login
+  /**
+   * The clients to try for `host`, one per credential in chain order. This is
+   * the provider's one seam: tests script GitHub's answers by replacing it.
+   */
+  protected async clients(host: string): Promise<GitHubClient[]> {
+    return (await githubCredentialChain(host)).map(clientFor)
   }
 
   /**
-   * Access for one row. `githubPullRequestAccessFor` memoises the repository
-   * settings per client, so a whole page costs one `repos.get` no matter how
-   * many distinct authors it holds.
+   * Run one operation — read or write — with the first credential GitHub
+   * accepts.
+   *
+   * Only a rejected credential, a 401 surfaced as `GitHubReauthRequiredError`,
+   * moves on to the next client. Every other failure returns at once: a
+   * missing pull request, a stale head, or a validation error is the answer,
+   * and asking again with another credential would only delay it and blur its
+   * message.
    */
-  private async accessFor(repo: RepoRef, author: string): Promise<PullRequestAccess> {
-    const client = await this.client()
-    return githubPullRequestAccessFor(client, repo, await this.getViewer(), author)
+  private async withClient<Result>(
+    operation: string,
+    host: string,
+    run: (client: GitHubClient) => Promise<Result>,
+  ): Promise<Result> {
+    const clients = await this.clients(host)
+    if (clients.length === 0) throw new Error('GitHub is not connected')
+    let rejected: GitHubReauthRequiredError | null = null
+    for (const client of clients) {
+      try {
+        return await run(client)
+      } catch (error) {
+        if (!(error instanceof GitHubReauthRequiredError)) throw error
+        log.warn('github_credential_rejected', { operation, host, source: client.credential.source })
+        rejected = error
+      }
+    }
+    throw rejected
+  }
+
+  async getViewer(): Promise<string> {
+    return this.withClient('get_github_viewer', GITHUB_HOST, viewerLogin)
   }
 
   async listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequest[]> {
@@ -650,66 +688,61 @@ export class GitHubProvider implements ReviewProvider {
     page = 1,
     perPage = 100,
   ): Promise<import('@solus/contracts/providers').PrListPage> {
-    return withAdapterCliFallback({
-      operation: 'list_pull_requests',
-      log: log.child({ repo: `${repo.owner}/${repo.repo}` }),
-      adapter: async () => {
-        const { rest } = await this.client()
-        const { data } = await rest.pulls.list({
-          owner: repo.owner,
-          repo: repo.repo,
-          state: filter?.state ?? 'open',
-          head: filter?.head ? `${repo.owner}:${filter.head}` : undefined,
-          sort: 'updated',
-          direction: 'desc',
-          per_page: perPage,
-          page,
-        })
-        const wanted = filter?.author
-          ? data.filter((pr) => (pr.user?.login ?? '').toLowerCase() === filter.author?.toLowerCase())
-          : data
-        const items = await Promise.all(
-          wanted.map(async (pr) => toPullRequest(pr, repo, await this.accessFor(repo, pr.user?.login ?? ''))),
-        )
-        return { items, page, hasMore: data.length === perPage }
-      },
-      cli: () => ghListPullRequestsPage(repo, filter, page, perPage),
+    return this.withClient('list_pull_requests', repo.host, async (client) => {
+      const { data } = await client.rest.pulls.list({
+        owner: repo.owner,
+        repo: repo.repo,
+        state: filter?.state ?? 'open',
+        head: filter?.head ? `${repo.owner}:${filter.head}` : undefined,
+        sort: 'updated',
+        direction: 'desc',
+        per_page: perPage,
+        page,
+      })
+      const wanted = filter?.author
+        ? data.filter((pr) => (pr.user?.login ?? '').toLowerCase() === filter.author?.toLowerCase())
+        : data
+      const items = await Promise.all(
+        wanted.map(async (pr) => toPullRequest(pr, repo, await accessFor(client, repo, pr.user?.login ?? ''))),
+      )
+      return { items, page, hasMore: data.length === perPage }
     })
   }
 
   async listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequest[]> {
-    const { graphql } = await this.client()
-    // A renamed repository is still reachable by its old name everywhere except
-    // search, where the stale qualifier silently matches nothing.
-    const queries = needsReviewSearchTerms(await canonicalRepoRef(repo), viewer)
-    const pullRequests = new Map<number, PullRequest>()
-    let requestedCursor: string | null = null
-    let assignedCursor: string | null = null
-    let hasMoreRequested = true
-    let hasMoreAssigned = true
+    return this.withClient('list_pull_requests_needing_review', repo.host, async (client) => {
+      // A renamed repository is still reachable by its old name everywhere except
+      // search, where the stale qualifier silently matches nothing.
+      const queries = needsReviewSearchTerms(await canonicalRepoRef(client, repo), viewer)
+      const pullRequests = new Map<number, PullRequest>()
+      let requestedCursor: string | null = null
+      let assignedCursor: string | null = null
+      let hasMoreRequested = true
+      let hasMoreAssigned = true
 
-    while (hasMoreRequested || hasMoreAssigned) {
-      const response = await graphql<NeedsReviewSearchResponse>(NEEDS_REVIEW_QUERY, {
-        ...queries,
-        requestedCursor,
-        assignedCursor,
-        includeRequested: hasMoreRequested,
-        includeAssigned: hasMoreAssigned,
-      })
-      const requested = response.requested
-      const assigned = response.assigned
-      for (const pr of [...(requested?.nodes ?? []), ...(assigned?.nodes ?? [])]) {
-        if (!pr) continue
-        const access = await this.accessFor(repo, pr.author?.login ?? '')
-        pullRequests.set(pr.number, toNeedsReviewPullRequest(pr, repo, access))
+      while (hasMoreRequested || hasMoreAssigned) {
+        const response: NeedsReviewSearchResponse = await client.graphql<NeedsReviewSearchResponse>(NEEDS_REVIEW_QUERY, {
+          ...queries,
+          requestedCursor,
+          assignedCursor,
+          includeRequested: hasMoreRequested,
+          includeAssigned: hasMoreAssigned,
+        })
+        const requested = response.requested
+        const assigned = response.assigned
+        for (const pr of [...(requested?.nodes ?? []), ...(assigned?.nodes ?? [])]) {
+          if (!pr) continue
+          const access = await accessFor(client, repo, pr.author?.login ?? '')
+          pullRequests.set(pr.number, toNeedsReviewPullRequest(pr, repo, access))
+        }
+        hasMoreRequested = requested?.pageInfo.hasNextPage ?? false
+        hasMoreAssigned = assigned?.pageInfo.hasNextPage ?? false
+        requestedCursor = requested?.pageInfo.endCursor ?? requestedCursor
+        assignedCursor = assigned?.pageInfo.endCursor ?? assignedCursor
       }
-      hasMoreRequested = requested?.pageInfo.hasNextPage ?? false
-      hasMoreAssigned = assigned?.pageInfo.hasNextPage ?? false
-      requestedCursor = requested?.pageInfo.endCursor ?? requestedCursor
-      assignedCursor = assigned?.pageInfo.endCursor ?? assignedCursor
-    }
 
-    return [...pullRequests.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+      return [...pullRequests.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+    })
   }
 
   async getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview> {
@@ -725,22 +758,16 @@ export class GitHubProvider implements ReviewProvider {
     const key = `${repo.host}/${repo.owner}/${repo.repo}:${pullRequest.number}:${pullRequest.baseSha}:${pullRequest.headSha}`
     let pending = this.diffBaseCache.get(key)
     if (!pending) {
-      pending = withAdapterCliFallback({
-        operation: 'get_pull_request_diff_base',
-        log: log.child({ repo: `${repo.owner}/${repo.repo}`, prNumber: pullRequest.number }),
-        adapter: async () => {
-          const { rest } = await this.client()
-          const { data } = await rest.repos.compareCommitsWithBasehead({
-            owner: repo.owner,
-            repo: repo.repo,
-            basehead: `${pullRequest.baseSha}...${pullRequest.headRepo.owner}:${pullRequest.headRef}`,
-          })
-          if (githubComparedHeadSha(data) !== pullRequest.headSha) {
-            throw new Error('This pull request changed while its diff base was loading.')
-          }
-          return data.merge_base_commit.sha
-        },
-        cli: () => ghGetPullRequestDiffBase(repo, pullRequest),
+      pending = this.withClient('get_pull_request_diff_base', repo.host, async ({ rest }) => {
+        const { data } = await rest.repos.compareCommitsWithBasehead({
+          owner: repo.owner,
+          repo: repo.repo,
+          basehead: `${pullRequest.baseSha}...refs/pull/${pullRequest.number}/head`,
+        })
+        if (githubComparedHeadSha(data) !== pullRequest.headSha) {
+          throw new Error('This pull request changed while its diff base was loading.')
+        }
+        return data.merge_base_commit.sha
       }).catch((error) => {
         this.diffBaseCache.delete(key)
         throw error
@@ -757,45 +784,46 @@ export class GitHubProvider implements ReviewProvider {
     }
     const page = request.cursor === undefined ? 1 : Number(request.cursor)
     if (!Number.isSafeInteger(page) || page < 1) throw new Error('Invalid pull request diff cursor.')
-    const { rest } = await this.client()
-    if (request.commitSha) {
-      // One commit of the change rather than the whole of it. A commit is
-      // content-addressed, so no base staleness check applies: the sha either
-      // exists with exactly this diff or the request fails.
-      if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
-      const response = await rest.repos.getCommit({
+    return this.withClient('get_pull_request_diff', repo.host, async ({ rest }) => {
+      if (request.commitSha) {
+        // One commit of the change rather than the whole of it. A commit is
+        // content-addressed, so no base staleness check applies: the sha either
+        // exists with exactly this diff or the request fails.
+        if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
+        const response = await rest.repos.getCommit({
+          owner: repo.owner,
+          repo: repo.repo,
+          ref: request.commitSha,
+          page,
+          per_page: 100,
+        })
+        const converted = githubFilesToUnifiedPatch(response.data.files ?? [])
+        const hasNextPage = /<[^>]+>;\s*rel="next"/.test(response.headers.link ?? '')
+        return {
+          patch: converted.patch,
+          truncated: converted.truncated,
+          nextCursor: hasNextPage ? String(page + 1) : null,
+        }
+      }
+      const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
+      if (diffBaseSha !== request.baseSha) {
+        throw new Error('This pull request base changed. Refresh it before reviewing the new diff.')
+      }
+      const response = await rest.pulls.listFiles({
         owner: repo.owner,
         repo: repo.repo,
-        ref: request.commitSha,
+        pull_number: request.number,
         page,
         per_page: 100,
       })
-      const converted = githubFilesToUnifiedPatch(response.data.files ?? [])
+      const converted = githubFilesToUnifiedPatch(response.data)
       const hasNextPage = /<[^>]+>;\s*rel="next"/.test(response.headers.link ?? '')
       return {
         patch: converted.patch,
         truncated: converted.truncated,
         nextCursor: hasNextPage ? String(page + 1) : null,
       }
-    }
-    const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
-    if (diffBaseSha !== request.baseSha) {
-      throw new Error('This pull request base changed. Refresh it before reviewing the new diff.')
-    }
-    const response = await rest.pulls.listFiles({
-      owner: repo.owner,
-      repo: repo.repo,
-      pull_number: request.number,
-      page,
-      per_page: 100,
     })
-    const converted = githubFilesToUnifiedPatch(response.data)
-    const hasNextPage = /<[^>]+>;\s*rel="next"/.test(response.headers.link ?? '')
-    return {
-      patch: converted.patch,
-      truncated: converted.truncated,
-      nextCursor: hasNextPage ? String(page + 1) : null,
-    }
   }
 
   async getPullRequestDiffFileContents(
@@ -806,63 +834,57 @@ export class GitHubProvider implements ReviewProvider {
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before loading file contents.')
     }
-    const { rest } = await this.client()
-    const readFile = async (source: RepoRef, path: string, ref: string): Promise<string> => {
-      const { data } = await rest.repos.getContent({ owner: source.owner, repo: source.repo, path, ref })
-      if (Array.isArray(data) || data.type !== 'file' || !('content' in data)) {
-        throw new Error(`GitHub did not return file contents for ${path}.`)
+    return this.withClient('get_pull_request_diff_file_contents', repo.host, async ({ rest }) => {
+      const readFile = async (source: RepoRef, path: string, ref: string): Promise<string> => {
+        const { data } = await rest.repos.getContent({ owner: source.owner, repo: source.repo, path, ref })
+        if (Array.isArray(data) || data.type !== 'file' || !('content' in data)) {
+          throw new Error(`GitHub did not return file contents for ${path}.`)
+        }
+        if (data.encoding !== 'base64') throw new Error(`GitHub returned an unsupported encoding for ${path}.`)
+        return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
       }
-      if (data.encoding !== 'base64') throw new Error(`GitHub returned an unsupported encoding for ${path}.`)
-      return Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf8')
-    }
-    const headRepo: RepoRef = { host: repo.host, owner: detail.headRepo.owner, repo: detail.headRepo.repo }
-    if (request.commitSha) {
-      // A commit-scoped diff compares against the commit's parent, not the PR
-      // base, and the contents API accepts no `sha^` expression — resolve the
-      // parent explicitly. A root commit has no parent; its old side is empty.
-      if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
-      const { data: commit } = await rest.git.getCommit({
-        owner: repo.owner,
-        repo: repo.repo,
-        commit_sha: request.commitSha,
-      })
-      const parentSha = commit.parents[0]?.sha
-      const oldContents = request.changeType === 'new' || !parentSha
+      const headRepo: RepoRef = { host: repo.host, owner: detail.headRepo.owner, repo: detail.headRepo.repo }
+      if (request.commitSha) {
+        // A commit-scoped diff compares against the commit's parent, not the PR
+        // base, and the contents API accepts no `sha^` expression — resolve the
+        // parent explicitly. A root commit has no parent; its old side is empty.
+        if (!COMMIT_SHA_PATTERN.test(request.commitSha)) throw new Error('Invalid pull request commit.')
+        const { data: commit } = await rest.git.getCommit({
+          owner: repo.owner,
+          repo: repo.repo,
+          commit_sha: request.commitSha,
+        })
+        const parentSha = commit.parents[0]?.sha
+        const oldContents = request.changeType === 'new' || !parentSha
+          ? ''
+          : await readFile(headRepo, request.oldPath, parentSha)
+        const newContents = request.changeType === 'deleted'
+          ? ''
+          : await readFile(headRepo, request.newPath, request.commitSha)
+        return { oldContents, newContents }
+      }
+      const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
+      if (diffBaseSha !== request.baseSha) {
+        throw new Error('This pull request base changed. Refresh it before loading file contents.')
+      }
+      const oldContents = request.changeType === 'new'
         ? ''
-        : await readFile(headRepo, request.oldPath, parentSha)
+        : await readFile(repo, request.oldPath, diffBaseSha)
       const newContents = request.changeType === 'deleted'
         ? ''
-        : await readFile(headRepo, request.newPath, request.commitSha)
+        : await readFile(headRepo, request.newPath, request.headSha)
       return { oldContents, newContents }
-    }
-    const diffBaseSha = await this.getPullRequestDiffBase(repo, detail)
-    if (diffBaseSha !== request.baseSha) {
-      throw new Error('This pull request base changed. Refresh it before loading file contents.')
-    }
-    const oldContents = request.changeType === 'new'
-      ? ''
-      : await readFile(repo, request.oldPath, diffBaseSha)
-    const newContents = request.changeType === 'deleted'
-      ? ''
-      : await readFile(headRepo, request.newPath, request.headSha)
-    return { oldContents, newContents }
+    })
   }
 
   async getPullRequest(repo: RepoRef, number: number): Promise<PullRequest> {
-    return withAdapterCliFallback({
-      operation: 'get_pull_request',
-      log: log.child({ repo: `${repo.owner}/${repo.repo}`, prNumber: number }),
-      adapter: async () => {
-        const client = await this.client()
-        const [{ data: pr }, viewer] = await Promise.all([client.rest.pulls.get({
-          owner: repo.owner,
-          repo: repo.repo,
-          pull_number: number,
-        }), this.getViewer()])
-        const access = await githubPullRequestAccessFor(client, repo, viewer, pr.user?.login ?? '')
-        return toPullRequest(pr, repo, access)
-      },
-      cli: () => ghGetPullRequest(repo, number),
+    return this.withClient('get_pull_request', repo.host, async (client) => {
+      const { data: pr } = await client.rest.pulls.get({
+        owner: repo.owner,
+        repo: repo.repo,
+        pull_number: number,
+      })
+      return toPullRequest(pr, repo, await accessFor(client, repo, pr.user?.login ?? ''))
     })
   }
 
@@ -871,7 +893,6 @@ export class GitHubProvider implements ReviewProvider {
     number: number,
     patch: PullRequestUpdate,
   ): Promise<PullRequest> {
-    const { rest } = await this.client()
     interface PullRequestEditFields {
       title?: string
       body?: string
@@ -880,97 +901,108 @@ export class GitHubProvider implements ReviewProvider {
     if (patch.title !== undefined) fields.title = patch.title
     if (patch.body !== undefined) fields.body = patch.body
     if (Object.keys(fields).length > 0) {
-      await rest.pulls.update({
-        owner: repo.owner,
-        repo: repo.repo,
-        pull_number: number,
-        ...fields,
+      await this.withClient('update_pull_request', repo.host, async ({ rest }) => {
+        await rest.pulls.update({
+          owner: repo.owner,
+          repo: repo.repo,
+          pull_number: number,
+          ...fields,
+        })
       })
     }
     return this.getPullRequest(repo, number)
   }
 
   async listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]> {
-    const { graphql } = await this.client()
-    const threads: ReviewThread[] = []
-    let cursor: string | null = null
-    // Threads paginate; comments per thread (first 100) effectively never do.
-    for (;;) {
-      const res: ReviewThreadsResponse = await graphql<ReviewThreadsResponse>(REVIEW_THREADS_QUERY, {
-        owner: repo.owner,
-        repo: repo.repo,
-        number,
-        cursor,
-      })
-      const page = res.repository.pullRequest.reviewThreads
-      for (const node of page.nodes) threads.push(toThread(node))
-      if (!page.pageInfo.hasNextPage) break
-      cursor = page.pageInfo.endCursor
-    }
-    return threads
+    return this.withClient('list_pull_request_threads', repo.host, async ({ graphql }) => {
+      const threads: ReviewThread[] = []
+      let cursor: string | null = null
+      // Threads paginate; comments per thread (first 100) effectively never do.
+      for (;;) {
+        const res: ReviewThreadsResponse = await graphql<ReviewThreadsResponse>(REVIEW_THREADS_QUERY, {
+          owner: repo.owner,
+          repo: repo.repo,
+          number,
+          cursor,
+        })
+        const page = res.repository.pullRequest.reviewThreads
+        for (const node of page.nodes) threads.push(toThread(node))
+        if (!page.pageInfo.hasNextPage) break
+        cursor = page.pageInfo.endCursor
+      }
+      return threads
+    })
   }
 
   async listCommits(repo: RepoRef, number: number): Promise<PrCommit[]> {
-    const { rest } = await this.client()
-    // Paginated; the REST endpoint itself caps a PR's commit list at 250.
-    const data = await rest.paginate(rest.pulls.listCommits, {
-      owner: repo.owner,
-      repo: repo.repo,
-      pull_number: number,
-      per_page: 100,
+    return this.withClient('list_pull_request_commits', repo.host, async ({ rest }) => {
+      // Paginated; the REST endpoint itself caps a PR's commit list at 250.
+      const data = await rest.paginate(rest.pulls.listCommits, {
+        owner: repo.owner,
+        repo: repo.repo,
+        pull_number: number,
+        per_page: 100,
+      })
+      return data.map((c) => ({
+        sha: c.sha,
+        // GitHub shows only the subject line in the timeline; drop the body.
+        message: c.commit.message.split('\n', 1)[0],
+        author: c.author?.login ?? c.commit.author?.name ?? '',
+        committedAt: c.commit.author?.date ?? c.commit.committer?.date ?? '',
+      }))
     })
-    return data.map((c) => ({
-      sha: c.sha,
-      // GitHub shows only the subject line in the timeline; drop the body.
-      message: c.commit.message.split('\n', 1)[0],
-      author: c.author?.login ?? c.commit.author?.name ?? '',
-      committedAt: c.commit.author?.date ?? c.commit.committer?.date ?? '',
-    }))
   }
 
   async listReviewers(repo: RepoRef, number: number): Promise<PrReviewer[]> {
-    const { rest } = await this.client()
-    const [reviews, { data: requested }] = await Promise.all([
-      rest.paginate(rest.pulls.listReviews, { owner: repo.owner, repo: repo.repo, pull_number: number, per_page: 100 }),
-      rest.pulls.listRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number }),
-    ])
-    // Fold each user's chronological reviews into their standing state, matching
-    // GitHub's semantics: an approval / change request holds until dismissed or
-    // replaced by another approval / change request — a later COMMENTED review
-    // does not demote it. PENDING is the viewer's own unsubmitted draft, not a
-    // review state at all.
-    const map = new Map<string, PrReviewer>()
-    for (const r of reviews) {
-      const login = r.user?.login
-      if (!login) continue
-      const state = reviewerState(r.state)
-      if (state === 'PENDING') continue
-      const prev = map.get(login)?.state
-      if (state === 'COMMENTED' && (prev === 'APPROVED' || prev === 'CHANGES_REQUESTED')) continue
-      map.set(login, { login, state })
-    }
-    // Users who are requested but haven't reviewed yet.
-    for (const u of requested.users) {
-      if (!map.has(u.login)) {
-        map.set(u.login, { login: u.login, state: null })
+    return this.withClient('list_pull_request_reviewers', repo.host, async ({ rest }) => {
+      const [reviews, { data: requested }] = await Promise.all([
+        rest.paginate(rest.pulls.listReviews, { owner: repo.owner, repo: repo.repo, pull_number: number, per_page: 100 }),
+        rest.pulls.listRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number }),
+      ])
+      // Fold each user's chronological reviews into their standing state, matching
+      // GitHub's semantics: an approval / change request holds until dismissed or
+      // replaced by another approval / change request — a later COMMENTED review
+      // does not demote it. PENDING is the viewer's own unsubmitted draft, not a
+      // review state at all.
+      const map = new Map<string, PrReviewer>()
+      for (const r of reviews) {
+        const login = r.user?.login
+        if (!login) continue
+        const state = reviewerState(r.state)
+        if (state === 'PENDING') continue
+        const prev = map.get(login)?.state
+        if (state === 'COMMENTED' && (prev === 'APPROVED' || prev === 'CHANGES_REQUESTED')) continue
+        map.set(login, { login, state })
       }
-    }
-    return [...map.values()]
+      // Users who are requested but haven't reviewed yet.
+      for (const u of requested.users) {
+        if (!map.has(u.login)) {
+          map.set(u.login, { login: u.login, state: null })
+        }
+      }
+      return [...map.values()]
+    })
   }
 
   async listReviewerCandidates(repo: RepoRef, pullRequest: PullRequest): Promise<PrReviewerCandidate[]> {
-    return listGithubReviewerCandidates(await this.client(), repo, pullRequest.author)
+    return this.withClient(
+      'list_pull_request_reviewer_candidates',
+      repo.host,
+      (client) => listGithubReviewerCandidates(client, repo, pullRequest.author),
+    )
   }
 
   async requestReviewers(repo: RepoRef, number: number, logins: string[]): Promise<PrReviewer[]> {
-    const { rest } = await this.client()
-    await rest.pulls.requestReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: logins })
+    await this.withClient('request_reviewers', repo.host, async ({ rest }) => {
+      await rest.pulls.requestReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: logins })
+    })
     return this.listReviewers(repo, number)
   }
 
   async removeRequestedReviewer(repo: RepoRef, number: number, login: string): Promise<PrReviewer[]> {
-    const { rest } = await this.client()
-    await rest.pulls.removeRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: [login] })
+    await this.withClient('remove_requested_reviewer', repo.host, async ({ rest }) => {
+      await rest.pulls.removeRequestedReviewers({ owner: repo.owner, repo: repo.repo, pull_number: number, reviewers: [login] })
+    })
     return this.listReviewers(repo, number)
   }
 
@@ -980,34 +1012,30 @@ export class GitHubProvider implements ReviewProvider {
     action: Exclude<PrLifecycleAction, 'merge'>,
     expectedHeadSha: string,
   ): Promise<PullRequest> {
-    const client = await this.client()
-    const [{ data: pullRequest }, viewer] = await Promise.all([
-      client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number }),
-      this.getViewer(),
-    ])
-    const raw = pullRequest
-    const access = await githubPullRequestAccessFor(client, repo, viewer, pullRequest.user?.login ?? '')
-    if (!access.viewerPermissions.actions.includes(action)) {
-      throw new Error(`You do not have permission to ${action} this pull request.`)
-    }
-    if (!raw.node_id) throw new Error('GitHub did not return the pull request node ID.')
-    const current = toPullRequest(raw, repo, access)
-    const lifecycle = await updateGithubPullRequestLifecycle(
-      client,
-      repo,
-      number,
-      action,
-      expectedHeadSha,
-      { headSha: current.headSha, nodeId: raw.node_id, draft: current.draft },
-    )
-    return { ...current, ...lifecycle }
+    return this.withClient('update_pull_request_lifecycle', repo.host, async (client) => {
+      const { data: raw } = await client.rest.pulls.get({ owner: repo.owner, repo: repo.repo, pull_number: number })
+      const access = await accessFor(client, repo, raw.user?.login ?? '')
+      if (!access.viewerPermissions.actions.includes(action)) {
+        throw new Error(`You do not have permission to ${action} this pull request.`)
+      }
+      if (!raw.node_id) throw new Error('GitHub did not return the pull request node ID.')
+      const current = toPullRequest(raw, repo, access)
+      const lifecycle = await updateGithubPullRequestLifecycle(
+        client,
+        repo,
+        number,
+        action,
+        expectedHeadSha,
+        { headSha: current.headSha, nodeId: raw.node_id, draft: current.draft },
+      )
+      return { ...current, ...lifecycle }
+    })
   }
 
   async createReview(repo: RepoRef, number: number, review: DraftReview): Promise<void> {
-    const { rest } = await this.client()
     // One request = atomic from our side: either the whole batch posts or nothing does.
     try {
-      type CreateReviewRequest = Parameters<typeof rest.pulls.createReview>[0]
+      type CreateReviewRequest = Parameters<GitHubClient['rest']['pulls']['createReview']>[0]
       const request: CreateReviewRequest = {
         owner: repo.owner,
         repo: repo.repo,
@@ -1031,21 +1059,22 @@ export class GitHubProvider implements ReviewProvider {
           return item
         })
       }
-      await rest.pulls.createReview(request)
+      await this.withClient('create_review', repo.host, async ({ rest }) => {
+        await rest.pulls.createReview(request)
+      })
     } catch (err) {
       throw new Error(githubApiErrorMessage(err, 'Could not submit the review'))
     }
   }
 
   async mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }> {
-    const { rest } = await this.client()
     try {
-      const { data } = await rest.pulls.merge({
+      const { data } = await this.withClient('merge_pull_request', repo.host, ({ rest }) => rest.pulls.merge({
         owner: repo.owner,
         repo: repo.repo,
         pull_number: number,
         merge_method: method,
-      })
+      }))
       return { merged: data.merged, message: data.message }
     } catch (err) {
       // 405/409 = not mergeable (conflicts, protection, stale head). Return the
@@ -1055,109 +1084,111 @@ export class GitHubProvider implements ReviewProvider {
   }
 
   async listPullRequestFileStats(repo: RepoRef, number: number): Promise<ChangedFileStat[]> {
-    const { rest } = await this.client()
-    const files = await rest.paginate(rest.pulls.listFiles, {
-      owner: repo.owner,
-      repo: repo.repo,
-      pull_number: number,
-      per_page: 100,
+    return this.withClient('list_pull_request_file_stats', repo.host, async ({ rest }) => {
+      const files = await rest.paginate(rest.pulls.listFiles, {
+        owner: repo.owner,
+        repo: repo.repo,
+        pull_number: number,
+        per_page: 100,
+      })
+      return files.map((f) => ({
+        path: f.filename,
+        additions: f.additions,
+        deletions: f.deletions,
+        status: GITHUB_FILE_STATUS.get(f.status) ?? 'M',
+      }))
     })
-    return files.map((f) => ({
-      path: f.filename,
-      additions: f.additions,
-      deletions: f.deletions,
-      status: GITHUB_FILE_STATUS.get(f.status) ?? 'M',
-    }))
   }
 
-  async replyToThread(_repo: RepoRef, threadId: string, body: string): Promise<ReviewComment> {
-    const { graphql } = await this.client()
-    // Reply by thread node id directly — the REST replies endpoint needs the first
-    // comment's numeric id, which our signature doesn't carry. GraphQL is cleaner here.
-    const res = await graphql<{ addPullRequestReviewThreadReply: { comment: GqlComment } }>(
-      REPLY_MUTATION,
-      { threadId, body },
-    )
-    return toComment(res.addPullRequestReviewThreadReply.comment)
+  async replyToThread(repo: RepoRef, threadId: string, body: string): Promise<ReviewComment> {
+    return this.withClient('reply_to_thread', repo.host, async ({ graphql }) => {
+      // Reply by thread node id directly — the REST replies endpoint needs the first
+      // comment's numeric id, which our signature doesn't carry. GraphQL is cleaner here.
+      const res = await graphql<{ addPullRequestReviewThreadReply: { comment: GqlComment } }>(
+        REPLY_MUTATION,
+        { threadId, body },
+      )
+      return toComment(res.addPullRequestReviewThreadReply.comment)
+    })
   }
 
-  async resolveThread(_repo: RepoRef, threadId: string): Promise<void> {
-    const { graphql } = await this.client()
-    await graphql(RESOLVE_MUTATION, { threadId })
+  async resolveThread(repo: RepoRef, threadId: string): Promise<void> {
+    await this.withClient('resolve_thread', repo.host, ({ graphql }) => graphql(RESOLVE_MUTATION, { threadId }))
   }
 
-  async unresolveThread(_repo: RepoRef, threadId: string): Promise<void> {
-    const { graphql } = await this.client()
-    await graphql(UNRESOLVE_MUTATION, { threadId })
+  async unresolveThread(repo: RepoRef, threadId: string): Promise<void> {
+    await this.withClient('unresolve_thread', repo.host, ({ graphql }) => graphql(UNRESOLVE_MUTATION, { threadId }))
   }
 
   async listComments(repo: RepoRef, number: number): Promise<PrConversationItem[]> {
-    const { graphql } = await this.client()
-    const items: PrConversationItem[] = []
-    let commentsCursor: string | null = null
-    let reviewsCursor: string | null = null
-    let includeComments = true
-    let includeReviews = true
+    return this.withClient('list_pull_request_comments', repo.host, async ({ graphql }) => {
+      const items: PrConversationItem[] = []
+      let commentsCursor: string | null = null
+      let reviewsCursor: string | null = null
+      let includeComments = true
+      let includeReviews = true
 
-    // The two GraphQL connections paginate independently. Once one is complete,
-    // @include keeps later pages of the other from refetching duplicate nodes.
-    while (includeComments || includeReviews) {
-      const res: PrConversationResponse = await graphql<PrConversationResponse>(PR_CONVERSATION_QUERY, {
-        owner: repo.owner,
-        repo: repo.repo,
-        number,
-        commentsCursor,
-        reviewsCursor,
-        includeComments,
-        includeReviews,
-      })
-      const conversation: PrConversationResponse['repository']['pullRequest'] = res.repository.pullRequest
-      if (conversation.comments) {
-        for (const comment of conversation.comments.nodes) {
-          const item: PrConversationItem = {
-            id: comment.id,
-            kind: 'comment',
-            author: comment.author?.login ?? '',
-            body: comment.body,
-            createdAt: comment.createdAt,
+      // The two GraphQL connections paginate independently. Once one is complete,
+      // @include keeps later pages of the other from refetching duplicate nodes.
+      while (includeComments || includeReviews) {
+        const res: PrConversationResponse = await graphql<PrConversationResponse>(PR_CONVERSATION_QUERY, {
+          owner: repo.owner,
+          repo: repo.repo,
+          number,
+          commentsCursor,
+          reviewsCursor,
+          includeComments,
+          includeReviews,
+        })
+        const conversation: PrConversationResponse['repository']['pullRequest'] = res.repository.pullRequest
+        if (conversation.comments) {
+          for (const comment of conversation.comments.nodes) {
+            const item: PrConversationItem = {
+              id: comment.id,
+              kind: 'comment',
+              author: comment.author?.login ?? '',
+              body: comment.body,
+              createdAt: comment.createdAt,
+            }
+            if (comment.author?.avatarUrl) item.authorAvatarUrl = comment.author.avatarUrl
+            if (comment.url) item.url = comment.url
+            items.push(item)
           }
-          if (comment.author?.avatarUrl) item.authorAvatarUrl = comment.author.avatarUrl
-          if (comment.url) item.url = comment.url
-          items.push(item)
+          includeComments = conversation.comments.pageInfo.hasNextPage
+          commentsCursor = conversation.comments.pageInfo.endCursor
         }
-        includeComments = conversation.comments.pageInfo.hasNextPage
-        commentsCursor = conversation.comments.pageInfo.endCursor
-      }
-      if (conversation.reviews) {
-        for (const review of conversation.reviews.nodes) {
-          if (!review.body.trim() || review.state === 'PENDING') continue
-          const item: PrConversationItem = {
-            id: review.id,
-            kind: 'review',
-            author: review.author?.login ?? '',
-            body: review.body,
-            createdAt: review.submittedAt ?? review.createdAt,
-            reviewState: review.state,
+        if (conversation.reviews) {
+          for (const review of conversation.reviews.nodes) {
+            if (!review.body.trim() || review.state === 'PENDING') continue
+            const item: PrConversationItem = {
+              id: review.id,
+              kind: 'review',
+              author: review.author?.login ?? '',
+              body: review.body,
+              createdAt: review.submittedAt ?? review.createdAt,
+              reviewState: review.state,
+            }
+            if (review.author?.avatarUrl) item.authorAvatarUrl = review.author.avatarUrl
+            if (review.url) item.url = review.url
+            items.push(item)
           }
-          if (review.author?.avatarUrl) item.authorAvatarUrl = review.author.avatarUrl
-          if (review.url) item.url = review.url
-          items.push(item)
+          includeReviews = conversation.reviews.pageInfo.hasNextPage
+          reviewsCursor = conversation.reviews.pageInfo.endCursor
         }
-        includeReviews = conversation.reviews.pageInfo.hasNextPage
-        reviewsCursor = conversation.reviews.pageInfo.endCursor
       }
-    }
 
-    return items.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+      return items.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    })
   }
 
   async addIssueComment(repo: RepoRef, number: number, body: string): Promise<void> {
-    const { rest } = await this.client()
-    await rest.issues.createComment({
-      owner: repo.owner,
-      repo: repo.repo,
-      issue_number: number,
-      body,
+    await this.withClient('add_issue_comment', repo.host, async ({ rest }) => {
+      await rest.issues.createComment({
+        owner: repo.owner,
+        repo: repo.repo,
+        issue_number: number,
+        body,
+      })
     })
   }
 
@@ -1170,39 +1201,34 @@ export class GitHubProvider implements ReviewProvider {
    * attachment would rather than as a file committed into the repository.
    */
   async publishAsset(repo: RepoRef, assetId: string): Promise<string> {
-    const target = await resolveUploadTarget(repo.owner, repo.repo)
-    return uploadGithubAsset(target, assetId)
+    return this.withClient('publish_asset', repo.host, async (client) => {
+      const target = await resolveUploadTarget(client, repo.owner, repo.repo)
+      return uploadGithubAsset(client, target, assetId)
+    })
   }
 
-  async deleteIssueComment(_repo: RepoRef, commentId: string): Promise<void> {
-    const { graphql } = await this.client()
-    await graphql(DELETE_ISSUE_COMMENT_MUTATION, { commentId })
+  async deleteIssueComment(repo: RepoRef, commentId: string): Promise<void> {
+    await this.withClient('delete_issue_comment', repo.host, ({ graphql }) =>
+      graphql(DELETE_ISSUE_COMMENT_MUTATION, { commentId }))
   }
 
   async listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]> {
     if (numbers.length === 0) return []
-    return withAdapterCliFallback({
-      operation: 'list_pull_request_checks',
-      log: log.child({ repo: `${repo.owner}/${repo.repo}` }),
-      adapter: async () => {
-        const { graphql } = await this.client()
-        const results: NumberedPrChecksSummary[] = []
-        for (let offset = 0; offset < numbers.length; offset += 25) {
-          const batch = numbers.slice(offset, offset + 25)
-          const response = await graphql<GqlChecksResponse>(buildChecksQuery(batch), {
-            owner: repo.owner,
-            repo: repo.repo,
-          })
-          results.push(...normalizeChecksResponse(response, batch, (message) => log.warn('pr_checks_normalize_warning', { message })))
-        }
-        return results
-      },
-      cli: () => ghListChecks(repo, numbers),
+    return this.withClient('list_pull_request_checks', repo.host, async ({ graphql }) => {
+      const results: NumberedPrChecksSummary[] = []
+      for (let offset = 0; offset < numbers.length; offset += 25) {
+        const batch = numbers.slice(offset, offset + 25)
+        const response = await graphql<GqlChecksResponse>(buildChecksQuery(batch), {
+          owner: repo.owner,
+          repo: repo.repo,
+        })
+        results.push(...normalizeChecksResponse(response, batch, (message) => log.warn('pr_checks_normalize_warning', { message })))
+      }
+      return results
     })
   }
 }
 
 export function makeGitHubProvider(): Provider {
-  const auth = new GitHubAuth()
-  return { id: 'github', auth, review: new GitHubProvider(auth) }
+  return { id: 'github', auth: new GitHubAuth(), review: new GitHubProvider() }
 }

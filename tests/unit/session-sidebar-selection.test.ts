@@ -104,20 +104,26 @@ describe('clicking a task whose question is not open here', () => {
 })
 
 describe('selecting a task from the picker', () => {
-  test('restores the row and uses the task-bar selection path', async () => {
-    const row = { taskId: 'task-1' } as SidebarTask
-    const selected: SidebarTask[] = []
+  test('restores the row, then opens the session the picker listed', async () => {
+    // WHY: the picker lists a task's sessions without needing a sidebar row for
+    // it. Selecting through the row instead sent every task this client has not
+    // opened to a new draft, contradicting the list the reader just read.
+    const listed = child({ sessionId: 'remote', lastActivityAt: 20 })
+    const selected: SidebarSessionChild[] = []
     const restored: string[] = []
     const store = Object.create(SessionSidebarStore.prototype) as SessionSidebarStore
-    Object.defineProperty(store, 'catalogTasks', { value: [row] })
+    Object.defineProperty(store, 'session', {
+      value: { tasksStore: { peek: () => null } },
+    })
     store.restoreTask = (taskId) => restored.push(taskId)
-    store.selectTask = async (task) => {
-      selected.push(task)
+    store.sessionsForPickableTask = () => [listed]
+    store.selectChild = async (session) => {
+      selected.push(session)
     }
 
     await store.selectTaskRecord({ id: 'task-1' } as Task)
 
     expect(restored).toEqual(['task-1'])
-    expect(selected).toEqual([row])
+    expect(selected).toEqual([listed])
   })
 })

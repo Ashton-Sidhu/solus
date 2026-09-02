@@ -13,8 +13,7 @@
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import FrameExpandButton from "./FrameExpandButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
-  import SessionPicker from "../session/SessionPicker.svelte";
-  import TaskPicker from "../session/TaskPicker.svelte";
+  import UnifiedPicker from "../session/unified-picker/UnifiedPicker.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
   import { SvelteSet } from "svelte/reactivity";
@@ -687,16 +686,10 @@
                       class="conversation-area flex-1 flex min-h-0 relative"
                       data-conversation-space
                     >
-                      <SessionPicker
-                        open={active && session.sessionPickerOpen}
+                      <UnifiedPicker
+                        open={active && session.unifiedPickerOpen}
                         onClose={() => {
-                          session.sessionPickerOpen = false;
-                        }}
-                      />
-                      <TaskPicker
-                        open={active && session.taskPickerOpen}
-                        onClose={() => {
-                          session.taskPickerOpen = false;
+                          session.unifiedPickerOpen = false;
                         }}
                       />
 

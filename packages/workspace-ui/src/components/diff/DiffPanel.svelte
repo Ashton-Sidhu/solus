@@ -1265,7 +1265,6 @@
         {feedbackSessionTarget}
         onSubmitted={onClose}
         beforeSend={handleBeforeSend}
-        onShowComments={() => (commentsPopoverOpen = true)}
       />
     </div>
   {/if}

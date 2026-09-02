@@ -129,6 +129,8 @@ async function buildServerBundle(staging: string): Promise<void> {
     `--define:process.env.SOLUS_GOOGLE_CLIENT_ID=${JSON.stringify(process.env.SOLUS_GOOGLE_CLIENT_ID ?? '')}`,
     `--define:process.env.SOLUS_GOOGLE_CLIENT_SECRET=${JSON.stringify(process.env.SOLUS_GOOGLE_CLIENT_SECRET ?? '')}`,
     `--define:process.env.SOLUS_GITHUB_CLIENT_ID=${JSON.stringify(process.env.SOLUS_GITHUB_CLIENT_ID ?? '')}`,
+    `--define:process.env.SOLUS_ATLASSIAN_CLIENT_ID=${JSON.stringify(process.env.SOLUS_ATLASSIAN_CLIENT_ID ?? '')}`,
+    `--define:process.env.SOLUS_ATLASSIAN_CLIENT_SECRET=${JSON.stringify(process.env.SOLUS_ATLASSIAN_CLIENT_SECRET ?? '')}`,
     `--outfile=${join(outdir, 'standalone.js')}`,
     '--external:electron',
     '--external:electron-updater',

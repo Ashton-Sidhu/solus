@@ -15,6 +15,7 @@
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import PairCodePanel from "./PairCodePanel.svelte";
+  import UplinkSection from "./UplinkSection.svelte";
 
   interface Props {
     serverId: string;
@@ -161,6 +162,9 @@
     </SettingsRow>
   </SettingsSection>
 {/if}
+
+<!-- The cloud link describes this server, so it sits with the Server card. -->
+<UplinkSection {serverId} />
 
 <!-- Pairing sits against the Server card because that card's "Pair a device"
      button is what fills it in: the code has to appear where the click was,

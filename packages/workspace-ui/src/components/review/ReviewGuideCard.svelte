@@ -1,12 +1,12 @@
 <script lang="ts">
   import type { ReviewGuideReference } from "@solus/contracts/review";
   import { worktreeProjectRoot } from "@solus/contracts/types";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getAgentContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import ConversationRefCard from "../conversation/ConversationRefCard.svelte";
   import TranscriptChip from "../conversation/TranscriptChip.svelte";
   import { reviewGuideStore, type ReviewGuideIdentity } from "./review-guide.store.svelte";
-  import { reviewGuideCardPresentation } from "./lib/review-guide-card";
+  import { reviewGuideCardPresentation, reviewGuideCardSubtitle } from "./lib/review-guide-card";
   import { reviewGuideTargetLabel } from "./lib/review-guide-reference";
 
   interface Props {
@@ -17,6 +17,7 @@
 
   let { ref, tabId, skipMotion = false }: Props = $props();
   const workspace = getWorkspaceContext();
+  const agents = getAgentContext();
   const conversation = $derived(workspace.sessionFor(tabId));
   const serverId = $derived(workspace.serverIdFor(tabId));
   const identity = $derived.by((): ReviewGuideIdentity | null => {
@@ -31,6 +32,14 @@
   const status = $derived(reviewGuideStore.statusFor(serverId, identity));
   const targetLabel = $derived(reviewGuideTargetLabel(ref.target));
   const presentation = $derived(reviewGuideCardPresentation(status));
+  const modelLabel = $derived(
+    agents.metadata[ref.agent]?.models.find((model) => model.id === ref.model)?.label
+      ?? ref.model
+      ?? "Default model",
+  );
+  const subtitle = $derived(
+    reviewGuideCardSubtitle(presentation.subtitle, modelLabel, ref.reasoningEffort),
+  );
 
   $effect(() => {
     if (!conversation || !identity) return;
@@ -47,7 +56,12 @@
         serverId,
         workspace.ctxFor(tabId),
         identity,
-        { target: ref.target },
+        {
+          target: ref.target,
+          agent: ref.agent,
+          model: ref.model,
+          reasoningEffort: ref.reasoningEffort,
+        },
       ).catch((error) => {
         toasts.error("Couldn't generate the review guide", {
           description: error instanceof Error ? error.message : String(error),
@@ -71,7 +85,7 @@
 <ConversationRefCard
   kicker="Review guide"
   title={targetLabel}
-  subtitle={presentation.subtitle}
+  {subtitle}
   actionLabel={presentation.canRetry ? "Retry" : "Open"}
   ariaLabel={`${status?.status === "ready" ? "Open" : "Review"} ${targetLabel.toLowerCase()} guide`}
   onOpen={open}

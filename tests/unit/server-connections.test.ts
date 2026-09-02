@@ -50,6 +50,54 @@ describe('saved server identity', () => {
 })
 
 describe('lazily created connections', () => {
+  test('does not connect to a saved alias for the local installation', async () => {
+    startedTransports.length = 0
+    const previousLocalStorage = globalThis.localStorage
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      writable: true,
+      value: {
+        getItem: (key: string) => key === 'solus.servers'
+          ? JSON.stringify([{
+              id: 'local-installation',
+              label: 'This Mac through Uplink',
+              url: 'https://local.example',
+              sessionToken: '',
+              installationId: 'local-installation',
+              lastConnected: 1,
+            }])
+          : null,
+      },
+    })
+    const connections = new ServerConnections()
+    connections.registerTarget({
+      id: 'local',
+      label: 'This Mac',
+      url: 'http://127.0.0.1:3000',
+      sessionToken: 'local-token',
+      installationId: 'local-installation',
+      local: true,
+    })
+
+    try {
+      connections.startCatalogSupervisors()
+      await Promise.resolve()
+      expect(connections.connectedServerIds()).toEqual(['local'])
+      expect(startedTransports).toEqual(['local'])
+    } finally {
+      connections.release('local')
+      if (previousLocalStorage === undefined) {
+        delete (globalThis as unknown as { localStorage?: Storage }).localStorage
+      } else {
+        Object.defineProperty(globalThis, 'localStorage', {
+          configurable: true,
+          writable: true,
+          value: previousLocalStorage,
+        })
+      }
+    }
+  })
+
   test('defers listeners and the socket out of the caller\'s frame', async () => {
     // `ensure()` is reached from derived renderer state, where writing Svelte
     // state throws. Nothing reactive may fire before the caller's frame ends.

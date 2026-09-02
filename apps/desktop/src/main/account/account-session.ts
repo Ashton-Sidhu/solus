@@ -31,16 +31,65 @@ export class AccountSession {
   private lastVerifyAttemptAt = 0
 
   constructor(private readonly deps: AccountSessionDeps) {
-    this.stored = deps.store.canPersist() ? deps.store.load() : null
-    this.state = !deps.store.canPersist()
+    const canPersist = deps.store.canPersist()
+    this.stored = canPersist ? deps.store.load() : null
+    this.state = !canPersist
       ? { kind: 'unavailable', reason: 'encryption' }
       : this.stored
         ? signedInState(this.stored, false)
         : { kind: 'signed-out' }
+    // The one line that says why every later cloud call will or will not carry a session.
+    log.info('account_boot_state', { kind: this.state.kind, canPersist })
   }
 
   current(): AccountState {
     return this.state
+  }
+
+  /**
+   * Re-reads the stored account. The constructor runs before Electron's `app` is
+   * ready, and the keychain behind `safeStorage` is not reliably available until
+   * then — a boot that raced it must not present as signed out, or as
+   * keychain-unavailable, for its whole life.
+   */
+  reloadFromDisk(): void {
+    if (this.stored) return
+    if (!this.deps.store.canPersist()) return
+    const stored = this.deps.store.load()
+    if (stored) {
+      this.stored = stored
+      this.setState(signedInState(stored, false))
+      log.info('account_reloaded_after_ready')
+      return
+    }
+    // The keychain answered this time: an 'unavailable' verdict from the race is stale.
+    if (this.state.kind === 'unavailable') this.setState({ kind: 'signed-out' })
+  }
+
+  get cloudOrigin(): string {
+    return this.deps.cloudOrigin
+  }
+
+  /**
+   * A request to the website on the account's behalf (Uplink directory, grants,
+   * tickets). Null when signed out or the website did not answer. The token is added
+   * here and nowhere else.
+   */
+  async cloudRequest(path: string, init: RequestInit = {}): Promise<Response | null> {
+    const headers = this.authHeaders()
+    if (!headers) {
+      log.info('cloud_request_skipped_signed_out', { path })
+      return null
+    }
+    try {
+      return await this.deps.fetch(`${this.deps.cloudOrigin}${path}`, {
+        ...init,
+        headers: { ...headers, ...init.headers },
+      })
+    } catch (error) {
+      log.warn('cloud_request_failed', { path, error: error instanceof Error ? error.message : String(error) })
+      return null
+    }
   }
 
   private setState(state: AccountState): void {

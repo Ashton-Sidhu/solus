@@ -118,6 +118,11 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   // which calls launched subagents so their final answer can be marked before
   // the server projects ordinary output away.
   private readonly subagentToolIds = new Set<string>()
+  // TaskStop kills a backgrounded task out-of-band: no `task_updated` patch and
+  // no `task_notification` follow it, so the task never settles on its own and
+  // the ControlPlane holds the session at 'running' for good. Remember the stop
+  // calls so their own results can stand in as the terminal signal.
+  private readonly taskStopToolIds = new Set<string>()
 
   get summary(): TurnSummary {
     return this.turnSummary
@@ -150,8 +155,9 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
 
     const normalized = normalize(raw, this.pendingToolInputs, this.thinkingBlocks)
     for (const event of normalized) {
-      if (event.type === 'tool_call' && event.isSubagent && event.toolId) {
-        this.subagentToolIds.add(event.toolId)
+      if (event.type === 'tool_call' && event.toolId) {
+        if (event.isSubagent) this.subagentToolIds.add(event.toolId)
+        if (event.toolName === 'TaskStop') this.taskStopToolIds.add(event.toolId)
       } else if (
         event.type === 'tool_result'
         && !event.isAsyncLaunch
@@ -161,6 +167,12 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       }
     }
     events.push(...normalized)
+
+    if (raw.type === 'user') {
+      // SAFETY: ClaudeEvent.type is the provider discriminant for user events.
+      const settled = this.settlementForStoppedTask(raw as UserEvent)
+      if (settled) events.push(settled)
+    }
     return this.emit(events)
   }
 
@@ -176,6 +188,25 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
       }
     }
     return events
+  }
+
+  /** A successful TaskStop names the task it killed in `tool_use_result.task_id`.
+   *  That result is the last thing the SDK says about the task, so turn it into
+   *  the settle nothing else will send. Matching the stop's own tool call first
+   *  keeps a task alive when another tool merely reports its id — TaskOutput
+   *  reads a task without ending it. */
+  private settlementForStoppedTask(event: UserEvent): NormalizedEvent | null {
+    const taskId = event.tool_use_result?.task_id
+    const content = event.message?.content
+    if (!taskId || !Array.isArray(content)) return null
+    for (const block of content) {
+      if (block.type !== 'tool_result' || !block.tool_use_id || block.is_error) continue
+      if (!this.taskStopToolIds.delete(block.tool_use_id)) continue
+      // No `toolUseId`: that field anchors the settle to the call that spawned
+      // the task, and the stop is a different call. The renderer keys off taskId.
+      return { type: 'background_task_settled', taskId, status: 'stopped' }
+    }
+    return null
   }
 
   private collectEditedFiles(content: ContentBlock[] | undefined): void {

@@ -32,6 +32,7 @@
     shouldResetTaskForProjectChange,
     type TaskProjectScope,
   } from "./lib/task-project-scope";
+  import { withSelectedWorktree } from "./lib/worktree-destination";
 
   interface Props {
     /** The tab or draft this header describes. A draft has no tab, so the header
@@ -230,9 +231,18 @@
       requestInputFocus(focusTarget);
       return;
     }
-    // Honour this header's own source: the editor input bar mounts one per pane,
-    // so a split pane must not move the primary chat.
-    await session.switchToWorktree(worktree.path, source);
+    const projectRoot = gitHome.projectRoot ?? env.repoRoot;
+    if (run && projectRoot) {
+      // This strip is pre-flight: selecting an existing worktree only changes
+      // this composer's destination. Keep the stable project root and record
+      // the selected checkout locally so the picker can change its mind again
+      // without restoring or resetting a provider session between choices.
+      applyRun(withSelectedWorktree(run, projectRoot, worktree, env.targetBranch));
+    } else {
+      // Retain the controller fallback for an incomplete restored run. Honour
+      // this header's source so a split pane cannot move the primary chat.
+      await session.switchToWorktree(worktree.path, source);
+    }
     settleOnDestination();
   }
 

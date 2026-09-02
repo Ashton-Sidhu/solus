@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, jest, mock, test } from 'bun:test'
+import { localOwnerCtx } from './helpers/handler-ctx'
 import { Database } from 'bun:sqlite'
 import type { IpcContext } from '@solus/contracts/types'
 import type { Provider, RepoRef } from '@solus/server/providers/types'
@@ -34,14 +35,14 @@ describe('PR checks client lifecycle', () => {
     const ctx = {} as IpcContext
 
     lifecycle.handleClientConnected(clientId)
-    const stale = server.handle('prChecksActivity', [ctx, false, false], { clientId })
+    const stale = server.handle('prChecksActivity', [ctx, false, false], localOwnerCtx(clientId))
     lifecycle.handleClientDisconnected(clientId)
     lifecycle.handleClientConnected(clientId)
     releaseLookup()
     await stale
     expect(lifecycle.stats()).toEqual({ connectedClients: 1, activities: 0, activeRepoKey: null })
 
-    await server.handle('prChecksActivity', [ctx, false, false], { clientId })
+    await server.handle('prChecksActivity', [ctx, false, false], localOwnerCtx(clientId))
     expect(lifecycle.stats()).toEqual({
       connectedClients: 1,
       activities: 1,
@@ -73,7 +74,7 @@ describe('PR checks client lifecycle', () => {
     const clientId = 'ws:device:transport-close'
 
     lifecycle.handleClientConnected(clientId)
-    await server.handle('prChecksActivity', [{} as IpcContext, true, true], { clientId })
+    await server.handle('prChecksActivity', [{} as IpcContext, true, true], localOwnerCtx(clientId))
     expect(lifecycle.stats().activeRepoKey).toBe('github.com/owner/transport-close')
 
     lifecycle.handleTransportClosed()
@@ -119,12 +120,12 @@ describe('PR checks client lifecycle', () => {
     const first = server.handle(
       'prChecksActivity',
       [{} as IpcContext, true, true],
-      { clientId: firstClientId },
+      localOwnerCtx(firstClientId),
     )
     const second = server.handle(
       'prChecksActivity',
       [{} as IpcContext, true, true],
-      { clientId: secondClientId },
+      localOwnerCtx(secondClientId),
     )
     await Promise.resolve()
     finishChecks()

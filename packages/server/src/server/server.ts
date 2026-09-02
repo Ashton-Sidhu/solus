@@ -2,10 +2,15 @@ import type { RpcMethod } from '@solus/contracts/rpc'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { PlanPublishRequest, WorkPublishRequest } from '@solus/contracts/docs'
 import { createLogger, isDebugEnabled } from '../logger'
+import { assertRpcAccess } from './access-policy'
+import { INTERNAL_PRINCIPAL, type Principal } from './principal'
 
 const log = createLogger('server', 'server.ts')
 
 export const LOCAL_DEVICE_LABEL = 'This Mac'
+
+/** The host calling itself: capability probes and other in-process dispatch. */
+export const INTERNAL_HANDLER_CTX: HandlerCtx = { clientId: 'internal', principal: INTERNAL_PRINCIPAL }
 
 /**
  * The single dispatch core. The WebSocket transport forwards requests through
@@ -24,8 +29,11 @@ export class SolusServer {
     this.handlers.set(method, handler as Handler)
   }
 
-  handle<M extends RpcMethod>(method: M, args: RpcArgs<M>, ctx?: HandlerCtx): Promise<RpcResult<M>>
-  async handle(method: RpcMethod, args: RpcInvocationArgs, ctx?: HandlerCtx): Promise<RpcInvocationResult> {
+  handle<M extends RpcMethod>(method: M, args: RpcArgs<M>, ctx: HandlerCtx): Promise<RpcResult<M>>
+  async handle(method: RpcMethod, args: RpcInvocationArgs, ctx: HandlerCtx): Promise<RpcInvocationResult> {
+    // Fail closed: a call that names no principal is refused before any handler runs.
+    if (!ctx?.principal) throw new Error(`SolusServer: "${method}" was called without a principal`)
+    assertRpcAccess(method, ctx.principal)
     if (isDebugEnabled() && method !== 'activityLease') {
       if (method === 'publishWork') {
         // SAFETY: Runtime dispatch pairs this method with publishWork's tuple.
@@ -51,7 +59,7 @@ export class SolusServer {
     }
     const handler = this.handlers.get(method)
     if (!handler) throw new Error(`SolusServer: no handler for "${method}"`)
-    return await handler(args, ctx ?? {})
+    return await handler(args, ctx)
   }
 
   hasHandler(method: string): method is RpcMethod {
@@ -83,7 +91,9 @@ export type RpcHandler<M extends RpcMethod> = (
 
 export interface HandlerCtx {
   /** Identifies the client that issued the call (e.g. "ws:abcd"). */
-  clientId?: string
+  clientId: string
+  /** Who is calling. Built at admission; required — see `docs/plans/personal-uplink.md` P1. */
+  principal: Principal
   /** Web-client device label, set after pairing. */
   deviceLabel?: string
   /**

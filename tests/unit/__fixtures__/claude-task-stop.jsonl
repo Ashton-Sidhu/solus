@@ -1,0 +1,4 @@
+{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"bash-bg-1","name":"Bash"}}}
+{"type":"system","subtype":"task_started","task_id":"task-bg-1","tool_use_id":"bash-bg-1","description":"bun test tests/unit","task_type":"local_bash"}
+{"type":"stream_event","parent_tool_use_id":null,"event":{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"stop-1","name":"TaskStop"}}}
+{"type":"user","parent_tool_use_id":null,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"stop-1","content":[{"type":"text","text":"{\"message\":\"Successfully stopped task: task-bg-1\",\"task_id\":\"task-bg-1\",\"task_type\":\"local_bash\"}"}]}]},"tool_use_result":{"message":"Successfully stopped task: task-bg-1","task_id":"task-bg-1","task_type":"local_bash"}}

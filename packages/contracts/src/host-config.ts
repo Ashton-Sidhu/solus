@@ -42,6 +42,9 @@ export type TabGroupMode = (typeof TAB_GROUP_MODES)[number]
  *  it is the default of a host-config key; `lib/completed-task-retention`
  *  re-exports it so renderer call sites keep one import. */
 export const DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS = 2
+export const DEFAULT_REVIEW_AGENT: AgentId = 'codex'
+export const DEFAULT_REVIEW_MODEL = 'gpt-5.6-sol'
+export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'medium'
 
 export interface HostConfig {
   themeMode: ThemeMode
@@ -54,10 +57,11 @@ export interface HostConfig {
   activeAgent: AgentId
   /** Per-agent model for new sessions; a missing entry means that agent's built-in default. */
   defaultModels: Record<string, string>
-  /** Review companion backend; null means use `activeAgent`. */
-  reviewAgent: AgentId | null
-  reviewModel: string | null
-  reviewReasoning: ReasoningEffort | null
+  reviewAgent: AgentId
+  reviewModel: string
+  reviewReasoning: ReasoningEffort
+  /** User instructions applied only when a review guide is authored. */
+  reviewGuideInstructions: string
   stackedPrsEnabled: boolean
   generatePrGuidesOnOpen: boolean
   /**
@@ -191,9 +195,10 @@ export const hostConfigPatchSchema = z.object({
   fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
   activeAgent: z.enum(AGENT_IDS).catch('claude-code'),
   defaultModels: z.record(z.string(), z.string()).catch({}),
-  reviewAgent: z.enum(AGENT_IDS).nullable().catch(null),
-  reviewModel: z.string().nullable().catch(null),
-  reviewReasoning: z.enum(REASONING_EFFORTS).nullable().catch(null),
+  reviewAgent: z.enum(AGENT_IDS).catch(DEFAULT_REVIEW_AGENT),
+  reviewModel: z.string().catch(DEFAULT_REVIEW_MODEL),
+  reviewReasoning: z.enum(REASONING_EFFORTS).catch(DEFAULT_REVIEW_REASONING),
+  reviewGuideInstructions: z.string().max(20_000).catch(''),
   stackedPrsEnabled: z.boolean().catch(false),
   generatePrGuidesOnOpen: z.boolean().catch(false),
   reviewWarmingByProject: z.record(z.string(), z.boolean()).catch({}),
@@ -240,9 +245,10 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
   fallbackTerminal: 'default-terminal',
   activeAgent: 'claude-code',
   defaultModels: {},
-  reviewAgent: null,
-  reviewModel: null,
-  reviewReasoning: null,
+  reviewAgent: DEFAULT_REVIEW_AGENT,
+  reviewModel: DEFAULT_REVIEW_MODEL,
+  reviewReasoning: DEFAULT_REVIEW_REASONING,
+  reviewGuideInstructions: '',
   stackedPrsEnabled: false,
   generatePrGuidesOnOpen: false,
   reviewWarmingByProject: {},
@@ -277,7 +283,7 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
  * Four are deliberately closed:
  *
  * - `analyticsEnabled` is a consent decision. An agent must never move it.
- * - `extraInstructions` and `modelInstructions` alter *every future turn* on
+ * - `extraInstructions`, `modelInstructions`, and `reviewGuideInstructions` alter future agent runs
  *   this host. An agent reads issues, pages, and diffs written by other people;
  *   text in any of them could ask it to append a persistent instruction, and
  *   the change would outlive the conversation that caused it. Reading them is
@@ -299,6 +305,7 @@ export const HOST_CONFIG_AGENT_WRITABLE = {
   reviewAgent: true,
   reviewModel: true,
   reviewReasoning: true,
+  reviewGuideInstructions: false,
   stackedPrsEnabled: true,
   generatePrGuidesOnOpen: true,
   reviewWarmingByProject: false,

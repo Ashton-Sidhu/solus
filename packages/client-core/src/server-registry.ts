@@ -4,6 +4,7 @@
  */
 
 import type { HostOperatingSystem } from '@solus/contracts/types'
+import { hostRouteSchema, type HostRoute } from '@solus/contracts/uplink'
 import { z } from 'zod'
 import { forwardCompatibleArray } from './forward-compat'
 
@@ -12,18 +13,57 @@ const ACTIVE_KEY = 'solus.activeServerId'
 
 export const LOCAL_SERVER_ID = 'local'
 
+/** The host is listed in the owner's Solus cloud directory and dialable with a grant. */
+export interface SavedServerUplink {
+  hostId: string
+  /** The account origin whose directory named it, e.g. `https://app.solus.sh`. */
+  directoryUrl: string
+}
+
 export interface SavedServer {
   id: string
   label: string
-  /** Server URL as the user entered it, e.g. `http://192.168.1.42:51234`. */
+  /** Server URL as the user entered it, e.g. `http://192.168.1.42:51234`. The
+   *  preferred direct route; `routes` may name more ways to reach the same host. */
   url: string
-  /** Long-lived session token from POST /pair. */
+  /** Long-lived session token from POST /pair. Empty for a host known only
+   *  through the cloud directory: it is dialed with a short grant instead. */
   sessionToken: string
   /** Last-known installation id (so we can warn if the server identity changed). */
   installationId: string
   /** Last-known operating system reported by the host. */
   os?: HostOperatingSystem
   lastConnected: number
+  /** Every way this client knows to reach the host. Absent on entries saved
+   *  before Uplink; `savedServerRoutes` derives the one route `url` names. */
+  routes?: HostRoute[]
+  uplink?: SavedServerUplink
+}
+
+/** The routes to dial, oldest entries included: `url` is always one of them, as a direct route. */
+export function savedServerRoutes(server: Pick<SavedServer, 'url' | 'routes'>): HostRoute[] {
+  const routes = server.routes ?? []
+  if (!server.url || routes.some((route) => route.url === server.url)) return routes
+  return [{ kind: 'direct', url: server.url }, ...routes]
+}
+
+/**
+ * The routes worth dialing from this page, direct before tunnel: a host on the local
+ * network is reached there and the tunnel is the fallback, never the other way round,
+ * so an Uplink host stays usable when Solus cloud is down. An `https:` page cannot
+ * open an `http:` route (mixed content), so those are left out there.
+ */
+export function dialableRoutes(routes: HostRoute[], clientOrigin: string): HostRoute[] {
+  const usable = clientOrigin.startsWith('https:') ? routes.filter((route) => !route.url.startsWith('http:')) : routes
+  return [...usable.filter((route) => route.kind === 'direct'), ...usable.filter((route) => route.kind === 'tunnel')]
+}
+
+/** The route to try after `currentUrl` failed: the next dialable one, round-robin. */
+export function nextRouteUrl(routes: HostRoute[], currentUrl: string, clientOrigin: string): string | null {
+  const dialable = dialableRoutes(routes, clientOrigin)
+  if (dialable.length < 2) return null
+  const index = dialable.findIndex((route) => route.url === currentUrl)
+  return dialable[(index + 1) % dialable.length]?.url ?? null
 }
 
 type ServerSavedListener = (server: SavedServer) => void
@@ -62,6 +102,9 @@ const savedServerSchema = z.looseObject({
   installationId: z.string().min(1),
   os: z.enum(['macos', 'windows', 'linux']).optional().catch(undefined),
   lastConnected: z.number().catch(0),
+  // Written by Uplink-aware builds; an older record simply has neither.
+  routes: z.array(hostRouteSchema).optional().catch(undefined),
+  uplink: z.object({ hostId: z.string().min(1), directoryUrl: z.string().min(1) }).optional().catch(undefined),
 })
 const savedServersSchema = forwardCompatibleArray(savedServerSchema)
 

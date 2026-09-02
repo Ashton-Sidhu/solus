@@ -10,8 +10,10 @@ import type { ProjectPageScope } from '../projects/project-catalog'
  */
 export class WorkspaceUiStore {
   isExpanded = $state(false)
-  sessionPickerOpen = $state(false)
-  taskPickerOpen = $state(false)
+  /** The one picker over tasks and their sessions. Tasks and sessions were two
+   *  overlays with two flags until they became one list; a caller that used to
+   *  want "the session picker" or "the task picker" wants this. */
+  unifiedPickerOpen = $state(false)
   /** The standalone create-task modal: the captured environment it targets. `null` = closed.
    *  Lives here (not in App) so the command palette can open it. */
   taskComposer = $state<TaskCreationContext | null>(null)

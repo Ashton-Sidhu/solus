@@ -1,6 +1,5 @@
 import type { RepoRef } from '@solus/contracts/providers'
-import { GitHubAuth } from './auth'
-import { buildClient } from './octokit'
+import type { GitHubClient } from './octokit'
 
 /**
  * GitHub's search index knows a repository only by its current name. Every
@@ -13,12 +12,11 @@ import { buildClient } from './octokit'
 const canonicalSlugs = new Map<string, Promise<string>>()
 
 /** The repository under the name GitHub holds today, for a search qualifier. */
-export async function canonicalRepoRef(repo: RepoRef): Promise<RepoRef> {
+export async function canonicalRepoRef(client: GitHubClient, repo: RepoRef): Promise<RepoRef> {
   const slug = `${repo.owner}/${repo.repo}`
   let resolving = canonicalSlugs.get(slug)
   if (!resolving) {
-    resolving = buildClient(new GitHubAuth())
-      .then(({ rest }) => rest.repos.get({ owner: repo.owner, repo: repo.repo }))
+    resolving = client.rest.repos.get({ owner: repo.owner, repo: repo.repo })
       .then(({ data }) => data.full_name)
       // A lookup failure must not decide the search. It may be a rate limit or
       // a blip, and a genuinely inaccessible repository is reported by the

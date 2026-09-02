@@ -8,7 +8,6 @@ import { imageRefAttachments, isAgentNotice, nextMsgId, progressFromMessages, to
 import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { isRequestReviewGuideTool, reviewGuideReferenceFromToolInput } from '../../components/review/lib/review-guide-reference'
 
 // ─── Transcript loader ───
 
@@ -357,23 +356,6 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
           timestamp: m.timestamp ?? Date.now(),
         })
       } catch {}
-      continue
-    } else if (m.role === 'tool' && isRequestReviewGuideTool(m.toolName)) {
-      messages.push(msg)
-      const reviewGuideRef = reviewGuideReferenceFromToolInput(
-        m.toolInput,
-        args.ctx.session.gitContext?.branch,
-        args.ctx.session.agentSessionId,
-      )
-      if (reviewGuideRef) {
-        messages.push({
-          id: nextMsgId(),
-          role: 'assistant' as const,
-          content: '',
-          reviewGuideRef,
-          timestamp: m.timestamp ?? Date.now(),
-        })
-      }
       continue
     } else if (m.role === 'tool' && isAgentConversationTool(m.toolName)) {
       // A session-orchestration call replays as a tool row (debug visibility)

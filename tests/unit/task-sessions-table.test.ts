@@ -78,6 +78,39 @@ describe('the action cell reserves room for every control a row can hold', () =>
   })
 })
 
+describe('the table steps its geometry down on a laptop display', () => {
+  /** The first declared value, and the `.is-laptop-display` one beside it. */
+  const step = (markup: string, prop: 'h' | 'size') => ({
+    desktop: Number(markup.match(new RegExp(`(?<![:\\]])${prop}-\\[(\\d+)px\\]`))?.[1]),
+    laptop: Number(
+      markup.match(new RegExp(`is-laptop-display_&\\]:${prop}-\\[(\\d+)px\\]`))?.[1],
+    ),
+  })
+
+  /** Type follows the named rung (ADR-0013) and is not restated here. Height,
+   *  padding and gaps are the display's business, and a table that keeps
+   *  desktop rows on a laptop spends vertical space it cannot recover. */
+  const expectStepsDown = (markup: string, prop: 'h' | 'size') => {
+    const { desktop, laptop } = step(markup, prop)
+    expect(desktop).toBeGreaterThan(0)
+    expect(laptop).toBeGreaterThan(0)
+    expect(laptop).toBeLessThan(desktop)
+  }
+
+  it('gives the header a shorter row on a laptop', () => expectStepsDown(header, 'h'))
+  it('gives each session a shorter row on a laptop', () => expectStepsDown(rows, 'h'))
+  it('gives the action buttons a smaller box on a laptop', () =>
+    expectStepsDown(actions, 'size'))
+
+  it('does not restate a type size, so the page rung still reaches it', () => {
+    // The section used to pin `text-xs` twice, which overrode the page's own
+    // `text-chrome-dense` and stopped it stepping for the pointer. Comments are
+    // stripped first, so the one explaining that is allowed to name it.
+    const markup = table.slice(table.indexOf('</script>')).replace(/<!--[\s\S]*?-->/g, '')
+    expect(markup).not.toContain('text-xs')
+  })
+})
+
 describe('the table states what it knows and nothing else', () => {
   it('has no pulsing status dot', () => {
     // Perpetual animation is a paint cost on a surface that stays mounted, and

@@ -57,6 +57,8 @@ jobs:
           echo "SOLUS_GOOGLE_CLIENT_ID=${{ secrets.SOLUS_GOOGLE_CLIENT_ID }}" >> .env.production
           echo "SOLUS_GOOGLE_CLIENT_SECRET=${{ secrets.SOLUS_GOOGLE_CLIENT_SECRET }}" >> .env.production
           echo "SOLUS_GITHUB_CLIENT_ID=${{ secrets.SOLUS_GITHUB_CLIENT_ID }}" >> .env.production
+          echo "SOLUS_ATLASSIAN_CLIENT_ID=${{ secrets.SOLUS_ATLASSIAN_CLIENT_ID }}" >> .env.production
+          echo "SOLUS_ATLASSIAN_CLIENT_SECRET=${{ secrets.SOLUS_ATLASSIAN_CLIENT_SECRET }}" >> .env.production
 
       - name: Build Electron app
         env:
@@ -68,6 +70,8 @@ jobs:
           SOLUS_GOOGLE_CLIENT_ID: ${{ secrets.SOLUS_GOOGLE_CLIENT_ID }}
           SOLUS_GOOGLE_CLIENT_SECRET: ${{ secrets.SOLUS_GOOGLE_CLIENT_SECRET }}
           SOLUS_GITHUB_CLIENT_ID: ${{ secrets.SOLUS_GITHUB_CLIENT_ID }}
+          SOLUS_ATLASSIAN_CLIENT_ID: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_ID }}
+          SOLUS_ATLASSIAN_CLIENT_SECRET: ${{ secrets.SOLUS_ATLASSIAN_CLIENT_SECRET }}
         run: |
           bash scripts/build-parallel.sh --mode production
           bun run electron-builder --mac --publish never

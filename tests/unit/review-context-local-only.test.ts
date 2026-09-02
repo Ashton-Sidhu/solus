@@ -1,6 +1,6 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { spawnSync } from 'child_process'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { Database } from 'bun:sqlite'
@@ -69,6 +69,28 @@ describe('review context', () => {
     expect(context?.baseSha).toBe(baseSha)
     expect(context?.headSha).toBe(headSha)
     expect(context?.key).toBe('feat__reviews')
+  })
+
+  test('ignores a session base that no longer exists after history changes', async () => {
+    // WHY: a rebase or history rewrite can leave the session sidecar pointing
+    // at an unavailable commit. Passing that SHA to `git diff` makes the review
+    // guide lose every hunk, so the current HEAD must become the safe base.
+    const { cwd } = createRepo()
+    git(cwd, ['checkout', 'main'])
+    const headSha = git(cwd, ['rev-parse', 'HEAD'])
+    const sessionId = 'stale-base-session'
+    mkdirSync(join(cwd, '.solus', 'sessions'), { recursive: true })
+    writeFileSync(join(cwd, '.solus', 'sessions', `${sessionId}.json`), JSON.stringify({
+      version: 1,
+      baseSha: 'c04637ea770b943e50f629a27fbf63cda5663471',
+      turns: [],
+    }))
+
+    const context = await resolveReviewContext(cwd, sessionId)
+
+    expect(context?.baseSha).toBe(headSha)
+    expect(context?.headSha).toBe(headSha)
+    expect(context?.key).toBe(`main-${headSha}`)
   })
 
   test('never asks a code host which pull request the branch has', () => {

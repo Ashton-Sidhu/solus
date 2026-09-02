@@ -1,16 +1,12 @@
 <script lang="ts">
-  import type {
-    Task,
-    TaskPriority,
-    TaskStatus,
-    TaskUpdatePatch,
-  } from "@solus/contracts/task-types";
+  import type { Task, TaskStatus, TaskUpdatePatch } from "@solus/contracts/task-types";
   import { group, row, rowLabel, valueButton } from "./lib/sidebar-styles";
   import { RefreshCw as ArrowsClockwiseIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon } from "@lucide/svelte";
-  import * as DropdownMenu from "../../ui/dropdown-menu";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import { SourceLogo } from "../../ui/list-page";
-  import { authorInitials, PRIORITY_META, relativeTime, STATUS_META } from "../lib/tasks-api";
+  import { authorInitials, relativeTime, STATUS_META } from "../lib/tasks-api";
+  import TaskPriorityMenu from "./TaskPriorityMenu.svelte";
+  import TaskStatusMenu from "./TaskStatusMenu.svelte";
   import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
   import {
     syncToneColor,
@@ -73,8 +69,6 @@
     onSave,
   }: Props = $props();
 
-  const PRIORITY_OPTIONS: TaskPriority[] = ["urgent", "high", "medium", "low"];
-
   const sheet = $derived(variant === "sheet");
   const GROUP = $derived(group(sheet));
   const ROW = $derived(row(sheet));
@@ -117,8 +111,14 @@
   <div class={GROUP}>
     <div class={ROW}>
       <span class={ROW_LABEL}>Status</span>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger disabled={!editableStatuses.length} class={VALUE_BUTTON}>
+      <TaskStatusMenu
+        status={task.status}
+        options={editableStatuses}
+        onSelect={(next) => onSave({ status: next })}
+        align="end"
+        triggerClass={VALUE_BUTTON}
+      >
+        {#snippet trigger()}
           <svg
             width="12"
             height="12"
@@ -133,38 +133,20 @@
             aria-hidden="true"><path d={status.glyph} /></svg
           >
           {status.label}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="end" class="w-[182px]">
-          {#each editableStatuses as option (option)}
-            {@const meta = STATUS_META[option]}
-            <DropdownMenu.Item onSelect={() => onSave({ status: option })}>
-              <svg
-                width="12"
-                height="12"
-                viewBox="0 0 14 14"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.45"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                class="shrink-0"
-                style="color:{statusTextColor(option)}"
-                aria-hidden="true"><path d={meta.glyph} /></svg
-              >
-              {meta.label}
-              {#if option === task.status}
-                <span class="ml-auto text-primary" aria-hidden="true">✓</span>
-              {/if}
-            </DropdownMenu.Item>
-          {/each}
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
+        {/snippet}
+      </TaskStatusMenu>
     </div>
 
     <div class={ROW}>
       <span class={ROW_LABEL}>Priority</span>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger disabled={!canEditPriority} class={VALUE_BUTTON}>
+      <TaskPriorityMenu
+        priority={task.priority}
+        disabled={!canEditPriority}
+        onSelect={(next) => onSave({ priority: next })}
+        align="end"
+        triggerClass={VALUE_BUTTON}
+      >
+        {#snippet trigger()}
           <span class="flex h-[9px] shrink-0 items-end gap-[1.5px]" aria-hidden="true">
             {#each bars as bar (bar.height)}
               <span
@@ -174,24 +156,8 @@
             {/each}
           </span>
           {priorityLabel(task.priority)}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="end" class="w-[182px]">
-          {#each PRIORITY_OPTIONS as option (option)}
-            <DropdownMenu.Item onSelect={() => onSave({ priority: option })}>
-              {PRIORITY_META[option].label}
-              {#if option === task.priority}
-                <span class="ml-auto text-primary" aria-hidden="true">✓</span>
-              {/if}
-            </DropdownMenu.Item>
-          {/each}
-          <DropdownMenu.Item onSelect={() => onSave({ priority: null })}>
-            No priority
-            {#if !task.priority}
-              <span class="ml-auto text-primary" aria-hidden="true">✓</span>
-            {/if}
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
+        {/snippet}
+      </TaskPriorityMenu>
     </div>
 
     <div class={ROW}>

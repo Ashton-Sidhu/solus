@@ -17,20 +17,22 @@ import { dirName } from './activity-data'
 export const CHECK_ROW_HEIGHT = { standard: 30, laptop: 28 } as const
 
 /**
- * The content width at which the rail stops fitting beside the reading column
- * and folds under it, full width.
+ * The content width below which the rail has no column to sit in.
  *
- * Mirrors the `@max-[1000px]` on `PrActivityRail`'s root, against the
- * `@container` on `ActivityFeed`'s content row. It is duplicated here because
- * a Tailwind arbitrary value cannot read a constant, and it is a constant
- * because two things have to agree about it: below this width the readiness
- * card leaves the rail for `PrMergeBar`, which is the only reason a folded rail
- * is acceptable at all. Change one, change both — `pr-rail-fold.test.ts` fails
- * if they drift.
+ * Measured on the content box of the `@container` on `ActivityFeed`'s content
+ * row — 768 for the reading column, 56 of gap and 330 for the rail is the
+ * shell's whole budget, and below that something has to give.
+ *
+ * This is the only place the rung exists. The rail used to fold under the
+ * reading column at a `@max-[1000px]` of its own while the bottom bar that
+ * replaces its card appeared at a JavaScript rung of 30rem, which left every
+ * pane between the two with a rail stacked under the comment composer and no
+ * bar. There is no stylesheet mirror to drift from now: above the rung the rail
+ * is a column, below it the whole rail is the sheet `PrMergeBar` opens.
  */
 export const RAIL_FOLD_MAX = 1000
 
-/** True once the rail has folded under the reading column. */
+/** True once the rail has lost its column and moved into the sheet. */
 export function isRailFolded(contentWidth: number): boolean {
   // Width 0 is the frame before the observer reports; answering "folded" then
   // would flash the bottom bar on every mount on a wide display.

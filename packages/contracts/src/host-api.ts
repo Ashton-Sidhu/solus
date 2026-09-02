@@ -18,6 +18,7 @@ import type { HostConfigPatch, HostConfigSnapshot } from './host-config'
 import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 
 import type { AccountState, DeviceSignInEnd } from './account-types'
+import type { HostGrantResponse, UplinkDirectory, UplinkEnrollmentTicket, UplinkLinkRequest, UplinkStatus } from './uplink'
 
 export interface LocalConnectionInfo {
   port: number
@@ -134,7 +135,8 @@ export interface SolusAPI {
   atlassianCancelOAuth(): Promise<void>
   atlassianDisconnect(): Promise<void>
   atlassianJiraProjects(): Promise<AtlassianJiraProject[]>
-  connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string; remoteAccess: boolean; requireAuth: boolean; trustLocalNetwork: boolean }>
+  /** `principal` is how this caller was admitted; only a `local-owner` may change how the host is reached. */
+  connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string; remoteAccess: boolean; requireAuth: boolean; trustLocalNetwork: boolean; principal: 'local-owner' | 'remote-owner' | 'system' }>
   connectionsListEndpoints(): Promise<Array<{ kind: 'loopback' | 'lan' | 'tailnet'; label: string; host: string; port: number }>>
   connectionsGeneratePairToken(): Promise<{ token: string; code: string; expiresAt: number }>
   connectionsListSessions(): Promise<Array<{ id: string; deviceLabel: string; deviceId: string | null; connectedAt: number; connectionCount: number; connectionIds: string[] }>>
@@ -142,6 +144,10 @@ export interface SolusAPI {
   connectionsRevokeDevice(args: { deviceId: string }): Promise<{ ok: boolean; revoked: string[] }>
   connectionsSetRemoteAccess(args: { remoteAccess: boolean }): Promise<{ remoteAccess: boolean; host: string; port: number; allowLan: boolean; requireAuth: boolean }>
   connectionsSetTrustLocalNetwork(args: { trustLocalNetwork: boolean }): Promise<{ trustLocalNetwork: boolean }>
+  /** Personal Uplink (local-owner only): link this host to the owner's Solus cloud account. */
+  uplinkLink(args: UplinkLinkRequest): Promise<UplinkStatus>
+  uplinkUnlink(): Promise<UplinkStatus>
+  uplinkStatus(): Promise<UplinkStatus>
   setAnalyticsConsent(enabled: boolean): Promise<void>
   /** This host's durable config, plus whether any client has seeded it yet. */
   configGet(): Promise<HostConfigSnapshot>
@@ -560,4 +566,9 @@ export interface NativeSolusAPI {
   /** Re-checks a stored session with the website now. */
   accountRetryVerify(): Promise<void>
   onAccountStateChange(callback: (state: AccountState) => void): () => void
+  /** Personal Uplink, on behalf of the signed-in account. Null when signed out or
+   *  the website did not answer; the account token itself never crosses. */
+  uplinkListDirectoryHosts(): Promise<UplinkDirectory | null>
+  uplinkAcquireHostGrant(hostId: string): Promise<HostGrantResponse | null>
+  uplinkIssueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
 }

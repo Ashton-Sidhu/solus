@@ -19,18 +19,17 @@ import { PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
 import { linkedPrTitle } from './task-prs'
 
 /**
- * The page width at which the properties rail stops fitting beside the content
- * and folds under it.
+ * The page width below which the properties rail has no column to sit in.
  *
- * Mirrors the `@max-[60rem]` rungs on the content row and `TaskSidebar`, which
- * resolve against the `@container` on the task page root. That root has no
- * padding, so its content box and its border box are the same number and a
- * pane-width reading agrees with the stylesheet exactly.
+ * Read off the `@container` on the task page root, which has no padding, so its
+ * content box and its border box are one number.
  *
- * It is a constant because two things have to agree about it: below this width
- * the rail is not drawn in the column at all, and the sheet plus the button
- * that opens it are the replacement. Change one, change both —
- * `task-rail-fold.test.ts` fails if they drift.
+ * This is the only place the rung exists. The rail used to fold under the
+ * content at a `@max-[60rem]` of its own while the sheet that replaces it — and
+ * the button that opens the sheet — appeared at a JavaScript rung of 30rem,
+ * which left every pane between the two with the properties stacked under the
+ * comment composer and no way to reach them otherwise. Above the rung the rail
+ * is a column, below it the whole rail is the sheet.
  */
 export const TASK_RAIL_FOLD_MAX = 60 * 16
 

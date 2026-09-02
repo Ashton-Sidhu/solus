@@ -18,6 +18,7 @@
     type OfferedHost,
   } from "../lib/add-host";
   import { classifyConnectInput, probeServer } from "../lib/connect";
+  import { cloudOrigin } from "../lib/cloud-origin.svelte";
   import { activateServer } from "../lib/primary-connection";
 
   // The hostless home is the one surface allowed to exist without a primary
@@ -116,6 +117,39 @@
   </header>
 
   <main class="flex w-full max-w-[26rem] flex-col gap-4">
+    {#if cloudOrigin.kind === "signed-out" || cloudOrigin.kind === "signed-in"}
+      <!-- Served by the account origin: the directory is one sign-in away, and a
+           signed-in account with nothing listed is told where linking happens. -->
+      <section>
+        <span
+          class="mb-1 block px-1 font-semibold uppercase tracking-[0.03em] text-(--solus-text-tertiary)"
+          >Solus cloud</span
+        >
+        <div
+          class="flex flex-col gap-2 rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-3"
+        >
+          {#if cloudOrigin.kind === "signed-out"}
+            <p class="leading-relaxed text-(--solus-text-tertiary)">
+              Sign in to see the hosts linked to your account.
+            </p>
+            <a
+              href={cloudOrigin.signInUrl}
+              class="inline-flex items-center justify-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2 font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.98]"
+            >
+              Sign in
+            </a>
+          {:else if savedServers.length === 0}
+            <p class="leading-relaxed text-(--solus-text-tertiary)">
+              No hosts are linked to your account yet. On your computer, open Solus and
+              go to <strong class="font-medium text-(--solus-text-secondary)"
+                >Settings → Connections → Access → Link to Solus cloud</strong
+              >.
+            </p>
+          {/if}
+        </div>
+      </section>
+    {/if}
+
     {#if servingHost && !selectedHost}
       <section>
         <span

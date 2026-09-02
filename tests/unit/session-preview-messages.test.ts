@@ -93,6 +93,21 @@ describe('extractPreviewMessages', () => {
     expect(result.firstUserMessage?.snippet).toBe('Anyone there?')
     expect(result.lastAssistantMessage).toBeNull()
   })
+
+  test('keeps markdown structure in the assistant excerpt', () => {
+    // WHY: the picker renders this excerpt as markdown. Flattening its line
+    // breaks turns a list or fenced block back into visible markdown syntax.
+    const messages: PreviewMessage[] = [
+      msg({
+        role: 'assistant',
+        content: '## Result\n\n- First item\n- **Second item**\n\n```ts\nconst ready = true\n```',
+      }),
+    ]
+
+    expect(extractPreviewMessages(messages).lastAssistantMessage?.snippet).toBe(
+      '## Result\n\n- First item\n- **Second item**\n\n```ts\nconst ready = true\n```',
+    )
+  })
 })
 
 describe('truncateAtWord', () => {

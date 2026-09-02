@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
+import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { SecretStore } from '@solus/server/platform/secrets'
 
 /**
@@ -50,11 +51,11 @@ describe('Atlassian OAuth on a build with no client credentials', () => {
     const server = new SolusServer()
     registerAtlassianHandlers(server)
 
-    const result = await server.handle('atlassianStartOAuth', [])
+    const result = await server.handle('atlassianStartOAuth', [], TEST_HANDLER_CTX)
     expect(result).toMatchObject({ ok: false })
     // The status is what the UI reads to replace the button with an
     // explanation, so it must say the build cannot sign in at all.
-    expect(await server.handle('atlassianStatus', [])).toEqual({
+    expect(await server.handle('atlassianStatus', [], TEST_HANDLER_CTX)).toEqual({
       connected: false,
       oauthAvailable: false,
     })

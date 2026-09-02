@@ -33,8 +33,13 @@ export interface WsTransportOptions {
   serverUrl: string
   /** Client-side identity of the host this transport addresses. */
   serverId?: string
-  /** Session token returned from pairing or the desktop local bootstrap. */
+  /** Session token returned from pairing or the desktop local bootstrap. Empty
+   *  when the credential is minted per dial (an Uplink grant). */
   sessionToken: string
+  /** Mints one ≤10-minute Uplink grant for each dial; the host spends it on the
+   *  spot, so it is never kept. Null means no grant could be had right now
+   *  (signed out, or the website did not answer). */
+  acquireGrant?: () => Promise<string | null>
   /** Called whenever the connection state changes. */
   onStatusChange?: (status: ConnectionStatus, attempt: number) => void
   /** Called after /auth/refresh returns a fresh token. */
@@ -107,7 +112,7 @@ export class WsTransport {
   /** Streamed browser frames for this host, routed by page id. Separate from
    *  `events`: binary bytes, not a typed-event envelope. */
   readonly frames = new BrowserFrameSubscriber()
-  private readonly socket: Socket
+  private socket: Socket
   private readonly clientInstanceId = createClientInstanceId()
   private nextId = 1
   private requests = new Map<string, RequestEntry>()
@@ -119,6 +124,8 @@ export class WsTransport {
   private blocked = false
   private hasOpened = false
   private authRefreshAttempted = false
+  /** The last ticket exchange presented a fresh grant and the host answered 401. */
+  private grantRefusedByHost = false
   private authRefreshResetTimer: ReturnType<typeof setTimeout> | null = null
   private wakeProbeInFlight = false
   private connectedGeneration = 0
@@ -126,7 +133,12 @@ export class WsTransport {
   private pendingHostEvents: HostEvent[] = []
 
   constructor(private opts: WsTransportOptions) {
-    this.socket = io(opts.serverUrl, {
+    this.socket = this.createSocket()
+    this.installSocketListeners()
+  }
+
+  private createSocket(): Socket {
+    return io(this.opts.serverUrl, {
       path: '/ws',
       transports: ['websocket'],
       // The supervisor is the sole retry owner; the socket dials only when told.
@@ -143,6 +155,28 @@ export class WsTransport {
         })
       },
     })
+  }
+
+  /** The URL this transport dials. */
+  get serverUrl(): string {
+    return this.opts.serverUrl
+  }
+
+  /**
+   * Re-aims the standing socket at another route to the same host (direct-first
+   * dialing, C3). Queued requests and event subscribers stay; only the socket is
+   * replaced. The supervisor dials the new socket on its next `start()`.
+   */
+  switchServerUrl(serverUrl: string): void {
+    if (this.destroyed || serverUrl === this.opts.serverUrl) return
+    this.logConnection('switching route', { from: this.opts.serverUrl, to: serverUrl })
+    this.socket.removeAllListeners()
+    this.socket.disconnect()
+    this.connectedGeneration += 1
+    this.isAcceptedConnection = false
+    this.requeueSentRequests()
+    this.opts.serverUrl = serverUrl
+    this.socket = this.createSocket()
     this.installSocketListeners()
   }
 
@@ -237,14 +271,22 @@ export class WsTransport {
    *  means the handshake is credential-free; only a trusted requester or a
    *  host configured without auth can admit it. */
   private async fetchWsTicket(): Promise<string | null> {
-    if (!this.opts.sessionToken) return null
+    const credential = this.opts.acquireGrant
+      ? await this.opts.acquireGrant().catch(() => null)
+      : this.opts.sessionToken
+    this.grantRefusedByHost = false
+    if (!credential) return null
     try {
       const response = await fetch(`${this.opts.serverUrl}/auth/ws-ticket`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${this.opts.sessionToken}` },
+        headers: { authorization: `Bearer ${credential}` },
         signal: AbortSignal.timeout(3_000),
       })
-      if (!response.ok) return null
+      if (!response.ok) {
+        // A fresh grant the host would not take: revoked here, or not this host's.
+        this.grantRefusedByHost = !!this.opts.acquireGrant && response.status === 401
+        return null
+      }
       const body = z.object({ ticket: z.string().min(1).optional().catch(undefined) })
         .catch({})
         .parse(await response.json().catch(() => ({})))
@@ -275,6 +317,13 @@ export class WsTransport {
         // With auto-reconnection off nobody else will ever dial again: the
         // failed dial is the supervisor's cue to schedule the next one.
         if (!this.destroyed && !this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
+        return
+      }
+      if (this.opts.acquireGrant) {
+        // There is no token to refresh: the next dial mints its own grant. Only a
+        // grant the host itself refused means this device is done here.
+        if (this.grantRefusedByHost) this.blockAuthFailure()
+        else if (!this.destroyed && !this.blocked) this.opts.onDialOutcome?.({ kind: 'dial-failed' })
         return
       }
       if (this.authRefreshAttempted) {
@@ -370,6 +419,11 @@ export class WsTransport {
   }
 
   private async transcribeAudio(samples: Float32Array): Promise<{ error: string | null; transcript: string | null }> {
+    if (this.opts.acquireGrant) {
+      // The host's HTTP routes take a pairing token; the tunnel offers no upload door
+      // (docs/plans/personal-uplink.md, H3). Say so rather than spend grants on 401s.
+      return { error: 'Dictation is not available over Solus cloud yet. Type your prompt instead.', transcript: null }
+    }
     if (samples.length > MAX_VOICE_SAMPLES) {
       return {
         error: `Voice recordings can be up to ${MAX_VOICE_RECORDING_MINUTES} minutes long.`,

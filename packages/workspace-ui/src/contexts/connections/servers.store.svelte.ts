@@ -13,6 +13,9 @@ import { connectionState, subscribe } from '@solus/client-core/connection-state'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { LocalConnectionInfoLike, SolusServerTarget } from '@solus/client-core/server-connection'
+import { onWakeSignal } from '@solus/client-core/wake-signals'
+import { uplinkAccountSource } from '@solus/client-core/uplink-account'
+import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
   getActiveServerId,
@@ -20,15 +23,20 @@ import {
   LOCAL_SERVER_ID,
   onServerRemoving,
   removeServer,
+  savedServerRoutes,
+  saveServers,
   setActiveServerId,
   touchLastConnected,
   upsertServer,
   type SavedServer,
+  type SavedServerUplink,
 } from '@solus/client-core/server-registry'
 import type { DiscoveredServer, HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
+import type { HostRoute } from '@solus/contracts/uplink'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
+import { accountStore } from '../account/account.store.svelte'
 import {
   compareNearbyHosts,
   filterUnsavedDiscoveredServers,
@@ -64,6 +72,10 @@ export interface ServerItem {
   os?: HostOperatingSystem
   local: boolean
   status: ServerItemStatus
+  /** Every way this client knows to reach the host (direct-first dialing, C3). */
+  routes: HostRoute[]
+  /** Set when the owner's cloud directory lists the host. */
+  uplink?: SavedServerUplink
 }
 
 /** A session can outlive the saved-host entry that once named its remote host. */
@@ -97,6 +109,9 @@ class ServersStore {
   pendingRunOnRequesterId = $state<string | null>(null)
   justPairedServerId = $state<string | null>(null)
   discoveryBusy = $state(false)
+  /** What the account's host directory last said about being signed in: null until asked. */
+  directorySignedIn = $state<boolean | null>(null)
+  private directoryRefreshInFlight = false
   private connectionStatesByServer = $state<Record<string, ServerConnectionState>>({})
   projectIdentitiesByServer = $state<Record<string, ProjectIdentity[]>>({})
   probingHosts = $state(false)
@@ -118,17 +133,20 @@ class ServersStore {
     // from the live connection registry, since they are never persisted.
     const rows: ServerItem[] = []
     if (this.local) {
+      const url = `http://127.0.0.1:${this.local.port}`
       rows.push({
         id: LOCAL_SERVER_ID,
         label: this.localIdentity?.name ?? 'This computer',
-        url: `http://127.0.0.1:${this.local.port}`,
+        url,
         installationId: this.local.installationId,
         local: true,
         status: this.statusFor(LOCAL_SERVER_ID),
+        routes: [{ kind: 'direct', url }],
       })
     }
     for (const server of this.remotes) {
-      rows.push({
+      if (server.installationId === this.local?.installationId) continue
+      const row: ServerItem = {
         id: server.id,
         label: server.label,
         url: server.url,
@@ -136,7 +154,10 @@ class ServersStore {
         os: server.os,
         local: false,
         status: this.statusFor(server.id),
-      })
+        routes: savedServerRoutes(server),
+      }
+      if (server.uplink) row.uplink = server.uplink
+      rows.push(row)
     }
     for (const serverId of serverConnections.connectedServerIds()) {
       if (serverId === LOCAL_SERVER_ID || rows.some((row) => row.id === serverId)) continue
@@ -149,6 +170,7 @@ class ServersStore {
         installationId: target.installationId,
         local: false,
         status: this.statusFor(serverId),
+        routes: target.routes ?? savedServerRoutes({ url: target.url }),
       })
     }
     return rows
@@ -260,6 +282,49 @@ class ServersStore {
       forgetSkewDismissals(server.id)
       sendOutbox.forgetHost(server.id)
     })
+
+    // The account's host directory is the fourth source of hosts (C1). It is
+    // read on boot, on sign-in changes, on wake, and when Connections opens;
+    // nothing pushes it. The account store mirrors main's sign-in state
+    // and has no other subscriber until a sign-in surface lands, so it starts here.
+    accountStore.start()
+    void this.refreshDirectory()
+    onWakeSignal(() => void this.refreshDirectory())
+    localApi.onAccountStateChange?.(() => void this.refreshDirectory())
+  }
+
+  /**
+   * Folds the signed-in account's directory into the saved hosts: a paired host that
+   * is also listed gains its tunnel route, a host only listed is saved with the tunnel
+   * alone, and a host the directory dropped loses the tunnel (and the row, if it was
+   * never paired). Without an account source this is a no-op.
+   */
+  async refreshDirectory(): Promise<void> {
+    const source = uplinkAccountSource()
+    if (!source || this.directoryRefreshInFlight) return
+    this.directoryRefreshInFlight = true
+    try {
+      const directory = await source.listDirectory()
+      if (!directory) {
+        this.directorySignedIn = false
+        return
+      }
+      this.directorySignedIn = true
+      const before = loadServers()
+      const merged = mergeDirectoryIntoSaved(before, directory.hosts, directory.directoryUrl, Date.now())
+      saveServers(merged)
+      // A host the directory dropped is released only if nothing is talking to it:
+      // a refresh must never cut a working session, whatever the directory says.
+      const kept = new Set(merged.map((server) => server.id))
+      const connected = new Set(serverConnections.connectedServerIds())
+      for (const server of before) {
+        if (!kept.has(server.id) && !connected.has(server.id)) serverConnections.release(server.id)
+      }
+      this.refreshServers()
+      serverConnections.startCatalogSupervisors()
+    } finally {
+      this.directoryRefreshInFlight = false
+    }
   }
 
   /** The per-host version-skew notice, or null when versions match, the host

@@ -108,7 +108,11 @@ describe('merge state is stated once, wherever it is drawn', () => {
     // Both mounted at once would put the merge CTA on screen twice; neither
     // would put it past every comment on the pull request. One reading decides,
     // so there is no band of pane widths that gets the wrong count.
-    expect(feed).toContain('showReadiness={!railFolded}')
+    // The rail carries the card only as a column, and the column is only drawn
+    // above the rung; the bar is only drawn below it. One reading decides both,
+    // so there is no band of pane widths that gets the card twice or not at all.
+    expect(feed).toContain('showReadiness={variant === "column"}')
+    expect(feed).toContain('{#if !railFolded}')
     expect(feed).toContain('{#if railFolded}')
   })
 })

@@ -21,6 +21,13 @@ describe('diff comment bar actions', () => {
     expect((composer.match(/aria-label="Send"/gu) ?? []).length).toBe(1)
   })
 
+  test('queued comments do not add a control to the action input', () => {
+    // WHY: comments are already available from the panel header. Repeating the
+    // count inside the narrow composer spends input space without adding an action.
+    expect(bar).not.toContain('View queued comments')
+    expect(bar).not.toContain('comments-chip')
+  })
+
   test('the destination is a visible, reversible toggle', () => {
     // WHY: a hidden destination is what forced the second button. The toggle
     // has to report its own state, or the single send is ambiguous instead of

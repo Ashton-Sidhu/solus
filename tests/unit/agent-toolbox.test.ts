@@ -79,7 +79,6 @@ describe('Solus toolbox', () => {
       'reply_pr_thread',
       'resolve_pr_thread',
       'submit_pr_review',
-      'request_review_guide',
       'read_config',
       'update_config',
     ])

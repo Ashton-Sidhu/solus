@@ -85,6 +85,22 @@ describe('the workspace peek sheet carries what the record dropped', () => {
     expect(sheet).toContain('z-50 bg-black/45')
     expect(sheet).toContain('z-[51]')
   })
+
+  it('routes a hydrated work without blocking the mobile tap on another load', () => {
+    // WHY: the sheet has already hydrated the work for its preview. Waiting on
+    // openWorkModal repeats that remote read before changing the route, so a
+    // phone tap can appear to do nothing on a slow connection.
+    const page = source('workspace/WorkspacePage.svelte')
+    const open = page.indexOf('session.openWork(target.id);')
+    const close = page.indexOf('peek.close();', open)
+    expect(open).toBeGreaterThan(-1)
+    expect(close).toBeGreaterThan(open)
+  })
+
+  it('does not offer Open before the sheet preload is ready', () => {
+    expect(peek).toContain('disabled={!contentReady}')
+    expect(peek).toContain('Loading ${KIND_LABELS[item.type].toLowerCase()}…')
+  })
 })
 
 describe('the task page is a phone page, not a narrowed desktop one', () => {
@@ -264,29 +280,156 @@ describe('every page-level narrowing row is the same band', () => {
   })
 })
 
-describe('the pickers are sized against the window they are portalled to', () => {
-  const sessionPicker = source('session/SessionPicker.svelte')
-  const taskPicker = source('session/TaskPicker.svelte')
+describe('the picker is sized against the window it is portalled to', () => {
+  const picker = source('session/unified-picker/UnifiedPicker.svelte')
+  const pickerRow = source('session/unified-picker/UnifiedPickerRow.svelte')
+  const pickerPeek = source('session/unified-picker/PickerPeekSheet.svelte')
+  const sessionPreview = source('session/SessionPreview.svelte')
+  const sessionContextMenu = source('session/SessionContextMenu.svelte')
+  const sessionStatusGlyph = source('session/SessionStatusGlyph.svelte')
+  const taskPreview = source('session/unified-picker/TaskPreviewPane.svelte')
+
+  it('splits the difference between the compact and original picker sizes', () => {
+    expect(picker).toContain('h-[70%] w-[76%]')
+    expect(picker).toContain('md:pointer-fine:[.is-laptop-display_&]:h-[74%]')
+    expect(picker).toContain('md:pointer-fine:[.is-laptop-display_&]:w-[89%]')
+  })
 
   it('gives a thumb a target it can hit and a title it can read', () => {
-    // 46px is a pointer's row. The picker is one of the few surfaces where the
-    // window is the honest question, because it is sized against the window.
-    expect(sessionPicker).toContain('runtime.isMobileViewport ? 62 : 46')
-    expect(taskPicker).toContain('max-md:h-[62px]')
+    // 44px is a pointer's row. The picker is one of the few surfaces where the
+    // window is the honest question, because it is sized against the window
+    // rather than against a pane. A nested session row is shorter, but never
+    // below the 44px a thumb needs.
+    expect(pickerRow).toContain('max-md:h-[58px]')
+    expect(pickerRow).toContain('max-md:h-[50px]')
+  })
+
+  it('tells the virtualiser the same phone heights the rows paint at', () => {
+    // WHY: the list is virtualised, so a row is positioned from the height
+    // table before it paints. If the table and the markup disagree, every row
+    // below the first disagreement lands on top of its neighbour.
+    expect(picker).toContain('pickerRowHeight(row, runtime.isMobileViewport)')
+  })
+
+  it('keeps the disclosure a 44px-wide target of its own', () => {
+    // WHY: expanding a task and resuming it are different intents. At a
+    // pointer's 24px the chevron is a thumb's coin toss between them.
+    expect(pickerRow).toContain('max-md:w-11')
+  })
+
+  it('drops the desktop session spine from the task status glyph', () => {
+    // WHY: the desktop disclosure is 26px wide and the status gutter is 22px
+    // wide, so the glyph centre is 37px from the row edge. A nearby arbitrary
+    // offset makes the spine visibly detach from the parent task.
+    expect(pickerRow).toContain('left-[37px]')
   })
 
   it('raises the search field into the card shape every phone list uses', () => {
-    for (const picker of [sessionPicker, taskPicker]) {
-      expect(picker).toContain('max-md:bg-card')
-      expect(picker).toContain('max-md:shadow-[shadow:var(--elev-ring)]')
-    }
+    expect(picker).toContain('max-md:bg-card')
+    expect(picker).toContain('max-md:shadow-[shadow:var(--elev-ring)]')
   })
 
   it('keeps the field at 16px, so focusing it never zooms the page in', () => {
     // iOS zooms into any field under 16px on focus and does not zoom back out,
     // which leaves the picker half off-screen with no way to recover it.
-    for (const picker of [sessionPicker, taskPicker]) {
-      expect(picker).toContain('max-md:text-base')
-    }
+    expect(picker).toContain('max-md:text-base')
+  })
+
+  it('uses the canonical desktop and laptop picker type rung', () => {
+    expect(picker).toContain('text-workspace-chrome')
+    expect(pickerRow).toContain('text-workspace-chrome')
+    expect(sessionPreview).toContain('class="text-workspace-chrome flex h-full')
+  })
+
+  it('uses the task board status glyph wherever the picker identifies task status', () => {
+    // WHY: the progress ring is the product's shared status language. A generic
+    // checklist or a second hand-built SVG makes the same task look different
+    // between the board, picker row, and picker preview.
+    expect(pickerRow).toContain('<TaskStatusGlyph status={task.status} size={13} />')
+    expect(taskPreview).toContain('<TaskStatusGlyph status={task.status} size={12} />')
+  })
+
+  it('uses the canonical session status icons at the size of each display rung', () => {
+    // WHY: session state has one shared icon map. The picker must not reduce it
+    // to a custom running bubble and completed check, and laptop chrome needs
+    // the smaller 12px geometry that accompanies its text rung.
+    expect(sessionStatusGlyph).toContain('getAttentionIcon(attention)')
+    expect(sessionStatusGlyph).toContain('size-3.5')
+    expect(sessionStatusGlyph).toContain('md:pointer-fine:[.is-laptop-display_&]:size-3')
+    expect(pickerRow).toContain('<SessionStatusGlyph attention={child.attention} />')
+    expect(taskPreview).toContain('<SessionStatusGlyph attention={item.attention} />')
+    expect(sessionPreview).toContain('<SessionStatusGlyph {attention} class="max-md:hidden" />')
+    expect(pickerPeek).toContain('<SessionStatusGlyph attention={target.session.attention} />')
+  })
+
+  it('loads and draws the task Linked table in the preview', () => {
+    expect(taskPreview).toContain('.loadDetails()')
+    expect(taskPreview).toContain('linkedRows.length + prRows.length')
+    expect(taskPreview).toContain('{#each prRows as row (row.key)}')
+    expect(taskPreview).toContain('gap-[11px] border-b-[0.5px]')
+    expect(taskPreview).not.toContain('sectionHeading("Pull requests"')
+    expect(taskPreview).toContain('onOpenExternal(url)')
+    expect(taskPreview).toContain('onUnlink(row.link)')
+    expect(taskPreview).toContain('pointer-coarse:opacity-100')
+    for (const heading of ['Item', 'Kind', 'Status']) expect(taskPreview).toContain(heading)
+  })
+
+  it('keeps session ages on one line in the task preview', () => {
+    // WHY: narrow preview columns can otherwise split "21h ago" across two
+    // lines, and "just now" is wider still. Every picker surface that prints
+    // an age must keep the phrase intact.
+    expect(taskPreview).toContain('whitespace-nowrap tabular-nums')
+    expect(pickerRow.match(/whitespace-nowrap/g)?.length).toBe(2)
+    expect(pickerPeek).toContain('shrink-0 whitespace-nowrap')
+    expect(sessionPreview).toContain('flex-shrink-0 whitespace-nowrap')
+  })
+
+  it('falls back to durable session data while a restored tab is still empty', () => {
+    expect(picker).toContain('tabSession?.messages.length')
+    expect(picker).toContain('selectedSession.lastActivityAt || selectedTask.updatedAt')
+    expect(pickerRow).toContain('child.lastActivityAt || row.task.updatedAt')
+    expect(picker).toContain('if (tabId && tabSession?.messages.length) return preview.loading')
+  })
+
+  it('uses the original session picker transcript preview', () => {
+    // WHY: the compact first-message bubble and last-reply treatment are the
+    // established session-picker preview. The unified picker must reuse it
+    // instead of maintaining a second transcript design.
+    expect(picker).toContain('import SessionPreview from "../SessionPreview.svelte"')
+    expect(sessionPreview).toContain('prose-transcript-user')
+    expect(sessionPreview).toContain('prose-cloud prose-reading prose-transcript')
+    expect(sessionPreview).toContain('<SvelteMarkdown')
+    expect(sessionPreview).toContain('options={assistantMarkdownOptions}')
+    expect(sessionPreview).toContain('last reply')
+  })
+
+  it('highlights search matches without replacing the markdown preview', () => {
+    // WHY: the picker query can match text inside either transcript excerpt.
+    // Rendering a plain highlighted string restored marks but removed markdown;
+    // the text-token renderer keeps both behaviors on desktop and phone.
+    expect(sessionPreview).toContain('{#snippet highlightedMarkdownText')
+    expect(sessionPreview.match(/text=\{highlightedMarkdownText\}/g)?.length).toBe(2)
+    expect(sessionPreview).not.toContain('{#if query}')
+  })
+
+  it('reaches the preview by press-and-hold, since tapping a row acts on it', () => {
+    // WHY: the preview column is hidden below md, so without the peek a phone
+    // has no way to read a task before committing to opening it.
+    expect(picker).toContain('pointerType !== "touch"')
+    expect(picker).toContain('peekTarget =')
+  })
+
+  it('opens the established context menu for either picker row kind', () => {
+    // WHY: a nested session is its own durable conversation. Right-clicking it
+    // must not silently do nothing or reuse the parent task's actions.
+    expect(picker).toContain('import SessionContextMenu from "../SessionContextMenu.svelte"')
+    expect(picker).toContain('sessionContextMenu = { session: entry.session')
+    expect(picker).toContain('<TaskContextMenu')
+    expect(picker).toContain('<SessionContextMenu')
+    expect(pickerRow.match(/oncontextmenu=\{/g)?.length).toBe(2)
+    // The picker is itself portalled above page chrome, so both menus must
+    // portal into that same layer instead of painting below the picker.
+    expect(picker.match(/portalTarget=\{layer\.el\}/g)?.length).toBeGreaterThanOrEqual(2)
+    expect(sessionContextMenu).toContain('portalProps={portalTarget ? { to: portalTarget } : undefined}')
   })
 })

@@ -16,7 +16,11 @@ import { hostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { PullRequest } from '@solus/contracts/providers'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
-import type { PrGuideMetadata, PrGuideStatus } from '@solus/contracts/review'
+import type {
+  PrGuideMetadata,
+  PrGuideStatus,
+  ReviewGuideStatusEvent,
+} from '@solus/contracts/review'
 import { detached, projectPrsKey } from './project-prs.svelte'
 import type { PrsStore } from './prs.store.svelte'
 
@@ -124,13 +128,47 @@ export class PrGuidesStore {
 
   /** Wired once, for the whole workspace. */
   subscribe(): () => void {
-    return subscribeAllHosts('pr.guideStatusChanged', (serverId, event) => {
+    const unsubscribePrGuides = subscribeAllHosts('pr.guideStatusChanged', (serverId, event) => {
       const contextKey = hostKey(serverId, event.repoRoot)
       const key = `${contextKey}::${event.number}`
       this.status.set(key, event.status)
       this.settle(contextKey)
       if (event.metadata) this.metadata.set(key, event.metadata)
     })
+    // GitSection and the review surfaces generate through the general review
+    // producer. A branch guide for the exact head of an open PR is still work
+    // on that PR, so reflect its live lifecycle anywhere the PR is shown.
+    const unsubscribeReviewGuides = subscribeAllHosts(
+      'review.guideStatusChanged',
+      (serverId, event) => this.applyReviewGuideStatus(serverId, event),
+    )
+    return () => {
+      unsubscribePrGuides()
+      unsubscribeReviewGuides()
+    }
+  }
+
+  applyReviewGuideStatus(serverId: string, event: ReviewGuideStatusEvent): void {
+    if (event.scope !== 'branch' && event.scope !== 'pr') return
+    const project = this.prs.at(serverId, event.repoRoot)
+    if (!project) return
+
+    const pullRequests = event.target?.kind === 'pr'
+      ? [project.prFor(event.target.number)].filter((pr) => pr?.headSha === event.headSha)
+      : project.openPrs.filter((pr) => pr.headSha === event.headSha)
+
+    for (const pr of pullRequests) {
+      if (!pr) continue
+      const key = `${hostKey(serverId, event.repoRoot)}::${pr.number}`
+      if (event.status === 'queued' || event.status === 'generating' || event.status === 'failed') {
+        this.status.set(key, event.status)
+        continue
+      }
+      this.status.delete(key)
+      if (event.status === 'ready') {
+        void this.loadMetadata(project.hostApi, serverId, project.hostContext, pr).catch(() => {})
+      }
+    }
   }
 
   /** Tell the asker once every pull request in their batch has settled. */

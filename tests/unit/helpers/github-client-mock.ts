@@ -1,4 +1,5 @@
 import { mock } from 'bun:test'
+import type { GitHubClient } from '@solus/server/providers/github/octokit'
 
 /**
  * Bun registers a module mock for the whole test run, not per file. Two files
@@ -32,6 +33,15 @@ export const githubClientState = {
   accessToken: 'gho_test-token',
 }
 
+/** The client every mocked builder hands out: one repository read, signed
+ *  with the host's token. */
+export function mockedGithubClient(): GitHubClient {
+  return {
+    rest: { repos: { get: async () => ({ data: githubClientState.repository }) } },
+    credential: { source: 'host', token: githubClientState.accessToken },
+  } as unknown as GitHubClient
+}
+
 export function installGithubClientMock(): void {
   mock.module('@solus/server/providers/github/auth', () => ({
     GitHubAuth: class {
@@ -47,8 +57,7 @@ export function installGithubClientMock(): void {
 
   mock.module('@solus/server/providers/github/octokit', () => ({
     GitHubReauthRequiredError: class extends Error {},
-    buildClient: async () => ({
-      rest: { repos: { get: async () => ({ data: githubClientState.repository }) } },
-    }),
+    buildClient: async () => mockedGithubClient(),
+    clientFor: () => mockedGithubClient(),
   }))
 }

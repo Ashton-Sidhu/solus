@@ -7,7 +7,7 @@ import type { AgentDispatcher } from '../../agents/agent-runner'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import type { IpcContext } from '@solus/contracts/types'
 import type { ReviewGuideRequestOptions, ReviewTarget } from '@solus/contracts/review'
-import { configureReviewRequestTool } from '../../review/review-request-tool'
+import { reviewSessionStatus } from '../../review/session-lifecycle'
 
 export function registerReviewHandlers(
   server: SolusServer,
@@ -18,16 +18,6 @@ export function registerReviewHandlers(
     target: Extract<ReviewTarget, { kind: 'pr' }>,
   ) => Promise<{ ctx: IpcContext; target: Extract<ReviewTarget, { kind: 'pr' }> }>,
 ): void {
-  configureReviewRequestTool({
-    generate: (ctx, target, agent) => generateGuide(
-      dispatcher,
-      ctx,
-      { target, agent },
-      (event) => events.broadcast('review.progressChanged', event),
-      (event) => events.broadcast('review.guideStatusChanged', event),
-    ),
-    preparePr,
-  })
   const resolveRequest = async (
     ctx: IpcContext,
     opts: ReviewGuideRequestOptions | undefined,
@@ -71,13 +61,32 @@ export function registerReviewHandlers(
   server.register('requestReviewGuide', async (args) => {
     const [ctx, opts] = args
     const resolved = await resolveRequest(ctx, opts)
-    return requestReviewGuide(
+    const reportStatus = (event: import('@solus/contracts/review').ReviewGuideStatusEvent) => {
+      events.broadcast('review.guideStatusChanged', event)
+      if (!opts?.reportSessionLifecycle) return
+      events.broadcast('session.statusChanged', {
+        sessionId: ctx.session.sessionId,
+        agentSessionId: ctx.session.agentSessionId,
+        status: reviewSessionStatus(event.status),
+        at: Date.now(),
+      })
+    }
+    const result = await requestReviewGuide(
       dispatcher,
       resolved.ctx,
       resolved.opts,
       (event) => events.broadcast('review.progressChanged', event),
-      (event) => events.broadcast('review.guideStatusChanged', event),
+      reportStatus,
     )
+    if (!result && opts?.reportSessionLifecycle) {
+      events.broadcast('session.statusChanged', {
+        sessionId: ctx.session.sessionId,
+        agentSessionId: ctx.session.agentSessionId,
+        status: 'completed',
+        at: Date.now(),
+      })
+    }
+    return result
   })
 
   server.register('reviewGuideStatus', async (args) => {

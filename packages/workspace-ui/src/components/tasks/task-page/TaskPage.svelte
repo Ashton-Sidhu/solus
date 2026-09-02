@@ -704,7 +704,7 @@
         </div>
       {/if}
       <div
-        class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6 @max-[60rem]:flex-col @max-[60rem]:gap-6 @max-[60rem]:px-6 @max-[42rem]:px-4"
+        class="mx-auto flex w-full max-w-[1420px] items-start gap-[34px] px-[52px] pt-6 @max-[60rem]:px-6 @max-[42rem]:px-4"
       >
         <div class="flex min-w-0 flex-1 flex-col">
           <!-- Overview: the task itself, and the pull requests that close it.
@@ -716,6 +716,10 @@
               canEdit={capabilities?.canEditContent ?? false}
               onSaveTitle={(title) => save({ title })}
               onSaveBody={(body) => save({ body })}
+              editableStatuses={capabilities?.editableStatuses ?? []}
+              canEditPriority={capabilities?.canEditPriority ?? false}
+              onSaveStatus={(status) => save({ status })}
+              onSavePriority={(priority) => save({ priority })}
               identity={stacked ? identityRow : undefined}
             />
 
@@ -788,7 +792,7 @@
               {#if railFolded}
                 <button
                   type="button"
-                  class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
+                  class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:size-9"
                   onclick={() => (propertiesOpen = true)}
                   aria-haspopup="dialog"
                   aria-expanded={propertiesOpen}
@@ -853,7 +857,7 @@
         <span class="text-workspace-chrome font-medium text-foreground">Properties</span>
         <button
           type="button"
-          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent]"
+          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:h-8"
           onclick={() => (propertiesOpen = false)}
         >
           Done

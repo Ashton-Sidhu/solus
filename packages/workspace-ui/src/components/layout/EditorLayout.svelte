@@ -29,7 +29,7 @@
 
   $effect(() => {
     const handler = () => {
-      session.sessionPickerOpen = !session.sessionPickerOpen;
+      session.unifiedPickerOpen = !session.unifiedPickerOpen;
     };
     window.addEventListener("solus:toggle-session-picker", handler);
     return () =>

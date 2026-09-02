@@ -1,4 +1,5 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { SecretStore } from '@solus/server/platform/secrets'
 
 /**
@@ -58,7 +59,7 @@ const storedGrant = {
 
 describe('Atlassian RPC handlers', () => {
   test('reports disconnected for a clean host, and that signing in is possible', async () => {
-    await expect(server().handle('atlassianStatus', [])).resolves.toEqual({
+    await expect(server().handle('atlassianStatus', [], TEST_HANDLER_CTX)).resolves.toEqual({
       connected: false,
       oauthAvailable: true,
     })
@@ -66,7 +67,7 @@ describe('Atlassian RPC handlers', () => {
 
   test('reports the site a stored grant reaches', async () => {
     records.set('atlassian-oauth', storedGrant)
-    await expect(server().handle('atlassianStatus', [])).resolves.toEqual({
+    await expect(server().handle('atlassianStatus', [], TEST_HANDLER_CTX)).resolves.toEqual({
       connected: true,
       siteUrl: 'https://acme.atlassian.net',
       cloudId: 'cloud-1',
@@ -80,13 +81,13 @@ describe('Atlassian RPC handlers', () => {
   // material may reach it — the browser flow keeps tokens on the host.
   test('never puts token material in the status', async () => {
     records.set('atlassian-oauth', storedGrant)
-    const status = JSON.stringify(await server().handle('atlassianStatus', []))
+    const status = JSON.stringify(await server().handle('atlassianStatus', [], TEST_HANDLER_CTX))
     expect(status).not.toContain('access-1')
     expect(status).not.toContain('refresh-1')
   })
 
   test('starting a sign-in yields an Atlassian authorize URL', async () => {
-    await expect(server().handle('atlassianStartOAuth', [])).resolves.toMatchObject({
+    await expect(server().handle('atlassianStartOAuth', [], TEST_HANDLER_CTX)).resolves.toMatchObject({
       ok: true,
       authUrl: expect.stringContaining('https://auth.atlassian.com/authorize?'),
     })
@@ -97,16 +98,16 @@ describe('Atlassian RPC handlers', () => {
   test('disconnect clears the stored grant', async () => {
     records.set('atlassian-oauth', storedGrant)
     const instance = server()
-    await instance.handle('atlassianDisconnect', [])
+    await instance.handle('atlassianDisconnect', [], TEST_HANDLER_CTX)
 
     expect(records.size).toBe(0)
-    await expect(instance.handle('atlassianStatus', [])).resolves.toMatchObject({ connected: false })
+    await expect(instance.handle('atlassianStatus', [], TEST_HANDLER_CTX)).resolves.toMatchObject({ connected: false })
   })
 
   test('cancelling frees the callback port for the next attempt', async () => {
     const instance = server()
-    await instance.handle('atlassianStartOAuth', [])
-    await instance.handle('atlassianCancelOAuth', [])
-    await expect(instance.handle('atlassianStartOAuth', [])).resolves.toMatchObject({ ok: true })
+    await instance.handle('atlassianStartOAuth', [], TEST_HANDLER_CTX)
+    await instance.handle('atlassianCancelOAuth', [], TEST_HANDLER_CTX)
+    await expect(instance.handle('atlassianStartOAuth', [], TEST_HANDLER_CTX)).resolves.toMatchObject({ ok: true })
   })
 })

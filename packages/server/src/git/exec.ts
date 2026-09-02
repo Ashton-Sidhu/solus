@@ -46,3 +46,9 @@ export async function runAsync(bin: string, args: string[], cwd: string, opts: G
   })
   return opts.raw ? stdout : stdout.trim()
 }
+
+/** Whether a revision resolves to a commit object in this repository. */
+export function gitCommitExists(cwd: string, revision: string): Promise<boolean> {
+  return runAsync('git', ['rev-parse', '--verify', '--quiet', `${revision}^{commit}`], cwd)
+    .then(() => true, () => false)
+}

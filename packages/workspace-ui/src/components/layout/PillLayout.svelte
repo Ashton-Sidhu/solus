@@ -5,8 +5,7 @@
   import ConversationView from "../conversation/ConversationView.svelte";
   import InputBar from "../input/InputBar.svelte";
   import InputToolbar from "../input/InputToolbar.svelte";
-  import SessionPicker from "../session/SessionPicker.svelte";
-  import TaskPicker from "../session/TaskPicker.svelte";
+  import UnifiedPicker from "../session/unified-picker/UnifiedPicker.svelte";
   import { SvelteSet } from "svelte/reactivity";
   import {
     getWorkspaceContext,
@@ -82,8 +81,7 @@
   const pillGoalSessionId = $derived(router.params("goal")?.sessionId ?? null);
   let pillGoalCollapsed = $state(false);
   let inputFocused = $state(false);
-  const pickerOpen = $derived(!isEditorMode && session.sessionPickerOpen);
-  const taskPickerOpen = $derived(!isEditorMode && session.taskPickerOpen);
+  const pickerOpen = $derived(!isEditorMode && session.unifiedPickerOpen);
   // The pill has no route outlet: it renders one fixed set of surfaces, so a
   // draft reaches it as the thing its dock composes for rather than as a pane.
   // Without this the bar keeps speaking for the tab the draft covered, and a
@@ -118,7 +116,6 @@
       router.at("tasks") ||
       router.at("prs") ||
       pickerOpen ||
-      taskPickerOpen ||
       !!pillGoalSessionId ||
       showPillDiagram ||
       !!pillWorkModal ||
@@ -151,7 +148,7 @@
       !router.at("prs"),
   );
   const conversationPoolVisible = $derived(
-    conversationSurfaceActive && !pickerOpen && !taskPickerOpen,
+    conversationSurfaceActive && !pickerOpen,
   );
   // Seeded from the current value so the common launch (straight into a
   // conversation) paints the pool on the very first frame.
@@ -192,8 +189,8 @@
   $effect(() => {
     const handler = () => {
       if (isEditorMode) return;
-      const next = !session.sessionPickerOpen;
-      session.sessionPickerOpen = next;
+      const next = !session.unifiedPickerOpen;
+      session.unifiedPickerOpen = next;
       if (next) {
         session.isExpanded = true;
         router.close("folio");
@@ -326,24 +323,11 @@
                 class="flex flex-col"
                 style="height:var(--pill-body-max);overflow:hidden"
               >
-                <SessionPicker
+                <UnifiedPicker
                   inline
-                  bind:open={session.sessionPickerOpen}
+                  bind:open={session.unifiedPickerOpen}
                   onClose={() => {
-                    session.sessionPickerOpen = false;
-                  }}
-                />
-              </div>
-            {:else if taskPickerOpen}
-              <div
-                class="flex flex-col"
-                style="height:var(--pill-body-max);overflow:hidden"
-              >
-                <TaskPicker
-                  inline
-                  bind:open={session.taskPickerOpen}
-                  onClose={() => {
-                    session.taskPickerOpen = false;
+                    session.unifiedPickerOpen = false;
                   }}
                 />
               </div>

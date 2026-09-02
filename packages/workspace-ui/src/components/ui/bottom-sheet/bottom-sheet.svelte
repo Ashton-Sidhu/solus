@@ -26,9 +26,16 @@
     header?: Snippet;
     /** Pinned below it: the one action the sheet exists to offer. */
     footer?: Snippet;
+    /**
+     * Where the sheet mounts. The body by default; a sheet raised from inside
+     * a surface that itself sits in the popover layer must mount there too, or
+     * it paints beneath the scrim that summoned it.
+     */
+    portalTarget?: HTMLElement | null;
     children: Snippet;
   }
-  let { label, onClose, header, footer, children }: Props = $props();
+  let { label, onClose, header, footer, portalTarget = null, children }: Props = $props();
+  const mountIn = $derived(portalTarget ?? document.body);
 </script>
 
 <svelte:window
@@ -47,14 +54,14 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  use:portal={document.body}
-  class="fixed inset-0 z-50 bg-black/45"
+  use:portal={mountIn}
+  class="pointer-events-auto fixed inset-0 z-50 bg-black/45"
   onclick={onClose}
 ></div>
 
 <div
-  use:portal={document.body}
-  class="bottom-sheet text-chrome-dense fixed inset-x-0 bottom-0 z-[51] flex max-h-[82dvh] flex-col rounded-t-[26px] bg-background text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_-20px_50px_-18px_rgba(0,0,0,0.5)]"
+  use:portal={mountIn}
+  class="bottom-sheet text-chrome-dense pointer-events-auto fixed inset-x-0 bottom-0 z-[51] flex max-h-[82dvh] flex-col rounded-t-[26px] bg-background text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_-20px_50px_-18px_rgba(0,0,0,0.5)] pointer-fine:[.is-laptop-display_&]:rounded-t-[20px]"
   role="dialog"
   aria-modal="true"
   aria-label={label}
@@ -66,11 +73,13 @@
   </div>
 
   {#if header}
-    <div class="shrink-0 px-[18px] pt-1.5 pb-2">{@render header()}</div>
+    <div class="shrink-0 px-[18px] pt-1.5 pb-2 pointer-fine:[.is-laptop-display_&]:px-[14px]">
+      {@render header()}
+    </div>
   {/if}
 
   <div
-    class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-[14px] [-webkit-overflow-scrolling:touch] {header
+    class="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-[14px] [-webkit-overflow-scrolling:touch] pointer-fine:[.is-laptop-display_&]:px-3 {header
       ? ''
       : 'pt-1.5'} {footer ? '' : 'pb-[max(1rem,env(safe-area-inset-bottom,0px))]'}"
   >
@@ -79,7 +88,7 @@
 
   {#if footer}
     <div
-      class="shrink-0 px-[14px] pt-3 pb-[max(1rem,env(safe-area-inset-bottom,0px))]"
+      class="shrink-0 px-[14px] pt-3 pb-[max(1rem,env(safe-area-inset-bottom,0px))] pointer-fine:[.is-laptop-display_&]:px-3"
     >
       {@render footer()}
     </div>

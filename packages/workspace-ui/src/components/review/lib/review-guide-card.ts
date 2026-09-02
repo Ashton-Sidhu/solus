@@ -1,4 +1,5 @@
 import type { ReviewGuideStatusEvent } from '@solus/contracts/review'
+import { REASONING_EFFORT_LABELS, type ReasoningEffort } from '@solus/contracts/types'
 
 export interface ReviewGuideCardPresentation {
   statusLabel: string
@@ -63,4 +64,15 @@ export function reviewGuideCardPresentation(
         canRetry: true,
       }
   }
+}
+
+export function reviewGuideCardSubtitle(
+  statusSubtitle: string,
+  modelLabel: string,
+  reasoningEffort: ReasoningEffort | null,
+): string {
+  const reasoningLabel = reasoningEffort
+    ? REASONING_EFFORT_LABELS[reasoningEffort]
+    : 'Default reasoning'
+  return `${statusSubtitle} · ${modelLabel || 'Default model'} · ${reasoningLabel}`
 }

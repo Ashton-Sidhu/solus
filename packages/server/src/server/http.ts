@@ -1,4 +1,4 @@
-import { createServer, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
+import { createServer, type RequestListener, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
 import { createReadStream, existsSync, realpathSync } from 'fs'
 import { stat as readFileStat } from 'fs/promises'
 import { Readable } from 'stream'
@@ -13,8 +13,9 @@ import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, isAbsolute } from 'path'
 import { hostname, tmpdir } from 'os'
 import { z } from 'zod'
-import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken } from './auth'
+import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, isDeviceRevoked, issueGrantWsTicket, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken } from './auth'
 import { listReachableEndpoints } from './endpoints'
+import type { GrantVerdict } from './host-grants'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
@@ -47,6 +48,12 @@ export interface HttpServerOptions {
   /** Requester addresses allowed past a require-auth bind without a token
    *  (the machine itself, the host's own tailnet). Untrusted when absent. */
   isTrustedRequester?: (address: string) => Promise<boolean>
+  /** True for a request that arrived through the tunnel's proxied listener. It is
+   *  loopback on the wire and must never be trusted for it; pairing is not offered there. */
+  isTunnelRequest?: (incoming: IncomingMessage) => boolean
+  /** Verifies (and consumes) a control-plane grant presented at `/auth/ws-ticket`.
+   *  Absent on a host that is not linked: grants are then simply not a credential here. */
+  verifyHostGrant?: (grant: string) => Promise<GrantVerdict>
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
@@ -68,6 +75,8 @@ export interface BuiltHttpServer {
   server: HttpServer
   host: string
   port: number
+  /** The same routes, for a second listener that must share them (the tunnel's proxied port). */
+  requestListener: RequestListener
 }
 
 /**
@@ -118,9 +127,22 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
   app.notFound((c) => c.json({ error: 'not found' }, 404))
 
+  const viaTunnel = (c: Ctx): boolean => opts.isTunnelRequest?.(c.env.incoming) ?? false
+  // The tunnel is a public URL. Only what a grant-holding client needs exists there:
+  // the health probe, the ticket exchange, and signed assets. Pairing is local
+  // authorization and has no meaning there; the LAN endpoints, uploads, and the
+  // served client are not offered either — a door that does not exist cannot leak.
+  app.use('*', async (c, next) => {
+    if (!viaTunnel(c)) return next()
+    const { pathname } = new URL(c.req.url)
+    const offered = pathname === '/health' || pathname === '/auth/ws-ticket' || pathname.startsWith('/api/assets/')
+    return offered ? next() : c.notFound()
+  })
   /** Auth demanded of this particular caller: the bind policy, relaxed for
-   *  trusted requesters (loopback, the host's own tailnet). */
+   *  trusted requesters (loopback, the host's own tailnet). A tunnel caller is
+   *  loopback on the wire and gets no relaxation of any kind. */
   const authRequiredFor = async (c: Ctx): Promise<boolean> => {
+    if (viaTunnel(c)) return true
     if (!(opts.requireAuth?.() ?? true)) return false
     if (!opts.isTrustedRequester) return true
     return !(await opts.isTrustedRequester(clientIp(c)))
@@ -128,13 +150,12 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const authorized = async (c: Ctx): Promise<boolean> =>
     !!verifySessionToken(readBearer(c)) || !(await authRequiredFor(c))
 
-  app.get('/health', async (c) => c.json({
-    ok: true,
-    installationId: getInstallationId(),
-    requireAuth: await authRequiredFor(c),
-    name: hostname() || 'Solus Server',
-    os: hostOperatingSystem(),
-  }))
+  app.get('/health', async (c) => {
+    const health = { ok: true, installationId: getInstallationId(), requireAuth: await authRequiredFor(c) }
+    // Name and OS are for the local network's host picker, not for the internet.
+    if (viaTunnel(c)) return c.json(health)
+    return c.json({ ...health, name: hostname() || 'Solus Server', os: hostOperatingSystem() })
+  })
 
   app.get('/endpoints', async (c) => c.json({ endpoints: await listReachableEndpoints(currentHost(), currentPort()) }))
 
@@ -281,9 +302,27 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   })
 
   // The long-lived credential travels only in this header; the socket
-  // handshake takes the derived five-minute ticket instead.
-  app.post('/auth/ws-ticket', (c) => {
-    const ticket = issueWsTicket(readBearer(c))
+  // handshake takes the derived five-minute ticket instead. One door, two key
+  // types: a host-minted pairing token, or a control-plane grant for this host.
+  app.post('/auth/ws-ticket', async (c) => {
+    const bearer = readBearer(c)
+    let ticket = issueWsTicket(bearer)
+    if (!ticket && bearer && opts.verifyHostGrant) {
+      const verdict = await opts.verifyHostGrant(bearer)
+      if (verdict.ok && isDeviceRevoked(verdict.claims.deviceId)) {
+        // The owner revoked this account session on the Access tab: the host's own
+        // kill switch, independent of the control plane.
+        log.info('host_grant_rejected', { reason: 'device-revoked' })
+      } else if (verdict.ok) {
+        ticket = issueGrantWsTicket({
+          userId: verdict.claims.sub,
+          deviceId: verdict.claims.deviceId,
+          expiresAt: verdict.claims.exp * 1000,
+        })
+      } else {
+        log.info('host_grant_rejected', { reason: verdict.reason })
+      }
+    }
     if (!ticket) return c.json({ error: 'Unauthorized' }, 401)
     return c.json({ ticket })
   })
@@ -315,8 +354,9 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     app.get('*', serveStatic({ root, path: 'index.html' }))
   }
 
-  const server = createServer(getRequestListener(app.fetch, { overrideGlobalObjects: false }))
-  return { server, host, port }
+  const requestListener = getRequestListener(app.fetch, { overrideGlobalObjects: false })
+  const server = createServer(requestListener)
+  return { server, host, port, requestListener }
 }
 
 /** A request for a build file (`/assets/index-lLoEVyX3.js`), not a client route. */

@@ -90,6 +90,17 @@ describe('PR row slots', () => {
     expect(row.reveal?.title).toBe('solus/look-at-git-commits-f-7jgnb')
   })
 
+  test('shows background guide generation on the pull request row', () => {
+    // WHY: guide generation can start from the Git section or an open review.
+    // The PR page must still show that shared work instead of looking idle.
+    const row = prRow(
+      pullRequest,
+      { ...context, guideStatus: () => 'generating' },
+      NOW,
+    )
+    expect(row.chips).toEqual([{ label: 'Generating guide', tint: 'running' }])
+  })
+
   test('a long branch keeps its tail, because that is what tells two apart', () => {
     // WHY: generated refs share a prefix and differ in the suffix. Ellipsising
     // the end would make every row read the same.

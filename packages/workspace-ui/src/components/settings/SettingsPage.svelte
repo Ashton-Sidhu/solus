@@ -398,7 +398,7 @@
 {/snippet}
 
 {#if runtime.isMobileViewport}
-  <div class="flex flex-col h-full overflow-hidden text-workspace-chrome">
+  <div class="flex flex-col h-full overflow-hidden text-workspace-chrome [&_button]:text-[length:inherit]">
     <header
       class="shrink-0 flex items-center justify-between px-4 pb-2.5 pt-[max(0.75rem,env(safe-area-inset-top,0px))] border-b border-(--solus-container-border)"
     >
@@ -434,7 +434,7 @@
        border + its own 2px top pad) and this flush column does not. That lands
        the first control on the exact y the sidebar's first row occupies. -->
   <div
-    class="flex h-full overflow-hidden text-workspace-chrome [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
+    class="flex h-full overflow-hidden text-workspace-chrome [&_button]:text-[length:inherit] [--settings-nav-lead:calc(var(--solus-page-top-inset,0px)+0.4375rem)]"
   >
     <!-- Width and surface are the session sidebar's, not a second measure: the
          settings column replaces it in place, so the shell must not shift.

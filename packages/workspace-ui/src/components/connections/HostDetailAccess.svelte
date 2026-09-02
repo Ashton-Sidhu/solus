@@ -11,6 +11,7 @@
   import SettingsRow from "../settings/SettingsRow.svelte";
   import { relativeTime } from "../../lib/relative-time";
   import PairCodePanel from "./PairCodePanel.svelte";
+  import UplinkSection from "./UplinkSection.svelte";
 
   interface Props {
     serverId: string;
@@ -20,6 +21,8 @@
 
   const connections = connectionsStore;
 </script>
+
+<UplinkSection {serverId} />
 
 <SettingsSection label="Pairing">
   <PairCodePanel {serverId} />

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import type { PrListPage, PullRequest } from '@solus/contracts/providers'
-import type { PrGuideMetadataRequest } from '@solus/contracts/review'
+import type { PrGuideMetadataRequest, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import { asHostApi } from '@solus/client-core/host-api'
 
@@ -265,6 +265,61 @@ describe('review guide metadata is scoped to one pull request', () => {
     expect(requests).toEqual([{ number: 7, headSha: 'sha-7' }])
     expect(guides.metadataFor('host-a', ctx, 7)?.current).toBe(true)
     expect(guides.metadataFor('host-a', ctx, 8)).toBeUndefined()
+  })
+
+  test('a branch guide for an open PR head shares its live generation state with PR surfaces', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrGuidesStore } = await import('@solus/workspace-ui/contexts/prs/pr-guides.store.svelte')
+    const store = new PrsStore()
+    const guides = new PrGuidesStore(store)
+    const ctx = ctxFor('/repos/a')
+    const api = asHostApi({
+      prList: async (): Promise<PrListPage> => ({ items: [pr(7), pr(8)], page: 1, hasMore: false }),
+      ...NO_CHECKS,
+    })
+    await store.get(api, 'host-a', ctx).list()
+
+    const event: ReviewGuideStatusEvent = {
+      repoRoot: '/repos/a',
+      key: 'branch:feature/7',
+      scope: 'branch',
+      status: 'generating',
+      headSha: 'sha-7',
+      updatedAt: Date.now(),
+    }
+    guides.applyReviewGuideStatus('host-a', event)
+
+    expect(guides.statusFor('host-a', ctx, 7)).toBe('generating')
+    expect(guides.statusFor('host-a', ctx, 8)).toBeUndefined()
+
+    guides.applyReviewGuideStatus('host-a', { ...event, status: 'cancelled' })
+    expect(guides.statusFor('host-a', ctx, 7)).toBeUndefined()
+  })
+
+  test('a session guide at the same commit is not presented as a PR guide', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { PrGuidesStore } = await import('@solus/workspace-ui/contexts/prs/pr-guides.store.svelte')
+    const store = new PrsStore()
+    const guides = new PrGuidesStore(store)
+    const ctx = ctxFor('/repos/a')
+    const api = asHostApi({
+      prList: async (): Promise<PrListPage> => ({ items: [pr(7)], page: 1, hasMore: false }),
+      ...NO_CHECKS,
+    })
+    await store.get(api, 'host-a', ctx).list()
+
+    guides.applyReviewGuideStatus('host-a', {
+      repoRoot: '/repos/a',
+      key: 'session:abc',
+      scope: 'session',
+      status: 'generating',
+      headSha: 'sha-7',
+      updatedAt: Date.now(),
+    })
+
+    expect(guides.statusFor('host-a', ctx, 7)).toBeUndefined()
   })
 })
 

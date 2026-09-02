@@ -4,9 +4,8 @@ import type { SolusServer } from '../server'
 import { createLogger } from '../../logger'
 import { computeGitRepositoryStatus, initRepository } from '../../git/git-init'
 import { publishRepositoryToGithub } from '../../git/github-publish'
-import { GitHubAuth } from '../../providers/github/auth'
-import { buildClient, buildDelegatedClient } from '../../providers/github/octokit'
-import { githubTokenForCheckout, hostGithubToken } from '../../providers/github/credentials'
+import { clientFor } from '../../providers/github/octokit'
+import { githubCredentialChain } from '../../providers/github/credentials'
 
 const log = createLogger('main', 'git-publish-handlers')
 
@@ -46,24 +45,22 @@ export function registerGitPublishHandlers(server: SolusServer): void {
 
     // Publish is reachable from a dispatched session, whose checkout commits and
     // pushes as the paired device. Creating the repository as the host owner
-    // would file the client's work under the wrong account.
-    const token = githubTokenForCheckout(cwd)
-    if (!token) throw new Error('Connect GitHub on this host before publishing.')
+    // would file the client's work under the wrong account, so the checkout's
+    // own credential leads the chain.
+    const [credential] = await githubCredentialChain('github.com', cwd)
+    if (!credential) throw new Error('Connect GitHub on this host before publishing.')
 
-    // A 401 on someone else's credential must not clear the host's stored token,
-    // so only the host's own token gets the shared, cached client.
-    const isHostToken = token === hostGithubToken()
     const result = await publishRepositoryToGithub({
-      client: isHostToken ? await buildClient(new GitHubAuth()) : buildDelegatedClient(token),
+      client: clientFor(credential),
       cwd,
       owner,
       name,
       private: isPrivate,
       remoteName,
       protocol,
-      token,
+      token: credential.token,
     })
-    log.info('github_publish_repository_completed', { cwd, owner, name, success: result.success, delegated: !isHostToken })
+    log.info('github_publish_repository_completed', { cwd, owner, name, success: result.success, credential: credential.source })
     return result
   })
 }

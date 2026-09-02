@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { ReviewGuideStatusEvent } from '@solus/contracts/review'
-import { reviewGuideCardPresentation } from '@solus/workspace-ui/components/review/lib/review-guide-card'
+import {
+  reviewGuideCardPresentation,
+  reviewGuideCardSubtitle,
+} from '@solus/workspace-ui/components/review/lib/review-guide-card'
 
 function status(
   overrides: Partial<ReviewGuideStatusEvent>,
@@ -17,6 +20,11 @@ function status(
 }
 
 describe('review guide card presentation', () => {
+  test('shows the model and reasoning used for generation', () => {
+    expect(reviewGuideCardSubtitle('Analyzing session changes', 'GPT 5.6 Sol', 'medium'))
+      .toBe('Analyzing session changes · GPT 5.6 Sol · Medium')
+  })
+
   test('reports live authoring as progress, not failure', () => {
     expect(reviewGuideCardPresentation(status({
       status: 'generating',

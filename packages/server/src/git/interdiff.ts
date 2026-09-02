@@ -5,7 +5,7 @@ import type {
   ReviewCheckpoint,
   ReviewThreadHunkMatch,
 } from '@solus/contracts/git-types'
-import { runAsync } from './exec'
+import { gitCommitExists, runAsync } from './exec'
 import { readReviewCheckpoint } from '../review/checkpoints'
 
 const MAX_DIFF_BYTES = 50 * 1024 * 1024
@@ -286,8 +286,7 @@ export async function computePrInterdiff(options: {
     return { ...baseResult, ...classification, patch: currentPatch, isFullDiff: true }
   }
 
-  const oldHeadExists = await runAsync('git', ['cat-file', '-e', `${checkpoint.headSha}^{commit}`], options.gitCwd)
-    .then(() => true, () => false)
+  const oldHeadExists = await gitCommitExists(options.gitCwd, checkpoint.headSha)
   if (!oldHeadExists) {
     return {
       ...baseResult,

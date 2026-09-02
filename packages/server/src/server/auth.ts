@@ -231,6 +231,59 @@ export const WS_TICKET_TTL_MS = 5 * 60 * 1000
  *  session token is expected, and vice versa. */
 const WS_TICKET_PREFIX = 'ws'
 
+/** A ticket derived from a pairing session token: the caller is a local owner. */
+export interface PairingWsTicket {
+  kind: 'pairing'
+  deviceId: string
+  deviceLabel: string
+  issuedAt: number
+  /** One use: consumed at admission. */
+  jti: string
+}
+
+/** A ticket derived from a control-plane grant: the owner arriving remotely. */
+export interface GrantWsTicket {
+  kind: 'grant'
+  userId: string
+  /** The account session the grant was minted for. */
+  deviceId: string
+  /** Grant expiry (ms); the ticket is worthless past it however young it is. */
+  expiresAt: number
+  issuedAt: number
+  jti: string
+}
+
+export type VerifiedWsTicket = PairingWsTicket | GrantWsTicket
+
+const wsTicketPayloadSchema = z.discriminatedUnion('kind', [
+  z.object({
+    kind: z.literal('pairing'),
+    deviceId: z.string().min(1),
+    deviceLabel: z.string(),
+    issuedAt: z.number(),
+    jti: z.string().min(1),
+  }).strict(),
+  z.object({
+    kind: z.literal('grant'),
+    userId: z.string().min(1),
+    deviceId: z.string().min(1),
+    expiresAt: z.number(),
+    issuedAt: z.number(),
+    jti: z.string().min(1),
+  }).strict(),
+])
+
+/** jti → the instant the ticket would have expired anyway. */
+const _usedWsTickets = new Map<string, number>()
+const PROCESS_STARTED_AT = Date.now()
+
+function signWsTicket(payload: VerifiedWsTicket): string {
+  const keys = loadOrCreateKeys()
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url')
+  const sig = createHmac('sha256', keys.signingKey).update(`${WS_TICKET_PREFIX}.${body}`).digest('base64url')
+  return `${WS_TICKET_PREFIX}.${body}.${sig}`
+}
+
 /**
  * A short-lived, single-purpose WebSocket ticket (dispatch-client step 4):
  * the long-lived session token only ever travels in HTTP headers, and only
@@ -239,38 +292,72 @@ const WS_TICKET_PREFIX = 'ws'
 export function issueWsTicket(sessionToken: string, now = Date.now()): string | null {
   const session = verifySessionToken(sessionToken, now)
   if (!session) return null
-  const keys = loadOrCreateKeys()
-  const labelB64 = Buffer.from(session.deviceLabel).toString('base64url')
-  const payload = `${WS_TICKET_PREFIX}.${session.deviceId}.${now}.${labelB64}`
-  const sig = createHmac('sha256', keys.signingKey).update(payload).digest('base64url')
-  return `${payload}.${sig}`
+  return signWsTicket({
+    kind: 'pairing',
+    deviceId: session.deviceId,
+    deviceLabel: session.deviceLabel,
+    issuedAt: now,
+    jti: randomBytes(12).toString('hex'),
+  })
 }
 
-export function verifyWsTicket(ticket: string, now = Date.now()): SessionToken | null {
+export interface GrantTicketSubject {
+  userId: string
+  deviceId: string
+  expiresAt: number
+}
+
+/** The same door for a verified control-plane grant (docs/plans/personal-uplink.md, H1). */
+export function issueGrantWsTicket(grant: GrantTicketSubject, now = Date.now()): string {
+  return signWsTicket({ kind: 'grant', ...grant, issuedAt: now, jti: randomBytes(12).toString('hex') })
+}
+
+/** Checks a ticket without spending it. Admission uses `consumeWsTicket`. */
+export function verifyWsTicket(ticket: string, now = Date.now()): VerifiedWsTicket | null {
   const keys = loadOrCreateKeys()
   loadRevokedDevices()
   const parts = ticket.split('.')
-  if (parts.length !== 5 || parts[0] !== WS_TICKET_PREFIX) return null
-  const [, deviceId, issuedAtStr, labelB64, sig] = parts
+  if (parts.length !== 3 || parts[0] !== WS_TICKET_PREFIX) return null
+  const [, body, sig] = parts
 
-  const issuedAt = Number(issuedAtStr)
-  if (!Number.isFinite(issuedAt)) return null
-  if (now - issuedAt > WS_TICKET_TTL_MS) return null
-  if (issuedAt > now + 60_000) return null
-
-  const expected = createHmac('sha256', keys.signingKey)
-    .update(`${WS_TICKET_PREFIX}.${deviceId}.${issuedAtStr}.${labelB64}`)
-    .digest('base64url')
+  const expected = createHmac('sha256', keys.signingKey).update(`${WS_TICKET_PREFIX}.${body}`).digest('base64url')
   const sigBuf = Buffer.from(sig)
   const expBuf = Buffer.from(expected)
   if (sigBuf.length !== expBuf.length || !timingSafeEqual(sigBuf, expBuf)) return null
-  if (_revokedDevices.has(deviceId)) return null
 
-  return {
-    deviceId,
-    deviceLabel: Buffer.from(labelB64, 'base64url').toString('utf-8'),
-    issuedAt,
+  let payload: VerifiedWsTicket
+  try {
+    payload = wsTicketPayloadSchema.parse(JSON.parse(Buffer.from(body, 'base64url').toString('utf-8')))
+  } catch {
+    return null
   }
+  if (now - payload.issuedAt > WS_TICKET_TTL_MS) return null
+  if (payload.issuedAt > now + 60_000) return null
+  // Consumed tickets are remembered in memory only, so a ticket from before this
+  // process started is refused outright: a restart must not reopen a spent one.
+  if (payload.issuedAt < PROCESS_STARTED_AT) return null
+  // Revoking a device on the Access tab ends both a paired device and a cloud session.
+  if (_revokedDevices.has(payload.deviceId)) return null
+  if (payload.kind === 'grant' && payload.expiresAt <= now) return null
+  return payload
+}
+
+/** Whether the owner revoked this device (a paired device or an account session) on this host. */
+export function isDeviceRevoked(deviceId: string): boolean {
+  loadRevokedDevices()
+  return _revokedDevices.has(deviceId)
+}
+
+/** Verifies a ticket and spends it: the same ticket admits exactly one socket. */
+export function consumeWsTicket(ticket: string, now = Date.now()): VerifiedWsTicket | null {
+  const verified = verifyWsTicket(ticket, now)
+  if (!verified) return null
+  for (const [jti, expiresAt] of _usedWsTickets) {
+    if (expiresAt <= now) _usedWsTickets.delete(jti)
+  }
+  if (_usedWsTickets.has(verified.jti)) return null
+  _usedWsTickets.set(verified.jti, verified.issuedAt + WS_TICKET_TTL_MS)
+  return verified
 }
 
 export function revokeDevice(deviceId: string): void {
@@ -315,6 +402,7 @@ export function resetAuthStateForTests(): void {
   _activePairTokens.clear()
   _revokedDevices.clear()
   _revokedDevicesLoaded = false
+  _usedWsTickets.clear()
 }
 
 function persistKeys(): void {

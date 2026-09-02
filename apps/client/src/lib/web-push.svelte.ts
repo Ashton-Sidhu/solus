@@ -15,6 +15,9 @@ import {
   type PushHostRef,
 } from './web-push-core'
 
+/** Where this bundle is mounted: `/` on a host, `/app/` on the account origin. */
+const BASE = import.meta.env.BASE_URL
+
 class WebPushState {
   supported = $state(false)
   permission = $state<NotificationPermission>('default')
@@ -187,7 +190,7 @@ class WebPushState {
 
   private async ensureShellRegistration(): Promise<ServiceWorkerRegistration> {
     if (!this.shellRegistration) {
-      this.shellRegistration = await navigator.serviceWorker.register('/sw.js?shell=1', { scope: '/' })
+      this.shellRegistration = await navigator.serviceWorker.register(`${BASE}sw.js?shell=1`, { scope: BASE })
     }
     return this.shellRegistration
   }
@@ -196,7 +199,7 @@ class WebPushState {
     const existing = this.registrations.get(host.serverId)
     if (existing) return existing
     const registration = await navigator.serviceWorker.register(
-      `/sw.js?pushHost=${encodeURIComponent(host.serverId)}`,
+      `${BASE}sw.js?pushHost=${encodeURIComponent(host.serverId)}`,
       { scope: pushScope(host.serverId) },
     )
     this.registrations.set(host.serverId, registration)
@@ -231,11 +234,14 @@ class WebPushState {
 }
 
 function pushScope(serverId: string): string {
-  return `/push/${encodeURIComponent(serverId)}/`
+  return `${BASE}push/${encodeURIComponent(serverId)}/`
 }
 
 function serverIdFromPushScope(scope: string): string | null {
-  const match = new URL(scope).pathname.match(/^\/push\/([^/]+)\/$/)
+  const path = new URL(scope).pathname
+  const prefix = `${BASE}push/`
+  if (!path.startsWith(prefix)) return null
+  const match = path.slice(prefix.length).match(/^([^/]+)\/$/)
   return match?.[1] ? decodeURIComponent(match[1]) : null
 }
 

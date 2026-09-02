@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 // The fixture barrel resolves its JSON through `import.meta.glob`, which only
 // exists under Vite — the files are read directly here.
 import type { DemoFixtures, ReplayStep } from '../../apps/client/src/demo/fixtures/types'
@@ -35,7 +36,7 @@ describe('demo client shell', () => {
     const backend = new DemoBackend()
     registerBootHandlers(backend, new DemoStore(devFixtures))
 
-    expect(await backend.handle('isVisible', [])).toBe(true)
+    expect(await backend.handle('isVisible', [], TEST_HANDLER_CTX)).toBe(true)
   })
 })
 
@@ -111,7 +112,7 @@ describe('demo pull request', () => {
   test('clicking a listed pull request resolves the review it opens', async () => {
     const listed = prFixture.list[0]
     // SAFETY: `prOpenReview` is registered above and returns the demo's target.
-    const target = await backend.handle('prOpenReview', [ctx, listed.number]) as PrReviewTarget
+    const target = await backend.handle('prOpenReview', [ctx, listed.number], TEST_HANDLER_CTX) as PrReviewTarget
     expect(target.number).toBe(listed.number)
     expect(target.headSha).toBe(listed.headSha)
   })
@@ -135,7 +136,7 @@ describe('demo pull request', () => {
     ]
     for (const [method, args] of reads) {
       // SAFETY: every name above is an RPC method the demo registers.
-      expect(await backend.handle(method as Parameters<typeof backend.handle>[0], args), method).not.toBeNull()
+      expect(await backend.handle(method as Parameters<typeof backend.handle>[0], args, TEST_HANDLER_CTX), method).not.toBeNull()
     }
   })
 })

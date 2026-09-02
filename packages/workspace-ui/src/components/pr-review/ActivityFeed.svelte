@@ -6,8 +6,10 @@
     GitPullRequest as GitPullRequestIcon,
     ArrowUp as ArrowUpIcon,
     Pen as PencilSimpleIcon,
+    SlidersHorizontal as PropertiesIcon,
   } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import { BottomSheet } from "../ui/bottom-sheet";
   import { CommentPostingBar } from "../ui/comment-posting-bar";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
   import { projectScopeOf, type ChangedFileStat, type IpcContext } from "@solus/contracts/types";
@@ -183,6 +185,10 @@
     return observeContainerWidth(contentRowEl, (width) => (contentRowWidth = width));
   });
   const railFolded = $derived(isRailFolded(contentRowWidth));
+  /** Whether the sheet holding the rail is open. It is only ever reachable
+   *  while folded, and the `{#if railFolded && railOpen}` guard closes it on
+   *  its own when the pane widens and the rail takes its column back. */
+  let railOpen = $state(false);
   let deletingCommentIds = $state(new SvelteSet<string>());
   let editing = $state(false);
   let titleDraft = $state("");
@@ -622,7 +628,7 @@
         class="mx-auto w-full max-w-[1216px] px-[52px] pt-4 [.is-laptop-display_&]:px-8"
       >
         <div
-          class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-sm"
+          class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-workspace-chrome"
           role="alert"
         >
           {#if loadError?.kind === "github-auth"}
@@ -634,7 +640,7 @@
             <Button
               type="button"
               variant="ghost"
-              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
               onclick={refresh}
             >
               <ArrowsClockwiseIcon size={12} class="shrink-0" />
@@ -963,46 +969,20 @@
         </CommentPostingBar>
       </main>
 
-      <!-- ── Right rail: status + actions, reviewers, changed files ── -->
-      <PrActivityRail
-        {detail}
-        {reviewers}
-        {reviewersLoading}
-        {reviewerCandidates}
-        {reviewerCandidatesLoading}
-        {reviewerMutation}
-        onRequestReviewer={detail?.capabilities.reviewerRequests &&
-        detail.viewerPermissions.requestReviewers
-          ? requestReviewer
-          : undefined}
-        onRemoveReviewer={detail?.capabilities.reviewerRequests &&
-        detail.viewerPermissions.requestReviewers
-          ? removeReviewer
-          : undefined}
-        {changedFiles}
-        {filesLoading}
-        {openedTime}
-        {checks}
-        {fixingCheckId}
-        onFixCheck={onFixCheck ? fixCheck : undefined}
-        {unresolvedCount}
-        onFileJump={(path) => jumpToFile(path)}
-        {guideStatus}
-        onGenerateGuide={onGenerateGuide &&
-        detail?.state === "open" &&
-        !detail.draft
-          ? onGenerateGuide
-          : undefined}
-        actions={prActions}
-        menu={prOverflowMenu}
-        showReadiness={!railFolded}
-      />
+      <!-- ── Right rail: status + actions, reviewers, changed files ──
+           Only while there is a column to hold it. It used to stay here at full
+           width below the rung, which put reviewers and changed files under the
+           comment composer, past every comment on the pull request. Below the
+           rung it is the sheet the bottom bar opens instead. -->
+      {#if !railFolded}
+        {@render railPanel("column")}
+      {/if}
     </div>
 </div>
 
-<!-- Merge state as the bottom bar, where the rail has folded under the reading
-     column and its card would otherwise sit past every comment. Outside the
-     scrollport, so it is reachable without reading to the end. -->
+<!-- The folded layout's only chrome: merge state, the move that clears it, and
+     the way back to everything the rail was carrying. Outside the scrollport,
+     so all of it is reachable without reading to the end. -->
 {#if railFolded}
   <PrMergeBar
     {detail}
@@ -1010,9 +990,86 @@
     {unresolvedCount}
     {openedTime}
     actions={prActions}
+    details={railSheetTrigger}
   />
 {/if}
 </div>
+
+<!-- The rail, in order, as a sheet. It stops short of the top so the pull
+     request behind it stays identifiable — this is reference material about
+     what you are reading, and covering it entirely would leave nothing to say
+     what that is. -->
+{#if railFolded && railOpen}
+  <BottomSheet label="Pull request details" onClose={() => (railOpen = false)}>
+    {#snippet header()}
+      <div class="flex items-center justify-between">
+        <span class="text-workspace-chrome font-medium text-foreground">Details</span>
+        <button
+          type="button"
+          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:h-8"
+          onclick={() => (railOpen = false)}
+        >
+          Done
+        </button>
+      </div>
+    {/snippet}
+    {@render railPanel("sheet")}
+  </BottomSheet>
+{/if}
+
+{#snippet railSheetTrigger()}
+  <button
+    type="button"
+    class="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:h-7 pointer-fine:[.is-laptop-display_&]:px-2"
+    onclick={() => (railOpen = true)}
+    aria-haspopup="dialog"
+    aria-expanded={railOpen}
+    aria-label="Pull request details"
+  >
+    <PropertiesIcon size={15} aria-hidden="true" />
+    Details
+  </button>
+{/snippet}
+
+<!-- One definition, two homes: a column beside the conversation where there is
+     room for one, and a sheet where there is not. Rendering it twice would be
+     twenty props kept in step by hand. -->
+{#snippet railPanel(variant: "column" | "sheet")}
+  <PrActivityRail
+    {variant}
+    {detail}
+    {reviewers}
+    {reviewersLoading}
+    {reviewerCandidates}
+    {reviewerCandidatesLoading}
+    {reviewerMutation}
+    onRequestReviewer={detail?.capabilities.reviewerRequests &&
+    detail.viewerPermissions.requestReviewers
+      ? requestReviewer
+      : undefined}
+    onRemoveReviewer={detail?.capabilities.reviewerRequests &&
+    detail.viewerPermissions.requestReviewers
+      ? removeReviewer
+      : undefined}
+    {changedFiles}
+    {filesLoading}
+    {openedTime}
+    {checks}
+    {fixingCheckId}
+    onFixCheck={onFixCheck ? fixCheck : undefined}
+    {unresolvedCount}
+    onFileJump={(path) => jumpToFile(path)}
+    {guideStatus}
+    onGenerateGuide={onGenerateGuide &&
+    detail?.state === "open" &&
+    !detail.draft
+      ? onGenerateGuide
+      : undefined}
+    actions={prActions}
+    menu={prOverflowMenu}
+    showReadiness={variant === "column"}
+  />
+{/snippet}
 
 {#snippet prActions()}
   <PrActions

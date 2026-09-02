@@ -1,19 +1,28 @@
 import { Octokit } from '@octokit/rest'
 import { graphql as octokitGraphql } from '@octokit/graphql'
+import { z } from 'zod'
 import { createLogger } from '../../logger'
 import { clearToken } from './token-store'
+import type { GithubCredential } from './credentials'
 import type { GitHubAuth } from './auth'
 
 const log = createLogger('main', 'github-octokit')
 
-export type GraphQLClient = typeof octokitGraphql
+type GraphQLParameters = NonNullable<Parameters<typeof octokitGraphql>[1]>
+
+/** The query form of Octokit's GraphQL client. Solus never uses its
+ *  endpoint-options form, so the 401 policy below wraps this one call shape. */
+export type GraphQLClient = <ResponseData>(query: string, parameters?: GraphQLParameters) => Promise<ResponseData>
 
 export interface GitHubClient {
   rest: Octokit
   graphql: GraphQLClient
+  /** What every request from this client is signed with. */
+  credential: GithubCredential
 }
 
-/** Thrown after a 401 clears the stored token, so consumers can surface "reconnect GitHub". */
+/** Thrown when GitHub rejects a credential with 401, so consumers can move to
+ *  the next credential or surface "reconnect GitHub". */
 export class GitHubReauthRequiredError extends Error {
   constructor() {
     super('Your GitHub authorization is no longer valid. Reconnect GitHub to continue.')
@@ -21,56 +30,65 @@ export class GitHubReauthRequiredError extends Error {
   }
 }
 
-// Each provider method calls buildClient(), so a single Activity load built 4-5
-// Octokit instances for the same token. Memoize the client per token: concurrent
-// reads share one instance, and it's rebuilt only when the token changes (or a
-// 401 invalidates it). Module-scoped because the token is global, not per-auth.
-let cachedClient: { token: string; client: GitHubClient } | null = null
+const unauthorizedSchema = z.object({ status: z.literal(401) })
 
-/**
- * Build (or reuse) REST + GraphQL clients authenticated as the connected user. A
- * 401 from any call means the token was revoked or expired: we clear it and
- * throw GitHubReauthRequiredError rather than leaking a raw Octokit error, so
- * the consuming layer can prompt a reconnect.
- */
-export async function buildClient(auth: GitHubAuth): Promise<GitHubClient> {
-  const token = await auth.getAccessToken()
-  if (cachedClient && cachedClient.token === token) return cachedClient.client
+// One client per token for the process lifetime: concurrent reads share one
+// instance, and a token that GitHub rejects is dropped so the next request
+// rebuilds against whatever credential replaces it.
+const clientsByToken = new Map<string, GitHubClient>()
 
-  const client = createClient(token, () => {
-    log.warn('github_unauthorized_token_cleared')
-    clearToken()
-    // Drop the now-invalid client so the next call rebuilds against a fresh token.
-    cachedClient = null
-  })
-  cachedClient = { token, client }
+/** REST + GraphQL clients signed with one credential. */
+export function clientFor(credential: GithubCredential): GitHubClient {
+  const cached = clientsByToken.get(credential.token)
+  if (cached) return cached
+  const client = createClient(credential)
+  clientsByToken.set(credential.token, client)
   return client
 }
 
-/**
- * A client for a credential Solus holds on someone else's behalf — a paired
- * device's delegated token. Deliberately uncached and, more importantly, it
- * does not `clearToken()` on a 401: that would wipe the *host owner's*
- * credential because a dispatching device's token had expired.
- */
-export function buildDelegatedClient(token: string): GitHubClient {
-  return createClient(token, () => log.warn('github_unauthorized_delegated_credential'))
+/** The client for the account this host is connected as. */
+export async function buildClient(auth: GitHubAuth): Promise<GitHubClient> {
+  return clientFor({ source: 'host', token: await auth.getAccessToken() })
 }
 
-function createClient(token: string, onUnauthorized: () => void): GitHubClient {
-  const rest = new Octokit({ auth: token, userAgent: 'Solus' })
-  rest.hook.error('request', (error) => {
-    // SAFETY: Octokit's request-error hook supplies RequestError values with a numeric status.
-    if ((error as { status?: number }).status === 401) {
-      onUnauthorized()
-      throw new GitHubReauthRequiredError()
+/**
+ * A 401 from any call means the credential was revoked or expired. The host's
+ * own token is cleared so the connection reads as broken; a delegated or `gh`
+ * credential is only forgotten here, because clearing the host's token over
+ * someone else's expiry would break the host owner's connection.
+ */
+function createClient(credential: GithubCredential): GitHubClient {
+  const rejected = (): never => {
+    clientsByToken.delete(credential.token)
+    if (credential.source === 'host') {
+      log.warn('github_unauthorized_token_cleared')
+      clearToken()
+    } else {
+      log.warn('github_unauthorized_credential', { source: credential.source })
     }
+    throw new GitHubReauthRequiredError()
+  }
+
+  const rest = new Octokit({ auth: credential.token, userAgent: 'Solus' })
+  rest.hook.error('request', (error) => {
+    if (unauthorizedSchema.safeParse(error).success) rejected()
     throw error
   })
 
-  const graphql = octokitGraphql.defaults({
-    headers: { authorization: `Bearer ${token}`, 'user-agent': 'Solus' },
+  const query = octokitGraphql.defaults({
+    headers: { authorization: `Bearer ${credential.token}`, 'user-agent': 'Solus' },
   })
+  const graphql: GraphQLClient = async <ResponseData>(
+    document: string,
+    parameters?: GraphQLParameters,
+  ): Promise<ResponseData> => {
+    try {
+      return await query<ResponseData>(document, parameters)
+    } catch (error) {
+      if (unauthorizedSchema.safeParse(error).success) rejected()
+      throw error
+    }
+  }
 
-  return { rest, graphql }
+  return { rest, graphql, credential }
 }

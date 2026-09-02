@@ -1,6 +1,6 @@
 import type { EditorId, HostCapabilities } from '@solus/contracts/types'
 import { appVersion } from '../../platform/paths'
-import type { SolusServer } from '../server'
+import { INTERNAL_HANDLER_CTX, type SolusServer } from '../server'
 
 /** Advertise only handlers this host actually registered. The editor probe is
  * cached because it can search the host PATH and capabilities are otherwise a
@@ -11,7 +11,7 @@ export function registerCapabilityHandlers(server: SolusServer): void {
   server.register('serverGetCapabilities', async (): Promise<HostCapabilities> => {
     const supportsEditors = server.hasHandler('detectEditors')
     if (supportsEditors && !editorIdsPromise) {
-      editorIdsPromise = server.handle('detectEditors', [])
+      editorIdsPromise = server.handle('detectEditors', [], INTERNAL_HANDLER_CTX)
         .then((result) => result.editors.map((editor) => editor.id))
         .catch(() => [])
     }

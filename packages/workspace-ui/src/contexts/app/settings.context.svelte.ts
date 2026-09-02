@@ -13,7 +13,12 @@ import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { clampZoomFactor, defaultZoomFactorForScreen, stepZoomFactor, ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
 import { DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS } from '../../lib/completed-task-retention'
-import { TAB_GROUP_MODES } from '@solus/contracts/host-config'
+import {
+  DEFAULT_REVIEW_AGENT,
+  DEFAULT_REVIEW_MODEL,
+  DEFAULT_REVIEW_REASONING,
+  TAB_GROUP_MODES,
+} from '@solus/contracts/host-config'
 import type { HostConfig } from '@solus/contracts/host-config'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { DocumentFontFamily, RateLimitBehavior, TabGroupMode, ThemeMode } from '@solus/contracts/host-config'
@@ -51,9 +56,10 @@ export type SettingsFields = {
   fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
   defaultModels: Record<string, string>  // per-agent model for new sessions; missing → that agent's built-in default
-  reviewAgent: AgentId | null     // review companion backend; null → use activeAgent
-  reviewModel: string | null      // review companion model; null → backend default
-  reviewReasoning: ReasoningEffort | null  // review companion reasoning effort; null → model default
+  reviewAgent: AgentId
+  reviewModel: string
+  reviewReasoning: ReasoningEffort
+  reviewGuideInstructions: string
   stackedPrsEnabled: boolean
   generatePrGuidesOnOpen: boolean
   reviewWarmingByProject: Record<string, boolean>
@@ -257,6 +263,7 @@ const HOST_CONFIG_KEY_MAP = {
   themeMode: true, soundEnabled: true, voiceModeEnabled: true, autoSendVoiceTranscripts: true,
   vadSilenceMs: true, defaultEditor: true, fallbackTerminal: true, activeAgent: true,
   defaultModels: true, reviewAgent: true, reviewModel: true, reviewReasoning: true,
+  reviewGuideInstructions: true,
   stackedPrsEnabled: true, generatePrGuidesOnOpen: true, reviewWarmingByProject: true,
   rateLimitBehavior: true, autoRenameSessions: true, showDiffSummaryAfterTurn: true,
   fontFamily: true, fontSize: true, codeFontFamily: true, codeFontSize: true,
@@ -311,9 +318,10 @@ const savedSettingsSchema = z.object({
   fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
   activeAgent: z.enum(VALID_AGENTS).catch('claude-code'),
   defaultModels: z.record(z.string(), z.string()).catch({}),
-  reviewAgent: z.enum(VALID_AGENTS).nullable().catch(null),
-  reviewModel: z.string().nullable().catch(null),
-  reviewReasoning: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).nullable().catch(null),
+  reviewAgent: z.enum(VALID_AGENTS).catch(DEFAULT_REVIEW_AGENT),
+  reviewModel: z.string().catch(DEFAULT_REVIEW_MODEL),
+  reviewReasoning: z.enum(['none', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra', 'ultracode']).catch(DEFAULT_REVIEW_REASONING),
+  reviewGuideInstructions: z.string().catch(''),
   stackedPrsEnabled: z.boolean().catch(false),
   generatePrGuidesOnOpen: z.boolean().catch(false),
   reviewWarmingByProject: z.record(z.string(), z.boolean()).catch({}),
@@ -377,9 +385,10 @@ function loadSettings(): SettingsFields {
     fallbackTerminal: 'default-terminal',
     activeAgent: 'claude-code',
     defaultModels: {},
-    reviewAgent: null,
-    reviewModel: null,
-    reviewReasoning: null,
+    reviewAgent: DEFAULT_REVIEW_AGENT,
+    reviewModel: DEFAULT_REVIEW_MODEL,
+    reviewReasoning: DEFAULT_REVIEW_REASONING,
+    reviewGuideInstructions: '',
     stackedPrsEnabled: false,
     generatePrGuidesOnOpen: false,
     reviewWarmingByProject: {},
@@ -420,9 +429,10 @@ export class SettingsContext {
   fallbackTerminal = $state<TerminalAppId | null>(null)
   activeAgent = $state<AgentId>('claude-code')
   defaultModels = $state<Record<string, string>>({})
-  reviewAgent = $state<AgentId | null>(null)
-  reviewModel = $state<string | null>(null)
-  reviewReasoning = $state<ReasoningEffort | null>(null)
+  reviewAgent = $state<AgentId>(DEFAULT_REVIEW_AGENT)
+  reviewModel = $state(DEFAULT_REVIEW_MODEL)
+  reviewReasoning = $state<ReasoningEffort>(DEFAULT_REVIEW_REASONING)
+  reviewGuideInstructions = $state('')
   stackedPrsEnabled = $state(false)
   generatePrGuidesOnOpen = $state(false)
   reviewWarmingByProject = $state<Record<string, boolean>>({})
@@ -475,6 +485,7 @@ export class SettingsContext {
     this.reviewAgent = saved.reviewAgent
     this.reviewModel = saved.reviewModel
     this.reviewReasoning = saved.reviewReasoning
+    this.reviewGuideInstructions = saved.reviewGuideInstructions
     this.stackedPrsEnabled = saved.stackedPrsEnabled
     this.generatePrGuidesOnOpen = saved.generatePrGuidesOnOpen
     this.reviewWarmingByProject = saved.reviewWarmingByProject
@@ -552,6 +563,7 @@ export class SettingsContext {
       reviewAgent: this.reviewAgent,
       reviewModel: this.reviewModel,
       reviewReasoning: this.reviewReasoning,
+      reviewGuideInstructions: this.reviewGuideInstructions,
       stackedPrsEnabled: this.stackedPrsEnabled,
       reviewWarmingEnabled: false,
       rateLimitBehavior: this.rateLimitBehavior,
@@ -599,6 +611,7 @@ export class SettingsContext {
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
     if (patch.reviewModel !== undefined) this.reviewModel = patch.reviewModel
     if (patch.reviewReasoning !== undefined) this.reviewReasoning = patch.reviewReasoning
+    if (patch.reviewGuideInstructions !== undefined) this.reviewGuideInstructions = patch.reviewGuideInstructions
     if (patch.stackedPrsEnabled !== undefined) this.stackedPrsEnabled = patch.stackedPrsEnabled
     if (patch.generatePrGuidesOnOpen !== undefined) this.generatePrGuidesOnOpen = patch.generatePrGuidesOnOpen
     if (patch.reviewWarmingByProject !== undefined) this.reviewWarmingByProject = patch.reviewWarmingByProject
@@ -712,6 +725,7 @@ export class SettingsContext {
       reviewAgent: this.reviewAgent,
       reviewModel: this.reviewModel,
       reviewReasoning: this.reviewReasoning,
+      reviewGuideInstructions: this.reviewGuideInstructions,
       stackedPrsEnabled: this.stackedPrsEnabled,
       generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
       rateLimitBehavior: this.rateLimitBehavior,
@@ -827,6 +841,7 @@ export class SettingsContext {
         reviewAgent: this.reviewAgent,
         reviewModel: this.reviewModel,
         reviewReasoning: this.reviewReasoning,
+        reviewGuideInstructions: this.reviewGuideInstructions,
         stackedPrsEnabled: this.stackedPrsEnabled,
         generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
         reviewWarmingByProject: this.reviewWarmingByProject,

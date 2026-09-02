@@ -81,11 +81,18 @@ describe('host config', () => {
   })
 
   test('config survives a host restart', async () => {
-    settings.setHostConfig({ extraInstructions: 'Speak plainly.', activeAgent: 'codex' })
+    settings.setHostConfig({
+      extraInstructions: 'Speak plainly.',
+      reviewGuideInstructions: 'Start with the entry point.',
+      activeAgent: 'codex',
+    })
 
     const persisted: unknown = JSON.parse(readFileSync(join(dataDir, 'server-settings.json'), 'utf-8'))
-    const hostConfig = (persisted as { hostConfig: { extraInstructions: string; activeAgent: string } }).hostConfig
+    const hostConfig = (persisted as {
+      hostConfig: { extraInstructions: string; reviewGuideInstructions: string; activeAgent: string }
+    }).hostConfig
     expect(hostConfig.extraInstructions).toBe('Speak plainly.')
+    expect(hostConfig.reviewGuideInstructions).toBe('Start with the entry point.')
     expect(hostConfig.activeAgent).toBe('codex')
   })
 })

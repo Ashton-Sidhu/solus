@@ -188,7 +188,8 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
     if (!references.length) return body
 
     const repo = repositoryRef(ref.externalKey)
-    const target = await resolveUploadTarget(repo.owner, repo.repo)
+    const client = await buildClient(new GitHubAuth())
+    const target = await resolveUploadTarget(client, repo.owner, repo.repo)
     const urlByAssetId = new Map<string, string>()
     for (const assetId of new Set(references.map((reference) => reference.assetId))) {
       const published = publishedAssetUrl(assetId, this.id, ref.externalKey)
@@ -196,7 +197,7 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
         urlByAssetId.set(assetId, published)
         continue
       }
-      const url = await uploadGithubAsset(target, assetId)
+      const url = await uploadGithubAsset(client, target, assetId)
       // Record before the body is sent. An upload cannot be undone, so a failure
       // after this point must not cost a second one when the caller retries.
       withTx(() => recordAssetPublication(assetId, this.id, ref.externalKey, url))
@@ -288,9 +289,9 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
     const state = options.query ? '' : 'is:open'
     // Search is the one GitHub surface that does not follow a repository
     // rename, so the bound name has to be resolved before it is a qualifier.
-    const scope = await canonicalRepoRef(repositoryRef(target.externalKey))
-    const { rest } = await buildClient(new GitHubAuth())
-    const response = await rest.search.issuesAndPullRequests({
+    const client = await buildClient(new GitHubAuth())
+    const scope = await canonicalRepoRef(client, repositoryRef(target.externalKey))
+    const response = await client.rest.search.issuesAndPullRequests({
       q: [`repo:${scope.owner}/${scope.repo}`, 'is:issue', state, qualifier, options.query]
         .filter(Boolean).join(' '),
       sort: 'updated',

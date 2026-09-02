@@ -76,14 +76,14 @@
     if (
       !surfaceVisible ||
       !draft ||
-      session.sessionPickerOpen ||
+      session.unifiedPickerOpen ||
       runtime.shouldSuppressFocus
     )
       return;
     const focusFrame = requestAnimationFrame(() => {
       if (
         surfaceVisible &&
-        !session.sessionPickerOpen &&
+        !session.unifiedPickerOpen &&
         params.draftId === draftId &&
         session.sessionDrafts.has(draftId)
       ) {

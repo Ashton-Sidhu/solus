@@ -9,9 +9,8 @@ import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '.
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import { Task } from '../../tasks/task'
-import { githubTokenForCheckout, hostGithubToken } from '../../providers/github/credentials'
-import { GitHubAuth } from '../../providers/github/auth'
-import { buildClient, buildDelegatedClient } from '../../providers/github/octokit'
+import { githubCredentialChain } from '../../providers/github/credentials'
+import { clientFor } from '../../providers/github/octokit'
 import { providerForRepo } from '../../providers/registry'
 import { prIndex } from '../../prs/pr-index'
 import type { SolusServer } from '../server'
@@ -153,14 +152,11 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const writerModel = resolveSourceControlWriterModel()
     const pullRequestRequested = request.action === 'create_pull_request'
       || request.action === 'commit_push_pull_request'
-    const githubToken = pullRequestRequested ? githubTokenForCheckout(cwd) : null
-    const hostToken = hostGithubToken()
-    const githubClient = githubToken
-      ? githubToken === hostToken
-        ? await buildClient(new GitHubAuth())
-        : buildDelegatedClient(githubToken)
-      : null
-    const githubRepo = githubClient ? await resolveRepoRef(cwd) : null
+    const githubRepo = pullRequestRequested ? await resolveRepoRef(cwd) : null
+    // The checkout's own credential leads: a dispatch checkout opens the pull
+    // request as the paired device it commits as.
+    const [credential] = githubRepo ? await githubCredentialChain(githubRepo.host, cwd) : []
+    const githubClient = credential ? clientFor(credential) : null
     const result = await runGitAction(request, gitContext, ctx.session.workingDirectory, {
       writer: {
         provider: writerModel.provider,

@@ -39,7 +39,9 @@ import {
   test('remote host badges use the saved operating system icon', () => {
     // WHY: Run On rows and the Environment chip both consume this shared
     // glyph. They must not fall back to a globe once the host reports its OS.
-    expect(hostAffinityGlyph({ label: 'Mac', local: false, os: 'macos' }, 'online')?.icon).toBe(AppleLogoIcon)
+    const mac = hostAffinityGlyph({ label: 'Mac', local: false, os: 'macos' }, 'online')
+    expect(mac?.icon).toBe(AppleLogoIcon)
+    expect(mac?.className).toContain('fill-current stroke-0')
     expect(hostAffinityGlyph({ label: 'PC', local: false, os: 'windows' }, 'online')?.icon).toBe(WindowsLogoIcon)
     expect(hostAffinityGlyph({ label: 'Box', local: false, os: 'linux' }, 'online')?.icon).toBe(LinuxLogoIcon)
     expect(hostAffinityGlyph({ label: 'Old host', local: false }, 'online')?.icon).toBe(GlobeSimpleIcon)

@@ -191,6 +191,10 @@ export const RPC_INVOKE_METHODS = [
   'connectionsGetServerInfo',
   'connectionsSetRemoteAccess',
   'connectionsSetTrustLocalNetwork',
+  // Personal Uplink: the host's link to the owner's Solus cloud account (local-only)
+  'uplinkLink',
+  'uplinkUnlink',
+  'uplinkStatus',
   'setAnalyticsConsent',
 
   // Host config — the tier that follows a user between clients

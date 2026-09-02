@@ -63,7 +63,6 @@ import { SOLUS_PLUGINS_DIR } from '../plugins'
 import { runBounded } from '../../lib/concurrency'
 import { getIndexedSession, listIndexedSessions, sessionIndexComplete } from '../../db/session-indexer'
 import { ClaudeCommandDiscovery } from './claude-command-discovery'
-import { reviewSkillPrompt } from '../review-command'
 
 const claudeProfiles = MODEL_PROFILES['claude-code'] ?? {}
 
@@ -199,7 +198,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   }
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
-    const providerPrompt = reviewSkillPrompt(request.prompt, 'claude-code')
+    const providerPrompt = request.prompt
     const abortController = new AbortController()
     const sessionId = request.sessionId ?? null
     const uiMode = request.permissionMode

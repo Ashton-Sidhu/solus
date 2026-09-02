@@ -9,11 +9,18 @@
    * beside the conversation.
    *
    * On a wide pane the readiness card is the first thing in the right rail —
-   * level with the title, always in view. Below 30rem that rail folds *under*
-   * the reading column, which puts the one thing you act on at the far end of
-   * every comment on the pull request. So it comes back as a bar: the state,
-   * the blocker, and the move that clears it, pinned where the composer sits
-   * everywhere else in Solus.
+   * level with the title, always in view. Below the rail's rung there is no
+   * column to hold it, and leaving it in a rail stacked under the reading
+   * column would put the one thing you act on at the far end of every comment
+   * on the pull request. So it comes back as a bar: the state, the blocker, and
+   * the move that clears it, pinned where the composer sits everywhere else in
+   * Solus.
+   *
+   * The bar is also the way back to everything else the rail was carrying —
+   * reviewers, checks, changed files — through `details`. That is why it
+   * renders for a `details` snippet alone: the bar is the folded layout's only
+   * chrome, and a pull request whose readiness has not loaded yet must not be
+   * a pull request whose reviewers are unreachable.
    *
    * It reads `mergeReadiness()` rather than being handed a verdict, which is
    * the same function the rail's card reads. Two renderings of one pure
@@ -30,8 +37,17 @@
     openedTime: string | null;
     /** The same actions the rail's card carries — merge, address comments. */
     actions?: Snippet;
+    /** Opens the sheet holding the rail's reference sections. */
+    details?: Snippet;
   }
-  let { detail, checks, unresolvedCount, openedTime, actions }: Props = $props();
+  let {
+    detail,
+    checks,
+    unresolvedCount,
+    openedTime,
+    actions,
+    details,
+  }: Props = $props();
 
   const readiness = $derived(
     detail
@@ -40,32 +56,39 @@
   );
 </script>
 
-{#if readiness}
+{#if readiness || details}
   <div
-    class="flex shrink-0 items-center gap-3 border-t border-[var(--hairline-strong)] bg-card px-4 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom,0px))]"
+    class="flex shrink-0 items-center gap-3 border-t border-[var(--hairline-strong)] bg-card px-4 py-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom,0px))] pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:py-2"
     role="status"
   >
+    <!-- The text column is here even with nothing to say, so the trailing
+         controls stay anchored right while the readiness is still loading. -->
     <span class="flex min-w-0 flex-1 flex-col">
-      <!-- The headline names the base branch a conflict is with, so it is the
-           sentence rather than a status word. -->
-      <span
-        class="truncate font-semibold tracking-[-0.014em] {readiness.blocked
-          ? 'text-[color-mix(in_oklch,var(--failure)_70%,var(--foreground))]'
-          : ''}"
-        title={readiness.headline}
-      >
-        {readiness.headline}
-      </span>
-      {#if readiness.note}
+      {#if readiness}
+        <!-- The headline names the base branch a conflict is with, so it is the
+             sentence rather than a status word. -->
         <span
-          class="truncate tabular-nums text-muted-foreground"
-          title={readiness.note}
+          class="truncate font-semibold tracking-[-0.014em] {readiness.blocked
+            ? 'text-[color-mix(in_oklch,var(--failure)_70%,var(--foreground))]'
+            : ''}"
+          title={readiness.headline}
         >
-          {readiness.note}
+          {readiness.headline}
         </span>
+        {#if readiness.note}
+          <span
+            class="truncate tabular-nums text-muted-foreground"
+            title={readiness.note}
+          >
+            {readiness.note}
+          </span>
+        {/if}
       {/if}
     </span>
 
+    {#if details}
+      <span class="flex shrink-0 items-center">{@render details()}</span>
+    {/if}
     {#if actions}
       <span class="flex shrink-0 items-center gap-1.5">{@render actions()}</span>
     {/if}

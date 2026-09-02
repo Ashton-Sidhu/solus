@@ -1,9 +1,11 @@
 import { hostname } from 'os'
 import { join } from 'path'
 import { app, ipcMain, safeStorage, shell } from 'electron'
+import { z } from 'zod'
 import type { AccountState } from '@solus/contracts/account-types'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
+import { acquireHostGrant, issueEnrollmentTicket, listDirectory } from './uplink-client'
 
 export const ACCOUNT_CHANNELS = {
   state: 'solus:account-state',
@@ -12,7 +14,12 @@ export const ACCOUNT_CHANNELS = {
   signOut: 'solus:account-sign-out',
   retryVerify: 'solus:account-retry-verify',
   stateChanged: 'solus:account-state-changed',
+  uplinkDirectory: 'solus:uplink-directory',
+  uplinkGrant: 'solus:uplink-grant',
+  uplinkTicket: 'solus:uplink-enrollment-ticket',
 } as const
+
+const hostIdSchema = z.string().min(1).max(64)
 
 /** Production origin; `SOLUS_CLOUD_URL` overrides it for development and staging. */
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
@@ -67,7 +74,19 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
   ipcMain.on(ACCOUNT_CHANNELS.cancelSignIn, () => session.cancelSignIn())
   ipcMain.handle(ACCOUNT_CHANNELS.signOut, () => session.signOut())
   ipcMain.handle(ACCOUNT_CHANNELS.retryVerify, () => session.verify('retry'))
+  // Personal Uplink on the account's behalf; the renderer gets answers, never the token.
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkDirectory, () => listDirectory(session))
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkGrant, (_event, rawHostId) => {
+    const hostId = hostIdSchema.safeParse(rawHostId)
+    return hostId.success ? acquireHostGrant(session, hostId.data) : null
+  })
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkTicket, () => issueEnrollmentTicket(session))
 
-  void session.verify('boot')
+  // The keychain is not reliably readable before `ready`, and this module is
+  // evaluated earlier: load the stored account when it is, then confirm it.
+  void app.whenReady().then(() => {
+    session.reloadFromDisk()
+    void session.verify('boot')
+  })
   return session
 }

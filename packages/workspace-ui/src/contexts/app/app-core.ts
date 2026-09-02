@@ -1,3 +1,4 @@
+import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
 import { WorkspaceContext, setWorkspaceContext } from '../workspace/workspace.context.svelte'
 import { WindowContext, setWindowContext } from './window.context.svelte'
@@ -75,7 +76,7 @@ export function createAppCore(): AppCore {
   statusBar.bind(session)
   statusBar.bindAgent(agent)
 
-  reviewGuideStore.onReady((serverId, event) => {
+  const unsubscribeReviewGuideReady = reviewGuideStore.onReady((serverId, event) => {
     if (event.scope !== 'session') return
     const tabId = session.tabOrder.find((candidateTabId) => {
       if (session.serverIdFor(candidateTabId) !== serverId) return false
@@ -98,6 +99,7 @@ export function createAppCore(): AppCore {
       },
     })
   })
+  onDestroy(unsubscribeReviewGuideReady)
 
   const keybindings = new KeybindingsContext()
   keybindings.setOverrides(settings.keybindings)

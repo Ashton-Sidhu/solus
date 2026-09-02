@@ -53,10 +53,14 @@ export class TaskPreviewDetails {
 
 export interface TaskPreviewPrRow {
   key: string
+  /** Present after task details load; snapshot-only rows can still open their
+   *  external URL while the durable link is in flight. */
+  link: TaskLink | null
   ref: string
   /** Empty until the detail read lands: the snapshot edge carries a number and
    *  a url, never a title, and the row says nothing rather than inventing one. */
   title: string
+  url: string | null
   state: LinkedPrLifecycle | null
 }
 
@@ -83,13 +87,22 @@ export function previewPrRows(
 ): TaskPreviewPrRow[] {
   const rows = taskPrRows(links, lifecycleFor, titleFor)
   if (rows.length) {
-    return rows.map((row) => ({ key: row.key, ref: row.ref, title: row.title, state: row.state }))
+    return rows.map((row) => ({
+      key: row.key,
+      link: row.link,
+      ref: row.ref,
+      title: row.title,
+      url: row.url,
+      state: row.state,
+    }))
   }
   if (!snapshotLink) return []
   return [{
     key: `pr:${snapshotLink.number}`,
+    link: null,
     ref: `#${snapshotLink.number}`,
     title: titleFor(snapshotLink.number) ?? '',
+    url: snapshotLink.url ?? null,
     state: lifecycleFor(snapshotLink.number),
   }]
 }

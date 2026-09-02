@@ -2,8 +2,7 @@
   import ConversationView from "@solus/workspace-ui/components/conversation/ConversationView.svelte";
   import SessionBreadcrumb from "@solus/workspace-ui/components/conversation/SessionBreadcrumb.svelte";
   import SessionDraftPane from "@solus/workspace-ui/components/session-draft/SessionDraftPane.svelte";
-  import SessionPicker from "@solus/workspace-ui/components/session/SessionPicker.svelte";
-  import TaskPicker from "@solus/workspace-ui/components/session/TaskPicker.svelte";
+  import UnifiedPicker from "@solus/workspace-ui/components/session/unified-picker/UnifiedPicker.svelte";
   // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
   // so it cannot sit behind one itself.
   import DocumentModalSkeleton from "@solus/workspace-ui/components/document-modal/DocumentModalSkeleton.svelte";
@@ -153,7 +152,7 @@ import {
 
   $effect(() => {
     const handler = () => {
-      session.sessionPickerOpen = !session.sessionPickerOpen;
+      session.unifiedPickerOpen = !session.unifiedPickerOpen;
     };
     window.addEventListener("solus:toggle-session-picker", handler);
     return () => window.removeEventListener("solus:toggle-session-picker", handler);
@@ -386,6 +385,7 @@ import {
               >
                 <ConversationView
                   tabId={tId}
+                  bandAbove={!isMobile}
                   onDiffToggle={() => {
                     sidePanelSourceTabId = tId;
                     if (!session.sessionFor(tId)?.run.workingDirectory) return;
@@ -477,13 +477,9 @@ import {
   </div>
 {/if}
 
-<SessionPicker
-  open={isMobile && session.sessionPickerOpen}
-  onClose={() => { session.sessionPickerOpen = false; }}
-/>
-<TaskPicker
-  open={isMobile && session.taskPickerOpen}
-  onClose={() => { session.taskPickerOpen = false; }}
+<UnifiedPicker
+  open={isMobile && session.unifiedPickerOpen}
+  onClose={() => { session.unifiedPickerOpen = false; }}
 />
 
 <style>

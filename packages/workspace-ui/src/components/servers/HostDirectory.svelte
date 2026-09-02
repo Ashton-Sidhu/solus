@@ -7,7 +7,13 @@
     Plus as PlusIcon,
     Wifi as WifiHighIcon,
   } from "@lucide/svelte";
-  import { discoveredServerUrl, hostStatusLabel, serversStore } from "../../contexts";
+  import {
+    discoveredServerUrl,
+    hostStatusLabel,
+    routeBadges,
+    serversStore,
+    type ServerItem,
+  } from "../../contexts";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -20,17 +26,22 @@
   // The registry can point at a host that is no longer saved, so trust the
   // resolved active server rather than the stored id.
   onMount(() => {
+    // Opening Connections is one of the directory's refresh points (C1).
+    void serversStore.refreshDirectory();
     void serversStore.probeHosts().then(() =>
       hostSetupStore.probeUnprobedOnline(serversStore.servers),
     );
   });
 
-  /** The one line under a host name: where it answers, and what it can do. */
-  function hostMeta(serverId: string, url: string): string {
-    const status = hostStatusLabel(serversStore.statusFor(serverId));
-    if (!hostSetupStore.hasProbed(serverId)) return `${url} · ${status}`;
-    const summary = hostReadinessSummary(hostSetupStore.stepsFor(serverId));
-    return `${url} · ${status} · ${summary.ready ? "Ready" : "Needs setup"}`;
+  /** The one line under a host name: where it answers, how, and what it can do. */
+  function hostMeta(server: ServerItem): string {
+    const status = hostStatusLabel(serversStore.statusFor(server.id));
+    const parts = [server.url || server.routes[0]?.url, status, ...routeBadges(server.routes)];
+    if (hostSetupStore.hasProbed(server.id)) {
+      const summary = hostReadinessSummary(hostSetupStore.stepsFor(server.id));
+      parts.push(summary.ready ? "Ready" : "Needs setup");
+    }
+    return parts.filter(Boolean).join(" · ");
   }
 </script>
 
@@ -79,7 +90,7 @@
             class="mt-0.5 block truncate text-[0.875em] text-(--solus-text-tertiary)"
             style="font-family: 'Geist Mono', ui-monospace, monospace"
           >
-            {hostMeta(server.id, server.url)}
+            {hostMeta(server)}
           </span>
         </span>
         <CaretRightIcon size={13} class="shrink-0 text-(--solus-text-quaternary)" />

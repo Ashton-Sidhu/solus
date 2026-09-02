@@ -1,10 +1,13 @@
 import { randomBytes } from 'crypto'
-import type { Server as HttpServer } from 'http'
+import type { IncomingMessage, Server as HttpServer } from 'http'
+import type { Duplex } from 'stream'
 import { Server, type Socket } from 'socket.io'
-import type { RpcInvocationArgs, RpcInvocationResult, SolusServer } from '../server/server'
+import type { HandlerCtx, RpcInvocationArgs, RpcInvocationResult, SolusServer } from '../server/server'
 import type { ClientEventRegistry } from '../events/client-event-registry'
 import type { BrowserFrameChannel } from '../browser/browser-frame-channel'
-import { verifyWsTicket } from '../server/auth'
+import { consumeWsTicket } from '../server/auth'
+import { RpcAccessError } from '../server/access-policy'
+import { principalFor, principalSchema, type AdmissionEvidence } from '../server/principal'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
 import { z } from 'zod'
@@ -25,13 +28,18 @@ interface WsRequest {
 
 interface WsResponse {
   result?: RpcInvocationResult
-  error?: { message: string }
+  error?: { message: string; code?: string }
 }
 
 interface WebSocketTransport {
   close: () => void
   sessions: Map<string, ClientSession>
+  /** Lets a second listener (the tunnel's proxied port) hand its `/ws` upgrades to the same Socket.IO server. */
+  handleUpgrade: (request: IncomingMessage, socket: Duplex, head: Buffer) => void
 }
+
+/** Set by the engine middleware from the listener the request arrived on; never by a client. */
+const VIA_TUNNEL_HEADER = 'x-solus-via-tunnel'
 
 const socketAuthSchema = z.object({
   /** Short-lived single-purpose handshake ticket (dispatch-client step 4). */
@@ -43,6 +51,7 @@ const clientDataSchema = z.object({
   clientId: z.string(),
   deviceId: z.string().nullable(),
   deviceLabel: z.string(),
+  principal: principalSchema,
 })
 
 const rpcWireSchema = z.object({
@@ -60,11 +69,7 @@ interface ClientSession {
   connectedAt: number
 }
 
-interface ClientData {
-  clientId: string
-  deviceId: string | null
-  deviceLabel: string
-}
+type ClientData = z.infer<typeof clientDataSchema>
 
 /** Mounts the Socket.IO transport at `/ws` on the shared HTTP server. */
 export function attachWebSocketTransport(
@@ -80,6 +85,9 @@ export function attachWebSocketTransport(
     /** Requester addresses allowed past a require-auth bind without a token
      *  (the machine itself, the host's own tailnet). Untrusted when absent. */
     isTrustedRequester?: (address: string | undefined) => Promise<boolean>
+    /** True for a request that arrived through the tunnel's proxied listener.
+     *  Such a request is loopback on the wire and must never be trusted for it. */
+    isTunnelRequest?: (request: IncomingMessage) => boolean
     responseBudget?: ResponseReceiptBudget
     onClientConnected?: (client: { clientId: string; deviceId: string | null }) => void
     onClientDisconnected?: (client: { clientId: string; deviceId: string | null }) => void
@@ -107,6 +115,10 @@ export function attachWebSocketTransport(
   // client. Remove the extension offer on loopback before ws negotiates it, so
   // host events and RPC acknowledgements both avoid local zlib work.
   io.engine.use((request, _response, next) => {
+    // The listener a request came in on is the only trustworthy origin marker:
+    // whatever a client sent under this header is replaced before admission reads it.
+    if (opts.isTunnelRequest?.(request)) request.headers[VIA_TUNNEL_HEADER] = '1'
+    else delete request.headers[VIA_TUNNEL_HEADER]
     if (isLoopbackAddress(request.socket.remoteAddress)) {
       delete request.headers['sec-websocket-extensions']
     }
@@ -135,20 +147,35 @@ export function attachWebSocketTransport(
   io.use((socket, next) => {
     const parsedAuth = socketAuthSchema.safeParse(socket.handshake.auth)
     const auth = parsedAuth.success ? parsedAuth.data : {}
-    const verified = auth.ticket ? verifyWsTicket(auth.ticket) : null
-    const admit = (): void => {
+    // One ticket admits one socket: a replayed handshake is refused even inside the TTL.
+    const verified = auth.ticket ? consumeWsTicket(auth.ticket) : null
+    const viaTunnel = socket.handshake.headers[VIA_TUNNEL_HEADER] === '1'
+    const admit = (evidence: AdmissionEvidence): void => {
       const instanceId = auth.clientInstanceId ?? randomBytes(16).toString('hex')
-      const deviceId = verified?.deviceId ?? null
+      const principal = principalFor(evidence)
+      const deviceId = principal.kind === 'system' ? null : principal.deviceId
       const data: ClientData = {
         clientId: `ws:${deviceId ?? 'local'}:${instanceId}`,
         deviceId,
-        deviceLabel: verified?.deviceLabel ?? 'Web',
+        deviceLabel: principal.kind === 'system' ? 'Web' : principal.deviceLabel,
+        principal,
       }
       Object.assign(socket.data, data)
       next()
     }
-    if (!requireAuth() || verified) {
-      admit()
+    const reject = (): void => next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
+    if (verified) {
+      admit({ kind: 'ticket', ticket: verified })
+      return
+    }
+    // Tunnel traffic is loopback on the wire and the bind policy may be open on
+    // loopback; neither may admit it. Only a ticket does (the proxied-listener rule).
+    if (viaTunnel) {
+      reject()
+      return
+    }
+    if (!requireAuth()) {
+      admit({ kind: 'credential-free' })
       return
     }
     // The bind policy relaxes for trusted requesters — the same relaxation
@@ -157,8 +184,8 @@ export function attachWebSocketTransport(
     void Promise.resolve(opts.isTrustedRequester?.(socket.handshake.address) ?? false)
       .catch(() => false)
       .then((trusted) => {
-        if (trusted) admit()
-        else next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
+        if (trusted) admit({ kind: 'credential-free' })
+        else reject()
       })
   })
 
@@ -168,7 +195,7 @@ export function attachWebSocketTransport(
       socket.disconnect(true)
       return
     }
-    const { clientId, deviceId, deviceLabel } = parsedClient.data
+    const { clientId, deviceId, deviceLabel, principal } = parsedClient.data
     const room = `client:${clientId}`
     void socket.join(room)
 
@@ -199,6 +226,17 @@ export function attachWebSocketTransport(
     opts.onClientConnected?.({ clientId, deviceId })
     socket.emit('hello')
 
+    // A grant admits a socket for the grant's lifetime and no longer: the socket
+    // ends at expiry, and the re-dial needs a grant a revoked device cannot get.
+    if (principal.kind === 'remote-owner') {
+      const grantTimer = setTimeout(() => {
+        log.info('ws_session_grant_expired', { id, clientId })
+        socket.disconnect(true)
+      }, Math.max(0, principal.expiresAt - Date.now()))
+      grantTimer.unref?.()
+      socket.once('disconnect', () => clearTimeout(grantTimer))
+    }
+
     socket.on('rpc', async (id, method, args, ack) => {
       if (!(ack instanceof Function)) return
       const parsed = rpcWireSchema.safeParse({ id, method, args })
@@ -207,6 +245,7 @@ export function attachWebSocketTransport(
       const request: WsRequest = { ...parsed.data, args: parsed.data.args as RpcInvocationArgs }
       const response = await getCachedResponse(responseCaches, responseBudget, clientId, request, server, {
         clientId,
+        principal,
         deviceLabel,
         deviceId: deviceId ?? undefined,
       })
@@ -245,10 +284,12 @@ export function attachWebSocketTransport(
       })
     })
 
-    log.info('ws_session_opened', { id, clientId, deviceLabel, deviceId, recovered: socket.recovered })
+    log.info('ws_session_opened', { id, clientId, deviceLabel, deviceId, principal: principal.kind, recovered: socket.recovered })
   })
 
   return {
+    // engine.io's own `attach` routes an HTTP upgrade through this same method.
+    handleUpgrade: (request, socket, head) => io.engine.handleUpgrade(request, socket, head),
     close: () => {
       closing = true
       for (const timer of cleanupTimers.values()) clearTimeout(timer)
@@ -282,7 +323,7 @@ function getCachedResponse(
   clientId: string,
   request: WsRequest,
   server: SolusServer,
-  ctx: { clientId: string; deviceLabel: string; deviceId?: string },
+  ctx: HandlerCtx,
 ): Promise<WsResponse> {
   let cache = responseCaches.get(clientId)
   if (!cache) {
@@ -299,6 +340,7 @@ function getCachedResponse(
       }
       return { result: await server.handle(request.method, request.args ?? [], ctx) }
     } catch (err) {
+      if (err instanceof RpcAccessError) return { error: { message: err.message, code: err.code } }
       return { error: { message: err instanceof Error ? err.message : String(err) } }
     }
   })

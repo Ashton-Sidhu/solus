@@ -1,7 +1,7 @@
 import { createAppContext } from '../app/create-app-context'
 import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, StatusCardState, PrReviewContext, PromptDelivery, PromptImageRef, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { parseGitHubPullRequestUrl, type PrReviewTarget, type PullRequest, type RepoRef } from '@solus/contracts/providers'
-import type { ReviewTarget } from '@solus/contracts/review'
+import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewTarget } from '@solus/contracts/review'
 import type { CheckItem } from '@solus/contracts/checks-types'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
@@ -89,6 +89,8 @@ import {
   reviewGuideStore,
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
+import { directReviewRequest } from '../../components/review/lib/direct-review-command'
+import { resolveReviewAgent } from '../../lib/reviewAgent'
 import { z } from 'zod'
 
 export interface PullRequestOpenTarget {
@@ -441,10 +443,8 @@ export class WorkspaceContext {
   get lastActiveTabByBranch() { return this.registry.lastActiveTabByBranch }
   get isExpanded(): boolean { return this.ui.isExpanded }
   set isExpanded(value: boolean) { this.ui.isExpanded = value }
-  get sessionPickerOpen(): boolean { return this.ui.sessionPickerOpen }
-  set sessionPickerOpen(value: boolean) { this.ui.sessionPickerOpen = value }
-  get taskPickerOpen(): boolean { return this.ui.taskPickerOpen }
-  set taskPickerOpen(value: boolean) { this.ui.taskPickerOpen = value }
+  get unifiedPickerOpen(): boolean { return this.ui.unifiedPickerOpen }
+  set unifiedPickerOpen(value: boolean) { this.ui.unifiedPickerOpen = value }
   get projectPageScope(): ProjectPageScope { return this.ui.projectPageScope }
 
   setProjectPageScope(scope: ProjectPageScope): void {
@@ -2209,6 +2209,12 @@ export class WorkspaceContext {
     // id we are claiming — but nothing else here waits on identity, so the watch
     // and the bind are one chain running beside the reads rather than ahead of
     // them.
+    //
+    // It is deliberately not awaited with the transcript below. This chain is two
+    // round trips and supplies only chrome around the conversation — status, rate
+    // limits, queued prompts — so joining it to that Promise.all made the spinner
+    // outlive the transcript by a watch *and* a bind. It is awaited at the end of
+    // the resume instead, once the conversation is on screen.
     const runtimeAttach = this.apiFor(tabId).watchSession({
       sessionId: stableSessionId,
       agentSessionId: activeProviderSessionId ?? undefined,
@@ -2217,6 +2223,14 @@ export class WorkspaceContext {
       .then(({ sessionId }) => this.adoptSessionId(tabId, sessionId))
       .catch(() => null)
       .then(() => this.attachRuntimeSession(tabId))
+      // Settled rather than left to reject on its own. The join point is several
+      // awaits away now, so a bind that fails before we get there would otherwise
+      // surface as an unhandled rejection with nothing yet listening. The failure
+      // is carried and re-thrown at the join, keeping the caller contract intact.
+      .then(
+        () => null,
+        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+      )
 
     // The session must appear correctly grouped in the sidebar the moment the
     // spinner clears, so land git identity (repoRoot + branch + worktree flag)
@@ -2245,7 +2259,6 @@ export class WorkspaceContext {
           ctx: this.ctxFor(tabId),
           limit: RESTORED_TRANSCRIPT_LIMIT,
         }),
-        runtimeAttach,
         this.tasksStore.ensureSessionBinding(stableSessionId, this.runFor(tabId)?.taskServerId).catch(() => null),
       ])
 
@@ -2308,6 +2321,13 @@ export class WorkspaceContext {
           }
         })()
       }
+
+      // Joined here rather than beside the transcript: the conversation is
+      // already on screen, so this only settles the chrome around it. A failed
+      // bind still surfaces to the caller, but it can no longer discard a
+      // transcript that loaded successfully.
+      const attachFailure = await runtimeAttach
+      if (attachFailure) throw attachFailure
     } finally {
       const session = currentResumeTarget()
       if (session) session.loadingHistory = false
@@ -2401,6 +2421,91 @@ export class WorkspaceContext {
     const session = tabId === undefined ? this.activeSession : this.sessionFor(tabId)
     if (!session) return
     session.messages.push({ id: nextMsgId(), role: 'system' as const, content, timestamp: Date.now() })
+  }
+
+  private startDirectReview(
+    tabId: string,
+    prompt: string,
+    request: NonNullable<ReturnType<typeof directReviewRequest>>,
+    projectPath: string,
+  ): void {
+    const session = this.sessionFor(tabId)
+    if (!session) return
+    const sentAt = Date.now()
+    const branch = session.run.gitContext?.branch ?? 'detached'
+    const reviewAgent = resolveReviewAgent(this.settings)
+    const reviewGuideRef = {
+      target: request.target,
+      key: reviewGuideKeyForTarget(request.target, branch, session.agentSessionId ?? null),
+      ...reviewAgent,
+    }
+    session.messages.push({
+      id: nextMsgId(),
+      role: 'user',
+      content: prompt,
+      timestamp: sentAt,
+    })
+    session.messages.push({
+      id: nextMsgId(),
+      role: 'assistant',
+      content: '',
+      reviewGuideRef,
+      timestamp: sentAt + 1,
+    })
+    session.status = 'running'
+    session.currentActivity = 'Preparing review...'
+    session.currentTurnStartedAt = sentAt
+    if (session.messages.length === 2 && !session.titleCustom) {
+      session.title = prompt.length > 80 ? prompt.substring(0, 80) : prompt
+    }
+    session.prompt.attachments = []
+    session.prompt.planRefs = []
+    session.prompt.workRefs = []
+    session.prompt.sessionRefs = []
+    this.eventReducer.closeAgentConversationTurn(session)
+
+    const serverId = this.serverIdFor(tabId)
+    const targetId = reviewGuideTargetId(request.target)
+    const unsubscribe = serverConnections.eventsFor(serverId).subscribe(
+      'review.guideStatusChanged',
+      (event) => {
+        if (reviewGuideTargetId(event.target ?? request.target) !== targetId) return
+        if (event.status === 'queued' || event.status === 'generating') {
+          if (session.currentTurnStartedAt === sentAt) {
+            session.status = 'running'
+            session.currentActivity = event.step === 'writing'
+              ? 'Writing review...'
+              : event.step === 'analyzing'
+                ? 'Analyzing changes...'
+                : 'Preparing review...'
+          }
+          return
+        }
+        if (session.currentTurnStartedAt === sentAt) {
+          session.status = 'completed'
+          session.currentActivity = ''
+        }
+        unsubscribe()
+      },
+    )
+    const repoRoot = worktreeProjectRoot(session.run.gitContext?.repoRoot ?? projectPath)
+    void reviewGuideStore.generate(
+      this.apiFor(tabId),
+      serverId,
+      this.ctxFor(tabId),
+      { repoRoot, key: reviewGuideRef.key, target: request.target },
+      { ...reviewAgent, ...request, reportSessionLifecycle: true },
+    ).catch((error) => {
+      unsubscribe()
+      if (session.currentTurnStartedAt === sentAt) {
+        session.status = 'failed'
+        session.currentActivity = ''
+      }
+      toasts.error('Review guide generation failed', {
+        description: error instanceof Error ? error.message : String(error),
+      })
+    })
+    requestConversationScrollToBottom(tabId)
   }
 
   private promptTab(tabId: string, options: { prompt: string; displayPrompt: string; clientPromptId?: string; delivery?: PromptDelivery; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; goalObjective?: string }): void {
@@ -2738,6 +2843,21 @@ export class WorkspaceContext {
 
     const isBusy = isSessionBusyStatus(session.status)
     const input = session.prompt
+    const directReview = directReviewRequest(prompt)
+    if (directReview) {
+      if (isBusy) {
+        toasts.info('Wait for the current turn to finish before starting a review')
+        return false
+      }
+      this.startDirectReview(targetTabId, prompt, directReview, resolvedPath)
+      return true
+    }
+    if (parseReviewCommand(prompt)) {
+      toasts.error('A pull request URL is required', {
+        description: 'Use /review:pr followed by a GitHub pull request URL.',
+      })
+      return false
+    }
 
     const fullPrompt = this.promptComposer.compose(prompt, input, session)
     // Capture image blocks before the input's attachments are cleared below.
@@ -4108,14 +4228,14 @@ export class WorkspaceContext {
   }
 
   showSettings(tab: SettingsTab = 'general', via: Via = 'click') {
-    this.sessionPickerOpen = false
+    this.unifiedPickerOpen = false
     this.showPage({ name: 'settings', params: { tab } }, via, 'settings')
     track('settings_opened', { tab, via })
   }
 
   /** Open the settings Projects tab with the given project preselected (from the project panel gear). */
   showProjectSettings(cwd: string) {
-    this.sessionPickerOpen = false
+    this.unifiedPickerOpen = false
     this.showPage({ name: 'settings', params: { tab: 'projects', projectCwd: cwd } }, 'click', 'settings')
     track('settings_opened', { tab: 'projects' })
   }

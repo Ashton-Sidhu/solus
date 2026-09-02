@@ -19,6 +19,8 @@ export interface ConnectionsServerInfo {
   remoteAccess: boolean
   requireAuth: boolean
   trustLocalNetwork: boolean
+  /** How this client was admitted; only a `local-owner` may change how the host is reached. */
+  principal: 'local-owner' | 'remote-owner' | 'system'
 }
 
 export interface ConnectionEndpoint {

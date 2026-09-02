@@ -175,8 +175,7 @@
 
   // Browser/OS back closes the topmost open mobile overlay (last registered wins).
   registerBackOverlay("mobile-task-sheet", () => taskSheetOpen, () => (taskSheetOpen = false));
-  registerBackOverlay("mobile-session-picker", () => runtime.isMobileViewport && session.sessionPickerOpen, () => (session.sessionPickerOpen = false));
-  registerBackOverlay("mobile-task-picker", () => runtime.isMobileViewport && session.taskPickerOpen, () => (session.taskPickerOpen = false));
+  registerBackOverlay("mobile-picker", () => runtime.isMobileViewport && session.unifiedPickerOpen, () => (session.unifiedPickerOpen = false));
   registerBackOverlay("mobile-drawer", () => sidebarDrawerOpen, () => (sidebarDrawerOpen = false));
   registerBackOverlay("mobile-plus-menu", () => mobileComposerMenu.open, () => (mobileComposerMenu.open = false));
   registerBackOverlay("mobile-server-sheet", () => serverSheetOpen, () => (serverSheetOpen = false));

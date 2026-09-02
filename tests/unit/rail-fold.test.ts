@@ -13,24 +13,53 @@ import {
 const read = (path: string) => readFileSync(resolve(import.meta.dir, '../../', path), 'utf8')
 
 /**
- * A rail folding under the reading column is a designed behaviour. Folding
- * *without* the control that is supposed to replace it is not — it leaves the
- * one thing you act on below the comment bar, past everything.
+ * A rail with nowhere to be used to stay where it was, full width, under the
+ * reading column — which put it below the comment composer, past every comment
+ * on the page. Both surfaces now take the rail out at that point and give it a
+ * sheet instead.
  *
- * The fold is a container query and the replacement is a JavaScript branch, so
- * nothing in the build makes them agree. These tests are what makes them agree:
- * each asserts that the number the stylesheet folds at is the number the
- * branch reads, measured off the same box.
+ * What these tests hold is that the rail leaves and its replacement arrives on
+ * one rung. The old defect was two rungs: a container query decided the fold
+ * and a JavaScript branch decided the replacement, 500-odd pixels apart, and
+ * nothing in the build could notice. So each surface asserts that the rail's
+ * column, the sheet, and the control that opens the sheet all read one value.
  */
 
-describe('the PR review rail hands merge readiness over the moment it folds', () => {
+describe('the PR review rail becomes a sheet the moment it loses its column', () => {
   const rail = read('packages/workspace-ui/src/components/pr-review/PrActivityRail.svelte')
   const feed = read('packages/workspace-ui/src/components/pr-review/ActivityFeed.svelte')
+  const bar = read('packages/workspace-ui/src/components/pr-review/PrMergeBar.svelte')
 
-  it('reads the same width the stylesheet folds at', () => {
-    const rung = rail.match(/@max-\[(\d+)px\]:w-full/)
-    expect(rung).not.toBeNull()
-    expect(Number(rung![1])).toBe(RAIL_FOLD_MAX)
+  it('owns the rung in one place, with no stylesheet copy to drift from', () => {
+    // The rail used to carry a `@max-[1000px]` fold of its own. Two owners of
+    // one number is what put a folded rail and no bottom bar on screen at once.
+    expect(rail).not.toContain('@max-[1000px]')
+    expect(rail).not.toContain('@min-[1001px]')
+  })
+
+  it('draws the rail in the column only while it has a column', () => {
+    expect(feed).toContain('{#if !railFolded}\n        {@render railPanel("column")}')
+  })
+
+  it('renders the rail from one definition, not two', () => {
+    // PrActivityRail takes twenty props. A second call site is twenty props
+    // kept in step by hand, which is how a sheet drifts from the column it
+    // mirrors.
+    expect(feed.match(/<PrActivityRail/g)?.length).toBe(1)
+    expect(feed).toContain('{@render railPanel("column")}')
+    expect(feed).toContain('{@render railPanel("sheet")}')
+  })
+
+  it('opens the sheet, and offers the control that opens it, on that same rung', () => {
+    expect(feed).toContain('{#if railFolded && railOpen}')
+    expect(feed).toContain('details={railSheetTrigger}')
+  })
+
+  it('keeps the way into the sheet even before the readiness loads', () => {
+    // The bar is the folded layout's only chrome. Gating all of it on a
+    // readiness that arrives with the PR detail would make reviewers and
+    // changed files unreachable for as long as the fetch takes.
+    expect(bar).toContain('{#if readiness || details}')
   })
 
   it('measures the container the rung is resolved against, not the surface around it', () => {
@@ -48,7 +77,7 @@ describe('the PR review rail hands merge readiness over the moment it folds', ()
     expect(feed).not.toContain('isStackedPane')
   })
 
-  it('is folded exactly where the query is, and not before the observer answers', () => {
+  it('is folded exactly at the rung, and not before the observer answers', () => {
     expect(isRailFolded(0)).toBe(false)
     expect(isRailFolded(RAIL_FOLD_MAX)).toBe(true)
     expect(isRailFolded(RAIL_FOLD_MAX + 1)).toBe(false)
@@ -59,10 +88,12 @@ describe('the task page rail becomes a sheet the moment it leaves the column', (
   const page = read('packages/workspace-ui/src/components/tasks/task-page/TaskPage.svelte')
   const sidebar = read('packages/workspace-ui/src/components/tasks/task-page/TaskSidebar.svelte')
 
-  it('reads the same width the content row folds at', () => {
-    const rung = page.match(/@max-\[(\d+)rem\]:flex-col/)
-    expect(rung).not.toBeNull()
-    expect(Number(rung![1]) * 16).toBe(TASK_RAIL_FOLD_MAX)
+  it('owns the rung in one place, with no stylesheet copy to drift from', () => {
+    // The rail carried `@max-[60rem]:static @max-[60rem]:w-full` for the width
+    // it used to fold at, and the content row carried a matching `flex-col`.
+    // Both described a state that can no longer happen.
+    expect(sidebar).not.toContain('@max-[60rem]')
+    expect(page).not.toContain('@max-[60rem]:flex-col')
   })
 
   it('draws the rail in the column only while it has a column', () => {
@@ -90,13 +121,7 @@ describe('the task page rail becomes a sheet the moment it leaves the column', (
     expect(TASK_RAIL_FOLD_MAX).toBeGreaterThan(30 * 16)
   })
 
-  it('leaves the rail no fold rung it can never reach', () => {
-    // The column instance is not rendered below the fold any more, so a rule
-    // saying what it does there describes a state that cannot happen.
-    expect(sidebar).not.toContain('@max-[60rem]')
-  })
-
-  it('is folded exactly where the query is, and not before the observer answers', () => {
+  it('is folded exactly at the rung, and not before the observer answers', () => {
     expect(isTaskRailFolded(0)).toBe(false)
     expect(isTaskRailFolded(TASK_RAIL_FOLD_MAX)).toBe(true)
     expect(isTaskRailFolded(TASK_RAIL_FOLD_MAX + 1)).toBe(false)

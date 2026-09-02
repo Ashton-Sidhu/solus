@@ -5,7 +5,7 @@ import type { IpcContext } from '@solus/contracts/types'
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { ReviewContext, ReviewGuide, ReviewLedger } from '@solus/contracts/review'
 import { createLogger } from '../logger'
-import { runAsync } from '../git/exec'
+import { gitCommitExists, runAsync } from '../git/exec'
 import { resolveRepoRoot } from '../git/git-helpers'
 import { getDefaultBranch, getHeadCommit, getWorkingBranch } from '../git/worktree-manager'
 import { getSessionBaseSha } from '../git/session-snapshots'
@@ -81,7 +81,10 @@ async function resolveBaseSha(
   // The session sidecar is stored at the main project root, not the checkout.
   if (sessionId) {
     const sessionBase = getSessionBaseSha(repoRoot, sessionId)
-    if (sessionBase) return sessionBase
+    if (sessionBase) {
+      if (await gitCommitExists(checkout, sessionBase)) return sessionBase
+      log.warn('review_session_base_unavailable', { sessionId, baseSha: sessionBase })
+    }
   }
   return getHeadCommit(checkout) ?? 'unknown'
 }

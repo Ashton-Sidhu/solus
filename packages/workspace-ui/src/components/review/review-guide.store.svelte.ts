@@ -29,6 +29,8 @@ export interface ReviewGuideRequest {
   reasoningEffort?: ReasoningEffort | null
   scope?: ReviewScope
   target?: ReviewTarget
+  instructions?: string
+  reportSessionLifecycle?: boolean
 }
 
 export function branchGuideIdentity(environment: {

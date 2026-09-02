@@ -1,8 +1,24 @@
 <script lang="ts">
+  import SvelteMarkdown, { type TextSnippetProps } from "@humanspeak/svelte-markdown";
   import { MessageCircle as ChatCircleIcon, ArrowRight as ArrowRightIcon } from "@lucide/svelte";
   import type { PreviewExtraction } from "../../lib/sessionPreviewMessages";
+  import type { AttentionState } from "../../lib/sessionUtils";
   import { highlightRuns } from "../../lib/searchHighlight";
+  import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
+  import CodeBlock from "../ui/CodeBlock.svelte";
+  import CodeSpan from "../ui/CodeSpan.svelte";
   import { Skeleton } from "../ui/skeleton";
+  import MarkdownImage from "../conversation/MarkdownImage.svelte";
+  import MarkdownLink from "../conversation/MarkdownLink.svelte";
+  import { assistantMarkdownOptions } from "../conversation/lib/assistant-markdown";
+  import SessionStatusGlyph from "./SessionStatusGlyph.svelte";
+
+  const markdownRenderers = {
+    code: CodeBlock,
+    codespan: CodeSpan,
+    image: MarkdownImage,
+    link: MarkdownLink,
+  };
 
   interface Props {
     preview: PreviewExtraction | null;
@@ -16,6 +32,7 @@
      *  list — the preview is where that match becomes visible. */
     query?: string;
     onContinue?: () => void;
+    attention?: AttentionState;
   }
   let {
     preview,
@@ -26,20 +43,34 @@
     hiddenCount = 0,
     query = "",
     onContinue,
+    attention,
   }: Props = $props();
 
   const hasSession = $derived(!!preview || loading);
 
   const titleRuns = $derived(highlightRuns(title, query));
   const bylineRuns = $derived(highlightRuns(byline, query));
-  const firstMessageRuns = $derived(
-    highlightRuns(preview?.firstUserMessage?.snippet ?? "", query),
-  );
 </script>
 
-<div class="text-xs flex h-full min-w-0 flex-col">
+{#snippet highlightedMarkdownText({ text = "" }: TextSnippetProps)}
+  {#each highlightRuns(text, query) as run, i (i)}
+    {#if run.hit}
+      <mark
+        class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+        >{run.text}</mark
+      >
+    {:else}
+      {run.text}
+    {/if}
+  {/each}
+{/snippet}
+
+<div class="text-workspace-chrome flex h-full min-w-0 flex-col">
   {#if hasSession && title}
     <div class="flex min-w-0 flex-shrink-0 items-center gap-3 px-[1.125rem] pb-2.5 pt-3">
+      {#if attention !== undefined}
+        <SessionStatusGlyph {attention} class="max-md:hidden" />
+      {/if}
       <div class="flex min-w-0 flex-1 flex-col gap-0.5">
         <div
           class="overflow-hidden text-ellipsis whitespace-nowrap font-medium leading-[1.3] text-[var(--solus-text-primary)]"
@@ -59,7 +90,7 @@
           {#if byline && timeAgo}<span class="flex-shrink-0 opacity-50">·</span
             >{/if}
           {#if timeAgo}<span
-              class="flex-shrink-0 opacity-80 [font-variant-numeric:tabular-nums]"
+              class="flex-shrink-0 whitespace-nowrap opacity-80 [font-variant-numeric:tabular-nums]"
               >{timeAgo}</span
             >{/if}
         </div>
@@ -79,7 +110,7 @@
   {#if !preview && !loading}
     <div class="flex h-full flex-col items-center justify-center gap-2.5">
       <ChatCircleIcon size={26} class="text-(--solus-text-muted) opacity-35" />
-      <span class="text-xs text-[var(--solus-text-tertiary)]"
+      <span class="text-[var(--solus-text-tertiary)]"
         >Select a session to preview</span
       >
     </div>
@@ -96,13 +127,16 @@
     <div class="flex flex-1 flex-col overflow-y-auto px-[1.125rem] pb-4 pt-0.5">
       {#if preview?.firstUserMessage}
         <div class="flex justify-end pb-1.5 pt-3">
-          <span
+          <div
             class="prose-transcript-user max-w-[88%] overflow-hidden break-words rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 py-2.5 text-(--solus-text-primary)"
-            >{#each firstMessageRuns as run, i (i)}{#if run.hit}<mark
-                  class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
-                  >{run.text}</mark
-                >{:else}{run.text}{/if}{/each}</span
           >
+            <SvelteMarkdown
+              source={preview.firstUserMessage.snippet}
+              renderers={markdownRenderers}
+              sanitizeUrl={markdownSanitizeUrl}
+              text={highlightedMarkdownText}
+            />
+          </div>
         </div>
       {/if}
 
@@ -119,12 +153,18 @@
         </div>
         <div class="w-full overflow-hidden whitespace-pre-wrap break-words py-2">
           <div class="prose-cloud prose-reading prose-transcript min-w-0">
-            {preview.lastAssistantMessage.snippet}
+            <SvelteMarkdown
+              source={preview.lastAssistantMessage.snippet}
+              options={assistantMarkdownOptions}
+              renderers={markdownRenderers}
+              sanitizeUrl={markdownSanitizeUrl}
+              text={highlightedMarkdownText}
+            />
           </div>
         </div>
       {:else if !preview?.firstUserMessage}
         <div class="flex h-full flex-col items-center justify-center gap-2.5 pt-10">
-          <span class="text-xs text-[var(--solus-text-tertiary)]"
+          <span class="text-[var(--solus-text-tertiary)]"
             >No messages</span
           >
         </div>

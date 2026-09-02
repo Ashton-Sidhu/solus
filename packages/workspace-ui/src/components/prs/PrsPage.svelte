@@ -370,6 +370,12 @@ import Icon from "@iconify/svelte";
       const owner = qualified.byPr.get(pr);
       return owner ? pullRequests.checks.summaryFor(owner.serverId, owner.ctx, pr.number) : undefined;
     },
+    guideStatus: (pr) => {
+      const target = targetFor(pr);
+      return target
+        ? pullRequests.guides.statusFor(target.serverId, target.ctx, pr.number)
+        : undefined;
+    },
     isMine: (pr) => {
       const owner = isInboxView ? qualified.byPr.get(pr) : undefined;
       const serverId = owner?.serverId ?? prsServerId;
@@ -1233,6 +1239,7 @@ import Icon from "@iconify/svelte";
       actions={pageActions}
       filters={filterBar}
       contentOwnsScroll
+      hideHeader={splitList}
       bind:contentHeight
     >
       <!-- svelte-ignore a11y_no_static_element_interactions -->

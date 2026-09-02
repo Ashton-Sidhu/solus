@@ -6,6 +6,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Switch } from "../ui/switch";
   import { Button } from "../ui/button";
+  import PlainTextEditor from "../ui/plain-text-editor/plain-text-editor.svelte";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
 
@@ -22,10 +23,8 @@
   const projectPath = $derived(projectScopeOf(session.ctx.session));
   const warmingEnabled = $derived(theme.isReviewWarmingEnabled(projectPath));
 
-  // The review companion's agent/model/reasoning. `reviewAgent`/`reviewModel`/
-  // `reviewReasoning` are overrides — null means "follow the active agent / that
-  // agent's default model / that model's default reasoning effort".
-  const reviewAgentId = $derived(theme.reviewAgent ?? theme.activeAgent);
+  // These are the exact durable values used for review guide generation.
+  const reviewAgentId = $derived(theme.reviewAgent);
   const reviewAgentMeta = $derived(agentContext.metadata[reviewAgentId] ?? null);
   const reviewAgentLabel = $derived(reviewAgentMeta?.label ?? reviewAgentId);
   const reviewModels = $derived(reviewAgentMeta?.models ?? []);
@@ -58,19 +57,16 @@
   );
 
   function selectReviewAgent(id: AgentId) {
-    // Switching backend resets the model to that backend's default (its model
-    // list is different), mirroring the old ModelPicker coupling. Reasoning also
-    // resets, since the level set is model-specific.
-    theme.update({ reviewAgent: id, reviewModel: null, reviewReasoning: null });
+    const metadata = agentContext.metadata[id];
+    const model = metadata?.defaultModel ?? metadata?.models[0]?.id ?? "";
+    const reasoning = MODEL_PROFILES[id]?.[model]?.defaultReasoningEffort ?? "medium";
+    theme.update({ reviewAgent: id, reviewModel: model, reviewReasoning: reasoning });
     requestInputFocus();
   }
 
   function selectReviewModel(id: string) {
-    // Pin the agent the model belongs to. Otherwise, with `reviewAgent` left on
-    // "follow active agent", this model id is dropped the moment the active agent
-    // changes provider — which is how a Claude model ended up "selected" while
-    // codex actually ran. Reasoning levels differ per model, so clear that too.
-    theme.update({ reviewAgent: reviewAgentId, reviewModel: id, reviewReasoning: null });
+    const reasoning = MODEL_PROFILES[reviewAgentId]?.[id]?.defaultReasoningEffort ?? "medium";
+    theme.update({ reviewAgent: reviewAgentId, reviewModel: id, reviewReasoning: reasoning });
     requestInputFocus();
   }
 
@@ -104,6 +100,7 @@
     { id: "review-agent", keywords: ["review", "companion", "agent", "code review", "backend", "claude", "codex"] },
     { id: "review-model", keywords: ["review", "companion", "model", "code review", "llm"] },
     { id: "review-reasoning", keywords: ["review", "companion", "reasoning", "effort", "thinking", "code review"] },
+    { id: "review-instructions", keywords: ["review", "guide", "instructions", "prompt", "custom"] },
   ];
 
   function isVisible(id: string): boolean {
@@ -229,6 +226,28 @@
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
       </DropdownMenu.Root>
+    {/snippet}
+  </SettingsRow>
+</SettingsSection>
+
+<SettingsSection label="Customization" visible={isVisible("review-instructions")}>
+  <SettingsRow
+    label="Review guide instructions"
+    description="Applied to every review guide, in addition to instructions supplied with a review skill."
+    visible={isVisible("review-instructions")}
+  >
+    {#snippet body()}
+      <PlainTextEditor
+        value={theme.reviewGuideInstructions}
+        onValueChange={(value) => theme.update({ reviewGuideInstructions: value })}
+        onBlur={() => requestInputFocus()}
+        enterInsertsNewline
+        hidePlaceholderOnFocus
+        maxHeight={220}
+        dictation
+        placeholder="Focus on data flow, call out migration risks, and group tests with the behavior they verify."
+        class="rounded-lg border border-border bg-background px-2.5 [--plain-editor-font-size:var(--text-workspace-chrome)] transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
+      />
     {/snippet}
   </SettingsRow>
 </SettingsSection>

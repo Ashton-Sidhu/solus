@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { AgentUsageLimits } from '@solus/contracts/types'
 import { registerUsageHandlers } from '@solus/server/server/handlers/usage-handlers'
 import { SolusServer } from '@solus/server/server/server'
@@ -25,8 +26,8 @@ describe('usage handlers', () => {
       } as never,
     })
 
-    const first = server.handle('usageLimits', [])
-    const second = server.handle('usageLimits', [])
+    const first = server.handle('usageLimits', [], TEST_HANDLER_CTX)
+    const second = server.handle('usageLimits', [], TEST_HANDLER_CTX)
     finishRead?.({ provider: 'claude-code', stale: false })
 
     await Promise.all([first, second])
@@ -50,7 +51,7 @@ describe('usage handlers', () => {
       events: { broadcast: () => 1 } as never,
     })
 
-    const snapshots = await server.handle('usageLimits', [])
+    const snapshots = await server.handle('usageLimits', [], TEST_HANDLER_CTX)
 
     expect(snapshots).toEqual([
       { provider: 'claude-code', fiveHour: null, weekly: null, planType: null, fetchedAt: 0, stale: true },

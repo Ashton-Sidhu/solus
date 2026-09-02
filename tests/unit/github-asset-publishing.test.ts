@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { ExternalTicketRef } from '@solus/contracts/task-types'
-import { githubClientState, installGithubClientMock, mockedRepository } from './helpers/github-client-mock.ts'
+import { githubClientState, installGithubClientMock, mockedGithubClient, mockedRepository } from './helpers/github-client-mock.ts'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -88,9 +88,10 @@ beforeAll(async () => {
 
 /** The reason the endpoint refused, or how the call failed to refuse properly. */
 async function uploadFailureReason(assetId: string): Promise<string> {
-  const target = await upload.resolveUploadTarget('solus', 'desktop')
+  const client = mockedGithubClient()
+  const target = await upload.resolveUploadTarget(client, 'solus', 'desktop')
   try {
-    await upload.uploadGithubAsset(target, assetId)
+    await upload.uploadGithubAsset(client, target, assetId)
     return 'unexpectedly succeeded'
   } catch (error) {
     if (error instanceof upload.GithubAssetUploadError) return error.reason
@@ -122,8 +123,9 @@ afterAll(() => {
 
 describe('github asset upload request', () => {
   test('sends the octet-stream request the endpoint requires', async () => {
-    const target = await upload.resolveUploadTarget('solus', 'desktop')
-    const url = await upload.uploadGithubAsset(target, PNG_ID)
+    const client = mockedGithubClient()
+    const target = await upload.resolveUploadTarget(client, 'solus', 'desktop')
+    const url = await upload.uploadGithubAsset(client, target, PNG_ID)
 
     expect(url).toBe('https://github.com/user-attachments/assets/be9b3920')
     expect(requests).toHaveLength(1)

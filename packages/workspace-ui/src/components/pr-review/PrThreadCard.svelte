@@ -39,7 +39,8 @@
 
   // Comment bodies are GitHub markdown — same pipeline + `.prose-pr`
   // typography as the PR description and the timeline's conversation rows.
-  const bodyProseClass = "github-markdown prose-cloud prose-pr";
+  const bodyProseClass =
+    "github-markdown prose-cloud prose-pr prose-pr-activity";
 
   let replying = $state(false);
   let replyText = $state("");
@@ -94,8 +95,12 @@
 
 </script>
 
-<div class="text-xs overflow-hidden rounded-2xl border border-border bg-card">
-  <div class="flex items-center gap-2 border-b border-border px-3 py-2">
+<div
+  class="overflow-hidden rounded-2xl border border-border bg-card text-review-row [.is-laptop-display_&]:rounded-xl"
+>
+  <div
+    class="flex items-center gap-2 border-b border-border px-3 py-2 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-1.5"
+  >
     {#if diffHunk && !collapsed}
       <Button
         type="button"
@@ -166,7 +171,9 @@
       </div>
     {/if}
 
-    <div class="flex flex-col px-3 py-2.5">
+    <div
+      class="flex flex-col px-3 py-2.5 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-2"
+    >
       {#each thread.comments as comment, ci (comment.id)}
         <div class="flex gap-2.5">
           <!-- Avatar + connector line linking stacked replies together -->

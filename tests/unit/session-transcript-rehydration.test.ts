@@ -18,42 +18,6 @@ const {
 afterEach(() => connections.reset())
 
 describe('session transcript rehydration', () => {
-  test('rebuilds a review-guide card from persisted request tool input', async () => {
-    connections.registerPrimary('transcript-host', {
-      loadSession: async () => [{
-        role: 'tool' as const,
-        content: '',
-        toolName: 'mcp__solus__request_review_guide',
-        toolId: 'review-1',
-        toolInput: JSON.stringify({ target: { kind: 'working-tree' } }),
-        timestamp: 1,
-      }],
-    })
-    const ctx = {
-      apiForSession: () => connections.apiFor('transcript-host'),
-      automationsStore: { loaded: true },
-    } as unknown as WorkspaceContext
-
-    const transcript = await loadSessionTranscript(ctx, {
-      sessionId: 'session-1',
-      loadPath: '/repo',
-      displayCwd: '/repo',
-      provider: 'claude-code',
-      ctx: {
-        session: {
-          sessionId: 'tab-1',
-          agentSessionId: 'provider-1',
-          gitContext: { branch: 'feature/reviews' },
-        },
-      } as IpcContext,
-    })
-
-    expect(transcript.messages[1]?.reviewGuideRef).toEqual({
-      target: { kind: 'working-tree' },
-      key: 'working-tree-feature__reviews',
-    })
-  })
-
   test('rebuilds a rendered artifact with the work it was saved as', async () => {
     // WHY: the work id lived in the dropped tool result, so a reloaded frame
     // finds its work the way a create_work card does — by the title the host

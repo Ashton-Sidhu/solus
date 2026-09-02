@@ -4,7 +4,7 @@ import { join, resolve } from 'path'
 import { createHash, randomUUID } from 'crypto'
 import { createLogger } from '../logger'
 import { isInsideRoot } from '../paths'
-import { runAsync } from './exec'
+import { gitCommitExists, runAsync } from './exec'
 import type {
   ChangedFileStat,
   DiffFileContent,
@@ -656,8 +656,7 @@ export async function resolvePrDiffBase(
   if (!scope.ownDeltaBaseSha) return scope.baseSha
 
   const parentHead = scope.ownDeltaBaseSha
-  const available = await runAsync('git', ['rev-parse', '--verify', `${parentHead}^{commit}`], repoRoot)
-    .then(() => true, () => false)
+  const available = await gitCommitExists(repoRoot, parentHead)
   if (!available && scope.parentPr) {
     const ref = `refs/solus/pr/${scope.parentPr}`
     await runAsync('git', ['fetch', 'origin', `pull/${scope.parentPr}/head:${ref}`], repoRoot)

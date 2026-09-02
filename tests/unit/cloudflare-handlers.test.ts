@@ -1,4 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { SecretStore } from '@solus/server/platform/secrets'
 
 const records = new Map<string, unknown>()
@@ -44,12 +45,12 @@ function server(): InstanceType<typeof SolusServer> {
 
 describe('Cloudflare RPC handlers', () => {
   test('reports disconnected for a clean profile', async () => {
-    await expect(server().handle('cloudflareStatus', [])).resolves.toEqual({ connected: false })
+    await expect(server().handle('cloudflareStatus', [], TEST_HANDLER_CTX)).resolves.toEqual({ connected: false })
   })
 
   test('does not persist an invalid token', async () => {
     globalThis.fetch = (async () => new Response(JSON.stringify({ success: false }), { status: 401 })) as typeof fetch
-    await expect(server().handle('cloudflareConnect', [{ apiToken: 'invalid' }])).resolves.toMatchObject({
+    await expect(server().handle('cloudflareConnect', [{ apiToken: 'invalid' }], TEST_HANDLER_CTX)).resolves.toMatchObject({
       ok: false,
       kind: 'invalid',
     })
@@ -60,7 +61,7 @@ describe('Cloudflare RPC handlers', () => {
     records.set('cloudflare-api-token', { apiToken: 'stored', accountId: 'stored-account' })
     process.env.CLOUDFLARE_API_TOKEN = 'environment-token'
     process.env.CLOUDFLARE_ACCOUNT_ID = 'environment-account'
-    await expect(server().handle('cloudflareStatus', [])).resolves.toEqual({
+    await expect(server().handle('cloudflareStatus', [], TEST_HANDLER_CTX)).resolves.toEqual({
       connected: true,
       source: 'env',
       accountId: 'environment-account',

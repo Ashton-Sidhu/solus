@@ -65,7 +65,6 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
           ...Object.values(solusToolbox.sessions),
           ...Object.values(solusToolbox.tasks),
           ...Object.values(solusToolbox.prs),
-          ...Object.values(solusToolbox.review),
         ],
         model: args.model ?? 'gpt-5.6-terra',
         reasoningEffort: args.reasoning_effort,

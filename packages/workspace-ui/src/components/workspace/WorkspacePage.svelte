@@ -1466,8 +1466,16 @@
         variant="sheet"
         onOpen={() => {
           const target = peek.item;
-          peek.close();
-          if (target) openItem(target);
+          if (!target) return;
+          if (target.source.kind === "work") {
+            // The sheet already hydrated this work for its preview. Route it
+            // directly instead of blocking the only mobile open action on a
+            // second remote load before any visible navigation occurs.
+            session.openWork(target.id);
+            peek.close();
+            return;
+          }
+          void openItem(target).then(() => peek.close());
         }}
         onTogglePin={() => {
           const target = peek.item;

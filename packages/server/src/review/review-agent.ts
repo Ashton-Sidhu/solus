@@ -26,6 +26,10 @@ export interface ReviewAgentInput {
   /** Reasoning effort for the review run; falls back to 'high' when unset.
    *  Callers resolve this from settings (default medium, see resolveReviewAgent). */
   reasoningEffort?: ReasoningEffort | null
+  /** Persistent review-only instructions from Settings. */
+  reviewGuideInstructions?: string
+  /** Instructions supplied with this review request, including skill input. */
+  requestInstructions?: string
   /** Pre-computed diff to inline into the prompt so the agent skips gathering it
    *  with git. Null/undefined ⇒ the agent gathers the diff itself (large-diff path). */
   inlineDiff?: string | null
@@ -144,6 +148,22 @@ function buildPrompt(input: ReviewAgentInput, ledgerPresent: boolean): string {
       '',
       'Ledger records (JSON):',
       JSON.stringify(input.ledger.records, null, 2),
+      '',
+    )
+  }
+
+  if (input.reviewGuideInstructions?.trim()) {
+    parts.push(
+      'Review guide instructions from Settings:',
+      input.reviewGuideInstructions.trim(),
+      '',
+    )
+  }
+
+  if (input.requestInstructions?.trim()) {
+    parts.push(
+      'Review instructions supplied with this request:',
+      input.requestInstructions.trim(),
       '',
     )
   }

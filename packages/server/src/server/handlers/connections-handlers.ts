@@ -57,9 +57,9 @@ export function aggregateConnectionSessionsByDevice(sessions: ActiveConnectionSe
 }
 
 export function registerConnectionsHandlers(server: SolusServer, deps: ConnectionsDeps): void {
-  server.register('connectionsGetServerInfo', () => {
+  server.register('connectionsGetServerInfo', (_args, ctx) => {
     const info = deps.getServerInfo()
-    return { ...info, installationId: getInstallationId() }
+    return { ...info, installationId: getInstallationId(), principal: ctx.principal.kind }
   })
 
   server.register('connectionsListEndpoints', async () => {

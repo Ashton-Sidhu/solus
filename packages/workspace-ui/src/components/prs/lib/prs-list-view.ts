@@ -10,6 +10,7 @@
  */
 import type { PullRequest } from '@solus/contracts/providers'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
+import type { PrGuideStatus } from '@solus/contracts/review'
 import {
   absoluteTime,
   compactCount,
@@ -27,8 +28,16 @@ import {
  *  same PR number from two different repos, so only the record disambiguates. */
 export interface PrRowContext {
   checks: (pr: PullRequest) => PrChecksSummary | undefined
+  guideStatus?: (pr: PullRequest) => PrGuideStatus | undefined
   /** Whether the viewer authored it. Drives the "Yours" filter and the inbox split. */
   isMine: (pr: PullRequest) => boolean
+}
+
+function guideChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
+  const status = ctx.guideStatus?.(pr)
+  if (status === 'queued') return [{ label: 'Guide queued', tint: 'running' }]
+  if (status === 'generating') return [{ label: 'Generating guide', tint: 'running' }]
+  return []
 }
 
 /**
@@ -163,7 +172,7 @@ export function prRow(
     title: pr.title,
     // Nothing sits between the number and the trailing metrics at rest, so the
     // title is the only thing competing for the middle of the row.
-    chips: [],
+    chips: guideChips(pr, ctx),
     reveal: revealFor(pr, stackParent),
     checks: checksFor(pr, ctx.checks(pr)),
     meta: '',
@@ -239,7 +248,7 @@ export function prInboxGroups(
       rows: [...needsYou]
         .sort((a, b) => updated(a) - updated(b))
         .map((pr) => ({
-          ...inboxRowBase(pr, now, keyFor),
+          ...inboxRowBase(pr, ctx, now, keyFor),
           title:
             pr.reviewAttention === 'assigned'
               ? `Assigned to you: ${pr.title}`
@@ -264,7 +273,7 @@ export function prInboxGroups(
       rows: [...yours]
         .sort((a, b) => updated(b) - updated(a))
         .map((pr) => ({
-          ...inboxRowBase(pr, now, keyFor),
+          ...inboxRowBase(pr, ctx, now, keyFor),
           context: yourPrContext(pr, ctx),
           unread: false,
           primary: { label: 'Open', shortcut: '⏎', run: () => actions.open(pr) },
@@ -281,7 +290,7 @@ export function prInboxGroups(
       rows: [...landed]
         .sort((a, b) => updated(b) - updated(a))
         .map((pr) => ({
-          ...inboxRowBase(pr, now, keyFor),
+          ...inboxRowBase(pr, ctx, now, keyFor),
           context: `${pr.state === 'merged' ? 'Merged' : 'Closed'} · ${diffSize(pr)}${pr.headRef ? ` · ${pr.headRef}` : ''}`,
           unread: false,
         })),
@@ -301,7 +310,12 @@ function yourPrContext(pr: PullRequest, ctx: PrRowContext): string {
   return `Your PR · ${state}${pr.headRef ? ` · ${pr.headRef}` : ''}`
 }
 
-function inboxRowBase(pr: PullRequest, now: number, keyFor?: (pr: PullRequest) => string) {
+function inboxRowBase(
+  pr: PullRequest,
+  ctx: PrRowContext,
+  now: number,
+  keyFor?: (pr: PullRequest) => string,
+) {
   return {
     key: keyFor?.(pr) ?? String(pr.number),
     ident: `#${pr.number}`,
@@ -311,7 +325,7 @@ function inboxRowBase(pr: PullRequest, now: number, keyFor?: (pr: PullRequest) =
     time: compactRelativeTime(pr.updatedAt, now),
     timeTitle: absoluteTime(pr.updatedAt),
     unread: false,
-    chips: [],
+    chips: guideChips(pr, ctx),
   }
 }
 

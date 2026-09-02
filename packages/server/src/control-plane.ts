@@ -1473,9 +1473,22 @@ export class ControlPlane extends EventEmitter {
         }
       })
     }
-    const backend = this._backendFor(agentId)
-    if (backend.loadSessionPreview) return backend.loadSessionPreview(sessionId, projectPath)
-    return backend.loadSession(sessionId, projectPath).then((allMsgs) => {
+    // A task link names the stable Solus session. A lineage of one is still
+    // backed by a provider thread with a different id, so route the cheap read
+    // to that endpoint instead of asking the provider for the Solus id. The old
+    // session picker did not expose this because its history rows carried the
+    // provider thread id directly.
+    const member = lineage?.active.providerSessionId
+      ? lineage.active
+      : lineage?.members.findLast((candidate) => !!candidate.providerSessionId)
+    const previewAgentId = member?.provider ?? agentId
+    const previewSessionId = member?.providerSessionId ?? sessionId
+    const previewProjectPath = member?.cwd || projectPath
+    const backend = this._backendFor(previewAgentId)
+    if (backend.loadSessionPreview) {
+      return backend.loadSessionPreview(previewSessionId, previewProjectPath)
+    }
+    return backend.loadSession(previewSessionId, previewProjectPath).then((allMsgs) => {
       // Reasoning turns ride along for provider handoffs; a preview shows real
       // conversation, so drop them before sampling the head/tail.
       const msgs = allMsgs.filter((m) => m.role !== 'reasoning')
@@ -1768,7 +1781,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
-        solusToolbox.review,
         solusToolbox.config,
       ),
     }, origin?.deviceId)
@@ -1849,7 +1861,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
-        solusToolbox.review,
         solusToolbox.config,
       ),
       options: {
@@ -1934,7 +1945,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
-        solusToolbox.review,
         solusToolbox.config,
       ),
       options: { prompt, displayPrompt: prompt, delivery, promptSource: 'agent', ...promptOrigin },
@@ -2036,7 +2046,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
-        solusToolbox.review,
         solusToolbox.config,
       ),
       options: buildCreatedSessionPromptOptions(req),
@@ -2091,7 +2100,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.sessions,
         solusToolbox.tasks,
         solusToolbox.prs,
-        solusToolbox.review,
         solusToolbox.config,
       ),
       options: {
@@ -3112,7 +3120,6 @@ export class ControlPlane extends EventEmitter {
       solusToolbox.sessions,
       solusToolbox.tasks,
       solusToolbox.prs,
-      solusToolbox.review,
       solusToolbox.config,
     )
     if (session?.status === 'dead') {

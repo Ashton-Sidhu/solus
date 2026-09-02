@@ -90,6 +90,11 @@ export const TASK_STATUSES: TaskStatus[] = [
   'dropped',
 ]
 
+/** Every priority a person can set, most urgent first. Unset is offered as
+ *  "No priority" by the menus rather than living in this list, because it is
+ *  the absence of one. */
+export const PRIORITY_OPTIONS: TaskPriority[] = ['urgent', 'high', 'medium', 'low']
+
 export function statusLabel(status: TaskStatus): string {
   return STATUS_META[status]?.label ?? status
 }

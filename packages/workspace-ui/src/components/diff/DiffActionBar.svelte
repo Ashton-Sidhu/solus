@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { GitFork as GitForkIcon, MessageCircle as ChatCircleTextIcon, MessagesSquare as ChatsIcon } from "@lucide/svelte";
+  import { GitFork as GitForkIcon, MessagesSquare as ChatsIcon } from "@lucide/svelte";
   import { PromptComposer, type PromptComposerSubmit } from "../ui/prompt-composer";
   import { getWorkspaceContext, getStatusBarContext } from "../../contexts";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -20,8 +20,6 @@
     beforeSend?: () => void;
     /** If the parent has an in-progress (typed but unsaved) inline comment, bump the count. */
     pendingInlineDraft?: boolean;
-    /** Open the comments popover (chip click) so the queued comments are discoverable. */
-    onShowComments?: () => void;
     /** Feedback for a detached review target must start a fresh session. The
      *  current-session button is hidden because that conversation does not own
      *  the reviewed change. */
@@ -42,7 +40,6 @@
     onSubmitted,
     beforeSend,
     pendingInlineDraft = false,
-    onShowComments,
     feedbackToNewSession = false,
     feedbackSessionTarget,
   }: Props = $props();
@@ -247,58 +244,5 @@
         </TooltipUI.Root>
       {/if}
     {/snippet}
-
-    {#snippet trailing()}
-      {#if inlineCount > 0}
-        <TooltipUI.Root>
-          <TooltipUI.Trigger>
-            {#snippet child({ props: tooltipProps })}
-              <button {...tooltipProps}
-          type="button"
-          onclick={() => onShowComments?.()}
-          class="comments-chip"
-          aria-label={`View ${inlineCount} queued comment${inlineCount === 1 ? "" : "s"}`}
-        >
-          <ChatCircleTextIcon size={10} weight="fill" />
-          <span class="tabular-nums">{inlineCount}</span>
-        </button>
-            {/snippet}
-          </TooltipUI.Trigger>
-          <TooltipUI.Content value={"View queued comments"} />
-        </TooltipUI.Root>
-      {/if}
-    {/snippet}
   </PromptComposer>
 </div>
-
-<style>
-  .comments-chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.1875rem;
-    height: 1.25rem;
-    padding: 0 0.375rem;
-    border-radius: 9999px;
-    background: var(--solus-accent-light);
-    color: var(--solus-accent);
-    border: none;
-    font-size: var(--text-xs);
-    font-weight: 500;
-    line-height: 1;
-    cursor: pointer;
-    transition: background-color 0.12s ease, transform 0.1s ease;
-  }
-  .comments-chip:hover {
-    background: var(--solus-surface-hover);
-  }
-  .comments-chip:active {
-    transform: scale(0.96);
-  }
-  .comments-chip:focus-visible {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.125rem;
-  }
-  .tabular-nums {
-    font-variant-numeric: tabular-nums;
-  }
-</style>

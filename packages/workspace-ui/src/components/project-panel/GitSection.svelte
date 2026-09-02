@@ -637,7 +637,7 @@
         session.serverIdFor(sourceId),
         ctx,
         identity,
-        { ...resolveReviewAgent(settings, agentContext), scope: "branch" },
+        { ...resolveReviewAgent(settings), scope: "branch" },
       );
     } catch (error) {
       toasts.error("Couldn't generate the review guide", {

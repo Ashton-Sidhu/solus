@@ -13,7 +13,6 @@ import { AgentConversationTracker } from './agent-conversation-tracker.svelte'
 import { AGENT_INTERRUPT_NOTICE, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { isRequestReviewGuideTool, reviewGuideReferenceFromToolInput } from '../../components/review/lib/review-guide-reference'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
 
 export interface SessionEventReducerDeps {
@@ -95,27 +94,6 @@ export class SessionEventReducer {
     const ms = span.pendingMs
     span.pendingMs = 0
     return ms > 0 ? ms : undefined
-  }
-
-  /** Add the durable result beside the request tool after its hidden author
-   * finishes. The running tool row itself owns the loading skeleton. */
-  private ensureReviewGuideReference(session: Session, toolMessage: Message): void {
-    if (!isRequestReviewGuideTool(toolMessage.toolName)) return
-    const reviewGuideRef = reviewGuideReferenceFromToolInput(
-      toolMessage.toolInput,
-      session.run.gitContext?.branch,
-      session.agentSessionId,
-    )
-    if (!reviewGuideRef) return
-    const toolIndex = session.messages.indexOf(toolMessage)
-    if (toolIndex < 0 || session.messages[toolIndex + 1]?.reviewGuideRef) return
-    session.messages.splice(toolIndex + 1, 0, {
-      id: nextMsgId(),
-      role: 'assistant',
-      content: '',
-      reviewGuideRef,
-      timestamp: Date.now(),
-    })
   }
 
   /** Mark every tab watching a session as unread, unless it is on screen. */
@@ -314,7 +292,6 @@ export class SessionEventReducer {
             if (m.toolName === 'Write' || m.toolName === 'Edit' || m.toolName === 'exec_command') {
               completedFileMsg = m
             }
-            this.ensureReviewGuideReference(session, m)
             break
           }
         }

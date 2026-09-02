@@ -26,6 +26,9 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'accountSignOut',
   'accountRetryVerify',
   'onAccountStateChange',
+  'uplinkListDirectoryHosts',
+  'uplinkAcquireHostGrant',
+  'uplinkIssueEnrollmentTicket',
 ] as const
 
 // Most RPC methods belong to the selected host. External links are the lone

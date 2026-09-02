@@ -79,7 +79,8 @@
   // Comment/review bodies are GitHub markdown — same pipeline *and* the same
   // `.prose-pr` typography as the description above them. Sizes/colour can't be
   // set with utilities here: the `.prose-cloud` rules are unlayered and win.
-  const bodyProseClass = "github-markdown prose-cloud prose-pr mt-1.5";
+  const bodyProseClass =
+    "github-markdown prose-cloud prose-pr prose-pr-activity mt-1.5";
 
   // Which commit runs are expanded past their preview, keyed by event key.
   // Mutated in place ($state proxies are deeply reactive); stale keys from a
@@ -151,7 +152,10 @@
 
 <!-- The spine: a 1px rail under 22px nodes, so every row's content column
      starts 30px in (node + gap) and the rail runs through the node centers. -->
-<ol class="text-sm relative flex flex-col gap-5" role="list">
+<ol
+  class="relative flex flex-col gap-5 text-review-row [.is-laptop-display_&]:gap-4"
+  role="list"
+>
   <span
     class="absolute top-2 bottom-2 left-[11px] w-px bg-border"
     aria-hidden="true"

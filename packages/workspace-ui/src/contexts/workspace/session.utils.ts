@@ -64,7 +64,6 @@ const SOLUS_TOOL_KEYS = new Set([
   'resolve_pr_thread',
   'submit_pr_review',
   'submit_review_guide',
-  'request_review_guide',
   'get_goal',
   'create_goal',
   'update_goal',

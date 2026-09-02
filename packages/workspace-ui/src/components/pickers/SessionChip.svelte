@@ -162,13 +162,21 @@
   // is what lets a click in the Reasoning column apply the pair in one go.
   let hoveredModelId: string | null = $state(null);
   let hoveredLevel: ReasoningEffort | null = $state(null);
-  const previewModelLabel = $derived(
-    hoveredModelId ? (models.find((m) => m.id === hoveredModelId)?.label ?? null) : null,
-  );
   const previewReasoning = $derived(
     hoveredModelId && hoveredModelId !== currentModelId
       ? defaultReasoningFor(activeAgent, hoveredModelId)
       : null,
+  );
+  // The model the Reasoning column belongs to. Once the cursor is on a level,
+  // this is the model that level would commit with — the previewed one if the
+  // cursor came through the model column, the current one if it came straight
+  // over. The model row keeps its wash for as long as this points at it, the
+  // way a parent menu stays lit while the cursor is in its submenu.
+  const previewedModelId = $derived(
+    hoveredModelId ?? (hoveredLevel !== null ? currentModelId : null),
+  );
+  const previewedModelLabel = $derived(
+    models.find((m) => m.id === previewedModelId)?.label ?? modelLabel,
   );
   // The right column tracks whatever model is under the cursor — otherwise the
   // preview check can land on a level that model doesn't offer.
@@ -479,8 +487,14 @@
                 // the footer would advertise a pair that isn't on offer.
                 hoveredLevel = null;
               }}
+              data-menu-preview={previewedModelId === model.id ? "" : undefined}
             >
               <span class="min-w-0 flex-1 truncate">{model.label}</span>
+              <!-- The same faded check the Reasoning column shows on a previewed
+                   level: both halves of the pending pair are marked the same way. -->
+              {#if previewedModelId === model.id && model.id !== currentModelId}
+                <CheckIcon size={12} class="absolute right-2 shrink-0 text-(--solus-accent) opacity-40" />
+              {/if}
             </DropdownMenu.RadioItem>
           {/each}
         </DropdownMenu.RadioGroup>
@@ -491,6 +505,9 @@
 
         <div class="flex w-[184px] shrink-0 flex-col p-1.5">
           <DropdownMenu.RadioGroup value={previewReasoning ? undefined : reasoningEffort}>
+            <!-- Which model these levels belong to is said by the model row,
+                 which keeps its wash (`data-menu-preview`) while its levels
+                 are on offer, and by the footer — not by the heading. -->
             <DropdownMenu.GroupHeading>Reasoning</DropdownMenu.GroupHeading>
             <div style="min-height:{reservedLevelRows * 2}rem">
               {#each shownReasoningLevels as level (level)}
@@ -570,7 +587,7 @@
     {#if !modelOnly}
       <MenuFooter
         hints={[["↑↓", "within"], ["←→", "columns"], [comboHint("global.cycle-model"), "cycle"]]}
-        summary="{previewModelLabel ?? modelLabel} · {REASONING_EFFORT_LABELS[hoveredLevel ?? previewReasoning ?? reasoningEffort]}"
+        summary="{previewedModelLabel} · {REASONING_EFFORT_LABELS[hoveredLevel ?? previewReasoning ?? reasoningEffort]}"
       />
     {/if}
   </DropdownMenu.Content>

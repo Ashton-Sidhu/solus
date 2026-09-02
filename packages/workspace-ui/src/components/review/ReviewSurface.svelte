@@ -196,7 +196,7 @@
     getKey: () => guideKey,
     getScope: () => guideScope,
     getTarget: () => target,
-    getAgent: () => resolveReviewAgent(settings, agentContext),
+    getAgent: () => resolveReviewAgent(settings),
     getResolvedReviewContext: () => reviewContext,
     // The panel below is showing a comparison of its own. Where that is the
     // guide's comparison too, the guide quotes the panel's patch instead of
@@ -265,7 +265,7 @@
     toasts.info("Started generating the review guide");
     try {
       await reviewGuideStore.generate(getApi(), getServerId(), getCtx(), identity, {
-        ...resolveReviewAgent(settings, agentContext),
+        ...resolveReviewAgent(settings),
         ...(target ? { target } : { scope: guideScope }),
       });
     } catch (error) {

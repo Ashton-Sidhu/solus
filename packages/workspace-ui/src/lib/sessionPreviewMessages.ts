@@ -25,6 +25,21 @@ export function truncateAtWord(text: string, limit = SNIPPET_LIMIT): string {
   return cut.replace(/[,;:\-–—]+$/, '') + '…'
 }
 
+/** Bound markdown without flattening the line breaks that give lists, quotes,
+ *  headings, and fenced code their structure. */
+function truncateMarkdownAtWord(text: string, limit = SNIPPET_LIMIT): string {
+  const clean = text.trim()
+  if (clean.length <= limit) return clean
+  const sliced = clean.slice(0, limit)
+  const lastWhitespace = Math.max(
+    sliced.lastIndexOf(' '),
+    sliced.lastIndexOf('\n'),
+    sliced.lastIndexOf('\t'),
+  )
+  const cut = lastWhitespace > limit * 0.6 ? sliced.slice(0, lastWhitespace) : sliced
+  return cut.replace(/[,;:\-–—]+$/, '') + '…'
+}
+
 function isToolCall(m: PreviewMessage): boolean {
   return 'toolName' in m && !!m.toolName
 }
@@ -61,7 +76,7 @@ export function extractPreviewMessages(
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i]
     if (m.role === 'assistant' && isMeaningful(m)) {
-      lastAssistantMessage = { role: 'assistant', snippet: truncateAtWord(m.content || '') }
+      lastAssistantMessage = { role: 'assistant', snippet: truncateMarkdownAtWord(m.content || '') }
       break
     }
   }

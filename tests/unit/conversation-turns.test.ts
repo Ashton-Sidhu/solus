@@ -233,19 +233,21 @@ describe('turn collapse', () => {
     expect(turn.tail.map((item) => item.kind)).toEqual(['assistant'])
   })
 
-  test('keeps a queued review guide visible after its request turn ends', () => {
+  test('keeps a direct review guide visible after its request row', () => {
     const [turn] = turnsFor([
       msg({ role: 'user', content: '/review' }),
-      tool('request_review_guide', '{"target":{"kind":"working-tree"}}'),
       msg({
         role: 'assistant',
         reviewGuideRef: {
           target: { kind: 'working-tree' },
           key: 'working-tree-main',
+          agent: 'codex',
+          model: 'gpt-5.6-sol',
+          reasoningEffort: 'medium',
         },
       }),
-      // Request mode ends without prose because background authoring owns the
-      // result. This empty placeholder must not take the card off screen.
+      // Background authoring owns the result. This empty placeholder must not
+      // take the card off screen.
       msg({ role: 'assistant', content: '' }),
     ])
 

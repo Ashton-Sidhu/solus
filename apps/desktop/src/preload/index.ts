@@ -79,6 +79,9 @@ const nativeApi: NativeSolusAPI = {
   accountSignOut: () => ipcRenderer.invoke('solus:account-sign-out'),
   accountRetryVerify: () => ipcRenderer.invoke('solus:account-retry-verify'),
   onAccountStateChange: subscribeAccountStateChange,
+  uplinkListDirectoryHosts: () => ipcRenderer.invoke('solus:uplink-directory'),
+  uplinkAcquireHostGrant: (hostId: string) => ipcRenderer.invoke('solus:uplink-grant', hostId),
+  uplinkIssueEnrollmentTicket: () => ipcRenderer.invoke('solus:uplink-enrollment-ticket'),
 }
 
 contextBridge.exposeInMainWorld('solusNative', nativeApi)

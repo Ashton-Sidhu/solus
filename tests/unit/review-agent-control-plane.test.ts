@@ -56,6 +56,8 @@ describe('review agent control-plane dispatch', () => {
         repoRoot: '/tmp/project',
       },
       agent,
+      reviewGuideInstructions: 'Group sections by user-visible behavior.',
+      requestInstructions: 'Focus on the database migration.',
       onProgress: (step) => progress.push(step),
     })
 
@@ -67,6 +69,10 @@ describe('review agent control-plane dispatch', () => {
     expect(dispatcher.request?.timeoutMs).toBe(10 * 60_000)
     expect(dispatcher.request?.prompt).toContain('The review scope is already decided')
     expect(dispatcher.request?.prompt).toContain('Do not ask the user to choose')
+    expect(dispatcher.request?.prompt).toContain('Review guide instructions from Settings:')
+    expect(dispatcher.request?.prompt).toContain('Group sections by user-visible behavior.')
+    expect(dispatcher.request?.prompt).toContain('Review instructions supplied with this request:')
+    expect(dispatcher.request?.prompt).toContain('Focus on the database migration.')
     expect(progress).toEqual(['writing'])
   })
 })

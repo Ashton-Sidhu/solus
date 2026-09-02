@@ -3504,6 +3504,13 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    full width of the window. */
 .prose-pr-description { max-width: 104ch; }
 
+/* Activity bodies sit inside the review timeline rather than in the pull
+   request's long-form description. Keep them on the review row rung so the
+   whole event, including rendered Markdown, takes the laptop display step. */
+.prose-pr-activity {
+  --prose-pr-size: var(--text-review-row);
+}
+
 /* The editable PR body uses the same shared document editor as task and plan
    descriptions. Remove the long-form document measure so editing stays inline
    with the rendered PR description instead of introducing a separate card. */
@@ -4061,7 +4068,10 @@ html.is-mac-editor
 /* The current row is weight + check — two quiet signals rather than one loud
    fill. `data-state=checked` covers bits-ui radio/checkbox items;
    `data-menu-current` is the manual hook for Command rows, whose own
-   `data-selected` means keyboard-highlighted, not chosen. */
+   `data-selected` means keyboard-highlighted, not chosen.
+   `data-menu-preview` keeps the hover wash on a row the cursor has left, for a
+   two-column menu whose second column belongs to a row in the first — the same
+   way a parent row stays lit while the cursor is in its submenu. */
 @utility menu-row {
   /* Anchors the absolutely-positioned check indicator on radio/checkbox rows. */
   position: relative;
@@ -4070,7 +4080,8 @@ html.is-mac-editor
 
   &:hover:not(:disabled):not([data-disabled]),
   &[data-highlighted],
-  &[data-selected] {
+  &[data-selected],
+  &[data-menu-preview] {
     box-shadow: inset 0 0 0 62rem var(--solus-menu-hover-ink);
     color: var(--solus-text-primary);
   }

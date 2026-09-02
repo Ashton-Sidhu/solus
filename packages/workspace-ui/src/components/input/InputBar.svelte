@@ -529,12 +529,12 @@
     });
   });
 
-  let prevFocusable = untrack(() => isActiveMode && !session.sessionPickerOpen);
+  let prevFocusable = untrack(() => isActiveMode && !session.unifiedPickerOpen);
   $effect(() => {
     if (!isPrimary) return;
     void sess?.run.workingDirectory;
     void sess?.readOnlyReason;
-    const isFocusable = isActiveMode && !session.sessionPickerOpen;
+    const isFocusable = isActiveMode && !session.unifiedPickerOpen;
     const justBecameFocusable = isFocusable && !prevFocusable;
     prevFocusable = isFocusable;
 
@@ -543,7 +543,7 @@
     if (justBecameFocusable) {
       // rAF ensures focus lands after display:none → visible transitions
       requestAnimationFrame(() => {
-        if (isActiveMode && !session.sessionPickerOpen && !isReadOnly) {
+        if (isActiveMode && !session.unifiedPickerOpen && !isReadOnly) {
           composerEl?.focus();
         }
       });
@@ -608,9 +608,9 @@
           : requestedTabId !== targetTabId
       )
         return;
-      if (!isActiveMode || session.sessionPickerOpen || isReadOnly) return;
+      if (!isActiveMode || session.unifiedPickerOpen || isReadOnly) return;
       requestAnimationFrame(() => {
-        if (isActiveMode && !session.sessionPickerOpen && !isReadOnly) {
+        if (isActiveMode && !session.unifiedPickerOpen && !isReadOnly) {
           composerEl?.focus();
         }
       });
@@ -690,7 +690,7 @@
     if (!isPrimary) return;
     const unsub = window.solusNative?.onWindowShown(() => {
       if (!isActiveMode) return;
-      if (!session.sessionPickerOpen && !isReadOnly) {
+      if (!session.unifiedPickerOpen && !isReadOnly) {
         requestInputFocus();
       }
     });

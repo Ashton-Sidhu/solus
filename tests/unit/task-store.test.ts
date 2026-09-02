@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
+import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -961,7 +962,7 @@ describe('session minting and durable links', () => {
       agentIdFromContext: () => 'codex',
     })
 
-    await server.handle('setSessionTitle', ['second-session', 'Renamed second session', 'manual'])
+    await server.handle('setSessionTitle', ['second-session', 'Renamed second session', 'manual'], TEST_HANDLER_CTX)
 
     expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
       title: 'Shared task title',

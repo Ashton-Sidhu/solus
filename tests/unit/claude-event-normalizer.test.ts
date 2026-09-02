@@ -166,6 +166,29 @@ describe('ClaudeTurnNormalizer', () => {
     ])
   })
 
+  // TaskStop is the only account a killed task ever gets: the SDK sends no
+  // task_updated patch and no task_notification afterwards. Without a settle here
+  // the task stays in the ControlPlane's in-flight set, task_complete takes the
+  // "background work still running" branch, and the session reads Running forever
+  // even though the agent has answered.
+  test('settles a background task that TaskStop killed', async () => {
+    const { events } = await normalizeClaudeFixture('claude-task-stop.jsonl')
+
+    expect(events.filter((event) => event.type.startsWith('background_task_'))).toEqual([
+      { type: 'background_task_started', taskId: 'task-bg-1', toolUseId: 'bash-bg-1' },
+      { type: 'background_task_settled', taskId: 'task-bg-1', status: 'stopped' },
+    ])
+  })
+
+  // Reading a task is not ending one. TaskOutput reports the same task_id, so a
+  // settle keyed on the id alone would retire a task that is still running and
+  // let the turn complete out from under it.
+  test('does not settle a task that TaskOutput only reported on', async () => {
+    const { events } = await normalizeClaudeFixture('claude-task-output.jsonl')
+
+    expect(events.some((event) => event.type === 'background_task_settled')).toBe(false)
+  })
+
   // A blocking sub-agent's tool_result IS its answer; flagging it as a launch
   // would strip the card of the result it should show.
   test('does not flag a blocking sub-agent result as an async launch', async () => {

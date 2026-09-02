@@ -5,6 +5,7 @@ import {
   installationIdDecision,
   loadServers,
   LOCAL_SERVER_ID,
+  nextRouteUrl,
   stampHostOperatingSystem,
 } from './server-registry'
 import type { WsTransport, ConnectionStatus } from './ws-transport'
@@ -163,11 +164,16 @@ export class ServerConnections {
 
   private catalogServerIds(): string[] {
     const ids = new Set<string>()
+    let localInstallationId: string | undefined
     for (const [id, target] of this.targets) {
-      if (target.local) ids.add(id)
+      if (!target.local) continue
+      ids.add(id)
+      localInstallationId = target.installationId
     }
     if (this.primaryServerId) ids.add(this.primaryServerId)
-    for (const server of loadServers()) ids.add(server.id)
+    for (const server of loadServers()) {
+      if (server.installationId !== localInstallationId) ids.add(server.id)
+    }
     return [...ids]
   }
 
@@ -184,10 +190,30 @@ export class ServerConnections {
         const connection = this.connections.get(serverId)
         if (!connection || connection.status === 'connected') return
         this.updateStatus(serverId, connection.status, attempt)
+        // A failed dial on one route is the cue to try the host's next one (C3).
+        this.advanceRoute(serverId)
       },
     })
     transport.attachDialOutcomeReporter((outcome) => supervisor.report(outcome))
     return supervisor
+  }
+
+  /**
+   * Direct-first dialing (docs/plans/personal-uplink.md, C3): a host is dialed on its
+   * direct route first and the tunnel is the fallback. The dial is the probe: after a
+   * failed one the standing socket is re-aimed at the next route, round-robin, so the
+   * supervisor's next scheduled dial goes out there — and a host that comes back on
+   * the local network is found again on the next miss.
+   */
+  private advanceRoute(serverId: string): void {
+    const connection = this.connections.get(serverId)
+    const routes = connection?.target.routes
+    if (!connection || !routes) return
+    const next = nextRouteUrl(routes, connection.target.url, globalThis.location?.origin ?? '')
+    if (!next) return
+    connection.target.url = next
+    connection.transport.switchServerUrl(next)
+    this.healthCache.delete(serverId)
   }
 
   /** Identity since the web `local` alias died (dispatch-client step 5):

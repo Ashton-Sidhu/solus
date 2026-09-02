@@ -448,7 +448,21 @@ async function produceGuide(
 
   if (patch) emit?.('analyzing')
   const draft = patch
-    ? await runReviewAgent(dispatcher, { workTree, base, head: target.head, ledger, context: review, agent, model: opts.model ?? null, reasoningEffort: opts.reasoningEffort ?? null, inlineDiff, onProgress: emit, abortSignal })
+    ? await runReviewAgent(dispatcher, {
+      workTree,
+      base,
+      head: target.head,
+      ledger,
+      context: review,
+      agent,
+      model: opts.model ?? null,
+      reasoningEffort: opts.reasoningEffort ?? null,
+      reviewGuideInstructions: ctx.settings.reviewGuideInstructions,
+      requestInstructions: opts.instructions,
+      inlineDiff,
+      onProgress: emit,
+      abortSignal,
+    })
     : null
 
   if (abortSignal.aborted) return null

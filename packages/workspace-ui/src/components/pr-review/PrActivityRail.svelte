@@ -76,6 +76,7 @@
     actions,
     menu,
     showReadiness = true,
+    variant = "column",
   }: {
     detail: PullRequest | null;
     reviewers: PrReviewer[];
@@ -113,7 +114,13 @@
      *  material it was sitting above. Both read one `mergeReadiness()`, so
      *  wherever it is drawn it says the same thing. */
     showReadiness?: boolean;
+    /** Which of the rail's two homes this is. The sheet is portalled to the
+     *  body, so it is outside every container the rail's rungs are written
+     *  against and cannot be told apart by a container query. */
+    variant?: "column" | "sheet";
   } = $props();
+
+  const sheet = $derived(variant === "sheet");
 
   let reviewerMenuOpen = $state(false);
   let reviewerTrigger = $state<HTMLButtonElement | null>(null);
@@ -243,21 +250,27 @@
      them on every drag frame. The laptop step is a display decision (ADR-0010),
      not a container one. -->
 <aside
-  class="w-[330px] shrink-0 text-review-row [.is-laptop-display_&]:w-[292px] @max-[1000px]:w-full"
+  class={sheet
+    ? "w-full text-review-row"
+    : "w-[330px] shrink-0 text-review-row [.is-laptop-display_&]:w-[292px]"}
 >
   <!-- The cap is what makes `sticky` safe. Pinned flush, a rail taller than the
        scrollport never moves, so everything past the fold — the tail of an
        expanded checks list, and all of Changed files — becomes unreachable.
-       Capping it gives the rail its own scroll instead. Only while it *is* a
-       rail: below 1000px it folds under the main column at full width, where a
-       second scrollbox would be wrong.
+       Capping it gives the rail its own scroll instead.
 
        The pinned rail keeps the shell's own top gutter rather than riding the
        scrollport edge, and the negative inline gutter gives its scrollbox room
        for the rows' hover wash and focus rings, which are wider than the rail's
-       text column. -->
+       text column.
+
+       None of that applies in the sheet, which is its own scrollport and pins
+       nothing: a second scrollbox inside it would trap the checks list in a box
+       inside a box. -->
   <div
-    class="sticky top-[38px] -mx-[11px] flex flex-col px-[11px] [.is-laptop-display_&]:top-6 @min-[1001px]:max-h-[calc(100vh-102px)] @min-[1001px]:overflow-y-auto @min-[1001px]:overscroll-contain"
+    class={sheet
+      ? "flex flex-col"
+      : "sticky top-[38px] -mx-[11px] flex flex-col px-[11px] [.is-laptop-display_&]:top-6 max-h-[calc(100vh-102px)] overflow-y-auto overscroll-contain"}
   >
     <!-- Merge readiness: the rail's one card. Everything below it is reference
          material you read; this is the thing you act on, and the border is what
@@ -373,8 +386,8 @@
            state, and a fold is a reading choice, not a reason to rebuild them. -->
       <div class:hidden={!sectionOpen.reviewers}>
       {#if reviewersLoading}
-        <div class="-mx-[9px] flex h-[30px] items-center gap-[9px] px-[9px]">
-          <Skeleton class="size-5 shrink-0 rounded-full bg-muted" />
+        <div class="-mx-[9px] flex h-[30px] items-center gap-[9px] px-[9px] [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:gap-[7px] [.is-laptop-display_&]:px-[7px]">
+          <Skeleton class="size-5 shrink-0 rounded-full bg-muted [.is-laptop-display_&]:size-[18px]" />
           <Skeleton class="h-3 w-24 rounded bg-muted" />
         </div>
       {:else if reviewers.length === 0 && !onRequestReviewer}
@@ -385,9 +398,12 @@
         <ul class="-mx-[9px] flex flex-col" role="list">
           {#each reviewers as reviewer (reviewer.login)}
             <li
-              class="group/reviewer flex h-[30px] items-center gap-[9px] rounded-[9px] px-[9px] transition-colors hover:bg-[var(--wash-2)]"
+              class="group/reviewer flex h-[30px] items-center gap-[9px] rounded-[9px] px-[9px] transition-colors hover:bg-[var(--wash-2)] [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:gap-[7px] [.is-laptop-display_&]:px-[7px]"
             >
-              <PrAvatar name={reviewer.login} size="size-5" />
+              <PrAvatar
+                name={reviewer.login}
+                size="size-5 [.is-laptop-display_&]:size-[18px]"
+              />
               <span class="min-w-0 flex-1 truncate">
                 {reviewer.login}
               </span>
@@ -426,7 +442,7 @@
                 bind:ref={reviewerTrigger}
                 type="button"
                 variant="ghost"
-                class="flex h-[34px] w-full cursor-pointer items-center justify-start gap-[9px] rounded-[9px] px-[9px] py-0 font-normal transition-colors hover:bg-[var(--wash-2)]"
+                class="flex h-[34px] w-full cursor-pointer items-center justify-start gap-[9px] rounded-[9px] px-[9px] py-0 font-normal transition-colors hover:bg-[var(--wash-2)] [.is-laptop-display_&]:h-[30px] [.is-laptop-display_&]:gap-[7px] [.is-laptop-display_&]:px-[7px]"
                 aria-label="Request a reviewer"
                 aria-haspopup="menu"
                 aria-expanded={reviewerMenuOpen}
@@ -456,17 +472,26 @@
             side="bottom"
             align="end"
             sideOffset={6}
-            class="w-52"
+            class="w-52 [.is-laptop-display_&]:w-48"
             aria-label="Request a reviewer"
           >
             {#if reviewerCandidatesLoading}
-              <DropdownMenu.Item disabled>Loading reviewers…</DropdownMenu.Item>
+              <DropdownMenu.Item
+                disabled
+                class="pointer-fine:[.is-laptop-display_&]:text-review-row!"
+                >Loading reviewers…</DropdownMenu.Item
+              >
             {:else if availableReviewerCandidates.length === 0}
-              <DropdownMenu.Item disabled>No reviewers available</DropdownMenu.Item>
+              <DropdownMenu.Item
+                disabled
+                class="pointer-fine:[.is-laptop-display_&]:text-review-row!"
+                >No reviewers available</DropdownMenu.Item
+              >
             {:else}
               {#each availableReviewerCandidates as candidate (candidate.login)}
                 <DropdownMenu.Item
                   disabled={reviewerMutation === candidate.login}
+                  class="pointer-fine:[.is-laptop-display_&]:text-review-row!"
                   onSelect={() => {
                     reviewerMenuOpen = false;
                     onRequestReviewer?.(candidate.login);
@@ -475,7 +500,7 @@
                   <PrAvatar
                     name={candidate.login}
                     url={candidate.avatarUrl ?? ""}
-                    size="size-[20px] "
+                    size="size-[20px] [.is-laptop-display_&]:size-[18px]"
                   />
                   <span class="truncate">{candidate.login}</span>
                 </DropdownMenu.Item>

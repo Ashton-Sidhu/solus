@@ -1,6 +1,5 @@
 import type { CheckConclusion, CheckItem, PrChecksSummary } from '@solus/contracts/checks-types'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
-import { z } from 'zod'
 
 interface GqlCheckRun {
   __typename: 'CheckRun'
@@ -45,47 +44,6 @@ export interface GqlChecksPullRequest {
 export interface GqlChecksResponse {
   repository: Record<string, GqlChecksPullRequest | null>
 }
-
-const cliCheckRunSchema = z.object({
-  __typename: z.literal('CheckRun'),
-  databaseId: z.number(),
-  name: z.string(),
-  status: z.string(),
-  conclusion: z.string().nullable(),
-  detailsUrl: z.string().nullable(),
-  startedAt: z.string().nullable(),
-  completedAt: z.string().nullable(),
-  isRequired: z.boolean(),
-  checkSuite: z.object({ app: z.object({ name: z.string() }).nullable() }).nullable(),
-})
-
-const cliStatusContextSchema = z.object({
-  __typename: z.literal('StatusContext'),
-  context: z.string(),
-  state: z.string(),
-  targetUrl: z.string().nullable(),
-  description: z.string().nullable(),
-  createdAt: z.string().nullable(),
-  isRequired: z.boolean(),
-})
-
-const cliChecksPullRequestSchema = z.object({
-  number: z.number(),
-  headRefOid: z.string(),
-  commits: z.object({
-    nodes: z.array(z.object({
-      commit: z.object({
-        statusCheckRollup: z.object({
-          state: z.string(),
-          contexts: z.object({
-            totalCount: z.number(),
-            nodes: z.array(z.discriminatedUnion('__typename', [cliCheckRunSchema, cliStatusContextSchema])),
-          }),
-        }).nullable(),
-      }),
-    })),
-  }),
-})
 
 const PASSING_CONCLUSIONS = new Set<CheckConclusion>(['success', 'neutral', 'skipped'])
 
@@ -133,25 +91,6 @@ export function normalizeChecksResponse(
 ): NumberedPrChecksSummary[] {
   return uniquePrNumbers(numbers).map((number) => {
     const pullRequest = response.repository[`p${number}`]
-    if (!pullRequest) throw new Error(`GitHub did not return PR #${number} while loading checks.`)
-    return { number, summary: normalizePullRequestChecks(pullRequest, warn) }
-  })
-}
-
-/** Normalize the array selected by `gh api graphql --jq`. The CLI still asks
- * GitHub for the same status-check rollup as the adapter, so required checks
- * and legacy status contexts keep the same meaning on both credential paths. */
-export function normalizeCliChecksResponse(
-  raw: string,
-  numbers: number[],
-  warn: (message: string) => void = () => {},
-): NumberedPrChecksSummary[] {
-  const pullRequests = z.array(cliChecksPullRequestSchema.nullable()).parse(JSON.parse(raw))
-  const byNumber = new Map(
-    pullRequests.flatMap((pullRequest) => pullRequest ? [[pullRequest.number, pullRequest] as const] : []),
-  )
-  return uniquePrNumbers(numbers).map((number) => {
-    const pullRequest = byNumber.get(number)
     if (!pullRequest) throw new Error(`GitHub did not return PR #${number} while loading checks.`)
     return { number, summary: normalizePullRequestChecks(pullRequest, warn) }
   })

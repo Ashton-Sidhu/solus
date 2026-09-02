@@ -95,6 +95,7 @@
   const content = $derived(
     loadedContent?.id === item.id ? loadedContent.content : null,
   );
+  const contentReady = $derived(loadedContent?.id === item.id);
   const body = $derived(peekBody(item, content, query));
   const bodyRuns = $derived(highlightRuns(body, query));
   const outline = $derived(peekOutline(item, content));
@@ -244,10 +245,15 @@
       <div class="flex gap-[9px]">
         <button
           type="button"
-          class="h-[50px] flex-1 cursor-pointer rounded-lg border-0 bg-primary font-semibold text-primary-foreground [-webkit-tap-highlight-color:transparent]"
-          onclick={onOpen}
+          class="h-[50px] flex-1 rounded-lg border-0 bg-primary font-semibold text-primary-foreground [-webkit-tap-highlight-color:transparent] disabled:cursor-wait disabled:opacity-60 {contentReady
+            ? 'cursor-pointer'
+            : 'cursor-wait'}"
+          onclick={contentReady ? onOpen : undefined}
+          disabled={!contentReady}
         >
-          Open {KIND_LABELS[item.type].toLowerCase()}
+          {contentReady
+            ? `Open ${KIND_LABELS[item.type].toLowerCase()}`
+            : `Loading ${KIND_LABELS[item.type].toLowerCase()}…`}
         </button>
         {#if onTogglePin}
           <button
