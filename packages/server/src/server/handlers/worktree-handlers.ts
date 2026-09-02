@@ -9,15 +9,13 @@ import { getDiff, getDiffFileContents, getDiffStats, listTurnSnapshots } from '.
 import { TextGenerator } from '../../agents/text-generator'
 import { createLogger } from '../../logger'
 import { Task } from '../../tasks/task'
-import { githubCredentialChain } from '../../providers/github/credentials'
-import { clientFor } from '../../providers/github/octokit'
 import { providerForRepo } from '../../providers/registry'
 import { prIndex } from '../../prs/pr-index'
 import type { SolusServer } from '../server'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
 import { generateWorktreeName } from '../../git/worktree-name'
-import { getHostConfig, getServerSettings, resolveSourceControlWriterModel } from '../settings'
+import { getHostConfig, resolveSourceControlWriterModel } from '../settings'
 
 const log = createLogger('main', 'worktree-handlers')
 
@@ -153,10 +151,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const pullRequestRequested = request.action === 'create_pull_request'
       || request.action === 'commit_push_pull_request'
     const githubRepo = pullRequestRequested ? await resolveRepoRef(cwd) : null
-    // The checkout's own credential leads: a dispatch checkout opens the pull
-    // request as the paired device it commits as.
-    const [credential] = githubRepo ? await githubCredentialChain(githubRepo.host, cwd) : []
-    const githubClient = credential ? clientFor(credential) : null
+    const githubProvider = githubRepo ? providerForRepo(githubRepo) : null
     const result = await runGitAction(request, gitContext, ctx.session.workingDirectory, {
       writer: {
         provider: writerModel.provider,
@@ -170,20 +165,29 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
         writerModel,
         policy.commitInstructions,
       ),
-      // CLI fallbacks always use the GitHub CLI's normal credential store, just
-      // like a manual `gh pr create`. Do not inject the API credential into it.
-      githubClient,
-      githubRepo,
-      // Creating a pull request also creates the entity for it, and forgets the
-      // listings it now belongs on. The read that follows is the one the client
-      // would otherwise have made itself a round trip later.
-      readPullRequest: async (number) => {
-        const repo = githubRepo ?? await resolveRepoRef(cwd)
-        const provider = repo ? providerForRepo(repo) : null
-        if (!repo || !provider) return null
-        prIndex.invalidate(repo)
-        return prIndex.pullRequest(repo, provider, number).read()
-      },
+      findPullRequest: githubRepo && githubProvider
+        ? async (branch) => {
+          const page = await githubProvider.review.listPullRequestsPage(
+            githubRepo,
+            { state: 'all', head: branch },
+            1,
+            1,
+          )
+          return page.items.find((pullRequest) => pullRequest.headRef === branch) ?? null
+        }
+        : undefined,
+      createPullRequest: githubRepo && githubProvider
+        ? async (input) => {
+          const pullRequest = await githubProvider.review.createPullRequest(githubRepo, {
+            ...input,
+            // The checkout's delegated credential leads, followed by the host
+            // OAuth token and then the gh credential.
+            credentialCwd: cwd,
+          })
+          prIndex.invalidate(githubRepo)
+          return pullRequest
+        }
+        : undefined,
       publish: (event) => {
         if (handlerCtx.clientId) deps.events.publish(handlerCtx.clientId, 'git.actionProgressed', event)
         else deps.events.broadcast('git.actionProgressed', event)

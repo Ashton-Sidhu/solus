@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   commentSessionName,
+  linkGroups,
   linkRow,
   linkedTableLinks,
   linkedWorkProvider,
@@ -368,6 +369,44 @@ describe('linked work providers', () => {
     expect(linkedWorkProvider(workLink, () => linkedWork)).toBe('confluence')
     expect(linkedWorkProvider(workLink, () => localWork)).toBeNull()
     expect(linkedWorkProvider({ ...workLink, kind: 'plan' }, () => linkedWork)).toBeNull()
+  })
+})
+
+describe('the Kind column becomes a group header where there is no column', () => {
+  const link = (over: Partial<TaskLink>): TaskLink =>
+    ({
+      taskId: '01J',
+      kind: 'work',
+      targetScope: '',
+      targetKey: 'k',
+      title: 'Item',
+      createdBy: 'user',
+      linkedAt: 1,
+      ...over,
+    }) satisfies TaskLink
+
+  test('keeps the wide table\'s kind order, so the same reader finds the same sequence', () => {
+    const groups = linkGroups([
+      link({ kind: 'automation', targetKey: 'a1', title: 'Nightly probe' }),
+      link({ kind: 'work', targetKey: 'w1', title: 'Retrieval RFC' }),
+      link({ kind: 'plan', targetKey: 'p1', title: 'Index migration' }),
+      link({ kind: 'work', targetKey: 'w2', title: 'Trigger keys' }),
+    ])
+
+    expect(groups.map((group) => group.label)).toEqual(['Docs', 'Plans', 'Automations'])
+    expect(groups[0].rows.map((row) => row.label)).toEqual(['Retrieval RFC', 'Trigger keys'])
+  })
+
+  test('omits a kind with nothing in it rather than heading an empty card', () => {
+    const groups = linkGroups([link({ kind: 'plan', targetKey: 'p1' })])
+    expect(groups.map((group) => group.kind)).toEqual(['plan'])
+  })
+
+  test('leaves pull requests to their own section, exactly as the table does', () => {
+    // A PR carries a lifecycle no generic row can state, so it is never one of
+    // these groups — the same rule `linkedTableLinks` enforces for the table.
+    const groups = linkGroups([link({ kind: 'pr', targetKey: '418' })])
+    expect(groups).toEqual([])
   })
 })
 

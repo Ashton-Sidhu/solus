@@ -30,7 +30,7 @@
   </div>
 
   <div
-    class="flex min-h-0 flex-1 items-start justify-center gap-16 overflow-hidden px-14 pt-12 pb-18 [.is-laptop-display_&]:gap-10 [.is-laptop-display_&]:px-9 [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-12 pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 @max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11"
+    class="flex min-h-0 flex-1 items-start justify-center gap-16 overflow-hidden px-14 pt-12 pb-18 pointer-fine:[.is-laptop-display_&]:gap-10 pointer-fine:[.is-laptop-display_&]:px-9 pointer-fine:[.is-laptop-display_&]:pt-8 pointer-fine:[.is-laptop-display_&]:pb-12 pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 @max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11"
     aria-hidden="true"
   >
     <main

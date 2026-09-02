@@ -1553,12 +1553,17 @@
     </div>
 
     {#if panelOpen && openTask}
+      <!-- Full screen means over the crumb line too. The project and page
+           crumbs raise their own triggers to z-40 so their menus clear the
+           list, so a panel at z-20 covered the rows and left "my-workspace ⌄
+           Tasks ⌄" painted across the task's own record bar. A panel that
+           replaces the page outranks the page's chrome. -->
       <div
         class="flex flex-col bg-background {boardPanel && roomForSplit
           ? 'absolute inset-y-0 right-0 z-10 w-[clamp(680px,72%,1400px)] shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'
           : roomForSplit
             ? 'absolute inset-y-0 right-0 left-(--task-list-width) z-10 min-w-0 shadow-[-1px_0_0_var(--hairline-strong),-18px_0_30px_-26px_rgba(0,0,0,.28)]'
-            : 'absolute inset-0 z-20'}"
+            : 'absolute inset-0 z-50'}"
         transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
       >
         <TaskPage

@@ -3,13 +3,24 @@
   import type { DocProviderId } from "@solus/contracts/docs";
   import DocProviderLogo from "../../work/DocProviderLogo.svelte";
   import ArtifactView from "../../artifact/ArtifactView.svelte";
-  import { linkedTableLinks, linkFilters, linkRow } from "./lib/task-page";
+  import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
+  import {
+    linkedTableLinks,
+    linkFilters,
+    linkGroups,
+    linkRow,
+  } from "./lib/task-page";
 
   interface Props {
     links: TaskLink[];
     onOpen: (link: TaskLink) => void;
     onUnlink: (link: TaskLink) => void;
     onAdd: () => void;
+    /** True where the section is a tab of its own rather than one band of a
+     *  scrolling column. The strip above already names it and counts it, so the
+     *  section drops its header, spends the width on 32px chips and 52px rows,
+     *  and stops capping the list — the tab *is* the "show all". */
+    stacked?: boolean;
     upstreamProvider: (link: TaskLink) => DocProviderId | null;
     /** The HTML of a linked `artifact` work once its body is loaded; null
      *  until then. Read from the works store, never fetched here. */
@@ -32,6 +43,7 @@
     onOpen,
     onUnlink,
     onAdd,
+    stacked = false,
     upstreamProvider,
     artifactHtml,
     onExpandArtifact,
@@ -71,6 +83,11 @@
     links.filter((link) => filter === null || link.kind === filter).map(linkRow),
   );
   const shown = $derived(expanded ? rows : rows.slice(0, CAP));
+  /** The same rows the table draws, split by the Kind column the phone row has
+   *  no third column for. Uncapped: the tab is already the "show all". */
+  const groups = $derived(
+    linkGroups(links.filter((link) => filter === null || link.kind === filter)),
+  );
 
   function togglePreview(row: { key: string; link: TaskLink }) {
     if (previewKey === row.key) {
@@ -82,6 +99,114 @@
   }
 </script>
 
+{#if stacked}
+  <!-- The tab strip above already says "Linked 8", so the section spends its
+       first band on the filters instead of restating the name, and the Kind
+       column becomes the header over the rows that share it. Adding a link is
+       the page's pinned bottom bar on this tab, not a text button up here. -->
+  <div class="flex flex-col gap-4 pt-3.5">
+    {#if filters.length > 1}
+      <div class="flex flex-wrap gap-[7px]">
+        {#each filters as item (item.label)}
+          {@const active = item.kind === filter}
+          <button
+            type="button"
+            class="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 px-[13px] [-webkit-tap-highlight-color:transparent] {active
+              ? 'bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
+              : 'bg-transparent text-muted-foreground shadow-[shadow:var(--elev-ring)]'}"
+            aria-pressed={active}
+            onclick={() => (filter = item.kind)}
+          >
+            {item.label}
+            <span class="font-mono text-xs tabular-nums opacity-70">{item.count}</span>
+          </button>
+        {/each}
+      </div>
+    {/if}
+
+    {#if groups.length}
+      {#each groups as group (group.kind)}
+        <div class="flex flex-col gap-2">
+          <span
+            class="pl-0.5 font-normal tracking-[0.12em] text-muted-foreground uppercase"
+            >{group.label}</span
+          >
+          <div
+            class="flex flex-col overflow-hidden rounded-xl bg-card shadow-[shadow:var(--elev-ring)] [&>*+*]:border-t [&>*+*]:border-[var(--hairline)]"
+          >
+            {#each group.rows as row (row.key)}
+              {@const provider = upstreamProvider(row.link)}
+              <div
+                class="flex h-[52px] cursor-pointer items-center gap-[11px] px-[13px] active:bg-[var(--wash-1)] [-webkit-tap-highlight-color:transparent]"
+                role="button"
+                tabindex="0"
+                onclick={() => onOpen(row.link)}
+                onkeydown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onOpen(row.link);
+                  }
+                }}
+              >
+                <svg
+                  width="15"
+                  height="15"
+                  viewBox="0 0 14 14"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.4"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  class="shrink-0 text-muted-foreground opacity-60"
+                  aria-hidden="true"><path d={row.icon} /></svg
+                >
+                <span class="min-w-0 flex-1 truncate font-medium">{row.label}</span>
+                {#if provider}
+                  <DocProviderLogo provider={provider} size={12} />
+                {/if}
+                {#if row.meta}
+                  <span class="shrink-0 text-muted-foreground">{row.meta}</span>
+                {/if}
+                <!-- Unlink is a hover action on the wide table, and there is no
+                     hover here — so it is a real target beside the row's own
+                     chevron rather than a way out that only a mouse has. -->
+                <button
+                  type="button"
+                  class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground opacity-60 active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    onUnlink(row.link);
+                  }}
+                  aria-label="Unlink {row.label}"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg
+                  >
+                </button>
+                <CaretRightIcon
+                  size={15}
+                  class="shrink-0 text-muted-foreground opacity-55"
+                />
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/each}
+    {:else}
+      <div class="px-1 py-3.5 text-muted-foreground">
+        Nothing linked yet. Attach docs, plans or automations to keep this task's context in one
+        place.
+      </div>
+    {/if}
+  </div>
+{:else}
 <div class="text-xs flex flex-col gap-[7px] pt-[26px]">
   <div class="flex items-center gap-2">
     <span class="text-xs font-normal text-muted-foreground uppercase">
@@ -303,3 +428,4 @@
     {/if}
   </div>
 </div>
+{/if}

@@ -222,9 +222,15 @@
           </span>
         {/each}
         {#if canEditLabels}
+          <!-- In the column the field takes the row's remaining width. In the
+               sheet every value sits at the trailing edge, so a `flex-1` field
+               stretched back across the row and printed its placeholder next to
+               the word "Labels" instead of opposite it. -->
           <input
             data-dictation="false"
-            class="h-[19px] min-w-[60px] flex-1 bg-transparent  text-muted-foreground outline-none placeholder:text-muted-foreground/70"
+            class="h-[19px] bg-transparent text-muted-foreground outline-none placeholder:text-muted-foreground/70 {sheet
+              ? 'w-[7.5rem] text-right'
+              : 'min-w-[60px] flex-1'}"
             bind:value={labelDraft}
             placeholder="Add a label…"
             onblur={addLabel}

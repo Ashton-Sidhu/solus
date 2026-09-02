@@ -59,7 +59,7 @@
       role="tab"
       aria-selected={isActive}
       title={tab.id === "guide" ? guideHint : undefined}
-      class="relative flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 [.is-laptop-display_&]:h-6.5 {isActive
+      class="relative flex h-7 cursor-pointer items-center gap-1 rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 pointer-fine:[.is-laptop-display_&]:h-6.5 {isActive
         ? 'bg-[var(--wash-2)] font-medium text-foreground'
         : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
       onclick={() => onSelect(tab.id)}

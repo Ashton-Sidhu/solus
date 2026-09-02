@@ -17,6 +17,14 @@
    *
    * Portalled to the body, so it is never clipped by a pane's `overflow` and
    * never inherits a transformed ancestor's coordinate space.
+   *
+   * It stacks above the `z-[200]` band the full-window modals use — the task
+   * picker, the directory picker, the project and import dialogs. A sheet is
+   * always raised *from* something, and on a phone that something is usually
+   * one of those, painting opaque edge to edge. At `z-50` the sheet mounted,
+   * animated, took the keyboard and was never visible: it was behind the
+   * surface that summoned it. The band above 9990 belongs to the app shell and
+   * its toasts, and is deliberately left alone.
    */
   interface Props {
     /** Named for assistive technology, and by the thing the sheet is about. */
@@ -55,13 +63,13 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   use:portal={mountIn}
-  class="pointer-events-auto fixed inset-0 z-50 bg-black/45"
+  class="pointer-events-auto fixed inset-0 z-[210] bg-black/45"
   onclick={onClose}
 ></div>
 
 <div
   use:portal={mountIn}
-  class="bottom-sheet text-chrome-dense pointer-events-auto fixed inset-x-0 bottom-0 z-[51] flex max-h-[82dvh] flex-col rounded-t-[26px] bg-background text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_-20px_50px_-18px_rgba(0,0,0,0.5)] pointer-fine:[.is-laptop-display_&]:rounded-t-[20px]"
+  class="bottom-sheet text-chrome-dense pointer-events-auto fixed inset-x-0 bottom-0 z-[211] flex max-h-[82dvh] flex-col rounded-t-[26px] bg-background text-left shadow-[shadow:0_0_0_0.5px_var(--hairline-strong),0_-20px_50px_-18px_rgba(0,0,0,0.5)] pointer-fine:[.is-laptop-display_&]:rounded-t-[20px]"
   role="dialog"
   aria-modal="true"
   aria-label={label}

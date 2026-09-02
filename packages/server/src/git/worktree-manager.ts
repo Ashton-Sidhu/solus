@@ -439,9 +439,9 @@ const existingPrCache = new Map<string, { at: number; url: Promise<string | null
  * Which pull request this branch has, if any.
  *
  * Asked of the provider rather than of `gh` directly: the provider answers
- * through the API when the host is connected and falls back to `gh` when it is
- * not, so this is one question with one answer instead of a third opinion about
- * a branch's pull request beside the index and the task's own links.
+ * through the same API with the first credential that can see the repository,
+ * including the gh credential, so this is one question with one answer instead
+ * of a third implementation beside the index and the task's own links.
  */
 async function queryExistingPR(branch: string, cwd: string): Promise<string | null> {
   try {
@@ -458,7 +458,7 @@ async function queryExistingPR(branch: string, cwd: string): Promise<string | nu
   }
 }
 
-/** `gh pr view` is a network call used by detailed status consumers. TTL-cache
+/** Pull request discovery is a network call used by detailed status consumers. TTL-cache
  *  the result per (cwd, branch) for both hits and misses, and share the in-flight
  *  promise so multiple visible clients collapse to a single spawn. */
 export function getExistingPR(branch: string, cwd: string, bypassCache = false): Promise<string | null> {

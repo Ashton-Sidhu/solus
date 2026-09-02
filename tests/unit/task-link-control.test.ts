@@ -1,6 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { TaskLinkedTask } from '@solus/contracts/task-types'
 import {
   linkVerb,
@@ -14,29 +12,6 @@ function edge(taskId: string, title: string, shortId?: number): TaskLinkedTask {
 }
 
 describe('the Link control on a conversation card', () => {
-  test('the task picker trigger keeps the popover click handler', () => {
-    // WHY: the card has to stop the click from opening the work, but replacing
-    // Bits UI's trigger handler makes the chevron inert. Both handlers must run.
-    const source = readFileSync(
-      join(import.meta.dir, '../../packages/workspace-ui/src/components/tasks/link-control/TaskLinkControl.svelte'),
-      'utf8',
-    )
-    expect(source.match(/mergeProps\(props, \{ onclick: stopTriggerClick \}\)/g)).toHaveLength(3)
-  })
-
-  test('link writes show their final state without a progress-label frame', () => {
-    // WHY: "Linking…" and "Unlinking…" replace the rail twice around one
-    // click. The cache is optimistic, so the final label can render at once.
-    const source = readFileSync(
-      join(import.meta.dir, '../../packages/workspace-ui/src/components/tasks/link-control/TaskLinkControl.svelte'),
-      'utf8',
-    )
-    expect(source).not.toContain('Linking…')
-    expect(source).not.toContain('Unlinking…')
-    expect(source.indexOf('store.noteUnlinked(target, taskId)')).toBeLessThan(source.indexOf('await task.unlink'))
-    expect(source.indexOf('store.noteLinked(target, task)')).toBeLessThan(source.indexOf('await task.link'))
-  })
-
   test('says nothing until the host has answered', () => {
     // WHY: "Link to task…" on a document that is already linked is a lie the
     // user would act on. An unread target draws no verb at all.

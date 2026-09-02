@@ -22,7 +22,7 @@
 	data-variant={variant}
 	class={cn(
 		menuRowVariants(),
-		"group/context-menu-item data-inset:pl-7 [&_svg]:size-3.5 pointer-fine:[.is-laptop-display_&]:h-8 pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:rounded-lg pointer-fine:[.is-laptop-display_&]:px-2.5 data-[variant=destructive]:text-(--solus-status-error) data-[variant=destructive]:data-highlighted:text-(--solus-status-error)",
+		"group/context-menu-item data-inset:pl-7 [&_svg]:size-3.5 pointer-fine:[.is-laptop-display_&]:h-auto pointer-fine:[.is-laptop-display_&]:min-h-8 pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:rounded-lg pointer-fine:[.is-laptop-display_&]:px-2.5 data-[variant=destructive]:text-(--solus-status-error) data-[variant=destructive]:data-highlighted:text-(--solus-status-error)",
 		className
 	)}
 	{...restProps}

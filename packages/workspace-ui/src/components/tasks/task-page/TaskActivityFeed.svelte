@@ -41,6 +41,10 @@
      *  the engine posts it on its next pass. */
     onPublish: (commentId: string) => Promise<void>;
     onDelete: (commentId: string) => Promise<void>;
+    /** True where the section is a tab of its own. The strip above already says
+     *  "Activity", so the band states the one thing it does not — which end of
+     *  the feed is the newest. */
+    stacked?: boolean;
   }
 
   let {
@@ -51,6 +55,7 @@
     provider,
     onPublish,
     onDelete,
+    stacked = false,
   }: Props = $props();
 
   /** Comments the user has just pressed Publish on, so the row stops offering
@@ -115,12 +120,14 @@
   }
 </script>
 
-<div class="text-xs text-xs pt-7">
+<div class="text-workspace-chrome {stacked ? 'pt-2' : 'pt-7'}">
   <div class="flex items-center gap-2.5 pb-1">
     <span
-      class="font-normal text-muted-foreground uppercase"
+      class="font-normal text-muted-foreground uppercase {stacked
+        ? 'tracking-[0.12em]'
+        : ''}"
     >
-      Activity
+      {stacked ? "Newest last" : "Activity"}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
     <span

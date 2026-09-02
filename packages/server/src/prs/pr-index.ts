@@ -102,7 +102,7 @@ export class PrIndex {
   }
 
   async list(repo: RepoRef, provider: Provider, filter: PrFilter | undefined, page: number): Promise<PrListPage> {
-    const viewerLogin = await provider.review.getViewer()
+    const viewerLogin = await provider.review.getViewer(repo)
     const key = [
       repoKeyOf(repo),
       viewerLogin,

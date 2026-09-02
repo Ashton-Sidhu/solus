@@ -55,7 +55,7 @@ const VIEWPORT_ANCHORED = [
   'plan/PlanModal.css',
 ]
 
-type Rule = 'spill' | 'viewport-unit' | 'window-read'
+type Rule = 'spill' | 'viewport-unit' | 'window-read' | 'laptop-outranks-touch'
 
 type Failure = {
   path: string
@@ -250,6 +250,81 @@ function findViewportUnits(source: string, path: string): Failure[] {
 }
 
 // ---------------------------------------------------------------------------
+// A laptop variant outranking the touch rung beside it
+//
+// `.is-laptop-display` is set from `screen.width <= 1600`, so every phone and
+// tablet carries it — on web and mobile as much as on a small MacBook. A bare
+// `[.is-laptop-display_&]:h-6` is a descendant combinator, two selectors; the
+// `pointer-coarse:h-10` next to it is one class inside a media query, and a
+// media query adds no specificity. The laptop value therefore wins on a phone
+// and the touch rung never applies, whichever is written last: `h-10` was a
+// 40px target and the hand got 24px.
+//
+// The fix is to fence the laptop value behind `pointer-fine:`, which is what
+// `menu/menu-row.ts` already does. This is the same trap the publish menu hit
+// on the type axis, where the laptop rung outranked a call site's `h-auto` and
+// clamped a two-line row.
+//
+// Only a property with a coarse rung beside it is a defect. A laptop value with
+// no touch counterpart is the author saying the small-display geometry is right
+// for a phone too, and that is a product choice rather than a cascade accident.
+// ---------------------------------------------------------------------------
+
+/** Longest first, so `min-h` is never matched as `h` with a `min-` prefix. */
+const RUNG_PROPERTIES = [
+  'min-h', 'max-h', 'min-w', 'max-w',
+  'px', 'py', 'pt', 'pb', 'pl', 'pr',
+  'gap', 'size', 'rounded', 'text', 'h', 'w', 'p',
+]
+
+/**
+ * One element's whole class list, however it is spelled. A tag's attributes can
+ * span lines and a shared list in a `lib/*-styles.ts` is a concatenation across
+ * several, so a line is the wrong unit — `rail-styles.ts` carries its laptop
+ * height and its touch height six lines apart on the same control.
+ */
+function classListUnits(source: string, path: string): { text: string; index: number }[] {
+  if (path.endsWith('.svelte')) {
+    return scanTags(source)
+      .filter((tag) => !tag.closing)
+      .map((tag) => ({ text: tag.attributes, index: tag.start }))
+  }
+  const units: { text: string; index: number }[] = []
+  let index = 0
+  // Split rather than match: "up to the next declaration or the end of the
+  // file" has no portable regex spelling — JavaScript has no `\Z`, and `$`
+  // under `m` stops at the first line break.
+  for (const chunk of source.split(/(?=^export const )/mu)) {
+    units.push({ text: chunk, index })
+    index += chunk.length
+  }
+  return units
+}
+
+export function findLaptopOverTouch(source: string, path: string): Failure[] {
+  const failures: Failure[] = []
+  for (const unit of classListUnits(source, path)) {
+    for (const property of RUNG_PROPERTIES) {
+      // `\x60` is the backtick: String.raw keeps the backslash of an escaped
+      // one, and a stray `\`` is an invalid escape under the `u` flag.
+      const bare = new RegExp(String.raw`(?:^|[\s"'\x60{])\[\.is-laptop-display_&\]:${property}-`, 'u')
+      const coarse = new RegExp(String.raw`(?:pointer-coarse|\[@media\(pointer:coarse\)\]):${property}-`, 'u')
+      if (!bare.test(unit.text) || !coarse.test(unit.text)) continue
+      failures.push({
+        path,
+        line: lineOf(source, unit.index),
+        rule: 'laptop-outranks-touch',
+        detail:
+          `[.is-laptop-display_&]:${property}-… outranks the pointer-coarse:${property}-… beside it, ` +
+          'so the touch rung never applies on a phone — fence it with pointer-fine:',
+      })
+      break
+    }
+  }
+  return failures
+}
+
+// ---------------------------------------------------------------------------
 // Window reads
 // ---------------------------------------------------------------------------
 
@@ -306,7 +381,11 @@ export function collect(root: string): Failure[] {
     // boundaries. The other two read identifiers, where a comment is prose.
     if (file.endsWith('.svelte')) failures.push(...findSpills(source, path))
     const code = withoutComments(source)
-    failures.push(...findViewportUnits(code, path), ...findWindowReads(code, path))
+    failures.push(
+      ...findViewportUnits(code, path),
+      ...findWindowReads(code, path),
+      ...findLaptopOverTouch(code, path),
+    )
   }
   return failures.sort((a, b) =>
     a.rule.localeCompare(b.rule) || a.path.localeCompare(b.path) || a.line - b.line)

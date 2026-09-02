@@ -59,7 +59,7 @@
 
   <button
     type="button"
-    class="relative z-40 flex h-[31px] max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[9px] border-0 px-2.5 transition-colors duration-150 hover:bg-[var(--wash-2)] pointer-coarse:h-9 [.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2 {menuOpen
+    class="relative z-40 flex h-[31px] max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[9px] border-0 px-2.5 transition-colors duration-150 hover:bg-[var(--wash-2)] pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2 {menuOpen
       ? 'bg-[var(--wash-2)]'
       : 'bg-transparent'}"
     title="Switch page"

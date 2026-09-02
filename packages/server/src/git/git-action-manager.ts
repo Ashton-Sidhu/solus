@@ -1,7 +1,3 @@
-import { randomUUID } from 'crypto'
-import { unlink, writeFile } from 'fs/promises'
-import { tmpdir } from 'os'
-import path from 'path'
 import type {
   GitAction,
   GitActionPhase,
@@ -10,47 +6,25 @@ import type {
   GitActionResult,
   GitCheckout,
 } from '@solus/contracts/types'
-import type { PullRequest, RepoRef } from '@solus/contracts/providers'
+import type { PullRequest } from '@solus/contracts/providers'
 import { runAsync } from './exec'
 import { toRootRelativePath } from '../paths'
 import { authorPullRequest, type PullRequestWriter } from './pull-request-authoring'
-import type { GitHubClient } from '../providers/github/octokit'
-import { withAdapterCliFallback } from '../providers/adapter-cli-fallback'
-import { createLogger } from '../logger'
-import { z } from 'zod'
-
-const log = createLogger('main', 'git-action-manager')
 
 export interface GitActionManagerOptions {
   writer: PullRequestWriter
   generateCommitSubject(cwd: string): Promise<string>
-  githubClient?: GitHubClient | null
-  githubRepo?: RepoRef | null
-  /**
-   * Read a pull request back from its provider, once this action has one.
-   *
-   * Injected rather than resolved here: which provider serves a repository, and
-   * the index that shares its answers, belong to the pull request domain. This
-   * module knows git. What it returns goes on the step, so a client is handed
-   * the provider's own pull request instead of assembling one from a number and
-   * a title.
-   */
-  readPullRequest?(number: number): Promise<PullRequest | null>
+  findPullRequest?(branch: string): Promise<PullRequest | null>
+  createPullRequest?(input: {
+    baseRef: string
+    headRef: string
+    title: string
+    body: string
+  }): Promise<PullRequest>
   publish(event: GitActionProgressEvent): void
 }
 
-interface ExistingPullRequest {
-  url: string
-  number: number | null
-  title: string
-}
-
 const activeActionCwds = new Set<string>()
-const existingPullRequestSchema = z.object({
-  url: z.string().min(1),
-  number: z.number().nullable().catch(null),
-  title: z.string().optional(),
-})
 
 function wantsCommit(action: GitAction): boolean {
   return action === 'commit' || action === 'commit_push' || action === 'commit_push_pull_request'
@@ -171,114 +145,12 @@ async function upstreamState(cwd: string): Promise<{ upstreamRef: string | null;
   return { upstreamRef, aheadCount }
 }
 
-async function findExistingPullRequest(
-  cwd: string,
-  branch: string,
-): Promise<ExistingPullRequest | null> {
-  const raw = await runAsync(
-    'gh',
-    ['pr', 'view', branch, '--json', 'url,number,title'],
-    cwd,
-    { timeout: 10_000 },
-  ).catch(() => '')
-  if (!raw) return null
-  try {
-    const parsed = existingPullRequestSchema.parse(JSON.parse(raw))
-    return {
-      url: parsed.url,
-      number: parsed.number,
-      title: parsed.title || branch,
-    }
-  } catch {
-    return null
-  }
-}
-
-/**
- * The pull request this step is about, as its provider describes it.
- *
- * A failure here is not a failed action: the pull request exists either way, and
- * the client asks for it by number instead. That is why this swallows rather
- * than throws — a `gh` CLI fallback ran precisely because the API credential was
- * missing, so the read failing is the expected case there, not an error.
- */
-async function readBack(
-  pullRequest: ExistingPullRequest,
-  options: Pick<GitActionManagerOptions, 'readPullRequest'>,
-): Promise<PullRequest | null> {
-  if (pullRequest.number === null || !options.readPullRequest) return null
-  const number = pullRequest.number
-  return options.readPullRequest(number).catch((error) => {
-    log.warn('pull_request_read_back_failed', {
-      prNumber: number,
-      error: error instanceof Error ? error.message : String(error),
-    })
-    return null
-  })
-}
-
 async function branchHasPullRequestChanges(cwd: string, baseBranch: string): Promise<boolean> {
   const baseRef = await runAsync('git', ['rev-parse', '--verify', `origin/${baseBranch}`], cwd)
     .then(() => `origin/${baseBranch}`)
     .catch(() => baseBranch)
   const count = await runAsync('git', ['rev-list', '--count', `${baseRef}..HEAD`], cwd)
   return (Number(count) || 0) > 0
-}
-
-async function createPullRequest(
-  cwd: string,
-  baseBranch: string,
-  headBranch: string,
-  draft: { title: string; body: string },
-  options: Pick<GitActionManagerOptions, 'githubClient' | 'githubRepo'>,
-): Promise<ExistingPullRequest> {
-  const operationLog = log.child({ cwd, baseBranch, headBranch })
-  const githubClient = options.githubClient
-  const githubRepo = options.githubRepo
-  const adapter = githubClient && githubRepo
-    ? async (): Promise<ExistingPullRequest> => {
-      const { data } = await githubClient.rest.pulls.create({
-        owner: githubRepo.owner,
-        repo: githubRepo.repo,
-        base: baseBranch,
-        head: headBranch,
-        title: draft.title,
-        body: draft.body,
-      })
-      return {
-        url: data.html_url,
-        number: data.number,
-        title: data.title,
-      }
-    }
-    : null
-
-  const bodyFile = path.join(tmpdir(), `solus-pr-body-${process.pid}-${randomUUID()}.md`)
-  await writeFile(bodyFile, draft.body, 'utf8')
-  try {
-    return await withAdapterCliFallback({
-      operation: 'create_pull_request',
-      log: operationLog,
-      adapter,
-      cli: async () => {
-        const output = await runAsync(
-          'gh',
-          ['pr', 'create', '--base', baseBranch, '--head', headBranch, '--title', draft.title, '--body-file', bodyFile],
-          cwd,
-        )
-        const url = output.match(/https:\/\/\S+/)?.[0] ?? output.trim()
-        if (!url) throw new Error('GitHub did not return the pull request URL.')
-        const numberMatch = url.match(/\/pull\/(\d+)(?:[/?#]|$)/)
-        return {
-          url,
-          number: numberMatch ? Number(numberMatch[1]) : null,
-          title: draft.title,
-        }
-      },
-    })
-  } finally {
-    await unlink(bodyFile).catch(() => {})
-  }
 }
 
 async function runGitActionUnlocked(
@@ -388,9 +260,15 @@ async function runGitActionUnlocked(
     if (pullRequestRequested) {
       currentPhase = 'author_pull_request'
       options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Writing pull request…' })
-      const existing = await findExistingPullRequest(cwd, branch)
+      const existing = await options.findPullRequest?.(branch) ?? null
       if (existing) {
-        pullRequestStep = { status: 'existing', ...existing, pullRequest: await readBack(existing, options) }
+        pullRequestStep = {
+          status: 'existing',
+          url: existing.url,
+          number: existing.number,
+          title: existing.title,
+          pullRequest: existing,
+        }
       } else {
         if (!(await branchHasPullRequestChanges(cwd, gitContext.targetBranch))) {
           throw new Error(`The ${branch} branch has no changes to open against ${gitContext.targetBranch}.`)
@@ -398,8 +276,20 @@ async function runGitActionUnlocked(
         const draft = await authorPullRequest(cwd, gitContext.targetBranch, branch, options.writer)
         currentPhase = 'create_pull_request'
         options.publish({ ...baseEvent, kind: 'phase_started', phase: currentPhase, label: 'Creating pull request…' })
-        const created = await createPullRequest(cwd, gitContext.targetBranch, branch, draft, options)
-        pullRequestStep = { status: 'created', ...created, pullRequest: await readBack(created, options) }
+        if (!options.createPullRequest) throw new Error('GitHub is not connected')
+        const created = await options.createPullRequest({
+          baseRef: gitContext.targetBranch,
+          headRef: branch,
+          title: draft.title,
+          body: draft.body,
+        })
+        pullRequestStep = {
+          status: 'created',
+          url: created.url,
+          number: created.number,
+          title: created.title,
+          pullRequest: created,
+        }
       }
     }
 

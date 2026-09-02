@@ -4,6 +4,7 @@
     ExternalLink as ArrowSquareOutIcon,
     Globe as GlobeIcon,
     Laptop as LaptopIcon,
+    LoaderCircle as CircleNotchIcon,
     Plus as PlusIcon,
     Square as StopIcon,
     SquareTerminal as TerminalWindowIcon,
@@ -27,9 +28,23 @@
     onStop: (sessionId: string) => void;
     onUnlink: (sessionId: string) => void;
     onNewSession: () => void;
+    /** True where the section is a tab of its own. The wide table hides four
+     *  controls behind hover and spreads the attempt across five columns;
+     *  neither survives a thumb, so each attempt becomes a card that states its
+     *  own facts and carries its own actions at touch size. */
+    stacked?: boolean;
   }
 
-  let { sessions, taskTitle, onOpen, onOpenSplit, onStop, onUnlink, onNewSession }: Props = $props();
+  let {
+    sessions,
+    taskTitle,
+    onOpen,
+    onOpenSplit,
+    onStop,
+    onUnlink,
+    onNewSession,
+    stacked = false,
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const now = Date.now();
@@ -67,6 +82,113 @@
   );
 </script>
 
+{#if stacked}
+  <!-- One card per attempt. The wide table's Agent, Host and Started columns
+       become the card's own meta line, and the four hover controls become two
+       real buttons: Stop where there is something to stop, Open session always,
+       and unlink as the way back out. "Open in split" is not among them —
+       there is no second pane on a phone to open into. -->
+  <div class="flex flex-col gap-3 pt-3.5">
+    {#if !rows.length}
+      <div class="px-1 py-3.5 text-muted-foreground">
+        No session has worked on this task yet. Start one to run an agent against this task
+        with the work linked back here.
+      </div>
+    {:else}
+      {#each rows as row (row.sessionId)}
+        <div
+          class="overflow-hidden rounded-xl bg-card shadow-[shadow:var(--elev-ring)]"
+        >
+          <div class="flex items-start gap-2.5 px-[13px] pt-[13px] pb-3">
+            <span
+              class="flex size-[26px] shrink-0 items-center justify-center rounded-lg {row.running
+                ? 'bg-[color-mix(in_oklch,var(--running)_20%,transparent)] text-[color-mix(in_oklch,var(--running)_62%,var(--foreground))]'
+                : 'bg-[var(--wash-3)] text-muted-foreground'}"
+              aria-hidden="true"
+            >
+              {#if row.running}
+                <CircleNotchIcon
+                  size={14}
+                  class="animate-spin motion-reduce:animate-none"
+                />
+              {:else}
+                <TerminalWindowIcon size={14} />
+              {/if}
+            </span>
+            <span class="flex min-w-0 flex-1 flex-col gap-1">
+              <span class="leading-[1.35] font-medium text-pretty">{row.title}</span>
+              <span class="flex flex-wrap items-center gap-[7px]">
+                {#if row.running}
+                  <span
+                    class="text-[color-mix(in_oklch,var(--running)_72%,var(--foreground))]"
+                    >running</span
+                  >
+                {/if}
+                <span class="font-mono text-xs tabular-nums text-muted-foreground"
+                  >{row.date}</span
+                >
+                {#if row.agent}
+                  <span class="text-muted-foreground opacity-40" aria-hidden="true">·</span>
+                  <span class="font-mono text-xs text-muted-foreground">{row.agent}</span>
+                {/if}
+                {#if row.host}
+                  <span
+                    class="flex min-w-0 items-center gap-1 text-muted-foreground opacity-70"
+                  >
+                    {#if row.host.isRemote}
+                      <GlobeIcon size={11} class="shrink-0" aria-hidden="true" />
+                    {:else}
+                      <LaptopIcon size={11} class="shrink-0" aria-hidden="true" />
+                    {/if}
+                    <span class="truncate">{row.host.label}</span>
+                  </span>
+                {/if}
+              </span>
+            </span>
+          </div>
+
+          <div
+            class="flex gap-2 border-t border-[var(--hairline)] px-[13px] py-2.5"
+          >
+            {#if row.running}
+              <button
+                type="button"
+                class="h-[38px] flex-1 cursor-pointer rounded-lg border-0 bg-transparent font-medium text-[color-mix(in_oklch,var(--failure)_70%,var(--foreground))] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--failure)_42%,transparent)] active:bg-[color-mix(in_oklch,var(--failure)_10%,transparent)] [-webkit-tap-highlight-color:transparent]"
+                onclick={() => onStop(row.sessionId)}
+              >
+                Stop
+              </button>
+            {/if}
+            <button
+              type="button"
+              class="h-[38px] flex-1 cursor-pointer rounded-lg border-0 bg-[var(--wash-2)] font-medium text-foreground active:bg-[var(--wash-3)] [-webkit-tap-highlight-color:transparent]"
+              onclick={() => onOpen(row.sessionId)}
+            >
+              Open session
+            </button>
+            <button
+              type="button"
+              class="flex size-[38px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
+              onclick={() => onUnlink(row.sessionId)}
+              aria-label="Unlink session"
+            >
+              <svg
+                width="13"
+                height="13"
+                viewBox="0 0 14 14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.5"
+                stroke-linecap="round"
+                aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg
+              >
+            </button>
+          </div>
+        </div>
+      {/each}
+    {/if}
+  </div>
+{:else}
 <!-- The section takes the page's `text-chrome-dense` rung rather than pinning
      `text-xs`: the rung is what steps for the pointer, and a section that
      restates a size stops stepping with the page. -->
@@ -291,3 +413,4 @@
     </div>
   {/if}
 </div>
+{/if}

@@ -4,6 +4,7 @@
     Folder as FolderIcon,
     GitBranch as GitBranchIcon,
     Globe as GlobeIcon,
+    ListChecks as ListChecksIcon,
     Moon as MoonIcon,
     Plus as PlusIcon,
     X as XIcon,
@@ -143,6 +144,15 @@
     });
   }
 
+  /** The task's own page — the sheet names the task, so it has to be able to
+   *  reach it. A phone has no breadcrumb menu to right-click. */
+  function openTaskPage() {
+    const taskId = task?.taskId;
+    if (!taskId) return;
+    onClose();
+    session.goToTask(taskId, "click");
+  }
+
   function newSessionInTask() {
     session.openSessionDraft({ via: "click" });
     onClose();
@@ -163,28 +173,41 @@
   title={task?.title ?? "This session"}
   subtitle={[task?.projectLabel, durableTask ? taskRef(durableTask) : ""].filter(Boolean).join(" / ")}
 >
-  <!-- Snooze, complete and drop act on the task, so they lead. An individual
-       run below is reached by opening it, not by acting on it here. -->
+  <!-- The task's page leads: the sheet is a peek at the task, and the page is
+       where its description, comments and links live. Snooze, complete and drop
+       act on the same task under it. An individual run below is reached by
+       opening it, not by acting on it here. -->
   {#if task}
-    <div class="flex gap-2 px-4 pt-1">
-      <button
-        type="button"
-        class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
-        onclick={(e) => (snoozeAnchor = e.currentTarget)}
-      >
-        <MoonIcon size={15} />Snooze
-      </button>
-      <button type="button" class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]" onclick={completeTask}>
-        <CheckIcon size={15} style="color:{MOBILE_STATE_INK.success}" />Complete
-      </button>
-      <button
-        type="button"
-        class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
-        style="box-shadow:0 0 0 0.03125rem color-mix(in oklch, var(--failure) 40%, transparent);color:{MOBILE_STATE_INK.failure}"
-        onclick={dropTask}
-      >
-        <XIcon size={15} />Drop
-      </button>
+    <div class="flex flex-col gap-2 px-4 pt-1">
+      {#if task.taskId}
+        <button
+          type="button"
+          class="flex h-11 cursor-pointer items-center justify-center gap-2 rounded-lg border-0 bg-transparent font-semibold text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.99] [-webkit-tap-highlight-color:transparent]"
+          onclick={openTaskPage}
+        >
+          <ListChecksIcon size={16} />Open task page
+        </button>
+      {/if}
+      <div class="flex gap-2">
+        <button
+          type="button"
+          class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
+          onclick={(e) => (snoozeAnchor = e.currentTarget)}
+        >
+          <MoonIcon size={15} />Snooze
+        </button>
+        <button type="button" class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium text-(--solus-text-primary) shadow-[shadow:var(--elev-ring)] transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]" onclick={completeTask}>
+          <CheckIcon size={15} style="color:{MOBILE_STATE_INK.success}" />Complete
+        </button>
+        <button
+          type="button"
+          class="flex h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-lg border-0 bg-transparent font-medium transition-transform duration-[120ms] active:scale-[0.97] [-webkit-tap-highlight-color:transparent]"
+          style="box-shadow:0 0 0 0.03125rem color-mix(in oklch, var(--failure) 40%, transparent);color:{MOBILE_STATE_INK.failure}"
+          onclick={dropTask}
+        >
+          <XIcon size={15} />Drop
+        </button>
+      </div>
     </div>
   {/if}
 

@@ -486,7 +486,7 @@
     <span class="text-insights-summary text-muted-foreground">{detail}</span>
     <button
       type="button"
-      class="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center self-center rounded-md text-insights-summary text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-10 [.is-laptop-display_&]:size-5.5"
+      class="ml-auto flex size-6 shrink-0 cursor-pointer items-center justify-center self-center rounded-md text-insights-summary text-muted-foreground transition-[background-color,color,scale] hover:bg-[var(--wash-1)] hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring active:scale-[0.96] pointer-coarse:size-10 pointer-fine:[.is-laptop-display_&]:size-5.5"
       aria-label={queryChartExpanded ? "Collapse chart" : "Expand chart"}
       aria-controls={chartId}
       aria-expanded={queryChartExpanded}

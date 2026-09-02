@@ -81,26 +81,7 @@ jobs:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-        run: |
-          export AWS_ACCESS_KEY_ID=$R2_ACCESS_KEY_ID
-          export AWS_SECRET_ACCESS_KEY=$R2_SECRET_ACCESS_KEY
-          export AWS_DEFAULT_REGION=auto
-
-          R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-
-          for f in release/*.dmg release/*.zip release/*.yml release/*.blockmap; do
-            [ -f "$f" ] || continue
-            echo "Uploading $(basename $f)..."
-            aws s3 cp "$f" "s3://solus-releases/$(basename $f)" \
-              --endpoint-url "$R2_ENDPOINT"
-          done
-
-          DMG=$(ls release/*-arm64.dmg 2>/dev/null | head -1)
-          if [ -n "$DMG" ]; then
-            echo "Uploading stable download link..."
-            aws s3 cp "$DMG" "s3://solus-releases/Solus-latest-arm64.dmg" \
-              --endpoint-url "$R2_ENDPOINT"
-          fi
+        run: bun scripts/upload-release-r2.ts
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2

@@ -66,7 +66,7 @@
           : t.id === "diff"
             ? diffHint
             : undefined}
-      class="h-7 cursor-pointer rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 [.is-laptop-display_&]:h-6.5 {isActive
+      class="h-7 cursor-pointer rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 pointer-fine:[.is-laptop-display_&]:h-6.5 {isActive
         ? 'bg-[var(--wash-2)] font-medium text-foreground'
         : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
       onclick={() => onSelect(t.id)}

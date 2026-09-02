@@ -36,6 +36,9 @@ interface PreviewLoaderDeps {
 export class PreviewLoader {
   snapshot = $state<PreviewExtraction | null>(null)
   hiddenCount = $state<number | undefined>(undefined)
+  /** Everything in the transcript, shown or collapsed. The phone's peek names
+   *  the size of the conversation it is showing two messages of. */
+  messageCount = $state<number | undefined>(undefined)
   loading = $state(false)
 
   #cache = new MemoryCache<string, SessionPreviewResult>({ maxEntries: 100 })
@@ -62,6 +65,7 @@ export class PreviewLoader {
     this.#seq++
     this.snapshot = null
     this.hiddenCount = undefined
+    this.messageCount = undefined
     this.loading = false
   }
 
@@ -70,6 +74,7 @@ export class PreviewLoader {
     this.snapshot = snapshot
     const shown = (snapshot.firstUserMessage ? 1 : 0) + (snapshot.lastAssistantMessage ? 1 : 0)
     this.hiddenCount = Math.max(0, result.totalMessages - shown)
+    this.messageCount = result.totalMessages
   }
 
   show(
@@ -93,6 +98,7 @@ export class PreviewLoader {
         const shown =
           (snapshot.firstUserMessage ? 1 : 0) + (snapshot.lastAssistantMessage ? 1 : 0)
         this.hiddenCount = Math.max(0, entrySession.messages.length - shown)
+        this.messageCount = entrySession.messages.length
       })
       return
     }
@@ -105,6 +111,7 @@ export class PreviewLoader {
       this.loading = false
       this.snapshot = null
       this.hiddenCount = undefined
+      this.messageCount = undefined
       return
     }
 
@@ -121,6 +128,7 @@ export class PreviewLoader {
     this.loading = true
     this.snapshot = null
     this.hiddenCount = undefined
+    this.messageCount = undefined
     this.#debounce = setTimeout(async () => {
       try {
         // Refresh single-session metadata (e.g. a `/rename` since the cached

@@ -51,8 +51,8 @@
     class="flex h-8 items-center gap-3 px-2.5 pt-[5px] text-muted-foreground max-md:h-[34px] max-md:px-2 max-md:pt-2"
     {style}
   >
-    <span class="text-xs font-medium uppercase {row.accent ? 'text-(--solus-status-unread)' : ''}">{query ? "Matches" : row.label}</span>
-    <span class="font-mono text-xs tabular-nums opacity-50 max-md:order-3 max-md:opacity-60">{row.count}</span>
+    <span class="text-micro font-medium tracking-[0.13em] uppercase {row.accent ? 'text-(--solus-status-unread)' : ''}">{query ? "Matches" : row.label}</span>
+    <span class="font-mono text-micro tabular-nums opacity-50 max-md:order-3 max-md:opacity-60">{row.count}</span>
     <span class="h-px flex-1 bg-[var(--hairline)] max-md:order-2" aria-hidden="true"></span>
   </div>
 {:else if row.kind === "task"}
@@ -100,10 +100,10 @@
         <span class="sr-only">{taskStatus.label}</span>
       </span>
       <span class="min-w-0 flex-1 pl-2">
-        <span class="block truncate text-workspace-chrome font-medium text-foreground max-md:text-[0.90625rem]"
+        <span class="block truncate text-workspace-chrome font-medium text-foreground"
           >{@render marked(highlightRuns(task.title, query))}</span
         >
-        <span class="mt-px block truncate text-xs text-muted-foreground opacity-[0.78] max-md:font-mono max-md:text-[0.65625rem] max-md:opacity-100"
+        <span class="mt-px block truncate text-micro text-muted-foreground opacity-[0.78] max-md:font-mono max-md:opacity-100"
           >{projectLabel(task)} · {row.sessions.length
             ? `${row.sessions.length} ${row.sessions.length === 1 ? "session" : "sessions"}`
             : "no sessions yet"}</span
@@ -114,7 +114,7 @@
       {:else}
         <!-- The key the list is ordered by. Tabular figures so a column of
              dates never reflows the titles beside them. -->
-        <span class="ml-2.5 shrink-0 whitespace-nowrap font-mono text-xs tabular-nums text-muted-foreground opacity-70 max-md:text-[0.65625rem] max-md:opacity-75">
+        <span class="ml-2.5 shrink-0 whitespace-nowrap font-mono text-micro tabular-nums text-muted-foreground opacity-70 max-md:opacity-75">
           {relativeTime(task.updatedAt)}
         </span>
       {/if}
@@ -147,12 +147,16 @@
     >
       <SessionStatusGlyph attention={child.attention} />
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-workspace-chrome max-md:text-[0.84375rem] {isRunning ? 'text-foreground' : 'text-muted-foreground max-md:text-foreground'}"
+        <span class="block truncate text-workspace-chrome {isRunning ? 'text-foreground' : 'text-muted-foreground max-md:text-foreground'}"
           >{@render marked(highlightRuns(child.label, query))}</span
         >
-        <span class="hidden truncate font-mono text-[0.65625rem] text-muted-foreground max-md:block">{isRunning ? "running" : "idle"}</span>
+        <!-- The glyph beside it already says running or idle. A thumb's second
+             line spends itself on the one thing the row cannot show otherwise:
+             how long ago this session last said anything. -->
+        <span class="hidden truncate font-mono text-micro text-muted-foreground max-md:block">last reply {relativeTime(child.lastActivityAt || row.task.updatedAt)}</span>
       </span>
-      <span class="min-w-11 shrink-0 whitespace-nowrap text-right font-mono text-xs tabular-nums text-muted-foreground opacity-60 max-md:text-[0.65625rem] max-md:opacity-75">
+      <!-- The same age, so the phone shows it once — in the sub-line. -->
+      <span class="min-w-11 shrink-0 whitespace-nowrap text-right font-mono text-micro tabular-nums text-muted-foreground opacity-60 max-md:hidden">
         {relativeTime(child.lastActivityAt || row.task.updatedAt)}
       </span>
     </button>

@@ -11,10 +11,17 @@ import { tv } from '@solus/workspace-ui/lib/tw'
  * label alone just grows the empty band around it, which is what made a laptop
  * menu read as a desktop menu that had been zoomed out. Touch steps the other
  * way, to a 44px *floor*: a 32px row is below the hit target a finger needs,
- * and every menu in the app is a menu on a phone too. A floor rather than a
- * fixed height, because a row whose description wraps on a narrow screen — a
- * publish destination explaining why it is unavailable — has to grow instead of
- * spilling its second line into the row beneath it.
+ * and every menu in the app is a menu on a phone too.
+ *
+ * Every rung is a floor, never a fixed height, because a row whose description
+ * wraps — a publish destination explaining why it is unavailable — has to grow
+ * instead of spilling its second line into the row above it. The base `h-8` is
+ * a plain utility, so a call site's `h-auto` evicts it through tailwind-merge;
+ * the laptop rung is a two-selector variant, so it does not merge and wins on
+ * specificity. Written as `h-7` it clamped the two-line Confluence and Google
+ * Drive rows back to 28px on a laptop display and their second line painted up
+ * through the menu's "Publish to" label. It is `h-auto` + `min-h-7` for that
+ * reason; a single-line row still measures 28px, so the rung is unchanged.
  *
  * Selection state (spine, weight, hover wash) lives in the `menu-row` utility
  * in `index.css`, because it needs `::before` and state selectors that
@@ -24,7 +31,7 @@ import { tv } from '@solus/workspace-ui/lib/tw'
  * `group/*` names — stay at the call site; only what is genuinely shared is here.
  */
 export const menuRowVariants = tv({
-  base: 'menu-row flex cursor-default select-none items-center outline-hidden h-8 gap-2.5 rounded-lg text-menu text-(--solus-text-secondary) pointer-coarse:h-auto pointer-coarse:min-h-11 pointer-coarse:py-2 pointer-fine:[.is-laptop-display_&]:h-7 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:rounded-md data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
+  base: 'menu-row flex cursor-default select-none items-center outline-hidden h-8 gap-2.5 rounded-lg text-menu text-(--solus-text-secondary) pointer-coarse:h-auto pointer-coarse:min-h-11 pointer-coarse:py-2 pointer-fine:[.is-laptop-display_&]:h-auto pointer-fine:[.is-laptop-display_&]:min-h-7 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:rounded-md data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0',
   variants: {
     /** Rows with an absolutely-positioned check reserve the room for it. */
     indicator: {

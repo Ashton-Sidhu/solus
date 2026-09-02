@@ -240,7 +240,7 @@ export function linkedWorkProvider(
   return link.kind === 'work' ? workFor(link.targetKey)?.mirroredDoc?.provider ?? null : null
 }
 
-interface LinkRow {
+export interface LinkRow {
   key: string
   link: TaskLink
   icon: string
@@ -278,6 +278,30 @@ interface LinkFilter {
   label: string
   kind: TaskLinkKind | null
   count: number
+}
+
+export interface LinkGroup {
+  kind: TaskLinkKind
+  /** The plural kind name, which the wide table carries as a Kind column. */
+  label: string
+  rows: LinkRow[]
+}
+
+/** The Linked table's Kind column, turned into a group header.
+ *
+ *  A phone row has no width for a third column, and the kind is the one field
+ *  that repeats — so it is hoisted out of the row and stated once above the
+ *  rows that share it. The order is the table's own, so a reader who knows the
+ *  wide page finds the same kinds in the same sequence. */
+export function linkGroups(links: TaskLink[]): LinkGroup[] {
+  const groups: LinkGroup[] = []
+  for (const kind of LINK_KIND_ORDER) {
+    const rows = links.filter((link) => link.kind === kind).map((link) => linkRow(link))
+    if (rows.length) {
+      groups.push({ kind, label: LINK_KIND_LABELS.get(kind)?.many ?? kind, rows })
+    }
+  }
+  return groups
 }
 
 /** All, then one filter per kind that actually has links. Kinds with nothing

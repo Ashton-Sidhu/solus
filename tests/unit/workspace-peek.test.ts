@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import {
   PEEK_WIDTH,
   peekBody,
@@ -103,6 +105,27 @@ describe('peekOutline', () => {
 
   it('has no structure to show before the content lands', () => {
     expect(peekOutline(item(), null).lines).toEqual([])
+  })
+})
+
+describe('the sheet keeps its buttons', () => {
+  const source = readFileSync(
+    resolve(import.meta.dir, '../../packages/workspace-ui/src/components/workspace/WorkspacePage.svelte'),
+    'utf8',
+  )
+
+  it('never dismisses on mousedown while stacked — a tap fires mousedown before click, so the sheet would unmount under the finger and Open would fire on nothing', () => {
+    const dismissEffect = source
+      .split('$effect(() => {')
+      .find((block) => block.includes('window.addEventListener("mousedown"'))
+    expect(dismissEffect).toBeDefined()
+    expect(dismissEffect).toContain('if (!peek.open || stacked) return;')
+  })
+
+  it('never dismisses on ledger scroll while stacked — tapping a half-visible row scrolls it into view, and that scroll must not close the sheet it just raised', () => {
+    const scrollHandler = source.slice(source.indexOf('function handleLedgerScroll()'))
+    const body = scrollHandler.slice(0, scrollHandler.indexOf('const el = scrollEl'))
+    expect(body).toContain('if (!stacked) peek.close();')
   })
 })
 

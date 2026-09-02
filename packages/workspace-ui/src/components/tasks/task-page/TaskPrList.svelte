@@ -1,5 +1,9 @@
 <script lang="ts">
-  import { ExternalLink as ArrowSquareOutIcon, Plus as PlusIcon } from "@lucide/svelte";
+  import {
+    ExternalLink as ArrowSquareOutIcon,
+    ChevronRight as CaretRightIcon,
+    Plus as PlusIcon,
+  } from "@lucide/svelte";
   import type { TaskLink } from "@solus/contracts/task-types";
   import { prStatusBadge } from "../../prs/lib/pr-utils";
   import type { TaskPrRow } from "./lib/task-prs";
@@ -10,9 +14,13 @@
     onOpenExternal: (url: string) => void;
     onUnlink: (link: TaskLink) => void;
     onAdd: () => void;
+    /** True on the phone rung, where a row has no width for a title, a state
+     *  pill and three controls side by side. The state moves under the title
+     *  with the reference, and the row keeps only the way out and the way in. */
+    stacked?: boolean;
   }
 
-  let { rows, onOpen, onOpenExternal, onUnlink, onAdd }: Props = $props();
+  let { rows, onOpen, onOpenExternal, onUnlink, onAdd, stacked = false }: Props = $props();
 </script>
 
 <!-- Pull requests are the one linked kind with a lifecycle of their own, so
@@ -42,6 +50,65 @@
   >
     {#each rows as row, index (row.key)}
       {@const badge = prStatusBadge(row.state)}
+      {#if stacked}
+        <div
+          class="flex cursor-pointer items-center gap-2.5 px-3 py-[11px] active:bg-[var(--wash-1)] [-webkit-tap-highlight-color:transparent] {index
+            ? 'border-t border-[var(--hairline)]'
+            : ''}"
+          role="button"
+          tabindex="0"
+          onclick={() => onOpen(row.link)}
+          onkeydown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              onOpen(row.link);
+            }
+          }}
+        >
+          <span
+            class="flex size-[15px] shrink-0 items-center justify-center"
+            style="color:{badge?.tone ?? 'var(--muted-foreground)'}"
+            aria-hidden="true"
+          >
+            {#if badge}
+              {@const StateIcon = badge.Icon}
+              <StateIcon size={15} />
+            {/if}
+          </span>
+          <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
+            <span class="truncate font-medium">{row.title}</span>
+            <span class="flex items-center gap-[7px]">
+              <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-70">
+                {row.ref}
+              </span>
+              {#if badge}
+                <span style="color:{badge.tone}">{badge.label}</span>
+              {/if}
+            </span>
+          </span>
+          <button
+            type="button"
+            class="flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground opacity-60 active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
+            onclick={(e) => {
+              e.stopPropagation();
+              onUnlink(row.link);
+            }}
+            aria-label="Unlink {row.ref}"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              aria-hidden="true"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg
+            >
+          </button>
+          <CaretRightIcon size={15} class="shrink-0 text-muted-foreground opacity-60" />
+        </div>
+      {:else}
       <div
         class="group flex cursor-pointer items-center gap-[11px] py-2 pr-2 pl-[13px] transition-colors hover:bg-[var(--wash-1)] {index
           ? 'border-t-[.5px] border-[var(--hairline)]'
@@ -127,6 +194,7 @@
           >
         </button>
       </div>
+      {/if}
     {/each}
   </div>
 </div>

@@ -90,9 +90,9 @@
 
 {#snippet sectionHeading(label: string, count: number)}
   <div class="mb-1.5 flex items-center gap-2.5 max-md:mb-0">
-    <span class="text-xs font-medium uppercase text-muted-foreground">{label}</span>
+    <span class="text-micro font-medium tracking-[0.13em] uppercase text-muted-foreground">{label}</span>
     <span class="h-px flex-1 bg-[var(--hairline)] max-md:hidden" aria-hidden="true"></span>
-    <span class="font-mono text-xs tabular-nums text-muted-foreground opacity-50 max-md:text-[0.59375rem] max-md:tracking-[0.13em] max-md:opacity-100">
+    <span class="font-mono text-micro tabular-nums text-muted-foreground opacity-50 max-md:tracking-[0.13em] max-md:opacity-100">
       <span class="hidden max-md:inline">·</span> {count}
     </span>
   </div>
@@ -101,7 +101,7 @@
 <div class="flex min-w-0 flex-col">
   <!-- On a phone the sheet's header already says which task this is about, so
        the meta line yields to the title. -->
-  <div class="mb-3 flex flex-wrap items-center gap-2.5 text-[0.71875rem] text-muted-foreground max-md:hidden">
+  <div class="mb-3 flex flex-wrap items-center gap-2.5 text-micro text-muted-foreground max-md:hidden">
     <span class="inline-flex items-center gap-1.5">
       <TaskStatusGlyph status={task.status} size={12} />
       {status.label}
@@ -124,9 +124,9 @@
   </div>
   <h3 class="mb-2.5 text-[1.1875rem] leading-[1.3] font-semibold tracking-[-0.014em] text-pretty text-foreground max-md:mb-2">{task.title}</h3>
   {#if task.body}
-    <p class="mb-5 whitespace-pre-wrap text-workspace-chrome leading-[1.7] text-pretty text-muted-foreground max-md:mb-[18px] max-md:text-[0.90625rem]">{task.body}</p>
+    <p class="mb-5 whitespace-pre-wrap text-workspace-chrome leading-[1.7] text-pretty text-muted-foreground max-md:mb-[18px]">{task.body}</p>
   {:else}
-    <p class="mb-5 text-workspace-chrome leading-[1.7] text-muted-foreground opacity-70 max-md:mb-[18px] max-md:text-[0.90625rem]">No task description.</p>
+    <p class="mb-5 text-workspace-chrome leading-[1.7] text-muted-foreground opacity-70 max-md:mb-[18px]">No task description.</p>
   {/if}
 
   <!-- The task's sessions as a compact roll, so a reader who came for one of
@@ -135,24 +135,28 @@
   {#if sessions.length}
     <div class="mb-5 flex flex-col max-md:rounded-xl max-md:bg-card max-md:px-3.5 max-md:pt-[13px] max-md:pb-1 max-md:shadow-[shadow:var(--elev-ring)]">
       {@render sectionHeading("Sessions", sessions.length)}
+      <!-- A long-lived task can hold dozens of sessions. The roll is a jump
+           list, not the page, so it stops at five rows and scrolls. -->
+      <div class="flex max-h-[150px] flex-col overflow-y-auto max-md:max-h-[190px]">
       {#each sessions as item, index (item.sessionId ?? item.tabId ?? index)}
         <button
           type="button"
-          class="flex h-[30px] w-full cursor-pointer items-center gap-3 overflow-hidden text-left text-workspace-chrome transition-[background-color] duration-100 hover:bg-[var(--wash-1)] max-md:h-[38px] max-md:text-[0.8125rem] {index ? 'border-t-[0.5px] border-[var(--hairline)]' : ''} {index === 0 ? 'text-foreground' : 'text-muted-foreground'}"
+          class="flex h-[30px] w-full shrink-0 cursor-pointer items-center gap-3 overflow-hidden text-left text-workspace-chrome transition-[background-color] duration-100 hover:bg-[var(--wash-1)] max-md:h-[38px] {index ? 'border-t-[0.5px] border-[var(--hairline)]' : ''} {index === 0 ? 'text-foreground' : 'text-muted-foreground'}"
           onclick={() => onSelectSession(item)}
         >
           <SessionStatusGlyph attention={item.attention} />
           <span class="min-w-0 flex-1 truncate">{item.label}</span>
-          <span class="shrink-0 font-mono text-[0.65625rem] whitespace-nowrap tabular-nums opacity-60">{relativeTime(item.lastActivityAt || task.updatedAt)}</span>
+          <span class="shrink-0 font-mono text-micro whitespace-nowrap tabular-nums opacity-60">{relativeTime(item.lastActivityAt || task.updatedAt)}</span>
         </button>
       {/each}
+      </div>
     </div>
   {/if}
 
   {#if details || prRows.length}
-    <div class="mb-5 flex flex-col gap-[7px] text-xs">
+    <div class="mb-5 flex flex-col gap-[7px] text-micro">
       <div class="flex items-center gap-2">
-        <span class="font-normal uppercase text-muted-foreground">Linked</span>
+        <span class="font-medium tracking-[0.13em] uppercase text-muted-foreground">Linked</span>
         <span class="tabular-nums text-muted-foreground opacity-70">{linkedCount}</span>
         <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
       </div>

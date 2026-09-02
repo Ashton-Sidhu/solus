@@ -75,6 +75,10 @@ export interface ProviderAuth {
 export interface ReviewProvider {
   listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequest[]>
   listPullRequestsPage(repo: RepoRef, filter?: PrFilter, page?: number, perPage?: number): Promise<PrListPage>
+  createPullRequest(
+    repo: RepoRef,
+    input: { baseRef: string; headRef: string; title: string; body: string; credentialCwd?: string },
+  ): Promise<PullRequest>
   /** Open PRs that currently request or assign the given viewer's attention. */
   listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequest[]>
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequest>
@@ -125,8 +129,9 @@ export interface ReviewProvider {
   mergePullRequest(repo: RepoRef, number: number, method: MergeMethod): Promise<{ merged: boolean; message?: string }>
   /** Changed files with host-reported per-file add/delete counts. */
   listPullRequestFileStats(repo: RepoRef, number: number): Promise<ChangedFileStat[]>
-  /** Login for the token's viewer. Implementations cache this per token. */
-  getViewer(): Promise<string>
+  /** Login for the token's viewer. A repository selects the credential that
+   *  can access it before answering. Implementations cache this per token. */
+  getViewer(repo?: RepoRef): Promise<string>
 }
 
 /** A host is the pair `{ auth, review }`, keyed by its `ProviderId`. */

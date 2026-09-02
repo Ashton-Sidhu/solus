@@ -1,9 +1,7 @@
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { resolveRepoRef } from '../git/git-helpers'
-import { runAsync } from '../git/exec'
 import { createLogger } from '../logger'
 import { providerForRepo } from './registry'
-import { withAdapterCliFallback } from './adapter-cli-fallback'
 
 function validatedPullRequestUrl(value: string, number: number): string {
   const parsed = parseGitHubPullRequestUrl(value)
@@ -23,19 +21,11 @@ export async function resolvePullRequestUrl(cwd: string, number: number): Promis
     hasRepository: !!repo,
     hasProviderAdapter: !!provider,
   })
-  const url = await withAdapterCliFallback({
-    operation: 'resolve_pull_request_url',
-    log,
-    adapter: repo && provider
-      ? async () => (await provider.review.getPullRequest(repo, number)).url
-      : null,
-    cli: async () => validatedPullRequestUrl(
-      await runAsync('gh', ['pr', 'view', String(number), '--json', 'url', '--jq', '.url'], cwd, {
-        timeout: 10_000,
-      }),
-      number,
-    ),
-  })
+  if (!repo || !provider) throw new Error('This folder has no recognizable GitHub remote.')
+  const url = validatedPullRequestUrl(
+    (await provider.review.getPullRequest(repo, number)).url,
+    number,
+  )
   log.info('pr_url_resolution_succeeded', { url })
   return url
 }

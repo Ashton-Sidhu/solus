@@ -148,7 +148,7 @@
             class="whitespace-nowrap uppercase text-(--solus-text-tertiary)"
             >{hiddenCount > 0
               ? `+${hiddenCount} more · last reply`
-              : "last reply"}</span
+              : "last reply"}{timeAgo ? ` ${timeAgo}` : ""}</span
           >
         </div>
         <div class="w-full overflow-hidden whitespace-pre-wrap break-words py-2">

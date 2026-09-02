@@ -5,9 +5,9 @@ import { join } from 'path'
 const root = join(import.meta.dir, '../..')
 
 describe('pull request URL resolution', () => {
-  test('falls back to gh after the provider adapter fails', () => {
-    // WHY: number-only task links still need one canonical URL, and remote
-    // clients cannot run the host CLI from the renderer.
+  test('uses the provider credential chain and validates its canonical URL', () => {
+    // WHY: number-only task links must use the same credential selection as
+    // every other GitHub surface instead of starting a separate gh command.
     const script = String.raw`
       import { mock } from 'bun:test'
 
@@ -18,15 +18,12 @@ describe('pull request URL resolution', () => {
       mock.module('./packages/server/src/providers/registry', () => ({
         providerForRepo: () => ({
           review: {
-            getPullRequest: async () => { throw new Error('adapter unavailable') },
+            getPullRequest: async (repo, number) => {
+              calls.push({ repo, number })
+              return { url: 'https://github.com/solus-sh/solus/pull/135' }
+            },
           },
         }),
-      }))
-      mock.module('./packages/server/src/git/exec', () => ({
-        runAsync: async (bin, args, cwd, options) => {
-          calls.push({ bin, args, cwd, options })
-          return 'https://github.com/solus-sh/solus/pull/135'
-        },
       }))
 
       const { resolvePullRequestUrl } = await import('./packages/server/src/providers/pull-request-url')
@@ -39,18 +36,14 @@ describe('pull request URL resolution', () => {
     })
 
     expect(run.status).toBe(0)
-    expect(run.stderr).toContain('provider_adapter_failed')
-    expect(run.stdout).toContain('provider_cli_fallback_succeeded')
     const output = JSON.parse(run.stdout.trim().split('\n').at(-1) ?? '') as {
-      calls: Array<{ bin: string; args: string[]; cwd: string; options: { timeout: number } }>
+      calls: Array<{ repo: { host: string; owner: string; repo: string }; number: number }>
       url: string
     }
     expect(output).toEqual({
       calls: [{
-        bin: 'gh',
-        args: ['pr', 'view', '135', '--json', 'url', '--jq', '.url'],
-        cwd: '/repo',
-        options: { timeout: 10_000 },
+        repo: { host: 'github.com', owner: 'solus-sh', repo: 'solus' },
+        number: 135,
       }],
       url: 'https://github.com/solus-sh/solus/pull/135',
     })

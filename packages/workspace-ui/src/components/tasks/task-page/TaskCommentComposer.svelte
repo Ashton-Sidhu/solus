@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ArrowUp as ArrowUpIcon } from "@lucide/svelte";
   import { CommentPostingBar } from "../../ui/comment-posting-bar";
   import { Switch } from "../../ui/switch";
 
@@ -11,9 +12,27 @@
     /** The project posts every comment upstream. The choice is then not this
      *  comment's to make, so the toggle shows it on and says who set it. */
     autoPost: boolean;
+    /** Overrides for the bar's own stickiness. The page pins the whole bottom
+     *  bar at the stacked rung, so the composer must stop pinning itself. */
+    class?: string;
+    /** The bar shares its row with two 44px controls. "Comment" spelled out
+     *  costs about a hundred of the ~250px that leaves, which wrapped the
+     *  placeholder onto a second line and made a 48px pill 90px tall — so the
+     *  send becomes the arrow it already is everywhere else on a phone. */
+    compact?: boolean;
+    /** Names the task, the way the spec's pill does: what you are commenting
+     *  on is worth stating where the section header is a tab you are not on. */
+    placeholder?: string;
   }
 
-  let { onSubmit, provider, autoPost }: Props = $props();
+  let {
+    onSubmit,
+    provider,
+    autoPost,
+    class: className,
+    compact = false,
+    placeholder = "Leave a comment…",
+  }: Props = $props();
 
   let draft = $state("");
   let posting = $state(false);
@@ -29,6 +48,10 @@
   }
 </script>
 
+{#snippet sendIcon()}
+  <ArrowUpIcon size={15} aria-hidden="true" />
+{/snippet}
+
 <!-- Sticky over the scroll region, with a scrim so rows dissolve into the canvas
      rather than being clipped by a hard edge. The pill itself matches the PR
      composer: one row that grows with the text, the send affordance a tinted
@@ -38,8 +61,10 @@
   onValueChange={(value) => (draft = value)}
   onSubmit={send}
   disabled={posting}
-  placeholder="Leave a comment…"
+  {placeholder}
   submitLabel={posting ? "Posting…" : "Comment"}
+  class={className}
+  submitContent={compact ? sendIcon : undefined}
 >
   <!-- Where this comment goes is decided before it is sent, not after: the
        toggle sits under the composer rather than appearing as a regret. -->

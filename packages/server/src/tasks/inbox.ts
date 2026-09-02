@@ -82,7 +82,7 @@ async function listPullRequests(
   const repoRef: RepoRef = { host: 'github.com', owner, repo }
   const provider = providerForRepo(repoRef)
   if (!provider) throw new Error('No pull request provider is available for this scope.')
-  const viewer = await provider.review.getViewer()
+  const viewer = await provider.review.getViewer(repoRef)
   let rows: PullRequest[]
   if (involvement === 'assigned' || involvement === 'review_requested') {
     rows = exactReviewRows(

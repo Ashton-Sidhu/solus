@@ -28,11 +28,15 @@
     sessionPreview: PreviewExtraction | null;
     previewLoading: boolean;
     hiddenCount: number;
+    /** The whole transcript's size, once the preview has read it. */
+    messageCount?: number;
     query: string;
     projectLabel: string;
     portalTarget: HTMLElement | null;
     onClose: () => void;
-    onOpen: (task: Task) => void;
+    /** Present only while the session runs in a mounted tab — a durable session
+     *  has no agent run to branch from until it is resumed. */
+    onFork?: (session: SidebarSessionChild) => void;
     onStartDraft: (task: Task) => void;
     onOpenTask: (task: Task) => void;
     onOpenSource: (task: Task) => void;
@@ -47,11 +51,12 @@
     sessionPreview,
     previewLoading,
     hiddenCount,
+    messageCount,
     query,
     projectLabel,
     portalTarget,
     onClose,
-    onOpen,
+    onFork,
     onStartDraft,
     onOpenTask,
     onOpenSource,
@@ -81,18 +86,24 @@
       {portalTarget}
       primaryLabel="Resume session"
       onPrimary={() => onSelectSession(picked)}
+      secondaryLabel={onFork ? "Fork" : undefined}
+      onSecondary={onFork ? () => onFork(picked) : undefined}
       {onOpenTask}
       {onOpenSource}
     />
   {:else}
+    <!-- A tap on the row already opened the task, so the sheet's primary says
+         the same thing: the peek is what you read *before* committing, and its
+         button is the commit. A draft is the other way in, always offered —
+         a task with no sessions has no other. -->
     {@const task = target.task}
     <PickerActionBar
       {task}
       {portalTarget}
-      primaryLabel={sessions.length ? "Resume latest" : "Open new draft"}
-      onPrimary={() => onOpen(task)}
-      secondaryLabel={sessions.length ? "New draft" : undefined}
-      onSecondary={sessions.length ? () => onStartDraft(task) : undefined}
+      primaryLabel="Open task"
+      onPrimary={() => onOpenTask(task)}
+      secondaryLabel="New draft"
+      onSecondary={() => onStartDraft(task)}
       {onOpenTask}
       {onOpenSource}
     />
@@ -101,18 +112,26 @@
 
 <BottomSheet {label} {onClose} {portalTarget} footer={actions}>
   {#snippet header()}
-    <div class="flex items-center gap-2 text-muted-foreground">
+    <div class="flex items-center gap-2 overflow-hidden text-muted-foreground">
       {#if target.kind === "session"}
         <SessionStatusGlyph attention={target.session.attention} />
+        <span class="shrink-0 text-micro font-medium tracking-[0.12em] uppercase">Session</span>
+        <!-- Which task this session belongs to. A session is only legible
+             against the work it was started for, and the sheet is the one
+             place on a phone with room to say so. -->
+        <span class="min-w-0 flex-1 truncate font-mono text-micro">{target.task.title}</span>
+        {#if messageCount !== undefined}
+          <span class="shrink-0 whitespace-nowrap font-mono text-micro tabular-nums"
+            >{messageCount} {messageCount === 1 ? "message" : "messages"}</span
+          >
+        {/if}
       {:else}
         <TaskStatusGlyph status={target.task.status} size={12} />
+        <span class="shrink-0 text-micro font-medium tracking-[0.12em] uppercase">Task</span>
+        <span class="min-w-0 flex-1 truncate font-mono text-micro">{projectLabel}</span>
+        <span class="shrink-0 opacity-50" aria-hidden="true">·</span>
+        <span class="shrink-0 whitespace-nowrap text-micro tabular-nums">{timeAgo}</span>
       {/if}
-      <span class="text-[0.59375rem] font-medium tracking-[0.12em] uppercase"
-        >{target.kind === "task" ? "Task" : "Session"}</span
-      >
-      <span class="font-mono text-[0.6875rem]">{projectLabel}</span>
-      <span class="opacity-50" aria-hidden="true">·</span>
-      <span class="shrink-0 whitespace-nowrap text-[0.71875rem] tabular-nums">{timeAgo}</span>
     </div>
   {/snippet}
 
@@ -127,11 +146,15 @@
         {onUnlink}
       />
     {:else}
+      <!-- The title carries the same weight it does in a task peek, and the
+           header line above already names the task and the transcript's size —
+           so the preview renders its body only, with no second header. -->
+      <h3 class="mb-1 px-[1.125rem] text-[1.1875rem] leading-[1.3] font-semibold tracking-[-0.016em] text-pretty text-foreground">
+        {target.session.label}
+      </h3>
       <SessionPreview
         preview={sessionPreview}
         loading={previewLoading}
-        title={target.session.label}
-        byline={target.task.title}
         {timeAgo}
         {hiddenCount}
         {query}

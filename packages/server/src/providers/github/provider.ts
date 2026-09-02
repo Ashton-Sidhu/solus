@@ -634,42 +634,48 @@ export class GitHubProvider implements ReviewProvider {
    * The clients to try for `host`, one per credential in chain order. This is
    * the provider's one seam: tests script GitHub's answers by replacing it.
    */
-  protected async clients(host: string): Promise<GitHubClient[]> {
-    return (await githubCredentialChain(host)).map(clientFor)
+  protected async clients(host: string, credentialCwd?: string): Promise<GitHubClient[]> {
+    return (await githubCredentialChain(host, credentialCwd)).map(clientFor)
   }
 
   /**
    * Run one operation — read or write — with the first credential GitHub
    * accepts.
    *
-   * Only a rejected credential, a 401 surfaced as `GitHubReauthRequiredError`,
-   * moves on to the next client. Every other failure returns at once: a
-   * missing pull request, a stale head, or a validation error is the answer,
-   * and asking again with another credential would only delay it and blur its
-   * message.
+   * A rejected token and GitHub's credential-specific access responses move to
+   * the next client. GitHub uses both 403 and 404 when an OAuth app cannot see
+   * an organization repository, while the user's gh credential may see it.
+   * Validation, conflict, and other domain failures remain final.
    */
   private async withClient<Result>(
     operation: string,
     host: string,
     run: (client: GitHubClient) => Promise<Result>,
+    credentialCwd?: string,
   ): Promise<Result> {
-    const clients = await this.clients(host)
+    const clients = await this.clients(host, credentialCwd)
     if (clients.length === 0) throw new Error('GitHub is not connected')
-    let rejected: GitHubReauthRequiredError | null = null
+    let rejected: Error | null = null
     for (const client of clients) {
       try {
         return await run(client)
       } catch (error) {
-        if (!(error instanceof GitHubReauthRequiredError)) throw error
+        const parsedError = githubApiErrorSchema.safeParse(error)
+        const status = parsedError.success ? parsedError.data.status : null
+        if (!(error instanceof GitHubReauthRequiredError) && status !== 403 && status !== 404) throw error
         log.warn('github_credential_rejected', { operation, host, source: client.credential.source })
-        rejected = error
+        rejected = error instanceof Error ? error : new Error(String(error))
       }
     }
-    throw rejected
+    throw rejected ?? new Error('GitHub is not connected')
   }
 
-  async getViewer(): Promise<string> {
-    return this.withClient('get_github_viewer', GITHUB_HOST, viewerLogin)
+  async getViewer(repo?: RepoRef): Promise<string> {
+    if (!repo) return this.withClient('get_github_viewer', GITHUB_HOST, viewerLogin)
+    return this.withClient('get_github_viewer_for_repo', repo.host, async (client) => {
+      await accessFor(client, repo, '')
+      return viewerLogin(client)
+    })
   }
 
   async listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequest[]> {
@@ -707,6 +713,23 @@ export class GitHubProvider implements ReviewProvider {
       )
       return { items, page, hasMore: data.length === perPage }
     })
+  }
+
+  async createPullRequest(
+    repo: RepoRef,
+    input: { baseRef: string; headRef: string; title: string; body: string; credentialCwd?: string },
+  ): Promise<PullRequest> {
+    return this.withClient('create_pull_request', repo.host, async (client) => {
+      const { data } = await client.rest.pulls.create({
+        owner: repo.owner,
+        repo: repo.repo,
+        base: input.baseRef,
+        head: input.headRef,
+        title: input.title,
+        body: input.body,
+      })
+      return toPullRequest(data, repo, await accessFor(client, repo, data.user?.login ?? ''))
+    }, input.credentialCwd)
   }
 
   async listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequest[]> {

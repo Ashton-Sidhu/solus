@@ -58,7 +58,7 @@
          crumb, the 26px chips — or the row below lands at a different y when
          the real page arrives. -->
     <div
-      class="box-content flex h-[31px] shrink-0 items-center gap-2 pt-[42px] pb-[13px] pointer-coarse:h-9 [.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
+      class="box-content flex h-[31px] shrink-0 items-center gap-2 pt-[42px] pb-[13px] pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
     >
       {#if hasProjectSwitcher}
         <Skeleton class="h-[15px] w-32 rounded opacity-60" />

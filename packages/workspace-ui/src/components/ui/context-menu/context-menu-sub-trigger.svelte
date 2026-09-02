@@ -19,7 +19,7 @@
   data-inset={inset}
   class={cn(
     menuRowVariants({ stagger: false }),
-    "data-open:shadow-[inset_0_0_0_62rem_var(--solus-menu-hover-ink)] data-open:text-(--solus-text-primary) data-inset:pl-7 [&_svg:not([class*='size-'])]:size-3.5 pointer-fine:[.is-laptop-display_&]:h-8 pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:rounded-lg pointer-fine:[.is-laptop-display_&]:px-2.5",
+    "data-open:shadow-[inset_0_0_0_62rem_var(--solus-menu-hover-ink)] data-open:text-(--solus-text-primary) data-inset:pl-7 [&_svg:not([class*='size-'])]:size-3.5 pointer-fine:[.is-laptop-display_&]:h-auto pointer-fine:[.is-laptop-display_&]:min-h-8 pointer-fine:[.is-laptop-display_&]:gap-2.5 pointer-fine:[.is-laptop-display_&]:rounded-lg pointer-fine:[.is-laptop-display_&]:px-2.5",
     className,
   )}
   {...restProps}

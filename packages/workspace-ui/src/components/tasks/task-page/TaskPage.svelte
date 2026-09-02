@@ -30,6 +30,7 @@
     isTaskRailFolded,
     linkedWorkProvider,
     taskPageCapabilities,
+    taskRef,
   } from "./lib/task-page";
   import {
     heldBackCommentIds,
@@ -520,6 +521,17 @@
    *  expanded threads and re-fetches its artifact previews on every switch. */
   const hiddenTab = (id: TaskTabId) => stacked && tab !== id;
 
+  // ── The bottom bar belongs to the tab, not to the page ──
+  // Where the four sections scroll past each other there is one thing to do at
+  // the foot of the page: comment. Where only one section is on screen, the
+  // move that section is for is the one the thumb should land on — Linked wants
+  // a link, Sessions wants a run — and the composer is what steps aside for it.
+  // It is hidden rather than unmounted, so a half-written comment survives a
+  // trip through the other tabs.
+  const bottomAction = $derived(
+    stacked && (tab === "linked" || tab === "sessions") ? tab : null,
+  );
+
   // Shares the Tasks scope: `task` and `tasks` are one exclusive page group, so
   // only ever one of them is mounted and Escape means the same thing in both.
   useScope("tasks", { active: () => !embedded });
@@ -568,6 +580,79 @@
       class="shrink-0 text-muted-foreground opacity-70"
     />
   </button>
+{/snippet}
+
+{#snippet bottomBar(record: Task)}
+  <!-- The composer is outside the tabs on purpose: a comment is about the task,
+       not about whichever section is on screen, and rule one of the redesign is
+       that the input is always reachable.
+
+       Properties sits on the left from the folded rung up, not the stacked one:
+       that is the moment the rail leaves the column, and hiding a destination
+       without building its replacement in the same breath is how it went
+       missing for every pane between the two. -->
+  {#if capabilities?.canComment}
+    <div class="flex items-end gap-2" class:hidden={bottomAction !== null}>
+      {#if railFolded}
+        <button
+          type="button"
+          class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:size-9"
+          onclick={() => (propertiesOpen = true)}
+          aria-haspopup="dialog"
+          aria-expanded={propertiesOpen}
+          aria-label="Task properties"
+        >
+          <PropertiesIcon size={17} />
+        </button>
+      {/if}
+      <div class="min-w-0 flex-1">
+        <!-- Where the bar is pinned by the page, the composer's own sticky
+             offset and scrim are the second copy of a job already done, and
+             they were what padded it into a floating card. -->
+        <TaskCommentComposer
+          onSubmit={comment}
+          provider={upstream?.canSync ? upstream.provider : null}
+          autoPost={autoPost ?? false}
+          class={stacked ? "static bottom-auto p-0 [background:none]" : undefined}
+          compact={stacked}
+          placeholder={stacked ? `Comment on ${taskRef(record)}…` : undefined}
+        />
+      </div>
+      {#if stacked && tab === "overview"}
+        <button
+          type="button"
+          class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.2)] [-webkit-tap-highlight-color:transparent]"
+          onclick={() => startSession(record)}
+          aria-label="New session"
+        >
+          <PlusIcon size={18} />
+        </button>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Linked and Sessions each have one move worth a whole bar. Primary for
+       Sessions, because starting a run is the page's own verb; outlined for
+       Linked, because attaching something is a reference, not a commitment. -->
+  {#if bottomAction === "sessions"}
+    <button
+      type="button"
+      class="flex h-12 w-full cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-primary font-semibold tracking-[-0.006em] text-primary-foreground active:opacity-90 [-webkit-tap-highlight-color:transparent]"
+      onclick={() => startSession(record)}
+    >
+      <PlusIcon size={16} />
+      New session
+    </button>
+  {:else if bottomAction === "linked"}
+    <button
+      type="button"
+      class="flex h-12 w-full cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-transparent font-medium text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent]"
+      onclick={() => (picking = true)}
+    >
+      <PlusIcon size={15} />
+      Link an item
+    </button>
+  {/if}
 {/snippet}
 
 {#snippet propertiesPanel(variant: "column" | "sheet")}
@@ -726,6 +811,7 @@
             {#if prRows.length}
               <TaskPrList
                 rows={prRows}
+                {stacked}
                 onOpen={openLink}
                 onOpenExternal={(url) => void localApi.openExternal(url)}
                 onUnlink={removeLink}
@@ -737,6 +823,7 @@
           <div class="flex flex-col" class:hidden={hiddenTab("linked")}>
           <TaskLinkedTable
             {links}
+            {stacked}
             onOpen={openLink}
             onUnlink={removeLink}
             onAdd={() => (picking = true)}
@@ -754,6 +841,7 @@
           <div class="flex flex-col" class:hidden={hiddenTab("sessions")}>
             <TaskSessionsList
               {sessions}
+              {stacked}
               taskTitle={task.title}
               onOpen={openSession}
               onOpenSplit={openSessionSplit}
@@ -765,6 +853,7 @@
 
           <div class="flex flex-col" class:hidden={hiddenTab("activity")}>
             <TaskActivityFeed
+              {stacked}
               comments={details?.comments ?? []}
               events={details?.events ?? []}
               {sessions}
@@ -785,40 +874,8 @@
                stacked one: that is the moment the rail leaves the column, and
                hiding a destination without building its replacement in the same
                breath is how it went missing for every pane between the two. -->
-          {#if capabilities?.canComment}
-            <div
-              class="flex items-end gap-2 @max-[30rem]/pane:sticky @max-[30rem]/pane:bottom-0 @max-[30rem]/pane:z-10 @max-[30rem]/pane:bg-background @max-[30rem]/pane:pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]"
-            >
-              {#if railFolded}
-                <button
-                  type="button"
-                  class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-foreground shadow-[shadow:var(--elev-ring)] active:bg-[var(--wash-2)] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:size-9"
-                  onclick={() => (propertiesOpen = true)}
-                  aria-haspopup="dialog"
-                  aria-expanded={propertiesOpen}
-                  aria-label="Task properties"
-                >
-                  <PropertiesIcon size={17} />
-                </button>
-              {/if}
-              <div class="min-w-0 flex-1">
-                <TaskCommentComposer
-                  onSubmit={comment}
-                  provider={upstream?.canSync ? upstream.provider : null}
-                  autoPost={autoPost ?? false}
-                />
-              </div>
-              {#if stacked}
-                <button
-                  type="button"
-                  class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.2)] [-webkit-tap-highlight-color:transparent]"
-                  onclick={() => startSession(task)}
-                  aria-label="New session"
-                >
-                  <PlusIcon size={18} />
-                </button>
-              {/if}
-            </div>
+          {#if !stacked}
+            {@render bottomBar(task)}
           {/if}
         </div>
 
@@ -830,6 +887,17 @@
         {/if}
       </div>
     </div>
+
+    <!-- Pinned, not sticky. `position: sticky` only holds a bar down once the
+         content behind it is taller than the scrollport; a short task left the
+         composer floating in the middle of the phone with dead space beneath
+         it. Outside the scroll region it is the page's own foot at every
+         length, which is what the spec draws. -->
+    {#if stacked}
+      <div class="shrink-0 px-4 pb-[max(0.5rem,env(safe-area-inset-bottom,0px))]">
+        {@render bottomBar(task)}
+      </div>
+    {/if}
   {:else}
     <div
       class="flex flex-1 items-center justify-center text-muted-foreground"

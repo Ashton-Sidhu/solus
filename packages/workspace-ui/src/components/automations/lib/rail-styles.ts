@@ -23,7 +23,7 @@ export const EYEBROW = 'text-xs font-normal text-muted-foreground uppercase'
 export const VALUE_TRIGGER =
   '-mr-1.5 flex h-7 min-w-0 cursor-pointer items-center gap-1 rounded-full border-0 bg-transparent px-1.5 ' +
   'text-workspace-chrome font-normal text-foreground transition-[background-color,color,scale] ' +
-  '[.is-laptop-display_&]:h-6 ' +
+  'pointer-fine:[.is-laptop-display_&]:h-6 ' +
   'hover:bg-muted active:scale-[0.96] ' +
   'focus-visible:bg-(--solus-accent-light) focus-visible:outline-none ' +
   'pointer-coarse:h-10 pointer-coarse:px-2'
@@ -36,7 +36,7 @@ export const VALUE_TRIGGER =
  *  `inherit` outranks an unprefixed rung just as the old size did. */
 export const RAIL_FIELD =
   '-mr-1.5 h-7 rounded-md border-0 bg-transparent px-1.5 py-0 text-right text-workspace-chrome max-md:text-workspace-chrome font-normal tabular-nums ' +
-  '[.is-laptop-display_&]:h-6 ' +
+  'pointer-fine:[.is-laptop-display_&]:h-6 ' +
   'text-foreground transition-colors duration-120 hover:bg-muted ' +
   'focus-visible:bg-(--solus-accent-light) focus-visible:ring-0 focus-visible:outline-2 focus-visible:outline-offset-0 ' +
   'focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_55%,transparent)] ' +

@@ -169,7 +169,7 @@
           onCommit();
         }}
         label="Time"
-        class="-mr-1.5 h-7 rounded-md border-0 px-1.5 font-mono text-workspace-chrome transition-colors duration-120 hover:bg-muted focus-within:border-transparent focus-within:ring-0 [.is-laptop-display_&]:h-6 pointer-coarse:h-10"
+        class="-mr-1.5 h-7 rounded-md border-0 px-1.5 font-mono text-workspace-chrome transition-colors duration-120 hover:bg-muted focus-within:border-transparent focus-within:ring-0 pointer-fine:[.is-laptop-display_&]:h-6 pointer-coarse:h-10"
       />
     </div>
   {/if}

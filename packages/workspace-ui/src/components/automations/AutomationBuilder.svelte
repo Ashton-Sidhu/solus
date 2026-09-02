@@ -937,7 +937,7 @@
        blocks. `justify-center` centers the two columns horizontally while
        they're a row; once stacked it would center them *vertically*, so it is
        reset to start. -->
-  <div class="flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 overscroll-y-contain [.is-laptop-display_&]:gap-10 [.is-laptop-display_&]:px-9 [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-12 pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 @max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 @max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9">
+  <div class="flex min-h-0 flex-1 items-start justify-center gap-16 overflow-y-auto px-14 pt-12 pb-18 overscroll-y-contain pointer-fine:[.is-laptop-display_&]:gap-10 pointer-fine:[.is-laptop-display_&]:px-9 pointer-fine:[.is-laptop-display_&]:pt-8 pointer-fine:[.is-laptop-display_&]:pb-12 pointer-coarse:gap-7.5 pointer-coarse:px-5 pointer-coarse:pt-5.5 pointer-coarse:pb-9 @max-[65rem]:flex-col @max-[65rem]:items-stretch @max-[65rem]:justify-start @max-[65rem]:gap-7.5 @max-[65rem]:px-7 @max-[65rem]:pt-7 @max-[65rem]:pb-11 @max-[43.75rem]:px-5 @max-[43.75rem]:pt-5.5 @max-[43.75rem]:pb-9">
     <main class="flex w-full min-w-0 max-w-[53.75rem] flex-1 flex-col @max-[65rem]:max-w-none @max-[65rem]:flex-none">
       {@render titleBlock()}
       {@render statStrip()}

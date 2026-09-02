@@ -170,7 +170,7 @@
            overflowing a 27px box — swallowing the whole gap under it and
            putting the filter band 1px below the button. -->
       <div
-        class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pointer-coarse:h-9 [.is-laptop-display_&]:h-[27px] @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5! {headPad} {split
+        class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5! {headPad} {split
  ? 'pb-[11px] [.is-laptop-display_&]:pb-2'
  : 'pb-[13px] [.is-laptop-display_&]:pb-2.5'}"
       >

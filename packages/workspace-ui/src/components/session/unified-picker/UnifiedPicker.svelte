@@ -39,6 +39,7 @@
     type PickerEntry,
   } from "./lib/picker-rows";
   import { openPickerLinkedItem } from "./lib/picker-linked-actions";
+  import { hasLeftPress, type PressPoint } from "./lib/picker-long-press";
 
   interface Props {
     open: boolean;
@@ -226,6 +227,21 @@
     void sidebarStore.selectChild(child);
   }
 
+  /** Fork branches the provider thread a mounted tab is holding, so it is
+   *  offered only where the row menu offers it: a session with a live tab that
+   *  reached its provider. A durable row has nothing to branch from until it
+   *  is resumed. */
+  function canFork(target: NonNullable<typeof peekTarget>): boolean {
+    if (target.kind !== "session" || !target.session.tabId) return false;
+    return !!session.sessionFor(target.session.tabId)?.agentSessionId;
+  }
+
+  function forkSession(child: SidebarSessionChild): void {
+    const tabId = child.tabId;
+    close();
+    if (tabId) void session.forkTab(tabId);
+  }
+
   function startDraft(task: Task): void {
     close();
     void session.openTaskSession(task);
@@ -322,9 +338,10 @@
 
   // Touch has no right click, and on a phone the preview column is hidden —
   // so the long press is the only way a phone reaches the preview and its
-  // actions at all. A drag or a lift before the timer cancels it, so scrolling
-  // the list never raises a sheet.
+  // actions at all. A lift, or a drag far enough to be a scroll, cancels it.
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Where the finger landed, so a move can be measured against it. */
+  let longPressOrigin: PressPoint | null = null;
   let suppressNextClick = false;
 
   function openContextMenu(event: MouseEvent, entry: PickerEntry): void {
@@ -342,6 +359,7 @@
 
   function startLongPress(event: PointerEvent, entry: PickerEntry): void {
     if (event.pointerType !== "touch") return;
+    longPressOrigin = { x: event.clientX, y: event.clientY };
     longPressTimer = setTimeout(() => {
       suppressNextClick = true;
       selectIndex(entry.entryIndex);
@@ -355,14 +373,35 @@
   function cancelLongPress(): void {
     if (longPressTimer) clearTimeout(longPressTimer);
     longPressTimer = null;
+    longPressOrigin = null;
+  }
+
+  /** The finger left the glass. */
+  function endPress(): void {
+    cancelLongPress();
+    if (!suppressNextClick) return;
+    // A press that raised the sheet still emits the click of its own lift, and
+    // that is the one click to swallow. Release the guard on the next frame,
+    // once that click has been and gone — held open, it ate the reader's next
+    // real tap instead, minutes later and on a different row.
+    requestAnimationFrame(() => {
+      suppressNextClick = false;
+    });
   }
 
   // Selection follows a pointer that *moves*, not one a row scrolls under:
   // `pointerenter` fires when the keyboard scrolls the list beneath a resting
   // mouse and would steal the selection from the key that caused it.
   function hoverEntry(event: PointerEvent, entry: PickerEntry): void {
+    if (event.pointerType === "touch") {
+      // A held finger is never still, so only travel far enough to be a scroll
+      // ends the press. Cancelling on the first move cancelled every press.
+      if (longPressOrigin && hasLeftPress(longPressOrigin, event.clientX, event.clientY)) {
+        cancelLongPress();
+      }
+      return;
+    }
     cancelLongPress();
-    if (event.pointerType === "touch") return;
     if (
       selectedIndex !== entry.entryIndex
       || (entry.kind === "task"
@@ -378,8 +417,13 @@
       suppressNextClick = false;
       return;
     }
-    if (entry.kind === "task") select(entry.task);
-    else selectSession(entry.session);
+    // A phone has no preview column and no ⏎ hint, so the row itself has to be
+    // unambiguous: a task row goes to the task, a session row resumes it. The
+    // desktop row keeps resuming the latest session, which is what its footer
+    // and its preview pane both promise.
+    if (entry.kind !== "task") selectSession(entry.session);
+    else if (runtime.isMobileViewport) openTaskPage(entry.task);
+    else select(entry.task);
   }
 
   function stepIn(): void {
@@ -456,6 +500,9 @@
       class="contents max-md:flex max-md:h-11 max-md:flex-1 max-md:items-center max-md:gap-2.5 max-md:rounded-lg max-md:bg-card max-md:px-3 max-md:shadow-[shadow:var(--elev-ring)]"
     >
       <MagnifyingGlassIcon size={15} class="shrink-0 text-muted-foreground opacity-65" />
+      <!-- The one deliberate size override on this surface: iOS Safari zooms the
+           page whenever a focused field is under 16px, and no chrome rung is that
+           large. Everything else here takes a named rung. -->
       <Input
         bind:ref={searchEl}
         bind:value={query}
@@ -464,7 +511,7 @@
         class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 text-workspace-chrome shadow-none focus-visible:ring-0 dark:bg-transparent max-md:text-base"
       />
     </div>
-    <span class="shrink-0 text-xs tabular-nums text-muted-foreground max-md:hidden">{counts}</span>
+    <span class="shrink-0 text-micro tabular-nums text-muted-foreground max-md:hidden">{counts}</span>
     <button
       type="button"
       class="hidden size-9 shrink-0 cursor-pointer items-center justify-center rounded-[0.625rem] text-muted-foreground max-md:flex"
@@ -481,7 +528,7 @@
     >
       <div class="min-h-0 flex-1 overflow-hidden" bind:clientHeight={listHeight} role="listbox" aria-label="Tasks and sessions">
         {#if list.entries.length === 0}
-          <div class="flex h-full items-center justify-center px-5 text-center text-xs text-muted-foreground">
+          <div class="flex h-full items-center justify-center px-5 text-center text-workspace-chrome text-muted-foreground">
             {session.tasksStore.loading ? "Loading tasks…" : `No tasks match “${query}”`}
           </div>
         {:else if listHeight > 0}
@@ -506,7 +553,7 @@
                 onToggle={toggleTask}
                 onContextMenu={openContextMenu}
                 onPressStart={startLongPress}
-                onPressEnd={cancelLongPress}
+                onPressEnd={endPress}
               />
             {/snippet}
           </VirtualList>
@@ -573,7 +620,7 @@
     </div>
   </div>
 
-  <div class="flex shrink-0 items-center gap-5 border-t border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2.5 text-xs text-muted-foreground max-md:hidden">
+  <div class="flex shrink-0 items-center gap-5 border-t border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2.5 text-chrome-shelf text-muted-foreground max-md:hidden">
     <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">↑↓</Kbd> navigate</span>
     {#if selectedSession}
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">←</Kbd> back to task</span>
@@ -635,11 +682,12 @@
     sessionPreview={preview.snapshot}
     {previewLoading}
     hiddenCount={preview.hiddenCount ?? 0}
+    messageCount={preview.messageCount}
     {query}
     projectLabel={projectLabel(peekTarget.task)}
     portalTarget={layer.el}
     onClose={() => (peekTarget = null)}
-    onOpen={select}
+    onFork={canFork(peekTarget) ? forkSession : undefined}
     onStartDraft={startDraft}
     onOpenTask={openTaskPage}
     onOpenSource={openSourceTicket}
@@ -656,7 +704,7 @@
   </div>
 {:else if open && layer.el}
   <div use:portal={layer.el} class="pointer-events-auto fixed inset-0 z-[200] flex items-center justify-center overflow-hidden overscroll-contain bg-[color-mix(in_srgb,var(--solus-modal-scrim)_55%,transparent)] motion-safe:animate-[backdrop-fade_140ms_ease-out]" role="presentation" onmousedown={handleScrimPointerDown}>
-    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-workspace-chrome bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] md:pointer-fine:[.is-laptop-display_&]:h-[74%] md:pointer-fine:[.is-laptop-display_&]:w-[89%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:bg-(--solus-container-bg) max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
+    <div bind:this={pickerEl} class="flex h-[70%] w-[76%] max-w-full origin-top flex-col overflow-hidden overscroll-contain rounded-3xl text-workspace-chrome bg-popover text-popover-foreground shadow-[var(--solus-popover-shadow),0_0_0_0.5px_var(--hairline-strong),inset_0_0.0625rem_0_rgba(255,255,255,0.14)] outline-none motion-safe:animate-[picker-enter_180ms_cubic-bezier(0.22,1,0.36,1)_backwards] md:pointer-fine:[.is-laptop-display_&]:h-[74%] md:pointer-fine:[.is-laptop-display_&]:w-[89%] max-md:h-[100dvh] max-md:max-h-none max-md:w-full max-md:rounded-none max-md:bg-background max-md:shadow-none" role="dialog" aria-label="Task picker" tabindex="-1" onkeydown={handleKeyDown}>
       {@render pickerContent()}
     </div>
   </div>

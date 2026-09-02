@@ -369,7 +369,7 @@
   }
 
   // --- The branch's own pull request ---------------------------------------
-  // `prUrl` rides along on the detailed status for free, but `gh pr view`
+  // `prUrl` rides along on the detailed status for free, but provider discovery
   // answers for closed and merged branches too — it only says "worth asking".
   // The store's branch index is what decides whether the PR is still live, so
   // the row reports from the match and stays quiet when the branch's PR landed.

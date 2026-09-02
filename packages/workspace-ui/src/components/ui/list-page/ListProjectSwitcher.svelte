@@ -156,7 +156,7 @@
     type="button"
     class="relative z-40 flex max-w-full cursor-pointer items-center overflow-hidden border-0 transition-colors duration-150 hover:bg-[var(--wash-2)] {variant ===
  'crumb'
- ? 'h-[31px] gap-2 rounded-[9px] px-2.5 pointer-coarse:h-9 [.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2'
+ ? 'h-[31px] gap-2 rounded-[9px] px-2.5 pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2'
  : 'h-[26px] gap-2 rounded-md px-[7px] @max-[30rem]/pane:h-8 @max-[30rem]/pane:rounded-full'} {menuOpen ? 'bg-[var(--wash-2)]' : 'bg-transparent'}"
     title="Switch project"
     aria-label="Switch project"

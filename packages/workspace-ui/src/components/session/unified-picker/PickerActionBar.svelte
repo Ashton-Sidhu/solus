@@ -75,7 +75,7 @@
         <button
           {...props}
           type="button"
-          class="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-workspace-chrome font-medium text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-4 max-md:h-11 max-md:bg-[var(--wash-2)] max-md:px-3.5 max-md:text-sm"
+          class="flex h-[30px] cursor-pointer items-center gap-1.5 rounded-lg px-2.5 text-workspace-chrome font-medium text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:h-11 max-md:bg-[var(--wash-2)] max-md:px-3.5"
           aria-label="Set task status"
         >
           <TaskStatusGlyph status={task.status} size={13} />
@@ -97,7 +97,7 @@
   {#if isSnoozed}
     <button
       type="button"
-      class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-4 max-md:size-11 max-md:bg-[var(--wash-2)]"
+      class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:size-11 max-md:bg-[var(--wash-2)]"
       aria-label="Wake task now"
       title="Wake now"
       onclick={() => sidebarStore.snoozeRow(task.id, null)}
@@ -111,7 +111,7 @@
           <button
             {...props}
             type="button"
-            class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-4 max-md:size-11 max-md:bg-[var(--wash-2)]"
+            class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:size-11 max-md:bg-[var(--wash-2)]"
             aria-label="Snooze task"
             title="Snooze"
           >
@@ -158,21 +158,25 @@
     </DropdownMenu.Content>
   </DropdownMenu.Root>
 
-  <span class="flex-1 max-md:hidden" aria-hidden="true"></span>
+  <!-- Desktop: the gap that pushes the leaving buttons to the right edge.
+       Phone: a full-width break between the row you leave by and the chips you
+       edit with, so the primary keeps a whole line and its label never wraps.
+       Both are the same element because both are the same idea — the seam. -->
+  <span class="flex-1 max-md:order-4 max-md:h-0 max-md:basis-full" aria-hidden="true"></span>
 
   {#if secondaryLabel && onSecondary}
     <button
       type="button"
-      class="flex h-[30px] cursor-pointer items-center rounded-lg bg-card px-[13px] text-workspace-chrome font-medium text-foreground shadow-[shadow:0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-[background-color,scale] duration-150 hover:bg-[var(--wash-2)] active:scale-[0.97] max-md:order-2 max-md:h-[50px] max-md:bg-[var(--wash-2)] max-md:px-4 max-md:text-sm max-md:shadow-none"
+      class="flex h-[30px] cursor-pointer items-center rounded-lg bg-card px-[13px] text-workspace-chrome font-medium text-foreground shadow-[shadow:0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] transition-[background-color,scale] duration-150 hover:bg-[var(--wash-2)] active:scale-[0.97] max-md:order-2 max-md:h-[50px] max-md:bg-[var(--wash-2)] max-md:px-4 max-md:shadow-none"
       onclick={onSecondary}
     >{secondaryLabel}</button>
   {/if}
   <button
     type="button"
-    class="flex h-[30px] cursor-pointer items-center gap-2 rounded-lg bg-primary pr-[11px] pl-[13px] text-workspace-chrome font-medium text-primary-foreground shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-[filter,scale] duration-150 hover:brightness-105 active:scale-[0.97] max-md:order-1 max-md:h-[50px] max-md:flex-1 max-md:justify-center max-md:text-[0.90625rem] max-md:font-semibold"
+    class="flex h-[30px] cursor-pointer items-center gap-2 rounded-lg bg-primary pr-[11px] pl-[13px] text-workspace-chrome font-medium text-primary-foreground shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-[filter,scale] duration-150 hover:brightness-105 active:scale-[0.97] max-md:order-1 max-md:h-[50px] max-md:flex-1 max-md:justify-center max-md:font-semibold"
     onclick={onPrimary}
   >
     {primaryLabel}
-    <span class="font-mono text-[0.65625rem] opacity-80 max-md:hidden" aria-hidden="true">⏎</span>
+    <span class="font-mono text-micro leading-none opacity-80 max-md:hidden" aria-hidden="true">⏎</span>
   </button>
 </div>

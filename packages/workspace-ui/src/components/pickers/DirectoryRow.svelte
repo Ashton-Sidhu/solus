@@ -36,7 +36,8 @@
   type="button"
   {id}
   {style}
-  class="mx-2 flex h-8 w-[calc(100%-1rem)] items-center gap-2.5 rounded-md border-0 px-2.5 text-left max-md:h-12
+  class="mx-2 flex h-8 w-[calc(100%-1rem)] items-center gap-2.5 rounded-md border-0 px-2.5 text-left
+    max-md:h-13 max-md:gap-[0.6875rem] max-md:rounded-[0.875rem] max-md:px-3
     [transition:background-color_var(--duration-quick)_var(--ease-premium)] motion-reduce:transition-none
     {selected ? 'bg-muted' : 'bg-transparent hover:bg-muted'}"
   role="option"

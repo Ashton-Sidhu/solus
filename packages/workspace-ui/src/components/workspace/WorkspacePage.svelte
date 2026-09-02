@@ -547,8 +547,13 @@
 
   // Scroll, click, or any keypress dismisses the card immediately — except the
   // keys that drive it: ⇧ pins it, and the arrows swap its contents.
+  //
+  // The card only. The sheet has buttons, and a tap's mousedown lands before
+  // its click: dismissing here would unmount the sheet under the finger and
+  // the Open, Pin and Delete clicks would fire on nothing. The sheet owns its
+  // own ways out — the backdrop, Escape, and those buttons.
   $effect(() => {
-    if (!peek.open) return;
+    if (!peek.open || stacked) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Shift") {
         peek.pin();
@@ -567,7 +572,10 @@
   });
 
   function handleLedgerScroll() {
-    peek.close();
+    // The card again, not the sheet: the sheet's backdrop covers the ledger,
+    // so the only scroll that reaches here while it is up is the ledger's own
+    // scroll-into-view of the row just tapped — which must not dismiss it.
+    if (!stacked) peek.close();
     const el = scrollEl;
     if (!el) return;
     if (el.scrollTop + el.clientHeight >= el.scrollHeight - 400) {

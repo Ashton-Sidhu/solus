@@ -359,7 +359,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const { repo, provider } = await reviewTargetFor(ctx)
     const [page1, viewer] = await Promise.all([
       prIndex.list(repo, provider, filter, page),
-      provider.review.getViewer(),
+      provider.review.getViewer(repo),
     ])
     // Copied rather than assigned into: `page1` is the index's own object, and
     // decorating it in place would write this viewer's attention flags onto the
@@ -444,7 +444,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prNeedsReview', async (args) => {
     const [ctx] = args
     const { repo, provider } = await reviewTargetFor(ctx)
-    const viewer = await provider.review.getViewer()
+    const viewer = await provider.review.getViewer(repo)
     return attachReviewAttention(
       await prIndex.listNeedsReview(repo, provider, viewer),
       viewer,
@@ -710,7 +710,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
         throw new Error('You do not have permission to submit this review verdict.')
       }
       if (review.event === 'APPROVE') {
-        const viewer = await provider.review.getViewer()
+        const viewer = await provider.review.getViewer(repo)
         if (detail.author.toLowerCase() === viewer.toLowerCase()) {
           throw new Error("GitHub doesn't allow you to approve your own pull request")
         }
