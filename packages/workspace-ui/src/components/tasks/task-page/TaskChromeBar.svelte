@@ -2,22 +2,26 @@
   import {
     ExternalLink as ArrowSquareOutIcon,
     LoaderCircle as CircleNotchIcon,
-    Folder as FolderIcon,
     Maximize2 as ArrowsOutSimpleIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
   import { taskProviderLabel, taskRef } from "./lib/task-page";
   import { syncToneColor, type TaskUpstreamState } from "./lib/task-upstream";
-  import CopyButton from "../../ui/CopyButton.svelte";
-  import PaneSwapButton from "../../ui/PaneSwapButton.svelte";
-  import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
-  import { SourceLogo } from "../../ui/list-page";
+  import {
+    SourceLogo,
+    SubPageCrumbLine,
+    SUB_PAGE_CHIP,
+    SUB_PAGE_ICON,
+    SUB_PAGE_ROUND_BTN,
+  } from "../../ui/list-page";
 
+  /**
+   * The task page's head at every rung but the record one: the sub page band
+   * every record shares, with the task's own chips and verbs in its action
+   * slot. `TaskRecordBar` is the phone-width counterpart.
+   */
   interface Props {
     task: Task;
-    projectLabel: string;
-    projectRoot?: string;
-    serverId?: string | null;
     /** How this task stands with the system that owns its ticket. Null for a
      *  local task, which shows that it is local instead. */
     upstream: TaskUpstreamState | null;
@@ -42,9 +46,6 @@
 
   let {
     task,
-    projectLabel,
-    projectRoot,
-    serverId,
     upstream,
     syncing,
     onSync,
@@ -59,7 +60,6 @@
   }: Props = $props();
 
   const providerLabel = $derived(taskProviderLabel(task));
-
 </script>
 
 {#snippet pillBody(state: TaskUpstreamState, tone: string)}
@@ -72,37 +72,7 @@
   <span class="text-xs opacity-70">{state.ref}</span>
 {/snippet}
 
-<div
-  class="workspace-titlebar flex h-(--solus-chrome-row-h,2.75rem) shrink-0 items-center gap-1 pr-3.5 pl-[max(1.125rem,var(--solus-chrome-lead-inset,0px))]"
->
-  <button
-    type="button"
-    class="flex h-7 min-w-0 max-w-40 overflow-hidden cursor-pointer items-center gap-[7px] rounded px-[7px] text-muted-foreground hover:bg-[var(--wash-1)] @max-[42rem]:hidden"
-    onclick={onOpenList}
-  >
-    {#if projectRoot}
-      <ProjectFavicon {serverId} projectRoot={projectRoot} class="size-4" />
-    {:else}
-      <FolderIcon size={16} class="shrink-0 text-(--solus-text-tertiary)" />
-    {/if}
-    <span class="truncate">{projectLabel}</span>
-  </button>
-  <span class="px-[3px] opacity-30 @max-[42rem]:hidden" aria-hidden="true">/</span>
-  <button
-    type="button"
-    class="flex h-7 cursor-pointer items-center rounded px-[7px] text-muted-foreground hover:bg-[var(--wash-1)]"
-    onclick={onOpenList}
-  >
-    Tasks
-  </button>
-  <span class="px-[3px] opacity-30" aria-hidden="true">/</span>
-  <span class="flex h-7 min-w-0 max-w-36 items-center truncate rounded px-[7px]">
-    {taskRef(task)}
-  </span>
-  <CopyButton text={task.id} title="Copy task ID" iconOnly />
-
-  <span class="flex-1"></span>
-
+{#snippet actions()}
   <!-- One pill for the whole upstream story: which system owns the ticket, the
        reference it is filed under, and whether we are level with it. Pressing
        it exchanges now instead of waiting for the engine's own debounce. -->
@@ -111,7 +81,7 @@
     {#if onSync}
       <button
         type="button"
-        class="mr-2 flex h-[26px] items-center gap-[7px] rounded-full px-2.5 text-xs text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)] cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none @max-[42rem]:hidden"
+        class="{SUB_PAGE_CHIP} mr-2 cursor-pointer transition-colors hover:bg-[var(--wash-1)] hover:text-foreground disabled:pointer-events-none @max-[42rem]:hidden"
         onclick={onSync}
         disabled={syncing}
         title="{upstream.title} · click to sync now"
@@ -120,12 +90,12 @@
         {@render pillBody(upstream, tone)}
       </button>
     {:else}
-    <span class="mr-2 flex h-[26px] items-center gap-[7px] rounded-full px-2.5 text-xs text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)] @max-[42rem]:hidden" title={upstream.title}>
+      <span class="{SUB_PAGE_CHIP} mr-2 @max-[42rem]:hidden" title={upstream.title}>
         {@render pillBody(upstream, tone)}
       </span>
     {/if}
   {:else}
-    <span class="mr-2 flex h-[26px] items-center gap-[7px] rounded-full px-2.5 text-xs text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)] @max-[42rem]:hidden" title="This task lives only in Solus">
+    <span class="{SUB_PAGE_CHIP} mr-2 @max-[42rem]:hidden" title="This task lives only in Solus">
       <svg
         width="11"
         height="11"
@@ -144,88 +114,40 @@
     </span>
   {/if}
 
-  {#if onMoveAcross}
-    <PaneSwapButton
-      {isLeading}
-      onMove={onMoveAcross}
-      iconSize={13}
-      class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-    />
-  {/if}
-
   {#if onOpenPage}
     <button
       type="button"
-      class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+      class={SUB_PAGE_ROUND_BTN}
       onclick={onOpenPage}
       title="Open task page"
       aria-label="Open task page"
     >
-      <ArrowsOutSimpleIcon size={13} />
+      <ArrowsOutSimpleIcon size={13} class={SUB_PAGE_ICON} />
     </button>
   {/if}
 
   {#if onOpenSource}
     <button
       type="button"
-      class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+      class={SUB_PAGE_ROUND_BTN}
       onclick={onOpenSource}
       title={`Open in ${providerLabel}`}
       aria-label={`Open task in ${providerLabel}`}
     >
-      <ArrowSquareOutIcon size={13} />
+      <ArrowSquareOutIcon size={13} class={SUB_PAGE_ICON} />
     </button>
   {/if}
+{/snippet}
 
-  <span class="mx-1.5 h-4 w-px bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-
-  <button
-    type="button"
-    class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-    onclick={() => onPrevious?.()}
-    disabled={!onPrevious}
-    title="Previous task"
-    aria-label="Previous task"
-  >
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.4"
-      stroke-linecap="round"
-      stroke-linejoin="round"><path d="M9 3L5 7l4 4" /></svg
-    >
-  </button>
-  <button
-    type="button"
-    class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-    onclick={() => onNext?.()}
-    disabled={!onNext}
-    title="Next task"
-    aria-label="Next task"
-  >
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.4"
-      stroke-linecap="round"
-      stroke-linejoin="round"><path d="M5 3l4 4-4 4" /></svg
-    >
-  </button>
-  <button type="button" class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35" onclick={onClose} title="Close (Esc)" aria-label="Close">
-    <svg
-      width="13"
-      height="13"
-      viewBox="0 0 14 14"
-      fill="none"
-      stroke="currentColor"
-      stroke-width="1.4"
-      stroke-linecap="round"><path d="M3.6 3.6l6.8 6.8M10.4 3.6l-6.8 6.8" /></svg
-    >
-  </button>
-</div>
+<SubPageCrumbLine
+  page="tasks"
+  onOpenPage={onOpenList}
+  leaf={taskRef(task)}
+  copyText={task.id}
+  copyTitle="Copy task ID"
+  {actions}
+  stepper={{ onPrevious: onPrevious ?? null, onNext: onNext ?? null, itemLabel: "task" }}
+  {onMoveAcross}
+  {isLeading}
+  {onClose}
+/>

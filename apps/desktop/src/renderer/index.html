@@ -7,18 +7,23 @@
     <!--
       Resolve the persisted theme before any module loads so the boot shell (and
       the app that replaces it) paints in the right mode with no light/dark flash.
-      Mirrors settings.context's resolution: themeMode 'dark' (default) | 'light' |
-      'system'. Only toggles the class — never sets an opaque html/body background,
+      Mirrors settings.context's resolution: themeMode 'system' (default) | 'light' |
+      'dark'. Only toggles the class — never sets an opaque html/body background,
       which would break the transparent pill window.
     -->
     <script>
       (function () {
         try {
-          var mode = 'dark'
+          var mode = 'system'
           var raw = localStorage.getItem('solus-settings')
           if (raw) {
             var parsed = JSON.parse(raw)
-            if (parsed && typeof parsed.themeMode === 'string') mode = parsed.themeMode
+            if (
+              parsed &&
+              (parsed.themeMode === 'system' ||
+                parsed.themeMode === 'light' ||
+                parsed.themeMode === 'dark')
+            ) mode = parsed.themeMode
           }
           var isDark =
             mode === 'light'

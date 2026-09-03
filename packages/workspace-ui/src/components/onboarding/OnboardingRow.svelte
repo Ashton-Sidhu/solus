@@ -120,7 +120,7 @@
     <span class="absolute inset-x-0 bottom-0 h-0.5 overflow-hidden" aria-hidden="true">
       <span
         class="block h-full w-2/5 rounded-full bg-primary"
-        style="animation: onboarding-sweep 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite"
+        style="animation: indeterminate-sweep 1.15s cubic-bezier(0.65, 0, 0.35, 1) infinite"
       ></span>
     </span>
   {/if}

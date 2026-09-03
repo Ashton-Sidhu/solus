@@ -122,21 +122,35 @@
     </button>
   {/if}
 
-  <nav class="flex min-w-0 shrink items-center gap-0.5" aria-label="Location">
+  <!-- ── The record rung (`@max-[30rem]/pane`) ──
+       A phone has no room for `<project> / <page>` in front of the page's own
+       controls: the project ate the line, the page name truncated to a stub,
+       and the ✕ at the far end was squeezed to 35px — below the touch floor,
+       on the one shell where every target is a thumb. So the crumb unfolds. The
+       page name takes the whole line at the title rung, the project becomes a
+       chip at the far end, and the ✕ stands down because a phone renders one
+       pane and the drawer is already the way out. `order` places each part, so
+       this is the same line reflowing rather than a second header. -->
+  <nav
+    class="flex min-w-0 shrink items-center gap-0.5 @max-[30rem]/pane:flex-1 @max-[30rem]/pane:gap-2"
+    aria-label="Location"
+  >
     {#if projects}
-      <ListProjectSwitcher
-        variant="crumb"
-        {projects}
-        activeKey={activeProjectKey}
-        emptyLabel={emptyProjectLabel}
-        onSelect={onSelectProject}
-        onRemoveHistory={onRemoveProjectHistory}
-        onSelectAll={onSelectAllProjects}
-        allLabel={allProjectsLabel}
-        footerNote={projectSwitchNote}
-      />
+      <span class="contents @max-[30rem]/pane:order-8 @max-[30rem]/pane:block">
+        <ListProjectSwitcher
+          variant="crumb"
+          {projects}
+          activeKey={activeProjectKey}
+          emptyLabel={emptyProjectLabel}
+          onSelect={onSelectProject}
+          onRemoveHistory={onRemoveProjectHistory}
+          onSelectAll={onSelectAllProjects}
+          allLabel={allProjectsLabel}
+          footerNote={projectSwitchNote}
+        />
+      </span>
       <span
-        class="shrink-0 px-px text-[15px] text-muted-foreground opacity-30"
+        class="shrink-0 px-px text-[15px] text-muted-foreground opacity-30 @max-[30rem]/pane:hidden"
         aria-hidden="true">/</span
       >
     {/if}
@@ -153,7 +167,10 @@
     {/if}
   </nav>
 
-  <span class="min-w-2 flex-1" aria-hidden="true"></span>
+  <!-- On a record the location line is itself elastic, so this would be a
+       second claim on the same slack and the project chip would drift off the
+       right edge. -->
+  <span class="min-w-2 flex-1 @max-[30rem]/pane:hidden" aria-hidden="true"></span>
 
   {#if actions}{@render actions()}{/if}
 
@@ -197,14 +214,21 @@
     </span>
   {/if}
 
+  <!-- Closing a page needs somewhere to land. The phone shell renders one pane
+       and reaches every destination through the drawer at the head of this
+       line, so at the record rung the ✕ is a second way out that costs the page
+       title its width — and it was the control that got squeezed below the
+       touch floor when the project name grew. The drawer is the way out. -->
   {#if onClose}
-    <button
-      type="button"
-      class={PAGE_ICON_BTN}
-      onclick={onClose}
-      aria-label="Close"
-    >
-      <XIcon size={14} />
-    </button>
+    <span class="contents @max-[30rem]/pane:hidden">
+      <button
+        type="button"
+        class={PAGE_ICON_BTN}
+        onclick={onClose}
+        aria-label="Close"
+      >
+        <XIcon size={14} />
+      </button>
+    </span>
   {/if}
 </div>

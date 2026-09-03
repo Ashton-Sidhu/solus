@@ -61,7 +61,7 @@
      *  draft's project, host and git actions are the ones this sheet edits
      *  rather than whatever tab happens to be active behind it. */
     sourceId?: string;
-    onAttachFile: (sourceId?: string) => void;
+    onAttachFiles: (files: File[], sourceId?: string) => void | Promise<void>;
     onToggleWorkspace: () => void;
     onToggleDiff: () => void;
     canShowDiffPanel: boolean;
@@ -73,7 +73,7 @@
     open,
     onClose,
     sourceId,
-    onAttachFile,
+    onAttachFiles,
     onToggleWorkspace,
     onToggleDiff,
     canShowDiffPanel,
@@ -223,6 +223,15 @@
     onClose();
   }
 
+  function handleFilesSelected(event: Event & { currentTarget: HTMLInputElement }) {
+    const input = event.currentTarget;
+    const files = Array.from(input.files ?? []);
+    input.value = "";
+    if (files.length === 0) return;
+    onClose();
+    void onAttachFiles(files, composerSourceId);
+  }
+
   /**
    * Ask for a project on behalf of *this* composer. `requesterId` takes a tab id
    * or a draft id, which is the whole reason it exists — dispatched bare, the
@@ -267,15 +276,22 @@
   {#if tab === "attach"}
     <div class="flex flex-col gap-5 px-4 pb-1">
       <div class="flex gap-2.5">
-        <button
-          class="{HERO_CARD} disabled:cursor-not-allowed"
-          onclick={() => handleAction(() => onAttachFile(composerSourceId))}
-          disabled={!canAttachFiles}
+        <label
+          class="{HERO_CARD} {canAttachFiles ? 'cursor-pointer' : 'cursor-not-allowed'}"
+          aria-disabled={!canAttachFiles}
           title={!canAttachFiles ? `File attachments are not supported on ${attachmentHostLabel}.` : undefined}
         >
+          <input
+            class="sr-only"
+            type="file"
+            multiple
+            disabled={!canAttachFiles}
+            aria-label="Add files"
+            onchange={handleFilesSelected}
+          />
           <PaperclipIcon size={20} class="text-(--primary)" />
           <span class={HERO_LABEL}>{canAttachFiles ? "Files" : "Unavailable"}</span>
-        </button>
+        </label>
         <button
           class={HERO_CARD}
           onclick={openProjectPicker}

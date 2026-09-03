@@ -14,8 +14,10 @@ type SidebarStoreHarness = Pick<
   tabIdBySessionId: Map<string, string>
   sessionsByTaskId: Map<string, unknown>
   pickerSessionsByTaskId: Map<string, unknown>
-  automaticRootBySessionIdentity: Map<string, string>
-  projectsSessionUnder(rootTaskId: string, sessionId: string): boolean
+  projectsSessionUnder(
+    rootTaskId: string,
+    link: { sessionId: string; role?: 'working' | 'referenced' },
+  ): boolean
 }
 
 function sidebarStore(): SidebarStoreHarness {
@@ -39,20 +41,24 @@ function task(id: string, title: string, parentId?: string): Task {
 }
 
 describe('session sidebar subtask rows', () => {
-  test('projects a linked session once unless the user explicitly opens another task', () => {
-    // WHY: task-session links are many-to-many, but background hydration must
-    // not turn every relationship into another copy of the same conversation.
+  test('projects a session under its owner, and under a referrer only where the user opened it', () => {
+    // WHY: the host keeps one working owner per session. A referenced link is
+    // a relationship the task page shows; drawing a row for it as well put the
+    // same conversation under two tasks. An optimistic link written before the
+    // host answered carries no role yet and is the owner by construction.
     const store = sidebarStore()
-    store.tabIdBySessionId = new Map([['provider-session', 'tab-1']])
-    store.automaticRootBySessionIdentity = new Map([['tab-1', 'first-task']])
     store.session = {
       hasExplicitSidebarTaskSession: (taskId: string, sessionId: string) =>
         taskId === 'second-task' && sessionId === 'provider-session',
     }
+    const owner = { sessionId: 'provider-session', role: 'working' as const }
+    const optimistic = { sessionId: 'provider-session' }
+    const reference = { sessionId: 'provider-session', role: 'referenced' as const }
 
-    expect(store.projectsSessionUnder('first-task', 'provider-session')).toBe(true)
-    expect(store.projectsSessionUnder('unopened-task', 'provider-session')).toBe(false)
-    expect(store.projectsSessionUnder('second-task', 'provider-session')).toBe(true)
+    expect(store.projectsSessionUnder('first-task', owner)).toBe(true)
+    expect(store.projectsSessionUnder('first-task', optimistic)).toBe(true)
+    expect(store.projectsSessionUnder('unopened-task', reference)).toBe(false)
+    expect(store.projectsSessionUnder('second-task', reference)).toBe(true)
   })
 
   test('shows an unstarted subtask by its own name', () => {
@@ -143,6 +149,9 @@ describe('session sidebar subtask rows', () => {
               startedAt: 1,
               lastActivityAt: 1,
               executionServerId: null,
+              // Owned elsewhere: the column projects nothing for a reference,
+              // but restoring the task will reveal it, so the picker counts it.
+              role: 'referenced',
               linkedAt: 1,
             },
           ],
@@ -155,7 +164,6 @@ describe('session sidebar subtask rows', () => {
     store.tabIdBySessionId = new Map()
     store.sessionsByTaskId = new Map()
     store.pickerSessionsByTaskId = new Map()
-    store.automaticRootBySessionIdentity = new Map([['hidden', 'another-task']])
     store.session.hasExplicitSidebarTaskSession = () => false
 
     // The sidebar column, which owns dismissal, still hides it.
@@ -228,7 +236,6 @@ describe('session sidebar subtask rows', () => {
     store.dismissedRowKeys = new Set()
     store.tabIdBySessionId = new Map([['restored', 'tab-1']])
     store.sessionsByTaskId = new Map()
-    store.automaticRootBySessionIdentity = new Map([['tab-1', root.id]])
     store.childForTab = () => ({
       tabId: 'tab-1',
       label: 'Restored run',

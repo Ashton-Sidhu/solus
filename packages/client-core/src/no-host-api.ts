@@ -1,6 +1,9 @@
 import type { LocalApi } from './host-api'
+import { NATIVE_ONLY_SOLUS_METHODS } from './native-api-overlay'
 
 type GeneratedApiMethod = (() => () => void) | (() => Promise<never>)
+
+const NATIVE_ONLY_METHODS = new Set<string>(NATIVE_ONLY_SOLUS_METHODS)
 
 export function createNoHostSolusApi(): LocalApi {
   const overrides: Partial<LocalApi> = {
@@ -21,6 +24,11 @@ export function createNoHostSolusApi(): LocalApi {
       const propertyName = String(property)
       const override = Object.entries(target).find(([key]) => key === propertyName)?.[1]
       if (override instanceof Function) return override
+
+      // The hostless web shell has no native bridge. Keep unsupported native
+      // methods absent so workspace modules loaded during pairing do not cache
+      // a false capability before the connected host API replaces this proxy.
+      if (NATIVE_ONLY_METHODS.has(propertyName)) return undefined
 
       const cached = generated.get(propertyName)
       if (cached) return cached

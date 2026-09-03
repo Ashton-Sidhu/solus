@@ -94,6 +94,7 @@ describe('reading the location', () => {
     const refs: RouteRef[] = [
       { name: 'chat', params: { sessionId: 'sess-1', serverId: 'host-a' } },
       { name: 'plan', params: { planId: 'sess-1__tool-1', serverId: 'host-a' } },
+      { name: 'work', params: { workId: 'work-1', serverId: 'host-a' } },
       { name: 'task', params: { taskId: 'task-1', serverId: 'host-a' } },
       { name: 'goal', params: { sessionId: 'sess-1', serverId: 'host-a' } },
       { name: 'subagent', params: { sessionId: 'sess-1', messageId: 'msg-1', serverId: 'host-a' } },
@@ -109,6 +110,7 @@ describe('reading the location', () => {
     // A host-less segment is a valid location (`plan/` mid-stream, a legacy
     // task link); it parses with no serverId rather than failing the pane.
     const refs: RouteRef[] = [
+      { name: 'work', params: { workId: 'work-1' } },
       { name: 'task', params: { taskId: 'task-1' } },
       { name: 'goal', params: { sessionId: 'sess-1' } },
       { name: 'subagent', params: { sessionId: 'sess-1', messageId: 'msg-1' } },
@@ -138,6 +140,25 @@ describe('reading the location', () => {
     expect(router.chatSessionIn(pane.id)).toBe('sess_b')
     expect(router.chatSessionIn(router.leadingPane.id)).toBeNull()
     expect(router.showsChat(router.leadingPane.id)).toBe(true)
+  })
+
+  test('a target across from a pane does not depend on current focus', () => {
+    // WHY: a symbol popover is portaled. Its action must preserve the source
+    // editor or diff even if focus moved before the user chose a location.
+    const router = new RouterStore()
+    const leadingPaneId = router.leadingPane.id
+    const companion = router.navigate(PLAN, { target: 'aside' })
+
+    router.focusPane(leadingPaneId)
+    expect(router.targetAcrossFrom(companion.id)).toBe(leadingPaneId)
+    expect(router.targetAcrossFrom(leadingPaneId)).toBe(companion.id)
+  })
+
+  test('a target across from a lone pane creates a split', () => {
+    // WHY: go-to-definition must not replace the file or diff being read.
+    const router = new RouterStore()
+
+    expect(router.targetAcrossFrom(router.leadingPane.id)).toBe('new')
   })
 
   test('every navigation bumps the epoch, including a repeat of the same route', () => {

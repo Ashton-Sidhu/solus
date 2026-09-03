@@ -24,7 +24,7 @@ describe('providerUsage', () => {
   test('reports what is left, not what was spent', () => {
     const [row] = providerUsage([agent('codex')], { codex: limits('codex') }, NOW)
     expect(row.meters.map((meter) => meter.remainingPercent)).toEqual([60, 20])
-    expect(row.meters.map((meter) => meter.resetText)).toEqual(['2h', '3d'])
+    expect(row.meters.map((meter) => meter.resetPhrase)).toEqual(['resets in 2h', 'resets in 3d'])
   })
 
   test('tints by how close a window is to exhaustion', () => {
@@ -43,7 +43,7 @@ describe('providerUsage', () => {
     })
     const [row] = providerUsage([agent('claude-code')], { 'claude-code': claude }, noon)
     expect(row.meters).toHaveLength(1)
-    expect(row.meters[0].resetText).toBe('3h 30m')
+    expect(row.meters[0].resetPhrase).toBe('resets in 3h 30m')
   })
 
   test('counts down from a remote Claude weekday in UTC', () => {
@@ -53,7 +53,7 @@ describe('providerUsage', () => {
       weekly: { usedPercent: 48, resetsAt: null, resetsLabel: 'Monday at 10am (UTC)' },
     })
     const [row] = providerUsage([agent('claude-code')], { 'claude-code': claude }, wednesdayNoon)
-    expect(row.meters.map((meter) => meter.resetText)).toEqual(['3h 30m', '4d 22h'])
+    expect(row.meters.map((meter) => meter.resetPhrase)).toEqual(['resets in 3h 30m', 'resets in 4d 22h'])
   })
 
   test('counts down from the comma-separated UTC date returned by a remote host', () => {
@@ -63,7 +63,18 @@ describe('providerUsage', () => {
       weekly: { usedPercent: 49, resetsAt: null, resetsLabel: 'Aug 13, 9pm (UTC)' },
     })
     const [row] = providerUsage([agent('claude-code')], { 'claude-code': claude }, sixUtc)
-    expect(row.meters.map((meter) => meter.resetText)).toEqual(['3h 40m', '1d 15h'])
+    expect(row.meters.map((meter) => meter.resetPhrase)).toEqual(['resets in 3h 40m', 'resets in 1d 15h'])
+  })
+
+  // The countdown carries the whole phrase because a window that is already due
+  // has no duration to slot after "resets in".
+  test('says a due window is resetting instead of counting down past zero', () => {
+    const codex = limits('codex', {
+      fiveHour: { usedPercent: 97, resetsAt: NOW - 1_000, resetsLabel: null },
+      weekly: null,
+    })
+    const [row] = providerUsage([agent('codex')], { codex }, NOW)
+    expect(row.meters[0].resetPhrase).toBe('resetting now')
   })
 
   test('falls back to the provider wording when the label is unreadable', () => {
@@ -72,7 +83,7 @@ describe('providerUsage', () => {
       weekly: null,
     })
     const [row] = providerUsage([agent('claude-code')], { 'claude-code': claude }, NOW)
-    expect(row.meters[0].resetText).toBe('soon-ish')
+    expect(row.meters[0].resetPhrase).toBe('resets in soon-ish')
   })
 
   // A meterless row would read as "no quota left" rather than "no quota data".

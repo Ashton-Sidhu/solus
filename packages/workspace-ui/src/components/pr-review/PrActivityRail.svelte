@@ -61,6 +61,7 @@
     reviewerCandidates = [],
     reviewerCandidatesLoading = false,
     reviewerMutation = null,
+    onOpenReviewerMenu,
     onRequestReviewer,
     onRemoveReviewer,
     changedFiles,
@@ -84,6 +85,7 @@
     reviewerCandidates?: PrReviewerCandidate[];
     reviewerCandidatesLoading?: boolean;
     reviewerMutation?: string | null;
+    onOpenReviewerMenu?: () => void;
     onRequestReviewer?: (login: string) => void;
     onRemoveReviewer?: (login: string) => void;
     changedFiles: ChangedFileStat[];
@@ -124,6 +126,7 @@
 
   let reviewerMenuOpen = $state(false);
   let reviewerTrigger = $state<HTMLButtonElement | null>(null);
+  let reviewerQuery = $state("");
   // Which reference sections are unfolded. Open is the resting state — folding
   // is a reading choice for this sitting, not a preference worth persisting.
   let sectionOpen = $state({ reviewers: true, checks: true, files: true });
@@ -158,12 +161,21 @@
   );
   const availableReviewerCandidates = $derived(
     reviewerCandidates.filter(
-      (candidate) =>
-        !reviewers.some(
-          (reviewer) => reviewer.login.toLowerCase() === candidate.login.toLowerCase(),
-        ),
+      (candidate) => {
+        const login = candidate.login.toLowerCase();
+        return (
+          (!reviewerQuery.trim() || login.includes(reviewerQuery.trim().toLowerCase())) &&
+          !reviewers.some((reviewer) => reviewer.login.toLowerCase() === login)
+        );
+      },
     ),
   );
+
+  function handleReviewerMenuOpenChange(open: boolean): void {
+    reviewerMenuOpen = open;
+    if (open) onOpenReviewerMenu?.();
+    else reviewerQuery = "";
+  }
   // Headline, sub-line, and the blocked question all come from one table so
   // they cannot drift apart (see lib/merge-readiness).
   const readiness = $derived(
@@ -446,7 +458,7 @@
                 aria-label="Request a reviewer"
                 aria-haspopup="menu"
                 aria-expanded={reviewerMenuOpen}
-                onclick={() => (reviewerMenuOpen = !reviewerMenuOpen)}
+                onclick={() => handleReviewerMenuOpenChange(!reviewerMenuOpen)}
               >
                 <span class="min-w-0 flex-1 truncate text-left text-muted-foreground">
                   {reviewers.length === 0
@@ -466,7 +478,10 @@
       </div>
 
       {#if onRequestReviewer}
-        <DropdownMenu.Root bind:open={reviewerMenuOpen}>
+        <DropdownMenu.Root
+          bind:open={reviewerMenuOpen}
+          onOpenChange={handleReviewerMenuOpenChange}
+        >
           <DropdownMenu.Content
             customAnchor={reviewerTrigger}
             side="bottom"
@@ -475,6 +490,21 @@
             class="w-52 [.is-laptop-display_&]:w-48"
             aria-label="Request a reviewer"
           >
+            <div class="px-1 pb-1.5">
+              <!-- The menu opens for this one typing task, so placing focus in
+                   its search field preserves the keyboard-first path. -->
+              <!-- svelte-ignore a11y_autofocus -->
+              <input
+                autofocus
+                data-dictation="false"
+                value={reviewerQuery}
+                oninput={(event) => (reviewerQuery = event.currentTarget.value)}
+                onkeydown={(event) => event.stopPropagation()}
+                placeholder="Search reviewers…"
+                aria-label="Search reviewers"
+                class="h-9 w-full rounded-lg bg-[var(--wash-2)] px-2.5 text-workspace-chrome outline-none placeholder:text-muted-foreground focus:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_55%,transparent)] pointer-fine:[.is-laptop-display_&]:h-8 pointer-fine:[.is-laptop-display_&]:rounded-md pointer-fine:[.is-laptop-display_&]:px-2"
+              />
+            </div>
             {#if reviewerCandidatesLoading}
               <DropdownMenu.Item
                 disabled
@@ -485,7 +515,9 @@
               <DropdownMenu.Item
                 disabled
                 class="pointer-fine:[.is-laptop-display_&]:text-review-row!"
-                >No reviewers available</DropdownMenu.Item
+                >{reviewerQuery
+                  ? "No matching reviewers"
+                  : "No reviewers available"}</DropdownMenu.Item
               >
             {:else}
               {#each availableReviewerCandidates as candidate (candidate.login)}
@@ -493,7 +525,7 @@
                   disabled={reviewerMutation === candidate.login}
                   class="pointer-fine:[.is-laptop-display_&]:text-review-row!"
                   onSelect={() => {
-                    reviewerMenuOpen = false;
+                    handleReviewerMenuOpenChange(false);
                     onRequestReviewer?.(candidate.login);
                   }}
                 >

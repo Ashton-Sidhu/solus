@@ -5,6 +5,7 @@ import { loadProjectConfig, resolveProjectKey } from '../project-config/project-
 import { linkedExternalIds } from './task-sync-store'
 import { resolveRepoRef } from '../git/git-helpers'
 import { GitHubAuth } from '../providers/github/auth'
+import { githubCredentialChain } from '../providers/github/credentials'
 import { GitHubReauthRequiredError } from '../providers/github/octokit'
 import type { RepoRef } from '@solus/contracts/providers'
 import type { InboxInvolvement } from '@solus/contracts/inbox-types'
@@ -13,6 +14,7 @@ import {
   type ExternalTicketRef,
   type NormalizedTicket,
   type Task,
+  type TaskAssigneeCandidate,
   type TaskListResult,
   type TaskProviderStatus,
   type TaskSyncField,
@@ -37,7 +39,7 @@ const upstreamTaskCacheRowSchema = z.object({
 })
 
 const CACHE_SCOPE = 'all'
-const TASK_SYNC_FIELDS: readonly string[] = ['title', 'body', 'status', 'labels', 'priority']
+const TASK_SYNC_FIELDS: readonly string[] = ['title', 'body', 'status', 'labels', 'priority', 'assignee']
 
 function isTaskSyncField(field: string): field is TaskSyncField {
   return TASK_SYNC_FIELDS.includes(field)
@@ -136,6 +138,8 @@ function taskFromTicket(ticket: NormalizedTicket, projectKey: string): Task {
     status: ticket.status,
     url: ticket.url,
     labels: ticket.labels,
+    assignee: ticket.assignee,
+    assigneeAvatarUrl: ticket.assigneeAvatarUrl,
     priority: ticket.priorityHint,
     updatedAt: Date.parse(ticket.externalUpdatedAt),
     // Comments only. The renderer parses these to build a provider-owned
@@ -228,6 +232,7 @@ export async function updateUpstreamTask(cwd: string, id: string, patch: TaskUpd
   if (patch.status !== undefined) ticketPatch.status = patch.status
   if (patch.labels !== undefined) ticketPatch.labels = patch.labels
   if (patch.priority !== undefined) ticketPatch.priority = patch.priority
+  if (patch.assignee !== undefined) ticketPatch.assignee = patch.assignee
   const unavailable = Object.keys(ticketPatch).filter((field) =>
     isTaskSyncField(field) && !target.adapter.writableFields.has(field))
   if (unavailable.length) {
@@ -245,6 +250,13 @@ export async function updateUpstreamTask(cwd: string, id: string, patch: TaskUpd
   }
   const ticket = await target.adapter.pushFields(ref, ticketPatch)
   return taskFromTicket(ticket, cwd)
+}
+
+/** People the configured provider permits tasks in this project to use. */
+export async function listTaskAssigneeCandidates(cwd: string): Promise<TaskAssigneeCandidate[]> {
+  const target = await resolveTaskPublishTarget(cwd)
+  if (!target?.adapter.listAssigneeCandidates) return []
+  return target.adapter.listAssigneeCandidates(target.ref)
 }
 
 export async function commentOnUpstreamTask(cwd: string, id: string, body: string): Promise<Task> {
@@ -356,8 +368,9 @@ export async function taskProviderStatus(
   }
 
   const auth = await new GitHubAuth().status()
+  const credentials = await githubCredentialChain(repo.host, cwd)
   const hasProjectScope = auth.connected ? auth.scopes?.includes('project') === true : undefined
-  if (!auth.connected) {
+  if (credentials.length === 0) {
     return {
       provider,
       ok: false,
@@ -397,7 +410,7 @@ export async function taskProviderStatus(
         message: message.replace(TASKS_AUTH_ERROR_PREFIX, ''),
         repo,
         detectedRepo: { owner: detectedGitHub.owner, repo: detectedGitHub.repo },
-        auth: { connected: true, login: auth.login, hasProjectScope },
+      auth: { connected: true, login: auth.login, hasProjectScope },
       }
     }
   }

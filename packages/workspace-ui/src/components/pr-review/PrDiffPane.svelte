@@ -91,6 +91,7 @@
       <DiffPanel
         bind:this={diffPanelRef}
         tabId={reviewTabId}
+        {paneId}
         getCtx={() => review.ctx}
         getApi={() => review.api}
         projectPath={checkout?.worktreePath ?? params.cwd ?? projectScopeOf(review.ctx.session)}

@@ -5,15 +5,18 @@
     Link2Off as UnlinkIcon,
     UploadCloud as UploadIcon,
   } from "@lucide/svelte";
+  import { getAllContexts } from "svelte";
   import { localApi } from "@solus/client-core/local-api";
   import * as DropdownMenu from "../ui/dropdown-menu";
+  import * as TooltipUI from "../ui/tooltip";
   import { getPlanStore, getWorkspaceContext } from "../../contexts";
   import type { DocDestination, DocProviderId, DocProviderStatus } from "@solus/contracts/docs";
   import DocDestinationIcon from "./DocDestinationIcon.svelte";
   import DocProviderLogo from "./DocProviderLogo.svelte";
   import { docProviderLabel, docSyncChip, destinationNoun } from "./lib/work-publish";
   import { toasts } from "../../lib/toasts";
-  import { buildGoogleDiagramAssets } from "../document-shell/lib/google-diagrams";
+  import { buildDiagramAssets } from "../document-shell/lib/diagram-assets";
+  import { renderDiagramAsAuthored, renderDiagramForPage } from "../diagram/lib/offscreen-export";
 
   interface Props {
     workId?: string;
@@ -27,6 +30,10 @@
   const session = getWorkspaceContext();
   const store = session.worksStore;
   const planStore = getPlanStore();
+  // A publish renders each embedded diagram on an off-screen canvas mounted
+  // outside this tree, and that canvas reads the theme from context. Read
+  // here, during init, because a click handler has no contexts to hand on.
+  const stageContexts = getAllContexts();
 
   let open = $state(false);
   let busy = $state(false);
@@ -105,8 +112,16 @@
     try {
       await flushSave?.();
       const content = getCurrentContent?.() ?? work?.content ?? plan?.content ?? "";
-      const diagramAssets = provider === "gdrive"
-        ? await buildGoogleDiagramAssets(content, (id) => store.ensureContent(id, "document-publish"))
+      // A Google Doc paginates, so a diagram is laid out again to fill one
+      // page; a Confluence page scrolls, so the drawing goes up as the canvas
+      // has it.
+      const renderDiagram = provider === "confluence" ? renderDiagramAsAuthored : renderDiagramForPage;
+      const diagramAssets = provider
+        ? await buildDiagramAssets(
+            content,
+            (id) => store.ensureContent(id, "document-publish"),
+            (diagram) => renderDiagram(diagram.content, diagram.title, stageContexts),
+          )
         : [];
       const result = workId
         ? await store.publish(workId, { ...options, diagramAssets })
@@ -228,12 +243,12 @@
     </DropdownMenu.Trigger>
     <!-- Width is declared here, not by the longest folder name: a Drive can hold
          a "_ARCBEAM Brand Guidelines & Assets – November 2025", and `w-auto`
-         let one such name stretch the menu past the window.
-         `whitespace-nowrap` gives it an intrinsic width from its longest reason
-         line ("No Atlassian site is connected. Connect in Settings…"), which on
-         a 393px phone anchored near the right edge put it 47px off-screen.
-         Touch takes the viewport width and wraps instead: the reason is the
-         part that has to stay readable. -->
+         let one such name stretch the menu past the window. The 22rem ceiling
+         and the touch rung below it are what keep an unread folder name from
+         anchoring the menu off-screen on a 393px phone.
+         No row carries prose any more — a provider's reason is a tooltip — so
+         nothing in here wants to wrap, and `whitespace-nowrap` keeps the folder
+         names on the one line `truncate` then shortens. -->
     <DropdownMenu.Content
       side="bottom"
       align="end"
@@ -306,7 +321,17 @@
         {:else}
           <!-- Every provider is listed, connected or not. An absent row reads as
                "Solus cannot do this", which sent people looking in the wrong
-               place; a row that states why is the whole point. -->
+               place; a row that states why is the whole point.
+
+               The reason is a tooltip rather than a second line. Carried inline
+               it wrapped to three lines at the 14px rung — the menu is capped at
+               22rem, and "No Atlassian site is connected. Connect in Settings…"
+               needs more than that — which turned each provider into a 71px
+               slab. Two of those left "Publish to" closer to the first row
+               (11px) than the rows were to each other (14.5px), so the heading
+               read as part of the Confluence block instead of standing above
+               the list. One line per provider restores the ordinary menu
+               rhythm, and the reason is still one hover or one arrow-key away. -->
           {#each providerStatuses as status (status.provider)}
             {#if status.connected}
               <DropdownMenu.Item
@@ -318,28 +343,39 @@
                 <UploadIcon size={14} />
                 <span class="flex-1 text-left">{docProviderLabel(status.provider)}…</span>
               </DropdownMenu.Item>
-            {:else if status.connectable}
-              <DropdownMenu.Item
-                class="h-auto py-1.5 text-workspace-chrome"
-                data-testid={`connect-${status.provider}`}
-                onSelect={openProviderSettings}
-              >
-                <UploadIcon size={14} />
-                <span class="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left">
-                  <span>{docProviderLabel(status.provider)}</span>
-                  <span class="max-w-full whitespace-normal text-(--solus-text-tertiary)">
-                    {status.reason} Connect in Settings…
-                  </span>
-                </span>
-              </DropdownMenu.Item>
             {:else}
-              <DropdownMenu.Item class="h-auto py-1.5 text-workspace-chrome" data-testid={`unavailable-${status.provider}`} disabled>
-                <UploadIcon size={14} />
-                <span class="flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left">
-                  <span>{docProviderLabel(status.provider)}</span>
-                  <span class="max-w-full whitespace-normal text-(--solus-text-tertiary)">{status.reason}</span>
-                </span>
-              </DropdownMenu.Item>
+              <!-- `aria-disabled`, never the `disabled` prop: `menuRowVariants`
+                   pairs that prop with `pointer-events-none`, and bits skips a
+                   disabled row in keyboard navigation. Either one would take
+                   the reason away from the person who most needs it. This row
+                   stays hoverable and focusable and simply does nothing when a
+                   provider cannot be reached from here. -->
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
+                    <DropdownMenu.Item
+                      {...tooltipProps}
+                      class="text-workspace-chrome aria-disabled:opacity-50"
+                      data-testid={status.connectable
+                        ? `connect-${status.provider}`
+                        : `unavailable-${status.provider}`}
+                      aria-disabled={!status.connectable}
+                      closeOnSelect={status.connectable}
+                      onSelect={status.connectable ? openProviderSettings : () => {}}
+                    >
+                      <UploadIcon size={14} />
+                      <span class="min-w-0 flex-1 truncate text-left">
+                        {docProviderLabel(status.provider)}
+                      </span>
+                    </DropdownMenu.Item>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content
+                  value={status.connectable
+                    ? `${status.reason} Connect in Settings…`
+                    : status.reason}
+                />
+              </TooltipUI.Root>
             {/if}
           {/each}
         {/if}

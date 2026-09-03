@@ -68,6 +68,7 @@ describe('task page capabilities', () => {
       canEditPlanningFields: false,
       canEditPriority: false,
       canEditLabels: false,
+      canEditAssignee: false,
       editableStatuses: [],
       canComment: true,
     })
@@ -85,9 +86,18 @@ describe('task page capabilities', () => {
       canEditPlanningFields: false,
       canEditPriority: true,
       canEditLabels: true,
+      canEditAssignee: false,
       editableStatuses: ['todo', 'in_progress', 'in_review', 'done'],
       canComment: true,
     })
+  })
+
+  test('offers assignment when the provider can list and write assignees', () => {
+    expect(taskPageCapabilities({ providerId: 'github' } as Task, {
+      provider: 'github', ok: true, reason: 'ok', message: '',
+      writableFields: ['title', 'body', 'status', 'labels', 'assignee'],
+      statuses: ['todo', 'in_progress', 'done'],
+    }).canEditAssignee).toBe(true)
   })
 })
 

@@ -15,10 +15,13 @@
   import "@xyflow/svelte/dist/style.css";
   import { Check as CheckIcon } from "@lucide/svelte";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
+  import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
+  import { exportFileName } from "../pickers/lib/export-file-name";
   import type { WorkCopyFormat, WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
+  import { downloadPayload } from "../work/lib/work-export";
   import { dataUrlToPayload, renderDiagramPng, renderDiagramSvg } from "./lib/diagram-export";
   import type { PlanComment, SessionMeta, WorkStorage } from "@solus/contracts/types";
-  import { getWindowContext, getWorkspaceContext, getSettingsContext } from "../../contexts";
+  import { getWindowContext, getWorkspaceContext, getSettingsContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { toasts } from "../../lib/toasts";
@@ -100,6 +103,7 @@
     threadsByAnchor,
   } from "./lib/comment-threads";
   import { anchorRectFor, type ThreadAnchor } from "./lib/thread-card-position";
+  import { minimapSize } from "./lib/minimap-size";
   import { isResolved, isUnread } from "../comments/lib/thread";
   import {
     applyLayout,
@@ -138,6 +142,8 @@
     hostIsRemote?: boolean;
     /** Rename the work title. */
     onRename?: (title: string) => void;
+    /** Leave the diagram for the Workspace page it lives in. */
+    onOpenWorkspace?: () => void;
   }
 
   interface DiagramFlowNodeData extends DiagramNode {
@@ -172,6 +178,7 @@
     onExport,
     hostIsRemote = false,
     onRename,
+    onOpenWorkspace,
   }: Props = $props();
 
   // Click-to-rename (mirrors DocumentShell). Only the root title is editable.
@@ -201,7 +208,7 @@
   let copied = $state(false);
   function copyDiagram() {
     navigator.clipboard
-      .writeText(serializeDiagram(fullDoc()))
+      .writeText(diagramParseFailed ? content : serializeDiagram(fullDoc()))
       .then(() => {
         copied = true;
         setTimeout(() => (copied = false), 1800);
@@ -467,28 +474,34 @@
   const nodeTypes = DIAGRAM_NODE_TYPES;
   const edgeTypes = DIAGRAM_EDGE_TYPES;
 
+  const initialDiagram = (() => {
+    try {
+      const parsed = parseDiagram(content);
+      return {
+        doc: applyLayout(parsed),
+        parseFailed: false,
+        hadNoPositions: parsed.nodes.some((node) => !node.position),
+      };
+    } catch {
+      return {
+        doc: { nodes: [], edges: [] } satisfies DiagramDoc,
+        parseFailed: true,
+        hadNoPositions: false,
+      };
+    }
+  })();
+
   // Full backing document. The live `nodes`/`edges` arrays mirror the CURRENT
   // view — the root doc, or a node's `detail` sub-diagram once drilled in. View
   // edits are written back into rootDoc before every save (see fullDoc()).
-  let rootDoc: DiagramDoc = (() => {
-    try {
-      return applyLayout(parseDiagram(content));
-    } catch {
-      return { nodes: [], edges: [] };
-    }
-  })();
+  let rootDoc: DiagramDoc = initialDiagram.doc;
+  let diagramParseFailed = $state(initialDiagram.parseFailed);
 
   // Drill trail into nested detail sub-diagrams. Empty = root. One level deep
   // only, so at most one entry — kept as a list for the breadcrumb.
   let drillPath = $state<{ id: string; label: string }[]>([]);
 
-  const hadNoPositions = (() => {
-    try {
-      return parseDiagram(content).nodes.some((n) => !n.position);
-    } catch {
-      return false;
-    }
-  })();
+  const hadNoPositions = initialDiagram.hadNoPositions;
 
   // Transient UI state — never serialized
   let expandedNodeIds = $state(new Set<string>());
@@ -558,6 +571,12 @@
   let connectingFrom = $state<"source" | "target" | null>(null);
   // Root element — diagram shortcuts only fire while focus lives inside it.
   let shellEl = $state<HTMLDivElement | null>(null);
+  let shellWidth = $state(0);
+  // A touch cannot communicate whether it means “move this card” or “move the
+  // board” until after it has moved. Default phones to navigation so one-finger
+  // pan and pinch work even when the gesture starts over a node. The toolbar
+  // exposes the inverse mode when the user intends to arrange cards.
+  let touchNodeDragEnabled = $state(false);
 
   const activeDrawerNode = $derived(
     activeDrawerNodeId !== null
@@ -632,8 +651,10 @@
   // *visible* canvas rather than on the pane.
   // Node and edge inspectors are mutually exclusive, so one selection produces
   // one footprint whichever kind is up.
+  const inspectorUsesBottomSheet = $derived(shellWidth > 0 && shellWidth <= 768);
   const inspectorFootprint = $derived(
-    activeDrawerNode === null && activeDrawerEdge === null
+    inspectorUsesBottomSheet ||
+      (activeDrawerNode === null && activeDrawerEdge === null)
       ? 0
       : inspectorOpen
         ? 408
@@ -727,8 +748,8 @@
   let fullDiagramExports = $state(0);
 
   function imageOptions() {
-    if (!flowControls) return null;
-    return { flow: flowControls, backgroundColor: exportBgColor, prepare: prepareImageExport };
+    if (!flowControls || !shellEl) return null;
+    return { flow: flowControls, root: shellEl, backgroundColor: exportBgColor, prepare: prepareImageExport };
   }
 
   // Every format the diagram writes out as, in the order the menu lists them.
@@ -757,7 +778,10 @@
       extension: "json",
       label: "JSON",
       mimeType: "application/json",
-      produce: () => ({ contents: serializeDiagram(fullDoc()), encoding: "utf8" }),
+      produce: () => ({
+        contents: diagramParseFailed ? content : serializeDiagram(fullDoc()),
+        encoding: "utf8",
+      }),
     },
     {
       extension: "mmd",
@@ -766,6 +790,29 @@
       produce: () => ({ contents: serializeMermaid(fullDoc()), encoding: "utf8" }),
     },
   ];
+
+  function downloadSourceJson() {
+    downloadPayload(
+      exportFileName(title, "json"),
+      "application/json",
+      { contents: content, encoding: "utf8" },
+    );
+  }
+
+  function retryParse() {
+    try {
+      const parsed = applyLayout(parseDiagram(content));
+      rootDoc = parsed;
+      nodes = buildFlowNodes(parsed.nodes);
+      edges = buildFlowEdges(parsed.edges);
+      diagramParseFailed = false;
+      requestAnimationFrame(() =>
+        void flowControls?.fitView({ duration: 200, padding: 0.2 }),
+      );
+    } catch {
+      toasts.error("This diagram still could not be read");
+    }
+  }
 
   // JSON is the inline Copy verb already, so it is not repeated here.
   const copyFormats: WorkCopyFormat[] = [
@@ -2428,19 +2475,37 @@
   // Every node draws the same swatch, so pass a constant string rather than a
   // per-node callback (which MiniMap would invoke for each node on every redraw).
   const miniMapNodeColor = "var(--solus-text-tertiary)";
+
+  // What the board can spare for a minimap beside the control bar. Two reasons
+  // it is absent, and `isMobileViewport` was the wrong axis for both: the narrow
+  // case is already `minimapSize`'s own answer, measured off the board rather
+  // than the OS window — so a diagram in a narrow companion pane on a wide
+  // monitor is covered without asking. What is left is the *hand*: a minimap is
+  // a hover-and-precision affordance, and on a touch client the control bar is
+  // the surface the user acts through instead.
+  const minimap = $derived(runtime.isTouchDevice ? null : minimapSize(boardWidth));
 </script>
 
 <div
   bind:this={shellEl}
+  bind:clientWidth={shellWidth}
   class="diagram-shell"
   tabindex="-1"
   onkeydowncapture={handleShellKeydownCapture}
 >
-  <!-- De-chromed control strip: no border, no chrome-row height. Identity (the
-       title) lives in the tab label and the drill crumb on the canvas; the pane's
-       close / split / maximize live in the floating PaneChrome cluster, which
-       this row reserves room for on its right. -->
+  <!-- De-chromed control strip: no border, no chrome-row height. The crumb
+       says which page the diagram lives in and takes the reader back; its leaf
+       is the title, which is otherwise the tab label's job. The pane's close /
+       split / maximize live in the floating PaneChrome cluster, which this row
+       reserves room for on its right. -->
   <div class="diagram-shell__toolbar workspace-titlebar">
+    {#if onOpenWorkspace}
+      <!-- The optical inset pulls a *word* back onto the row's edge. A chevron
+           is already centred in its own 44px box, so the rung gives it back. -->
+      <span class="-ml-[7px] flex shrink-0 items-center @max-[30rem]/pane:ml-0">
+        <ParentPageCrumb page="folio" onOpen={onOpenWorkspace} />
+      </span>
+    {/if}
     {#if renaming}
       <!-- svelte-ignore a11y_autofocus -->
       <input
@@ -2452,6 +2517,11 @@
         aria-label="Rename diagram"
         data-testid="rename-work-input"
       />
+    {:else if onOpenWorkspace}
+      <span
+        class="min-w-0 truncate text-workspace-chrome font-medium text-(--solus-text-primary)"
+        title={title}>{title}</span
+      >
     {/if}
     <div class="diagram-shell__toolbar-spacer"></div>
     <div class="diagram-shell__save-status">
@@ -2505,6 +2575,24 @@
       bind:clientHeight={boardHeight}
       oncontextmenu={handleBoardContextMenu}
     >
+      {#if diagramParseFailed}
+        <div class="diagram-load-error" role="alert" data-testid="diagram-load-error">
+          <div class="diagram-load-error__copy">
+            <p class="diagram-load-error__title">This diagram could not be read.</p>
+            <p class="diagram-load-error__detail">
+              The source is still available. Retry after it changes, or download it for repair.
+            </p>
+          </div>
+          <div class="diagram-load-error__actions">
+            <button type="button" class="diagram-load-error__button" onclick={retryParse}>
+              Try again
+            </button>
+            <button type="button" class="diagram-load-error__button" onclick={downloadSourceJson}>
+              Download JSON
+            </button>
+          </div>
+        </div>
+      {:else}
       <SvelteFlow
         bind:nodes
         bind:edges
@@ -2520,6 +2608,7 @@
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.2}
         maxZoom={2.5}
+        nodesDraggable={!runtime.isTouchDevice || touchNodeDragEnabled}
         deleteKey={null}
         connectionRadius={40}
         proOptions={{ hideAttribution: true }}
@@ -2554,6 +2643,12 @@
           {hasSelection}
           getDoc={fullDoc}
           {minimapVisible}
+          minimapFits={minimap !== null}
+          isTouchDevice={runtime.isTouchDevice}
+          {touchNodeDragEnabled}
+          onToggleTouchNodeDrag={() => {
+            touchNodeDragEnabled = !touchNodeDragEnabled;
+          }}
           onToggleMinimap={() => {
             minimapVisible = !minimapVisible;
           }}
@@ -2682,10 +2777,12 @@
           />
         {/if}
 
-        {#if minimapVisible}
+        {#if minimapVisible && minimap}
           <MiniMap
             class="diagram-minimap"
             position="bottom-right"
+            width={minimap.width}
+            height={minimap.height}
             nodeColor={miniMapNodeColor}
             nodeStrokeColor="transparent"
             nodeBorderRadius={3}
@@ -2698,8 +2795,9 @@
           />
         {/if}
       </SvelteFlow>
+      {/if}
 
-      {#if nodes.length === 0}
+      {#if !diagramParseFailed && nodes.length === 0}
         <div class="diagram-empty">
           <div class="diagram-empty__card">
             <svg

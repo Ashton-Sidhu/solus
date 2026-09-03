@@ -1,6 +1,6 @@
-import { GitHubAuth } from '../../providers/github/auth'
 import { canonicalRepoRef } from '../../providers/github/canonical-repo'
-import { buildClient } from '../../providers/github/octokit'
+import type { GitHubClient } from '../../providers/github/octokit'
+import { githubClients, runGithubRequest } from '../../providers/github/request'
 import { z } from 'zod'
 import type {
   CandidateTicket,
@@ -8,6 +8,7 @@ import type {
   NormalizedTaskComment,
   NormalizedTicket,
   Task,
+  TaskAssigneeCandidate,
   TaskCandidateOptions,
   TaskCommentData,
   TaskStatus,
@@ -56,6 +57,14 @@ function repositoryRef(externalKey: string): GitHubRepositoryRef {
   return { host: 'github.com', owner, repo }
 }
 
+async function withGithubTaskClient<Result>(
+  operation: string,
+  repo: GitHubRepositoryRef,
+  run: (client: GitHubClient) => Promise<Result>,
+): Promise<Result> {
+  return runGithubRequest(operation, repo.host, await githubClients(repo.host), run)
+}
+
 /** An issue is open or closed, and "in progress" only in the sense that the
  *  task provider infers it. Three states is all GitHub can say. */
 function statusKey(status: TaskStatus): 'open' | 'in_progress' | 'closed' {
@@ -96,6 +105,8 @@ function normalizeTask(task: Task, ref: ExternalTicketRef): NormalizedTicket {
     body: task.body,
     status: normalizedStatus(task),
     labels: task.labels,
+    assignee: task.assignee,
+    assigneeAvatarUrl: task.assigneeAvatarUrl,
     externalUpdatedAt: new Date(task.updatedAt).toISOString(),
     comments: commentsFromTask(task),
     snapshot: task.raw ?? task,
@@ -125,7 +136,7 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
   readonly id = 'github' as const
   /** Priority is absent: on GitHub it is inferred from conventional labels, not
    *  a field an issue write can set. */
-  readonly writableFields: ReadonlySet<TaskSyncField> = new Set(['title', 'body', 'status', 'labels'])
+  readonly writableFields: ReadonlySet<TaskSyncField> = new Set(['title', 'body', 'status', 'labels', 'assignee'])
   readonly statuses = ['todo', 'in_progress', 'done'] as const
 
   statusKey(status: TaskStatus): string {
@@ -158,6 +169,7 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
     if (patch.body !== undefined) update.body = patch.body
     if (patch.labels !== undefined) update.labels = patch.labels
     if (patch.status !== undefined) update.status = patch.status
+    if (patch.assignee !== undefined) update.assignee = patch.assignee
     const task = await provider.updateTask(ref.externalId, update)
     return normalizeTask(task, { ...ref, url: task.url ?? ref.url })
   }
@@ -171,6 +183,12 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
       body: comment.body,
       createdAt: Date.parse(comment.createdAt),
     }
+  }
+
+  listAssigneeCandidates(
+    target: Omit<ExternalTicketRef, 'externalId' | 'url'>,
+  ): Promise<TaskAssigneeCandidate[]> {
+    return providerFor(target.externalKey).listAssigneeCandidates()
   }
 
   unpublishableAssets(body: string): AssetReference[] {
@@ -188,22 +206,23 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
     if (!references.length) return body
 
     const repo = repositoryRef(ref.externalKey)
-    const client = await buildClient(new GitHubAuth())
-    const target = await resolveUploadTarget(client, repo.owner, repo.repo)
-    const urlByAssetId = new Map<string, string>()
-    for (const assetId of new Set(references.map((reference) => reference.assetId))) {
-      const published = publishedAssetUrl(assetId, this.id, ref.externalKey)
-      if (published) {
-        urlByAssetId.set(assetId, published)
-        continue
+    return withGithubTaskClient('publish_github_task_assets', repo, async (client) => {
+      const target = await resolveUploadTarget(client, repo.owner, repo.repo)
+      const urlByAssetId = new Map<string, string>()
+      for (const assetId of new Set(references.map((reference) => reference.assetId))) {
+        const published = publishedAssetUrl(assetId, this.id, ref.externalKey)
+        if (published) {
+          urlByAssetId.set(assetId, published)
+          continue
+        }
+        const url = await uploadGithubAsset(client, target, assetId)
+        // Record before the body is sent. An upload cannot be undone, so a failure
+        // after this point must not cost a second one when the caller retries.
+        withTx(() => recordAssetPublication(assetId, this.id, ref.externalKey, url))
+        urlByAssetId.set(assetId, url)
       }
-      const url = await uploadGithubAsset(client, target, assetId)
-      // Record before the body is sent. An upload cannot be undone, so a failure
-      // after this point must not cost a second one when the caller retries.
-      withTx(() => recordAssetPublication(assetId, this.id, ref.externalKey, url))
-      urlByAssetId.set(assetId, url)
-    }
-    return withPublishedAssets(body, urlByAssetId, githubAssetMarkdown)
+      return withPublishedAssets(body, urlByAssetId, githubAssetMarkdown)
+    })
   }
 
   async createTicket(
@@ -211,14 +230,14 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
     patch: Required<Pick<TicketPatch, 'title'>> & TicketPatch,
   ): Promise<NormalizedTicket> {
     const repo = repositoryRef(target.externalKey)
-    const { rest } = await buildClient(new GitHubAuth())
-    const response = await rest.issues.create({
+    const response = await withGithubTaskClient('create_github_task', repo, ({ rest }) => rest.issues.create({
       owner: repo.owner,
       repo: repo.repo,
       title: patch.title,
       body: patch.body,
       labels: patch.labels,
-    })
+      assignees: patch.assignee ? [patch.assignee] : undefined,
+    }))
     const externalId = String(response.data.number)
     const ref: ExternalTicketRef = {
       provider: 'github',
@@ -289,15 +308,17 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
     const state = options.query ? '' : 'is:open'
     // Search is the one GitHub surface that does not follow a repository
     // rename, so the bound name has to be resolved before it is a qualifier.
-    const client = await buildClient(new GitHubAuth())
-    const scope = await canonicalRepoRef(client, repositoryRef(target.externalKey))
-    const response = await client.rest.search.issuesAndPullRequests({
-      q: [`repo:${scope.owner}/${scope.repo}`, 'is:issue', state, qualifier, options.query]
-        .filter(Boolean).join(' '),
-      sort: 'updated',
-      order: 'desc',
-      per_page: 100,
-      page: 1,
+    const repo = repositoryRef(target.externalKey)
+    const response = await withGithubTaskClient('search_github_tasks', repo, async (client) => {
+      const scope = await canonicalRepoRef(client, repo)
+      return client.rest.search.issuesAndPullRequests({
+        q: [`repo:${scope.owner}/${scope.repo}`, 'is:issue', state, qualifier, options.query]
+          .filter(Boolean).join(' '),
+        sort: 'updated',
+        order: 'desc',
+        per_page: 100,
+        page: 1,
+      })
     })
     const tasks: Task[] = response.data.items.map((issue) => ({
       id: String(issue.number),

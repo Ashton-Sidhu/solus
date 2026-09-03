@@ -14,6 +14,9 @@
     jumping?: boolean
     /** Full at the top; folded to measure bars once the document scrolls. */
     atTop?: boolean
+    /** The fit rule: false where 262px + clearance do not fit left of the
+     *  measure, and the gutter is bars only however it is reached. */
+    canRevealPanel?: boolean
     onScrollTo: (pos: number) => void
   }
 
@@ -24,6 +27,7 @@
     pinned = false,
     jumping = false,
     atTop = true,
+    canRevealPanel = true,
     onScrollTo,
   }: Props = $props()
 
@@ -36,7 +40,7 @@
   // several can hold at once — pinning while hovering must survive the pointer
   // leaving. Starts at the top, where the full contents remain visible.
   let reasons = $state<Set<OutlineReason>>(new Set<OutlineReason>(['top']))
-  const open = $derived(isOutlineVisible(reasons, atTop))
+  const open = $derived(isOutlineVisible(reasons, atTop, canRevealPanel))
 
   function hold(reason: OutlineReason, held: boolean) {
     if (reasons.has(reason) === held) return

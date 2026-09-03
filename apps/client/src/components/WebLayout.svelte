@@ -3,9 +3,6 @@
   import SessionBreadcrumb from "@solus/workspace-ui/components/conversation/SessionBreadcrumb.svelte";
   import SessionDraftPane from "@solus/workspace-ui/components/session-draft/SessionDraftPane.svelte";
   import UnifiedPicker from "@solus/workspace-ui/components/session/unified-picker/UnifiedPicker.svelte";
-  // Eager, unlike the lazy surfaces below: it is what covers an async boundary,
-  // so it cannot sit behind one itself.
-  import DocumentModalSkeleton from "@solus/workspace-ui/components/document-modal/DocumentModalSkeleton.svelte";
   import DiffLoadingSkeleton from "@solus/workspace-ui/components/diff/DiffLoadingSkeleton.svelte";
   import { getPlanStore, getWorkspaceContext, runtime } from "@solus/workspace-ui/contexts";
 import { visibleRef } from "@solus/workspace-ui/contexts/workspace/routing/location";
@@ -27,8 +24,9 @@ import {
 
   interface Props {
     onAttachFile: (tabId?: string) => void | Promise<void>;
+    onAttachFiles: (files: File[], sourceId?: string) => void | Promise<void>;
   }
-  let { onAttachFile }: Props = $props();
+  let { onAttachFile, onAttachFiles }: Props = $props();
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
@@ -50,10 +48,22 @@ import {
     if (planId) return planStore.get(planId) ?? null;
     return router.at("plan") ? planStore.previewPlan : null;
   });
-  const activeWork = $derived.by(() => {
-    const workId = router.params("work")?.workId;
-    return workId ? session.worksStore.get(workId) ?? null : null;
+  // Mobile renders one pane at a time, but the work still belongs to a real
+  // route pane. Keep its id with the params so the shared WorkPane gets the
+  // same close and navigation semantics it has on desktop.
+  const activeWorkRoute = $derived.by(() => {
+    for (const pane of router.panes) {
+      const ref = visibleRef(pane);
+      if (ref?.name === "work") return { paneId: pane.id, params: ref.params };
+    }
+    return null;
   });
+  const activeWork = $derived(
+    activeWorkRoute
+      ? session.worksStore.get(activeWorkRoute.params.workId) ?? null
+      : null,
+  );
+  let mobileWorkLoadAttempt = $state(0);
   const leadingDraftParams = $derived(
     router.leadingPane.base?.name === "draft"
       ? router.leadingPane.base.params
@@ -307,49 +317,44 @@ import {
       {/await}
     {/if}
     {#if !router.at("folio")}
-      {#if activeWork}
-        {#await import("@solus/workspace-ui/components/document-modal/DocumentModal.svelte")}
-          <!-- The comment margin folds below its threshold on a phone, so the
-               skeleton reserves none even though the work id is passed. -->
+      {#if activeWorkRoute}
+        <!-- The route surface owns work-type dispatch. Mobile must not send a
+             diagram or artifact through the document editor merely because it
+             has one visible pane. This also keeps live refresh, history,
+             export, and delete behavior identical across clients. -->
+        {#key `${activeWorkRoute.params.workId}-${mobileWorkLoadAttempt}`}
+        {#await import("@solus/workspace-ui/components/work/WorkPane.svelte")}
           <div class="mobile-surface flex min-h-0 flex-1 flex-col">
-            <DocumentModalSkeleton
-              inline
-              title={activeWork.title}
-              railWidth="0px"
-              workStorage={activeWork.storage}
+            {@render loadingSurface(`Loading ${activeWork?.type ?? "work"}…`)}
+          </div>
+        {:then workModule}
+          {@const WorkPane = workModule.default}
+          <div class="mobile-surface mobile-page-pane mobile-work-surface flex min-h-0 flex-1 flex-col">
+            <WorkPane
+              params={activeWorkRoute.params}
+              paneId={activeWorkRoute.paneId}
             />
           </div>
-        {:then documentModule}
-          {@const DocumentModal = documentModule.default}
-          <div class="mobile-surface flex min-h-0 flex-1 flex-col">
-            <!-- `workId` is what turns a preview into the work itself: the
-                 publish/sync/pull menu, annotation comments, send-to-agent and
-                 host-resolved images are all gated on it. Passing the title and
-                 content alone left a phone able to read and edit a document but
-                 not to publish it, see whether it was in sync, or pull the
-                 upstream copy back — none of which is a platform limit. -->
-            <DocumentModal
-              document={{ title: activeWork.title, content: activeWork.content }}
-              workId={activeWork.id}
-              onSave={async (content) => {
-                await session.worksStore.save(activeWork.id, { content });
-              }}
-              onClose={() => session.closeWorkModal()}
-              onRename={(title) => void session.worksStore.save(activeWork.id, { title })}
-              onOpenChat={(mode) => void session.openChatForWork(activeWork.id, mode)}
-              onDuplicate={async () => {
-                const duplicated = await session.worksStore.duplicate(activeWork.id);
-                session.openWork(duplicated.id);
-              }}
-              onDelete={() => {
-                session.closeWorkModal();
-                session.requestWorkDelete(activeWork);
-              }}
-              workStorage={activeWork.storage}
-              inline
-            />
+        {:catch error}
+          <div class="mobile-surface mobile-page-pane mobile-work-surface flex min-h-0 flex-1 flex-col">
+            <div class="grid min-h-0 flex-1 place-items-center gap-3 p-6 text-center">
+              <div>
+                <p class="text-sm font-medium text-(--solus-text-primary)">Couldn’t load this work.</p>
+                <p class="mt-1 text-xs text-(--solus-text-tertiary)">
+                  {error instanceof Error ? error.message : String(error)}
+                </p>
+              </div>
+              <button
+                type="button"
+                class="min-h-10 rounded-lg border border-(--solus-container-border) px-3.5 text-sm font-medium text-(--solus-text-secondary)"
+                onclick={() => (mobileWorkLoadAttempt += 1)}
+              >
+                Try again
+              </button>
+            </div>
           </div>
         {/await}
+        {/key}
       {:else if activePlan}
         {#await import("@solus/workspace-ui/components/plan/PlanModal.svelte")}
           {@render loadingSurface("Loading plan…")}
@@ -454,8 +459,8 @@ import {
     <WebMobileLayout
       {chatContent}
       {diffContent}
-      {onAttachFile}
-      overlayOpen={!!activePlan || !!activeWork}
+      {onAttachFiles}
+      overlayOpen={!!activePlan || !!activeWorkRoute}
       {diffPanelOpen}
       canShowDiffPanel={canShowSidePanel}
       changedFilesCount={changedFiles.length}
@@ -498,6 +503,19 @@ import {
      rendered by the shell as siblings of this box, or portalled to the body. */
   .mobile-page-pane {
     container: pane / inline-size;
+  }
+
+  /* Work routes replace the phone navbar, so this surface owns the device
+     cut-outs while it is open. The shared pane then lays out normally inside
+     the safe rectangle on both portrait and landscape phones. */
+  .mobile-work-surface {
+    /* The shared PaneChrome keeps only Close on mobile. Reserve its 44px touch
+       target plus the right inset so work-header actions cannot sit under it. */
+    --solus-pane-chrome-inset: 4rem;
+    padding-top: env(safe-area-inset-top, 0);
+    padding-right: env(safe-area-inset-right, 0);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    padding-left: env(safe-area-inset-left, 0);
   }
 
   /* chatContent is rendered only by the mobile shell, so this entrance is a

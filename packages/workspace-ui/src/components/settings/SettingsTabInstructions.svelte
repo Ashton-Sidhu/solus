@@ -84,9 +84,10 @@
   >
     {#snippet body()}
       <!-- Both instruction fields match the message composer: accent focus ring
-           and a forced 400 weight so typed text never reads bold. px-2.5 lines
-           the absolutely positioned placeholder up with the editor text
-           (0.625rem wrapper pad + 0.25rem ProseMirror pad = 0.875rem). -->
+           and a forced 400 weight so typed text never reads bold. The placeholder
+           uses the smaller workspace-chrome type rung. px-2.5 lines it up with
+           the editor text (0.625rem wrapper pad + 0.25rem ProseMirror pad =
+           0.875rem). -->
       <PlainTextEditor
         value={theme.extraInstructions}
         onValueChange={(md) => theme.update({ extraInstructions: md })}
@@ -96,7 +97,7 @@
         maxHeight={220}
         dictation
         placeholder="Prefer concise answers. Use specific libraries. Follow my writing style."
-        class="rounded-lg border border-border bg-background px-2.5 transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
+        class="rounded-lg border border-border bg-background px-2.5 transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />
     {/snippet}
   </SettingsRow>
@@ -154,7 +155,7 @@
         maxHeight={220}
         dictation
         placeholder="Instructions that only apply when {selectedModelLabel || 'this model'} is running."
-        class="rounded-lg border border-border bg-background px-2.5 transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400]"
+        class="rounded-lg border border-border bg-background px-2.5 transition-[border-color,box-shadow] focus-within:border-(--solus-accent) focus-within:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_30%,transparent)] [&_.cm-content]:![min-height:4.5rem] [&_.cm-content]:![font-weight:400] [&_.cm-placeholder]:text-workspace-chrome"
       />
     {/snippet}
   </SettingsRow>

@@ -127,3 +127,29 @@ describe('the task page rail becomes a sheet the moment it leaves the column', (
     expect(isTaskRailFolded(TASK_RAIL_FOLD_MAX + 1)).toBe(false)
   })
 })
+
+describe('people pickers follow the display density rung', () => {
+  const feed = read('packages/workspace-ui/src/components/pr-review/ActivityFeed.svelte')
+  const reviewers = read('packages/workspace-ui/src/components/pr-review/PrActivityRail.svelte')
+  const assignees = read('packages/workspace-ui/src/components/tasks/task-page/TaskAssigneeMenu.svelte')
+
+  it('loads reviewer candidates only when the reviewer menu opens', () => {
+    // WHY: an assignable-user query can be large and is irrelevant until the
+    // user asks to assign someone. Opening a PR must not pay for it.
+    expect(feed).toContain('onOpenReviewerMenu={openReviewerMenu}')
+    const initialLoad = feed.slice(
+      feed.indexOf('function load(force'),
+      feed.indexOf('function loadReviewerCandidates'),
+    )
+    expect(initialLoad).not.toContain('loadReviewerCandidates(')
+  })
+
+  it('uses smaller menu geometry on a precise-pointer laptop', () => {
+    // WHY: canonical type already follows `text-workspace-chrome`; width and
+    // control height must step with it instead of leaving a desktop-sized box.
+    expect(reviewers).toContain('w-52 [.is-laptop-display_&]:w-48')
+    expect(reviewers).toContain('pointer-fine:[.is-laptop-display_&]:h-8')
+    expect(assignees).toContain('w-60 pointer-fine:[.is-laptop-display_&]:max-h-64 pointer-fine:[.is-laptop-display_&]:w-52')
+    expect(assignees).toContain('pointer-fine:[.is-laptop-display_&]:h-8')
+  })
+})

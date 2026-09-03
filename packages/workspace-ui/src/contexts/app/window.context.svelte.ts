@@ -1,5 +1,5 @@
 import { createAppContext } from './create-app-context'
-import { MOBILE_QUERY } from './viewport'
+import { isMobileLayout, MOBILE_QUERY } from './viewport'
 import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 
@@ -62,13 +62,29 @@ export class WindowContext {
 
     if (this.isWeb) {
       const mq = window.matchMedia(MOBILE_QUERY)
-      mq.addEventListener('change', (e) => { this.viewMode = e.matches ? 'pill' : 'editor' })
+      const touch = window.matchMedia('(pointer: coarse)')
+      const refreshViewMode = () => {
+        this.viewMode = isMobileLayout(
+          window.innerWidth,
+          globalThis.screen?.width,
+          globalThis.screen?.height,
+          touch.matches,
+        ) ? 'pill' : 'editor'
+      }
+      mq.addEventListener('change', refreshViewMode)
+      touch.addEventListener('change', refreshViewMode)
+      window.addEventListener('resize', refreshViewMode)
     }
   }
 
   private loadViewMode(): ViewMode {
     if (this.isWeb) {
-      return window.matchMedia(MOBILE_QUERY).matches ? 'pill' : 'editor'
+      return isMobileLayout(
+        window.innerWidth,
+        globalThis.screen?.width,
+        globalThis.screen?.height,
+        window.matchMedia('(pointer: coarse)').matches,
+      ) ? 'pill' : 'editor'
     }
     // On Electron each window is mode-locked: main puts `?mode=` in the URL
     // and the mode never changes for the window's lifetime. Main persists the

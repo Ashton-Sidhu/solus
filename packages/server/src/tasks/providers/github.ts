@@ -1,7 +1,7 @@
-import { GitHubAuth } from '../../providers/github/auth'
-import { buildClient, type GitHubClient } from '../../providers/github/octokit'
+import type { GitHubClient } from '../../providers/github/octokit'
+import { githubClients, runGithubRequest } from '../../providers/github/request'
 import type { RepoRef } from '../../providers/types'
-import type { Task, TaskCommentData, TaskKind, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '@solus/contracts/task-types'
+import type { Task, TaskAssigneeCandidate, TaskCommentData, TaskKind, TaskList, TaskPriority, TaskStatus, TaskUpdatePatch } from '@solus/contracts/task-types'
 import { z } from 'zod'
 
 // GitHub Issues are open/closed + labels only — there's no native "In Progress".
@@ -420,59 +420,79 @@ export class GitHubTaskProvider {
      *  need to name the same `owner/repo` scope that task links are filed
      *  under. */
     readonly repo: RepoRef,
-    private readonly auth: GitHubAuth = new GitHubAuth(),
   ) {}
 
-  /** Lazily build an authenticated REST + GraphQL client. */
-  private client(): Promise<GitHubClient> {
-    return buildClient(this.auth)
+  /** The clients to try, including `gh auth` as the final credential. */
+  protected clients(): Promise<GitHubClient[]> {
+    return githubClients(this.repo.host)
+  }
+
+  private async withClient<Result>(
+    operation: string,
+    run: (client: GitHubClient) => Promise<Result>,
+  ): Promise<Result> {
+    return runGithubRequest(operation, this.repo.host, await this.clients(), run)
   }
 
   async listTasks(): Promise<TaskList> {
-    const { graphql } = await this.client()
-    const tasks: Task[] = []
-    let truncated = false
-    // Open issues first, then closed with whatever budget remains: everything is
-    // capped at MAX_ISSUES, and a busy repo's recently-closed churn must not
-    // crowd still-open work out of the capped slice.
-    outer: for (const states of [['OPEN'], ['CLOSED']]) {
-      let cursor: string | null = null
-      for (;;) {
-        const res: ListIssuesResponse = await graphql<ListIssuesResponse>(LIST_ISSUES_QUERY, {
-          owner: this.repo.owner,
-          repo: this.repo.repo,
-          states,
-          cursor,
-        })
-        const page = res.repository.issues
-        for (const node of page.nodes) {
+    return this.withClient('list_github_tasks', async ({ graphql }) => {
+      const tasks: Task[] = []
+      let truncated = false
+      // Open issues first, then closed with whatever budget remains: everything is
+      // capped at MAX_ISSUES, and a busy repo's recently-closed churn must not
+      // crowd still-open work out of the capped slice.
+      outer: for (const states of [['OPEN'], ['CLOSED']]) {
+        let cursor: string | null = null
+        for (;;) {
+          const res: ListIssuesResponse = await graphql<ListIssuesResponse>(LIST_ISSUES_QUERY, {
+            owner: this.repo.owner,
+            repo: this.repo.repo,
+            states,
+            cursor,
+          })
+          const page = res.repository.issues
+          for (const node of page.nodes) {
+            if (tasks.length >= MAX_ISSUES) {
+              truncated = true
+              break outer
+            }
+            tasks.push(issueToTask(node))
+          }
+          if (!page.pageInfo.hasNextPage) break
           if (tasks.length >= MAX_ISSUES) {
             truncated = true
             break outer
           }
-          tasks.push(issueToTask(node))
+          cursor = page.pageInfo.endCursor
         }
-        if (!page.pageInfo.hasNextPage) break
-        if (tasks.length >= MAX_ISSUES) {
-          truncated = true
-          break outer
-        }
-        cursor = page.pageInfo.endCursor
       }
-    }
-    return truncated ? { tasks, truncated } : { tasks }
+      return truncated ? { tasks, truncated } : { tasks }
+    })
   }
 
   async getTask(id: string): Promise<Task> {
-    const { graphql } = await this.client()
-    const res = await graphql<GetIssueResponse>(GET_ISSUE_QUERY, {
-      owner: this.repo.owner,
-      repo: this.repo.repo,
-      number: toIssueNumber(id),
+    return this.withClient('get_github_task', async ({ graphql }) => {
+      const res = await graphql<GetIssueResponse>(GET_ISSUE_QUERY, {
+        owner: this.repo.owner,
+        repo: this.repo.repo,
+        number: toIssueNumber(id),
+      })
+      const issue = res.repository.issue
+      if (!issue) throw new Error(`GitHub issue #${id} not found in ${this.repo.owner}/${this.repo.repo}`)
+      return issueToTask(issue)
     })
-    const issue = res.repository.issue
-    if (!issue) throw new Error(`GitHub issue #${id} not found in ${this.repo.owner}/${this.repo.repo}`)
-    return issueToTask(issue)
+  }
+
+  /** People GitHub permits issues in this repository to be assigned to. */
+  async listAssigneeCandidates(): Promise<TaskAssigneeCandidate[]> {
+    return this.withClient('list_github_task_assignees', async ({ rest }) => {
+      const { data } = await rest.issues.listAssignees({
+        owner: this.repo.owner,
+        repo: this.repo.repo,
+        per_page: 100,
+      })
+      return data.map((user) => ({ login: user.login, avatarUrl: user.avatar_url }))
+    })
   }
 
   /**
@@ -491,56 +511,57 @@ export class GitHubTaskProvider {
    * Edits commit one field at a time (inline auto-save), so these writes never race.
    */
   async updateTask(id: string, patch: TaskUpdatePatch): Promise<Task> {
-    const number = toIssueNumber(id)
-    const { rest, graphql } = await this.client()
-    const base = { owner: this.repo.owner, repo: this.repo.repo, issue_number: number }
+    return this.withClient('update_github_task', async ({ rest, graphql }) => {
+      const number = toIssueNumber(id)
+      const base = { owner: this.repo.owner, repo: this.repo.repo, issue_number: number }
 
     // Only planning writes need to know whether the issue is on a board; skip the
     // round-trip for pure content edits.
-    const planningPatch =
-      patch.status !== undefined || patch.dueDate !== undefined || patch.priority !== undefined
-    const items = planningPatch ? await this.fetchProjectItems(graphql, number) : []
-    const onBoard = items.length > 0
+      const planningPatch =
+        patch.status !== undefined || patch.dueDate !== undefined || patch.priority !== undefined
+      const items = planningPatch ? await this.fetchProjectItems(graphql, number) : []
+      const onBoard = items.length > 0
 
-    if (patch.status !== undefined) {
-      await this.writeStatus(rest, graphql, base, items, patch.status)
-    }
+      if (patch.status !== undefined) {
+        await this.writeStatus(rest, graphql, base, items, patch.status)
+      }
 
     // Due/priority live on the project item — only writable when on a board.
-    if (onBoard && patch.dueDate !== undefined) await this.writeDueDate(graphql, items, patch.dueDate)
-    if (onBoard && patch.priority !== undefined) await this.writePriority(graphql, items, patch.priority ?? undefined)
+      if (onBoard && patch.dueDate !== undefined) await this.writeDueDate(graphql, items, patch.dueDate)
+      if (onBoard && patch.priority !== undefined) await this.writePriority(graphql, items, patch.priority ?? undefined)
 
     // Content fields → native issue fields. `labels` replaces the whole set
     // (the UI shows every label, so it edits the full set); `assignees` mirrors
     // our single-assignee model.
-    const fields: IssueUpdateFields = {}
-    if (patch.title !== undefined) fields.title = patch.title
-    if (patch.body !== undefined) fields.body = patch.body
-    if (patch.labels !== undefined) fields.labels = patch.labels
-    if (patch.assignee !== undefined) fields.assignees = patch.assignee ? [patch.assignee] : []
-    if (Object.keys(fields).length > 0) await rest.issues.update({ ...base, ...fields })
+      const fields: IssueUpdateFields = {}
+      if (patch.title !== undefined) fields.title = patch.title
+      if (patch.body !== undefined) fields.body = patch.body
+      if (patch.labels !== undefined) fields.labels = patch.labels
+      if (patch.assignee !== undefined) fields.assignees = patch.assignee ? [patch.assignee] : []
+      if (Object.keys(fields).length > 0) await rest.issues.update({ ...base, ...fields })
 
     // GitHub's GraphQL endpoint is only eventually consistent with REST writes, so
     // re-hydrating immediately after the update often returns the pre-write issue —
     // which makes a just-applied edit (e.g. a new label) flicker in then vanish in
     // the UI. The REST writes above already succeeded, so trust the fields we wrote
     // over the possibly-stale read for the content we own.
-    const task = await this.getTask(id)
-    if (fields.title !== undefined) task.title = fields.title
-    if (fields.body !== undefined) task.body = fields.body
-    if (fields.labels !== undefined) {
-      task.labels = fields.labels
-      // On a board priority is project-owned, so a label edit must not clobber it.
-      if (!onBoard) task.priority = priorityFromLabels(fields.labels)
-    }
-    if (fields.assignees !== undefined) task.assignee = fields.assignees[0]
-    // Overlay the planning writes too, for the same eventual-consistency reason.
-    // Status is overlaid on AND off boards — the off-board path writes through
-    // REST (state + label) and the stale GraphQL re-read flickers just the same.
-    if (patch.status !== undefined) task.status = patch.status
-    if (onBoard && patch.dueDate !== undefined) task.dueDate = patch.dueDate || undefined
-    if (onBoard && patch.priority !== undefined) task.priority = patch.priority || undefined
-    return task
+      const task = await this.getTask(id)
+      if (fields.title !== undefined) task.title = fields.title
+      if (fields.body !== undefined) task.body = fields.body
+      if (fields.labels !== undefined) {
+        task.labels = fields.labels
+        // On a board priority is project-owned, so a label edit must not clobber it.
+        if (!onBoard) task.priority = priorityFromLabels(fields.labels)
+      }
+      if (fields.assignees !== undefined) task.assignee = fields.assignees[0]
+      // Overlay the planning writes too, for the same eventual-consistency reason.
+      // Status is overlaid on AND off boards — the off-board path writes through
+      // REST (state + label) and the stale GraphQL re-read flickers just the same.
+      if (patch.status !== undefined) task.status = patch.status
+      if (onBoard && patch.dueDate !== undefined) task.dueDate = patch.dueDate || undefined
+      if (onBoard && patch.priority !== undefined) task.priority = patch.priority || undefined
+      return task
+    })
   }
 
   private async writeStatus(
@@ -712,24 +733,25 @@ export class GitHubTaskProvider {
   /** Post a comment on the issue; returns the created comment so callers can
    *  patch it into a stale re-read (GraphQL reads lag REST writes). */
   async postComment(id: string, body: string): Promise<TaskCommentData> {
-    const { rest } = await this.client()
-    const res = await rest.issues.createComment({
-      owner: this.repo.owner,
-      repo: this.repo.repo,
-      issue_number: toIssueNumber(id),
-      body,
+    return this.withClient('comment_on_github_task', async ({ rest }) => {
+      const res = await rest.issues.createComment({
+        owner: this.repo.owner,
+        repo: this.repo.repo,
+        issue_number: toIssueNumber(id),
+        body,
+      })
+      // The node id, not the REST database id: issue comments are read back
+      // through GraphQL, whose `id` is the node id. Stamping the local row with
+      // the REST id would make the next pull treat our own comment as a new one
+      // and insert a second copy of it.
+      if (!res.data.node_id) throw new Error('GitHub created a comment without a node ID.')
+      return {
+        id: res.data.node_id,
+        author: res.data.user ? { login: res.data.user.login } : null,
+        body: res.data.body ?? body,
+        createdAt: res.data.created_at,
+      }
     })
-    // The node id, not the REST database id: issue comments are read back
-    // through GraphQL, whose `id` is the node id. Stamping the local row with
-    // the REST id would make the next pull treat our own comment as a new one
-    // and insert a second copy of it.
-    if (!res.data.node_id) throw new Error('GitHub created a comment without a node ID.')
-    return {
-      id: res.data.node_id,
-      author: res.data.user ? { login: res.data.user.login } : null,
-      body: res.data.body ?? body,
-      createdAt: res.data.created_at,
-    }
   }
 
 }

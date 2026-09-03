@@ -45,6 +45,7 @@ export interface CachedPrActivity {
   detail?: Contracts.PullRequest
   commits?: PrCommit[]
   reviewers?: PrReviewer[]
+  reviewerCandidates?: PrReviewerCandidate[]
   comments?: PrConversationItem[]
   changedFiles?: ChangedFileStat[]
 }
@@ -196,6 +197,7 @@ export class PullRequest implements Contracts.PullRequest {
       detail: this.store.mirrors.detail.fresh(this.key),
       commits: this.store.mirrors.commits.fresh(this.key),
       reviewers: this.store.mirrors.reviewers.fresh(this.key),
+      reviewerCandidates: this.store.mirrors.reviewerCandidates.fresh(this.key),
       comments: this.store.mirrors.comments.fresh(this.key),
       changedFiles: this.store.mirrors.changedFiles.fresh(this.key),
     }

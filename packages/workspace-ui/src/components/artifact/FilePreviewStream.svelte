@@ -39,6 +39,12 @@
     preserveFileFindNavigationFocus,
     shouldRestoreFileEditorFocus,
   } from "./lib/file-find";
+  import {
+    attachCodeSymbolGesture,
+    CODE_SYMBOL_HOVER_CSS,
+    type CodeSymbolHit,
+  } from "../code-intel/lib/hit-test";
+  import type { CodeSymbolAvailability } from "../code-intel/lib/symbol-card";
 
   export type FileSaveState =
     | "idle"
@@ -260,6 +266,10 @@
     onSaveStateChange?: (state: FileSaveState) => void;
     onContentsChange?: (contents: string) => void;
     onContentsSaved?: (contents: string) => void;
+    /** Cmd/Ctrl-click or long press landed on an identifier. */
+    onSymbolHit?: (hit: CodeSymbolHit) => void;
+    /** What SCIP can say about the identifier: it decides the hover affordance and whether a gesture opens the card. */
+    symbolAvailability?: (hit: CodeSymbolHit) => Promise<CodeSymbolAvailability>;
   }
 
   let {
@@ -276,6 +286,8 @@
     onSaveStateChange,
     onContentsChange,
     onContentsSaved,
+    onSymbolHit,
+    symbolAvailability,
   }: Props = $props();
 
   type AnnotationMeta =
@@ -349,7 +361,7 @@
       disableErrorHandling: true,
       enableGutterUtility: true,
       enableLineSelection: true,
-      unsafeCSS: `${DIFFS_THEME_CSS}\n${LINKED_LINE_CSS}`,
+      unsafeCSS: `${DIFFS_THEME_CSS}\n${LINKED_LINE_CSS}\n${CODE_SYMBOL_HOVER_CSS}`,
       onPostRender: (_container, _instance, phase) => {
         if (phase !== "unmount") requestAnimationFrame(markLinkedLine);
       },
@@ -690,6 +702,9 @@
     const stopCommentFormEvents = draftFormWrapper
       ? isolateFileCommentEvents(draftFormWrapper)
       : () => {};
+    const detachSymbolGesture = onSymbolHit && symbolAvailability
+      ? attachCodeSymbolGesture(rootEl, { onHit: onSymbolHit, availability: symbolAvailability })
+      : () => {};
 
     const unsubscribe = onDiffWorkerPoolReady(() => {
       if (disposed || !rootEl || fileInstance) return;
@@ -750,6 +765,7 @@
       fileFindPanelObserver?.disconnect();
       fileFindPanelObserver = null;
       stopCommentFormEvents();
+      detachSymbolGesture();
       unsubscribe();
       void flushSave();
       detachEditor?.();

@@ -79,11 +79,11 @@ function isPlanStatus(value: string): value is PlanReference["status"] {
   return value === "pending" || value === "accepted" || value === "rejected";
 }
 
-function isWorkType(value: string): value is WorkReference["type"] {
-  return value === "doc" || value === "slides" || value === "diagram";
+export function isWorkType(value: string): value is WorkReference["type"] {
+  return value === "doc" || value === "slides" || value === "diagram" || value === "artifact";
 }
 
-function isAgentId(value: string): value is AgentId {
+export function isAgentId(value: string): value is AgentId {
   return value === "claude-code" || value === "codex" || value === "opencode";
 }
 

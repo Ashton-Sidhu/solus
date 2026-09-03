@@ -41,7 +41,7 @@
   import { useKeybinding } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
   import type { SidebarTask } from "@solus/workspace-ui/components/session/lib/task-list";
   import MobileTaskRow from "./MobileTaskRow.svelte";
-  import { swipeActions } from "../lib/swipe-actions";
+  import { swipeActions } from "@solus/workspace-ui/lib/swipe-actions";
   import MobileStateGlyph from "./MobileStateGlyph.svelte";
   import {
     MOBILE_STATE_INK,

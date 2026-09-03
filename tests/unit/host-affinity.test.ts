@@ -4,11 +4,13 @@ import {
   hostStatusLabel,
 } from '@solus/workspace-ui/contexts/connections/host-affinity'
 import {
-    Apple as AppleLogoIcon,
-    Earth as GlobeSimpleIcon,
-    Terminal as LinuxLogoIcon,
-    PanelsTopLeft as WindowsLogoIcon,
-  } from "@lucide/svelte";describe('host affinity badge', () => {
+  Earth as GlobeSimpleIcon,
+  Terminal as LinuxLogoIcon,
+  PanelsTopLeft as WindowsLogoIcon,
+} from '@lucide/svelte'
+import AppleLogoIcon from '@solus/workspace-ui/components/servers/AppleLogoIcon.svelte'
+
+describe('host affinity badge', () => {
   test('every host surface shares one availability vocabulary', () => {
     // WHY: Connections, the server switcher, and the Run On picker describe the
     // same host state. Synonyms make one host look like it has multiple states.
@@ -41,7 +43,6 @@ import {
     // glyph. They must not fall back to a globe once the host reports its OS.
     const mac = hostAffinityGlyph({ label: 'Mac', local: false, os: 'macos' }, 'online')
     expect(mac?.icon).toBe(AppleLogoIcon)
-    expect(mac?.className).toContain('fill-current stroke-0')
     expect(hostAffinityGlyph({ label: 'PC', local: false, os: 'windows' }, 'online')?.icon).toBe(WindowsLogoIcon)
     expect(hostAffinityGlyph({ label: 'Box', local: false, os: 'linux' }, 'online')?.icon).toBe(LinuxLogoIcon)
     expect(hostAffinityGlyph({ label: 'Old host', local: false }, 'online')?.icon).toBe(GlobeSimpleIcon)

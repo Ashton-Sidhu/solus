@@ -14,7 +14,12 @@
     hasSelection?: boolean
     getDoc: () => DiagramDoc
     minimapVisible: boolean
+    /** False on a board too narrow to hold a minimap beside this bar. */
+    minimapFits?: boolean
     onToggleMinimap: () => void
+    isTouchDevice?: boolean
+    touchNodeDragEnabled?: boolean
+    onToggleTouchNodeDrag?: () => void
     onFlowReady?: (flow: ReturnType<typeof useSvelteFlow>) => void
   }
 
@@ -27,7 +32,11 @@
     hasSelection = false,
     getDoc,
     minimapVisible,
+    minimapFits = true,
     onToggleMinimap,
+    isTouchDevice = false,
+    touchNodeDragEnabled = false,
+    onToggleTouchNodeDrag,
     onFlowReady,
   }: Props = $props()
 
@@ -85,22 +94,47 @@
     <span class="canvas-toolbar__divider" aria-hidden="true"></span>
 
     <div class="canvas-toolbar__group">
+      {#if isTouchDevice && onToggleTouchNodeDrag}
+        <!-- Touch has no hover cursor to distinguish moving a card from moving
+             the board. Navigation stays the default; this explicit mode gives
+             node arrangement its own reversible gesture. -->
+        <button
+          type="button"
+          class="canvas-toolbar__btn"
+          class:canvas-toolbar__btn--on={touchNodeDragEnabled}
+          onclick={onToggleTouchNodeDrag}
+          title={touchNodeDragEnabled ? 'Use canvas gestures' : 'Move nodes'}
+          aria-label="Move nodes"
+          aria-pressed={touchNodeDragEnabled}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" aria-hidden="true">
+            <path d="M8 1.75v12.5M1.75 8h12.5M8 1.75 6.25 3.5M8 1.75 9.75 3.5M14.25 8 12.5 6.25M14.25 8 12.5 9.75M8 14.25 6.25 12.5M8 14.25 9.75 12.5M1.75 8 3.5 6.25M1.75 8 3.5 9.75" />
+          </svg>
+        </button>
+      {/if}
+
       <DiagramLayoutMenu onLayout={relayoutAndFit} current={layoutDirection} />
 
-      <button
-        type="button"
-        class="canvas-toolbar__btn"
-        class:canvas-toolbar__btn--on={minimapVisible}
-        onclick={onToggleMinimap}
-        title={minimapVisible ? 'Hide minimap' : 'Show minimap'}
-        aria-label={minimapVisible ? 'Hide minimap' : 'Show minimap'}
-        aria-pressed={minimapVisible}
-      >
-        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-          <rect x="2" y="3" width="12" height="10" rx="1.5" />
-          <rect x="9" y="8.5" width="4" height="3.5" rx="0.75" fill="currentColor" stroke="none" />
-        </svg>
-      </button>
+      <!-- Dropped, not disabled, where no minimap fits: a toggle that cannot
+           change what the user sees is a lying control, and the width it gives
+           back is width the bar needs on a narrow board. `minimapVisible` is
+           held on the shell, so widening the pane restores the user's choice. -->
+      {#if minimapFits}
+        <button
+          type="button"
+          class="canvas-toolbar__btn"
+          class:canvas-toolbar__btn--on={minimapVisible}
+          onclick={onToggleMinimap}
+          title={minimapVisible ? 'Hide minimap' : 'Show minimap'}
+          aria-label={minimapVisible ? 'Hide minimap' : 'Show minimap'}
+          aria-pressed={minimapVisible}
+        >
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <rect x="2" y="3" width="12" height="10" rx="1.5" />
+            <rect x="9" y="8.5" width="4" height="3.5" rx="0.75" fill="currentColor" stroke="none" />
+          </svg>
+        </button>
+      {/if}
     </div>
 
     {#if onDeleteSelected}

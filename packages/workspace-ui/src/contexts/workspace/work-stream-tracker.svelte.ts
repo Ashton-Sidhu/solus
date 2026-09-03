@@ -74,7 +74,10 @@ export class WorkStreamTracker {
       // If the user opened the provisional card mid-stream, follow the rekey so
       // the open pane points at the persisted id, not the deleted temp one.
       if (this.router.params('work')?.workId === stream.tempId) {
-        this.router.navigate({ name: 'work', params: { workId: event.workId } }, { replace: true })
+        this.router.navigate(
+          { name: 'work', params: { workId: event.workId, serverId: session.run.serverId } },
+          { replace: true },
+        )
       }
       const msg = session.messages.find((m) => m.id === stream.msgId)
       if (msg?.workRef) {

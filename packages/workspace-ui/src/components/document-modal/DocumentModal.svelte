@@ -41,9 +41,11 @@
     hostIsRemote?: boolean;
     /** Rename the work title. */
     onRename?: (title: string) => void;
+    /** Leave the document for the Workspace page it lives in. */
+    onOpenWorkspace?: () => void;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, workStorage, onExport, hostIsRemote = false, onRename }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, workStorage, onExport, hostIsRemote = false, onRename, onOpenWorkspace }: DocumentModalProps = $props();
 
   const session = getWorkspaceContext();
   const windowContext = getWindowContext();
@@ -220,6 +222,7 @@
   bind:this={shell}
   title={doc.title}
   breadcrumb={workBreadcrumb(workStorage)}
+  {onOpenWorkspace}
   content={doc.content}
   onRenameTitle={onRename}
   {inline}

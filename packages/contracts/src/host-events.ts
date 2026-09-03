@@ -23,6 +23,7 @@ import type {
 } from './types'
 import type { GitActionProgressEvent } from './git-types'
 import type { BrowserPage } from './browser-types'
+import type { CodeIntelStatus } from './code-intel'
 import { z } from 'zod'
 
 /**
@@ -74,6 +75,8 @@ export interface HostEventMap {
   /** This host's config changed. Every mounted client adopts it, so two
    *  windows or two devices cannot end a turn showing different settings. */
   'config.changed': HostConfigSnapshot
+  /** A project's code-intelligence indexes changed state on this host. */
+  'codeIntel.statusChanged': CodeIntelStatus
 }
 
 export type HostEventName = keyof HostEventMap
@@ -123,6 +126,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'browser.surfaceRequested': { owner: 'browser', category: 'targeted', recovery: 'reset', description: 'A browser page was explicitly asked to be given a client surface.' },
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },
   'config.changed': { owner: 'config', category: 'snapshot', recovery: 'reload', description: 'This host config changed; every mounted client adopts the snapshot.' },
+  'codeIntel.statusChanged': { owner: 'code-intel', category: 'snapshot', recovery: 'reload', description: 'A project code-intelligence index started, finished, failed, or went stale.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 const hostEventEnvelopeSchema = z.object({

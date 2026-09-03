@@ -36,7 +36,7 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { agentLabel } from "../../lib/agentAvailability";
-  import * as Breadcrumb from "../ui/breadcrumb";
+  import { SubPageCrumbLine } from "../ui/list-page";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { Switch } from "../ui/switch";
@@ -573,37 +573,16 @@
   </span>
 {/snippet}
 
-<!-- ── Chrome: breadcrumb back to the list, plus the save indicator. In a pane
-     the close / open-in-split live in the floating PaneChrome cluster, which the
-     right inset reserves room for. -->
+<!-- ── Chrome: the sub page band every record shares, with the save indicator
+     in its action slot. In a pane the close / open-in-split live in the
+     floating PaneChrome cluster, which the band reserves room for. -->
 {#snippet chromeBar()}
-  <div
-    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center justify-between gap-3 border-b border-border/45 pr-[max(0.875rem,var(--solus-pane-chrome-inset,0px))] pl-[max(1.25rem,var(--solus-chrome-lead-inset,0px))]"
-  >
-    <Breadcrumb.Root class="min-w-0 flex-1 overflow-hidden">
-      <Breadcrumb.List class="min-w-0 flex-nowrap gap-[0.4375rem] text-workspace-chrome">
-        <Breadcrumb.Item>
-          <Breadcrumb.Link class="cursor-pointer rounded-md border-0 bg-transparent px-1 py-0.5 text-muted-foreground transition-[color,background-color] duration-100 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-coarse:inline-flex pointer-coarse:min-h-10 pointer-coarse:items-center pointer-coarse:px-2">
-            {#snippet child({ props })}
-              <button
-                {...props}
-                type="button"
-                onclick={inline ? paneBackToList : onDone}>Automations</button
-              >
-            {/snippet}
-          </Breadcrumb.Link>
-        </Breadcrumb.Item>
-        <Breadcrumb.Separator class="text-muted-foreground/45">/</Breadcrumb.Separator>
-        <Breadcrumb.Item class="min-w-0">
-          <Breadcrumb.Page
-            class="truncate font-medium text-[color:color-mix(in_oklab,var(--foreground)_80%,var(--muted-foreground))]"
-            >{name || "Untitled automation"}</Breadcrumb.Page
-          >
-        </Breadcrumb.Item>
-      </Breadcrumb.List>
-    </Breadcrumb.Root>
-    {@render saveStatus()}
-  </div>
+  <SubPageCrumbLine
+    page="automations"
+    onOpenPage={inline ? paneBackToList : onDone}
+    leaf={name || "Untitled automation"}
+    actions={saveStatus}
+  />
 {/snippet}
 
 <!-- ── State line + title + the two actions ── -->

@@ -305,6 +305,7 @@
   let contentHeight = $state(0);
   let pageWidth = $state(0);
   let selectedKey = $state<string | null>(null);
+  let revealedTaskId = $state<string | null>(null);
   let openTaskId = $state<string | null>(null);
   let collapsedGroups = $state<Record<string, boolean>>({});
   let taskContextMenu = $state<{
@@ -1492,6 +1493,13 @@
                       onSelect={() => {
                         if (recordTask) onOpen(recordTask);
                       }}
+                      onSetStatus={(status) => {
+                        revealedTaskId = null;
+                        if (recordTask) void onSetStatus(recordTask, status);
+                      }}
+                      revealed={revealedTaskId === item.row.key}
+                      onRevealChange={(revealed) =>
+                        (revealedTaskId = revealed ? item.row.key : null)}
                       onContextMenu={(event) => {
                         if (recordTask) openTaskContextMenu(event, recordTask);
                       }}

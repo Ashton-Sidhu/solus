@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, untrack } from "svelte";
+  import { untrack } from "svelte";
   import {
     Compartment,
     EditorState,
@@ -39,7 +39,8 @@
     markdownComposerKeymap,
   } from "./lib/markdown-keymap";
   import { ghostCompletion, showGhost } from "./lib/ghost-completion";
-  import { guardDeferredCompositionClear } from "./lib/deferred-clear";
+  import { needsInputSettle } from "./lib/input-settle";
+  import { runtime } from "../../../contexts";
 
   interface Props extends ReferenceDecorationCallbacks {
     value: string;
@@ -105,7 +106,6 @@
   let view: EditorView | null = $state.raw(null);
   let lastLocalValue: string | null = null;
   let isApplyingValue = false;
-  let cancelDeferredClear = () => {};
   // CodeMirror can synchronously blur while Svelte is reconciling a template.
   // Reconfigure the placeholder synchronously, but defer the reactive focus
   // notification until Svelte has finished that reconciliation.
@@ -423,19 +423,21 @@
     view?.focus();
   }
 
-  /** A phone keyboard keeps the word you are still typing inside an open
-   *  composition, and iOS reinserts that text after a programmatic change —
-   *  CodeMirror's own DOM observer documents the sequence. Tapping Send does not
-   *  blur the field on iOS, so the composition was still open when the composer
-   *  cleared: the prompt went out, the system put the words back, and the well
-   *  looked untouched. Closing the composition first is what makes a
-   *  programmatic write stick. The refocus happens inside the same tap, so the
-   *  keyboard stays up and typing continues. */
-  function endComposition() {
-    if (!view?.composing) return;
-    const hadFocus = view.hasFocus;
-    view.contentDOM.blur();
-    if (hadFocus) view.contentDOM.focus({ preventScroll: true });
+  /** Commit the phone keyboard's pending input before changing the document.
+   *  Tapping Send does not blur the field on iOS, so the keyboard still holds
+   *  the last word when the composer clears, and it puts that word back
+   *  afterwards. Blurring is what makes it let go. Return whether focus was
+   *  taken so the caller can restore it after the write has landed; the
+   *  refocus happens inside the same tap, so the keyboard stays up. */
+  function endComposition(): boolean {
+    if (!view) return false;
+    const settle = needsInputSettle({
+      hasFocus: view.hasFocus,
+      composing: view.composing,
+      isTouchDevice: runtime.isTouchDevice,
+    });
+    if (settle) view.contentDOM.blur();
+    return settle;
   }
 
   export function setValueAndCursor(
@@ -444,7 +446,7 @@
     _ensureTrailingParagraph = false,
   ) {
     if (!view) return;
-    endComposition();
+    const shouldRestoreFocus = endComposition();
     const current = view.state.doc.toString();
     lastLocalValue = null;
     isApplyingValue = true;
@@ -465,32 +467,17 @@
       isApplyingValue = false;
     }
     onEmptyChange?.(text.length === 0);
-    if (autoFocus) view.focus();
-  }
-
-  /** Safari can restore an open mobile composition after the programmatic
-   *  clear. Guard the short composition-settlement window at this shared editor
-   *  boundary so button, keyboard, voice, and draft sends all behave alike. */
-  export function clearEditor() {
-    cancelDeferredClear();
-    cancelDeferredClear = guardDeferredCompositionClear({
-      readValue: () => view?.state.doc.toString() ?? "",
-      clear: applyClear,
-      requestFrame: requestAnimationFrame,
-      now: () => performance.now(),
-    });
+    if (autoFocus || shouldRestoreFocus) view.focus();
   }
 
   /** `setValueAndCursor` suppresses the update listener while it writes, so the
-   *  owner is told separately — otherwise the reinstated text stays in the
-   *  caller's state and the next value sync types it straight back in. */
-  function applyClear() {
+   *  owner is told separately — otherwise the sent text stays in the caller's
+   *  state and the next value sync types it straight back in. */
+  export function clearEditor() {
     setValueAndCursor("", false);
     lastLocalValue = "";
     untrack(() => onValueChange(""));
   }
-
-  onDestroy(() => cancelDeferredClear());
 
   export function insertTextAtSelection(text: string) {
     if (!view) return;

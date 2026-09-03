@@ -11,6 +11,7 @@
     getWindowContext,
     getWorkspaceContext,
     hostCapabilitiesStore,
+    runtime,
     serversStore,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -23,6 +24,8 @@
     assetUrlCache,
     localArtifactProtocolUrl,
   } from "./lib/asset-url";
+  import { exportFileName } from "../pickers/lib/export-file-name";
+  import { downloadPayload } from "../work/lib/work-export";
   import TaskLinkControl from "../tasks/link-control/TaskLinkControl.svelte";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
 
@@ -75,17 +78,24 @@
 
   let artifactUrl = $state("");
   let artifactError = $state<string | null>(null);
+  let artifactRetryAvailable = $state(false);
+  let retryAttempt = $state(0);
   $effect(() => {
+    // A retry deliberately invalidates both local protocol and signed-URL
+    // resolution without changing the artifact's durable identity.
+    void retryAttempt;
     const path = artifact.kind === "image" ? artifact.path : undefined;
     const run = tabId ? session.runFor(tabId) : undefined;
     if (!path || !tabId || !run) {
       artifactUrl = "";
       artifactError = null;
+      artifactRetryAvailable = artifact.kind === "html";
       return;
     }
     if (!windowCtx.isWeb && hostPolicy.isClientMachine(run.serverId)) {
       artifactUrl = localArtifactProtocolUrl(path);
       artifactError = null;
+      artifactRetryAvailable = true;
       return;
     }
 
@@ -93,6 +103,7 @@
     if (capabilities === undefined) {
       artifactUrl = "";
       artifactError = null;
+      artifactRetryAvailable = false;
       void hostCapabilitiesStore.load(run.serverId);
       return;
     }
@@ -103,12 +114,14 @@
         "this host";
       artifactUrl = "";
       artifactError = unsupportedOnHost("Artifact images", hostLabel);
+      artifactRetryAvailable = false;
       return;
     }
 
     let cancelled = false;
     artifactUrl = "";
     artifactError = null;
+    artifactRetryAvailable = true;
     void assetUrlCache
       .resolve({
         serverId: run.serverId,
@@ -147,7 +160,9 @@
       .then((t) => {
         if (!cancelled) svgText = t;
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!cancelled) artifactError = "This artifact image is unavailable.";
+      });
     return () => {
       cancelled = true;
     };
@@ -202,6 +217,25 @@
       nativeWidth = iframeEl?.offsetWidth ?? 0;
       expanded = true;
     }
+  }
+
+  $effect(() => {
+    if (runtime.isMobileViewport) expanded = false;
+  });
+
+  function retryArtifact() {
+    artifactError = null;
+    svgText = null;
+    retryAttempt += 1;
+  }
+
+  function downloadHtml() {
+    if (artifact.kind !== "html") return;
+    downloadPayload(
+      exportFileName(workRef?.title ?? "artifact", "html"),
+      "text/html",
+      { contents: artifact.html ?? "", encoding: "utf8" },
+    );
   }
 
   // The frame element IS the fixed overlay, so its client box is exactly the
@@ -316,11 +350,31 @@
     >
       {#if artifactError}
         <div
-          class="flex min-h-28 items-center justify-center rounded-2xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 text-center text-sm text-(--solus-text-secondary)"
+          class="flex min-h-28 flex-col items-center justify-center gap-3 rounded-2xl border border-(--solus-status-error)/20 bg-(--solus-status-error)/5 px-5 py-4 text-center text-sm text-(--solus-text-secondary)"
           role="alert"
           data-testid="artifact-error"
         >
-          {artifactError}
+          <span>{artifactError}</span>
+          <div class="flex flex-wrap justify-center gap-2">
+            {#if artifactRetryAvailable}
+              <button
+                type="button"
+                class="min-h-10 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-3.5 text-sm font-medium text-(--solus-text-primary)"
+                onclick={retryArtifact}
+              >
+                Try again
+              </button>
+            {/if}
+            {#if artifact.kind === "html"}
+              <button
+                type="button"
+                class="min-h-10 rounded-lg border border-(--solus-container-border) bg-(--solus-container-bg) px-3.5 text-sm font-medium text-(--solus-text-primary)"
+                onclick={downloadHtml}
+              >
+                Download HTML
+              </button>
+            {/if}
+          </div>
         </div>
       {:else if isRaster && artifact.path}
         <img
@@ -331,6 +385,7 @@
           onerror={() => (artifactError = "This artifact image is unavailable.")}
         />
       {:else if srcdoc !== null}
+        {#key retryAttempt}
         <iframe
           bind:this={iframeEl}
           title="Rendered artifact"
@@ -342,15 +397,19 @@
           style="color-scheme:{colorScheme};{expanded
             ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})`
             : `height:${contentHeight}px`}"
+          onerror={() => (artifactError = "This artifact could not be rendered.")}
           {srcdoc}
         ></iframe>
+        {/key}
       {:else}
         <div class="artifact-loading" role="status" aria-label="Loading artifact">
           <div class="sk-bar artifact-loading__bone"></div>
         </div>
       {/if}
 
-      {#if !artifactError && (srcdoc !== null || isRaster)}
+      {#if !artifactError &&
+      (srcdoc !== null || isRaster) &&
+      (!runtime.isMobileViewport || (isRaster && artifactUrl))}
         <div class="artifact-actions">
           {#if isRaster && artifactUrl}
             <TooltipUI.Root>
@@ -381,25 +440,27 @@
               <TooltipUI.Content value={copiedImage ? "Copied image" : "Copy image"} />
             </TooltipUI.Root>
           {/if}
-          <TooltipUI.Root>
-            <TooltipUI.Trigger>
-              {#snippet child({ props: tooltipProps })}
-                <button {...tooltipProps}
-            class="artifact-action"
-            data-testid="artifact-expand"
-            onclick={toggleExpand}
-            aria-label={expanded ? "Collapse artifact" : "Expand artifact"}
-          >
-            {#if expanded}
-              <ArrowsInIcon size={14} weight="bold" />
-            {:else}
-              <ArrowsOutIcon size={14} weight="bold" />
-            {/if}
-          </button>
-              {/snippet}
-            </TooltipUI.Trigger>
-            <TooltipUI.Content value={expanded ? "Collapse · Esc" : "Expand"} />
-          </TooltipUI.Root>
+          {#if !runtime.isMobileViewport}
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <button {...tooltipProps}
+                    class="artifact-action"
+                    data-testid="artifact-expand"
+                    onclick={toggleExpand}
+                    aria-label={expanded ? "Collapse artifact" : "Expand artifact"}
+                  >
+                    {#if expanded}
+                      <ArrowsInIcon size={14} weight="bold" />
+                    {:else}
+                      <ArrowsOutIcon size={14} weight="bold" />
+                    {/if}
+                  </button>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={expanded ? "Collapse · Esc" : "Expand"} />
+            </TooltipUI.Root>
+          {/if}
         </div>
       {/if}
     </div>
@@ -591,6 +652,14 @@
       border-radius: min(2vw, 0.75rem);
     }
 
+    .artifact-frame.expanded {
+      inset:
+        max(0.5rem, env(safe-area-inset-top, 0))
+        max(0.5rem, env(safe-area-inset-right, 0))
+        max(0.5rem, env(safe-area-inset-bottom, 0))
+        max(0.5rem, env(safe-area-inset-left, 0));
+    }
+
     .artifact-img {
       max-height: min(45svh, 22.5rem);
     }
@@ -665,6 +734,20 @@
   .artifact-frame.expanded .artifact-actions {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+
+  /* A phone has no hover pass that can reveal these controls before the iframe
+     takes the tap. Keep them present and large enough to operate directly. */
+  @media (hover: none), (pointer: coarse) {
+    .artifact-actions {
+      opacity: 1;
+      transform: none;
+    }
+
+    .artifact-action {
+      width: 2.5rem;
+      height: 2.5rem;
+    }
   }
 
   .artifact-action:hover {

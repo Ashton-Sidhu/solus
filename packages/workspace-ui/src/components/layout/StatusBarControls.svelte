@@ -213,7 +213,7 @@
   it in the tab-strip action cluster.
 -->
 <div class="relative flex min-w-0 items-center gap-2 text-workspace-chrome">
-  <!-- Composer ladder, rung 3: the whole status cluster goes below 22rem. It is
+  <!-- Composer ladder, rung 5: the whole status cluster goes below 25rem. It is
        what the row reads, not what the row does — every fact here is also in the
        input bar's header strip or the project panel.
 
@@ -223,7 +223,7 @@
        wrapper: on web it holds connection-retry, the push bell, and Switch
        server, which are the only entry points to those, so a narrow composer
        must not be the thing that removes them. -->
-  <div class="contents @max-[22rem]/composer:hidden">
+  <div class="contents @max-[25rem]/composer:hidden">
   <!-- Project info (dir + branch). Editor mode says this in the input bar's
        header strip instead, where it can also be changed. -->
   {#if mode === "pill"}
@@ -231,7 +231,14 @@
   {/if}
 
   {#if showUsage}
-    <ContextMeter tabId={sess ? source : ""} />
+    <!-- Composer ladder, rung 2: the usage meter leaves before the rest of the
+         cluster. It is the widest readout here and the only one repeated
+         elsewhere — the project panel carries the same figure — so it buys the
+         project and branch chips a rung of legibility at no cost. `contents`
+         keeps the meter a direct flex item at the widths where it shows. -->
+    <div class="contents @max-[34rem]/composer:hidden">
+      <ContextMeter tabId={sess ? source : ""} />
+    </div>
   {/if}
   <!-- Transient status, not destination config, so it stays in both modes. -->
   {#if !isPinned && session.runtimeSyncing}

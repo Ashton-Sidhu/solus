@@ -27,11 +27,12 @@ as well as the pull-request list did, so the rule is decided once here rather th
 
 ## Consequences
 
-- Only a rejected credential moves the chain on. A 404, a 422, or Solus's own stale-head error is
-  the answer; retrying it through another credential doubled its latency and replaced its message
-  with "failed through the provider adapter and CLI". A repository the host token cannot see but
-  `gh` can therefore still fails: 404 is ambiguous with "does not exist", and chaining on it would
-  bring the double-latency defect back.
+- Only a credential GitHub refuses moves the chain on: a 401, and since 0.28.1 a 403 or 404 as
+  well, because GitHub answers both when an OAuth app cannot see an organization repository that
+  the user's `gh` credential can. A 422 or Solus's own stale-head error is the answer; retrying it
+  through another credential doubled its latency and replaced its message with "failed through
+  the provider adapter and CLI". A repository that no credential can see still fails with the
+  last credential's error.
 - A fallback answer is identical to a first-choice answer — avatars present, merge states spelled
   the same — because one mapper produces both. There is no second implementation to drift.
 - `gh` is asked for its token at most once per host per five minutes. It is a credential source,
@@ -40,8 +41,15 @@ as well as the pull-request list did, so the rule is decided once here rather th
   `ghXxx` twin to add, and no per-method choice about whether it falls back.
 - The dispatch-checkout, publish, and managed-review-checkout paths take the first credential of
   the same chain instead of choosing between `buildClient` and a delegated client by hand.
-- `withAdapterCliFallback` remains for the two callers that shell out for a reason other than
-  credentials: `gh pr create`, which infers the repository from the checkout's remote, and
-  `resolvePullRequestUrl`, whose CLI branch covers a `cwd` from which no `RepoRef` resolves.
+- GitHub issue reads, assignment, comments, search, publication, and attachment upload use the
+  same chain. A user signed in through `gh auth` can therefore manage task assignees without also
+  completing Solus's device flow.
+- `withAdapterCliFallback` is gone. Its last two callers shelled out for a reason other than
+  credentials — `gh pr create`, which inferred the repository from the checkout's remote, and
+  `resolvePullRequestUrl`, whose CLI branch covered a `cwd` from which no `RepoRef` resolves — and
+  both now go through the chain: `createPullRequest` is a provider operation whose delegated
+  credential is selected by the checkout's `cwd`, and a folder with no recognizable GitHub remote
+  is an error rather than a `gh` call. Opening a pull request therefore needs a credential in the
+  chain; a `gh` sign-in still counts, but only as a token.
 - The GraphQL client is exposed as its query form only. Solus never used the endpoint-options
   form, and narrowing the type is what lets one 401 policy wrap both REST and GraphQL.

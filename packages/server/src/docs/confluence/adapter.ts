@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type {
   DocDestination,
+  DocDiagramAsset,
   DocDraft,
   DocPatch,
   DocProviderId,
@@ -19,6 +20,13 @@ import {
 import { loadCredential, type AtlassianStoredCredential } from '../../atlassian/token-store'
 import { DocProviderUnavailableError, DocVersionConflictError, type DocProviderAdapter } from '../types'
 import { markdownToStorage, storageToMarkdown } from './storage-format'
+import {
+  ATTACHMENT_SCOPE_MISSING,
+  canAttachDiagrams,
+  diagramAttachments,
+  uploadDiagramAttachments,
+} from './diagram-attachments'
+import { validatedDiagramAssets } from '../diagram-assets'
 
 /**
  * Confluence Cloud, reached through the site connection made in phase 1.
@@ -130,7 +138,11 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
         connectable: false,
       }
     }
-    return { provider: this.id, connected: true }
+    const status: DocProviderStatus = { provider: this.id, connected: true }
+    // An older grant publishes prose perfectly well and cannot carry a
+    // picture. Saying so beats a refusal halfway through a publish.
+    if (!canAttachDiagrams(credential.scopes)) status.limitation = ATTACHMENT_SCOPE_MISSING
+    return status
   }
 
   async destinations(): Promise<DocDestination[]> {
@@ -177,11 +189,17 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
     const credential = await this.credential()
     const { spaceKey, parentId } = scopeParts(scope)
     const spaceId = await this.spaceId(credential.cloudId, spaceKey)
+    // Everything about the diagrams that can be refused is refused now, before
+    // the page exists. An attachment belongs to a page, so the upload can only
+    // follow creation — and a create that fails afterwards leaves a page whose
+    // title then blocks every retry, since Confluence titles are unique per
+    // space and Solus has no permission to delete one.
+    const assets = this.publishableDiagrams(credential, doc.diagramAssets)
     const body: CreatePageBody = {
       spaceId,
       status: 'current',
       title: doc.title,
-      body: { representation: 'storage', value: markdownToStorage(doc.markdown) },
+      body: { representation: 'storage', value: markdownToStorage(doc.markdown, diagramAttachments(assets)) },
     }
     if (parentId) body.parentId = parentId
 
@@ -189,6 +207,7 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
       method: 'POST',
       body,
     })
+    await this.uploadDiagrams(credential, page.id, assets)
     return this.normalize(credential, page, spaceKey)
   }
 
@@ -206,17 +225,51 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
       throw new DocVersionConflictError(String(currentVersion), current.version?.createdAt)
     }
 
+    // Attachments go up before the body that references them, so the page is
+    // never published pointing at a picture that is not there yet. Confluence
+    // may count that upload as an edit, so the version the write increments is
+    // re-read afterwards rather than assumed — the guard above has already run.
+    const assets = this.publishableDiagrams(credential, patch.diagramAssets)
+    await this.uploadDiagrams(credential, ref.externalId, assets)
+    const versionToReplace = assets.length
+      ? (await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}`, pageSchema)).version?.number ?? currentVersion
+      : currentVersion
+
     const page = await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}`, pageSchema, {
       method: 'PUT',
       body: {
         id: ref.externalId,
         status: 'current',
         title: patch.title ?? current.title,
-        body: { representation: 'storage', value: markdownToStorage(patch.markdown) },
-        version: { number: currentVersion + 1, message: 'Updated from Solus' },
+        body: { representation: 'storage', value: markdownToStorage(patch.markdown, diagramAttachments(assets)) },
+        version: { number: versionToReplace + 1, message: 'Updated from Solus' },
       },
     })
     return this.normalize(credential, page, spaceKey)
+  }
+
+  /** The diagrams this publish may carry: valid images, and a grant that can
+   *  actually put them on a page. Answered before the first write. */
+  private publishableDiagrams(
+    credential: AtlassianStoredCredential,
+    assets: DocDiagramAsset[] | undefined,
+  ): DocDiagramAsset[] {
+    const validated = validatedDiagramAssets(assets)
+    if (validated.length && !canAttachDiagrams(credential.scopes)) {
+      throw new DocProviderUnavailableError(this.id, ATTACHMENT_SCOPE_MISSING)
+    }
+    return validated
+  }
+
+  /** Every diagram this publish carries, put on the page under a name derived
+   *  from its work id, so a republish replaces rather than accumulates. */
+  private async uploadDiagrams(
+    credential: AtlassianStoredCredential,
+    pageId: string,
+    assets: DocDiagramAsset[],
+  ): Promise<void> {
+    if (!assets.length) return
+    await uploadDiagramAttachments(credential.cloudId, pageId, assets, (failure) => docFailure(this.id, failure))
   }
 
   resolveUrl(url: string): DocRef | null {
@@ -317,6 +370,15 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
  *  than reading as a generic failure. */
 function docFailure(provider: DocProviderId, failure: AtlassianFailure): Error {
   if (failure.status === 409) return new DocVersionConflictError()
+  // Confluence page titles are unique per space, so a first publish of a
+  // document named like an existing page is refused outright. Solus cannot
+  // adopt that page — it may be someone else's — and cannot delete it, so the
+  // way forward is the user's to choose and has to be spelled out.
+  if (/title already exists/i.test(failure.detail)) {
+    return new Error(
+      'Confluence already has a page with this title in that space, and a space cannot hold two pages with one title. Rename this document, publish it to another space, or delete the existing page.',
+    )
+  }
   // Confluence says this when the token carries a scope the endpoint does not
   // accept. It is not a dead connection, so "reconnect" alone would read as
   // superstition: the grant predates a permission Solus now asks for, and only

@@ -137,6 +137,17 @@ export class RouterStore {
     return !!pane && !pane.overlay && pane.base?.name === 'chat'
   }
 
+  /** The pane beside a known source, or a fresh pane when the source is alone.
+   *  Unlike `aside`, this answer does not depend on whichever pane happens to
+   *  own focus when a portaled menu action runs. */
+  targetAcrossFrom(sourcePaneId: PaneId): NavTarget {
+    const sourceIndex = this.location.panes.findIndex((pane) => pane.id === sourcePaneId)
+    if (sourceIndex === -1) return 'aside'
+    return this.location.panes[sourceIndex + 1]?.id
+      ?? this.location.panes[sourceIndex - 1]?.id
+      ?? 'new'
+  }
+
   // ─── Navigating ───
 
   navigate(ref: RouteRef, opts: NavigateOptions = {}): PaneEntry {

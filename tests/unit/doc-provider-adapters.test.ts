@@ -1,5 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { SecretStore } from '@solus/server/platform/secrets'
+import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 
 /**
  * The document provider boundary: how a doc is addressed from a URL, and the
@@ -46,13 +47,23 @@ function connectAtlassian(): void {
     accessToken: 'access',
     refreshToken: 'refresh',
     expiresAt: Date.now() + 3_600_000,
-    scopes: ['read:confluence-content.all', 'write:confluence-content'],
+    scopes: ['read:confluence-content.all', 'write:confluence-content', 'write:confluence-file'],
   })
 }
 
 beforeEach(() => {
   records.clear()
 })
+
+/** A PNG header is all the asset check and the size reader look at. */
+function pngBase64(width: number, height: number): string {
+  const header = Buffer.alloc(24)
+  header.write('\x89PNG\r\n\x1a\n', 0, 'latin1')
+  header.write('IHDR', 12, 'latin1')
+  header.writeUInt32BE(width, 16)
+  header.writeUInt32BE(height, 20)
+  return header.toString('base64')
+}
 
 describe('resolveUrl', () => {
   test('addresses a Confluence page by the cloudId that survives a site rename', () => {
@@ -130,6 +141,51 @@ describe('Confluence refusals', () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  test('a title a space already holds names the ways out, since Solus can take neither', async () => {
+    // WHY: page titles are unique per space. Solus cannot adopt the existing
+    // page — it may be someone else's — and has no scope to delete it, so
+    // "HTTP 400" would leave the user with a refusal and no next step.
+    connectAtlassian()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') === 'GET') {
+        return new Response(JSON.stringify({ results: [{ id: '1', key: 'ENG', name: 'Engineering' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      }
+      return new Response(
+        JSON.stringify({ statusCode: 400, message: 'A page with this title already exists' }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      )
+    }) as typeof fetch
+
+    try {
+      await expect(confluence.create('ENG', { title: 'Spec', markdown: '# Spec' })).rejects.toThrow(/Rename this document/)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('reads the v1 dialect too, which is the only voice the attachment upload has', async () => {
+    // WHY: attachment upload has no v2 endpoint. v1 answers with a flat
+    // statusCode/message pair, and reading only the other two dialects
+    // reported a refused diagram upload as a bare HTTP 401 with the reason
+    // thrown away — which is exactly how it was first met in the wild.
+    connectAtlassian()
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ statusCode: 401, message: 'Current user not permitted to use Confluence' }),
+      { status: 401, headers: { 'content-type': 'application/json' } },
+    )) as typeof fetch
+
+    try {
+      await expect(confluence.destinations()).rejects.toThrow(/not permitted to use Confluence/)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
 
 describe('Confluence update', () => {
@@ -157,6 +213,128 @@ describe('Confluence update', () => {
       // The guard has to fire before the write, or the overwrite already happened.
       expect(calls.some((url) => url.includes('/pages/98765') && !url.includes('body-format'))).toBe(true)
       expect(calls).toHaveLength(1)
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('puts a diagram on the page as an attachment before the body that points at it', async () => {
+    // WHY: a Confluence page can only show an image it holds. Publishing the
+    // body first would leave the page pointing at a picture that is not there,
+    // and publishing nothing at all is how the embed used to become prose.
+    connectAtlassian()
+
+    const calls: { url: string; method: string; multipart: boolean }[] = []
+    const originalFetch = globalThis.fetch
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      calls.push({
+        url: String(input),
+        method: init?.method ?? 'GET',
+        multipart: init?.body instanceof FormData,
+      })
+      return new Response(
+        JSON.stringify({ id: '98765', title: 'Spec', version: { number: 7 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as typeof fetch
+
+    const workId = '018f0fd7-3684-426a-a0d4-4720572f99e6'
+
+    try {
+      await confluence.update(
+        { provider: 'confluence', externalKey: `${CLOUD_ID}/ENG`, externalId: '98765', url: '' },
+        {
+          markdown: serializeDiagramEmbed({ workId, title: 'Target Architecture' }),
+          diagramAssets: [{ workId, title: 'Target Architecture', mimeType: 'image/png', base64: pngBase64(800, 600) }],
+        },
+      )
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+
+    const attachment = calls.findIndex((call) => call.url.includes('/child/attachment'))
+    const write = calls.findIndex((call) => call.method === 'PUT' && !call.multipart)
+    expect(attachment).toBeGreaterThanOrEqual(0)
+    // Create-or-update by filename, so a republish replaces the picture rather
+    // than being refused for a name the page already carries.
+    expect(calls[attachment]!.method).toBe('PUT')
+    expect(calls[attachment]!.multipart).toBe(true)
+    expect(write).toBeGreaterThan(attachment)
+  })
+
+  test('refuses a diagram publish an older grant cannot carry, before creating the page', async () => {
+    // WHY: a create writes the page before it can attach anything to it, so a
+    // refusal after that point leaves a page whose title blocks every retry —
+    // titles are unique per space and Solus cannot delete one.
+    records.set('atlassian-oauth', {
+      siteUrl: 'https://acme.atlassian.net',
+      cloudId: CLOUD_ID,
+      products: ['confluence'],
+      accessToken: 'access',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 3_600_000,
+      scopes: ['read:page:confluence', 'write:page:confluence'],
+    })
+
+    const originalFetch = globalThis.fetch
+    const written: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'GET') written.push(String(input))
+      return new Response(JSON.stringify({ results: [{ id: '1', key: 'ENG', name: 'Engineering' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })
+    }) as typeof fetch
+
+
+    try {
+      const publish = confluence.create('ENG', {
+        title: 'Spec',
+        markdown: 'body',
+        diagramAssets: [{ workId: 'w1', title: 'Target Architecture', mimeType: 'image/png', base64: pngBase64(800, 600) }],
+      })
+      await expect(publish).rejects.toBeInstanceOf(docTypes.DocProviderUnavailableError)
+      expect(written).toEqual([])
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
+  test('refuses a diagram publish an older grant cannot carry, before writing anything', async () => {
+    // WHY: the attachment scope is new. A grant made before it publishes prose
+    // perfectly well, and would otherwise fail with a 403 after the page had
+    // already been rewritten to point at pictures that never arrived.
+    records.set('atlassian-oauth', {
+      siteUrl: 'https://acme.atlassian.net',
+      cloudId: CLOUD_ID,
+      products: ['confluence'],
+      accessToken: 'access',
+      refreshToken: 'refresh',
+      expiresAt: Date.now() + 3_600_000,
+      scopes: ['read:page:confluence', 'write:page:confluence'],
+    })
+
+    const originalFetch = globalThis.fetch
+    const written: string[] = []
+    globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      if ((init?.method ?? 'GET') !== 'GET') written.push(String(input))
+      return new Response(
+        JSON.stringify({ id: '98765', title: 'Spec', version: { number: 7 } }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )
+    }) as typeof fetch
+
+    try {
+      const publish = confluence.update(
+        { provider: 'confluence', externalKey: `${CLOUD_ID}/ENG`, externalId: '98765', url: '' },
+        {
+          markdown: 'body',
+          diagramAssets: [{ workId: 'w1', title: 'Target Architecture', mimeType: 'image/png', base64: pngBase64(800, 600) }],
+        },
+      )
+      await expect(publish).rejects.toBeInstanceOf(docTypes.DocProviderUnavailableError)
+      expect(written).toEqual([])
+      expect((await confluence.status()).limitation).toContain('sign in again')
     } finally {
       globalThis.fetch = originalFetch
     }

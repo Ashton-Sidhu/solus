@@ -34,6 +34,7 @@ const SAMPLES: RouteRef[] = [
   { name: 'plan', params: { planId: 'p_88' } },
   { name: 'plan', params: { planId: null } },
   { name: 'work', params: { workId: 'w_12' } },
+  { name: 'work', params: { workId: 'w_remote', serverId: 'studio-host' } },
   { name: 'automation', params: { automationId: 'a_3' } },
   { name: 'automation', params: { automationId: null } },
   { name: 'automation', params: { automationId: null, serverId: 'remote-host' } },

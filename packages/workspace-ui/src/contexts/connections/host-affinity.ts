@@ -1,11 +1,11 @@
 import {
-    Apple as AppleLogoIcon,
-    CloudOff as CloudSlashIcon,
-    Earth as GlobeSimpleIcon,
-    Terminal as LinuxLogoIcon,
-    PanelsTopLeft as WindowsLogoIcon,
-  } from "@lucide/svelte";
-  import type { Component } from 'svelte'
+  CloudOff as CloudSlashIcon,
+  Earth as GlobeSimpleIcon,
+  Terminal as LinuxLogoIcon,
+  PanelsTopLeft as WindowsLogoIcon,
+} from '@lucide/svelte'
+import type { Component } from 'svelte'
+import AppleLogoIcon from '../../components/servers/AppleLogoIcon.svelte'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 import type { ServerItemStatus } from './servers.store.svelte'
 
@@ -67,9 +67,8 @@ function glyphForStatus(
   os?: HostOperatingSystem,
 ): Omit<HostAffinityGlyph, 'tooltip'> {
   const hostIcon = operatingSystemIcon(os)
-  const hostIconClassName = os === 'macos' ? 'fill-current stroke-0' : ''
   if (status === 'connecting') {
-    return { icon: hostIcon, className: `animate-pulse text-(--solus-accent) ${hostIconClassName}`, statusLabel: hostStatusLabel(status) }
+    return { icon: hostIcon, className: 'animate-pulse text-(--solus-accent)', statusLabel: hostStatusLabel(status) }
   }
   if (status === 'offline' || status === 'different-server') {
     return { icon: CloudSlashIcon, className: 'text-(--solus-status-error)', statusLabel: hostStatusLabel(status) }
@@ -77,9 +76,9 @@ function glyphForStatus(
   // A host nobody has probed yet is unknown, not unreachable — saying "offline"
   // in error red would cry wolf before anything was even dialled.
   if (status === 'saved') {
-    return { icon: hostIcon, className: `text-(--solus-text-quaternary) ${hostIconClassName}`, statusLabel: hostStatusLabel(status) }
+    return { icon: hostIcon, className: 'text-(--solus-text-quaternary)', statusLabel: hostStatusLabel(status) }
   }
-  return { icon: hostIcon, className: `text-(--solus-text-tertiary) ${hostIconClassName}`, statusLabel: hostStatusLabel(status) }
+  return { icon: hostIcon, className: 'text-(--solus-text-tertiary)', statusLabel: hostStatusLabel(status) }
 }
 
 function operatingSystemIcon(os?: HostOperatingSystem): Component {

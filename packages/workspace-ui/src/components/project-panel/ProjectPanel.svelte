@@ -208,6 +208,29 @@
     session.tasksStore.peek(namedTaskId) ??
       session.tasksStore.taskForSession(panelTaskSessionId),
   );
+  const panelTaskCwd = $derived(panelTask?.projectKey ?? cwd);
+
+  // The Task card exists only while the task has something linked, so the read
+  // that decides it belongs here rather than in the card it would hide. Links
+  // are per-task IO the rail follows without a click of its own — the id
+  // changes whenever the focused session does — which is what $effect is for.
+  const panelTaskLinks = $derived(
+    panelTask ? session.tasksStore.get(panelTask.id).details?.links ?? [] : [],
+  );
+  let loadedTaskId: string | null = null;
+  $effect(() => {
+    const id = panelTask?.id;
+    if (!id || !active || !open) {
+      loadedTaskId = null;
+      return;
+    }
+    const stopWatching = session.tasksStore.get(id).watchDetails();
+    if (id !== loadedTaskId) {
+      loadedTaskId = id;
+      void session.tasksStore.get(id, panelTaskCwd).loadDetails().catch(() => {});
+    }
+    return stopWatching;
+  });
 
   // Automations scoped to the focused project (its repo root, worktree, and cwd),
   // so the panel shows what runs for this project.
@@ -524,9 +547,11 @@
         onResizePointerDown={startResize}
       />
     {/if}
-    {#if panelTask}
+    {#if panelTask && panelTaskLinks.length}
       <!-- The header carries the whole of the task's identity — label, ref and
-           actions — so the card's body is only its two lists. -->
+           actions — and the body is its linked list. A task with nothing
+           linked has no card at all rather than an empty one: the task itself
+           is already named in the breadcrumb and on the task page. -->
       <PanelSection
         title="Task"
         collapsed={collapsedSections.task}
@@ -536,8 +561,7 @@
       >
         <TaskSection
           task={panelTask}
-          projectCwd={panelTask.projectKey ?? cwd}
-          currentSessionId={panelTaskSessionId}
+          projectCwd={panelTaskCwd}
           active={active && open}
         />
       </PanelSection>

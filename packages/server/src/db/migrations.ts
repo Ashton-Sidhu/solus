@@ -1,5 +1,63 @@
 import type { DatabaseSync } from 'node:sqlite'
 
+/**
+ * A session has one owning task from here on (`transferSessionOwnership` in
+ * `task-sessions.ts`). Rows written before that rule could hold several
+ * `working` links for one session — an auto-minted task beside the one the
+ * agent linked — and the sidebar drew the conversation once per task. The
+ * newest working link is the owner, as a live transfer would have decided;
+ * the older ones become `referenced` so the relationship survives without a
+ * row. The demoted set is collected first so the update reads a stable table.
+ *
+ * A placeholder minted for the session that then moved on is dropped when it
+ * holds nothing else — the same emptiness test the live transfer applies.
+ * Exported so the rewrite can be exercised against seeded duplicate rows.
+ */
+export const SINGLE_SESSION_OWNER_MIGRATION = `
+CREATE TEMP TABLE demoted_session_owners AS
+SELECT older.task_id, older.session_id
+FROM task_session_links AS older
+WHERE older.role = 'working'
+  AND EXISTS (
+    SELECT 1 FROM task_session_links AS newer
+    WHERE newer.session_id = older.session_id
+      AND newer.role = 'working'
+      AND newer.task_id <> older.task_id
+      AND (
+        newer.linked_at > older.linked_at
+        OR (newer.linked_at = older.linked_at AND newer.task_id > older.task_id)
+      )
+  );
+
+UPDATE task_session_links SET role = 'referenced'
+WHERE EXISTS (
+  SELECT 1 FROM demoted_session_owners
+  WHERE demoted_session_owners.task_id = task_session_links.task_id
+    AND demoted_session_owners.session_id = task_session_links.session_id
+);
+
+CREATE TEMP TABLE empty_session_placeholders AS
+SELECT tasks.id
+FROM tasks
+JOIN demoted_session_owners
+  ON demoted_session_owners.task_id = tasks.id
+  AND demoted_session_owners.session_id = tasks.origin_session_id
+WHERE tasks.source = 'session'
+  AND NOT EXISTS (
+    SELECT 1 FROM task_session_links
+    WHERE task_session_links.task_id = tasks.id
+      AND task_session_links.session_id <> tasks.origin_session_id
+  )
+  AND NOT EXISTS (SELECT 1 FROM tasks AS child WHERE child.parent_id = tasks.id)
+  AND NOT EXISTS (SELECT 1 FROM task_comments WHERE task_comments.task_id = tasks.id)
+  AND NOT EXISTS (SELECT 1 FROM task_links WHERE task_links.task_id = tasks.id);
+
+DELETE FROM tasks WHERE id IN (SELECT id FROM empty_session_placeholders);
+
+DROP TABLE empty_session_placeholders;
+DROP TABLE demoted_session_owners;
+`
+
 const migrations = [
   `
 CREATE TABLE tasks (
@@ -762,6 +820,7 @@ ALTER TABLE tasks DROP COLUMN snoozed_at;
 ALTER TABLE tasks DROP COLUMN snooze_note;
 DELETE FROM task_events WHERE kind IN ('snoozed', 'woke');
 `,
+  SINGLE_SESSION_OWNER_MIGRATION,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

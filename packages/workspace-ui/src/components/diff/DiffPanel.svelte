@@ -53,10 +53,16 @@
   import type { HostApi } from "@solus/client-core/host-api";
   import type { FileDiffContentsLoader, FileDiffMetadata } from "@pierre/diffs";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
+  import type { PaneId } from "../../contexts/workspace/routing/location";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import { supportsEditor } from "@solus/client-core/host-capabilities";
   import { worktreeDisplayName } from "../../lib/git-context";
+  import CodeIntelPopover from "../code-intel/CodeIntelPopover.svelte";
+  import { codeIntelStore } from "../code-intel/code-intel.store.svelte";
+  import { symbolAvailability } from "../code-intel/lib/symbol-card";
+  import type { CodeSymbolHit } from "../code-intel/lib/hit-test";
+  import type { CodeSymbolAvailability, CodeSymbolLookup } from "../code-intel/lib/symbol-card";
 
   type ExternalDiffCommentSave = {
     id?: string;
@@ -71,6 +77,7 @@
 
   let {
     tabId,
+    paneId,
     getCtx,
     getApi: getApiProp,
     projectPath,
@@ -110,6 +117,8 @@
     feedbackSessionTarget,
   }: {
     tabId: string;
+    /** The pane drawing this diff. Symbol targets open across from it. */
+    paneId?: PaneId;
     getCtx?: () => IpcContext;
     getApi?: () => HostApi;
     projectPath: string;
@@ -599,6 +608,55 @@
       fallbackTerminalId: theme.fallbackTerminal,
       cwd: fileRoot,
     });
+  }
+
+  // The identifier the user asked about, until the card closes.
+  let symbolLookup = $state<CodeSymbolLookup | null>(null);
+
+  function symbolLookupForHit(path: string, hit: CodeSymbolHit): CodeSymbolLookup | null {
+    // The index describes the working tree; a deleted line has no home in it.
+    if (hit.side === "old") return null;
+    const root = worktreePath ?? projectPath;
+    if (!root) return null;
+    const api = getApi();
+    return {
+      serverId: serverConnections.serverIdForApi(api),
+      api,
+      ctx: getCtx?.() ?? session.ctxFor(tabId),
+      root,
+      path,
+      line: hit.line - 1,
+      character: hit.character,
+      token: hit.token,
+      anchor: hit.anchor,
+    };
+  }
+
+  function handleSymbolHit(path: string, hit: CodeSymbolHit) {
+    symbolLookup = symbolLookupForHit(path, hit);
+  }
+
+  async function availabilityOfSymbol(path: string, hit: CodeSymbolHit): Promise<CodeSymbolAvailability> {
+    const lookup = symbolLookupForHit(path, hit);
+    if (!lookup) return "none";
+    try {
+      const result = await codeIntelStore.symbolAt(lookup.serverId, lookup.api, lookup.ctx, {
+        cwd: lookup.root,
+        path: lookup.path,
+        line: lookup.line,
+        character: lookup.character,
+      });
+      return symbolAvailability(result);
+    } catch {
+      return "none";
+    }
+  }
+
+  function openSymbolLocation(path: string, line: number) {
+    const root = symbolLookup?.root;
+    symbolLookup = null;
+    if (!root) return;
+    session.openFilePreview({ path: `${root}/${path}`, line }, tabId, paneId);
   }
 
   // Single entry point for both selection gestures — the gutter "+" button
@@ -1232,6 +1290,8 @@
           onLineClearSelect={handleLineClearSelect}
           onEditComment={handleEditComment}
           onDeleteComment={handleDeleteComment}
+          onSymbolHit={handleSymbolHit}
+          symbolAvailability={availabilityOfSymbol}
         />
         </div>
     </DiffResizableContent>
@@ -1247,6 +1307,12 @@
     onClose={() => (commentsPopoverOpen = false)}
     onNavigate={navigateToComment}
     onNavigateThread={navigateToThread}
+  />
+
+  <CodeIntelPopover
+    lookup={symbolLookup}
+    onNavigate={openSymbolLocation}
+    onClose={() => (symbolLookup = null)}
   />
 
   {#if !hasExternalCommentStore}

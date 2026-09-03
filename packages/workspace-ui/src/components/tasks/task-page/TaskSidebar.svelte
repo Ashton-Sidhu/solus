@@ -1,12 +1,13 @@
 <script lang="ts">
-  import type { Task, TaskStatus, TaskUpdatePatch } from "@solus/contracts/task-types";
+  import type { Task, TaskAssigneeCandidate, TaskStatus, TaskUpdatePatch } from "@solus/contracts/task-types";
   import { group, row, rowLabel, valueButton } from "./lib/sidebar-styles";
   import { RefreshCw as ArrowsClockwiseIcon, LoaderCircle as CircleNotchIcon, Folder as FolderIcon } from "@lucide/svelte";
   import ProjectFavicon from "../../ui/ProjectFavicon.svelte";
   import { SourceLogo } from "../../ui/list-page";
-  import { authorInitials, relativeTime, STATUS_META } from "../lib/tasks-api";
+  import { relativeTime, STATUS_META } from "../lib/tasks-api";
   import TaskPriorityMenu from "./TaskPriorityMenu.svelte";
   import TaskStatusMenu from "./TaskStatusMenu.svelte";
+  import TaskAssigneeMenu from "./TaskAssigneeMenu.svelte";
   import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
   import {
     syncToneColor,
@@ -27,6 +28,10 @@
     canEditPlanningFields: boolean;
     canEditPriority: boolean;
     canEditLabels: boolean;
+    canEditAssignee: boolean;
+    assigneeCandidates: TaskAssigneeCandidate[];
+    assigneeCandidatesLoading: boolean;
+    assigneeCandidatesError?: string;
     editableStatuses: TaskStatus[];
     /** Null for a task with no upstream: the whole group is then absent, rather
      *  than present and empty. */
@@ -44,6 +49,7 @@
     onPublishTask: () => void;
     onOpenUpstream: (url: string) => void;
     onSave: (patch: TaskUpdatePatch) => void;
+    onOpenAssigneeMenu: () => void;
   }
 
   let {
@@ -56,6 +62,10 @@
     canEditPlanningFields,
     canEditPriority,
     canEditLabels,
+    canEditAssignee,
+    assigneeCandidates,
+    assigneeCandidatesLoading,
+    assigneeCandidatesError,
     editableStatuses,
     upstream,
     publishTarget,
@@ -67,6 +77,7 @@
     onPublishTask,
     onOpenUpstream,
     onSave,
+    onOpenAssigneeMenu,
   }: Props = $props();
 
   const sheet = $derived(variant === "sheet");
@@ -162,21 +173,17 @@
 
     <div class={ROW}>
       <span class={ROW_LABEL}>Assignee</span>
-      {#if task.assignee}
-        <span class={VALUE}>
-          <span
-            class="flex size-[18px] shrink-0 items-center justify-center rounded-full  font-medium shadow-[inset_0_0_0_.5px_color-mix(in_oklch,var(--foreground)_10%,transparent)]"
-            style="background:color-mix(in oklch, var(--chart-1) 22%, transparent);color:color-mix(in oklch, var(--chart-1) 72%, var(--foreground))"
-          >
-            {authorInitials(task.assignee)}
-          </span>
-          {task.assignee}
-        </span>
-      {:else}
-        <span class="{VALUE} text-muted-foreground">
-          Unassigned
-        </span>
-      {/if}
+      <TaskAssigneeMenu
+        assignee={task.assignee}
+        assigneeAvatarUrl={task.assigneeAvatarUrl ?? assigneeCandidates.find((candidate) => candidate.login === task.assignee)?.avatarUrl}
+        candidates={assigneeCandidates}
+        loading={assigneeCandidatesLoading}
+        error={assigneeCandidatesError}
+        disabled={!canEditAssignee}
+        triggerClass={canEditAssignee ? VALUE_BUTTON : VALUE}
+        onOpen={onOpenAssigneeMenu}
+        onSelect={(assignee) => onSave({ assignee })}
+      />
     </div>
 
     <div class={ROW}>

@@ -2,6 +2,7 @@ import type { PrepareSessionTaskResult, TaskSidebarPrLink } from '@solus/contrac
 import {
   commentOnUpstreamTask,
   getUpstreamTask,
+  listTaskAssigneeCandidates,
   listUpstreamTasks,
   taskProviderStatus,
   updateUpstreamTask,
@@ -56,6 +57,11 @@ export function registerTasksHandlers(server: SolusServer): void {
   server.register('tasksCommentUpstream', (args) => {
     const [cwd, id, body] = args
     return commentOnUpstreamTask(cwd, id, body)
+  })
+
+  server.register('tasksListAssigneeCandidates', (args) => {
+    const [cwd] = args
+    return listTaskAssigneeCandidates(cwd)
   })
 
   server.register('tasksListCandidates', (args) => {

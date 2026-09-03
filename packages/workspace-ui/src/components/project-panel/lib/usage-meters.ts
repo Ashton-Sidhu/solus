@@ -7,9 +7,9 @@ export interface UsageMeter {
   remainingPercent: number
   /** Drives the bar tint — a nearly-spent window has to read as one at a glance. */
   tone: 'ok' | 'low' | 'spent'
-  /** Time until the window refills ("3h 12m"), or the provider's own wording
-   *  when its reset can't be resolved to a moment. */
-  resetText: string | null
+  /** The whole qualifier beside the bar — "resets in 3h 12m", or "resetting now"
+   *  once the window is due, because a countdown has no words left at zero. */
+  resetPhrase: string | null
 }
 
 /** One provider's usage state, with the quota windows it actually reports.
@@ -84,9 +84,10 @@ function clockHours(hour: string, meridiem: string): number {
   return hours
 }
 
-/** Compact countdown — one unit of precision more than the reader needs to act. */
-export function untilText(remaining: number): string {
-  if (remaining <= 0) return 'resetting'
+/** Compact countdown — one unit of precision more than the reader needs to act.
+ *  A window that is already due has no duration to print, so it returns null. */
+export function untilText(remaining: number): string | null {
+  if (remaining <= 0) return null
   if (remaining < HOUR) return `${Math.max(1, Math.round(remaining / MINUTE))}m`
   if (remaining < DAY) {
     const hours = Math.floor(remaining / HOUR)
@@ -106,16 +107,19 @@ function toneFor(remainingPercent: number): UsageMeter['tone'] {
 
 /** Codex gives an epoch, Claude a localized label — both become a countdown,
  *  and an unparseable label degrades to the provider's own words. */
-function resetText(window: UsageWindow, now: number): string | null {
+function resetPhrase(window: UsageWindow, now: number): string | null {
   const resetsAt = window.resetsAt ?? (window.resetsLabel ? parseResetLabel(window.resetsLabel, now) : null)
-  if (resetsAt !== null) return untilText(resetsAt - now)
-  return window.resetsLabel
+  if (resetsAt !== null) {
+    const until = untilText(resetsAt - now)
+    return until ? `resets in ${until}` : 'resetting now'
+  }
+  return window.resetsLabel ? `resets in ${window.resetsLabel}` : null
 }
 
 function meter(key: UsageMeter['key'], label: string, window: UsageWindow | null, now: number): UsageMeter | null {
   if (!window) return null
   const remainingPercent = Math.max(0, Math.min(100, 100 - window.usedPercent))
-  return { key, label, remainingPercent, tone: toneFor(remainingPercent), resetText: resetText(window, now) }
+  return { key, label, remainingPercent, tone: toneFor(remainingPercent), resetPhrase: resetPhrase(window, now) }
 }
 
 /**

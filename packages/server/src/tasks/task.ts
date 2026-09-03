@@ -189,7 +189,8 @@ export class Task implements TaskRecord {
       SELECT task_id
       FROM task_session_links
       WHERE task_session_links.session_id IN (?, ?)
-      ORDER BY task_session_links.linked_at DESC
+      ORDER BY CASE task_session_links.role WHEN 'working' THEN 0 ELSE 1 END,
+        task_session_links.linked_at DESC
       LIMIT 1
     `).get(sessionId, stableSessionId))
     if (!parsed.success) {
@@ -324,6 +325,7 @@ export class Task implements TaskRecord {
         if (existing.status !== updated.status) changedFields.push('status')
         if (existing.labels !== updated.labels) changedFields.push('labels')
         if (existing.priority !== updated.priority) changedFields.push('priority')
+        if (existing.assignee !== updated.assignee) changedFields.push('assignee')
         syncDirty = markTaskFieldsDirty(db, this.id, changedFields)
       }
     })

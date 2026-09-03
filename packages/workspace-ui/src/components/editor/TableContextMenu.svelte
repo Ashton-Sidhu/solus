@@ -11,6 +11,7 @@
     AlignRight as TextAlignRight,
     Trash,
     MinusSquare,
+    Rows3,
   } from "@lucide/svelte";
   import { alignColumn } from './lib/table-align'
 
@@ -88,7 +89,14 @@
     },
   ]
 
+  // Whole-table verbs. Right-click is the only way in, now that the table has
+  // no block bar of its own.
   const tableActions: TableAction[] = [
+    {
+      label: 'Toggle header row',
+      icon: Rows3,
+      action: () => editor.chain().focus().toggleHeaderRow().run(),
+    },
     {
       label: 'Delete table',
       icon: Trash,

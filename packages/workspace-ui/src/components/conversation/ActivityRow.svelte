@@ -210,7 +210,12 @@
     color: color-mix(in oklch, var(--destructive) 70%, var(--foreground));
   }
 
+  /* The row is one line: a long sentence — "Running in the background…" beside its
+     target in a narrow pane — ends in an ellipsis instead of wrapping. */
   .activity-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--text-activity-label);
     color: var(--muted-foreground);
   }

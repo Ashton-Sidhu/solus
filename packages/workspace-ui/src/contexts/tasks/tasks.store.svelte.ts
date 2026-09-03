@@ -3,6 +3,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import type {
   PrepareSessionTaskResult,
   Task as TaskRecord,
+  TaskAssigneeCandidate,
   TaskCreateInput,
   TaskForSessionResult,
   TaskLinkTarget,
@@ -117,6 +118,9 @@ export class TasksStore {
   // Facts about a project, not about any one task, so they stay here.
 
   providerStatusByCwd = new SvelteMap<string, TaskProviderStatus>()
+  assigneeCandidatesByCwd = new SvelteMap<string, TaskAssigneeCandidate[]>()
+  assigneeCandidatesLoadingByCwd = new SvelteMap<string, boolean>()
+  assigneeCandidatesErrorByCwd = new SvelteMap<string, string>()
   upstreamErrorByProject = new SvelteMap<string, string>()
   upstreamFromCacheByProject = new SvelteMap<string, boolean>()
   upstreamRefreshedAtByProject = new SvelteMap<string, number>()
@@ -158,6 +162,7 @@ export class TasksStore {
   private hostByProjectKey = new SvelteMap<string, string>()
   private loadPromise: Promise<void> | null = null
   private providerStatusLoadsByCwd = new Map<string, Promise<TaskProviderStatus>>()
+  private assigneeCandidateLoadsByCwd = new Map<string, Promise<TaskAssigneeCandidate[]>>()
   private upstreamLoadsByProject = new Map<string, Promise<void>>()
   private invalidationTimer: ReturnType<typeof setTimeout> | null = null
   private subscribedServerIds = new Set<string>()
@@ -389,6 +394,42 @@ export class TasksStore {
     return cwd ? (this.providerStatusByCwd.get(cwd) ?? null) : null
   }
 
+  assigneeCandidates(cwd: string | null | undefined): TaskAssigneeCandidate[] {
+    return cwd ? (this.assigneeCandidatesByCwd.get(cwd) ?? []) : []
+  }
+
+  /** Load provider identities only when the assignee menu opens. */
+  loadAssigneeCandidates(
+    cwd: string,
+    opts?: { force?: boolean; serverId?: string },
+  ): Promise<TaskAssigneeCandidate[]> {
+    if (!opts?.force && this.assigneeCandidatesByCwd.has(cwd)) {
+      return Promise.resolve(this.assigneeCandidatesByCwd.get(cwd) ?? [])
+    }
+    const pending = this.assigneeCandidateLoadsByCwd.get(cwd)
+    if (pending) return pending
+    this.assigneeCandidatesLoadingByCwd.set(cwd, true)
+    this.assigneeCandidatesErrorByCwd.delete(cwd)
+    const load = (async () => {
+      try {
+        const serverId = opts?.serverId ?? this.hostForProject(cwd) ?? serverConnections.defaultServerId()
+        if (!serverId) throw new Error('Primary Solus connection has not been registered')
+        const candidates = await serverConnections.apiFor(serverId).tasksListAssigneeCandidates(cwd)
+        this.assigneeCandidatesByCwd.set(cwd, candidates)
+        return candidates
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.assigneeCandidatesErrorByCwd.set(cwd, message)
+        throw error
+      } finally {
+        this.assigneeCandidatesLoadingByCwd.set(cwd, false)
+        this.assigneeCandidateLoadsByCwd.delete(cwd)
+      }
+    })()
+    this.assigneeCandidateLoadsByCwd.set(cwd, load)
+    return load
+  }
+
   // --- Ingest -------------------------------------------------------------
   // The one way a response becomes state. Called by `load`, by the session-tree
   // reads, and by every `Task` write that gets a row back.
@@ -557,7 +598,11 @@ export class TasksStore {
       const task = this.get(taskId)
       task.replaceSessions(sessionsById.get(taskId) ?? [])
       task.applyPrLinks(prLinksById.get(taskId) ?? [])
-      for (const link of task.sessions) this.taskIdBySessionId.set(link.sessionId, taskId)
+      // Only the owner claims the session: a `referenced` link is a relationship
+      // the task page lists, and must not answer `taskForSession`.
+      for (const link of task.sessions) {
+        if (link.role !== 'referenced') this.taskIdBySessionId.set(link.sessionId, taskId)
+      }
     }
   }
 
@@ -689,18 +734,6 @@ export class TasksStore {
     return this.taskForSession(sessionId)
   }
 
-  /** Read each known identity from the task host before fallback task creation.
-   * Unlike normal UI hydration, an RPC failure must reject: an empty cache is
-   * not proof that the running agent did not create a task link. */
-  async findSessionTaskOnHost(sessionIds: string[], serverId: string): Promise<Task | null> {
-    const api = serverConnections.apiFor(serverId)
-    for (const sessionId of sessionIds) {
-      const tree = await api.tasksForSession(sessionId)
-      if (tree) return this.applySessionTree(sessionId, tree, serverId)
-    }
-    return null
-  }
-
   /** The two-level tree a session belongs to — its task, that task's parent,
    * and every subtask under the root, each by name. The global snapshot
    * carries all of them whenever it succeeds; this is the read that still
@@ -753,9 +786,8 @@ export class TasksStore {
   }
 
   /**
-   * Bind an explicitly selected task before a session starts, or mint the
-   * fallback task after a taskless turn settles, on the host that owns its
-   * project.
+   * Bind an explicitly selected task, or mint the session's own, before its
+   * first prompt leaves — on the host that owns its project.
    *
    * This is the first-dispatch boundary, moved out of whichever host happens to
    * run the agent. A dispatched session runs on one machine and files here, so

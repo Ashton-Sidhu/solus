@@ -1,8 +1,15 @@
 <script lang="ts">
   import { ChevronRight as ChevronRightIcon } from "@lucide/svelte";
+  import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import { highlightRuns, type TextRun } from "../../../lib/searchHighlight";
+  import { swipeActions } from "../../../lib/swipe-actions";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
-  import { relativeTime, STATUS_META } from "../../tasks/lib/tasks-api";
+  import TaskStatusSwipeControls from "../../tasks/TaskStatusSwipeControls.svelte";
+  import {
+    relativeTime,
+    STATUS_META,
+    TASK_STATUS_SWIPE_REVEAL_WIDTH,
+  } from "../../tasks/lib/tasks-api";
   import { isDone } from "../../tasks/lib/tasks-list-view";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
   import { projectLabel, type PickerEntry, type PickerRow } from "./lib/picker-rows";
@@ -24,6 +31,10 @@
     onContextMenu: (event: MouseEvent, entry: PickerEntry) => void;
     onPressStart: (event: PointerEvent, entry: PickerEntry) => void;
     onPressEnd: () => void;
+    mobile: boolean;
+    revealedTaskId: string | null;
+    onRevealChange: (taskId: string | null) => void;
+    onSetStatus: (task: Task, status: TaskStatus) => void;
   }
   let {
     row,
@@ -36,6 +47,10 @@
     onContextMenu,
     onPressStart,
     onPressEnd,
+    mobile,
+    revealedTaskId,
+    onRevealChange,
+    onSetStatus,
   }: Props = $props();
 </script>
 
@@ -61,12 +76,30 @@
   {@const isSelected = row.entryIndex === selectedIndex}
   {@const isRunning = row.sessions.some((child) => child.attention === "running")}
   <div
-    class="flex h-11 items-center rounded-xl pr-2.5 transition-[background-color] duration-100 max-md:h-[58px] max-md:rounded-lg max-md:pr-3 {isSelected ? 'bg-[color-mix(in_oklch,var(--primary)_10%,transparent)] max-md:bg-[var(--wash-2)]' : 'hover:bg-[var(--wash-2)]'} {isDone(task) ? 'opacity-60' : ''}"
+    class="relative h-11 overflow-hidden rounded-xl max-md:h-[58px] max-md:rounded-lg"
     {style}
   >
-    <!-- The disclosure is its own target, so opening a task never resumes it
-         by accident. It keeps its width when a task has no sessions, because
-         a ragged left edge is harder to scan than an empty gutter. -->
+    <TaskStatusSwipeControls
+      status={task.status}
+      revealed={revealedTaskId === task.id}
+      class="hidden max-md:flex"
+      onSelect={(status) => {
+        onRevealChange(null);
+        if (status !== task.status) onSetStatus(task, status);
+      }}
+    />
+    <div
+      class="relative flex h-full items-center pr-2.5 transition-[background-color] duration-100 max-md:pr-3 {isSelected ? 'bg-[color-mix(in_oklch,var(--primary)_10%,var(--background))] max-md:bg-[color-mix(in_oklch,var(--foreground)_7%,var(--background))]' : 'bg-background hover:bg-[var(--wash-2)]'} {isDone(task) ? 'opacity-60' : ''}"
+      use:swipeActions={{
+        revealWidth: TASK_STATUS_SWIPE_REVEAL_WIDTH,
+        open: revealedTaskId === task.id,
+        enabled: mobile,
+        onRevealChange: (revealed) => onRevealChange(revealed ? task.id : null),
+      }}
+    >
+    <!-- The disclosure can also collapse a task after the full row opens it.
+         It keeps its width when a task has no sessions, because a ragged left
+         edge is harder to scan than an empty gutter. -->
     <button
       type="button"
       class="flex h-full w-[26px] shrink-0 cursor-pointer items-center justify-center text-muted-foreground max-md:w-11"
@@ -87,8 +120,9 @@
       type="button"
       role="option"
       aria-selected={isSelected}
+      aria-expanded={row.sessions.length ? row.expanded : undefined}
       class="flex h-full min-w-0 flex-1 cursor-pointer items-center overflow-hidden text-left"
-      onclick={() => onActivate(row)}
+      onclick={() => revealedTaskId === task.id ? onRevealChange(null) : onActivate(row)}
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
       onpointerdown={(event) => onPressStart(event, row)}
@@ -119,7 +153,8 @@
         </span>
       {/if}
       <ChevronRightIcon size={12} class="ml-2 hidden shrink-0 text-muted-foreground opacity-50 max-md:block" />
-    </button>
+      </button>
+    </div>
   </div>
 {:else}
   {@const child = row.session}

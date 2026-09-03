@@ -67,8 +67,10 @@ export class PromptComposer {
         fullPrompt = fullPrompt ? `${fullPrompt}\n\n${boundBlock}` : boundBlock
       }
     }
-    const taskId = existingTaskId(session.task)
-      ?? this.tasksStore.taskForSession(taskBindingSessionId(session))?.id
+    // The durable link outranks the binding recorded at first dispatch: the
+    // agent can move a session to another task, and the header must follow.
+    const taskId = this.tasksStore.taskForSession(taskBindingSessionId(session))?.id
+      ?? existingTaskId(session.task)
     if (taskId) {
       // The full ticket (body + comments + linked PRs) is hydrated into the run's
       // system prompt server-side, which a remote host can only do for a task it

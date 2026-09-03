@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext } from "../../contexts";
+  import { getWorkspaceContext, runtime } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
@@ -12,6 +12,7 @@
   // Eager: the sandbox it wraps is already in the conversation bundle.
   import ArtifactShell from "../artifact/ArtifactShell.svelte";
   import SaveFilePicker from "../pickers/SaveFilePicker.svelte";
+  import RouteLoadError from "../ui/RouteLoadError.svelte";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import type { WorkExportRequest } from "./lib/work-export";
 
@@ -19,9 +20,30 @@
 
   const session = getWorkspaceContext();
   const pane = paneActions(() => paneId);
+  const isMobile = $derived(runtime.isMobileViewport);
 
   const work = $derived(session.worksStore.get(params.workId));
   const sess = $derived(session.sessionFor(session.activeTabId));
+  let workLoadAttempt = $state(0);
+  let workLoadError = $state<Error | null>(null);
+
+  // A browser route can outlive the list that first discovered this work. Keep
+  // its host affinity before loading so a cloud client never falls back to the
+  // default host for a host-local id.
+  $effect(() => {
+    const workId = params.workId;
+    const serverId = params.serverId;
+    void workLoadAttempt;
+    if (serverId) session.worksStore.rememberHost(workId, serverId);
+    workLoadError = null;
+    let active = true;
+    void session.worksStore.ensureContent(workId, "work-pane").then((loaded) => {
+      if (active && !loaded) workLoadError = new Error("This work could not be loaded from its host.");
+    });
+    return () => {
+      active = false;
+    };
+  });
 
   const originalSessionMeta = $derived.by(() => {
     if (!work) return null;
@@ -113,6 +135,17 @@
     renderKey++;
   }
 
+  // The crumb's way back: leave this pane, then show the page the work is a
+  // row on — the same two steps the automation builder takes.
+  function openWorkspacePage() {
+    pane.close();
+    session.openFolio();
+  }
+
+  function handleClose() {
+    session.closeWork(paneId);
+  }
+
   function handleOpenChat(mode: "resume" | "new") {
     void session.openChatForWork(params.workId, mode);
   }
@@ -136,7 +169,7 @@
   function handleDelete() {
     const target = session.worksStore.get(params.workId);
     if (!target) return;
-    pane.close();
+    handleClose();
     session.requestWorkDelete(target);
   }
 
@@ -200,7 +233,8 @@
               onDirtyChange={(d) => {
                 shellDirty = d;
               }}
-              onClose={pane.close}
+              onClose={handleClose}
+              onOpenWorkspace={openWorkspacePage}
               onOpenChat={handleOpenChat}
               {originalSessionMeta}
               onRename={handleRename}
@@ -211,13 +245,20 @@
               onExport={exportStartPath ? handleExport : undefined}
               {hostIsRemote}
             />
+          {:catch error}
+            <RouteLoadError
+              {error}
+              compact
+              onRetry={() => (renderKey += 1)}
+            />
           {/await}
         {:else if work.type === "artifact"}
           <ArtifactShell
             content={work.content ?? ""}
             title={work.title}
             workId={work.id}
-            onClose={pane.close}
+            onClose={handleClose}
+            onOpenWorkspace={openWorkspacePage}
             onOpenChat={handleOpenChat}
             {originalSessionMeta}
             onRename={handleRename}
@@ -248,7 +289,8 @@
               onDirtyChange={(d) => {
                 shellDirty = d;
               }}
-              onClose={pane.close}
+              onClose={handleClose}
+              onOpenWorkspace={openWorkspacePage}
               inline
               minimizeOutline={!pane.isLeading}
               onOpenChat={handleOpenChat}
@@ -261,6 +303,12 @@
               onExport={exportStartPath ? handleExport : undefined}
               {hostIsRemote}
             />
+          {:catch error}
+            <RouteLoadError
+              {error}
+              compact
+              onRetry={() => (renderKey += 1)}
+            />
           {/await}
         {/if}
       </div>
@@ -269,9 +317,9 @@
          and a drag rect later in the DOM would re-cover this cluster's no-drag
          holes. -->
     <PaneChrome
-      onClose={pane.close}
-      onOpenInSplit={pane.moveAcross}
-      onToggleMaximize={pane.toggleMaximize}
+      onClose={handleClose}
+      onOpenInSplit={isMobile ? undefined : pane.moveAcross}
+      onToggleMaximize={isMobile ? null : pane.toggleMaximize}
       maximized={pane.maximized}
       isLeading={pane.isLeading}
       closeLabel={work.type === "diagram"
@@ -282,6 +330,14 @@
       closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
     />
   </div>
+{:else if workLoadError}
+  <RouteLoadError
+    error={workLoadError}
+    compact
+    onRetry={() => (workLoadAttempt += 1)}
+  />
+{:else}
+  <DocumentModalSkeleton inline title="Loading work…" />
 {/if}
 
 {#if exportDraft && exportStartPath && sess}

@@ -2750,9 +2750,10 @@ export class ControlPlane extends EventEmitter {
     this._setStatus(sessionId, newStatus)
     this._notifyActiveWork()
 
-    // A prompt can bind an existing task before the provider starts. A taskless
-    // first dispatch stays taskless here; the client settles its fallback task
-    // only after the turn, after the agent has had a chance to create a link.
+    // A prompt can bind an existing task before the provider starts. The
+    // client binds or mints on the task's own host first and arrives here with
+    // `skipTaskCreation`; a first dispatch that names no task and does not opt
+    // out — an older client, a session this host starts itself — mints here.
     if (!options.skipTaskCreation && pendingHandoff && !options.taskId) {
       const existingTask = await dispatchStep('task_lookup', {
         fn: 'tasksForSession',
@@ -2764,7 +2765,7 @@ export class ControlPlane extends EventEmitter {
       })
       if (existingTask) options.taskId = existingTask.task.id
     }
-    const task = options.skipTaskCreation || !options.taskId
+    const task = options.skipTaskCreation
       ? null
       : await dispatchStep('task_prepare', {
         projectKey: resolvedProjectPath ?? '',

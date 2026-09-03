@@ -32,6 +32,8 @@ export const twMergeConfig = {
         'text-micro',
         'text-review-row',
         'text-review-meta',
+        'text-symbol-card-meta',
+        'text-symbol-card-code',
         'text-transcript-card',
         'text-transcript-meta',
         // The content ladder (ADR-0013). Every rung lands here or it gets read

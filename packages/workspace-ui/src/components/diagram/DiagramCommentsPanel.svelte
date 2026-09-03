@@ -209,4 +209,19 @@
     opacity: 1;
   }
 
+  /* The comments rail follows the inspector's narrow-pane model: it becomes a
+     bottom sheet rather than covering almost the complete canvas width and
+     height as a desktop side panel. */
+  @container pane (max-width: 48rem) {
+    .diagram-comments {
+      top: auto;
+      right: 0.5rem;
+      bottom: max(0.5rem, env(safe-area-inset-bottom, 0));
+      left: 0.5rem;
+      width: auto;
+      height: min(70%, 34rem);
+      max-width: none;
+    }
+  }
+
 </style>

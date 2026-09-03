@@ -37,6 +37,9 @@ interface MirrorEntry<T> {
   value?: T
   readAt: number
   inFlight?: Promise<T>
+  /** Whether the read on the wire was itself forced. A forced caller may join
+   *  it; an unforced one predates the force and cannot answer for it. */
+  isInFlightForced?: boolean
 }
 
 export class PrMirror<T> {
@@ -62,13 +65,15 @@ export class PrMirror<T> {
 
   async read(key: string, force: boolean, load: () => Promise<T>): Promise<T> {
     const entry = this.entries.get(key)
-    if (!force) {
-      if (this.isFresh(entry)) {
-        this.put(key, entry)
-        return entry.value
-      }
-      if (entry?.inFlight) return entry.inFlight
+    if (!force && this.isFresh(entry)) {
+      this.put(key, entry)
+      return entry.value
     }
+    // `force` skips the stored value, not the round trip already carrying the
+    // answer to it. Refusing to join one is what turns a forced fan-out — the
+    // sidebar polls every task row against the same few branches — into one
+    // request per caller for a question already on the wire.
+    if (entry?.inFlight && (!force || entry.isInFlightForced)) return entry.inFlight
 
     const inFlight = load().then((value) => {
       this.put(key, { value, readAt: Date.now() })
@@ -82,7 +87,7 @@ export class PrMirror<T> {
       if (current.value === undefined) this.entries.delete(key)
       else this.put(key, { value: current.value, readAt: current.readAt })
     })
-    this.put(key, { value: entry?.value, readAt: entry?.readAt ?? 0, inFlight })
+    this.put(key, { value: entry?.value, readAt: entry?.readAt ?? 0, inFlight, isInFlightForced: force })
     return inFlight
   }
 

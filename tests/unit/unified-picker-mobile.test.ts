@@ -9,10 +9,9 @@ import {
 // specifies a phone that is not the desktop overlay narrowed. Two rules carry
 // the whole design:
 //
-//   "Tapping never opens a preview: a task row opens the task, a session row
-//    resumes the session."
-//   "The preview is the redesign's long-press peek … raised over the list it
-//    came from, so dismissing returns to the same scroll position."
+//   "Tapping a task reveals its sessions; tapping a session raises its preview."
+//   "The preview is raised over the list it came from, so dismissing returns
+//    to the same scroll position."
 //
 // Everything below pins one of those two rules, or the information a phone row
 // has room to state once the preview column is gone.
@@ -33,29 +32,21 @@ const activateBody = picker.slice(
 )
 
 describe('the unified picker on a phone', () => {
-  test('a task row goes to the task on a phone and resumes on desktop', () => {
-    // WHY: this is the one behaviour the phone deliberately does not share with
-    // the desktop overlay, so it is the one a later "why are these different?"
-    // cleanup would quietly delete. Desktop can promise "resume latest" because
-    // its footer says ⏎ resumes and its preview shows what would resume; a
-    // phone has neither, and a row that silently starts an agent is a worse
-    // surprise than a row that shows you the task.
+  test('an entry without a session group raises its detail sheet on a phone', () => {
+    // WHY: a task with sessions first reveals that group through `clickEntry`.
+    // A session or a task with no group still needs the detail sheet because
+    // the phone hides the desktop preview column.
     expect(activateBody).toContain('runtime.isMobileViewport')
-    expect(activateBody).toContain('openTaskPage(entry.task)')
+    expect(activateBody).toContain('openPeek(entry)')
     expect(activateBody).toContain('select(entry.task)')
-  })
-
-  test('a session row resumes on every surface', () => {
-    // WHY: the spec draws no phone/desktop split for a session — it is the same
-    // move either way, so the branch above must not grow a second arm.
     expect(activateBody).toContain('selectSession(entry.session)')
     expect(activateBody.match(/isMobileViewport/g)).toHaveLength(1)
   })
 
-  test('the peek is the only preview a tap can reach, and long press is what raises it', () => {
-    // WHY: with tapping spent on navigation, the press-and-hold is the phone's
-    // *only* route to a preview and to the row's actions. If it stops raising a
-    // sheet, a phone loses the surface entirely rather than degrading.
+  test('session taps and every long press raise the same peek sheet', () => {
+    // WHY: task taps are used to reveal sessions. Long press remains the route
+    // to task details, while a normal session tap reaches the same sheet.
+    expect(activateBody).toContain('openPeek(entry)')
     expect(picker).toContain('peekTarget =')
     expect(picker).toContain('event.pointerType !== "touch"')
     // Dismissing restores the list rather than rebuilding it: the sheet closes
@@ -87,13 +78,18 @@ describe('the unified picker on a phone', () => {
     expect(peek).toContain('{#if messageCount !== undefined}')
   })
 
-  test('the session peek offers Fork only where a fork can happen', () => {
-    // WHY: the spec draws Fork beside Resume, but a fork branches a live
-    // provider thread. A durable row has none until it is resumed, so an
-    // always-on Fork would be a button that cannot do its job.
-    expect(peek).toContain('secondaryLabel={onFork ? "Fork" : undefined}')
-    expect(picker).toContain('onFork={canFork(peekTarget) ? forkSession : undefined}')
-    expect(picker).toContain('agentSessionId')
+  test('the session peek does not offer Fork', () => {
+    // WHY: the mobile sheet is for inspecting or resuming the selected
+    // session. Branching remains outside this compact action surface.
+    expect(peek).not.toContain('"Fork"')
+    expect(peek).not.toContain('onFork')
+    expect(picker).not.toContain('onFork=')
+  })
+
+  test('the session peek does not show task controls', () => {
+    // WHY: status, snooze, and task navigation act on the parent task, not the
+    // selected session. The session sheet keeps only its Resume action.
+    expect(peek).toContain('showTaskControls={false}')
   })
 
   test('a phone session row states the last reply instead of repeating the age', () => {

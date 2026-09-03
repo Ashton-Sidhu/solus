@@ -102,6 +102,13 @@
     else session.closePlanModal();
   }
 
+  // A plan is a row on the Workspace page, so the crumb goes back there: the
+  // same dismissal as Esc, then the page.
+  function openWorkspacePage() {
+    closeModal();
+    session.openFolio();
+  }
+
   useKeybinding("plan-modal.toggle-bookmark", () => handleToggleBookmark());
   useKeybinding("plan-modal.toggle-comments", () => {
     commentsRailOpen = !commentsRailOpen;
@@ -155,6 +162,7 @@
 <DocumentShell
   bind:this={shell}
   title="Review Plan"
+  onOpenWorkspace={openWorkspacePage}
   content={plan.content}
   {inline}
   {minimizeOutline}

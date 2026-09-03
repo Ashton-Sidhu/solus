@@ -197,7 +197,21 @@ export async function atlassianRequest<Schema extends z.ZodType>(
     response = await send()
   }
   if (!response.ok) {
-    throw fail(response.status, await describeFailure(response, request))
+    const detail = await describeFailure(response, request)
+    if (response.status === 401 || response.status === 403) {
+      // A refused write is almost always a scope the grant does not carry, and
+      // the token names which ones it does. Logged rather than shown: the user
+      // can only act on "sign in again", but this says whether that will help.
+      log.warn('atlassian_request_refused', {
+        product: request.product,
+        method: request.method ?? 'GET',
+        path: request.path,
+        status: response.status,
+        detail,
+        grantedScopes: credential.scopes,
+      })
+    }
+    throw fail(response.status, detail)
   }
   // 204 on a transition or a field write: nothing to parse, and the caller
   // re-reads rather than trusting an empty body.
@@ -229,6 +243,17 @@ const confluenceErrorPayloadSchema = z.object({
   })),
 })
 
+/**
+ * The v1 REST API answers in a third dialect — a flat `statusCode`/`message`
+ * pair. Attachment upload has no v2 endpoint, so this is the only voice it
+ * has, and reading only the other two turned its refusals into a bare status
+ * code with the reason discarded.
+ */
+const classicErrorPayloadSchema = z.object({
+  statusCode: z.number().optional(),
+  message: z.string(),
+})
+
 async function describeFailure(response: Response, request: AtlassianRequest): Promise<string> {
   if (response.status === 429) {
     // Named, because "HTTP 429" on a task card tells the user nothing they can
@@ -245,8 +270,11 @@ async function describeFailure(response: Response, request: AtlassianRequest): P
       const text = [error.title, error.detail].filter(Boolean).join(' — ')
       return text ? [text] : []
     })
-    return messages.length ? messages.join('; ') : fallback
+    if (messages.length) return messages.join('; ')
   }
+
+  const classic = classicErrorPayloadSchema.safeParse(payload)
+  if (classic.success) return classic.data.message
 
   const jira = jiraErrorPayloadSchema.safeParse(payload)
   if (!jira.success) return fallback

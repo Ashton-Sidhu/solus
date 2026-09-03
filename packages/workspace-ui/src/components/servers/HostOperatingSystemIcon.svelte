@@ -1,11 +1,11 @@
 <script lang="ts">
   import {
-    Apple as AppleLogoIcon,
     Earth as GlobeSimpleIcon,
     Terminal as LinuxLogoIcon,
     PanelsTopLeft as WindowsLogoIcon,
   } from "@lucide/svelte";
   import type { HostOperatingSystem } from "@solus/contracts/types";
+  import AppleLogoIcon from "./AppleLogoIcon.svelte";
 
   interface Props {
     os?: HostOperatingSystem;
@@ -26,8 +26,6 @@
 {#if os === "macos"}
   <AppleLogoIcon
     {size}
-    fill="currentColor"
-    strokeWidth={0}
     class={className}
     aria-label={ariaLabel}
   />

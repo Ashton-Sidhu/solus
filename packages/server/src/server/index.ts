@@ -29,6 +29,8 @@ import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from '
 import { registerWorktreeHandlers } from './handlers/worktree-handlers'
 import { registerGitPublishHandlers } from './handlers/git-publish-handlers'
 import { registerFilesystemHandlers } from './handlers/filesystem-handlers'
+import { registerCodeIntelHandlers } from './handlers/code-intel-handlers'
+import { CodeIntelManager } from '../code-intel/code-intel-manager'
 import { registerHistoryHandlers } from './handlers/history-handlers'
 import { registerFolioHandlers } from './handlers/folio-handlers'
 import { registerReviewHandlers } from './handlers/review-handlers'
@@ -201,7 +203,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // registers a per-client binary delivery here, the browser registry publishes
   // only to the clients watching each page.
   const browserFrames = new BrowserFrameChannel()
+  const codeIntel = new CodeIntelManager()
   const domainEventUnsubscribes = [
+    codeIntel.onStatusChanged((status) => events.broadcast('codeIntel.statusChanged', status)),
     onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
     onPrsChanged((projectRoot) => events.broadcast('prs.invalidated', { projectRoot })),
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
@@ -237,6 +241,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Browsing a host's filesystem must work headless — that is the whole point
   // of pairing a server that has no window.
   registerFilesystemHandlers(server)
+  registerCodeIntelHandlers(server, { codeIntel })
   registerAttachmentHandlers(server)
   registerAssetHandlers(server)
   registerHistoryHandlers(server, {
@@ -686,6 +691,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopAutomationScheduler()
         stopMetricsRollover()
         prReconciler.stop()
+        codeIntel.dispose()
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null

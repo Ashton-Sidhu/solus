@@ -1,5 +1,10 @@
 import { describe, expect, test } from 'bun:test'
-import { dataUrlToPayload } from '@solus/workspace-ui/components/diagram/lib/diagram-export'
+import {
+  dataUrlToPayload,
+  exportFrame,
+  exportPixelRatio,
+  type DiagramExportFlow,
+} from '@solus/workspace-ui/components/diagram/lib/diagram-export'
 import { exportFileName } from '@solus/workspace-ui/components/pickers/lib/export-file-name'
 
 /**
@@ -24,6 +29,36 @@ describe('export payloads', () => {
       contents: svg,
       encoding: 'utf8',
     })
+  })
+})
+
+describe('export pixel ratio', () => {
+  test('a small graph is rasterized at 2× or the display ratio, whichever is higher', () => {
+    // WHY: a 1× display would otherwise write a PNG that is soft on a page.
+    expect(exportPixelRatio(1000, 600, 1)).toBe(2)
+    expect(exportPixelRatio(1000, 600, 3)).toBe(3)
+  })
+
+  test('a large graph is scaled down so the PNG stays under the Docs inline-image ceiling', () => {
+    // WHY: Docs rejected a real publish with "The provided image is too
+    // large" once a 2× capture of a big graph passed 25 megapixels. The
+    // budget sits clear of that, and a figure asking for a 200%-zoom raster
+    // is held to it too.
+    const ratio = exportPixelRatio(5000, 3000, 2)
+    expect(ratio).toBeLessThan(2)
+    expect(5000 * ratio * (3000 * ratio)).toBeLessThanOrEqual(20_000_000)
+    expect(5000 * exportPixelRatio(5000, 3000, 8) * (3000 * exportPixelRatio(5000, 3000, 8))).toBeLessThanOrEqual(20_000_000)
+  })
+})
+
+describe('export frame', () => {
+  test('it uses the flow bounds so child nodes have absolute sub-flow positions', () => {
+    const flow = {
+      getNodes: () => [],
+      getNodesBounds: () => ({ x: 400, y: 300, width: 700, height: 500 }),
+    } satisfies DiagramExportFlow
+
+    expect(exportFrame(flow)).toEqual({ width: 780, height: 580 })
   })
 })
 

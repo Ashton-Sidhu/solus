@@ -3,7 +3,7 @@ import { Database } from 'bun:sqlite'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { DocDiagramAsset, DocDraft, DocPatch, DocRef, DocScope, NormalizedDoc } from '@solus/contracts/docs'
+import type { DocDiagramAsset, DocDraft, DocPatch, DocReadHints, DocRef, DocScope, NormalizedDoc } from '@solus/contracts/docs'
 import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 import { DocVersionConflictError } from '@solus/server/docs/types'
 
@@ -25,6 +25,7 @@ interface FakeUpstream {
   lastPatch: DocPatch | null
   lastScope: DocScope | null
   lastAssets: DocDiagramAsset[] | null
+  lastReadHints: DocReadHints | null
   beforeUpdate: (() => void | Promise<void>) | null
 }
 
@@ -35,6 +36,7 @@ const upstream: FakeUpstream = {
   lastPatch: null,
   lastScope: null,
   lastAssets: null,
+  lastReadHints: null,
   beforeUpdate: null,
 }
 
@@ -43,13 +45,16 @@ const adapter = {
   status: async () => ({ provider: 'confluence' as const, connected: true }),
   destinations: async () => [],
   search: async () => [],
-  read: async (ref: DocRef): Promise<NormalizedDoc> => ({
-    ref,
-    title: upstream.title,
-    markdown: upstream.markdown,
-    version: upstream.version,
-    updatedAt: now,
-  }),
+  read: async (ref: DocRef, hints?: DocReadHints): Promise<NormalizedDoc> => {
+    upstream.lastReadHints = hints ?? null
+    return {
+      ref,
+      title: upstream.title,
+      markdown: upstream.markdown,
+      version: upstream.version,
+      updatedAt: now,
+    }
+  },
   create: async (scope: DocScope, doc: DocDraft): Promise<NormalizedDoc> => {
     upstream.lastScope = scope
     upstream.lastAssets = doc.diagramAssets ?? null
@@ -119,6 +124,7 @@ beforeEach(async () => {
   upstream.lastPatch = null
   upstream.lastScope = null
   upstream.lastAssets = null
+  upstream.lastReadHints = null
   upstream.beforeUpdate = null
   workId = await newWork()
 })
@@ -210,6 +216,25 @@ describe('publishWork', () => {
     expect(result.ok).toBe(true)
     expect(upstream.lastAssets).toEqual([asset])
     expect(result.ok && result.lossyParts).toBeUndefined()
+  })
+
+  test('remembers which diagrams went up as images, and hands them to the pull', async () => {
+    // WHY: Docs returns an embedded diagram as a base64 image with no trace of
+    // the Solus work it came from. The link is the only place that memory can
+    // live, since a plan pull has no local content to compare against.
+    const content = `# Spec\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`
+    const withDiagram = await newWork(content)
+    const asset: DocDiagramAsset = { workId: 'd1', title: 'Architecture', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }
+
+    await workSync.publishWork(withDiagram, {
+      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
+      diagramAssets: [asset],
+    })
+    expect((await linkOf(withDiagram))?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
+
+    upstream.version = '9'
+    await workSync.pullWorkUpstream(withDiagram)
+    expect(upstream.lastReadHints?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
   })
 })
 
@@ -358,11 +383,47 @@ describe('refreshUpstreamState', () => {
   test('flags an upstream change without downloading over the local content', async () => {
     await workSync.publishWork(workId, { destination: ENGINEERING })
     upstream.version = '9'
+    upstream.markdown = '# Upstream, edited by someone else'
 
     const link = await workSync.refreshUpstreamState(workId)
 
     expect(link?.syncState).toBe('upstream_changed')
     expect((await works.loadWork(workId))?.content).toBe('# Local')
+    // The guard keeps the version it last published against, so a publish
+    // over that edit is still refused as a conflict.
+    expect(link?.upstreamVersion).toBe('1')
+  })
+
+  test('a version counter that moves on its own is not an upstream change', async () => {
+    // WHY: Google Docs commits its own revisions after a write, so the Drive
+    // version rises within seconds of a publish while the document still says
+    // exactly what Solus sent. Reporting that as someone else's edit put every
+    // freshly published work into "upstream changed" immediately.
+    await workSync.publishWork(workId, { destination: ENGINEERING })
+    upstream.version = '9'
+
+    const link = await workSync.refreshUpstreamState(workId)
+
+    expect(link?.syncState).toBe('ok')
+    // Recorded, so the same unchanged doc is not re-compared on every poll.
+    expect(link?.upstreamVersion).toBe('9')
+  })
+
+  test('reads with the published diagrams, or their captions would look like an edit', async () => {
+    // WHY: a read without the hint renders each embed as a lossy caption, so
+    // the markdown differs from the pull's and every check reports a change.
+    const content = `# Spec\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`
+    const withDiagram = await newWork(content)
+    await workSync.publishWork(withDiagram, {
+      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
+      diagramAssets: [{ workId: 'd1', title: 'Architecture', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }],
+    })
+    upstream.lastReadHints = null
+    upstream.version = '9'
+
+    await workSync.refreshUpstreamState(withDiagram)
+
+    expect(upstream.lastReadHints?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
   })
 })
 

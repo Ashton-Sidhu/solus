@@ -136,6 +136,7 @@ interface TaskPageCapabilities {
   canEditPlanningFields: boolean
   canEditPriority: boolean
   canEditLabels: boolean
+  canEditAssignee: boolean
   editableStatuses: TaskStatus[]
   canComment: boolean
 }
@@ -156,6 +157,9 @@ export function taskPageCapabilities(
     canEditPlanningFields: isLocal,
     canEditPriority: isLocal || writable.has('priority'),
     canEditLabels: isLocal || writable.has('labels'),
+    // A picker needs a provider-owned candidate set. Local-only tasks still
+    // display their assignee, but do not pretend an arbitrary login is valid.
+    canEditAssignee: writable.has('assignee'),
     editableStatuses: isLocal
       ? ['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dropped']
       : providerStatus?.statuses ?? [],

@@ -1,11 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import {
-    Minimize as ArrowsInIcon,
-    Maximize as ArrowsOutIcon,
-    Sparkles as SparkleIcon,
-    X as XIcon,
-  } from "@lucide/svelte";
+  import { Sparkles as SparkleIcon } from "@lucide/svelte";
   import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import type {
     DraftReview,
@@ -24,6 +19,7 @@
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { HostApi } from "@solus/client-core/host-api";
+  import type { PaneId } from "../../contexts/workspace/routing/location";
   import { subscribeAllHosts } from "@solus/client-core/host-events";
   import { localApi } from "@solus/client-core/local-api";
   import {
@@ -46,9 +42,7 @@
   import PrDetailMasthead from "./PrDetailMasthead.svelte";
   import PrPanelHeader from "./PrPanelHeader.svelte";
   import PrPanelOverflowMenu from "./PrPanelOverflowMenu.svelte";
-  import PaneSwapButton from "../ui/PaneSwapButton.svelte";
   import PrViewTabs from "./PrViewTabs.svelte";
-  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { Button } from "../ui/button";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import StackDiffBanner from "./StackDiffBanner.svelte";
@@ -66,6 +60,7 @@
   // open to a single page filling in rather than a placeholder swap.
   let {
     pr,
+    paneId,
     api,
     serverId,
     target,
@@ -87,6 +82,8 @@
     onRefreshTarget,
   }: {
     pr: PrReviewTarget | null;
+    /** Present when the review is mounted in the workspace pane router. */
+    paneId?: PaneId;
     api: HostApi;
     serverId: string;
     /** PR identity, known from the click; `pr` once the worktree exists. */
@@ -885,94 +882,27 @@
       {/snippet}
     </PrPanelHeader>
   {:else if !headless}
-    <!-- One chrome band: the way back, the way sideways, and where you are.
-         The tabs have moved down into the masthead where they belong to the
-         content; what stays up here is navigation and the pane controls that
-         PaneChrome floats for every other surface, consolidated so this review
-         reads as a single header row.
-         No rule beneath it, and no centred measure: the bar spans the pane's
-         full width with the same leading gutter as the diff toolbar while the
-         trailing controls reach the pane's right edge. -->
-    <!-- Same height and seam as every other chrome row in the app (the diff
-         toolbar beside it, the conversation's own strip), so the two panes'
-         headers share one baseline. -->
-    <div
-      class="workspace-titlebar @container h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--hairline)]"
+    <!-- The sub page band every record shares: the way back, this review's
+         switcher, its verbs, the queue stepper, and the pane controls. The
+         tabs live down in the masthead where they belong to the content. -->
+    <PrDetailChrome
+      number={target.number}
+      {serverId}
+      {projectCtx}
+      onExit={exit}
+      {onMoveAcross}
+      {onToggleMaximize}
+      {maximized}
     >
-      <div
-        class="flex h-full w-full items-center justify-between gap-2 pr-3.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))]"
-      >
-        <div class="flex min-w-0 flex-1 items-center">
-          <PrDetailChrome number={target.number} {serverId} {projectCtx} onExit={exit} />
-        </div>
-
-        <!-- Pane controls, pill-shaped and quiet: the band's only ink is the
-             breadcrumb, so these read as affordances rather than a toolbar. -->
-        <div class="no-drag pointer-events-auto flex shrink-0 items-center gap-0.5">
-          {@render chatButton()}
-          <!-- The same overflow the panel band carries, so refresh, external
-               host navigation, and guide rewrite (with its stale dot) are one
-               object in one place whichever shape the review takes. -->
-          {@render overflowMenu()}
-
-          <FrameExpandButton variant="projectPanel" size="header" />
-
-          {#if onMoveAcross}
-            <PaneSwapButton
-              onMove={onMoveAcross}
-              iconSize={13}
-              class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
-            />
-          {/if}
-
-          {#if onToggleMaximize}
-            <TooltipUI.Root>
-              <TooltipUI.Trigger>
-                {#snippet child({ props })}
-                  <button
-                    {...props}
-                    type="button"
-                    class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
-                    onclick={onToggleMaximize}
-                    aria-label={maximized
-                      ? "Restore panel size"
-                      : "Maximize panel"}
-                  >
-                    {#if maximized}
-                      <ArrowsInIcon size={13} />
-                    {:else}
-                      <ArrowsOutIcon size={13} />
-                    {/if}
-                  </button>
-                {/snippet}
-              </TooltipUI.Trigger>
-              <TooltipUI.Content
-                value={maximized ? "Restore panel (⌥M)" : "Maximize (⌥M)"}
-              />
-            </TooltipUI.Root>
-          {/if}
-
-          <!-- Esc lives on the control it fires rather than in a legend along
-               the bottom of the pane. -->
-          <TooltipUI.Root>
-            <TooltipUI.Trigger>
-              {#snippet child({ props })}
-                <button
-                  {...props}
-                  type="button"
-                  class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors hover:bg-[var(--wash-2)] hover:text-foreground"
-                  onclick={exit}
-                  aria-label="Back to list"
-                >
-                  <XIcon size={13} />
-                </button>
-              {/snippet}
-            </TooltipUI.Trigger>
-            <TooltipUI.Content value="Back to list (Esc)" />
-          </TooltipUI.Root>
-        </div>
-      </div>
-    </div>
+      {#snippet actions()}
+        {@render chatButton()}
+        <!-- The same overflow the panel band carries, so refresh, external
+             host navigation, and guide rewrite (with its stale dot) are one
+             object in one place whichever shape the review takes. -->
+        {@render overflowMenu()}
+        <FrameExpandButton variant="projectPanel" size="header" />
+      {/snippet}
+    </PrDetailChrome>
   {/if}
 
   <div class="relative min-h-0 flex-1">
@@ -1118,6 +1048,7 @@
           <DiffPanel
             bind:this={diffPanelRef}
             tabId={reviewTabId}
+            {paneId}
             getCtx={prCtx}
             {getApi}
             projectPath={checkout?.worktreePath ?? projectScopeOf(projectCtx().session)}

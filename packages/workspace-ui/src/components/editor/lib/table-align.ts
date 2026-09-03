@@ -16,14 +16,6 @@ import type { Editor } from '@tiptap/core'
 
 export type CellAlign = 'left' | 'center' | 'right'
 
-/** Left is the resting state, so the cycle starts one past it. */
-const CYCLE: CellAlign[] = ['left', 'center', 'right']
-
-export function nextAlign(current: CellAlign | null): CellAlign {
-  const index = current ? CYCLE.indexOf(current) : 0
-  return CYCLE[(index + 1) % CYCLE.length]
-}
-
 /** The cells above and below the caret's own, top row included. */
 function columnCells(editor: Editor): HTMLTableCellElement[] {
   const node = editor.view.domAtPos(editor.state.selection.from).node
@@ -44,16 +36,6 @@ function cellPos(editor: Editor, cell: HTMLTableCellElement): number | null {
   } catch {
     return null
   }
-}
-
-/** The alignment the column reads as today — what markdown would write out. */
-export function currentColumnAlign(editor: Editor): CellAlign | null {
-  for (const cell of columnCells(editor)) {
-    const pos = cellPos(editor, cell)
-    const align = pos === null ? null : editor.state.doc.nodeAt(pos)?.attrs.align
-    if (align === 'left' || align === 'center' || align === 'right') return align
-  }
-  return null
 }
 
 /** Aligns every cell in the caret's column. No-op outside a table. */

@@ -1,9 +1,9 @@
 import type {
   DocDestination,
-  DocDiagramAsset,
   DocDraft,
   DocPatch,
   DocProviderStatus,
+  DocReadHints,
   DocRef,
   DocScope,
   DocSummary,
@@ -12,19 +12,20 @@ import type {
 import { hasGoogleDriveReadScope } from '@solus/contracts/google-auth'
 import { getAccessToken, grantedGoogleScopes, isGoogleOAuthConfigured } from '../../google/oauth'
 import {
+  createEmptyDoc,
   docUrlFor,
-  exportDocMarkdown,
   fileMetadata,
   listDocs,
   listFolders,
-  updateDocContent,
-  uploadHtmlAsDoc,
-  uploadMarkdownAsDoc,
+  renameFile,
   type DriveFile,
   type DriveListOptions,
 } from '../../google/drive'
-import { buildGoogleDocHtml } from '../../google/document-html'
+import { getDocument } from '../../google/docs-api'
+import { documentToMarkdown } from '../../google/docs-markdown'
+import { writeDocsBody } from '../../google/docs-publish'
 import { DocProviderUnavailableError, DocVersionConflictError, type DocProviderAdapter } from '../types'
+import { validatedDiagramAssets } from '../diagram-assets'
 
 /**
  * Google Docs through Drive.
@@ -95,21 +96,23 @@ export class GoogleDriveDocAdapter implements DocProviderAdapter {
     })
   }
 
-  async read(ref: DocRef): Promise<NormalizedDoc> {
+  async read(ref: DocRef, hints?: DocReadHints): Promise<NormalizedDoc> {
     const token = await this.token()
-    const [file, markdown] = await Promise.all([
+    const [file, document] = await Promise.all([
       fileMetadata(token, ref.externalId),
-      exportDocMarkdown(token, ref.externalId),
+      getDocument(token, ref.externalId),
     ])
-    return this.normalize(file, ref.externalKey, markdown)
+    const converted = documentToMarkdown(document, hints?.diagrams)
+    const doc = this.normalize(file, ref.externalKey, converted.markdown)
+    if (converted.lossyParts.length) doc.lossyParts = converted.lossyParts
+    return doc
   }
 
   async create(scope: DocScope, doc: DocDraft): Promise<NormalizedDoc> {
     const token = await this.token()
     const assets = validatedDiagramAssets(doc.diagramAssets)
-    const created = assets.length
-      ? await uploadHtmlAsDoc(token, doc.title, await buildGoogleDocHtml(doc.markdown, assets), scope)
-      : await uploadMarkdownAsDoc(token, doc.title, doc.markdown, scope)
+    const created = await createEmptyDoc(token, doc.title, scope)
+    await writeDocsBody(token, created.docId, doc.markdown, assets, scope)
     const file = await fileMetadata(token, created.docId)
     return this.normalize(file, scope, doc.markdown)
   }
@@ -126,14 +129,10 @@ export class GoogleDriveDocAdapter implements DocProviderAdapter {
       }
     }
     const assets = validatedDiagramAssets(patch.diagramAssets)
-    const content = assets.length ? await buildGoogleDocHtml(patch.markdown, assets) : patch.markdown
-    const updated = await updateDocContent(
-      token,
-      ref.externalId,
-      content,
-      assets.length ? 'text/html' : 'text/markdown',
-      patch.title,
-    )
+    await writeDocsBody(token, ref.externalId, patch.markdown, assets, ref.externalKey)
+    const updated = patch.title
+      ? await renameFile(token, ref.externalId, patch.title)
+      : await fileMetadata(token, ref.externalId)
     return this.normalize(updated, ref.externalKey, patch.markdown)
   }
 
@@ -182,19 +181,4 @@ export class GoogleDriveDocAdapter implements DocProviderAdapter {
     }
     return token
   }
-}
-
-function validatedDiagramAssets(assets: DocDiagramAsset[] | undefined): DocDiagramAsset[] {
-  if (!assets?.length) return []
-  if (assets.length > 20) throw new Error('A document can include at most 20 unique diagrams.')
-  let totalBytes = 0
-  for (const asset of assets) {
-    const bytes = Buffer.from(asset.base64, 'base64')
-    totalBytes += bytes.byteLength
-    if (totalBytes > 12 * 1024 * 1024) throw new Error('The embedded diagrams are too large to publish together.')
-    if (bytes[0] !== 0x89 || bytes[1] !== 0x50 || bytes[2] !== 0x4e || bytes[3] !== 0x47) {
-      throw new Error(`Diagram “${asset.title}” is not a valid PNG image.`)
-    }
-  }
-  return assets
 }

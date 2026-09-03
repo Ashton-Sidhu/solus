@@ -92,3 +92,30 @@ fallback task after the turn settles, and only when neither did. The host is
 unchanged: both the binding and the fallback mint run on `taskServerId`, and the
 execution host is still told `skipTaskCreation`. Branch and execution host now
 live on the session record rather than on the link (ADR-0016).
+
+## Amendment (2026-09-02, one owning task per session)
+
+The settlement mint above is withdrawn. A task that exists only after the first
+turn cannot group sessions from the start: a second session opened under it
+during that turn has nothing to join, and every one of them minted its own. The
+mint returns to the first dispatch, on `taskServerId`, so a session has its task
+from the moment it exists.
+
+What the settlement was protecting against — the agent linking an existing task
+mid-turn and the sidebar then drawing the conversation under both — is now a
+store rule rather than a timing trick. `task_session_links` keeps exactly one
+`working` owner per session. Writing a working link elsewhere transfers
+ownership: the previous owner's attempt row is removed and recorded as an
+unlink, and a session-born placeholder left with nothing in it — no other
+session, no subtask, no comment, no link — is deleted. The rule lives in the
+link write, so it holds for the client's first-dispatch bind, the agent's
+`link_task_session`, an automation, and an older build alike. A `referenced`
+link is a relationship, not ownership: it appears on the task page and projects
+a sidebar row only where the user opened that task.
+
+Consequences for the client: the durable link outranks the binding recorded at
+first dispatch when a started session sends its next prompt, so a transfer moves
+the row and the follow-up prompts together. Existing rows with several working
+links are settled on upgrade the way a live transfer would settle them: the
+newest is the owner, older ones become references, and an untouched placeholder
+is dropped.

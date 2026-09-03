@@ -298,6 +298,7 @@
     commits = cached.commits ?? [];
     comments = cached.comments ?? [];
     reviewers = cached.reviewers ?? [];
+    reviewerCandidates = cached.reviewerCandidates ?? [];
     changedFiles = cached.changedFiles ?? [];
     loadFailed = false;
     loadError = null;
@@ -309,6 +310,7 @@
     commitsLoading = !cached.commits;
     commentsLoading = !cached.comments;
     reviewersLoading = !cached.reviewers;
+    reviewerCandidatesLoading = false;
     filesLoading = !cached.changedFiles;
 
     // Not PR-scoped (and cached per project) — best-effort, never an error.
@@ -320,15 +322,11 @@
     pullRequest(n)
       .loadDetail({ force })
       .then((d) => {
-        if (pr.number !== n) return;
         if (
-          d.capabilities.reviewerCandidates &&
-          d.viewerPermissions.requestReviewers
-        ) {
-          loadReviewerCandidates(n, force);
-        } else {
-          reviewerCandidates = [];
-        }
+          pr.number === n &&
+          (!d.capabilities.reviewerCandidates ||
+            !d.viewerPermissions.requestReviewers)
+        ) reviewerCandidates = [];
       })
       .catch((error) => {
         markLoadFailed(n, error);
@@ -373,6 +371,7 @@
   }
 
   function loadReviewerCandidates(n: number, force = false) {
+    if (reviewerCandidatesLoading) return;
     reviewerCandidatesLoading = true;
     pullRequest(n)
       .loadReviewerCandidates({ force })
@@ -383,6 +382,10 @@
       .finally(() => {
         if (pr.number === n) reviewerCandidatesLoading = false;
       });
+  }
+
+  function openReviewerMenu(): void {
+    loadReviewerCandidates(pr.number);
   }
 
   async function requestReviewer(login: string): Promise<void> {
@@ -1043,6 +1046,7 @@
     {reviewerCandidates}
     {reviewerCandidatesLoading}
     {reviewerMutation}
+    onOpenReviewerMenu={openReviewerMenu}
     onRequestReviewer={detail?.capabilities.reviewerRequests &&
     detail.viewerPermissions.requestReviewers
       ? requestReviewer

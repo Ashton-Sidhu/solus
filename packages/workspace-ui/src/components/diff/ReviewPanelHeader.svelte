@@ -124,14 +124,48 @@
   });
 </script>
 
-<!-- The band is its own container: every rung below is the *panel's* width, not
-     the window's. A review panel is legally ~356px wide beside a companion
-     pane, so a window-width reading here would be wrong by the whole split. -->
+<!-- The band measures the *panel's* width, not the window's. A review panel is
+     legally ~356px wide beside a companion pane, so a window-width reading here
+     would be wrong by the whole split.
+
+     The container is declared on this wrapper rather than on the band itself,
+     because an element cannot query itself: the band carried `@container/band`
+     and `@min-[…]/band` on the same class list, so every rung it declared for
+     its own geometry was dead — no error, no warning, just a row that never
+     changed shape. The rungs on its *children* fired all along, which is what
+     made the defect invisible.
+
+     ── The record rung (`@max-[30rem]/band`) ──
+     Six slots on one 40px row do not fit a phone, and the two that got pushed
+     off the end were the pane controls — so the review covered the conversation
+     with no way back to it. The record leads with the platform's back chevron,
+     the turn scrubber and the pane cluster stand down (one pane, no ⌥ keys to
+     step with), and the tabs take a row of their own underneath. -->
+<div class="@container/band workspace-titlebar shrink-0" data-testid="review-panel-header">
 <div
-  class="workspace-titlebar @container/band flex min-h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center gap-1.5 pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))] @min-[34rem]/band:gap-2.5 @min-[53.75rem]/band:gap-3.5"
-  data-testid="review-panel-header"
+  class="flex min-h-(--solus-chrome-row-h,2.5rem) items-center gap-1.5 pr-3 pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))] @min-[34rem]/band:gap-2.5 @min-[53.75rem]/band:gap-3.5 @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:p-0"
 >
-  {@render viewTabs?.()}
+  <!-- Above the rung these wrappers are not boxes at all, so the desktop band
+       is the same single row of slots it has always been. -->
+  <span
+    class="contents @max-[30rem]/band:order-2 @max-[30rem]/band:flex @max-[30rem]/band:h-11 @max-[30rem]/band:items-stretch @max-[30rem]/band:border-t @max-[30rem]/band:border-[var(--hairline)] @max-[30rem]/band:px-4"
+  >
+    {@render viewTabs?.()}
+  </span>
+
+  <span
+    class="contents @max-[30rem]/band:order-1 @max-[30rem]/band:flex @max-[30rem]/band:h-14 @max-[30rem]/band:items-center @max-[30rem]/band:gap-1.5 @max-[30rem]/band:px-2"
+  >
+  <!-- The way out, and at this rung the only one: the ✕ it stands in for was
+       the last control on a row that overflowed, so it was never reachable. -->
+  <button
+    type="button"
+    class="no-drag hidden size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground active:bg-[var(--wash-2)] active:text-foreground @max-[30rem]/band:flex [-webkit-tap-highlight-color:transparent]"
+    aria-label="Back to conversation"
+    onclick={onClose}
+  >
+    <CaretLeftIcon size={19} />
+  </button>
 
   <span class="flex-1"></span>
 
@@ -177,7 +211,7 @@
          and not in the menu. The label column is fixed so stepping past 9 never
          nudges the controls beside it. -->
     <div
-      class="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-2)] px-[0.1875rem] [.is-laptop-display_&]:h-6.5"
+      class="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-2)] px-[0.1875rem] [.is-laptop-display_&]:h-6.5 @max-[30rem]/band:hidden"
       role="group"
       aria-label="Agent turn"
     >
@@ -238,8 +272,14 @@
     hasFiles={changedFiles.length > 0}
   />
 
-  <!-- The one place a divider used to be. Space, not a rule. -->
-  <div class="flex shrink-0 items-center gap-0.5 pl-1.5 @min-[53.75rem]/band:pl-2.5">
+  <!-- The one place a divider used to be. Space, not a rule.
+
+       Both act on a pane, and a record has one: there is no smaller state to
+       restore to, and the ✕ would be a second way out beside the chevron that
+       leads this row. -->
+  <div
+    class="flex shrink-0 items-center gap-0.5 pl-1.5 @min-[53.75rem]/band:pl-2.5 @max-[30rem]/band:hidden"
+  >
     {#if onToggleMaximize}
       <TooltipUI.Root>
         <TooltipUI.Trigger>
@@ -283,4 +323,6 @@
       <TooltipUI.Content value={`Close review (${comboHint("diff-panel.close")})`} />
     </TooltipUI.Root>
   </div>
+  </span>
+</div>
 </div>

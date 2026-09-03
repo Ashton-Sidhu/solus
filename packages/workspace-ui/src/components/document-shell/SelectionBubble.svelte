@@ -79,7 +79,13 @@
       schedule();
     };
     const onBlur = () => {
-      focused = false;
+      // Tiptap can emit blur while Svelte is evaluating a template expression:
+      // dismissing the portalled bubble takes focus out of the editor mid-render.
+      // Defer the write, and re-read the editor instead of forcing `false`, so a
+      // focus that lands in the same frame is not undone by a stale blur.
+      requestAnimationFrame(() => {
+        focused = ed.isFocused;
+      });
     };
 
     ed.on("selectionUpdate", schedule);

@@ -406,14 +406,14 @@
             <CodeIcon size={13} class="flex-shrink-0" />
           {/if}
         </span>
-        <!-- Composer ladder, rung 5: below 15rem the chip is the brand glyph
+        <!-- Composer ladder, rung 6: below 22rem the chip is the brand glyph
              alone. It stays a hit target and keeps its ⌥ shortcut; only the
              label goes. Named `/composer` so the rung is inert wherever the chip
              is not in a composer. -->
-        <span class="truncate max-w-48 font-medium text-(--solus-text-primary) @max-[15rem]/composer:hidden">{modelOnly ? `${agentName} · ${modelLabel}` : modelLabel}</span>
+        <span class="truncate max-w-48 font-medium text-(--solus-text-primary) @max-[22rem]/composer:hidden">{modelOnly ? `${agentName} · ${modelLabel}` : modelLabel}</span>
         {#if !modelOnly}
-          <!-- Rung 2: the reasoning label is the first thing the chip can spend. -->
-          <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[26rem]/composer:hidden">{reasoningLabel}</span>
+          <!-- Rung 3: the reasoning label is the first thing the chip can spend. -->
+          <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[31rem]/composer:hidden">{reasoningLabel}</span>
         {/if}
         {#if handoffInProgress}
           <!-- Keep the selected model visible while the provider switch settles;

@@ -4,6 +4,7 @@ import type {
   NormalizedTaskComment,
   NormalizedTicket,
   TaskCandidateOptions,
+  TaskAssigneeCandidate,
   TaskList,
   TaskStatus,
   TaskSyncField,
@@ -64,6 +65,9 @@ export interface TaskSyncAdapter {
     since: number,
   ): Promise<Set<string> | null>
   pushFields(ref: ExternalTicketRef, patch: TicketPatch): Promise<NormalizedTicket>
+  listAssigneeCandidates?(
+    target: Omit<ExternalTicketRef, 'externalId' | 'url'>,
+  ): Promise<TaskAssigneeCandidate[]>
   postComment(ref: ExternalTicketRef, body: string): Promise<NormalizedTaskComment>
   /**
    * Upload the local assets a body references and return the body to send

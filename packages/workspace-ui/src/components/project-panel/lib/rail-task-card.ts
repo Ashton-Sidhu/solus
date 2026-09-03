@@ -1,23 +1,17 @@
 // Shaping for the rail's Task card. The card is an index of one task: who it
-// is, the sessions working it, and every object linked to it. Per the renderer
-// rules the .svelte holds markup and thin handlers; the row grammar lives here.
+// is and every object linked to it. Per the renderer rules the .svelte holds
+// markup and thin handlers; the row grammar lives here.
 import {
     RefreshCw as ArrowsClockwiseIcon,
-    MessageSquare as ChatTeardropIcon,
-    CircleCheck as CheckCircleIcon,
     ClipboardList as ClipboardTextIcon,
-    Clock as ClockIcon,
     FileText as FileTextIcon,
     GitPullRequest as GitPullRequestIcon,
     Network as ArchitectureIcon,
     AppWindow as ArtifactIcon,
     Presentation as PresentationIcon,
-    LoaderCircle as SpinnerGapIcon,
-    CircleX as XCircleIcon,
   } from "@lucide/svelte";
   import type { Automation, WorkMeta } from '@solus/contracts/types'
-import type { Task, TaskLink, TaskLinkKind, TaskSessionLink } from '@solus/contracts/task-types'
-import { sessionDisplayName, type AttentionState } from '../../../lib/sessionUtils'
+import type { Task, TaskLink, TaskLinkKind } from '@solus/contracts/task-types'
 import { clockTime } from '../../automations/lib/automation-format'
 import { linkRow } from '../../tasks/task-page/lib/task-page'
 
@@ -36,17 +30,6 @@ export function compactAge(ts: number, now = Date.now()): string {
   const days = Math.floor(hours / 24)
   if (days < 7) return `${days}d`
   return `${Math.floor(days / 7)}w`
-}
-
-/** Seconds-resolution elapsed — "48s", "4m 12s", "1h 06m". Only a running row
- *  spends this: it ticks, so it needs a digit that visibly moves, which the
- *  minute-resolution `compactAge` above does not have. */
-export function liveElapsed(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const hours = Math.floor(total / 3600)
-  if (hours) return `${hours}h ${String(Math.floor((total % 3600) / 60)).padStart(2, '0')}m`
-  const mins = Math.floor(total / 60)
-  return mins ? `${mins}m ${String(total % 60).padStart(2, '0')}s` : `${total}s`
 }
 
 const DAY = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' })
@@ -77,99 +60,6 @@ export function taskRefTooltip(task: Task, now = Date.now()): string {
   const title = task.title?.trim() || 'Untitled task'
   const opened = taskOpenedDate(task, now)
   return opened ? `${title}\nOpened ${opened} · open task page` : `${title}\nOpen task page`
-}
-
-/** One icon per state, coloured by its status token and nothing else — no dot,
- *  no pill, no accent bar. The icons are the app's own: each state takes the
- *  same Phosphor glyph `getAttentionIcon` gives the sidebar and the tab strip,
- *  so a running session looks the same wherever it is reported. The colour is
- *  the card's, from the spec's status tokens. */
-interface RailSessionState {
-  label: string
-  color: string
-  icon: RailIcon
-  spin?: boolean
-}
-
-const SESSION_STATES = new Map<string, RailSessionState>(Object.entries({
-  // Running takes the sidebar's cool tone, not terracotta: work in flight only
-  // wants a glance, and the warm family stays reserved for states that want you.
-  running: { label: 'Running', color: 'var(--chart-5)', icon: SpinnerGapIcon, spin: true },
-  awaiting: { label: 'Needs you', color: 'var(--primary)', icon: ChatTeardropIcon },
-  awaiting_plan: { label: 'Needs you', color: 'var(--primary)', icon: FileTextIcon },
-  error: {
-    label: 'Failed',
-    color: 'color-mix(in oklch, var(--failure) 70%, var(--foreground))',
-    icon: XCircleIcon,
-  },
-  queued: { label: 'Queued', color: 'var(--idle)', icon: ClockIcon },
-}))
-
-const DONE = { label: 'Done', icon: CheckCircleIcon }
-
-export interface RailSessionRow {
-  sessionId: string
-  title: string
-  /** The state as a word, for `title` and `aria-label` — colour alone must not
-   *  carry it, and the glyph is all the row spends on it visually. */
-  stateLabel: string
-  icon: RailIcon
-  /** Colour for the icon, or null for a finished session that reads muted. */
-  iconColor: string | null
-  /** Only the running spinner turns; every other state is a still glyph. */
-  spin: boolean
-  /** The right-hand reading: how long the attempt has run, or how long ago it
-   *  was. A failure says so with its glyph and nothing else — the reason is a
-   *  paragraph, and the rail's value column is a word wide. */
-  value: string
-  /** Elapsed is a width-critical number, so it sets in mono. */
-  valueMono: boolean
-  /** The absolute start, for the row's tooltip. */
-  startedAt: string
-  running: boolean
-  /** The session the rail is describing sits on a resting wash. */
-  current: boolean
-  /** Finished sessions sit back so the live ones carry the eye. */
-  dimmed: boolean
-}
-
-export function railSessionRow(
-  link: TaskSessionLink,
-  liveTitle: string | null,
-  attention: AttentionState,
-  current: boolean,
-  now: number,
-  taskTitle?: string | null,
-): RailSessionRow {
-  const state = attention ? SESSION_STATES.get(attention) : undefined
-  const running = attention === 'running'
-  return {
-    sessionId: link.sessionId,
-    title: sessionDisplayName({ link, liveTitle, taskTitle }),
-    stateLabel: state?.label ?? DONE.label,
-    icon: state?.icon ?? DONE.icon,
-    iconColor: state?.color ?? null,
-    spin: state?.spin === true,
-    value: running ? liveElapsed(now - link.linkedAt) : compactAge(link.linkedAt, now),
-    valueMono: true,
-    startedAt: FULL.format(new Date(link.linkedAt)),
-    running,
-    current,
-    dimmed: !state,
-  }
-}
-
-/** Current session first, then newest — the attempt you are reading is the one
- *  the card is about, and everything else is history behind it. */
-export function orderSessionLinks(
-  links: TaskSessionLink[],
-  currentSessionId: string | null,
-): TaskSessionLink[] {
-  return [...links].sort((a, b) => {
-    if (a.sessionId === currentSessionId) return -1
-    if (b.sessionId === currentSessionId) return 1
-    return b.linkedAt - a.linkedAt
-  })
 }
 
 /** Type glyphs, again the app's own rather than the mock's: a PR reads as it

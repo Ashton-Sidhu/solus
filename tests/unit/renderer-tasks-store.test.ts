@@ -79,15 +79,60 @@ function task(): Task {
 }
 
 describe('renderer task hydration', () => {
-  test('rejects an authoritative session read when the task host is unavailable', async () => {
-    // WHY: turn settlement mints a fallback task only after this read. Treating
-    // an RPC failure as an empty result can duplicate a task linked by the agent.
+  test('loads task assignees lazily and reuses the project result', async () => {
+    // WHY: repositories can have many assignable users. Opening a task must
+    // not fetch them until the user opens the assignee menu.
     installStateRune()
+    let calls = 0
     const api = {
-      tasksSidebarSnapshot: async () => ({ tasks: [], sessionsByTask: {} }),
-      tasksForSession: async () => {
-        throw new Error('task host unavailable')
+      tasksSidebarSnapshot: async () => ({ tasks: [task()], sessionsByTask: {} }),
+      tasksListAssigneeCandidates: async () => {
+        calls++
+        return [{ login: 'octocat', avatarUrl: 'https://avatars.test/octocat' }]
       },
+    }
+    taskServerConnections.registerPrimary('local', api)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true, writable: true, value: { solus: api },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    await store.ensureLoaded()
+
+    expect(calls).toBe(0)
+    await store.loadAssigneeCandidates('/workspace/solus', { serverId: 'local' })
+    await store.loadAssigneeCandidates('/workspace/solus', { serverId: 'local' })
+
+    expect(calls).toBe(1)
+    expect(store.assigneeCandidates('/workspace/solus')).toEqual([
+      { login: 'octocat', avatarUrl: 'https://avatars.test/octocat' },
+    ])
+  })
+
+  test('only the working link answers for a session, whatever order the snapshot lists it', async () => {
+    // WHY: a task that merely references a session lists it, but does not own
+    // it. Letting that link claim the session sent the next prompt, and its
+    // sidebar row, to the referrer instead of the task the work belongs to.
+    installStateRune()
+    const link = (taskId: string, role: 'working' | 'referenced') => ({
+      taskId,
+      sessionId: 'shared-session',
+      sessionTitle: 'Shared run',
+      provider: 'claude',
+      startedAt: 1,
+      lastActivityAt: 1,
+      role,
+      linkedAt: role === 'referenced' ? 2 : 1,
+    })
+    const api = {
+      tasksSidebarSnapshot: async () => ({
+        tasks: [{ ...task(), id: 'referrer' }, { ...task(), id: 'owner' }],
+        sessionsByTask: {
+          referrer: [link('referrer', 'referenced')],
+          owner: [link('owner', 'working')],
+        },
+      }),
     }
     taskServerConnections.registerPrimary('local', api)
     Object.defineProperty(globalThis, 'window', {
@@ -98,9 +143,10 @@ describe('renderer task hydration', () => {
 
     const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
     const store = new TasksStore()
+    await store.ensureLoaded()
 
-    await expect(store.findSessionTaskOnHost(['session-1'], 'local'))
-      .rejects.toThrow('task host unavailable')
+    expect(store.taskForSession('shared-session')?.id).toBe('owner')
+    expect(store.get('referrer').sessions.map((attempt) => attempt.sessionId)).toEqual(['shared-session'])
   })
 
   test('serves one task object per id, so a detail read reaches every holder', async () => {

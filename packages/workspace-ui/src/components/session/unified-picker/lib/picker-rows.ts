@@ -59,9 +59,6 @@ export interface PickerRowsInput {
   openTaskIds?: ReadonlySet<string>
   /** Durable tasks currently on the session sidebar's snoozed shelf. */
   snoozedTaskIds?: ReadonlySet<string>
-  /** The task group under the cursor. It opens only while the cursor remains
-   *  on that task or one of its sessions. */
-  selectedTaskId?: string | null
 }
 
 /**
@@ -152,7 +149,6 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       const item = byTaskId.get(task.id)!
       const expanded = !!needle
         || input.expandedTaskIds.has(task.id)
-        || input.selectedTaskId === task.id
       push({
         kind: 'task',
         key: `task:${task.id}`,

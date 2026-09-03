@@ -63,23 +63,45 @@ describe('menu row height rungs', () => {
   })
 })
 
+// The publish menu no longer carries its reasons inline. Held on a second line
+// they wrapped to three at the 14px rung — the menu is capped at 22rem, and "No
+// Atlassian site is connected. Connect in Settings…" needs more than that — so
+// each provider became a 71px slab. Two of those left the "Publish to" heading
+// closer to the first row (11px) than the rows were to each other (14.5px), and
+// the heading read as part of the first block rather than as a label above the
+// list. The reason is a tooltip now and every provider is one line.
+//
+// The rung invariant above is unaffected: it guards every menu in the app, and
+// a wrapping row is still a thing a rung must not clamp.
 describe('publish menu provider rows', () => {
   const source = readFileSync(`${UI}components/work/WorkPublishMenu.svelte`, 'utf8')
 
-  // Guards the premise: if these rows ever stop being two-line rows, the rung
-  // above is being defended for a case that no longer exists and this test
-  // should be revisited rather than silently passing.
-  test('an unavailable provider still explains itself on a second line', () => {
-    expect(source).toContain('{status.reason}')
-    expect(source).toContain('Connect in Settings…')
-    // `whitespace-normal` is what makes the reason wrap rather than widen the
-    // menu; without it the row is one line and the height rung never matters.
-    expect(source).toContain('whitespace-normal')
+  test('a provider that cannot be published to states why in a tooltip', () => {
+    expect(source).toContain('<TooltipUI.Content')
+    expect(source).toContain('${status.reason} Connect in Settings…')
   })
 
-  test('both of them ask to grow', () => {
-    expect(source).toContain('data-testid={`connect-${status.provider}`}')
-    expect(source).toContain('data-testid={`unavailable-${status.provider}`}')
-    expect(source.match(/class="h-auto py-1\.5 text-workspace-chrome"/g)).toHaveLength(2)
+  // The defect this replaced: prose inside the row. If a reason ever goes back
+  // inline the row grows again and the heading loses its separation, so the
+  // wrapping affordance staying gone is the thing worth pinning.
+  test('no provider row carries its reason inline', () => {
+    expect(source).not.toContain('h-auto py-1.5')
+    expect(source).not.toContain('whitespace-normal text-(--solus-text-tertiary)')
+  })
+
+  // `disabled` would pair with `pointer-events-none` from `menuRowVariants` and
+  // drop the row out of keyboard navigation — taking the tooltip, and with it
+  // the only statement of why the provider is unusable, away from both a hover
+  // and an arrow key. `aria-disabled` says the same thing and keeps it
+  // reachable.
+  test('an unreachable provider stays hoverable and focusable', () => {
+    expect(source).toContain('aria-disabled={!status.connectable}')
+    expect(source).not.toMatch(/data-testid=\{`unavailable-\$\{status\.provider\}`\}\s+disabled/)
+  })
+
+  test('both provider states are still distinguishable to a test and a user', () => {
+    expect(source).toContain('`connect-${status.provider}`')
+    expect(source).toContain('`unavailable-${status.provider}`')
+    expect(source).toContain('aria-disabled:opacity-50')
   })
 })

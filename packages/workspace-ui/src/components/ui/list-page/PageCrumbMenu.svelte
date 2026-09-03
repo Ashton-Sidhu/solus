@@ -48,7 +48,7 @@
   });
 </script>
 
-<div class="relative min-w-0 shrink-0">
+<div class="relative min-w-0 shrink-0 @max-[30rem]/pane:flex-1">
   <!-- The scrim closes the menu on the next click anywhere, so the trigger has
        no dismissal logic of its own. -->
   {#if menuOpen}
@@ -59,7 +59,7 @@
 
   <button
     type="button"
-    class="relative z-40 flex h-[31px] max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[9px] border-0 px-2.5 transition-colors duration-150 hover:bg-[var(--wash-2)] pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2 {menuOpen
+    class="relative z-40 flex h-[31px] max-w-full cursor-pointer items-center gap-2 overflow-hidden rounded-[9px] border-0 px-2.5 transition-colors duration-150 hover:bg-[var(--wash-2)] pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:h-11! @max-[30rem]/pane:px-1.5 {menuOpen
       ? 'bg-[var(--wash-2)]'
       : 'bg-transparent'}"
     title="Switch page"
@@ -68,7 +68,11 @@
     data-testid="page-crumb"
     onclick={() => (menuOpen = !menuOpen)}
   >
-    <span class="truncate font-semibold tracking-[-0.013em]"
+    <!-- On a record the page name is no longer the second half of a crumb — the
+         project has moved to a chip at the far end, so this is the page's own
+         title and takes the title rung. -->
+    <span
+      class="truncate font-semibold tracking-[-0.013em] @max-[30rem]/pane:text-[17px] @max-[30rem]/pane:tracking-[-0.014em]"
       >{label ?? spec.label}</span
     >
     <CaretDownIcon

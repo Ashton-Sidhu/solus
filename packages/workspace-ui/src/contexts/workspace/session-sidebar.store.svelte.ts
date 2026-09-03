@@ -273,39 +273,20 @@ export class SessionSidebarStore {
     )
   }
 
-  /** Mounted aliases all describe one visible session. Closed sessions fall
-   * back to their durable link id, which is the only identity available. */
-  private sidebarSessionIdentity(sessionId: string): string {
-    return this.tabIdBySessionId.get(sessionId) ?? sessionId
-  }
-
-  /** The first durable link wins automatic sidebar placement. Later task links
-   * remain valid relationships, but they do not project another row. */
-  private automaticRootBySessionIdentity: Map<string, string> = $derived.by(() => {
-    const links = this.session.tasksStore.tasks
-      .filter((task) => !task.parentId)
-      .flatMap((root) => [root, ...this.childrenOf(root.id)].flatMap((record) =>
-        this.session.tasksStore.get(record.id).sessions.map((link) => ({
-          rootTaskId: root.id,
-          link,
-        })),
-      ))
-      .sort((a, b) => a.link.linkedAt - b.link.linkedAt)
-    const rootBySession = new Map<string, string>()
-    for (const { rootTaskId, link } of links) {
-      const identity = this.sidebarSessionIdentity(link.sessionId)
-      if (!rootBySession.has(identity)) rootBySession.set(identity, rootTaskId)
-    }
-    return rootBySession
-  })
-
-  private projectsSessionUnder(rootTaskId: string, sessionId: string): boolean {
-    // A few focused unit tests call the pure row builder on a prototype rather
-    // than constructing Svelte state. With no projection index there is no
-    // competing task, so the only available row remains the correct one.
-    if (!this.automaticRootBySessionIdentity) return true
-    return this.automaticRootBySessionIdentity.get(this.sidebarSessionIdentity(sessionId)) === rootTaskId
-      || this.session.hasExplicitSidebarTaskSession(rootTaskId, sessionId)
+  /**
+   * Whether a link earns the session a row under this root. The owning link
+   * does — the host keeps exactly one `working` owner per session, so this is
+   * what makes one conversation one row. A `referenced` link is a relationship
+   * the task page shows; it projects a row only where the user opened that
+   * task and asked to see its sessions. An optimistic link written before the
+   * host answered carries no role yet and is the owner by construction.
+   */
+  private projectsSessionUnder(
+    rootTaskId: string,
+    link: Pick<TaskSessionLink, 'sessionId' | 'role'>,
+  ): boolean {
+    return link.role !== 'referenced'
+      || this.session.hasExplicitSidebarTaskSession(rootTaskId, link.sessionId)
   }
 
   /**
@@ -338,7 +319,7 @@ export class SessionSidebarStore {
 
     for (const item of taskTree) {
       for (const link of this.session.tasksStore.get(item.id).sessions) {
-        if (!this.projectsSessionUnder(task.id, link.sessionId)) continue
+        if (!this.projectsSessionUnder(task.id, link)) continue
         const linkServerId = attemptServerId({
           link,
           taskServerId: this.session.tasksStore.get(item.id).serverId,
@@ -451,7 +432,7 @@ export class SessionSidebarStore {
           this.session.tasksStore.get(item.id).sessions,
         )
         const hasProjectedSession = durableLinks.some((link) =>
-          this.projectsSessionUnder(task.id, link.sessionId),
+          this.projectsSessionUnder(task.id, link),
         )
         if (durableLinks.length && !hasProjectedSession && !this.pendingTabByTaskId.has(task.id)) {
           return false
@@ -461,7 +442,7 @@ export class SessionSidebarStore {
           this.pendingTabByTaskId.has(task.id)
           || taskTree.some((item) =>
             this.session.tasksStore.get(item.id).sessions.some((link) =>
-              this.projectsSessionUnder(task.id, link.sessionId)
+              this.projectsSessionUnder(task.id, link)
               && openTabBySessionId.has(link.sessionId),
             ),
           )
@@ -943,7 +924,7 @@ export class SessionSidebarStore {
       for (const task of rootTasks) {
         const hasLocalTab = this.pendingTabByTaskId.has(task.id) || [task, ...this.childrenOf(task.id)].some((item) =>
           this.session.tasksStore.get(item.id).sessions.some((link) =>
-            this.projectsSessionUnder(task.id, link.sessionId)
+            this.projectsSessionUnder(task.id, link)
             && this.tabIdBySessionId.has(link.sessionId),
           ),
         )
@@ -1395,7 +1376,7 @@ export class SessionSidebarStore {
     for (const { record, link } of linkedSessions) {
       if (seenSessionIds.has(link.sessionId)) continue
       seenSessionIds.add(link.sessionId)
-      if (!includeRestorable && !this.projectsSessionUnder(root.id, link.sessionId)) continue
+      if (!includeRestorable && !this.projectsSessionUnder(root.id, link)) continue
       const projectKey = record.projectKey ?? root.projectKey ?? undefined
       const tabId = this.tabIdBySessionId.get(link.sessionId)
       const dismissalKey = record.parentId ? `task:${record.id}` : `session:${link.sessionId}`

@@ -370,6 +370,7 @@
                       onSave={async (content) => { await session.worksStore.save(pillWorkModal!.id, { content }) }}
                       onDuplicate={() => duplicatePillWork(pillWorkModal!.id)}
                       onClose={() => { session.closeWorkModal(); requestInputFocus() }}
+                      onOpenWorkspace={() => { session.closeWorkModal(); session.openFolio() }}
                     />
                     {/snippet}
                   </LazyRoute>
@@ -413,6 +414,7 @@
                     onSave={async (content) => { await session.worksStore.save(pillWorkModal!.id, { content }) }}
                     onDuplicate={() => duplicatePillWork(pillWorkModal!.id)}
                     onClose={() => session.closeWorkModal()}
+                    onOpenWorkspace={() => { session.closeWorkModal(); session.openFolio() }}
                   />
                   {/snippet}
                 </LazyRoute>

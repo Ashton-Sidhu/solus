@@ -13,11 +13,10 @@
   /**
    * The phone's preview.
    *
-   * Tapping a row on a phone does the thing — opens the task, resumes the
-   * session — so the preview needs a gesture of its own, and a press-and-hold
-   * is the one a thumb already has. It carries exactly the content of the
-   * desktop pane, raised over the list it came from, so dismissing it returns
-   * to the same scroll position rather than to the top of a list.
+   * Tapping a row on a phone raises this sheet because the desktop preview
+   * column is hidden. It carries exactly the content of that desktop pane,
+   * raised over the list it came from, so dismissing it returns to the same
+   * scroll position rather than to the top of a list.
    */
   interface Props {
     target:
@@ -34,9 +33,6 @@
     projectLabel: string;
     portalTarget: HTMLElement | null;
     onClose: () => void;
-    /** Present only while the session runs in a mounted tab — a durable session
-     *  has no agent run to branch from until it is resumed. */
-    onFork?: (session: SidebarSessionChild) => void;
     onStartDraft: (task: Task) => void;
     onOpenTask: (task: Task) => void;
     onOpenSource: (task: Task) => void;
@@ -56,7 +52,6 @@
     projectLabel,
     portalTarget,
     onClose,
-    onFork,
     onStartDraft,
     onOpenTask,
     onOpenSource,
@@ -86,8 +81,7 @@
       {portalTarget}
       primaryLabel="Resume session"
       onPrimary={() => onSelectSession(picked)}
-      secondaryLabel={onFork ? "Fork" : undefined}
-      onSecondary={onFork ? () => onFork(picked) : undefined}
+      showTaskControls={false}
       {onOpenTask}
       {onOpenSource}
     />

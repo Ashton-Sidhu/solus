@@ -1,6 +1,5 @@
 <script lang="ts">
   import {
-    Area,
     Axis,
     Chart,
     Highlight,
@@ -184,14 +183,6 @@
                  run stays, so an isolated bucket still shows. -->
             {#each line.segments as segment, index (index)}
               {#if segment.length > 1}
-                <!-- A flat 10% wash, not a gradient fading to nothing: the fade
-                     reads as a rendering effect rather than a quantity, and it
-                     is the first thing that makes a chart look generic. Left off
-                     once the answer splits — overlapping washes read as a
-                     stacked quantity nobody computed. -->
-                {#if !split}
-                  <Area data={segment} fill={color} fill-opacity={0.1} />
-                {/if}
                 <Spline
                   data={segment}
                   stroke={line.color}

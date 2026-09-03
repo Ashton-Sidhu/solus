@@ -3,6 +3,7 @@ import type { RepoRef } from '@solus/contracts/providers'
 import type { GithubCredentialSource } from '@solus/server/providers/github/credentials'
 import { GitHubReauthRequiredError, type GitHubClient } from '@solus/server/providers/github/octokit'
 import { GitHubProvider } from '@solus/server/providers/github/provider'
+import { GitHubTaskProvider } from '@solus/server/tasks/providers/github'
 
 /**
  * One request, many credentials.
@@ -69,6 +70,11 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
       create: async () => respond('pulls.create', restPullRequest),
       merge: async () => respond('pulls.merge', { merged: true, message: 'Pull Request successfully merged' }),
     },
+    issues: {
+      listAssignees: async () => respond('issues.listAssignees', [
+        { login: 'octocat', avatar_url: 'https://avatars.test/octocat' },
+      ]),
+    },
   }
   const graphql = async () => respond('graphql', { resolveReviewThread: { thread: { id: 'T_1' } } }).data
   return { rest, graphql, credential: { source, token: `${source}-token` }, calls } as unknown as ScriptedClient
@@ -77,6 +83,16 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
 class ChainedProvider extends GitHubProvider {
   constructor(private readonly chain: GitHubClient[]) {
     super()
+  }
+
+  protected override async clients(): Promise<GitHubClient[]> {
+    return this.chain
+  }
+}
+
+class ChainedTaskProvider extends GitHubTaskProvider {
+  constructor(private readonly chain: GitHubClient[]) {
+    super(repo)
   }
 
   protected override async clients(): Promise<GitHubClient[]> {
@@ -184,6 +200,20 @@ describe('GitHub requests run down the credential chain', () => {
     expect(merge.merged).toBe(true)
     expect(host.calls).toEqual(['pulls.merge', 'graphql'])
     expect(cli.calls).toEqual(['pulls.merge', 'graphql'])
+  })
+
+  test('task assignee candidates fall through to the gh credential', async () => {
+    // WHY: task assignment must use the same authenticated fallback as review
+    // requests instead of requiring a separate Solus OAuth connection.
+    const host = scriptedClient('host', 'forbidden')
+    const cli = scriptedClient('gh-cli', 'accepts')
+    const provider = new ChainedTaskProvider([host, cli])
+
+    await expect(provider.listAssigneeCandidates()).resolves.toEqual([
+      { login: 'octocat', avatarUrl: 'https://avatars.test/octocat' },
+    ])
+    expect(host.calls).toEqual(['issues.listAssignees'])
+    expect(cli.calls).toEqual(['issues.listAssignees'])
   })
 
   test('pull request creation uses the same organization-access fallback', async () => {

@@ -1075,6 +1075,40 @@
     receive(files);
   }
 
+  async function handleAttachFiles(files: File[], sourceId?: string) {
+    const { targetTabId, ctx, receive } = attachmentTargetFor(sourceId);
+    const serverId =
+      (targetTabId ? session.runFor(targetTabId)?.serverId : undefined) ??
+      serverConnections.defaultServerId();
+    if (!serverId) return;
+    const capabilities = await serverConnections.capabilitiesFor(serverId);
+    if (capabilities.attachUpload !== true) {
+      const hostLabel =
+        serversStore.hostFor(serverId)?.label ??
+        serverConnections.connectionFor(serverId)?.target.label ??
+        "this host";
+      toasts.info(unsupportedOnHost("File attachments", hostLabel));
+      return;
+    }
+    const api = targetTabId
+      ? session.apiFor(targetTabId)
+      : serverConnections.apiFor(serverId);
+    const attachments = await api.uploadFiles(files, ctx);
+    if (!attachments) {
+      toasts.error("Couldn't attach files");
+      return;
+    }
+    const runServerId = targetTabId
+      ? session.runFor(targetTabId)?.serverId
+      : undefined;
+    if (runServerId) {
+      for (const attachment of attachments) {
+        attachment.hostServerId = runServerId;
+      }
+    }
+    receive(attachments);
+  }
+
   async function cycleAgentProvider(via: "click" | "keybinding" | "palette" = "click") {
     const enabledAgents = agent.agents.filter(
       (candidate) => agent.metadata[candidate.id]?.available === true,
@@ -1170,7 +1204,7 @@
 ></div>
 
 <div class="flex h-full w-full" style="background:var(--solus-container-bg);">
-  <WebLayout onAttachFile={handleAttachFile} />
+  <WebLayout onAttachFile={handleAttachFile} onAttachFiles={handleAttachFiles} />
 </div>
 
 <CommandPalette bind:open={commandPaletteOpen} commands={paletteCommands} />

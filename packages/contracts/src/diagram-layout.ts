@@ -13,16 +13,41 @@ const GROUP_PAD = 24
 //   BT — bottom → top
 export type LayoutDirection = 'LR' | 'TB' | 'RL' | 'BT'
 
+/** Gaps dagre keeps between nodes within a rank and between ranks. */
+export interface LayoutSpacing {
+  nodesep: number
+  ranksep: number
+}
+
+// Generous on the canvas, so edge labels (placed mid-edge) don't collide with
+// neighbouring nodes and a reader has room to pan.
+export const CANVAS_LAYOUT_SPACING: LayoutSpacing = { nodesep: 120, ranksep: 140 }
+
 // Per-field row height in the always-visible entity table (matches the
 // 0.625rem/1.5 line plus row gap in DiagramNode.svelte).
 const FIELD_ROW_H = 18
+
+/** A node's box, as estimated here or as the canvas measured it. */
+export interface NodeSize { w: number; h: number }
+
+/**
+ * What a caller that has rendered the diagram already knows. The estimate
+ * below reads the label but not the subtitle or badges, so a real card can be
+ * up to ~90px wider than it predicts. Canvas spacing is generous enough to
+ * absorb that; tighter spacing is only safe against measured sizes.
+ */
+export interface LayoutOptions {
+  spacing?: LayoutSpacing
+  /** Rendered sizes of the leaf nodes, by id. Groups are always sized to fit. */
+  measured?: ReadonlyMap<string, NodeSize>
+}
 
 // Approximate the rendered card dimensions, mirroring DiagramNode.svelte's
 // layout. Expanded-only content (metrics/tags/body) is collapsed at layout
 // time and excluded. Width is clamped to the card's [min-width:12rem /
 // max-width:18rem] range (192–288px); entities (nodes with `fields`) carry
 // `name : type` rows that are wider, so they get a roomier max.
-interface EstimatedNodeSize { w: number; h: number }
+type EstimatedNodeSize = NodeSize
 
 function estimateNodeSize(node: DiagramNode): EstimatedNodeSize {
   const isEntity = !!node.fields?.length && !node.group
@@ -58,17 +83,16 @@ function layoutSubset(
   edges: DiagramEdge[],
   direction: LayoutDirection,
   sizeOf: (n: DiagramNode) => { w: number; h: number },
+  spacing: LayoutSpacing,
 ): Map<string, { x: number; y: number }> {
   const horizontal = direction === 'LR' || direction === 'RL'
   const ids = new Set(subset.map((n) => n.id))
 
   const g = new dagre.graphlib.Graph()
-  // nodesep = gap between nodes within a rank, ranksep = gap between ranks.
-  // Keep both generous so edge labels (placed mid-edge) don't collide with
-  // neighbouring nodes. acyclicer:'greedy' removes feedback edges with a
-  // minimal feedback-arc set so cycles (e.g. service→user response edges)
-  // don't randomise which node becomes rank-0.
-  g.setGraph({ rankdir: direction, nodesep: 120, ranksep: 140, edgesep: 40, acyclicer: 'greedy' })
+  // acyclicer:'greedy' removes feedback edges with a minimal feedback-arc set
+  // so cycles (e.g. service→user response edges) don't randomise which node
+  // becomes rank-0.
+  g.setGraph({ rankdir: direction, ...spacing, edgesep: 40, acyclicer: 'greedy' })
   g.setDefaultEdgeLabel(() => ({}))
 
   // Insert nodes sorted by in-degree ascending (sources first) so dagre
@@ -117,7 +141,11 @@ function layoutSubset(
   return out
 }
 
-export function applyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'): DiagramDoc {
+export function applyLayout(
+  doc: DiagramDoc,
+  direction: LayoutDirection = 'LR',
+  { spacing = CANVAS_LAYOUT_SPACING, measured }: LayoutOptions = {},
+): DiagramDoc {
   const needsLayout = doc.nodes.some((n) => !n.position)
   if (!needsLayout) return doc
 
@@ -153,8 +181,10 @@ export function applyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'):
   // estimate, so the parent grows to actually contain it.
   const childRel = new Map<string, { x: number; y: number }>()
   const groupSize = new Map<string, { w: number; h: number }>()
-  const sizeFor = (n: DiagramNode): { w: number; h: number } =>
-    n.group && groupSize.has(n.id) ? groupSize.get(n.id)! : estimateNodeSize(n)
+  const sizeFor = (n: DiagramNode): NodeSize => {
+    if (n.group) return groupSize.get(n.id) ?? estimateNodeSize(n)
+    return measured?.get(n.id) ?? estimateNodeSize(n)
+  }
   for (const id of orderedGroupIds) {
     const group = doc.nodes.find((n) => n.id === id)!
     const kids = childrenByGroup.get(id) ?? []
@@ -162,7 +192,7 @@ export function applyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'):
       groupSize.set(id, { w: group.width ?? 320, h: group.height ?? 220 })
       continue
     }
-    const pos = layoutSubset(kids, doc.edges, direction, sizeFor)
+    const pos = layoutSubset(kids, doc.edges, direction, sizeFor, spacing)
     let minX = Infinity
     let minY = Infinity
     let maxX = -Infinity
@@ -205,7 +235,7 @@ export function applyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'):
     if (source !== target) topEdges.push({ ...edge, source, target })
   }
   const topLevel = doc.nodes.filter((n) => !n.parentId)
-  const topPos = layoutSubset(topLevel, topEdges, direction, sizeFor)
+  const topPos = layoutSubset(topLevel, topEdges, direction, sizeFor, spacing)
 
   // Step 3 — assemble. Existing positions are preserved; only missing ones are
   // filled. Groups carry their fitted size (nested groups included); children
@@ -234,7 +264,11 @@ export function applyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'):
  * diagrams; ordinary loads should keep using applyLayout so authored positions
  * remain untouched.
  */
-export function reapplyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'): DiagramDoc {
+export function reapplyLayout(
+  doc: DiagramDoc,
+  direction: LayoutDirection = 'LR',
+  options: LayoutOptions = {},
+): DiagramDoc {
   return applyLayout(
     {
       nodes: doc.nodes.map((node) => {
@@ -244,5 +278,6 @@ export function reapplyLayout(doc: DiagramDoc, direction: LayoutDirection = 'LR'
       edges: doc.edges,
     },
     direction,
+    options,
   )
 }

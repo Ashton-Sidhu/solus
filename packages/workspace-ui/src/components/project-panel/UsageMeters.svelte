@@ -77,9 +77,9 @@
                 class="order-last ml-auto shrink-0 tabular-nums text-(--solus-text-tertiary)"
                 >{Math.round(meter.remainingPercent)}%</span
               >
-              {#if meter.resetText}
+              {#if meter.resetPhrase}
                 <span class="truncate text-(--solus-text-tertiary)"
-                  >resets in {meter.resetText}</span
+                  >{meter.resetPhrase}</span
                 >
               {/if}
             </div>

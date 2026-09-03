@@ -11,6 +11,7 @@
     getWorkspaceContext,
   } from "../../contexts";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
+  import type { PaneId } from "../../contexts/workspace/routing/location";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -44,6 +45,7 @@
    */
   let {
     sourceTabId,
+    paneId,
     view,
     onSelectView,
     scope,
@@ -60,6 +62,8 @@
     bordered = false,
   }: {
     sourceTabId: string;
+    /** Present when this surface is mounted in the workspace pane router. */
+    paneId?: PaneId;
     view: ReviewView;
     onSelectView: (view: ReviewView) => void;
     /** Which change to read. Absent is the branch review, whose base this
@@ -391,6 +395,7 @@
   <DiffPanel
     bind:this={diffPanelRef}
     tabId={sourceTabId}
+    {paneId}
     {getCtx}
     {getApi}
     projectPath={checkoutRepoRoot ?? sourceSession?.run.workingDirectory ?? environment.cwd}

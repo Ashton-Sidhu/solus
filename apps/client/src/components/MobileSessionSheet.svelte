@@ -339,8 +339,8 @@
             <div class="flex flex-col gap-1.5">
               <div class="flex items-baseline gap-2">
                 <span class="shrink-0 text-(--solus-text-primary)">{meter.label}</span>
-                {#if meter.resetText}
-                  <span class="truncate {SHEET_ROW_META}">resets in {meter.resetText}</span>
+                {#if meter.resetPhrase}
+                  <span class="truncate {SHEET_ROW_META}">{meter.resetPhrase}</span>
                 {/if}
                 <span class="order-last ml-auto shrink-0 font-mono tabular-nums {SHEET_ROW_META}">
                   {Math.round(meter.remainingPercent)}%

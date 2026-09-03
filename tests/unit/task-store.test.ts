@@ -86,7 +86,7 @@ describe('native task migration', () => {
     // SAFETY: Bun's in-memory Database implements the DatabaseSync methods the migration runner uses.
     migrations.runMigrations(legacy as never)
 
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 30 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 31 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()
@@ -120,6 +120,8 @@ describe('native task migration', () => {
       PRAGMA user_version = 23;
       CREATE TABLE tasks (
         id TEXT PRIMARY KEY,
+        parent_id TEXT,
+        source TEXT,
         origin_session_id TEXT,
         branch TEXT,
         worktree_key TEXT,
@@ -127,6 +129,8 @@ describe('native task migration', () => {
         snoozed_at INTEGER,
         snooze_note TEXT
       );
+      CREATE TABLE task_comments(task_id TEXT NOT NULL);
+      CREATE TABLE task_links(task_id TEXT NOT NULL);
       CREATE TABLE task_session_links (
         task_id TEXT NOT NULL,
         session_id TEXT NOT NULL,
@@ -190,7 +194,7 @@ describe('native task migration', () => {
     })
     expect(legacy.query("SELECT name FROM pragma_table_info('tasks') WHERE name IN ('branch', 'worktree_key')").all())
       .toEqual([])
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 30 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 31 })
     legacy.close()
   })
 })
@@ -1091,5 +1095,124 @@ describe('session minting and durable links', () => {
     // The stub session row also carries the agent, so the task's host can name
     // it without ever holding the transcript.
     expect(links[first.id][0].provider).toBe('claude')
+  })
+})
+
+describe('one owning task per session', () => {
+  test('a working link elsewhere moves the session and drops its empty placeholder', async () => {
+    // WHY: a session's first dispatch mints a placeholder before the agent can
+    // say which task the work belongs to. When it then links an existing task,
+    // both rows used to survive and the sidebar drew the same conversation
+    // under each. The store keeps one owner, so the untouched placeholder goes.
+    const placeholder = await taskSessions.prepareSessionTask({
+      sessionId: 'moving-session',
+      projectKey: '/workspace/solus',
+      prompt: 'Investigate duplicate rows',
+    })
+    const existing = await taskStore.createTask({ title: 'Duplicate session sidebar entries' })
+
+    await (await tasks.Task.byId(existing.id)).linkSession('moving-session', 'working')
+
+    const links = await taskSessions.taskSessions()
+    expect(links[existing.id]).toEqual([
+      expect.objectContaining({ sessionId: 'moving-session', role: 'working' }),
+    ])
+    expect(links[placeholder!.id]).toBeUndefined()
+    expect(taskStore.loadTaskRecord(placeholder!.id)).toBeNull()
+    expect(await taskSessions.tasksForSession('moving-session')).toMatchObject({
+      task: { id: existing.id },
+    })
+  })
+
+  test('a placeholder the agent wrote on outlives the transfer as a task of its own', async () => {
+    // WHY: the agent addresses the placeholder by id during the turn. A comment
+    // it left there is work, not scaffolding — only an untouched placeholder is
+    // safe to drop. The session still moves; the task simply stays behind, empty
+    // of sessions.
+    const placeholder = await taskSessions.prepareSessionTask({
+      sessionId: 'commented-session',
+      projectKey: '/workspace/solus',
+      prompt: 'Placeholder with notes',
+    })
+    await (await tasks.Task.byId(placeholder!.id)).comment('Findings so far', { author: 'agent' })
+    const existing = await taskStore.createTask({ title: 'Real task' })
+
+    await (await tasks.Task.byId(existing.id)).linkSession('commented-session', 'working')
+
+    expect(taskStore.loadTaskRecord(placeholder!.id)).not.toBeNull()
+    expect((await taskSessions.taskSessions())[placeholder!.id]).toBeUndefined()
+  })
+
+  test('moving between two user tasks keeps both and records the departure', async () => {
+    const first = await taskStore.createTask({ title: 'First home' })
+    const second = await taskStore.createTask({ title: 'Second home' })
+    await (await tasks.Task.byId(first.id)).linkSession('restless-session', 'working')
+
+    await (await tasks.Task.byId(second.id)).linkSession('restless-session', 'working')
+
+    const links = await taskSessions.taskSessions()
+    expect(links[first.id]).toBeUndefined()
+    expect(links[second.id]).toHaveLength(1)
+    expect(taskStore.loadTaskRecord(first.id)).not.toBeNull()
+    const firstDetails = await (await tasks.Task.byId(first.id)).details()
+    expect(firstDetails.events.map((event) => event.kind)).toContain('unlinked')
+  })
+
+  test('a referenced link neither moves the session nor outranks its owner', async () => {
+    // WHY: referencing a session from a second task is a relationship, not a
+    // move. The owner keeps answering for the session even though the reference
+    // is the newer row — "latest link wins" is what used to hand it over.
+    const owner = await taskStore.createTask({ title: 'Owner' })
+    const referrer = await taskStore.createTask({ title: 'Referrer' })
+    await (await tasks.Task.byId(owner.id)).linkSession('shared-session', 'working')
+    db.getDb().prepare('UPDATE task_session_links SET linked_at = 1 WHERE task_id = ?').run(owner.id)
+
+    await (await tasks.Task.byId(referrer.id)).linkSession('shared-session', 'referenced')
+
+    const links = await taskSessions.taskSessions()
+    expect(links[owner.id]).toEqual([
+      expect.objectContaining({ sessionId: 'shared-session', role: 'working' }),
+    ])
+    expect(links[referrer.id]).toEqual([
+      expect.objectContaining({ sessionId: 'shared-session', role: 'referenced' }),
+    ])
+    expect(await taskSessions.tasksForSession('shared-session')).toMatchObject({
+      task: { id: owner.id },
+    })
+    expect((await tasks.Task.forSession('shared-session'))?.id).toBe(owner.id)
+  })
+
+  test('the migration settles existing duplicates the way a live transfer would', async () => {
+    // WHY: rows written before the rule can hold several working links for one
+    // session. On upgrade the newest becomes the owner, an older task of the
+    // user's keeps the relationship as a reference, and the untouched
+    // placeholder that started the duplicate is dropped.
+    const placeholder = await taskSessions.prepareSessionTask({
+      sessionId: 'legacy-session',
+      projectKey: '/workspace/solus',
+      prompt: 'Auto-minted placeholder',
+    })
+    const userTask = await taskStore.createTask({ title: 'Task the user made' })
+    const agentLinked = await taskStore.createTask({ title: 'Task the agent linked' })
+    const database = db.getDb()
+    database.prepare('UPDATE task_session_links SET linked_at = 1 WHERE task_id = ?').run(placeholder!.id)
+    // Written directly: the live write path would transfer, and this reproduces
+    // the state the rule did not yet exist to prevent.
+    const insertWorking = database.prepare(
+      "INSERT INTO task_session_links(task_id, session_id, role, linked_at) VALUES (?, 'legacy-session', 'working', ?)",
+    )
+    insertWorking.run(userTask.id, 2)
+    insertWorking.run(agentLinked.id, 3)
+
+    database.exec(migrations.SINGLE_SESSION_OWNER_MIGRATION)
+
+    const links = await taskSessions.taskSessions()
+    expect(links[agentLinked.id]).toEqual([
+      expect.objectContaining({ sessionId: 'legacy-session', role: 'working' }),
+    ])
+    expect(links[userTask.id]).toEqual([
+      expect.objectContaining({ sessionId: 'legacy-session', role: 'referenced' }),
+    ])
+    expect(taskStore.loadTaskRecord(placeholder!.id)).toBeNull()
   })
 })

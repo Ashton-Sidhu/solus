@@ -33,7 +33,6 @@ export interface SessionEventReducerDeps {
   playNotificationIfHidden(sessionId: string, trigger: NotificationSoundTrigger): void
   closePlanModal(): void
   onTurnSettled(sessionId: string, cwd: string | null): void
-  onTurnFinished?(sessionId: string): void
   onGoalDefined?(sessionId: string): void
   applyGoalUpdated?(sessionId: string, goal: ThreadGoal): boolean
   applyGoalCleared?(sessionId: string, threadId: string): void
@@ -436,7 +435,6 @@ export class SessionEventReducer {
         this.settledTurnIds.set(session, event.turnId)
         session.currentTurnStartedAt = null
         this.deps.onTurnSettled(sessionId, session.run.workingDirectory)
-        this.deps.onTurnFinished?.(sessionId)
         this.deps.refreshTurnSnapshots(sessionId)
         this.deps.workStreamTracker.sweep(session)
         if (event.outcome === 'completed' || event.outcome === 'failed') {

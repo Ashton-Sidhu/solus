@@ -307,6 +307,10 @@
 
   Touch has no hover to swap on, so a coarse pointer keeps both: the mark holds
   its place and the actions simply stand beside it, exactly as before.
+
+  The faded mark also gives up its pointer events: it goes out of flow at
+  right-0, which paints it above the in-flow actions that replaced it, and an
+  invisible box still answers a click.
 -->
 {#snippet trailingSlot()}
   <!-- The slot reserves its column only while it holds a mark. Reserved-when-
@@ -319,7 +323,7 @@
       : ''}"
   >
     <span
-      class="flex items-center transition-opacity duration-150 pointer-fine:group-hover/row:absolute pointer-fine:group-hover/row:right-0 pointer-fine:group-hover/row:opacity-0 pointer-fine:group-has-[:focus-visible]/row:absolute pointer-fine:group-has-[:focus-visible]/row:right-0 pointer-fine:group-has-[:focus-visible]/row:opacity-0"
+      class="flex items-center transition-opacity duration-150 pointer-fine:group-hover/row:pointer-events-none pointer-fine:group-hover/row:absolute pointer-fine:group-hover/row:right-0 pointer-fine:group-hover/row:opacity-0 pointer-fine:group-has-[:focus-visible]/row:pointer-events-none pointer-fine:group-has-[:focus-visible]/row:absolute pointer-fine:group-has-[:focus-visible]/row:right-0 pointer-fine:group-has-[:focus-visible]/row:opacity-0"
     >
       {@render stateMark()}
     </span>
@@ -512,7 +516,7 @@
              also what pays for the hover actions: the slot on its right is the
              only thing that yields width when they arrive. -->
         <span
-          class="flex h-[1.0625rem] min-w-0 items-center gap-[0.375rem] text-xs @max-[15rem]:gap-1"
+          class="flex h-[1.1875rem] min-w-0 items-center gap-[0.375rem] text-workspace-chrome @max-[15rem]:gap-1"
         >
           <!-- The context cluster carries its own step down in ink, so it stays
                a supporting detail on a row at full strength and recedes twice
@@ -534,24 +538,29 @@
               >{task.projectLabel}</span
             >
             {#if showsHost}
-              <!-- The dot and the "runs here" mark are the first things a
-                   narrow column can spend: the separator is pure decoration,
-                   and local is the default every row would otherwise repeat.
-                   Both stay in the row's tooltip, and a remote host — the
-                   answer worth interrupting a name for — keeps its operating
-                   system mark at every width. -->
+              <!-- The separator is pure decoration, and local is the default
+                   every row would otherwise repeat. A remote session names its
+                   host as well as its operating system: remote and SaaS clients
+                   cannot infer the machine from the icon. The host cluster is
+                   bounded so it yields to the project name, and both labels
+                   truncate before the trailing state or actions. -->
               <span class="shrink-0 @max-[15rem]:hidden">·</span>
               {#if isRemote}
-                <HostOperatingSystemIcon
-                  os={remoteOs}
-                  size={14}
-                  class="shrink-0"
-                  aria-label={host?.label}
-                />
+                <span
+                  class="flex min-w-0 max-w-[45%] items-center gap-1"
+                  title={host?.label}
+                >
+                  <HostOperatingSystemIcon
+                    os={remoteOs}
+                    size={12}
+                    class="size-3 shrink-0 [.is-laptop-display_&]:size-2.5"
+                  />
+                  <span class="min-w-0 truncate">{host?.label}</span>
+                </span>
               {:else}
                 <LaptopIcon
-                  size={14}
-                  class="shrink-0 @max-[15rem]:hidden"
+                  size={12}
+                  class="size-3 shrink-0 @max-[15rem]:hidden [.is-laptop-display_&]:size-2.5"
                   aria-label="Local"
                 />
               {/if}
@@ -571,7 +580,7 @@
              the gap does not spend that ratio.
 
              The gap is also clearance. The hover actions are 24px buttons on a
-             17px line, so they hang 3.5px below it, and the pull request chip
+             19px line, so they hang 2.5px below it, and the pull request chip
              carries a hit target taller than its own text. At 4px the two
              overlapped, and a click aimed at close or complete opened the pull
              request instead. -->

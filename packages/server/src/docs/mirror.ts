@@ -1,15 +1,16 @@
-import { parseDiagramEmbed } from '@solus/contracts/diagram-embed'
+import { findDiagramEmbeds, parseDiagramEmbed, type DiagramEmbedReference } from '@solus/contracts/diagram-embed'
 import type {
   DocDestination,
   DocDiagramAsset,
   DocPatch,
+  DocRef,
   NormalizedDoc,
   WorkExternalLink,
   WorkPullResult,
   WorkPublishResult,
 } from '@solus/contracts/docs'
 import { docProviderAdapter } from './registry'
-import { DocProviderUnavailableError, DocVersionConflictError } from './types'
+import { DocProviderUnavailableError, DocVersionConflictError, type DocProviderAdapter } from './types'
 import { documentContentHash } from './content-hash'
 
 interface PreparedDocument {
@@ -18,12 +19,14 @@ interface PreparedDocument {
   lossyParts: string[]
 }
 
-function prepareDocument(
-  provider: DocDestination['provider'],
-  content: string,
-  diagramAssets?: DocDiagramAsset[],
-): PreparedDocument {
-  if (provider === 'gdrive' && diagramAssets?.length) {
+/**
+ * A publish that carries rendered diagrams keeps its embeds; the provider
+ * turns each one into a picture. Without them — an agent publishing from the
+ * server, where nothing can draw a canvas — each embed becomes a named caption
+ * so the reader is told what is missing rather than shown a bare title.
+ */
+function prepareDocument(content: string, diagramAssets?: DocDiagramAsset[]): PreparedDocument {
+  if (diagramAssets?.length) {
     return { markdown: content, diagramAssets, lossyParts: [] }
   }
 
@@ -37,7 +40,13 @@ function prepareDocument(
   return { markdown: lines.join('\n'), lossyParts }
 }
 
-function linkFrom(doc: NormalizedDoc, destination: DocDestination, content: string): WorkExternalLink {
+/** The embeds a publish carried as images, and so the ones a later pull can
+ *  recognize. Empty when the provider received captions instead. */
+function publishedDiagrams(prepared: PreparedDocument): DiagramEmbedReference[] {
+  return prepared.diagramAssets?.length ? findDiagramEmbeds(prepared.markdown) : []
+}
+
+function linkFrom(doc: NormalizedDoc, destination: DocDestination, content: string, prepared: PreparedDocument): WorkExternalLink {
   const link: WorkExternalLink = {
     ...doc.ref,
     scope: destination.scope,
@@ -45,7 +54,34 @@ function linkFrom(doc: NormalizedDoc, destination: DocDestination, content: stri
     syncState: 'ok',
   }
   if (doc.version !== undefined) link.upstreamVersion = doc.version
+  const diagrams = publishedDiagrams(prepared)
+  if (diagrams.length) link.diagrams = diagrams
   return link
+}
+
+/**
+ * What a read of the freshly published doc returns, recorded so the next
+ * check has something truthful to compare against.
+ *
+ * A publish knows what it sent, not what the provider stored: Docs re-flows
+ * the markdown through its own structure, and Confluence through storage
+ * format, so neither round-trips to the byte. Reading once, here, means every
+ * later comparison is read-against-read and a version counter that moves on
+ * its own can never be mistaken for someone else's edit.
+ */
+async function upstreamContentHash(
+  adapter: DocProviderAdapter,
+  ref: DocRef,
+  diagrams: DiagramEmbedReference[],
+): Promise<string | undefined> {
+  try {
+    const doc = await adapter.read(ref, diagrams.length ? { diagrams } : undefined)
+    return documentContentHash(doc.markdown)
+  } catch {
+    // The publish itself succeeded. Without a baseline the next check falls
+    // back to the version counter, which is the behaviour that existed before.
+    return undefined
+  }
 }
 
 export interface PublishMirrorInput {
@@ -60,7 +96,7 @@ export interface PublishMirrorInput {
 export async function publishMirror(input: PublishMirrorInput): Promise<WorkPublishResult> {
   const provider = input.link?.provider ?? input.destination?.provider
   if (!provider) return { ok: false, error: 'Choose a space or folder to publish this document to.' }
-  const prepared = prepareDocument(provider, input.content, input.diagramAssets)
+  const prepared = prepareDocument(input.content, input.diagramAssets)
 
   try {
     const adapter = docProviderAdapter(provider)
@@ -71,7 +107,8 @@ export async function publishMirror(input: PublishMirrorInput): Promise<WorkPubl
         markdown: prepared.markdown,
         diagramAssets: prepared.diagramAssets,
       })
-      const link = linkFrom(created, input.destination, input.content)
+      const link = linkFrom(created, input.destination, input.content, prepared)
+      link.upstreamContentHash = await upstreamContentHash(adapter, created.ref, link.diagrams ?? [])
       const result: WorkPublishResult = { ok: true, link }
       if (prepared.lossyParts.length) result.lossyParts = prepared.lossyParts
       return result
@@ -86,6 +123,7 @@ export async function publishMirror(input: PublishMirrorInput): Promise<WorkPubl
       patch.expectedVersion = input.link.upstreamVersion
     }
     const updated = await adapter.update(input.link, patch)
+    const diagrams = publishedDiagrams(prepared)
     const link: WorkExternalLink = {
       ...input.link,
       ...updated.ref,
@@ -93,7 +131,9 @@ export async function publishMirror(input: PublishMirrorInput): Promise<WorkPubl
       syncState: 'ok',
       syncError: undefined,
       upstreamVersion: updated.version,
+      diagrams: diagrams.length ? diagrams : undefined,
     }
+    link.upstreamContentHash = await upstreamContentHash(adapter, updated.ref, diagrams)
     const result: WorkPublishResult = { ok: true, link }
     if (prepared.lossyParts.length) result.lossyParts = prepared.lossyParts
     return result
@@ -124,10 +164,11 @@ export interface PulledMirror {
 }
 
 export async function pullMirror(link: WorkExternalLink): Promise<PulledMirror> {
-  const doc = await docProviderAdapter(link.provider).read(link)
+  const doc = await docProviderAdapter(link.provider).read(link, { diagrams: link.diagrams })
   const refreshed: WorkExternalLink = {
     ...link,
     lastPushedContentHash: documentContentHash(doc.markdown),
+    upstreamContentHash: documentContentHash(doc.markdown),
     upstreamVersion: doc.version,
     syncState: 'ok',
     syncError: undefined,
@@ -142,10 +183,31 @@ export async function pullMirror(link: WorkExternalLink): Promise<PulledMirror> 
   return { doc, link: refreshed, result }
 }
 
+/**
+ * Ask whether the upstream doc says something different from what Solus last
+ * read there.
+ *
+ * The provider's version counter is only a hint, and on Google Docs a
+ * misleading one: it moves when Docs commits its own revisions after a write,
+ * so a doc that still says exactly what Solus published reports a new version
+ * within seconds. The read has the content, so the content decides. The
+ * counter is still used to skip the comparison when it has not moved, and the
+ * refreshed value is stored whenever the content matches, so an unchanged doc
+ * is not re-examined on every poll.
+ */
 export async function refreshMirror(link: WorkExternalLink): Promise<WorkExternalLink> {
   try {
-    const doc = await docProviderAdapter(link.provider).read(link)
+    const hints = link.diagrams?.length ? { diagrams: link.diagrams } : undefined
+    const doc = await docProviderAdapter(link.provider).read(link, hints)
     if (doc.version === undefined || doc.version === link.upstreamVersion) return link
+
+    const upstreamContentHash = documentContentHash(doc.markdown)
+    if (link.upstreamContentHash !== undefined && link.upstreamContentHash === upstreamContentHash) {
+      // The counter moved, the document did not.
+      return { ...link, upstreamVersion: doc.version, syncState: 'ok', syncError: undefined }
+    }
+    // The version guard keeps the old value on purpose: a publish over an
+    // upstream edit must still be refused as a conflict.
     return {
       ...link,
       syncState: 'upstream_changed',

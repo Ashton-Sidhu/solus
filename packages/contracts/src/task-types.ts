@@ -36,7 +36,7 @@ export interface ExternalTicketRef {
 
 /** A task field the sync engine can hold a pending local write for. Whether a
  *  given provider can actually take one is the adapter's own declaration. */
-export type TaskSyncField = 'title' | 'body' | 'status' | 'labels' | 'priority'
+export type TaskSyncField = 'title' | 'body' | 'status' | 'labels' | 'priority' | 'assignee'
 
 export interface TaskExternalLink extends ExternalTicketRef {
   taskId: string
@@ -67,6 +67,8 @@ export interface NormalizedTicket extends ExternalTicketRef {
    *  upstream, so the engine never mistakes coarseness for a real change. */
   status: TaskStatus
   labels: string[]
+  assignee?: string
+  assigneeAvatarUrl?: string
   externalUpdatedAt: string
   comments: NormalizedTaskComment[]
   snapshot?: unknown
@@ -81,6 +83,13 @@ export interface TicketPatch {
   status?: TaskStatus
   labels?: string[]
   priority?: TaskPriority | null
+  assignee?: string | null
+}
+
+/** A person the configured task provider permits an issue to be assigned to. */
+export interface TaskAssigneeCandidate {
+  login: string
+  avatarUrl?: string
 }
 
 export interface CandidateTicket extends ExternalTicketRef {

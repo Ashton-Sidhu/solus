@@ -52,6 +52,13 @@ describe('host config', () => {
     const snapshot = settings.getHostConfig()
     expect(snapshot.seeded).toBe(false)
     expect(snapshot.config.fontFamily).toBe(DEFAULT_HOST_CONFIG.fontFamily)
+    expect(snapshot.config.themeMode).toBe('system')
+  })
+
+  test('an invalid theme falls back to the operating system appearance', () => {
+    // WHY: a malformed persisted value must not silently pin a new appearance.
+    const parsed = hostConfigPatchSchema.parse({ themeMode: 'sepia' })
+    expect(parsed.themeMode).toBe('system')
   })
 
   test('a patch changes only the keys it carries', () => {

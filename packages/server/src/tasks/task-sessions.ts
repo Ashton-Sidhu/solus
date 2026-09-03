@@ -57,6 +57,11 @@ const rekeySessionLinkRowSchema = z.object({
   linked_at: z.number(),
 })
 const taskIdRowSchema = z.object({ task_id: z.string() })
+const previousOwnerRowSchema = z.object({
+  task_id: z.string(),
+  source: z.string(),
+  origin_session_id: z.string().nullable(),
+})
 const generatedMetadataTaskRowSchema = z.object({
   id: z.string(),
   title_source: z.enum(['prompt', 'generated', 'manual']),
@@ -127,6 +132,7 @@ export function writeSessionLink(
   // first binding is a session start.
   const isNewLink = !db.prepare('SELECT 1 FROM task_session_links WHERE task_id = ? AND session_id = ?')
     .get(taskId, sessionId)
+  if (role === 'working') transferSessionOwnership(db, taskId, sessionId, now)
   db.prepare(`
     INSERT INTO task_session_links(task_id, session_id, role, linked_at)
     VALUES (?, ?, ?, ?)
@@ -147,6 +153,48 @@ export function writeSessionLink(
       targetKind: 'session',
       targetKey: sessionId,
     }, now)
+  }
+}
+
+/**
+ * A session has one owning task. Writing a `working` link elsewhere transfers
+ * that ownership: every other task's working attempt on the session goes, and
+ * a task that was minted for this session and now holds nothing goes with it.
+ *
+ * This is the rule that keeps one conversation from projecting under two
+ * sidebar rows, and it lives here so it holds for every writer of the row —
+ * the client's first-dispatch bind, the agent's `link_task_session`, an
+ * automation, an older build. A `referenced` link is a relationship, not
+ * ownership, and is left alone.
+ */
+function transferSessionOwnership(
+  db: DatabaseSync,
+  taskId: string,
+  sessionId: string,
+  now: number,
+): void {
+  const previousOwners = previousOwnerRowSchema.array().parse(db.prepare(`
+    SELECT task_session_links.task_id, tasks.source, tasks.origin_session_id
+    FROM task_session_links
+    JOIN tasks ON tasks.id = task_session_links.task_id
+    WHERE task_session_links.session_id = ?
+      AND task_session_links.role = 'working'
+      AND task_session_links.task_id <> ?
+  `).all(sessionId, taskId))
+  for (const owner of previousOwners) {
+    deleteSessionLink(db, owner.task_id, sessionId, {}, now)
+    if (owner.source !== 'session' || owner.origin_session_id !== sessionId) continue
+    // The placeholder minted for this session is empty once the session leaves
+    // it: nothing else links to it, nothing hangs under it, nobody wrote on it.
+    // Anything more than that makes it a task in its own right, which stays.
+    const stillHoldsSomething = db.prepare(`
+      SELECT 1 FROM task_session_links WHERE task_id = ?
+      UNION ALL SELECT 1 FROM tasks WHERE parent_id = ?
+      UNION ALL SELECT 1 FROM task_comments WHERE task_id = ?
+      UNION ALL SELECT 1 FROM task_links WHERE task_id = ?
+      LIMIT 1
+    `).get(owner.task_id, owner.task_id, owner.task_id, owner.task_id)
+    if (!stillHoldsSomething) db.prepare('DELETE FROM tasks WHERE id = ?').run(owner.task_id)
   }
 }
 
@@ -272,10 +320,11 @@ export function taskSessions(taskId?: string): TaskSessionsByTask {
 /** Resolve a session into the durable two-level task tree without loading or
  * starting any sibling sessions. */
 export async function tasksForSession(sessionId: string): Promise<TaskForSessionResult | null> {
+  // The owner answers; a later `referenced` relationship must not outrank it.
   const link = taskIdRowSchema.nullish().parse(getDb().prepare(`
-    SELECT * FROM task_session_links
+    SELECT task_id FROM task_session_links
     WHERE session_id = ?
-    ORDER BY linked_at DESC
+    ORDER BY CASE role WHEN 'working' THEN 0 ELSE 1 END, linked_at DESC
     LIMIT 1
   `).get(sessionId))
   if (!link) return null

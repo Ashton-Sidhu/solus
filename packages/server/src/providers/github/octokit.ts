@@ -31,6 +31,15 @@ export class GitHubReauthRequiredError extends Error {
 }
 
 const unauthorizedSchema = z.object({ status: z.literal(401) })
+const credentialAccessFailureSchema = z.object({ status: z.union([z.literal(403), z.literal(404)]) })
+
+/** True when GitHub rejected this credential rather than the operation itself.
+ * OAuth app restrictions can surface as either 403 or a repository-hiding 404;
+ * both are safe reasons to try the next authenticated account. */
+export function isGithubCredentialAccessFailure<Failure>(error: Failure): boolean {
+  return error instanceof GitHubReauthRequiredError
+    || credentialAccessFailureSchema.safeParse(error).success
+}
 
 // One client per token for the process lifetime: concurrent reads share one
 // instance, and a token that GitHub rejects is dropped so the next request

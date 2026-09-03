@@ -1,6 +1,6 @@
 import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionLineageResolution, SessionProviderSwitchResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview } from './providers'
-import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
+import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionPreviewResult, WireSessionLoadMessage } from './session-history'
 import type { AttentionEntry } from './attention-types'
@@ -12,6 +12,7 @@ import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, Metr
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
 import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
+import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
 import type { GoogleAuthStatus } from './google-auth'
 import type { HostConfigPatch, HostConfigSnapshot } from './host-config'
@@ -78,6 +79,19 @@ export interface SolusAPI {
   /** Create, rename, or delete one entry inside the project root. */
   mutateProjectFile(ctx: IpcContext, request: ProjectFileMutationRequest): Promise<ProjectFileMutationResult>
   writeFile(ctx: IpcContext, request: WriteFileRequest): Promise<WriteFileResult>
+  /** The symbol under a position in a project file: hover text, definition,
+   *  and the first reference page from the host's SCIP index. */
+  codeIntelSymbolAt(ctx: IpcContext, request: CodeIntelSymbolRequest): Promise<CodeIntelSymbolResult>
+  /** One bounded page after the references included with the symbol answer. */
+  codeIntelReferences(ctx: IpcContext, request: CodeIntelReferencesRequest): Promise<CodeIntelReferencesResult>
+  /** The MDN summary for a platform symbol, fetched by the host so the card can
+   *  describe it in place. Not project-scoped: no context, no index. */
+  codeIntelDocs(request: CodeIntelDocsRequest): Promise<CodeIntelDocsResult>
+  /** Without a context or cwd this answers tool availability on the host only. */
+  codeIntelStatus(ctx: IpcContext | null, request?: CodeIntelStatusRequest): Promise<CodeIntelStatus>
+  /** Install one known SCIP indexer on the host. The language selects a fixed command; clients cannot supply argv. */
+  codeIntelInstall(request: CodeIntelInstallRequest): Promise<CodeIntelInstallResult>
+  codeIntelReindex(ctx: IpcContext, request?: CodeIntelReindexRequest): Promise<CodeIntelReindexResult>
   respondPermission(ctx: IpcContext, questionId: string, optionId: string, updatedPlan?: string): Promise<boolean>
   writePlanFile(filePath: string, content: string, ctx?: IpcContext): Promise<{ ok: boolean; error?: string }>
   respondQuestion(ctx: IpcContext, questionId: string, answers: Record<string, string>): Promise<boolean>
@@ -342,6 +356,7 @@ export interface SolusAPI {
   tasksGetUpstream(cwd: string, id: string): Promise<Task>
   tasksUpdateUpstream(cwd: string, id: string, patch: TaskUpdatePatch): Promise<Task>
   tasksCommentUpstream(cwd: string, id: string, body: string): Promise<Task>
+  tasksListAssigneeCandidates(cwd: string): Promise<TaskAssigneeCandidate[]>
   tasksListCandidates(cwd: string, opts?: TaskCandidateOptions): Promise<CandidateTicket[]>
   tasksImport(cwd: string, externalIds: string[]): Promise<TaskDetails[]>
   tasksPublish(id: string, cwd: string): Promise<TaskDetails>

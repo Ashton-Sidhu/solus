@@ -9,6 +9,8 @@ export const workExternalLinkSchema = z.object({
   scope: z.string(),
   upstreamVersion: z.string().optional(),
   lastPushedContentHash: z.string().optional(),
+  upstreamContentHash: z.string().optional(),
   syncState: z.enum(['ok', 'dirty', 'upstream_changed', 'conflict', 'error', 'auth_error']),
   syncError: z.string().optional(),
+  diagrams: z.array(z.object({ workId: z.string(), title: z.string() })).optional(),
 })

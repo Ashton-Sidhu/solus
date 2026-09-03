@@ -145,6 +145,12 @@ export function workItem(w: Work, project: WorkspaceProject): WorkspaceItem {
   }
 }
 
+/** HTML artifacts render their own interface, so a source-text peek has no
+ * useful mobile representation. */
+export function isHtmlArtifact(item: WorkspaceItem): boolean {
+  return item.source.kind === 'work' && item.source.work.type === 'artifact'
+}
+
 /** The external product whose mark belongs in the Workspace upstream column. */
 export function upstreamProviderFor(item: WorkspaceItem): DocProviderId | null {
   return item.source.kind === 'work' ? item.source.work.mirroredDoc?.provider ?? null : null

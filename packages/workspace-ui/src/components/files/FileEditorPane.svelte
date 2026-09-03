@@ -3,6 +3,7 @@
   import { Save as FloppyDiskIcon, LockKeyhole as LockSimpleIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
   import type { IpcContext } from "@solus/contracts/types";
+  import type { PaneId } from "../../contexts/workspace/routing/location";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { getWorkspaceContext } from "../../contexts";
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
@@ -24,12 +25,23 @@
     type MarkdownFileViewMode,
   } from "./lib/markdown-file";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
+  import CodeIntelPopover from "../code-intel/CodeIntelPopover.svelte";
+  import { codeIntelStore } from "../code-intel/code-intel.store.svelte";
+  import { symbolAvailability } from "../code-intel/lib/symbol-card";
+  import type { CodeSymbolHit } from "../code-intel/lib/hit-test";
+  import type { CodeSymbolAvailability, CodeSymbolLookup } from "../code-intel/lib/symbol-card";
+  import { serverConnections } from "@solus/client-core/server-connections";
 
   interface Props {
     ctx: IpcContext;
     cwd: string;
     isDark: boolean;
     file: { path: string; line?: number };
+    /** The tab or draft this editor was opened for; symbol navigation opens
+     *  its targets in the same pane lineage. */
+    sourceId?: string;
+    /** The pane that owns this editor. Symbol targets open across from it. */
+    paneId?: PaneId;
     /** Identifies the reveal *request*, so re-opening the same file and line
      *  scrolls to it again instead of looking like nothing happened. */
     revealEpoch?: number;
@@ -37,8 +49,55 @@
     onClose: () => void;
   }
 
-  let { ctx, cwd, isDark, file, revealEpoch = 0, bordered = true, onClose }: Props = $props();
+  let { ctx, cwd, isDark, file, sourceId, paneId, revealEpoch = 0, bordered = true, onClose }: Props = $props();
   const workspace = getWorkspaceContext();
+
+  // The identifier the user asked about, until the card closes.
+  let symbolLookup = $state<CodeSymbolLookup | null>(null);
+
+  function symbolLookupForHit(hit: CodeSymbolHit): CodeSymbolLookup | null {
+    // `readProjectFile` uses the absolute path as its display path for files
+    // outside the project. Such files are not part of this project's index.
+    if (!displayPath || displayPath === filePath) return null;
+    const api = workspace.apiForSession(ctx.session.sessionId);
+    return {
+      serverId: serverConnections.serverIdForApi(api),
+      api,
+      ctx,
+      root: cwd,
+      path: displayPath.replaceAll("\\", "/"),
+      line: hit.line - 1,
+      character: hit.character,
+      token: hit.token,
+      anchor: hit.anchor,
+    };
+  }
+
+  function handleSymbolHit(hit: CodeSymbolHit) {
+    symbolLookup = symbolLookupForHit(hit);
+  }
+
+  async function availabilityOfSymbol(hit: CodeSymbolHit): Promise<CodeSymbolAvailability> {
+    const lookup = symbolLookupForHit(hit);
+    if (!lookup) return "none";
+    try {
+      const result = await codeIntelStore.symbolAt(lookup.serverId, lookup.api, lookup.ctx, {
+        cwd: lookup.root,
+        path: lookup.path,
+        line: lookup.line,
+        character: lookup.character,
+      });
+      return symbolAvailability(result);
+    } catch {
+      return "none";
+    }
+  }
+
+  function openSymbolLocation(path: string, line: number) {
+    symbolLookup = null;
+    if (!sourceId) return;
+    workspace.openFilePreview({ path: `${cwd}/${path}`, line }, sourceId, paneId);
+  }
 
   ensureIconCollections();
 
@@ -248,7 +307,15 @@
         onSaveStateChange={(state) => {
           saveState = state;
         }}
+        onSymbolHit={sourceId ? handleSymbolHit : undefined}
+        symbolAvailability={sourceId ? availabilityOfSymbol : undefined}
       />
     {/if}
   {/if}
 </div>
+
+<CodeIntelPopover
+  lookup={symbolLookup}
+  onNavigate={openSymbolLocation}
+  onClose={() => (symbolLookup = null)}
+/>

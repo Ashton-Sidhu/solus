@@ -4,12 +4,13 @@ import { CellSelection } from '@tiptap/pm/tables'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 /**
- * Marks the table cell the caret is inside, so it can take the accent ring.
+ * Marks the table cell the caret is inside, so the chrome overlay can measure
+ * the accent ring from it.
  *
  * ProseMirror only classes cells for a *cell selection* (`.selectedCell`); a
- * plain caret inside a cell leaves nothing in the DOM to hang a style off, and
- * the design asks for the focused cell to be the one place terracotta enters
- * the prose column.
+ * plain caret inside a cell leaves nothing in the DOM to find, and the design
+ * asks for the focused cell to be the one place terracotta enters the prose
+ * column.
  */
 export const CellFocus = Extension.create({
   name: 'cellFocus',

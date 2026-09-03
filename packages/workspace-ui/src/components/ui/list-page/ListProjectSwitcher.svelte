@@ -141,7 +141,7 @@
      so it silently clipped the label by its own width at every row size. -->
 <div
   class="relative min-w-0 text-workspace-chrome {variant === 'crumb'
-    ? '-ml-2.5 shrink @max-[30rem]/pane:min-w-[6.5rem]'
+    ? '-ml-2.5 shrink @max-[30rem]/pane:ml-0 @max-[30rem]/pane:max-w-[9.5rem] @max-[30rem]/pane:shrink-0'
     : 'shrink-0'}"
 >
   <!-- The scrim closes the menu on the next click anywhere, so the trigger has
@@ -156,7 +156,7 @@
     type="button"
     class="relative z-40 flex max-w-full cursor-pointer items-center overflow-hidden border-0 transition-colors duration-150 hover:bg-[var(--wash-2)] {variant ===
  'crumb'
- ? 'h-[31px] gap-2 rounded-[9px] px-2.5 pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2'
+ ? 'h-[31px] gap-2 rounded-[9px] px-2.5 pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:h-8! @max-[30rem]/pane:gap-1.5 @max-[30rem]/pane:rounded-full @max-[30rem]/pane:px-3 @max-[30rem]/pane:shadow-[shadow:var(--elev-ring)]'
  : 'h-[26px] gap-2 rounded-md px-[7px] @max-[30rem]/pane:h-8 @max-[30rem]/pane:rounded-full'} {menuOpen ? 'bg-[var(--wash-2)]' : 'bg-transparent'}"
     title="Switch project"
     aria-label="Switch project"
@@ -181,7 +181,7 @@
          place, and stays muted. -->
     <span
       class="truncate {variant === 'crumb'
-        ? `font-semibold tracking-[-0.013em] ${active ? '' : 'text-muted-foreground'}`
+        ? `font-semibold tracking-[-0.013em] @max-[30rem]/pane:text-xs @max-[30rem]/pane:font-medium ${active ? '' : 'text-muted-foreground'}`
         : 'max-w-[180px] font-normal'}"
     >
       {active?.label ?? (allActive ? allLabel : emptyLabel)}

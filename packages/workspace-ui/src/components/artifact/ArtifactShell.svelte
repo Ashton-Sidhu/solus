@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SessionMeta, WorkStorage } from "@solus/contracts/types";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
+  import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import ArtifactView from "./ArtifactView.svelte";
 
@@ -26,6 +27,8 @@
     onExport?: (request: WorkExportRequest) => void;
     /** The save picker's filesystem is not this device's — see WorkHeaderActions. */
     hostIsRemote?: boolean;
+    /** Leave the artifact for the Workspace page it lives in. */
+    onOpenWorkspace?: () => void;
   }
 
   let {
@@ -42,6 +45,7 @@
     workStorage,
     onExport,
     hostIsRemote = false,
+    onOpenWorkspace,
   }: Props = $props();
 
   // Click-to-rename, mirroring DiagramShell.
@@ -95,10 +99,26 @@
 >
   <!-- Same de-chromed control strip as the diagram shell: the pane's own
        close / split / maximize live in the floating PaneChrome cluster, which
-       this row reserves room for on its right. -->
+       this row reserves room for on its right.
+
+       The chrome row is a *floor*, not a fixed height. It used to be fixed with
+       a `max-md:` escape hatch — but that reads the OS window, and this row
+       lives in a pane: a diagram in a 356px companion pane on a 1440px monitor
+       kept the 40px height while its controls grew past it. Two different
+       things enlarge this row and neither is the window. The hand does (touch
+       targets are 44px), and so does the narrow layout, where the crumb becomes
+       a 44px back chevron. `h-auto` + `min-h` fits whichever is tallest without
+       having to enumerate them. -->
   <div
-    class="workspace-titlebar flex h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-1.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] pr-[max(1rem,var(--solus-pane-chrome-inset,0px))]"
+    class="workspace-titlebar flex h-auto min-h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-1.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] pr-[max(1rem,var(--solus-pane-chrome-inset,0px))] @max-[30rem]/pane:gap-1 @max-[30rem]/pane:pl-2"
   >
+    {#if onOpenWorkspace}
+      <!-- The optical inset pulls a *word* back onto the row's edge. A chevron
+           is already centred in its own 44px box, so the rung gives it back. -->
+      <span class="-ml-[7px] flex shrink-0 items-center @max-[30rem]/pane:ml-0">
+        <ParentPageCrumb page="folio" onOpen={onOpenWorkspace} />
+      </span>
+    {/if}
     {#if renaming}
       <!-- svelte-ignore a11y_autofocus -->
       <input

@@ -43,6 +43,8 @@ describe('client core transport helpers', () => {
 
     expect(api.getPlatform()).toBe('web')
     expect(api.getPathForFile({} as File)).toBe('')
+    expect(api.accountState).toBeUndefined()
+    expect(api.onAccountStateChange).toBeUndefined()
     expect(api.start).toBe(api.start)
     expect('onEvent' in api).toBe(false)
 

@@ -105,6 +105,14 @@ export const RPC_INVOKE_METHODS = [
   'writeFile',
   'updateAgentFiles',
 
+  // Code intelligence
+  'codeIntelSymbolAt',
+  'codeIntelReferences',
+  'codeIntelDocs',
+  'codeIntelStatus',
+  'codeIntelInstall',
+  'codeIntelReindex',
+
   // Sessions / plans / projects
   'bindRuntimeSession',
   'listSessions',
@@ -339,6 +347,7 @@ export const RPC_INVOKE_METHODS = [
   'tasksGetUpstream',
   'tasksUpdateUpstream',
   'tasksCommentUpstream',
+  'tasksListAssigneeCandidates',
   'tasksListCandidates',
   'tasksImport',
   'tasksPublish',

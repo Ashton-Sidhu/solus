@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark solus-web">
+<html lang="en" class="solus-web">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
@@ -15,6 +15,29 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <title>Solus</title>
+    <script>
+      (function () {
+        try {
+          var mode = 'system'
+          var raw = localStorage.getItem('solus-settings')
+          if (raw) {
+            var parsed = JSON.parse(raw)
+            if (
+              parsed &&
+              (parsed.themeMode === 'system' ||
+                parsed.themeMode === 'light' ||
+                parsed.themeMode === 'dark')
+            ) mode = parsed.themeMode
+          }
+          var isDark =
+            mode === 'dark' ||
+            (mode === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.classList.toggle('dark', isDark)
+          document.documentElement.classList.toggle('light', !isDark)
+          document.documentElement.style.setProperty('color-scheme', isDark ? 'dark' : 'light')
+        } catch (e) {}
+      })()
+    </script>
     <style>
       html, body, #root { height: 100%; margin: 0; }
       html:root, html:root body, html:root #root { background: #262522 !important; overscroll-behavior: none; }

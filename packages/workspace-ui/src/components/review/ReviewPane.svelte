@@ -35,6 +35,7 @@
 
 <ReviewSurface
   sourceTabId={params.sourceTabId}
+  {paneId}
   {view}
   onSelectView={selectView}
   scope={params.scope}

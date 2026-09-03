@@ -96,12 +96,25 @@
   added to one — they are the reverse-state guarantee that you can always send
   and always stop dictating. Rungs, widest first:
 
-    ≥ 34rem  everything
-    < 30rem  saved-prompts control          (this file)
-    < 26rem  reasoning label on the chip    (SessionChip)
-    < 22rem  status cluster                 (this file)
-    < 18rem  permission picker → icon-only  (PermissionModePicker)
-    < 15rem  model chip → brand glyph only  (SessionChip)
+    ≥ 38rem  everything
+    < 38rem  saved-prompts control          (this file)
+    < 34rem  context usage meter            (StatusBarControls)
+    < 31rem  reasoning label on the chip    (SessionChip)
+    < 28rem  permission picker → icon-only  (PermissionModePicker)
+    < 25rem  status cluster                 (this file)
+    < 22rem  model chip → brand glyph only  (SessionChip)
+
+  The ladder opens higher than the row strictly needs, but not by much. It used
+  to start at 30rem, which is already past the width where the meter paints over
+  the mic — a rung that fires after the collision it exists to prevent is
+  decoration. The meter is the rung to keep honest: 34rem is the first width at
+  which it can leave without the row having looked crowded first, and everything
+  else is spaced back from it.
+
+  The two pickers shed their labels well before the row is in trouble: a chip
+  whose glyph already says which mode and which model is on spends nothing by
+  dropping the word beside it, and the width it returns is what keeps the
+  project and branch chips readable a rung longer.
 
   Every rung hides; none unmounts. A control that unmounts loses its state and
   pays a re-mount on every frame of a pane drag. The same ladder serves Editor
@@ -127,11 +140,11 @@
        bar owns, so the rung has to live on a box this row controls. `contents`
        generates no box of its own, so Pill mode — which passes no snippet — does
        not pay an empty flex item and its `gap-2` here. -->
-  <div class="contents @max-[30rem]/composer:hidden">
+  <div class="contents @max-[38rem]/composer:hidden">
     {@render savedPromptsControl?.()}
   </div>
 
-  <!-- Rung 3 lives inside StatusBarControls, which hides its own readouts and
+  <!-- Rungs 2 and 5 live inside StatusBarControls, which hides its own readouts and
        keeps `trailingActions` — connection retry, push bell, Switch server on
        web — reachable at every width. `ml-auto` is inert once a row overflows,
        which is why the ladder acts before the row can overflow, not after. -->

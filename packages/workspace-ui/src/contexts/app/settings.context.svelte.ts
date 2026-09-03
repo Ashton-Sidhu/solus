@@ -309,7 +309,7 @@ const projectPanelCollapsedSchema = z.object({
 }).transform((collapsed) => ({ ...DEFAULT_PROJECT_PANEL_COLLAPSED, ...collapsed }))
 
 const savedSettingsSchema = z.object({
-  themeMode: z.enum(['light', 'dark', 'system']).catch('light'),
+  themeMode: z.enum(['light', 'dark', 'system']).catch('system'),
   soundEnabled: z.boolean().catch(true),
   voiceModeEnabled: z.boolean().catch(false),
   autoSendVoiceTranscripts: z.boolean().catch(false),
@@ -376,7 +376,7 @@ function loadSettings(): SettingsFields {
     }
   } catch {}
   return {
-    themeMode: 'dark',
+    themeMode: 'system',
     soundEnabled: true,
     voiceModeEnabled: false,
     autoSendVoiceTranscripts: false,
@@ -420,7 +420,7 @@ function loadSettings(): SettingsFields {
 }
 
 export class SettingsContext {
-  themeMode = $state<ThemeMode>('dark')
+  themeMode = $state<ThemeMode>('system')
   soundEnabled = $state(true)
   voiceModeEnabled = $state(false)
   autoSendVoiceTranscripts = $state(false)

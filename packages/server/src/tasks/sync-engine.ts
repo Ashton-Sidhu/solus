@@ -98,6 +98,7 @@ function patchForDirtyFields(
   if (fields.has('labels')) patch.labels = task.labels
   if (fields.has('status')) patch.status = task.status
   if (fields.has('priority')) patch.priority = task.priority ?? null
+  if (fields.has('assignee')) patch.assignee = task.assignee ?? null
   return patch
 }
 
@@ -120,6 +121,7 @@ function acknowledgedFields(
   if (patch.body !== undefined && patch.body === task.body) fields.push('body')
   if (patch.labels !== undefined && JSON.stringify(patch.labels) === JSON.stringify(task.labels)) fields.push('labels')
   if (patch.priority !== undefined && (patch.priority ?? null) === (task.priority ?? null)) fields.push('priority')
+  if (patch.assignee !== undefined && (patch.assignee ?? null) === (task.assignee ?? null)) fields.push('assignee')
   // The provider may have stored a coarser status than we sent. That is not a
   // failed push, so ask the adapter whether the two are the same state to it.
   if (patch.status !== undefined && adapter.statusKey(patch.status) === adapter.statusKey(task.status)) {
@@ -391,6 +393,7 @@ export class TaskSyncEngine {
       body: ticket.body,
       labels: ticket.labels,
       priority: ticket.priorityHint ?? null,
+      assignee: ticket.assignee ?? null,
       status: reconcileStatus(adapter, ticket.status, task.status),
     }, { actor: 'system' }, { markSyncDirty: false })
     withTx(() => {
@@ -430,6 +433,7 @@ export class TaskSyncEngine {
         status: reconcileStatus(target.adapter, ticket.status, 'todo'),
         labels: ticket.labels,
         priority: ticket.priorityHint,
+        assignee: ticket.assignee,
         source: 'import',
       })
       try {
@@ -468,6 +472,7 @@ export class TaskSyncEngine {
       labels: task.labels,
       status: task.status,
       priority: task.priority ?? null,
+      assignee: task.assignee ?? null,
     })
     withTx(() => writeExternalLink(getDb(), taskId, ticket, this.now()))
     emitChanged()

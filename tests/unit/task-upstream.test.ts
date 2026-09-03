@@ -91,7 +91,7 @@ mock.module('@solus/server/providers/github/octokit', () => ({
 }))
 const adapter = {
   id: 'github' as const,
-  writableFields: new Set(['title', 'body', 'status', 'labels']),
+  writableFields: new Set(['title', 'body', 'status', 'labels', 'assignee']),
   statuses: ['todo', 'in_progress', 'done'] as const,
   statusKey: (status: string) => status,
   async listTickets(_target: { provider: string; externalKey: string }, options?: { query?: string }) {
@@ -111,6 +111,7 @@ const adapter = {
         body: upstreamTask.body,
         status: upstreamTask.status,
         labels: upstreamTask.labels,
+        assignee: upstreamTask.assignee,
         externalUpdatedAt: new Date(upstreamTask.updatedAt).toISOString(),
         comments: [],
       }
@@ -126,6 +127,7 @@ const adapter = {
         body: upstreamTask.body,
         status: patch.status ?? upstreamTask.status,
         labels: upstreamTask.labels,
+        assignee: patch.assignee ?? upstreamTask.assignee,
         externalUpdatedAt: new Date(upstreamTask.updatedAt).toISOString(),
         comments: [],
       }
@@ -287,6 +289,12 @@ describe('upstream task reads', () => {
     await service.updateUpstreamTask('/workspace/solus', '42', { status: 'todo' })
 
     expect(updatedPatch).toMatchObject({ status: 'todo' })
+  })
+
+  test('passes issue assignment through to the provider', async () => {
+    await service.updateUpstreamTask('/workspace/solus', '42', { assignee: 'octocat' })
+
+    expect(updatedPatch).toMatchObject({ assignee: 'octocat' })
   })
 })
 

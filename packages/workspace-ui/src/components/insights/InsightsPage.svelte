@@ -518,9 +518,18 @@
 >
   <!-- The same crumb line every page head leads with, in this page's own band:
        Insights has no project scope (`metrics.db` is host-local), so the page
-       menu is the first segment and the current question is the last. -->
+       menu is the first segment and the current question is the last.
+       Absent while a turn fills the page: that turn's own band carries the
+       whole path, and two bands on one edge showed through each other. -->
+  {#if !panelFullScreen}
+  <!-- At the record rung the band is 56px, and stated rather than derived:
+       `--solus-chrome-row-h` is 40px, so this box was 36px while the crumb
+       line's own drawer and page-title controls are 44px each and overflowed
+       it. `!` because the `pointer-coarse` height beside it is a media query
+       of equal specificity, and which one wins would otherwise be decided by
+       compiled sheet order. -->
   <header
-    class="workspace-titlebar flex h-[calc(var(--solus-chrome-row-h,2.75rem)-0.25rem)] shrink-0 items-center pr-6 pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))] text-muted-foreground shadow-[inset_0_-0.5px_0_var(--hairline)] pointer-coarse:h-(--solus-chrome-row-h,2.75rem)"
+    class="workspace-titlebar flex h-[calc(var(--solus-chrome-row-h,2.75rem)-0.25rem)] shrink-0 items-center pr-6 pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))] text-muted-foreground shadow-[inset_0_-0.5px_0_var(--hairline)] pointer-coarse:h-(--solus-chrome-row-h,2.75rem) @max-[30rem]/pane:h-14! @max-[30rem]/pane:pr-3 @max-[30rem]/pane:pl-2.5"
   >
     <PageCrumbLine
       page="insights"
@@ -531,7 +540,12 @@
       onClose={closePage}
     />
   </header>
+  {/if}
 
+  <!-- Everything under the crumb line: the console, the rail beside a turn, and
+       the turn itself, which is positioned against this box so it never covers
+       the crumb line beside a list — only the room the rail leaves. -->
+  <div class="relative flex min-h-0 flex-1 flex-col">
   <!-- Hidden rather than unmounted while the panel is open: the console holds
        a CodeMirror editor and the histogram a chart, and closing the panel must
        not rebuild either or forget the draft being typed. -->
@@ -712,6 +726,7 @@
       />
     </div>
   {/if}
+  </div>
 
   {#if schemaOpen}
     <SchemaSheet

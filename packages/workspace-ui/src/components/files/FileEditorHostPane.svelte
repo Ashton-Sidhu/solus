@@ -39,6 +39,8 @@
       cwd={environment.cwd}
       isDark={session.settings.isDark}
       {file}
+      sourceId={params.sourceId}
+      {paneId}
       {revealEpoch}
       bordered={!pane.isLeading}
       onClose={pane.closeOverlay}

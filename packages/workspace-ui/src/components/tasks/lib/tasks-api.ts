@@ -153,6 +153,9 @@ export const BOARD_COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'done', label: 'Done' },
 ]
 
+/** Four 64px controls under a compact mobile task row. */
+export const TASK_STATUS_SWIPE_REVEAL_WIDTH = BOARD_COLUMNS.length * 64
+
 /** Presentation for a task's due date: a compact label plus a tone the card uses
  *  to colour it. `overdue` = before today (and not done elsewhere), `soon` =
  *  today or tomorrow, else `normal`. Returns null when no due date is set. */

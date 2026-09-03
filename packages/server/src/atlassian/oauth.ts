@@ -52,6 +52,11 @@ const OAUTH_SCOPES = [
   'read:space:confluence',
   'read:page:confluence',
   'write:page:confluence',
+  // A published diagram is an attachment on its page: the only picture a
+  // Confluence page can show that Solus can put there. Uploading one has no v2
+  // endpoint, so it runs on v1 and takes v1's classic file scope — the
+  // granular `write:attachment:confluence` is refused there.
+  'write:confluence-file',
   // Confluence v1 — CQL search only.
   'read:confluence-content.all',
   'search:confluence',

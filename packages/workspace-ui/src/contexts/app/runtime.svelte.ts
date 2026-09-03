@@ -1,4 +1,4 @@
-import { isLaptopDisplay, MOBILE_QUERY } from './viewport'
+import { isLaptopDisplay, isMobileLayout, MOBILE_QUERY } from './viewport'
 import { ZOOM_FACTOR_DEFAULT } from '@solus/contracts/zoom'
 
 // Input: primary pointer is imprecise (phone, tablet)
@@ -7,7 +7,12 @@ const TOUCH_QUERY = '(pointer: coarse)'
 const FINE_POINTER_QUERY = '(any-pointer: fine)'
 
 class RuntimeStore {
-  isMobileViewport = $state(globalThis.window?.matchMedia(MOBILE_QUERY).matches ?? false)
+  isMobileViewport = $state(isMobileLayout(
+    globalThis.window?.innerWidth,
+    globalThis.screen?.width,
+    globalThis.screen?.height,
+    globalThis.window?.matchMedia(TOUCH_QUERY).matches ?? false,
+  ))
   // Stays false until settings reports the boot zoom factor; there is no honest
   // answer before then, and pill geometry is the only reader.
   isLaptopDisplay = $state(false)
@@ -32,10 +37,16 @@ class RuntimeStore {
 
     // A zoom change resizes the viewport, so this also covers the case the
     // window never moves monitors.
-    window.addEventListener('resize', () => this.refreshLaptopDisplay())
+    window.addEventListener('resize', () => {
+      this.refreshMobileViewport()
+      this.refreshLaptopDisplay()
+    })
 
-    listen(MOBILE_QUERY, (v) => this.isMobileViewport = v)
-    listen(TOUCH_QUERY, (v) => this.isTouchDevice = v)
+    listen(MOBILE_QUERY, () => this.refreshMobileViewport())
+    listen(TOUCH_QUERY, (v) => {
+      this.isTouchDevice = v
+      this.refreshMobileViewport()
+    })
     listen(FINE_POINTER_QUERY, (v) => this.hasKeyboardPointer = v)
   }
 
@@ -51,6 +62,16 @@ class RuntimeStore {
     const isBootPush = this.zoomFactor === null
     this.zoomFactor = zoomFactor
     if (isBootPush) this.refreshLaptopDisplay()
+  }
+
+  private refreshMobileViewport(): void {
+    const next = isMobileLayout(
+      window.innerWidth,
+      globalThis.screen?.width,
+      globalThis.screen?.height,
+      window.matchMedia(TOUCH_QUERY).matches,
+    )
+    if (next !== this.isMobileViewport) this.isMobileViewport = next
   }
 
   private refreshLaptopDisplay(): void {

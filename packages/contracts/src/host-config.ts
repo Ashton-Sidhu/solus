@@ -186,7 +186,7 @@ function normalizeSourceControlWriting(
  * settings blob — only the one key that is wrong falls back to its default.
  */
 export const hostConfigPatchSchema = z.object({
-  themeMode: z.enum(['system', 'light', 'dark']).catch('dark'),
+  themeMode: z.enum(['system', 'light', 'dark']).catch('system'),
   soundEnabled: z.boolean().catch(true),
   voiceModeEnabled: z.boolean().catch(false),
   autoSendVoiceTranscripts: z.boolean().catch(false),
@@ -236,7 +236,7 @@ export type HostConfigPatch = z.infer<typeof hostConfigPatchSchema>
  * `HostConfigSnapshot.seeded`.
  */
 export const DEFAULT_HOST_CONFIG: HostConfig = {
-  themeMode: 'dark',
+  themeMode: 'system',
   soundEnabled: true,
   voiceModeEnabled: false,
   autoSendVoiceTranscripts: false,

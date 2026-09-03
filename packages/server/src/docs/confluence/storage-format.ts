@@ -1,5 +1,7 @@
 import { Parser } from 'htmlparser2'
-import { Marked, Renderer, type Tokens } from 'marked'
+import { Marked, Renderer, type Token, type Tokens } from 'marked'
+import { diagramEmbedWorkId, serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
+import { diagramAttachmentWorkId, type DiagramAttachment } from './diagram-attachments'
 
 /**
  * Confluence storage format ↔ markdown.
@@ -37,7 +39,23 @@ function safeHref(value: string): string | null {
  * raw HTML in the source markdown must be escaped rather than passed through —
  * an unbalanced tag makes Confluence reject the whole page.
  */
+/** The same tokens with every `strong` replaced by its children, in place. */
+function unwrapStrong(tokens: Token[]): Token[] {
+  return tokens.flatMap((token) => {
+    if (token.type !== 'strong') return [token]
+    // SAFETY: `type === 'strong'` identifies the token as `Tokens.Strong`,
+    // whose `tokens` are its children.
+    const strong = token as Tokens.Strong
+    return unwrapStrong(strong.tokens)
+  })
+}
+
 class StorageRenderer extends Renderer {
+  /** Work id → the page attachment holding that diagram's PNG. */
+  constructor(private readonly diagramAttachments: ReadonlyMap<string, DiagramAttachment>) {
+    super()
+  }
+
   override html({ text }: Tokens.HTML | Tokens.Tag): string {
     return escapeXml(text)
   }
@@ -48,6 +66,18 @@ class StorageRenderer extends Renderer {
 
   override hr(): string {
     return '<hr/>'
+  }
+
+  /**
+   * Confluence draws `<th>` bold from its own stylesheet, so a `<strong>`
+   * inside one is redundant — and it round-trips into `**` in the markdown,
+   * which the next publish would then honour, making the bold permanent.
+   */
+  override tablecell(token: Tokens.TableCell): string {
+    const tag = token.header ? 'th' : 'td'
+    const tokens = token.header ? unwrapStrong(token.tokens) : token.tokens
+    const align = token.align ? ` style="text-align:${token.align};"` : ''
+    return `<${tag}${align}>${this.parser.parseInline(tokens)}</${tag}>`
   }
 
   override checkbox({ checked }: Tokens.Checkbox): string {
@@ -67,6 +97,17 @@ class StorageRenderer extends Renderer {
 
   override link({ href, title, tokens }: Tokens.Link): string {
     const label = this.parser.parseInline(tokens)
+    // A diagram embed is a link in markdown and a picture on the page. The
+    // alt text carries the title, which is what a pull reads the embed's
+    // label back from.
+    const workId = diagramEmbedWorkId(href)
+    const attachment = workId ? this.diagramAttachments.get(workId) : undefined
+    if (attachment) {
+      // The label's own tokens, not the rendered inline markup: an alt
+      // attribute holds text, and marked has already turned `\[` back into `[`.
+      const alt = tokens.map((token) => ('text' in token ? token.text : '')).join('')
+      return `<ac:image ac:alt="${escapeXml(alt)}" ac:width="${attachment.widthPx}"><ri:attachment ri:filename="${escapeXml(attachment.filename)}"/></ac:image>`
+    }
     const safe = safeHref(href)
     if (!safe) return label
     const titleAttribute = title ? ` title="${escapeXml(title)}"` : ''
@@ -80,9 +121,9 @@ class StorageRenderer extends Renderer {
   }
 }
 
-export function markdownToStorage(markdown: string): string {
+export function markdownToStorage(markdown: string, diagramAttachments: ReadonlyMap<string, DiagramAttachment> = new Map()): string {
   const marked = new Marked()
-  marked.setOptions({ gfm: true, renderer: new StorageRenderer() })
+  marked.setOptions({ gfm: true, renderer: new StorageRenderer(diagramAttachments) })
   return String(marked.parse(markdown, { async: false })).trim()
 }
 
@@ -127,10 +168,15 @@ class StorageWalker {
   private lists: ListFrame[] = []
   private quoteDepth = 0
   private table: TableState | null = null
+  /** Inside a `<th>`, where Confluence's own stylesheet supplies the bold. */
+  private inHeaderCell = false
   private codeLanguage: string | null = null
   private inPlainTextBody = false
   private inMacroParameter: string | null = null
   private suppressDepth = 0
+  /** The alt of the `<ac:image>` being read, held until its source element
+   *  arrives; null when no image is open. */
+  private imageAlt: string | null = null
   /** `</a>` carries no attributes, so the href waits here for its closing tag. */
   private hrefs: string[] = []
   private readonly lossy = new Set<string>()
@@ -208,19 +254,28 @@ class StorageWalker {
     }
 
     if (name === 'ac:image') {
-      const alt = attribs['ac:alt'] ?? ''
-      this.inline += `![${alt}](`
+      // The source is a child element, so the alt waits here for it. An image
+      // whose source Solus cannot address writes nothing at all.
+      this.imageAlt = attribs['ac:alt'] ?? ''
       return
     }
 
-    if (name === 'ri:url' && this.inline.endsWith('(')) {
-      this.inline += `${attribs['ri:value'] ?? ''})`
+    if (name === 'ri:url' && this.imageAlt !== null) {
+      this.inline += `![${this.imageAlt}](${attribs['ri:value'] ?? ''})`
       return
     }
 
-    if (name === 'ri:attachment' && this.inline.endsWith('(')) {
-      this.inline += `${attribs['ri:filename'] ?? ''})`
-      this.lossy.add('attachment')
+    if (name === 'ri:attachment' && this.imageAlt !== null) {
+      const filename = attribs['ri:filename'] ?? ''
+      const workId = diagramAttachmentWorkId(filename)
+      // Solus's own diagram: the filename names the work and the alt carries
+      // the title, so the live embed is restored instead of reported lost.
+      if (workId) {
+        this.inline += serializeDiagramEmbed({ workId, title: this.imageAlt })
+      } else {
+        this.inline += `![${this.imageAlt}](${filename})`
+        this.lossy.add('attachment')
+      }
       return
     }
 
@@ -268,12 +323,17 @@ class StorageWalker {
     if ((name === 'td' || name === 'th') && this.table) {
       if (name === 'th') {
         this.table.headerRow = true
+        this.inHeaderCell = true
         if (this.table.rows.length === 1) this.table.firstRowIsHeader = true
       }
       this.inline = ''
       return
     }
 
+    // Confluence draws a header cell bold itself. Writing that bold into the
+    // markdown would make the next publish ask for it explicitly, and the
+    // emphasis would never come off again.
+    if ((name === 'strong' || name === 'b') && this.inHeaderCell) return
     if (name === 'strong' || name === 'b') this.inline += '**'
     else if (name === 'em' || name === 'i') this.inline += '_'
     else if (name === 'del' || name === 's' || name === 'strike') this.inline += '~~'
@@ -324,8 +384,7 @@ class StorageWalker {
     }
 
     if (name === 'ac:image') {
-      // A macro image with no resolvable source leaves the link half-written.
-      if (this.inline.endsWith('(')) this.inline = this.inline.replace(/!\[[^\]]*\]\($/, '')
+      this.imageAlt = null
       return
     }
 
@@ -361,8 +420,11 @@ class StorageWalker {
       const row = this.table.rows[this.table.rows.length - 1]
       row?.push(this.inline.replace(/\s+/g, ' ').replaceAll('|', '\\|').trim())
       this.inline = ''
+      this.inHeaderCell = false
       return
     }
+
+    if ((name === 'strong' || name === 'b') && this.inHeaderCell) return
 
     if (name === 'table' && this.table) {
       this.blocks.push({ text: renderTable(this.table), listItem: false })

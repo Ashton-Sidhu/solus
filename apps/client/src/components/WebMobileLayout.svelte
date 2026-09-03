@@ -46,7 +46,7 @@
   interface Props {
     chatContent: Snippet;
     diffContent: Snippet;
-    onAttachFile: (sourceId?: string) => void;
+    onAttachFiles: (files: File[], sourceId?: string) => void | Promise<void>;
     overlayOpen: boolean;
     diffPanelOpen: boolean;
     canShowDiffPanel: boolean;
@@ -57,7 +57,7 @@
   let {
     chatContent,
     diffContent,
-    onAttachFile,
+    onAttachFiles,
     overlayOpen,
     diffPanelOpen,
     canShowDiffPanel,
@@ -382,7 +382,7 @@
 <MobilePlusMenu
   open={mobileComposerMenu.open}
   onClose={() => (mobileComposerMenu.open = false)}
-  {onAttachFile}
+  {onAttachFiles}
   {onToggleWorkspace}
   {onToggleDiff}
   {diffPanelOpen}

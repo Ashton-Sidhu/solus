@@ -30,16 +30,23 @@
     content: string;
     /** Root label for the drill crumb — the work's own title. */
     title?: string;
+    /**
+     * Keep every node and edge in the DOM however large the graph. Reading a
+     * big graph virtualizes; capturing one as an image cannot.
+     */
+    renderAllElements?: boolean;
+    /** Hands the flow instance to a host that captures or drives the canvas. */
+    onFlowReady?: (flow: ReturnType<typeof useSvelteFlow>) => void;
   }
 
-  let { content, title = "Diagram" }: Props = $props();
+  let { content, title = "Diagram", renderAllElements = false, onFlowReady }: Props = $props();
 
   const theme = getSettingsContext();
   const nodeTypes = DIAGRAM_NODE_TYPES;
   const edgeTypes = DIAGRAM_EDGE_TYPES;
 
-  let nodes = $state<Node[]>([]);
-  let edges = $state<Edge[]>([]);
+  let nodes = $state.raw<Node[]>([]);
+  let edges = $state.raw<Edge[]>([]);
   // Same shape the shell's trail uses, so both feed the shared crumbs.
   let drillPath = $state<{ id: string; label: string }[]>([]);
   let parseFailed = $state(false);
@@ -175,7 +182,7 @@
         elementsSelectable={false}
         panOnDrag={runtime.isTouchDevice ? [1, 2] : true}
         deleteKey={null}
-        onlyRenderVisibleElements={nodes.length + edges.length > 150}
+        onlyRenderVisibleElements={!renderAllElements && nodes.length + edges.length > 150}
         fitView
         fitViewOptions={{ padding: 0.2 }}
         minZoom={0.2}
@@ -188,7 +195,12 @@
              the corner a reading surface can spare. -->
         <Panel position="bottom-right">
           <div class="canvas-toolbar" role="toolbar" aria-label="Diagram controls">
-            <CanvasZoomControls onFlowReady={(flow) => (flowControls = flow)} />
+            <CanvasZoomControls
+              onFlowReady={(flow) => {
+                flowControls = flow;
+                onFlowReady?.(flow);
+              }}
+            />
           </div>
         </Panel>
 

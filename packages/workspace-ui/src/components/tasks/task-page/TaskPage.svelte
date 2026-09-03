@@ -182,6 +182,13 @@
     heldBackCommentIds(details?.comments ?? [], !!upstream?.canSync),
   );
   const providerStatus = $derived(store.providerStatus(projectCwd));
+  const assigneeCandidates = $derived(store.assigneeCandidates(projectCwd));
+  const assigneeCandidatesLoading = $derived(
+    projectCwd ? (store.assigneeCandidatesLoadingByCwd.get(projectCwd) ?? false) : false,
+  );
+  const assigneeCandidatesError = $derived(
+    projectCwd ? store.assigneeCandidatesErrorByCwd.get(projectCwd) : undefined,
+  );
   const capabilities = $derived(task ? taskPageCapabilities(task, providerStatus) : null);
   const publishTarget = $derived(
     task ? taskPublishTarget({ task, upstream, status: providerStatus }) : null,
@@ -261,6 +268,13 @@
       .get(taskId)
       .update(patch)
       .catch((err) => toastError("save task", err));
+  }
+
+  function openAssigneeMenu(): void {
+    if (!projectCwd || !taskServerId) return;
+    void store
+      .loadAssigneeCandidates(projectCwd, { serverId: taskServerId })
+      .catch(() => {});
   }
 
   async function refresh() {
@@ -667,6 +681,10 @@
       canEditPlanningFields={capabilities?.canEditPlanningFields ?? false}
       canEditPriority={capabilities?.canEditPriority ?? false}
       canEditLabels={capabilities?.canEditLabels ?? false}
+      canEditAssignee={capabilities?.canEditAssignee ?? false}
+      {assigneeCandidates}
+      {assigneeCandidatesLoading}
+      {assigneeCandidatesError}
       editableStatuses={capabilities?.editableStatuses ?? []}
       {upstream}
       {publishTarget}
@@ -678,6 +696,7 @@
       onPublishTask={publishTask}
       onOpenUpstream={(url) => void localApi.openExternal(url)}
       onSave={save}
+      onOpenAssigneeMenu={openAssigneeMenu}
     />
   {/if}
 {/snippet}
@@ -731,9 +750,6 @@
     {:else}
       <TaskChromeBar
         {task}
-        {projectLabel}
-        projectRoot={projectCwd}
-        serverId={taskServerId}
         {upstream}
         syncing={syncing || refreshing}
         onSync={chromeSync}

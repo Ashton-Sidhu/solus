@@ -25,11 +25,18 @@ export function isOutlineOpen(reasons: Set<OutlineReason>): boolean {
  * directly because the reason set synchronizes from props in an effect; without
  * this guard, a split pane briefly paints the initial `top` hold before that
  * effect removes it. Other reasons still reveal the outline on demand.
+ *
+ * `canRevealPanel` is the fit rule, and it outranks every reason: the panel
+ * renders beside the prose or not at all. Where there is no margin to unfold
+ * into, hovering the gutter bars does nothing — the contents opens from the
+ * header instead, over the toolbar's empty band rather than over glyphs.
  */
 export function isOutlineVisible(
   reasons: Set<OutlineReason>,
   atTop: boolean,
+  canRevealPanel = true,
 ): boolean {
+  if (!canRevealPanel) return false
   if (reasons.size === 1 && reasons.has('top') && !atTop) return false
   return isOutlineOpen(reasons)
 }

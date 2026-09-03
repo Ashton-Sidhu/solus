@@ -9,7 +9,7 @@ import type {
 import { getDb } from '../db'
 import { z } from 'zod'
 
-const syncFieldSchema = z.enum(['title', 'body', 'status', 'labels', 'priority'])
+const syncFieldSchema = z.enum(['title', 'body', 'status', 'labels', 'priority', 'assignee'])
 
 const externalLinkRowSchema = z.object({
   task_id: z.string(),

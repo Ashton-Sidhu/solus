@@ -225,8 +225,9 @@ export class WorkspaceContext {
   private promptComposer: PromptComposer
   private goalSync: GoalSync
   private hostDispatchAttempts = new Map<string, number>()
-  private taskSettlementBySessionId = new Map<string, Promise<void>>()
-  private generatedTaskMetadataBySession = new WeakMap<Session, { title: string; description: string }>()
+  /** The task this client minted for a session at its first dispatch. Only a
+   *  dispatched session needs it: the execution host names the session, but the
+   *  task lives on another host that never hears that name. */
   private mintedTaskIdBySession = new WeakMap<Session, string>()
   environment: SessionEnvironmentStore
 
@@ -321,7 +322,6 @@ export class WorkspaceContext {
       playNotificationIfHidden: (sessionId, trigger) => { void this.playNotificationIfHidden(sessionId, trigger) },
       closePlanModal: () => this.closePlanModal(),
       onTurnSettled: (sessionId, cwd) => this.onTurnSettled?.(sessionId, cwd),
-      onTurnFinished: (sessionId) => { void this.settleSessionTask(sessionId) },
       // These surfaces are still addressed by tab — the goal pane is a route
       // carrying one, and metadata generation reads a tab's IPC context. The
       // reducer no longer knows that: it names the session, and the resolver
@@ -1113,9 +1113,12 @@ export class WorkspaceContext {
     if (!this.tabs[tabId] || !currentSession || currentSession.titleCustom) return
     if (currentSession.agentSessionId !== agentSessionId) return
     currentSession.title = metadata.title
-    this.generatedTaskMetadataBySession.set(currentSession, metadata)
+    // The session's host names the session-born task from this title itself,
+    // with its own race guards against a hand-typed name. A dispatched session's
+    // task sits on a host that never sees that call, so the client carries the
+    // name across — only to the task it minted, never to one the user chose.
     const mintedTaskId = this.mintedTaskIdBySession.get(currentSession)
-    if (mintedTaskId) {
+    if (mintedTaskId && isDispatch(currentSession.run)) {
       void this.tasksStore.get(mintedTaskId).update({
         title: metadata.title,
         body: metadata.description,
@@ -1435,10 +1438,14 @@ export class WorkspaceContext {
     if (!draft) return null
     // A draft left behind by a background start files under the session that
     // start fired. That session was minting its task at the time, so the id
-    // could not be read then; it can be now. If it still cannot — the task has
-    // not landed yet — `{ kind: 'new' }` stands and this session mints its own.
-    const followedTaskId = draft.taskFollowsSessionId
-      ? this.tasksStore.taskForSession(draft.taskFollowsSessionId)?.id ?? null
+    // could not be read then; it can be now — from the durable link once it is
+    // in the store, or from the binding the mint left on the session before
+    // that. If neither has landed, `{ kind: 'new' }` stands and this session
+    // mints its own.
+    const followedSessionId = draft.taskFollowsSessionId
+    const followedTaskId = followedSessionId
+      ? this.tasksStore.taskForSession(followedSessionId)?.id
+        ?? existingTaskId(this.sessions[followedSessionId]?.task ?? { kind: 'new' })
       : null
     if (followedTaskId && draft.task.kind === 'new') {
       draft.task = { kind: 'existing', taskId: followedTaskId }
@@ -2603,9 +2610,12 @@ export class WorkspaceContext {
   }
 
   /**
-   * Bind an explicitly selected task on the host that owns the project. A new
-   * task is deliberately not minted here: the running agent gets the whole turn
-   * to link the session to an existing task before settlement fills the gap.
+   * Bind the selected task, or mint the session's own, on the host that owns
+   * the project — before the first prompt leaves. A session has its task from
+   * the moment it exists, so a second session can join it right away and the
+   * sidebar never shows a loose row waiting for a turn to end. If the agent
+   * links the session to another task during the turn, the host transfers
+   * ownership and drops the empty placeholder; nothing here has to wait for it.
    *
    * The two hosts are the same machine for ordinary work, and this is a no-op
    * beyond one extra call. They differ for a dispatch — and there, letting the
@@ -2613,9 +2623,9 @@ export class WorkspaceContext {
    * landing) files the task in a database nobody is reading, on a machine the
    * user only borrowed to run an agent.
    *
-   * A failure here is not allowed to swallow the prompt. Minting stays switched
-   * off so an unavailable task host cannot create an unrelated duplicate on the
-   * execution host.
+   * A failure here is not allowed to swallow the prompt. Minting is switched
+   * off for the send so an unavailable task host cannot create an unrelated
+   * duplicate on the execution host.
    */
   private async resolveTaskOnItsHost<T extends { prompt: string; taskId?: string; parentTaskId?: string; skipTaskCreation?: boolean; taskSnapshot?: TaskSnapshot }>(
     tabId: string,
@@ -2623,14 +2633,6 @@ export class WorkspaceContext {
   ): Promise<T> {
     const session = this.sessionFor(tabId)
     if (!session || options.skipTaskCreation) return options
-    if (session.task.kind !== 'existing') {
-      return {
-        ...options,
-        taskId: undefined,
-        parentTaskId: undefined,
-        skipTaskCreation: true,
-      }
-    }
     // A session with a provider thread is past its first dispatch and outside
     // automatic minting, which is the host's own no-backfill rule. A dispatched
     // one still needs its packet re-shipped: the execution host cannot read the
@@ -2669,6 +2671,7 @@ export class WorkspaceContext {
       }
       // Record the binding on the session so `session_init` — the first moment a
       // session id exists — knows which task to link it to, and on which host.
+      if (!options.taskId) this.mintedTaskIdBySession.set(session, task.id)
       session.task = { kind: 'existing', taskId: task.id }
       const prepared: typeof options = {
         ...options,
@@ -2684,85 +2687,17 @@ export class WorkspaceContext {
     }
   }
 
-  /** Mint a fallback task only after a turn has finished and only when neither
-   * the user nor the agent linked the session while it was running. */
-  private settleSessionTask(sessionId: string): Promise<void> {
-    const pending = this.taskSettlementBySessionId.get(sessionId)
-    if (pending) return pending
-
-    const settlement = (async () => {
-      const session = this.sessions[sessionId]
-      if (!session?.agentSessionId || session.task.kind === 'none') return
-
-      const identities = [session.handoffId, session.id, session.agentSessionId]
-        .filter((identity): identity is string => !!identity)
-      // Ask the task host directly. If the read fails, this settlement rejects
-      // and does not treat an empty renderer cache as permission to mint.
-      const linkedTask = await this.tasksStore.findSessionTaskOnHost(
-        identities,
-        session.run.taskServerId,
-      )
-      if (linkedTask) {
-        session.task = { kind: 'existing', taskId: linkedTask.id }
-        return
-      }
-      if (session.task.kind !== 'new') return
-
-      const environment = this.environment.environmentFor(session.run)
-      const firstPrompt = session.messages.find((message) => message.role === 'user')?.content ?? ''
-      const prompt = session.title !== 'New Tab' ? session.title : firstPrompt
-      const { task } = await this.tasksStore.prepareForSession(session.run.taskServerId, {
-        parentTaskId: session.task.parentTaskId ?? null,
-        projectKey: environmentProjectKey(environment, session.run.projectGroupPath),
-        prompt,
-      })
-      if (!task) return
-
-      if (session.prReview) {
-        await this.tasksStore.get(task.id).link({
-          kind: 'pr',
-          targetScope: task.projectKey ?? environmentProjectKey(environment, session.run.projectGroupPath),
-          targetKey: String(session.prReview.number),
-          title: `#${session.prReview.number} ${session.prReview.title}`,
-          createdBy: 'system',
-        }).catch(() => null)
-      }
-
-      const bindingSessionId = taskBindingSessionId(session) ?? session.agentSessionId
-      session.task = { kind: 'existing', taskId: task.id }
-      this.mintedTaskIdBySession.set(session, task.id)
-      const metadata = this.generatedTaskMetadataBySession.get(session)
-      if (metadata) {
-        await this.tasksStore.get(task.id).update({
-          title: metadata.title,
-          body: metadata.description,
-        }).catch(() => null)
-      }
-
-      this.tasksStore.get(task.id).trackSessionStart(bindingSessionId)
-      const dispatched = isDispatch(session.run)
-      await this.tasksStore.get(task.id).linkSession(
-        bindingSessionId,
-        dispatched
-          ? {
-              serverId: session.run.serverId,
-              provider: session.run.provider ?? undefined,
-              projectRoot: session.run.projectGroupPath,
-            }
-          : null,
-        session.run.taskServerId,
-      )
-      if (environment.branch) {
-        await serverConnections.apiFor(session.run.taskServerId)
-          .setSessionBranch(bindingSessionId, environment.branch)
-      }
-      await this.tasksStore.refreshSessionBinding(bindingSessionId, session.run.taskServerId)
-    })()
-      .catch((error) => console.warn('[Solus] Session task settlement failed.', error))
-      .finally(() => this.taskSettlementBySessionId.delete(sessionId))
-
-    this.taskSettlementBySessionId.set(sessionId, settlement)
-    return settlement
+  /**
+   * The task a started session's prompts file under. The durable link is the
+   * answer once there is one: the agent can move the session to another task
+   * mid-turn, and the binding recorded at first dispatch would otherwise send
+   * every later prompt back to the placeholder that transfer just removed.
+   * Before the link lands, the binding is all there is.
+   */
+  private ownedTaskId(session: Session): string | undefined {
+    return this.tasksStore.taskForSession(taskBindingSessionId(session))?.id
+      ?? existingTaskId(session.task)
+      ?? undefined
   }
 
   /** Re-ship a dispatched session's task state with a follow-up prompt. Best
@@ -2772,12 +2707,13 @@ export class WorkspaceContext {
     session: Session,
     options: T,
   ): Promise<T> {
-    if (session.task.kind !== 'existing') return options
+    const taskId = this.ownedTaskId(session)
+    if (!taskId) return options
     try {
       const snapshot = await this.tasksStore
-        .get(session.task.taskId)
+        .get(taskId)
         .dispatchSnapshot(session.run.taskServerId)
-      return snapshot ? { ...options, taskId: session.task.taskId, taskSnapshot: snapshot } : options
+      return snapshot ? { ...options, taskId, taskSnapshot: snapshot } : options
     } catch (error) {
       console.warn('[Solus] Task snapshot refresh failed; the packet stays stale this turn.', error)
       return options
@@ -2958,10 +2894,7 @@ export class WorkspaceContext {
       this.eventReducer.closeAgentConversationTurn(session)
     }
 
-    const promptTaskId =
-      existingTaskId(session.task) ??
-      this.tasksStore.taskForSession(taskBindingSessionId(session))?.id ??
-      undefined
+    const promptTaskId = this.ownedTaskId(session)
     this.promptTab(targetTabId, {
       prompt: fullPrompt,
       displayPrompt: prompt,
@@ -2971,9 +2904,7 @@ export class WorkspaceContext {
       imageAttachmentRefs: imagePayload.refs,
       taskId: promptTaskId,
       // Only until the fork's own subtask exists — the two are mutually exclusive.
-      parentTaskId: existingTaskId(session.task) || this.tasksStore.taskForSession(taskBindingSessionId(session))
-        ? undefined
-        : parentTaskId(session.task) ?? undefined,
+      parentTaskId: promptTaskId ? undefined : parentTaskId(session.task) ?? undefined,
       skipTaskCreation: session.task.kind === 'none' || undefined,
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
     })
@@ -3236,11 +3167,49 @@ export class WorkspaceContext {
   /** Open a work as the single artifact. `aside` puts it beside the
    *  conversation; otherwise it takes the focused pane. */
   openWork(workId: string, target: 'focused' | 'aside' = 'focused'): void {
-    this.router.navigate({ name: 'work', params: { workId } }, { target: this.paneTarget(target) })
+    const serverId = this.worksStore.hostFor(workId) ?? undefined
+    const params: Extract<RouteRef, { name: 'work' }>['params'] = { workId }
+    if (serverId) params.serverId = serverId
+    this.router.navigate(
+      { name: 'work', params },
+      { target: this.paneTarget(target) },
+    )
+  }
+
+  /** Close a work and reveal a real prompt destination. A work can be opened
+   *  before the first session exists; in that case the chat route has no tab
+   *  to render, so restore the draft composer instead of exposing its empty
+   *  conversation pool. */
+  closeWork(paneId?: PaneId): void {
+    if (paneId) this.router.closePane(paneId)
+    else this.router.close('work')
+
+    if (this.tabOrder.some((tabId) => !!this.tabs[tabId])) {
+      requestInputFocus()
+      return
+    }
+
+    const openDraftPane = this.router.panes.find(
+      (pane) => pane.base?.name === 'draft'
+        && this.sessionDrafts.has(pane.base.params.draftId),
+    )
+    if (openDraftPane) {
+      const draftIndex = this.router.panes.indexOf(openDraftPane)
+      if (draftIndex > 0) this.router.movePane(openDraftPane.id, -draftIndex)
+      else this.router.focusPane(openDraftPane.id)
+      requestInputFocus()
+      return
+    }
+
+    let latestDraft: SessionDraft | null = null
+    for (const draft of this.sessionDrafts.values()) latestDraft = draft
+    if (latestDraft) this.openDraft(latestDraft.id)
+    else this.openSessionDraft({ target: this.router.leadingPane.id, via: 'click' })
+    requestInputFocus()
   }
 
   closeWorkModal(): void {
-    this.router.closeGroup('artifact')
+    this.closeWork()
   }
 
   /** Delete a work with a brief undo window: close its pane, offer the undo, and
@@ -4281,6 +4250,9 @@ export class WorkspaceContext {
         }
         return
       case 'work':
+        if (ref.params.serverId) {
+          this.worksStore.rememberHost(ref.params.workId, ref.params.serverId)
+        }
         void this.openWorkModal(ref.params.workId, undefined, {
           secondary: opts.target === 'aside' || opts.target === 'new',
           via: opts.via,
@@ -4390,11 +4362,14 @@ export class WorkspaceContext {
     })
   }
 
-  openFilePreview(file: FilePreviewRequest, sourceId: string): void {
-    this.showViewer({
-      name: 'fileEditor',
-      params: { sourceId, path: file.path, line: file.line },
-    })
+  openFilePreview(file: FilePreviewRequest, sourceId: string, sourcePaneId?: PaneId): void {
+    this.showViewer(
+      {
+        name: 'fileEditor',
+        params: { sourceId, path: file.path, line: file.line },
+      },
+      sourcePaneId ? this.router.targetAcrossFrom(sourcePaneId) : 'aside',
+    )
   }
 
   /** Pop a sub-agent's nested transcript out of its card into a companion pane. */
@@ -4408,8 +4383,8 @@ export class WorkspaceContext {
   }
 
   /** Viewers cover a companion pane and size themselves. */
-  private showViewer(ref: RouteRef): void {
-    const pane = this.router.navigate(ref, { target: 'aside' })
+  private showViewer(ref: RouteRef, target: NavTarget = 'aside'): void {
+    const pane = this.router.navigate(ref, { target })
     pane.defaultSize = 60
   }
 

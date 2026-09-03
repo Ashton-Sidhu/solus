@@ -37,7 +37,6 @@
     extraExtensions?: AnyExtension[];
     placeholder?: string;
     readOnly?: boolean;
-    mic?: boolean;
     dictation?: boolean;
     /** Caps the editor height; content scrolls past it (inline composers). */
     maxHeight?: number;
@@ -69,7 +68,6 @@
     extraExtensions = [],
     placeholder = "",
     readOnly = false,
-    mic = false,
     dictation,
     maxHeight,
     class: klass = "",
@@ -204,7 +202,6 @@
   extraExtensions={allExtensions}
   {placeholder}
   {readOnly}
-  {mic}
   {dictation}
   {dragHandle}
   class={`doc-prompt-editor ${klass}`}

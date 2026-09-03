@@ -34,6 +34,7 @@
     onPrimary: () => void;
     secondaryLabel?: string;
     onSecondary?: () => void;
+    showTaskControls?: boolean;
     onOpenTask: (task: Task) => void;
     onOpenSource: (task: Task) => void;
   }
@@ -44,6 +45,7 @@
     onPrimary,
     secondaryLabel,
     onSecondary,
+    showTaskControls = true,
     onOpenTask,
     onOpenSource,
   }: Props = $props();
@@ -69,7 +71,8 @@
 <!-- Desktop reads left to right: edit the row, then leave it. A thumb gets the
      leaving buttons first at 50px, and the edits as chips on a second line. -->
 <div class="flex flex-wrap items-center gap-1.5 max-md:gap-[9px]">
-  <DropdownMenu.Root>
+  {#if showTaskControls}
+    <DropdownMenu.Root>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <button
@@ -92,20 +95,20 @@
         </DropdownMenu.Item>
       {/each}
     </DropdownMenu.Content>
-  </DropdownMenu.Root>
+    </DropdownMenu.Root>
 
-  {#if isSnoozed}
-    <button
-      type="button"
-      class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:size-11 max-md:bg-[var(--wash-2)]"
-      aria-label="Wake task now"
-      title="Wake now"
-      onclick={() => sidebarStore.snoozeRow(task.id, null)}
-    >
-      <SunIcon size={13} class="shrink-0" />
-    </button>
-  {:else}
-    <DropdownMenu.Root>
+    {#if isSnoozed}
+      <button
+        type="button"
+        class="flex size-[26px] cursor-pointer items-center justify-center rounded-full text-muted-foreground transition-[background-color,color] duration-100 hover:bg-[var(--wash-2)] hover:text-foreground max-md:order-5 max-md:size-11 max-md:bg-[var(--wash-2)]"
+        aria-label="Wake task now"
+        title="Wake now"
+        onclick={() => sidebarStore.snoozeRow(task.id, null)}
+      >
+        <SunIcon size={13} class="shrink-0" />
+      </button>
+    {:else}
+      <DropdownMenu.Root>
       <DropdownMenu.Trigger>
         {#snippet child({ props })}
           <button
@@ -128,10 +131,10 @@
           </DropdownMenu.Item>
         {/each}
       </DropdownMenu.Content>
-    </DropdownMenu.Root>
-  {/if}
+      </DropdownMenu.Root>
+    {/if}
 
-  <DropdownMenu.Root>
+    <DropdownMenu.Root>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <button
@@ -156,7 +159,8 @@
         </DropdownMenu.Item>
       {/if}
     </DropdownMenu.Content>
-  </DropdownMenu.Root>
+    </DropdownMenu.Root>
+  {/if}
 
   <!-- Desktop: the gap that pushes the leaving buttons to the right edge.
        Phone: a full-width break between the row you leave by and the chips you

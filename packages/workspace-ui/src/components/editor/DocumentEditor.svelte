@@ -47,17 +47,14 @@
   import EditorLinkPopover from "./EditorLinkPopover.svelte";
   import EditorLinkPreview from "./EditorLinkPreview.svelte";
   import TableContextMenu from "./TableContextMenu.svelte";
-  import TableBlockBar from "./TableBlockBar.svelte";
-  import TableGrips from "./TableGrips.svelte";
+  import TableChrome from "./TableChrome.svelte";
+  import { TableFlow } from "./tableFlow";
   import EditorVoiceControl from "../input/EditorVoiceControl.svelte";
   import { dictationInsertion } from "../input/lib/dictation-text";
 
   const imageContext = getMarkdownImageContext();
   import { portal } from "../portal";
-  import {
-    deferTableResizeReflow,
-    type TableResizePreview,
-  } from "./lib/deferred-table-resize";
+  import { installLiveTableResize } from "./lib/live-table-resize";
   import { z } from "zod";
   import RawMarkdownEditor from "./RawMarkdownEditor.svelte";
   import DiagramEmbedPicker from "./DiagramEmbedPicker.svelte";
@@ -74,9 +71,8 @@
     onInput?: () => void;
     placeholder?: string;
     readOnly?: boolean;
-    /** Show push-to-talk on focused prose editing surfaces. */
-    mic?: boolean;
-    /** Enable the voice shortcut even when the idle mic is hidden. */
+    /** Enable the voice shortcut on this surface. The idle mic stays hidden;
+     *  hosts that want a visible mic mount their own control in the header. */
     dictation?: boolean;
     extraExtensions?: AnyExtension[];
     onEditorReady?: (editor: Editor) => void;
@@ -107,8 +103,7 @@
     onInput,
     placeholder = "",
     readOnly = false,
-    mic = false,
-    dictation,
+    dictation = false,
     extraExtensions = [],
     onEditorReady,
     onModeChange,
@@ -125,8 +120,6 @@
     style = "",
     dragHandle = true,
   }: Props = $props();
-
-  const dictationOn = $derived(dictation ?? mic);
 
   // Matches a URL pasted onto a selection (smart-paste → link).
   const URL_RE = /^(https?:\/\/|mailto:)[^\s]+$/i;
@@ -163,7 +156,6 @@
     y: number;
     axis?: "row" | "column";
   } | null>(null);
-  let tableResizePreview = $state<TableResizePreview | null>(null);
   let linkPopover = $state<{
     coords: { left: number; top: number; bottom: number };
     from: number;
@@ -284,13 +276,15 @@
         TaskList,
         TaskItem.configure({ nested: true }),
         Image.configure({ allowBase64: true }),
-        // A slightly wider resize target keeps the cursor stable as it crosses
-        // a column boundary. cellMinWidth keeps resized columns readable.
-        Table.configure({ resizable: true, handleWidth: 8, cellMinWidth: 96 }),
+        // 5.5px either side of the rule is the design's 11px hit zone, hung on
+        // the 1px border itself rather than on a strip beside it. cellMinWidth
+        // keeps resized columns readable.
+        Table.configure({ resizable: true, handleWidth: 5.5, cellMinWidth: 96 }),
         TableRow,
         TableHeader,
         TableCell,
         CellFocus,
+        TableFlow,
         SlashCommandExtension,
         SearchExtension,
         // Hover-to-grab block drag handle. Defaults render a `.drag-handle`
@@ -305,7 +299,7 @@
               "Alt-Shift-s": () =>
                 this.editor.chain().focus().toggleStrike().run(),
               "Alt-Shift-k": () => {
-                handleLink();
+                openLinkPopover();
                 return true;
               },
             };
@@ -475,18 +469,8 @@
     // cheap synchronous signal so the host can mark itself dirty immediately,
     // and debounce the (expensive) markdown serialization off the hot path.
     editor.on("update", () => scheduleEmit(onChange));
-    editor.on("focus", () => {
-      queueMicrotask(() => {
-        isFocused = true;
-        onFocus?.();
-      });
-    });
-    editor.on("blur", () => {
-      queueMicrotask(() => {
-        isFocused = false;
-        onBlur?.();
-      });
-    });
+    editor.on("focus", () => announceFocus(true));
+    editor.on("blur", () => announceFocus(false));
 
     // Every handler gates on the *menu*, not on the "/" token: a token that
     // matches nothing renders no menu, so Enter must still break the line.
@@ -517,10 +501,7 @@
     editorInstance = editor;
     void hydrateAssetImages(editor);
     untrack(() => onEditorReady?.(editor));
-    const stopDeferredTableResize = deferTableResizeReflow(
-      editor,
-      (preview) => (tableResizePreview = preview),
-    );
+    const stopLiveTableResize = installLiveTableResize(editor);
 
     // The drag-handle extension hands the browser a snapshot of the dragged
     // node as the drag image — Chromium paints it on a solid white card, and
@@ -558,7 +539,7 @@
         document.removeEventListener("dragstart", onDocDragStart);
       if (onDocDragEnd) document.removeEventListener("dragend", onDocDragEnd);
       dragGhost?.remove();
-      stopDeferredTableResize();
+      stopLiveTableResize();
       editor.destroy();
       editorInstance = null;
     };
@@ -604,9 +585,19 @@
     }
   }
 
+  // Both editors can emit focus while Svelte is mid-flush; defer the state
+  // write so the host's handler never runs inside a template reaction.
+  function announceFocus(focused: boolean) {
+    queueMicrotask(() => {
+      isFocused = focused;
+      if (focused) onFocus?.();
+      else onBlur?.();
+    });
+  }
+
   // Mode-aware current markdown: the rich doc serialized, or the source editor's
   // text verbatim (raw edits aren't mirrored into the rich doc until a switch).
-  function currentMarkdown(): string {
+  export function getCurrentMarkdown(): string {
     if (mode === "raw") return rawEditorRef?.getValue() ?? lastEmittedMd;
     return editorInstance ? getMd(editorInstance) : lastEmittedMd;
   }
@@ -617,7 +608,7 @@
     if (emitTimer) clearTimeout(emitTimer);
     emitTimer = setTimeout(() => {
       emitTimer = null;
-      const md = currentMarkdown();
+      const md = getCurrentMarkdown();
       lastEmittedMd = md;
       emit(md);
     }, EMIT_DEBOUNCE_MS);
@@ -637,15 +628,9 @@
     if (!emitTimer) return;
     clearTimeout(emitTimer);
     emitTimer = null;
-    const md = currentMarkdown();
+    const md = getCurrentMarkdown();
     lastEmittedMd = md;
     onValueChange(md);
-  }
-
-  // This imperative component API intentionally hides the internal derived function.
-  // oxlint-disable-next-line solus/no-pass-through-wrappers
-  export function getCurrentMarkdown(): string {
-    return currentMarkdown();
   }
 
   // Mirror external value resets (e.g. cancel discards editBuffer) and raw-mode edits
@@ -742,7 +727,7 @@
     return mode;
   }
 
-  function handleLink() {
+  export function openLinkPopover() {
     if (!editorInstance) return;
     linkPreview = null;
     if (editorInstance.isActive("link") && editorInstance.state.selection.empty) {
@@ -759,10 +744,6 @@
         ? (editorInstance.getAttributes("link").href ?? "")
         : "",
     };
-  }
-
-  export function openLinkPopover() {
-    handleLink();
   }
 
   function applyLink(href: string) {
@@ -794,7 +775,7 @@
     const { pos } = linkPreview;
     editorInstance.chain().setTextSelection(pos).extendMarkRange("link").run();
     linkPreview = null;
-    handleLink();
+    openLinkPopover();
   }
 
   function removePreviewLink() {
@@ -841,17 +822,16 @@
   <div
     bind:this={editorDiv}
     class="solus-doc-editor"
-    class:voice-enabled={mic}
     class:doc-mode-hidden={mode === "raw"}
   ></div>
 
-  {#if dictationOn && mode === "rich"}
+  {#if dictation && mode === "rich"}
     <div class="absolute top-1 right-1 z-10">
       <EditorVoiceControl
         onTranscript={insertTranscript}
         focused={isFocused}
         disabled={readOnly}
-        showMic={mic}
+        showMic={false}
       />
     </div>
   {/if}
@@ -860,18 +840,8 @@
     bind:this={rawEditorRef}
     {value}
     onValueChange={() => scheduleEmit(onValueChange)}
-    onFocus={() => {
-      queueMicrotask(() => {
-        isFocused = true;
-        onFocus?.();
-      });
-    }}
-    onBlur={() => {
-      queueMicrotask(() => {
-        isFocused = false;
-        onBlur?.();
-      });
-    }}
+    onFocus={() => announceFocus(true)}
+    onBlur={() => announceFocus(false)}
     {readOnly}
     class={mode === "rich" ? "doc-mode-hidden" : ""}
   />
@@ -900,23 +870,10 @@
   {/if}
 
   {#if mode === "rich"}
-    <TableBlockBar
-      editor={editorInstance}
-      onMore={(coords) => (tableMenuCoords = coords)}
-    />
-    <TableGrips
+    <TableChrome
       editor={editorInstance}
       onMenu={(coords) => (tableMenuCoords = coords)}
     />
-    {#if tableResizePreview}
-      <div
-        use:portal={document.body}
-        data-solus-ui
-        class="doc-table-resize-preview"
-        style="left:{tableResizePreview.x}px;top:{tableResizePreview.top}px;height:{tableResizePreview.height}px"
-        aria-hidden="true"
-      ></div>
-    {/if}
   {/if}
 
   {#if tableMenuCoords && editorInstance}
@@ -949,166 +906,3 @@
   {/if}
 </div>
 
-<style>
-  .voice-enabled :global(.ProseMirror) {
-    padding-right: 4.25rem;
-  }
-  /* Pasted/dropped images — sit inline as block figures, rounded + outlined to
-     match the app's image treatment (warm hairline, never a hard black edge). */
-  :global(.solus-doc-editor .ProseMirror img) {
-    max-width: 100%;
-    height: auto;
-    border-radius: 0.5rem;
-    border: 0.0625rem solid var(--solus-art-border, var(--solus-container-border));
-    margin: 0.25rem 0;
-  }
-  :global(.solus-doc-editor .ProseMirror img.ProseMirror-selectednode) {
-    outline: 0.125rem solid var(--solus-accent);
-    outline-offset: 0.0625rem;
-  }
-  :global(.solus-doc-editor .ProseMirror a[href]) {
-    cursor: pointer;
-  }
-
-  /* Find & replace highlights (search decorations live inside .ProseMirror). */
-  :global(.solus-doc-editor .ProseMirror .search-match) {
-    background: color-mix(in srgb, var(--solus-art-2, #e6a23c) 38%, transparent);
-    border-radius: 0.125rem;
-  }
-  :global(.solus-doc-editor .ProseMirror .search-match--current) {
-    background: color-mix(in srgb, var(--solus-accent) 45%, transparent);
-    box-shadow: 0 0 0 0.0625rem var(--solus-accent);
-  }
-
-  /* Column resize handles for resizable tables. */
-  :global(.solus-doc-editor .ProseMirror table) {
-    /* Tiptap writes a pixel width inline once every column has been resized.
-       Let the colgroup redistribute that fixed canvas instead: otherwise an
-       internal divider drag changes the table's outer width and shifts the
-       content beside the handle. Wide minimums can still overflow through the
-       table wrapper's horizontal scroller. */
-    width: 100% !important;
-  }
-  :global(.solus-doc-editor .ProseMirror .column-resize-handle) {
-    position: absolute;
-    right: -0.0625rem;
-    top: 0;
-    bottom: -0.0625rem;
-    width: 0.1875rem;
-    background: var(--solus-accent);
-    opacity: 0;
-    pointer-events: none;
-  }
-  :global(.solus-doc-editor .ProseMirror.resize-cursor) {
-    cursor: col-resize;
-  }
-  :global(.solus-doc-editor .ProseMirror table:hover .column-resize-handle) {
-    opacity: 0.5;
-  }
-  .doc-table-resize-preview {
-    position: fixed;
-    z-index: 10001;
-    width: 0.1875rem;
-    border-radius: 9999px;
-    background: var(--solus-accent);
-    opacity: 0.72;
-    pointer-events: none;
-    transform: translateX(-50%);
-  }
-
-  /* Drop indicator while dragging a block. prosemirror-dropcursor sets the
-     accent fill inline (the `color` option); we add rounded ends + a soft accent
-     glow so the landing spot reads as a deliberate, premium marker. */
-  :global(.solus-dropcursor) {
-    border-radius: 9999px;
-    opacity: 0.7;
-  }
-
-  /* While a block is in flight, mute the source highlight — the selection wash
-     and the node-selection outline — so the only thing the eye follows is the
-     drop line, not a lit-up block left behind. */
-  :global(.solus-doc-editor.is-dragging .ProseMirror ::selection) {
-    background: transparent;
-  }
-  :global(.solus-doc-editor.is-dragging .ProseMirror ::-moz-selection) {
-    background: transparent;
-  }
-  :global(.solus-doc-editor.is-dragging .ProseMirror *) {
-    caret-color: transparent;
-  }
-  :global(.solus-doc-editor.is-dragging .ProseMirror-selectednode),
-  :global(.solus-doc-editor.is-dragging .ProseMirror .selectedCell) {
-    outline: none;
-    background: transparent;
-  }
-
-  /* Block drag handle (@tiptap/extension-drag-handle renders a `.drag-handle`
-     element inside its own absolutely-positioned wrapper in the editor
-     container — must be styled globally + unscoped; the wrapper owns
-     positioning, so no position here). The element is the hover pill; the
-     six-dot grip lives on ::before as a mask so it can be tinted
-     independently (tertiary → accent on grab). */
-  :global(.drag-handle) {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.125rem;
-    height: 1.5rem;
-    z-index: 50;
-    cursor: grab;
-    border-radius: 0.3125rem;
-    background-color: transparent;
-    transition:
-      background-color var(--duration-quick) var(--ease-premium),
-      transform var(--duration-quick) var(--ease-premium);
-  }
-  /* Floating UI positions the handle asynchronously after Tiptap reveals it.
-     Until the first coordinates land, the element otherwise paints at the
-     editor container's 0,0 origin and visibly jumps into the text gutter. */
-  :global(.drag-handle:not([style*="left:"])) {
-    visibility: hidden;
-    pointer-events: none !important;
-  }
-  :global(.drag-handle::before) {
-    content: "";
-    width: 0.875rem;
-    height: 0.875rem;
-    background-color: var(--solus-text-tertiary);
-    opacity: 0.7;
-    /* Six-dot grip as a mask so the dots inherit background-color. */
-    --drag-grip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='5.5' cy='3.5' r='1.3'/%3E%3Ccircle cx='10.5' cy='3.5' r='1.3'/%3E%3Ccircle cx='5.5' cy='8' r='1.3'/%3E%3Ccircle cx='10.5' cy='8' r='1.3'/%3E%3Ccircle cx='5.5' cy='12.5' r='1.3'/%3E%3Ccircle cx='10.5' cy='12.5' r='1.3'/%3E%3C/svg%3E");
-    -webkit-mask: var(--drag-grip) center / contain no-repeat;
-    mask: var(--drag-grip) center / contain no-repeat;
-    transition:
-      background-color var(--duration-quick) var(--ease-premium),
-      opacity var(--duration-quick) var(--ease-premium);
-  }
-  :global(.drag-handle:hover) {
-    background-color: var(--solus-surface-hover);
-  }
-  :global(.drag-handle:hover::before) {
-    opacity: 1;
-  }
-  /* Grab: a quiet, tactile press — the pill settles into the hover surface and
-     eases in slightly. No accent flood; picking a block up should feel like
-     lifting it, not selecting it. */
-  :global(.drag-handle:active) {
-    cursor: grabbing;
-    transform: scale(0.94);
-    background-color: var(--solus-surface-hover);
-  }
-  :global(.drag-handle:active::before) {
-    background-color: var(--solus-text-secondary);
-    opacity: 1;
-  }
-  @media (prefers-reduced-motion: reduce) {
-    :global(.solus-doc-editor .ProseMirror .column-resize-handle),
-    :global(.drag-handle),
-    :global(.drag-handle::before) {
-      transition: none !important;
-    }
-    :global(.drag-handle:active) {
-      transform: none;
-    }
-  }
-</style>

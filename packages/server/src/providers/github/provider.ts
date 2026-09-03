@@ -1,6 +1,6 @@
 import { GitHubAuth } from './auth'
-import { clientFor, GitHubReauthRequiredError, type GitHubClient } from './octokit'
-import { githubCredentialChain } from './credentials'
+import type { GitHubClient } from './octokit'
+import { githubClients, runGithubRequest } from './request'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
 import type {
@@ -635,7 +635,7 @@ export class GitHubProvider implements ReviewProvider {
    * the provider's one seam: tests script GitHub's answers by replacing it.
    */
   protected async clients(host: string, credentialCwd?: string): Promise<GitHubClient[]> {
-    return (await githubCredentialChain(host, credentialCwd)).map(clientFor)
+    return githubClients(host, credentialCwd)
   }
 
   /**
@@ -653,21 +653,7 @@ export class GitHubProvider implements ReviewProvider {
     run: (client: GitHubClient) => Promise<Result>,
     credentialCwd?: string,
   ): Promise<Result> {
-    const clients = await this.clients(host, credentialCwd)
-    if (clients.length === 0) throw new Error('GitHub is not connected')
-    let rejected: Error | null = null
-    for (const client of clients) {
-      try {
-        return await run(client)
-      } catch (error) {
-        const parsedError = githubApiErrorSchema.safeParse(error)
-        const status = parsedError.success ? parsedError.data.status : null
-        if (!(error instanceof GitHubReauthRequiredError) && status !== 403 && status !== 404) throw error
-        log.warn('github_credential_rejected', { operation, host, source: client.credential.source })
-        rejected = error instanceof Error ? error : new Error(String(error))
-      }
-    }
-    throw rejected ?? new Error('GitHub is not connected')
+    return runGithubRequest(operation, host, await this.clients(host, credentialCwd), run)
   }
 
   async getViewer(repo?: RepoRef): Promise<string> {

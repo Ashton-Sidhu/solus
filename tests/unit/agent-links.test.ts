@@ -55,4 +55,13 @@ describe('agent link routes', () => {
       params: { taskId: '01JTASK', serverId: 'host-a' },
     })
   })
+
+  test('opens work references on the host that wrote the transcript', () => {
+    // WHY: work ids are host-local. A link read through app.solus.sh must not
+    // ask whichever host happens to be the client's default for its content.
+    expect(routeForHref('work://ref?workId=01JWORK', { serverId: 'host-a' })).toEqual({
+      name: 'work',
+      params: { workId: '01JWORK', serverId: 'host-a' },
+    })
+  })
 })

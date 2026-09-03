@@ -47,7 +47,7 @@ export function routeForHref(
 
   if (href.startsWith('work://')) {
     const workId = params.get('workId') ?? ''
-    return workId ? { name: 'work', params: { workId } } : null
+    return workId ? { name: 'work', params: { workId, serverId: opts.serverId } } : null
   }
 
   if (href.startsWith('task://')) {

@@ -109,10 +109,12 @@
         <span class="inline-flex size-[1em] shrink-0 items-center justify-center text-(--solus-accent)" aria-hidden="true">
           {#if isPlan}<ShieldPlanIcon class="block size-full" />{:else if isAuto}<ShieldCheckIcon class="block size-full" />{:else}<ShieldQuestionIcon class="block size-full" />{/if}
         </span>
-        <!-- Composer ladder, rung 4: icon-only below 18rem. Declared here rather
-             than passed down as a prop, so the rung is one CSS fact instead of a
-             width measurement each of the three composers would have to repeat. -->
-        <span class="font-medium @max-[18rem]/composer:hidden">{modeLabel}</span>
+        <!-- Composer ladder, rung 4: icon-only below 28rem. The shield glyph
+             already names the mode, so the word is the cheapest thing on the row
+             to spend. Declared here rather than passed down as a prop, so the
+             rung is one CSS fact instead of a width measurement each of the
+             three composers would have to repeat. -->
+        <span class="font-medium @max-[28rem]/composer:hidden">{modeLabel}</span>
         <CaretDownIcon size={9} class="text-(--solus-text-tertiary) transition-transform duration-150 {open ? 'rotate-180' : ''}" />
       </button>
           {/snippet}

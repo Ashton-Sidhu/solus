@@ -599,9 +599,11 @@
 				])}
 
 				<p class="mt-5 text-[14px] text-[#A09488]">
-					Pick the reviewing agent and model under
-					<strong class="text-[#A09488] font-medium">Settings → Review companion</strong>; it
-					defaults to your active agent and its default model.
+					Pick the reviewing agent, model, and reasoning effort under
+					<strong class="text-[#A09488] font-medium">Settings → Review companion</strong>; the
+					default is Codex with its default model at medium reasoning, independent of the agent
+					you chat with. The same tab has a <strong class="text-[#A09488] font-medium">Review guide
+					instructions</strong> field; its text is applied to every review guide.
 				</p>
 			</section>
 
@@ -978,9 +980,10 @@
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Network &amp; security</h3>
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
-						['Local only', 'Traffic stays on your network. Nothing routes through external servers.'],
+						['Local by default', 'Pairing keeps traffic on your network. Nothing routes through external servers unless you link the host to Solus cloud.'],
 						['Session tokens', 'Each device holds its own token; revoking one affects nothing else.'],
 						['Tailscale / VPN', 'Use a Tailscale pairing link to reach your desktop from outside your LAN.'],
+						['Solus cloud', `Sign in to your Solus account and click <strong class="text-[#1A1714] font-medium">Link to Solus cloud</strong> under <strong class="text-[#1A1714] font-medium">Settings → Connections → Access</strong> to reach the host from anywhere through your account. Tunnel traffic passes through Cloudflare. Linking and unlinking are only offered on the machine itself; a linked host lists cloud sessions beside paired devices, and revoking one refuses that session.`],
 						['Loopback (same machine)', `<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">http://localhost:3000</code> skips pairing in development mode only; production builds always pair.`],
 					] as [title, desc]}
 						<li class="flex gap-3">
@@ -1082,10 +1085,11 @@ solus pair                            # create a one-time client pairing link</d
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Review companion</h3>
 				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
 					{#each [
-						['Review agent', 'Which CLI agent reviews your branch for the <a href="#review" class="text-[#C4973A] no-underline hover:underline">Review Companion</a>. Defaults to your active agent.'],
-						['Review model', "The model the review agent uses. Defaults to that agent's default model."],
+						['Review agent', 'Which CLI agent reviews your branch for the <a href="#review" class="text-[#C4973A] no-underline hover:underline">Review Companion</a>. Defaults to Codex and does not follow your active agent.'],
+						['Review model', "The model the review agent uses. Defaults to that agent's default model at medium reasoning; the reasoning effort is a separate setting."],
+						['Review guide instructions', 'Free text applied to every review guide, in addition to any instructions you give with a review command.'],
 					] as [key, val], i}
-						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 1 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 2 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
 							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
 						</div>

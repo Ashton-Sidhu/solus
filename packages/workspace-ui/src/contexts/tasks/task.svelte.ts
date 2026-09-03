@@ -525,7 +525,8 @@ export class Task implements TaskRecord {
     const index = this.#sessions.findIndex((existing) => existing.sessionId === attempt.sessionId)
     if (index === -1) this.#sessions.push(attempt)
     else this.#sessions[index] = attempt
-    this.bindSession(attempt.sessionId)
+    // A `referenced` attempt is listed but does not own the session.
+    if (attempt.role !== 'referenced') this.bindSession(attempt.sessionId)
   }
 
   /** Claim a session for this task in the store's session index, which is what

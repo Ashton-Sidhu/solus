@@ -55,7 +55,7 @@
   const preview = createSessionPreviewStore();
   let query = $state("");
   let selectedKey = $state<string | null>(null);
-  let selectedTaskId = $state<string | null>(null);
+  let revealedTaskId = $state<string | null>(null);
   let searchEl = $state<HTMLInputElement | null>(null);
   let pickerEl = $state<HTMLDivElement | null>(null);
   let listHeight = $state(0);
@@ -94,7 +94,7 @@
   }
   const list = $derived(
     buildPickerRows({
-      tasks, query, sessionsFor, expandedTaskIds, selectedTaskId,
+      tasks, query, sessionsFor, expandedTaskIds,
       openTaskIds: new Set(sidebarStore.activeTasks.flatMap((row) => row.taskId ?? [])),
       snoozedTaskIds: new Set(sidebarStore.snoozedTasks.flatMap((row) => row.taskId ?? [])),
     }),
@@ -114,11 +114,18 @@
   const rowSizes = $derived(
     list.rows.map((row) => pickerRowHeight(row, runtime.isMobileViewport)),
   );
-  // The virtualiser scrolls to this whenever it changes, and "auto" alignment
-  // moves the list only when the row is not already fully in view — so a key
-  // press always lands on a visible row, and hovering a visible row moves
-  // nothing.
-  const scrollTargetIndex = $derived(Math.max(selectedRowIndex(list.rows, selectedIndex), 0));
+  // A persistent target snaps back on later row-size updates.
+  let scrollTargetIndex = $state<number | undefined>(undefined);
+  let scrollRequestId = 0;
+
+  async function scrollSelectionIntoView(): Promise<void> {
+    const requestId = ++scrollRequestId;
+    await tick();
+    if (requestId !== scrollRequestId) return;
+    scrollTargetIndex = Math.max(selectedRowIndex(list.rows, selectedIndex), 0);
+    await tick();
+    if (requestId === scrollRequestId) scrollTargetIndex = undefined;
+  }
 
   // A session already in a tab previews from its live transcript. A durable
   // one needs its metadata first; that read is made once per session and kept
@@ -179,7 +186,8 @@
   $effect(() => {
     void query;
     selectedKey = null;
-    selectedTaskId = null;
+    revealedTaskId = null;
+    if (open) void scrollSelectionIntoView();
   });
 
   $effect(() => {
@@ -191,11 +199,10 @@
     wasOpen = true;
     query = "";
     selectedKey = null;
-    selectedTaskId = null;
     void session.tasksStore.ensureLoaded();
     blurActiveTextInputOnMobile();
     tick().then(() => {
-      selectIndex(0);
+      selectIndex(0, true);
       if (!runtime.shouldSuppressFocus) searchEl?.focus();
       else pickerEl?.focus();
     });
@@ -205,6 +212,7 @@
     taskContextMenu = null;
     sessionContextMenu = null;
     peekTarget = null;
+    revealedTaskId = null;
     open = false;
     preview.reset();
     sessionMetas.clear();
@@ -227,42 +235,41 @@
     void sidebarStore.selectChild(child);
   }
 
-  /** Fork branches the provider thread a mounted tab is holding, so it is
-   *  offered only where the row menu offers it: a session with a live tab that
-   *  reached its provider. A durable row has nothing to branch from until it
-   *  is resumed. */
-  function canFork(target: NonNullable<typeof peekTarget>): boolean {
-    if (target.kind !== "session" || !target.session.tabId) return false;
-    return !!session.sessionFor(target.session.tabId)?.agentSessionId;
-  }
-
-  function forkSession(child: SidebarSessionChild): void {
-    const tabId = child.tabId;
-    close();
-    if (tabId) void session.forkTab(tabId);
-  }
-
   function startDraft(task: Task): void {
     close();
     void session.openTaskSession(task);
   }
 
   function toggleTask(taskId: string): void {
-    if (expandedTaskIds.has(taskId) || selectedTaskId === taskId) {
+    if (expandedTaskIds.has(taskId)) {
       expandedTaskIds.delete(taskId);
-      if (selectedTaskId === taskId) selectedTaskId = null;
     } else {
       expandedTaskIds.add(taskId);
     }
   }
 
-  /** Move the cursor by row identity. Changing task groups closes the old
-   *  group's transient expansion before the new list reindexes its rows. */
-  function selectIndex(entryIndex: number): void {
+  /** A task row reveals its sessions without committing to one of them. */
+  function expandTaskEntry(entry: PickerEntry): boolean {
+    if (entry.kind !== "task" || entry.sessions.length === 0) return false;
+    selectIndex(entry.entryIndex);
+    expandedTaskIds.add(entry.task.id);
+    return true;
+  }
+
+  /** A task-row click owns both sides of its disclosure state. */
+  function toggleTaskEntry(entry: PickerEntry): boolean {
+    if (entry.kind !== "task" || entry.sessions.length === 0) return false;
+    selectIndex(entry.entryIndex);
+    toggleTask(entry.task.id);
+    return true;
+  }
+
+  /** Move the cursor by row identity without changing task disclosure. */
+  function selectIndex(entryIndex: number, shouldScroll = false): void {
     const boundedIndex = Math.max(0, Math.min(entryIndex, list.entries.length - 1));
     const entry = list.entries[boundedIndex];
-    selectedTaskId = entry?.task.id ?? null;
     selectedKey = entry?.key ?? null;
+    if (shouldScroll) void scrollSelectionIntoView();
   }
 
   // ── Managing a task without leaving the picker ──
@@ -336,9 +343,9 @@
     });
   }
 
-  // Touch has no right click, and on a phone the preview column is hidden —
-  // so the long press is the only way a phone reaches the preview and its
-  // actions at all. A lift, or a drag far enough to be a scroll, cancels it.
+  // Touch has no right click, and on a phone the preview column is hidden.
+  // A tap raises that preview as a sheet; a long press raises the same sheet
+  // without committing to the row when the timer fires.
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   /** Where the finger landed, so a move can be measured against it. */
   let longPressOrigin: PressPoint | null = null;
@@ -357,16 +364,20 @@
     }
   }
 
+  function openPeek(entry: PickerEntry): void {
+    selectIndex(entry.entryIndex);
+    peekTarget =
+      entry.kind === "task"
+        ? { kind: "task", task: entry.task }
+        : { kind: "session", session: entry.session, task: entry.task };
+  }
+
   function startLongPress(event: PointerEvent, entry: PickerEntry): void {
     if (event.pointerType !== "touch") return;
     longPressOrigin = { x: event.clientX, y: event.clientY };
     longPressTimer = setTimeout(() => {
       suppressNextClick = true;
-      selectIndex(entry.entryIndex);
-      peekTarget =
-        entry.kind === "task"
-          ? { kind: "task", task: entry.task }
-          : { kind: "session", session: entry.session, task: entry.task };
+      openPeek(entry);
     }, 500);
   }
 
@@ -402,14 +413,7 @@
       return;
     }
     cancelLongPress();
-    if (
-      selectedIndex !== entry.entryIndex
-      || (entry.kind === "task"
-        && entry.sessions.length > 0
-        && !expandedTaskIds.has(entry.task.id))
-    ) {
-      selectIndex(entry.entryIndex);
-    }
+    if (selectedIndex !== entry.entryIndex) selectIndex(entry.entryIndex);
   }
 
   function activate(entry: PickerEntry): void {
@@ -417,29 +421,37 @@
       suppressNextClick = false;
       return;
     }
-    // A phone has no preview column and no ⏎ hint, so the row itself has to be
-    // unambiguous: a task row goes to the task, a session row resumes it. The
-    // desktop row keeps resuming the latest session, which is what its footer
-    // and its preview pane both promise.
-    if (entry.kind !== "task") selectSession(entry.session);
-    else if (runtime.isMobileViewport) openTaskPage(entry.task);
+    // A phone has no preview column, so a tap raises the same detail and action
+    // surface that desktop keeps beside the list. The sheet owns the explicit
+    // Open or Resume action; desktop keeps the direct row activation promised
+    // by its footer and preview pane.
+    if (runtime.isMobileViewport) openPeek(entry);
+    else if (entry.kind !== "task") selectSession(entry.session);
     else select(entry.task);
+  }
+
+  function clickEntry(entry: PickerEntry): void {
+    if (suppressNextClick) {
+      suppressNextClick = false;
+      return;
+    }
+    if (toggleTaskEntry(entry)) return;
+    activate(entry);
   }
 
   function stepIn(): void {
     const target = expandTarget(selectedEntry ?? undefined);
     if (!target) return;
     if (target.action === "expand") expandedTaskIds.add(target.taskId);
-    else selectIndex(selectedIndex + 1);
+    else selectIndex(selectedIndex + 1, true);
   }
 
   function stepOut(): void {
     const target = collapseTarget(list.entries, selectedIndex);
     if (!target) return;
-    if (target.action === "select") selectIndex(target.entryIndex);
+    if (target.action === "select") selectIndex(target.entryIndex, true);
     else {
       expandedTaskIds.delete(target.taskId);
-      if (selectedTaskId === target.taskId) selectedTaskId = null;
     }
   }
 
@@ -453,16 +465,19 @@
       close();
     } else if (event.key === "ArrowDown" || (event.key === "Tab" && !event.shiftKey)) {
       event.preventDefault();
-      selectIndex(selectedIndex + 1);
+      selectIndex(selectedIndex + 1, true);
     } else if (event.key === "ArrowUp" || (event.key === "Tab" && event.shiftKey)) {
       event.preventDefault();
-      selectIndex(selectedIndex - 1);
+      selectIndex(selectedIndex - 1, true);
     } else if (event.key === "ArrowRight") {
       event.preventDefault();
       stepIn();
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
       stepOut();
+    } else if (event.key === " " && selectedEntry?.kind === "task") {
+      event.preventDefault();
+      expandTaskEntry(selectedEntry);
     } else if (event.key === "Enter" && selectedEntry) {
       event.preventDefault();
       activate(selectedEntry);
@@ -548,12 +563,16 @@
                 {style}
                 {selectedIndex}
                 {query}
-                onActivate={activate}
+                onActivate={clickEntry}
                 onHover={hoverEntry}
                 onToggle={toggleTask}
                 onContextMenu={openContextMenu}
                 onPressStart={startLongPress}
                 onPressEnd={endPress}
+                mobile={runtime.isMobileViewport}
+                {revealedTaskId}
+                onRevealChange={(taskId) => (revealedTaskId = taskId)}
+                onSetStatus={(task, status) => void setStatus(task, status)}
               />
             {/snippet}
           </VirtualList>
@@ -627,6 +646,7 @@
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> resume</span>
     {:else}
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">→</Kbd> expand sessions</span>
+      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">Space</Kbd> expand sessions</span>
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> {selectedTask && sessionsFor(selectedTask).length ? "resume latest" : "open new draft"}</span>
     {/if}
     <span class="flex-1" aria-hidden="true"></span>
@@ -687,7 +707,6 @@
     projectLabel={projectLabel(peekTarget.task)}
     portalTarget={layer.el}
     onClose={() => (peekTarget = null)}
-    onFork={canFork(peekTarget) ? forkSession : undefined}
     onStartDraft={startDraft}
     onOpenTask={openTaskPage}
     onOpenSource={openSourceTicket}

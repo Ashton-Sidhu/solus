@@ -9,6 +9,7 @@ import { attachWebSocketTransport, FRAME_COMPRESSION_OPTIONS, isLoopbackAddress 
 import { WsTransport, type ConnectionStatus } from '@solus/client-core/ws-transport'
 import { HostSupervisor } from '@solus/client-core/host-supervisor'
 import type { SolusAPI } from '../../src/preload'
+import type { IpcContext } from '@solus/contracts/types'
 
 interface Harness {
   server: SolusServer
@@ -110,6 +111,40 @@ describe('Socket.IO transport', () => {
     const api = client.buildSolusApi() as SolusAPI
 
     await expect(api.connectionsGetServerInfo()).rejects.toThrow('snapshot read failed')
+  })
+
+  test('hands back an uploaded attachment when the browser withholds crypto.randomUUID', async () => {
+    // WHY: a phone reaches a LAN host over plain HTTP, an insecure context where
+    // the browser hides `crypto.randomUUID`. The photo had already landed on the
+    // host, so the client must still mint an id for the composer instead of
+    // reporting the upload as failed.
+    const harness = await createHarness(false)
+    harness.server.register('attachUpload', async (args) => `/host/uploads/${args[1].name}`)
+    const client = createClient(harness.url)
+    client.start()
+    await waitForStatus(client, 'connected')
+    // SAFETY: buildSolusApi installs every RPC method declared by SolusAPI.
+    const api = client.buildSolusApi() as SolusAPI
+
+    Object.defineProperty(globalThis.crypto, 'randomUUID', { value: undefined, configurable: true })
+    Object.defineProperty(globalThis, 'FileReader', { value: DataUrlFileReader, configurable: true })
+    cleanups.push(() => {
+      Reflect.deleteProperty(globalThis.crypto, 'randomUUID')
+      Reflect.deleteProperty(globalThis, 'FileReader')
+    })
+
+    const photo = new File([Buffer.from('jpeg-bytes')], 'IMG_3090.jpeg', { type: 'image/jpeg' })
+    const attachments = await api.uploadFiles([photo], { session: { sessionId: 'session-1' } } as IpcContext)
+
+    expect(attachments).toHaveLength(1)
+    expect(attachments?.[0]).toMatchObject({
+      type: 'image',
+      name: 'IMG_3090.jpeg',
+      hostPath: '/host/uploads/IMG_3090.jpeg',
+      mimeType: 'image/jpeg',
+      dataUrl: `data:image/jpeg;base64,${Buffer.from('jpeg-bytes').toString('base64')}`,
+    })
+    expect(attachments?.[0].id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
   })
 
   test('admits a mounted-tab startup burst above the old receipt limit', async () => {
@@ -296,6 +331,21 @@ async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHo
   const harness = { server, http, events, transport, url: `http://${urlHost}:${address.port}` }
   cleanups.push(() => transport.close())
   return harness
+}
+
+/** Bun has no FileReader; this is the one browser call `uploadFiles` makes. */
+class DataUrlFileReader {
+  result: string | null = null
+  error: Error | null = null
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+
+  readAsDataURL(file: File): void {
+    void file.arrayBuffer().then((bytes) => {
+      this.result = `data:${file.type};base64,${Buffer.from(bytes).toString('base64')}`
+      this.onload?.()
+    })
+  }
 }
 
 function createClient(url: string, overrides: Partial<ConstructorParameters<typeof WsTransport>[0]> = {}): WsTransport {

@@ -1099,6 +1099,22 @@ html, body, #root {
   --text-review-row--line-height: 1.5;
   --text-review-meta: 0.6875rem;
   --text-review-meta--line-height: 1.45;
+  /* The symbol card's two dense rungs. The card is a reference surface floating
+     over code, so its body takes the canonical `--text-workspace-chrome` rung
+     and these two hang under it. `meta` annotates a line rather than saying it:
+     the section label, the directory beside a filename, the `:line` suffix, the
+     reference counts. `code` is a quoted line of source, and it runs a step
+     under the sans filename above it because monospace at an equal size reads
+     larger and takes the section over — the two share a value on a large
+     display and separate on a laptop, where only the sans has room to give.
+     Both step down on a precise-pointer laptop like the chrome rung they hang
+     from; code steps more gently, because a quoted line loses legibility faster
+     than a label does. The line number inside a quoted row is the shared
+     `--text-micro` rung above, not a card-owned one. */
+  --text-symbol-card-meta: 0.75rem;
+  --text-symbol-card-meta--line-height: 1.25;
+  --text-symbol-card-code: 0.75rem;
+  --text-symbol-card-code--line-height: 1.5;
   /* The transcript-card rungs: the setup, permission, question, rate-limit,
      diff-summary and subagent cards that interrupt the reading column. They are
      a surface of their own — not rails, not prose — so they get a rung pair
@@ -1157,6 +1173,8 @@ html, body, #root {
        block is for everywhere else. */
     --text-review-row: 0.6875rem;
     --text-review-meta: 0.625rem;
+    --text-symbol-card-meta: 0.625rem;
+    --text-symbol-card-code: 0.6875rem;
     --text-micro: 0.5625rem;
     --text-transcript-card: 0.75rem;
     --text-transcript-meta: 0.6875rem;
@@ -1314,13 +1332,12 @@ input::placeholder {
   color: var(--solus-placeholder);
 }
 
-/* ─── Shared prose primitives (code, pre, table) ───
-   Every rich prose context (.prose-cloud, .solus-doc-editor)
-   inherits these base styles. Override per-context with CSS custom properties
-   or by re-declaring the property on a more-specific selector. */
+/* ─── Chat prose primitives (code, pre, table) ───
+   The .prose-cloud context only. The document editor declares its own base
+   in the "Document editor" block below so each element has one base rule and
+   one shell override, not three layers that undo each other. */
 
-.prose-cloud code,
-.solus-doc-editor .ProseMirror code {
+.prose-cloud code {
   background: transparent;
   /* Toned toward the text colour — full-saturation accent on every inline span
      reads as static rather than emphasis. (pre code keeps `inherit` below.) */
@@ -1332,8 +1349,7 @@ input::placeholder {
   margin-inline: 0.1em;
 }
 
-.prose-cloud pre,
-.solus-doc-editor .ProseMirror pre {
+.prose-cloud pre {
   background: transparent;
   border: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 60%, transparent);
   border-radius: 0.5rem;
@@ -1344,24 +1360,20 @@ input::placeholder {
   font-weight: 400;
 }
 
-.prose-cloud pre code,
-.solus-doc-editor .ProseMirror pre code {
+.prose-cloud pre code {
   background: none;
   color: inherit;
   padding: 0;
   font-size: 1em;
 }
 
-.prose-cloud table,
-.solus-doc-editor .ProseMirror table {
+.prose-cloud table {
   border-collapse: collapse;
   width: 100%;
 }
 
 .prose-cloud th,
-.prose-cloud td,
-.solus-doc-editor .ProseMirror th,
-.solus-doc-editor .ProseMirror td {
+.prose-cloud td {
   border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-container-border) 55%, transparent);
   padding: 0.45em 0.7em;
   text-align: left;
@@ -1369,31 +1381,26 @@ input::placeholder {
   word-break: normal;
 }
 
-.prose-cloud th,
-.solus-doc-editor .ProseMirror th {
+.prose-cloud th {
   background: var(--solus-surface-primary);
   font-weight: 500;
 }
 
-/* Shared decorations — identical across every prose context. */
-.prose-cloud blockquote,
-.solus-doc-editor .ProseMirror blockquote {
+.prose-cloud blockquote {
   border-left: 0.1875rem solid var(--solus-tool-running-border);
   padding-left: 0.8em;
   color: var(--solus-text-secondary);
   margin: 0.5em 0;
 }
 
-.prose-cloud hr,
-.solus-doc-editor .ProseMirror hr {
+.prose-cloud hr {
   border: none;
   border-top: 0.0625rem solid var(--solus-container-border);
   margin: 1em 0;
   opacity: 0.6;
 }
 
-.prose-cloud a,
-.solus-doc-editor .ProseMirror a {
+.prose-cloud a {
   /* Tailwind's reset strips the user-agent link treatment. Use the platform
      link color without the browser's separate purple visited-link treatment. */
   color: LinkText;
@@ -1690,21 +1697,81 @@ button.solus-token {
 .solus-doc-editor .ProseMirror li p { margin: 0; }
 /* Inline code reads as code by shape (mono) and a half-strength terracotta
    tint — no chip. A filled chip behind every span pockmarks dense technical
-   prose, and full accent ink reads as a link. Chat prose keeps the shared 72%
-   mix above; only the long-form column tones down this far. */
+   prose, and full accent ink reads as a link. Chat prose keeps its 72% mix;
+   only the long-form column tones down this far. */
 .solus-doc-editor .ProseMirror code {
+  background: transparent;
   color: color-mix(in srgb, var(--solus-accent) 50%, var(--solus-text-primary));
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-feature-settings: 'calt' 1, 'liga' 0;
+  font-weight: 400;
+  margin-inline: 0.1em;
 }
 /* Block code is the one thing in the column that gets a fill — the parchment
    raised tone, which is the only step of the palette that reads as filled in
    light mode too (--solus-art-surface is within a hair of the page there). */
 .solus-doc-editor .ProseMirror pre {
   background: var(--solus-art-raised);
-  border-color: var(--solus-art-border);
+  border: 0.0625rem solid var(--solus-art-border);
+  border-radius: 0.5rem;
   padding: 0.9em 1.1em;
-  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
   margin: 0.9em 0;
+  overflow-x: auto;
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', ui-monospace, monospace;
+  font-feature-settings: 'calt' 1, 'liga' 0;
+  font-weight: 400;
+  font-size: calc(0.8125rem * var(--solus-font-scale, 1));
+  line-height: 1.65;
+}
+/* A fenced block carries its own chrome; the inner code drops the inline tint. */
+.solus-doc-editor .ProseMirror pre code {
+  background: none;
+  color: inherit;
+  padding: 0;
+  border-radius: 0;
+  font-size: 1em;
+}
+.solus-doc-editor .ProseMirror blockquote {
+  border-left: 0.1875rem solid var(--solus-tool-running-border);
+  padding-left: 0.8em;
+  color: var(--solus-text-secondary);
+  margin: 0.5em 0;
+}
+.solus-doc-editor .ProseMirror hr {
+  border: none;
+  border-top: 0.0625rem solid var(--solus-container-border);
+  margin: 1em 0;
+  opacity: 0.6;
+}
+.solus-doc-editor .ProseMirror a {
+  /* Tailwind's reset strips the user-agent link treatment. Use the platform
+     link color without the browser's separate purple visited-link treatment. */
+  color: LinkText;
+  text-decoration: underline;
+  cursor: pointer;
+}
+/* Pasted/dropped images — sit inline as block figures, rounded + outlined to
+   match the app's image treatment (warm hairline, never a hard black edge). */
+.solus-doc-editor .ProseMirror img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  border: 0.0625rem solid var(--solus-art-border, var(--solus-container-border));
+  margin: 0.25rem 0;
+}
+.solus-doc-editor .ProseMirror img.ProseMirror-selectednode {
+  outline: 0.125rem solid var(--solus-accent);
+  outline-offset: 0.0625rem;
+}
+/* Find & replace highlights (search decorations live inside .ProseMirror). */
+.solus-doc-editor .ProseMirror .search-match {
+  background: color-mix(in srgb, var(--solus-art-2, #e6a23c) 38%, transparent);
+  border-radius: 0.125rem;
+}
+.solus-doc-editor .ProseMirror .search-match--current {
+  background: color-mix(in srgb, var(--solus-accent) 45%, transparent);
+  box-shadow: 0 0 0 0.0625rem var(--solus-accent);
 }
 /* Task list */
 .solus-doc-editor .ProseMirror ul[data-type="taskList"] {
@@ -1747,7 +1814,12 @@ button.solus-token {
      instead, which both ignores a resized column and starves a short column
      ("SURFACE" wrapping to "SURFAC / E") to feed a long one. */
   table-layout: fixed;
-  width: 100%;
+  /* Tiptap writes a pixel width inline once every column has been resized.
+     Let the colgroup redistribute that fixed canvas instead: otherwise an
+     internal divider drag changes the table's outer width and shifts the
+     content beside the handle. Wide minimums can still overflow through the
+     table wrapper's horizontal scroller. */
+  width: 100% !important;
   font-size: calc(0.875rem * var(--solus-font-scale, 1));
   margin: 0.9em 0;
 }
@@ -1757,10 +1829,12 @@ button.solus-token {
   border: none;
   border-bottom: 0.0625rem solid var(--solus-art-border);
   padding: 0.45em 0.7em;
+  text-align: left;
   /* `anywhere` — unlike `break-word` — also shrinks the cell's min-content
      width to a single character, so it must not come back: it is what let the
      layout squeeze columns to nothing before a wide table would scroll. */
   overflow-wrap: break-word;
+  word-break: normal;
   /* Contain the .selectedCell::after overlay to its own cell. Without this the
      absolutely-positioned overlay escapes to .solus-doc-editor-wrap and fills
      the whole editor — and a full-table CellSelection (e.g. while dragging)
@@ -1769,7 +1843,6 @@ button.solus-token {
 }
 .solus-doc-editor .ProseMirror th {
   border-bottom: 0.0625rem solid var(--solus-art-border-strong);
-  background: transparent;
   font-weight: 500;
 }
 .solus-doc-editor .ProseMirror .selectedCell::after {
@@ -1780,12 +1853,50 @@ button.solus-token {
   position: absolute;
   z-index: 2;
 }
+/* Column resize: hovering a border recolours the rule that is already there —
+   it does not add a bar beside it. The handle is 1px wide, sits on the cell's
+   own edge, and takes no layout space at any point.
+
+   It must stay inside the cell box. The handle is absolutely positioned, and
+   the table lives in a `.tableWrapper` with `overflow-x: auto`, so any overhang
+   — even 1px past the last column or below the last row — is scrollable
+   overflow, and the wrapper answers with a scrollbar. With classic scrollbars
+   that scrollbar takes width, the 100%-wide table narrows, and every column
+   moves on hover: the long-standing "stutter" when reaching for a border. */
 .solus-doc-editor .ProseMirror .column-resize-handle {
   position: absolute;
-  right: -0.125rem; top: 0; bottom: -0.125rem;
-  width: 0.25rem;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 0.0625rem;
   background: var(--solus-accent);
+  opacity: 0;
   pointer-events: none;
+  transition: opacity 80ms var(--ease-premium);
+}
+/* The cursor is the signal — it changes before any of this paints. The rule
+   lights only once the pointer is inside the 11px zone, which is the same
+   moment ProseMirror sets `resize-cursor`. */
+.solus-doc-editor .ProseMirror.resize-cursor {
+  cursor: col-resize;
+}
+.solus-doc-editor .ProseMirror.resize-cursor .column-resize-handle {
+  opacity: 1;
+}
+/* A new row or column grows in rather than appearing, and the caret is
+   already in it by the time it finishes. */
+@keyframes doc-table-grow {
+  from {
+    opacity: 0;
+    transform: translateY(-0.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.solus-doc-editor .ProseMirror .doc-table-entering {
+  animation: doc-table-grow 140ms var(--ease-premium);
 }
 /* Placeholder — first-child carries the whole-doc placeholder; `is-empty`
    (applied only to the cursor's node by Placeholder's showOnlyCurrent) carries
@@ -1797,6 +1908,99 @@ button.solus-token {
   pointer-events: none;
   float: left;
   height: 0;
+}
+
+/* ─── Block drag (@tiptap/extension-drag-handle + prosemirror-dropcursor) ─── */
+/* Drop indicator while dragging a block. prosemirror-dropcursor sets the
+   accent fill inline (the `color` option); we add rounded ends + a soft accent
+   glow so the landing spot reads as a deliberate, premium marker. */
+.solus-dropcursor {
+  border-radius: 9999px;
+  opacity: 0.7;
+}
+/* While a block is in flight, mute the source highlight — the selection wash
+   and the node-selection outline — so the only thing the eye follows is the
+   drop line, not a lit-up block left behind. */
+.solus-doc-editor.is-dragging .ProseMirror ::selection {
+  background: transparent;
+}
+.solus-doc-editor.is-dragging .ProseMirror * {
+  caret-color: transparent;
+}
+.solus-doc-editor.is-dragging .ProseMirror-selectednode,
+.solus-doc-editor.is-dragging .ProseMirror .selectedCell {
+  outline: none;
+  background: transparent;
+}
+/* The extension renders a `.drag-handle` element inside its own absolutely
+   positioned wrapper in the editor container; the wrapper owns positioning, so
+   no position here. The element is the hover pill; the six-dot grip lives on
+   ::before as a mask so it can be tinted independently. */
+.drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.125rem;
+  height: 1.5rem;
+  z-index: 50;
+  cursor: grab;
+  border-radius: 0.3125rem;
+  background-color: transparent;
+  transition:
+    background-color var(--duration-quick) var(--ease-premium),
+    transform var(--duration-quick) var(--ease-premium);
+}
+/* Floating UI positions the handle asynchronously after Tiptap reveals it.
+   Until the first coordinates land, the element otherwise paints at the
+   editor container's 0,0 origin and visibly jumps into the text gutter. */
+.drag-handle:not([style*="left:"]) {
+  visibility: hidden;
+  pointer-events: none !important;
+}
+.drag-handle::before {
+  content: "";
+  width: 0.875rem;
+  height: 0.875rem;
+  background-color: var(--solus-text-tertiary);
+  opacity: 0.7;
+  /* Six-dot grip as a mask so the dots inherit background-color. */
+  --drag-grip: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='5.5' cy='3.5' r='1.3'/%3E%3Ccircle cx='10.5' cy='3.5' r='1.3'/%3E%3Ccircle cx='5.5' cy='8' r='1.3'/%3E%3Ccircle cx='10.5' cy='8' r='1.3'/%3E%3Ccircle cx='5.5' cy='12.5' r='1.3'/%3E%3Ccircle cx='10.5' cy='12.5' r='1.3'/%3E%3C/svg%3E");
+  -webkit-mask: var(--drag-grip) center / contain no-repeat;
+  mask: var(--drag-grip) center / contain no-repeat;
+  transition:
+    background-color var(--duration-quick) var(--ease-premium),
+    opacity var(--duration-quick) var(--ease-premium);
+}
+.drag-handle:hover {
+  background-color: var(--solus-surface-hover);
+}
+.drag-handle:hover::before {
+  opacity: 1;
+}
+/* Grab: a quiet, tactile press — the pill settles into the hover surface and
+   eases in slightly. No accent flood; picking a block up should feel like
+   lifting it, not selecting it. */
+.drag-handle:active {
+  cursor: grabbing;
+  transform: scale(0.94);
+  background-color: var(--solus-surface-hover);
+}
+.drag-handle:active::before {
+  background-color: var(--solus-text-secondary);
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .solus-doc-editor .ProseMirror .doc-table-entering {
+    animation: none !important;
+  }
+  .solus-doc-editor .ProseMirror .column-resize-handle,
+  .drag-handle,
+  .drag-handle::before {
+    transition: none !important;
+  }
+  .drag-handle:active {
+    transform: none;
+  }
 }
 
 /* ─── Lowlight syntax highlighting tokens (in document editor code blocks) ───
@@ -2027,11 +2231,13 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   margin: 2em 0 0.6em;
   color: var(--solus-doc-ink-strong);
 }
-/* Lead: the paragraph that opens the document reads a step larger and a step
-   lighter, so the eye enters the column before it starts scanning sections. */
+/* Lead: the paragraph that opens the document. It is body size — exactly. Set a
+   step larger it sat between body and h2 and read as a heading that had lost
+   its weight, which is a third prose size the document does not have. The entry
+   into the column comes from colour and from the space the byline leaves above
+   it instead. Prose has two sizes: this one, and the peripheral .9em for
+   tables, captions and bylines. Anything between 1em and 1.36em is a bug. */
 .doc-shell-root .solus-doc-editor .ProseMirror h1 + p {
-  font-size: var(--text-h3);
-  line-height: 1.62;
   color: var(--solus-doc-ink-lead);
   margin-bottom: 1.4em;
 }
@@ -2094,24 +2300,20 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .doc-shell-root .solus-doc-editor .ProseMirror blockquote > *:last-child {
   margin-bottom: 0;
 }
-/* Inline code is ink on a warm wash, never accent ink. In a document that is
-   largely code, painting every static span terracotta spends the brand accent
-   on things you can't click — and kills every real link beside them. */
+/* Inline code is the mono face in strong ink — no chip, no accent. A filled
+   chip behind every span pockmarks dense technical prose and breaks the line's
+   word rhythm; nothing else in the column sits on a fill (see pre below).
+   Terracotta is out because painting every static span accent kills the real
+   links beside them. The size is em-relative so mono's taller x-height matches
+   the surrounding text in body, headings, and lists alike, and follows the
+   mobile body scale. */
 .doc-shell-root .solus-doc-editor .ProseMirror code {
   font-family: var(--solus-doc-mono);
   color: var(--solus-doc-ink-strong);
-  background: var(--solus-art-raised);
-  padding: 0.1em 0.34em;
-  border-radius: 0.3125rem;
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
-}
-.doc-shell-root .solus-doc-editor .ProseMirror pre code,
-.markdown-file-document-editor .solus-doc-editor .ProseMirror pre code {
-  color: inherit;
   background: none;
   padding: 0;
   border-radius: 0;
-  font-size: 1em;
+  font-size: 0.9em;
 }
 /* Code blocks are a rule and a caption, not a filled card — nothing in the
    document sits on a fill or a shadow. The left rule turns terracotta while
@@ -2221,11 +2423,8 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    of the paragraph before it. */
 .doc-shell-root .solus-doc-editor .ProseMirror .tableWrapper {
   margin: 1.8em 0;
-  border: none;
   border-top: 0.0625rem solid var(--solus-art-border);
   border-bottom: 0.0625rem solid var(--solus-art-border);
-  border-radius: 0;
-  background: none;
 }
 .doc-shell-root .solus-doc-editor .ProseMirror table {
   margin: 0;
@@ -2238,7 +2437,6 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 /* Headers keep their label treatment but share the body cells' type size and
    row rhythm, so they stay legible rather than shrinking into microcopy. */
 .doc-shell-root .solus-doc-editor .ProseMirror th {
-  background: none;
   padding: 0.72em 0.72em 0.72em 0;
   font-family: var(--solus-doc-mono);
   font-size: 1em;
@@ -2259,14 +2457,11 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .doc-shell-root .solus-doc-editor .ProseMirror tr + tr {
   border-top: 0.0625rem solid var(--solus-doc-rule);
 }
-/* The cell the caret is in takes a terracotta ring — the one place the accent
-   is allowed inside the prose column, because it is the only thing there you
-   are actively editing. Keep the ring flush with the cell bounds; an inset
-   outline makes a large cell look like only its contents were selected. */
-.solus-doc-editor .ProseMirror .doc-cell-focus {
-  border-radius: 0.375rem;
-  box-shadow: inset 0 0 0 0.09375rem var(--solus-accent);
-}
+/* `.doc-cell-focus` carries no paint of its own: it is the marker the chrome
+   overlay measures the terracotta ring from (`lib/table-selection.ts`). Drawing
+   the ring on the cell put it inside the cell bounds, which made a large cell
+   look like only its contents were selected, and gave a range one border per
+   cell instead of one ring around the range. */
 
 /* Responsive ladder — driven off the *pane*, not the window, so a narrow split
    pane on a wide monitor steps down too. */
@@ -2299,9 +2494,23 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 @media (max-width: 767px) {
   .doc-shell-root .doc-shell-column {
     --solus-doc-size: var(--text-body);
+    /* The heading ladder steps down with the pane, but the body does not: at
+       393px the desktop's 25px section heading is nearly a third of the measure
+       and reads as a banner rather than as structure, while the prose still
+       wants reading size. So the gap between them closes from the heading's
+       side. 19px is the section rung the phone frame draws; 16.5px is the
+       subsection rung the doc spec sets; 23px is the hero rung the redesign
+       drops the page title to. */
+    --text-h3: calc(1.03125rem * var(--solus-document-font-scale));
+    --text-h2: calc(1.1875rem * var(--solus-document-font-scale));
+    --text-h1: calc(1.4375rem * var(--solus-document-font-scale));
   }
   .doc-shell-root .solus-doc-editor .ProseMirror {
-    line-height: 1.7;
+    /* Reading beats density on the one surface that is only ever read: the
+       phone gets looser leading than the pane ladder, and the small negative
+       tracking that keeps a 16px line from setting wide. */
+    line-height: 1.75;
+    letter-spacing: -0.004em;
     padding-top: 1.25rem;
   }
 }
@@ -4257,10 +4466,10 @@ html.is-mac-editor
   to   { opacity: 1 }
 }
 
-/* An install or a sign-in has no percentage to report, so the row draws an
-   indeterminate sweep. A fixed-width bar translated across its clip beats
-   animating `left` — same picture, no layout per frame. */
-@keyframes onboarding-sweep {
+/* An install, a sign-in, or a symbol lookup has no percentage to report, so the
+   surface draws an indeterminate sweep. A fixed-width bar translated across its
+   clip beats animating `left` — same picture, no layout per frame. */
+@keyframes indeterminate-sweep {
   from { transform: translate3d(-100%, 0, 0) }
   to   { transform: translate3d(250%, 0, 0) }
 }

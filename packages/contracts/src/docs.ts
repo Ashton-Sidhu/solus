@@ -5,6 +5,8 @@
 // `doc` is the single word for a provider document. `page` and `file` appear
 // only inside an adapter, where they are the provider's own word.
 
+import type { DiagramEmbedReference } from './diagram-embed'
+
 export type DocProviderId = 'gdrive' | 'confluence'
 
 /**
@@ -60,7 +62,15 @@ export interface DocDiagramAsset {
   workId: string
   title: string
   mimeType: 'image/png'
+  /** The whole diagram: laid out for one page for a paginated provider, drawn
+   *  as authored for a page that scrolls. */
   base64: string
+}
+
+/** What Solus last published to a doc, handed back to a read so a provider
+ *  can recognize its own embeds on the way in instead of reporting them lost. */
+export interface DocReadHints {
+  diagrams?: DiagramEmbedReference[]
 }
 
 export interface DocDraft {
@@ -103,8 +113,20 @@ export interface WorkExternalLink extends DocRef {
   upstreamVersion?: string
   /** Hash of the content Solus last pushed. Content ≠ hash means `dirty`. */
   lastPushedContentHash?: string
+  /**
+   * Hash of the upstream doc as Solus last read it back.
+   *
+   * The provider's version counter cannot answer "did upstream change": Google
+   * Docs commits its own revisions after a write, so the counter moves while
+   * the document says exactly what Solus published. Content is the only honest
+   * answer, and a read has the content in hand anyway.
+   */
+  upstreamContentHash?: string
   syncState: DocSyncState
   syncError?: string
+  /** The diagrams the last publish embedded as images, so a pull can turn each
+   *  one back into its embed token instead of a base64 blob. */
+  diagrams?: DiagramEmbedReference[]
 }
 
 /** What a publish call carries. `destination` answers the first publish only;
@@ -112,8 +134,9 @@ export interface WorkExternalLink extends DocRef {
 export interface WorkPublishRequest {
   cwd?: string
   destination?: DocDestination
-  /** Renderer-prepared diagram PNGs. Google Docs embeds them; providers that
-   * cannot carry them receive explicit captions instead. */
+  /** Renderer-prepared diagram PNGs. Google Docs inserts them as inline
+   * images, Confluence as page attachments; a publish that carries none —
+   * an agent's, since a server cannot draw a canvas — sends captions instead. */
   diagramAssets?: DocDiagramAsset[]
   /** Publish over an upstream change the user has chosen to discard. */
   force?: boolean

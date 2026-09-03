@@ -8,6 +8,7 @@ import {
   formatGeneratedFull,
   groupItems,
   initialWorkspaceProject,
+  isHtmlArtifact,
   planItem,
   projectsForWorkspaceScope,
   sortItems,
@@ -81,6 +82,22 @@ describe('a project selected from Workspace history', () => {
     expect(buildWorkspaceItems([], [work], projects).map((item) => item.id)).toEqual([
       'catalog-work',
     ])
+  })
+})
+
+describe('HTML artifact mobile behavior', () => {
+  it('identifies only rendered HTML works so mobile can skip the source-text peek', () => {
+    const artifact = workItem(
+      { id: 'artifact', type: 'artifact', updatedAt: '', cwd: '/repo' } as Work,
+      { key: '/repo', label: 'repo', roots: ['/repo'] },
+    )
+    const document = workItem(
+      { id: 'doc', type: 'doc', updatedAt: '', cwd: '/repo' } as Work,
+      { key: '/repo', label: 'repo', roots: ['/repo'] },
+    )
+
+    expect(isHtmlArtifact(artifact)).toBe(true)
+    expect(isHtmlArtifact(document)).toBe(false)
   })
 })
 

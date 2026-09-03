@@ -37,7 +37,18 @@
    *  rather than arbitrated by how wide the chips happen to be.
    *
    *  It is keyed to the pane, not the window: a companion pane dragged to its
-   *  floor on a desktop is the same 393px problem, and gets the same answer. */
+   *  floor on a desktop is the same 393px problem, and gets the same answer.
+ *
+ *  The record is also a *card*, which the single line is not. On a wide pane a
+ *  row is one line and the eye finds its edges for free; three lines stacked on
+ *  the page background have no edge at all, and two adjacent records read as
+ *  one six-line block. So the record takes the surface every other phone record
+ *  in the redesign takes — `--card`, `--radius-xl`, `--elev-ring` — and the
+ *  gutter between cards is the slack in `LIST_RECORD_ROW_HEIGHT`. That is why
+ *  the card's height is stated here rather than left to its content: the
+ *  virtualiser is told a slot height before layout, and a card measuring its
+ *  own text would be a different height on every row. 114px is the two-line
+ *  ceiling that constant counts out; the two move together or not at all. */
   interface Props {
     row: ListRowSpec;
     /** The identifier column's floor — 62px fits `SOL-412`, 44px fits `#418`.
@@ -77,9 +88,9 @@
 </script>
 
 <div
-  class="text-xs group flex h-11 w-full items-center rounded-lg pr-3 pl-2.5 transition-shadow duration-150 @max-[30rem]/pane:h-auto @max-[30rem]/pane:items-stretch @max-[30rem]/pane:rounded-none @max-[30rem]/pane:py-3 {selected
+  class="text-xs group flex h-11 w-full items-center rounded-lg pr-3 pl-2.5 transition-shadow duration-150 @max-[30rem]/pane:h-[114px] @max-[30rem]/pane:items-start @max-[30rem]/pane:rounded-xl @max-[30rem]/pane:overflow-hidden @max-[30rem]/pane:px-[13px] @max-[30rem]/pane:py-3 {selected
     ? 'bg-[var(--wash-2)] shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_11%,transparent)]'
-    : 'hover:bg-[var(--wash-1)]'}"
+    : 'hover:bg-[var(--wash-1)] @max-[30rem]/pane:bg-card @max-[30rem]/pane:shadow-[shadow:var(--elev-ring)]'}"
   data-selected={selected}
   oncontextmenu={onContextMenu}
   role="group"

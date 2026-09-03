@@ -22,6 +22,7 @@
     Search as MagnifyingGlassIcon,
     Ellipsis as DotsThreeIcon,
     AlignLeft as ListIcon,
+    ChevronDown as CaretDownIcon,
   } from "@lucide/svelte";
   import { runtime, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -42,6 +43,7 @@
   import type { Scope } from "../../lib/keybindings/types";
   import { createDiagramEmbedExtension } from "../editor/diagramEmbedExtension";
   import EditorVoiceControl from "../input/EditorVoiceControl.svelte";
+  import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
 
   interface Props {
     /** Document title. Shown in the header's title cluster (alongside the pane
@@ -50,6 +52,9 @@
     /** Where the document lives, shown in mono ahead of the title (e.g. the
      *  project it is stored in). Omitted when there is nothing above it. */
     breadcrumb?: string;
+    /** The way back to the Workspace page this document was opened from. It
+     *  leads the header's crumb; absent for a surface with no page above it. */
+    onOpenWorkspace?: () => void;
     /** When set, the header title becomes a click-to-rename button. */
     onRenameTitle?: (title: string) => void;
     /** Markdown content rendered in the editor (also the source for Copy). */
@@ -135,6 +140,7 @@
   let {
     title,
     breadcrumb,
+    onOpenWorkspace,
     onRenameTitle,
     content,
     placeholder = "",
@@ -194,8 +200,16 @@
   // A secondary pane can be phone-sized while the client viewport is wide.
   // Use the pane's real width for the compact action row so an iPad landscape
   // split does not crush the title under a desktop-width toolbar.
+  //
+  // 48rem is the canonical pane rung (lib/pane-width.ts), and it is also the
+  // floor the standard header actually fits in: nothing in that row shrinks, so
+  // once the surface's own verbs plus the reserve for the pane's floating chrome
+  // cluster exceed the pane, the row overflows and the reserve slides off the
+  // right edge — which is how a published document's wider chip ("Update",
+  // "Upstream changed") ended up under the maximize and close buttons. Below the
+  // rung the compact row takes over, which scrolls instead of overflowing.
   const compactToolbar = $derived(
-    isMobile || (shellWidth > 0 && shellWidth < 40 * 16),
+    isMobile || (shellWidth > 0 && shellWidth < 48 * 16),
   );
   const railFolded = $derived(
     railWidth !== "0px" && shellWidth > 0 && shellWidth < railFoldBelow,
@@ -342,6 +356,17 @@
   const outlineHasMarginRoom = $derived(
     hasOutlineMarginRoom(shellWidth, runtime.isLaptopDisplay),
   );
+  // The fit rule's other half. Where the panel cannot render beside the prose
+  // it does not render over it either: the gutter keeps its at-rest bars, and
+  // the contents opens from the header — a popover under the breadcrumb, over
+  // the toolbar's empty band, never over glyphs.
+  const contentsOpensFromHeader = $derived(
+    !isMobile && tocHeadings.length >= 2 && !outlineHasMarginRoom,
+  );
+  let contentsPopoverOpen = $state(false);
+  $effect(() => {
+    if (!contentsOpensFromHeader) contentsPopoverOpen = false;
+  });
   // The reading viewport's height. The margin rail sticks to the top of the
   // scroll region, so it needs the viewport's height rather than the
   // document's — a sticky element cannot get that from its own parent.
@@ -449,13 +474,23 @@
   // exclusive so background surfaces cannot react through them.
   useScope(() => scope, { exclusive: !untrack(() => inline), pre: true });
   useKeybinding(() => bindings.close, () => {
-    if (findOpen) findOpen = false;
+    if (contentsPopoverOpen) contentsPopoverOpen = false;
+    else if (findOpen) findOpen = false;
     else (onEscape ?? onClose)();
   });
   useKeybinding(() => bindings.save, () => flushSave());
   useKeybinding(() => bindings.copy, () => handleCopy());
   useKeybinding(() => bindings.find!, () => { findOpen = true; }, { enabled: () => !!bindings.find });
-  useKeybinding(() => bindings.pinOutline!, () => { outlinePinned = !outlinePinned; }, { enabled: () => !!bindings.pinOutline });
+  // One shortcut, whichever contents this width has: the gutter panel when it
+  // fits beside the prose, the header popover when it does not.
+  useKeybinding(
+    () => bindings.pinOutline!,
+    () => {
+      if (contentsOpensFromHeader) contentsPopoverOpen = !contentsPopoverOpen;
+      else outlinePinned = !outlinePinned;
+    },
+    { enabled: () => !!bindings.pinOutline },
+  );
 
   // P2: one batched bump per frame instead of a queueMicrotask bump per
   // transaction (the toolbar's ~17 isActive reads only need to refresh once).
@@ -629,6 +664,22 @@
   </div>
 {/snippet}
 
+{#snippet contentsTrigger()}
+  <!-- The contents, where there is no margin to unfold it into. It hangs off
+       the document's own name rather than becoming a permanent button: the
+       header still holds only where you are and whether it saved. -->
+  <button
+    type="button"
+    class="doc-shell-contents-btn"
+    class:active={contentsPopoverOpen}
+    aria-haspopup="dialog"
+    aria-expanded={contentsPopoverOpen}
+    aria-label="Contents"
+    title="Contents"
+    onclick={() => (contentsPopoverOpen = !contentsPopoverOpen)}
+  ><CaretDownIcon size={12} /></button>
+{/snippet}
+
 {#snippet toolbarActions()}
   {@render documentActions?.({
     copied,
@@ -683,11 +734,19 @@
          overlays the reading measure. It holds only what stays visible at every
          width: where you are, whether it saved, and the surface's own actions.
          Formatting is not here — it lives at the selection. -->
-    <header class="workspace-titlebar doc-shell-toolbar relative flex shrink-0 items-center">
+    <header
+      class="workspace-titlebar doc-shell-toolbar relative flex shrink-0 items-center"
+      class:doc-shell-toolbar--compact={compactToolbar}
+    >
       {#if !compactToolbar}
       <!-- Left: where you are, and whether it saved. Nothing else earns a
            permanent seat on this side. -->
       <div class="doc-shell-title-cluster flex min-w-0 items-center gap-2.5">
+        {#if onOpenWorkspace}
+          <span class="-ml-[7px] flex shrink-0 items-center">
+            <ParentPageCrumb page="folio" onOpen={onOpenWorkspace} />
+          </span>
+        {/if}
         {#if breadcrumb}
           <span class="doc-shell-breadcrumb" title={breadcrumb}>{breadcrumb} /</span>
         {/if}
@@ -698,6 +757,7 @@
         {:else}
           <span class="doc-shell-title" title={title}>{title}</span>
         {/if}
+        {#if contentsOpensFromHeader}{@render contentsTrigger()}{/if}
         {@render saveStatusChip()}
       </div>
 
@@ -731,6 +791,7 @@
 
         <div class="min-w-2 flex-auto"></div>
 
+        {#if contentsOpensFromHeader}{@render contentsTrigger()}{/if}
         {@render voiceControl()}
         <button type="button" class="doc-shell-toolbar-btn" onclick={() => editorRef?.toggleMode()} title={editorMode === "rich" ? "View raw markdown" : "View rendered editor"} aria-label="Toggle markdown view">
           {#if editorMode === "rich"}<MarkdownLogoIcon size={14} />{:else}<TextAaIcon size={14} />{/if}
@@ -764,6 +825,37 @@
           {/if}
         </div>
       {/if}
+      {/if}
+
+      {#if contentsPopoverOpen}
+        <button
+          type="button"
+          class="doc-shell-overflow-backdrop"
+          aria-label="Close contents"
+          onclick={() => (contentsPopoverOpen = false)}
+        ></button>
+        <!-- Dropped from the breadcrumb into the toolbar's empty band. It is
+             the same panel the gutter would have shown, so there is one
+             contents in the product, reached two ways. -->
+        <div
+          class="doc-outline-popover"
+          role="dialog"
+          aria-label="Contents"
+          transition:fly={{ y: -6, duration: 130, opacity: 0 }}
+        >
+          <DocumentOutline
+            headings={tocHeadings}
+            activePos={activeHeadingPos}
+            {threadCounts}
+            pinned
+            jumping={false}
+            atTop={false}
+            onScrollTo={(pos) => {
+              contentsPopoverOpen = false;
+              scrollToHeading(pos);
+            }}
+          />
+        </div>
       {/if}
     </header>
 
@@ -825,6 +917,7 @@
             pinned={outlinePinned}
             jumping={outlineJumping}
             atTop={minimizeOutline || !outlineHasMarginRoom ? false : outlineAtTop}
+            canRevealPanel={outlineHasMarginRoom}
             onScrollTo={scrollToHeading}
           />
         </div>
@@ -924,10 +1017,14 @@
     border-bottom: 0.0625rem solid var(--hairline);
   }
 
+  /* The bar carries three things in 42px, so each one is sized by its job: the
+     count is a numeral you glance at, the title is the thing you read, and the
+     button is a verb. None of them is chrome-rung type — the bar sits against
+     the document, not the workspace. */
   .doc-section-count {
     flex-shrink: 0;
     font-family: var(--font-mono);
-    font-size: var(--text-xs);
+    font-size: 0.65625rem;
     color: var(--muted-foreground);
     font-variant-numeric: tabular-nums;
   }
@@ -935,7 +1032,7 @@
   .doc-section-title {
     flex: 1;
     min-width: 0;
-    font-size: var(--text-sm);
+    font-size: 0.78125rem;
     font-weight: 500;
     letter-spacing: -0.005em;
     color: var(--solus-text-primary);
@@ -956,10 +1053,52 @@
     background: var(--card);
     box-shadow: var(--elev-ring);
     color: var(--solus-text-primary);
-    font-size: var(--text-xs);
+    font-size: 0.71875rem;
     font-weight: 500;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
+  }
+
+  /* The caret that turns the document's name into the contents trigger. It
+     borrows the header button's own geometry so it reads as part of the title
+     cluster rather than as another action. */
+  .doc-shell-contents-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.125rem;
+    height: 1.125rem;
+    margin-left: -0.25rem;
+    border: 0;
+    border-radius: 0.3125rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
+  }
+  .doc-shell-contents-btn:hover,
+  .doc-shell-contents-btn.active {
+    background: var(--solus-surface-hover);
+    color: var(--solus-text-primary);
+  }
+  .doc-shell-contents-btn:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.0625rem;
+  }
+
+  /* 262px — the gutter panel's own width, so the two contents are the same
+     object in two places. It hangs under the breadcrumb, in the band the
+     toolbar leaves empty, and never over the measure. */
+  .doc-outline-popover {
+    position: absolute;
+    top: calc(100% - 0.25rem);
+    left: 0.75rem;
+    z-index: 44;
+    width: 16.375rem;
+    height: min(60vh, 24rem);
   }
 
   .doc-outline-scrim {
@@ -1050,8 +1189,12 @@
     padding-left: max(1.375rem, var(--solus-chrome-lead-inset, 0px));
   }
   /* Where the document lives, in the same mono face as the section numerals. */
+  /* Shrinkable, unlike the rest of its cluster: where the document lives is the
+     first thing worth giving up when the row runs out of width, and a rigid
+     12rem here was the left cluster's real floor — it pushed the surface's
+     actions past the pane instead of yielding to them. */
   .doc-shell-breadcrumb {
-    flex-shrink: 0;
+    min-width: 0;
     max-width: 12rem;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1153,6 +1296,7 @@
   }
   .doc-shell-toolbar-btn {
     display: flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     width: 1.875rem;
@@ -1210,13 +1354,6 @@
     top: 0.0625rem;
     margin-left: -0.0313rem;
   }
-  .doc-shell-toolbar-sep {
-    width: 0.0625rem;
-    height: 1.125rem;
-    margin: 0 0.25rem;
-    background: var(--solus-container-border);
-  }
-
   /* Pane-width ladder. There is no longer a bank of formatting buttons to shed
      by priority — that was the whole reason the old bar broke first in split
      view. What is left is what the design keeps visible at every width: where
@@ -1241,6 +1378,67 @@
   /* The app-wide hairline bar in index.css draws the thumb; the gutter above is
      the only thing this surface needs on top of it. */
 
+  /* The compact row is chosen by the pane's own width, so its layout has to be
+     too. All of this used to sit behind the window's 767px query, which never
+     fires for a narrow split pane on a desktop window: the row then laid out
+     with no scroll and no room reserved for the pane's floating chrome cluster,
+     so the trailing actions — Publish among them — rendered underneath the
+     cluster, which took every click.
+
+     The header is the strip here: no title cluster (the pane tab already shows
+     it), just the row — but it keeps the standard chrome row's height rather
+     than sizing itself off that row. `height: auto` made the compact header 42px
+     against the standard row's 40px, and against the mac editor's 52px titlebar,
+     so crossing the rung while dragging a pane narrower jumped the whole
+     document 10px. The header is one height at every width now, and only the
+     row inside it changes. */
+  .doc-shell-root--inline .doc-shell-toolbar--compact,
+  .doc-shell-toolbar--compact {
+    display: flex;
+    height: var(--solus-chrome-row-h, 2.5rem);
+    padding-left: 0;
+  }
+  /* Scrollable formatting strip (Notion/Docs pattern). Only the compact branch
+     renders this row, so it needs no state class of its own.
+     The chrome cluster's room is a margin, not padding: padding lives *inside*
+     the scrollport, so the moment the row overflows — one extra verb, or the
+     wider chip a published document carries — the reserve scrolls out of view
+     and the trailing actions come to rest under the maximize and close buttons.
+     A margin takes the room off the scrollport itself, so it cannot be spent. */
+  .doc-shell-toolbar-row {
+    flex: 1;
+    min-width: 0;
+    gap: 0.125rem;
+    padding: 0 0 0 max(0.625rem, var(--solus-chrome-lead-inset, 0px));
+    margin-right: max(0.625rem, var(--solus-pane-chrome-inset, 3.25rem));
+    overflow-x: auto;
+    scrollbar-width: none;
+    flex-wrap: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+  .doc-shell-toolbar-row::-webkit-scrollbar {
+    display: none;
+  }
+  /* Overflow ("⋯") formatting menu — anchored under the header. */
+  .doc-shell-overflow-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 39;
+    background: transparent;
+    border: none;
+    cursor: default;
+  }
+  .doc-shell-overflow-menu {
+    position: absolute;
+    top: calc(100% - 0.25rem);
+    right: 0.5rem;
+    z-index: 40;
+    display: grid;
+    grid-template-columns: repeat(5, 1.875rem);
+    gap: 0.125rem;
+    padding: 0.375rem;
+  }
+
   @media (max-width: 767px) {
     .doc-shell-root:not(.h-full) {
       width: 100vw !important;
@@ -1248,32 +1446,21 @@
       border-radius: 0 !important;
       border: none !important;
     }
-    /* The header is the strip on mobile: no title cluster (the pane tab already
-       shows it), so the row inside sizes the header instead of a fixed 52px. */
-    .doc-shell-root--inline .doc-shell-toolbar,
-    .doc-shell-toolbar {
-      display: block;
+    /* A phone is always compact, so there is no rung to cross and no jump to
+       avoid — the row sizes the header again, and its 40px touch targets get
+       their own breathing room back. */
+    .doc-shell-root--inline .doc-shell-toolbar--compact,
+    .doc-shell-toolbar--compact {
       height: auto;
-      padding-left: 0;
     }
-    /* Scrollable formatting strip with real touch targets (Notion/Docs pattern). */
     .doc-shell-toolbar-row {
-      gap: 0.125rem;
-      padding: 0.375rem max(0.625rem, var(--solus-pane-chrome-inset, 3.25rem))
-        0.375rem 0.625rem;
-      overflow-x: auto;
-      scrollbar-width: none;
-      flex-wrap: nowrap;
-      -webkit-overflow-scrolling: touch;
+      padding-block: 0.375rem;
     }
-    .doc-shell-toolbar-row::-webkit-scrollbar {
-      display: none;
-    }
+    /* Real touch targets, and the menu grid that sizes off them. */
     .doc-shell-toolbar-btn {
       width: 2.5rem;
       height: 2.5rem;
       border-radius: 0.5rem;
-      flex-shrink: 0;
     }
     .doc-shell-toolbar-btn :global(svg) {
       width: 1.1875rem;
@@ -1282,27 +1469,8 @@
     .doc-shell-toolbar-text {
       font-size: var(--text-sm);
     }
-    .doc-shell-toolbar-sep {
-      height: 1.375rem;
-    }
-    /* Overflow ("⋯") formatting menu — anchored under the header. */
-    .doc-shell-overflow-backdrop {
-      position: fixed;
-      inset: 0;
-      z-index: 39;
-      background: transparent;
-      border: none;
-      cursor: default;
-    }
     .doc-shell-overflow-menu {
-      position: absolute;
-      top: calc(100% - 0.25rem);
-      right: 0.5rem;
-      z-index: 40;
-      display: grid;
       grid-template-columns: repeat(5, 2.5rem);
-      gap: 0.125rem;
-      padding: 0.375rem;
     }
     .doc-find-sleeve {
       left: 0.75rem;
@@ -1315,10 +1483,9 @@
 
   @media (prefers-reduced-motion: reduce) {
     .doc-shell-close,
-    .doc-shell-toolbar,
+    .doc-shell-contents-btn,
     .doc-shell-toolbar-btn,
-    .doc-shell-header-btn,
-    .doc-shell-root {
+    .doc-shell-header-btn {
       transition: none !important;
     }
     .doc-shell-toolbar-btn:active {

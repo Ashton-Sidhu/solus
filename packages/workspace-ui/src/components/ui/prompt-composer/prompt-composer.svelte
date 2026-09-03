@@ -228,7 +228,7 @@
      `@container/composer` because this is the fourth composer card, alongside
      EditorInputCard, PillLayout and SessionDraftPane. Without the declaration
      the disclosure rungs the controls already carry — SessionChip's
-     `@max-[15rem]/composer:hidden`, for one — query a container nobody declared
+     `@max-[22rem]/composer:hidden`, for one — query a container nobody declared
      and never fire, so the row overflows in a narrow pane instead of shedding
      labels. -->
 <div

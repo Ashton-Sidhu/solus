@@ -1,14 +1,7 @@
 <script lang="ts">
-  import {
-    Minimize2 as ArrowsInSimpleIcon,
-    Maximize2 as ArrowsOutSimpleIcon,
-    ChevronLeft as CaretLeftIcon,
-    ChevronRight as CaretRightIcon,
-    X as XIcon,
-  } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import type { MetricsSpan } from "@solus/contracts/observability-types";
-  import CopyButton from "../ui/CopyButton.svelte";
+  import { SubPageCrumbLine } from "../ui/list-page";
   import { formatClock, formatDuration, shortId, singleLine } from "./lib/format";
   import { providerMark, providerName } from "./lib/provider";
   import { buildTraceView, hasInternalRows, SOLUS_INTERNAL_KINDS } from "./lib/waterfall";
@@ -192,95 +185,44 @@
   }
 </script>
 
+{#snippet turnStatus()}
+  {#if root && root.status !== "ok"}
+    <span class="mr-1 shrink-0 text-insights-chrome font-medium uppercase" style="color:{statusTone}"
+      >{root.status}</span
+    >
+  {/if}
+{/snippet}
+
 <div class="flex h-full min-h-0 flex-col overflow-hidden bg-background text-foreground">
-  <!-- Beside the list this band starts at the panel's own edge. Covering the
-       list it starts at the window's, where the macOS window controls are — so
-       only full screen takes the chrome lead inset. -->
-  <header
-    class="workspace-titlebar flex h-[calc(var(--solus-chrome-row-h,2.75rem)-0.25rem)] shrink-0 items-center gap-1 pr-3.5 pointer-coarse:h-(--solus-chrome-row-h,2.75rem) {fullScreen
-      ? 'pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))]'
-      : 'pl-3'} text-muted-foreground shadow-[inset_0_-0.5px_0_var(--hairline)]"
-  >
-    <!-- Full screen covers the page's own breadcrumb, so this band carries the
-         whole path back; beside the list the page keeps the "Insights" crumb
-         and this one continues it. Either crumb returns to the listing. The
-         crumbs read at the same size and rhythm as the task page's, so a turn
-         and a task look like the same kind of destination. -->
-    {#if fullScreen}
-      <button type="button" class="flex h-7 shrink-0 cursor-pointer items-center rounded px-[7px] text-workspace-chrome text-muted-foreground transition-colors hover:bg-[var(--wash-1)] hover:text-foreground" onclick={onClose}>Insights</button>
-      <span class="px-[3px] text-workspace-chrome opacity-30" aria-hidden="true">/</span>
-    {/if}
-    <button type="button" class="flex h-7 shrink-0 cursor-pointer items-center rounded px-[7px] text-workspace-chrome text-muted-foreground transition-colors hover:bg-[var(--wash-1)] hover:text-foreground" onclick={onClose}>{listLabel}</button>
-    <span class="px-[3px] text-workspace-chrome opacity-30" aria-hidden="true">/</span>
-    <span
-      class="flex h-7 shrink-0 items-center rounded px-[7px] font-mono text-insights-chrome text-foreground"
-      title={traceId}>{shortId(traceId)}</span
-    >
-    <CopyButton text={traceId} title="Copy Insights ID" iconOnly />
-
-    <span class="flex-1"></span>
-
-    {#if root && root.status !== "ok"}
-      <span class="mr-1 shrink-0 text-insights-chrome font-medium uppercase" style="color:{statusTone}"
-        >{root.status}</span
-      >
-    {/if}
-
-    {#if canStepQueue}
-      <div class="flex shrink-0 items-center gap-0.5">
-        <button
-          type="button"
-          class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-          title="Previous row"
-          aria-label="Previous row"
-          onclick={() => onStep(-1)}
-        >
-          <CaretLeftIcon size={11} />
-        </button>
-        <span class="text-insights-chrome tabular-nums whitespace-nowrap">{position} of {total}</span>
-        <button
-          type="button"
-          class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-          title="Next row"
-          aria-label="Next row"
-          onclick={() => onStep(1)}
-        >
-          <CaretRightIcon size={11} />
-        </button>
-      </div>
-    {/if}
-
-    <!-- Seam between the queue and the pane controls. -->
-    <span class="mx-1 h-[18px] w-px shrink-0 bg-[var(--hairline-strong)]" aria-hidden="true"></span>
-
-    {#if onToggleFullScreen}
-      <button
-        type="button"
-        class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 {fullScreen
-          ? 'bg-[var(--wash-2)] text-foreground'
-          : ''}"
-        title={fullScreen ? "Back to split" : "Expand to full screen"}
-        aria-label={fullScreen ? "Back to split view" : "Expand to full screen"}
-        aria-pressed={fullScreen}
-        onclick={onToggleFullScreen}
-      >
-        {#if fullScreen}
-          <ArrowsInSimpleIcon size={13} />
-        {:else}
-          <ArrowsOutSimpleIcon size={13} />
-        {/if}
-      </button>
-    {/if}
-    <button
-      type="button"
-      class="flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-[var(--wash-2)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30"
-      title="Close (Esc)"
-      aria-label="Close"
-      onclick={onClose}
-    >
-      <XIcon size={12} />
-    </button>
-  </header>
+  <!-- The sub page band every record shares. Full screen covers the page's own
+       crumb line, so this band carries the whole path back and clears the
+       window controls; beside the list it starts at the panel's own edge.
+       Either crumb returns to the listing. -->
+  <SubPageCrumbLine
+    page="insights"
+    onOpenPage={onClose}
+    trail={[{ label: listLabel, onOpen: onClose }]}
+    leaf={shortId(traceId)}
+    leafTitle={traceId}
+    copyText={traceId}
+    copyTitle="Copy Insights ID"
+    actions={turnStatus}
+    stepper={canStepQueue
+      ? {
+          onPrevious: () => onStep(-1),
+          onNext: () => onStep(1),
+          itemLabel: "row",
+          position,
+          total,
+        }
+      : undefined}
+    onToggleMaximize={onToggleFullScreen}
+    maximized={fullScreen}
+    maximizeLabel="Expand to full screen"
+    restoreLabel="Back to split"
+    {onClose}
+    clearsWindowControls={fullScreen}
+  />
 
   <!-- A container, not the viewport, decides the aside's position: beside the
        list this surface is a 660px panel on a wide screen, and the viewport

@@ -42,7 +42,6 @@ function build(
   sessions: Record<string, SidebarSessionChild[]>,
   query = '',
   expanded: string[] = [],
-  selectedTaskId: string | null = null,
   openTaskIds: string[] = [],
   snoozedTaskIds: string[] = [],
 ) {
@@ -51,7 +50,6 @@ function build(
     query,
     sessionsFor: (item) => sessions[item.id] ?? [],
     expandedTaskIds: new Set(expanded),
-    selectedTaskId,
     openTaskIds: new Set(openTaskIds),
     snoozedTaskIds: new Set(snoozedTaskIds),
   })
@@ -79,7 +77,7 @@ describe('unified picker rows', () => {
 
   test('open in-progress and snoozed sidebar tasks are lifted into top sections without duplicates', () => {
     const todo = { ...task('c', 'Gamma'), status: 'todo' as const }
-    const { rows } = build([...tasks, todo], sessions, '', [], null, ['a', 'c'], ['b'])
+    const { rows } = build([...tasks, todo], sessions, '', [], ['a', 'c'], ['b'])
     expect(rows.filter((row) => row.kind === 'header').map((row) => row.label)).toEqual([
       'Open',
       'Snoozed',
@@ -97,19 +95,13 @@ describe('unified picker rows', () => {
     ])
   })
 
-  test('only the selected task group opens and it closes after selection moves away', () => {
-    expect(build(tasks, sessions, '', [], 'a').rows.map((row) => row.kind)).toEqual([
-      'header',
-      'task',
-      'session',
-      'session',
-      'task',
-    ])
-    expect(build(tasks, sessions, '', [], 'b').rows.map((row) => row.kind)).toEqual([
+  test('selection alone does not open a task group', () => {
+    // WHY: pointer hover and arrow navigation both select rows. Disclosure is
+    // reserved for an explicit click, Space, or ArrowRight action.
+    expect(build(tasks, sessions).rows.map((row) => row.kind)).toEqual([
       'header',
       'task',
       'task',
-      'session',
     ])
   })
 

@@ -61,6 +61,7 @@
 
 <PrReviewPane
   {pr}
+  {paneId}
   {api}
   {serverId}
   target={{ number: params.number, title: params.title ?? "" }}

@@ -453,10 +453,13 @@ export function statTintColor(tint: ListTint | undefined): string | undefined {
  */
 export const LIST_GROUP_HEADER_HEIGHT = 36
 
-/** The three-line record: 24 padding + 20 line 1 + 8 + 19 title + 8 + 16 meta.
- *  `ListRow` bounds the title to two lines at this rung, so the second line is
- *  the ceiling rather than the start of an open-ended run. */
-export const LIST_RECORD_ROW_HEIGHT = 95 + 19
+/** The three-line record: 24 padding + 20 line 1 + 8 + 19 title + 8 + 16 meta,
+ *  plus 19 for the second title line — `ListRow` bounds the title to two lines
+ *  at this rung, so that second line is the ceiling rather than the start of an
+ *  open-ended run. The record is a card, so the slot carries a 10px gutter on
+ *  top of the card itself; `ListRow` states the same 114 as its own height. */
+export const LIST_RECORD_CARD_HEIGHT = 95 + 19
+export const LIST_RECORD_ROW_HEIGHT = LIST_RECORD_CARD_HEIGHT + 10
 
 /** The task list's record row is the redesign's drawer row — a fixed 62px
  *  carrying a one-line title over a line of meta. Fixed is the whole point:
@@ -488,4 +491,25 @@ export const INBOX_RECORD_ROW_HEIGHT = 99
 /** The inbox row carries one more line than a list row at every rung. */
 export function inboxRowHeight(record: boolean): number {
   return record ? INBOX_RECORD_ROW_HEIGHT : 55
+}
+
+/** A segment between the page and the leaf in a sub page's crumb line. */
+export interface SubPageTrailSegment {
+  label: string
+  /** Absent for a segment that is a position, not a destination. */
+  onOpen?: () => void
+}
+
+/** The sub page band's stepper: walks the list's own order. */
+export interface SubPageStepper {
+  onPrevious: (() => void) | null
+  onNext: (() => void) | null
+  /** What one step moves over, for the labels: "task", "pull request". */
+  itemLabel: string
+  /** 1-based place in the list order and its length, where the list is known. */
+  position?: number
+  total?: number
+  /** Key hints appended to the titles: "K", "J". */
+  previousHint?: string
+  nextHint?: string
 }

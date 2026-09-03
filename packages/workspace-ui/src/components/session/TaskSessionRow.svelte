@@ -263,6 +263,11 @@
 
            Touch has no hover to swap on, so a coarse pointer keeps both.
 
+           The faded mark also gives up its pointer events: it goes out of flow
+           at right-0, which paints it above the in-flow actions that replaced
+           it, and an invisible box still answers a click. Without this it ate
+           the presses aimed at the check and the cross beneath it.
+
            The column is reserved only while it holds a mark: an empty one still
            spends its own width and the gap before it, which pushed the mark a
            column left of the same mark on the task row above. -->
@@ -272,7 +277,7 @@
           : ''}"
       >
         <span
-          class="flex items-center transition-opacity duration-150 pointer-fine:group-hover/session:absolute pointer-fine:group-hover/session:right-0 pointer-fine:group-hover/session:opacity-0 pointer-fine:group-has-[:focus-visible]/session:absolute pointer-fine:group-has-[:focus-visible]/session:right-0 pointer-fine:group-has-[:focus-visible]/session:opacity-0"
+          class="flex items-center transition-opacity duration-150 pointer-fine:group-hover/session:pointer-events-none pointer-fine:group-hover/session:absolute pointer-fine:group-hover/session:right-0 pointer-fine:group-hover/session:opacity-0 pointer-fine:group-has-[:focus-visible]/session:pointer-events-none pointer-fine:group-has-[:focus-visible]/session:absolute pointer-fine:group-has-[:focus-visible]/session:right-0 pointer-fine:group-has-[:focus-visible]/session:opacity-0"
         >
           {#if mark?.kind === "glyph"}
             <TaskStatusGlyph

@@ -188,11 +188,20 @@ export class WorkspaceLifecycleStore {
    */
   private followDefaultDirectory(from: string, to: string): void {
     if (from === to) return
-    for (const tabId of this.unstartedTabIds()) {
-      const session = this.deps.registry.sessionFor(tabId)
-      if (!session || session.run.workingDirectory !== from) continue
-      session.run.workingDirectory = to
-      session.run.gitContext = null
+    // Read the tabs that are following before anything moves: the git refresh
+    // below is keyed on a tab, and `from` is gone once the runs are retargeted.
+    const followingTabIds = this.unstartedTabIds().filter(
+      (tabId) => this.deps.registry.sessionFor(tabId)?.run.workingDirectory === from,
+    )
+    // Drafts follow on the same reading, and only `unstartedRuns` reaches them:
+    // a draft has no tab, so the registry cannot see it, yet a first run leaves
+    // it holding exactly the `~` this reconciliation exists to move off.
+    for (const run of this.deps.unstartedRuns()) {
+      if (run.workingDirectory !== from) continue
+      run.workingDirectory = to
+      run.gitContext = null
+    }
+    for (const tabId of followingTabIds) {
       void this.deps.refreshGitState({ sourceId: tabId }).catch(() => null)
     }
   }

@@ -4,6 +4,7 @@ import type {
   DocPatch,
   DocProviderId,
   DocProviderStatus,
+  DocReadHints,
   DocRef,
   DocScope,
   DocSummary,
@@ -25,7 +26,7 @@ export interface DocProviderAdapter {
    *  first-publish destination picker. */
   destinations(): Promise<DocDestination[]>
   search(scope: DocScope | undefined, query: string): Promise<DocSummary[]>
-  read(ref: DocRef): Promise<NormalizedDoc>
+  read(ref: DocRef, hints?: DocReadHints): Promise<NormalizedDoc>
   create(scope: DocScope, doc: DocDraft): Promise<NormalizedDoc>
   update(ref: DocRef, patch: DocPatch): Promise<NormalizedDoc>
   /** Parse a provider-native URL into a ref, or null when the URL is not ours.

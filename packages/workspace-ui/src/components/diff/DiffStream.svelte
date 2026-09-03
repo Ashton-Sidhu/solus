@@ -18,6 +18,12 @@
   import { detectMovedBlocks } from "../../lib/diff-moves";
   import { decorateMovedLines } from "../../lib/diff-move-highlight";
   import {
+    attachCodeSymbolGesture,
+    CODE_SYMBOL_HOVER_CSS,
+    type CodeSymbolHit,
+  } from "../code-intel/lib/hit-test";
+  import type { CodeSymbolAvailability } from "../code-intel/lib/symbol-card";
+  import {
     onDiffWorkerPoolReady,
     setDiffWorkerPoolTheme,
     setDiffWorkerPoolLineDiffType,
@@ -112,6 +118,10 @@
     onLineClearSelect?: (filePath: string) => void;
     onEditComment: (c: DiffComment) => void;
     onDeleteComment: (id: string) => void;
+    /** Cmd/Ctrl-click or long press landed on an identifier in `filePath`. */
+    onSymbolHit?: (filePath: string, hit: CodeSymbolHit) => void;
+    /** What SCIP can say about the identifier: it decides the hover affordance and whether a gesture opens the card. */
+    symbolAvailability?: (filePath: string, hit: CodeSymbolHit) => Promise<CodeSymbolAvailability>;
   }
 
   let {
@@ -137,6 +147,8 @@
     onLineClearSelect,
     onEditComment,
     onDeleteComment,
+    onSymbolHit,
+    symbolAvailability,
   }: Props = $props();
 
   // The in-progress draft, provided by the owning DiffPanel.
@@ -570,7 +582,7 @@
         hunkSeparators: "line-info-basic",
         loadDiffFiles,
         disableFileHeader: false,
-        extraCSS: DIFF_FIND_HIGHLIGHT_CSS,
+        extraCSS: `${DIFF_FIND_HIGHLIGHT_CSS}\n${CODE_SYMBOL_HOVER_CSS}`,
       }),
       lineHoverHighlight: "number" as const,
       enableLineSelection: !commentingDisabled,
@@ -665,6 +677,29 @@
       if (!disposed) iconsReady = true;
     });
 
+    // The hit names a line cell inside one item's shadow root; that root's
+    // host is the rendered item, whose id is the file path.
+    const filePathForHit = (hit: CodeSymbolHit): string | null => {
+      const shadow = hit.lineElement.getRootNode();
+      if (!(shadow instanceof ShadowRoot)) return null;
+      const item = codeView
+        ?.getRenderedItems()
+        .find((candidate) => candidate.element === shadow.host);
+      return item?.id ?? null;
+    };
+    const detachSymbolGesture = onSymbolHit && symbolAvailability
+      ? attachCodeSymbolGesture(rootEl, {
+          onHit: (hit) => {
+            const filePath = filePathForHit(hit);
+            if (filePath) onSymbolHit(filePath, hit);
+          },
+          availability: (hit) => {
+            const filePath = filePathForHit(hit);
+            return filePath ? symbolAvailability(filePath, hit) : Promise.resolve("none");
+          },
+        })
+      : () => {};
+
     const unsubscribe = onDiffWorkerPoolReady((workerPool) => {
       if (disposed || !rootEl || codeView) return;
 
@@ -686,6 +721,7 @@
     return () => {
       disposed = true;
       unsubscribe();
+      detachSymbolGesture();
       if (findRepaintRaf) cancelAnimationFrame(findRepaintRaf);
       findRepaintRaf = 0;
       if (moveDecorateRaf) cancelAnimationFrame(moveDecorateRaf);

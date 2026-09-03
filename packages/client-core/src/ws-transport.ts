@@ -2,6 +2,7 @@ import { io, type Socket } from 'socket.io-client'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
+import { uuid } from '@solus/contracts/uuid'
 import type { Attachment, IpcContext } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { HostEventSubscriber } from './host-event-subscriber'
@@ -399,8 +400,10 @@ export class WsTransport {
         const dataUrl = await readFileDataUrl(file)
         const hostPath = await this.invoke('attachUpload', [ctx, { name: file.name, mime, dataUrl }])
         const isImage = mime.startsWith('image/')
+        // A phone reaches a LAN host over plain HTTP, where the browser withholds
+        // `crypto.randomUUID`; the shared helper falls back instead of throwing.
         const attachment: Attachment = {
-          id: crypto.randomUUID(),
+          id: uuid(),
           type: isImage ? 'image' : 'file',
           name: file.name,
           path: hostPath,

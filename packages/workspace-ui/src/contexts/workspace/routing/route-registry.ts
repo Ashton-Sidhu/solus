@@ -90,7 +90,9 @@ export interface RouteParams {
   folio: Record<string, never>
   automations: { automationId?: string }
   plan: { planId: string | null; serverId?: string }
-  work: { workId: string }
+  /** A work id is host-local. The host stays in the route so a cloud-served
+   *  client can restore or deep-link the work without guessing a connection. */
+  work: { workId: string; serverId?: string }
   automation: { automationId: string | null; serverId?: string }
   /** A goal belongs to a thread, so the pane names the session — not whichever
    *  tab happened to open it, which may since have closed. */
@@ -384,8 +386,12 @@ export const ROUTES = defineRoutes({
     component: () => import('../../../components/plan/PlanPane.svelte'),
   },
   work: {
-    parse: (s) => (s ? { workId: s } : null),
-    serialize: (p) => p.workId,
+    parse: (s) => {
+      const { id, serverId } = parseScopedId(s)
+      if (!id) return null
+      return serverId ? { workId: id, serverId } : { workId: id }
+    },
+    serialize: (p) => serializeScopedId(p.workId, p.serverId),
     placement: 'any',
     exclusiveGroup: 'artifact',
     component: () => import('../../../components/work/WorkPane.svelte'),

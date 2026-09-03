@@ -77,6 +77,7 @@
     bucketFor,
     buildWorkspaceItems,
     groupItems,
+    isHtmlArtifact,
     isDefaultFilter,
     projectsForWorkspaceScope,
     sortItems,
@@ -812,7 +813,8 @@
     selected={index === selectedIndex}
     {showProject}
     query={filter.text}
-    onOpen={() => (stacked ? peek.raise(item) : openItem(item))}
+    onOpen={() =>
+      stacked && !isHtmlArtifact(item) ? peek.raise(item) : openItem(item)}
     onTogglePin={() => togglePin(item)}
     onDelete={item.source.kind === "work" ? () => deleteItem(item) : undefined}
     sessionLabel={originLabel(item)}
@@ -1475,14 +1477,10 @@
         onOpen={() => {
           const target = peek.item;
           if (!target) return;
-          if (target.source.kind === "work") {
-            // The sheet already hydrated this work for its preview. Route it
-            // directly instead of blocking the only mobile open action on a
-            // second remote load before any visible navigation occurs.
-            session.openWork(target.id);
-            peek.close();
-            return;
-          }
+          // Use the canonical opener. It closes Folio before it places the work,
+          // so an existing artifact pane cannot leave the mobile page covering
+          // the newly focused work. The preview already hydrated the work, so
+          // ensureContent returns from the store without another remote read.
           void openItem(target).then(() => peek.close());
         }}
         onTogglePin={() => {

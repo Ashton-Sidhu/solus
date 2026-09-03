@@ -4,7 +4,9 @@
   import ListAvatar from "../ui/list-page/ListAvatar.svelte";
   import ListChip from "../ui/list-page/ListChip.svelte";
   import type { ListRowSpec } from "../ui/list-page/list-page";
-  import { STATUS_META } from "./lib/tasks-api";
+  import { swipeActions } from "../../lib/swipe-actions";
+  import { STATUS_META, TASK_STATUS_SWIPE_REVEAL_WIDTH } from "./lib/tasks-api";
+  import TaskStatusSwipeControls from "./TaskStatusSwipeControls.svelte";
 
   /** One task in the list below the record rung — the redesign's drawer row.
    *
@@ -31,6 +33,9 @@
     status: TaskStatus;
     selected?: boolean;
     onSelect?: () => void;
+    onSetStatus: (status: TaskStatus) => void;
+    revealed?: boolean;
+    onRevealChange?: (revealed: boolean) => void;
     onContextMenu?: (event: MouseEvent) => void;
     /** The page's selection checkbox, a sibling of the button rather than a
      *  child, so no interactive element nests inside another. */
@@ -41,30 +46,47 @@
     status,
     selected = false,
     onSelect,
+    onSetStatus,
+    revealed = false,
+    onRevealChange,
     onContextMenu,
     leading,
   }: Props = $props();
 
   const meta = $derived(STATUS_META[status]);
   const lead = $derived(row.people[0] ?? null);
+  function setStatus(next: TaskStatus) {
+    onRevealChange?.(false);
+    if (next !== status) onSetStatus(next);
+  }
 </script>
 
 <div
-  class="flex h-[3.875rem] w-full items-center gap-[0.6875rem] rounded-2xl px-3 {selected
-    ? 'bg-[var(--wash-2)]'
-    : 'hover:bg-[var(--wash-1)] active:bg-[var(--wash-1)]'}"
+  class="relative h-[3.875rem] w-full overflow-hidden rounded-2xl"
   data-selected={selected}
   oncontextmenu={onContextMenu}
   role="group"
 >
-  {#if leading}{@render leading()}{/if}
+  <TaskStatusSwipeControls {status} {revealed} onSelect={setStatus} />
 
-  <button
-    type="button"
-    class="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-[0.6875rem] overflow-hidden border-0 bg-transparent p-0 text-left focus-visible:outline-none [-webkit-tap-highlight-color:transparent]"
-    onclick={onSelect}
-    data-list-row
+  <div
+    class="relative flex h-full w-full items-center gap-[0.6875rem] px-3 shadow-[0.375rem_0_0.875rem_-0.375rem_rgba(0,0,0,0.28)] {selected
+      ? 'bg-[color-mix(in_oklch,var(--foreground)_7%,var(--background))]'
+      : 'bg-background hover:bg-[var(--wash-1)] active:bg-[var(--wash-1)]'}"
+    use:swipeActions={{
+      revealWidth: TASK_STATUS_SWIPE_REVEAL_WIDTH,
+      open: revealed,
+      onRevealChange: (open) => onRevealChange?.(open),
+    }}
   >
+    {#if leading}{@render leading()}{/if}
+
+    <button
+      type="button"
+      class="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-[0.6875rem] overflow-hidden border-0 bg-transparent p-0 text-left focus-visible:outline-none [-webkit-tap-highlight-color:transparent]"
+      onclick={() => revealed ? onRevealChange?.(false) : onSelect?.()}
+      data-list-row
+    >
     <!-- The state, as a shape and a tint rather than a word. The word itself is
          already the group header this row sits under, so spelling it again on
          every row would be the list repeating itself sixty times. -->
@@ -131,5 +153,6 @@
         <ListAvatar person={lead} />
       </span>
     {/if}
-  </button>
+    </button>
+  </div>
 </div>

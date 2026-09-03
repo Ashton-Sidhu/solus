@@ -26,7 +26,7 @@ mock.module('@solus/server/tasks/adapters/registry', () => ({
 class FakeAdapter implements TaskSyncAdapter {
   readonly id = 'github' as const
   /** GitHub's real set: priority is inferred from labels, never written. */
-  readonly writableFields: ReadonlySet<TaskSyncField> = new Set(['title', 'body', 'status', 'labels'])
+  readonly writableFields: ReadonlySet<TaskSyncField> = new Set(['title', 'body', 'status', 'labels', 'assignee'])
   readonly statuses = ['todo', 'in_progress', 'done'] as const
   remote!: NormalizedTicket
   pushes: TicketPatch[] = []
@@ -274,6 +274,23 @@ describe('task sync engine', () => {
       dirtyFields: [],
       syncState: 'ok',
       externalUpdatedAt: 'remote-2',
+    })
+  })
+
+  test('pushes an assignee change and clears its durable dirty field', async () => {
+    // WHY: assignment is collaborative provider state. A local-first task that
+    // mirrors GitHub must not show an owner that never reaches the issue.
+    const task = await linkedTask()
+    await task.update({ assignee: 'octocat' })
+
+    expect(syncStore.externalLinkForTask(task.id)?.dirtyFields).toEqual(['assignee'])
+
+    await engine().syncTask(task.id)
+
+    expect(adapter.pushes).toEqual([{ assignee: 'octocat' }])
+    expect(syncStore.externalLinkForTask(task.id)).toMatchObject({
+      dirtyFields: [],
+      syncState: 'ok',
     })
   })
 
