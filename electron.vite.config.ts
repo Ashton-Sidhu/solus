@@ -21,15 +21,28 @@ const testMainAliases = isTestBuild
   : []
 
 function rendererManualChunks(id: string): string | undefined {
-  // Keep Vite's dynamic-import preload helper out of whichever large manual
-  // vendor chunk Rollup happens to visit first. The renderer entry needs this
-  // tiny helper, and absorbing it into vendor-diffs makes the 10 MB diff stack
-  // a blocking bootstrap dependency even when every diff import is dynamic.
+  // A tiny module shared across vendors is the trap here: whichever large
+  // manual chunk Rollup files it under becomes a blocking bootstrap dependency,
+  // because the entry has to load that whole chunk to reach two kilobytes.
+  // Vite's dynamic-import preload helper did it via the 10 MB diff stack;
+  // `w3c-keyname` — keyboard-name lookup that CodeMirror and ProseMirror both
+  // depend on — did it via vendor-editor, so the composer's CodeMirror dragged
+  // all 1.4 MB of Tiptap onto every launch. Park both in `runtime`, which no
+  // vendor owns.
+  if (id.includes('w3c-keyname')) return 'runtime'
   if (id.includes('vite/preload-helper')) return 'runtime'
   if (!id.includes('node_modules')) return undefined
-  if (id.includes('@tiptap') || id.includes('prosemirror') || id.includes('lowlight')) return 'vendor-editor'
+  if (id.includes('@tiptap') || id.includes('prosemirror')) return 'vendor-editor'
+  // Highlighting is its own chunk, not part of vendor-editor: the transcript's
+  // code blocks need lowlight on the first frame, and grouping the two made the
+  // editor a boot dependency for a package the boot path never touches.
+  if (id.includes('lowlight') || id.includes('highlight.js')) return 'vendor-highlight'
   if (id.includes('@xyflow') || id.includes('@dagrejs')) return 'vendor-diagram'
   if (id.includes('@iconify')) return 'vendor-iconify'
+  // Deliberately broad. Narrowing this to the Svelte runtime scattered the
+  // svelte-named UI libraries across 60 more chunks and re-formed the very
+  // cross-vendor edges the two rules above exist to break, which measured
+  // slower — the per-chunk instantiation cost outweighs the bytes saved.
   if (id.includes('svelte')) return 'vendor-svelte'
   return undefined
 }

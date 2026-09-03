@@ -48,10 +48,16 @@ async function boot(): Promise<void> {
   // themed, painted before this module even evaluates), so there's nothing to
   // render here up front — it stays until the app mounts and clears #root.
 
+  // Boot marks. The renderer is roughly two thirds of the app's startup time,
+  // and these split it into the four stages that can each move independently:
+  // the connection handshake, the socket, the app bundle, and the mount.
+  // `scripts/measure-startup.ts` reads them back; devtools shows them inline.
+  performance.mark('solus.boot.start')
   const nativeApi = window.solusNative
   if (!nativeApi) throw new Error('Native Solus bootstrap bridge is unavailable')
   const rendererMode = currentRendererMode()
   const local = await getLocalConnection(nativeApi)
+  performance.mark('solus.boot.connection')
   const target = resolveActiveServerTarget(local)
   bootTarget = target
   serverConnections.registerTarget(localServerTarget(local), () => nativeApi.refreshLocalSessionToken())
@@ -88,6 +94,7 @@ async function boot(): Promise<void> {
   // Every catalog entry is eagerly desired: saved remote hosts hold live
   // supervised sockets from boot, so their rows go live instead of cached.
   serverConnections.startCatalogSupervisors()
+  performance.mark('solus.boot.transport')
 
   // RPC calls made before the socket opens queue and flush automatically
   // (see WsTransport.invoke/send), so mount as soon as the app bundle is
@@ -99,12 +106,14 @@ async function boot(): Promise<void> {
       ? import('@solus/workspace-ui/components/layout/EditorLayout.svelte')
       : Promise.resolve(null),
   ])
+  performance.mark('solus.boot.modules')
   root.innerHTML = ''
   mount(App, {
     target: root,
     props: { initialEditorLayout: editorLayoutModule?.default },
   })
   appMounted = true
+  performance.mark('solus.boot.mounted')
 
   // Main starts the disk-heavy transcript index only after the renderer has had
   // a genuine idle window. The timeout still guarantees indexing eventually on

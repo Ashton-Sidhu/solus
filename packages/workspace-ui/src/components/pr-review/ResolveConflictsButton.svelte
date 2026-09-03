@@ -2,6 +2,7 @@
   import type { IpcContext } from "@solus/contracts/types";
   import { getWorkspaceContext } from "../../contexts";
   import { Button } from "../ui/button";
+  import type { PrActionsLayout } from "./lib/pr-actions-layout";
 
   // Shown in the PR header when the PR conflicts with its base. One button, one
   // job: open a resolver session. startConflictResolverSession opens the new tab
@@ -10,10 +11,16 @@
   let {
     pr,
     getCtx,
+    layout = "card",
   }: {
     pr: { number: number; title: string };
     getCtx: () => IpcContext;
+    /** Full-width inside the rail's merge card; content-width in the bar the
+     *  card becomes below the rail's fold. */
+    layout?: PrActionsLayout;
   } = $props();
+
+  const bar = $derived(layout === "bar");
 
   const session = getWorkspaceContext();
 
@@ -27,7 +34,9 @@
 
 <Button
   type="button"
-  class="flex h-[34px] w-full cursor-pointer items-center justify-center overflow-hidden rounded-[10px] border-0 bg-(--solus-art-negative) px-3.5 font-medium text-white transition-[background-color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--solus-art-negative)_88%,var(--foreground))] focus-visible:ring-[color:color-mix(in_srgb,var(--solus-art-negative)_28%,transparent)] active:scale-[0.96]"
+  class="flex cursor-pointer items-center justify-center overflow-hidden rounded-[10px] border-0 bg-(--solus-art-negative) px-3.5 font-medium text-white transition-[background-color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--solus-art-negative)_88%,var(--foreground))] focus-visible:ring-[color:color-mix(in_srgb,var(--solus-art-negative)_28%,transparent)] active:scale-[0.96] {bar
+    ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
+    : 'h-[34px] w-full'}"
   onclick={resolve}
   title="Open an agent session to resolve the merge conflicts"
 >

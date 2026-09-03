@@ -1,7 +1,9 @@
 import { spawn, type ChildProcess, type SpawnOptions } from 'child_process'
 import { existsSync } from 'fs'
+import { join } from 'path'
 import { createLogger } from '../../logger'
 import { findOnPath, getCliPath } from '../../cli-env'
+import { dataDir } from '../../platform/paths'
 
 const log = createLogger('main', 'uplink-connector')
 
@@ -43,10 +45,12 @@ const UNREGISTERED_PATTERN = /Unregistered tunnel connection.*connIndex=(\d+)/i
 
 export const CLOUDFLARED_BINARY = 'cloudflared'
 
-/** The system binary or an explicit override. */
+/** The explicit override, Solus-managed binary, or a system binary. */
 export function resolveCloudflaredBinary(env: NodeJS.ProcessEnv = process.env): string | null {
   const override = env.SOLUS_CLOUDFLARED?.trim()
   if (override && existsSync(override)) return override
+  const managed = join(dataDir(), 'bin', process.platform === 'win32' ? 'cloudflared.exe' : 'cloudflared')
+  if (existsSync(managed)) return managed
   return findOnPath(CLOUDFLARED_BINARY, getCliPath())
 }
 

@@ -34,7 +34,7 @@ const restPullRequest = {
   head: { ref: 'feature', sha: 'head-sha', repo: { full_name: 'acme/app', name: 'app', owner: { login: 'acme' } } },
 }
 
-type Answer = 'accepts' | 'rejects' | 'forbidden' | 'org-blocked' | 'not-found' | 'invalid'
+type Answer = 'accepts' | 'rejects' | 'forbidden' | 'graphql-forbidden' | 'org-blocked' | 'not-found' | 'invalid'
 
 interface ScriptedClient extends GitHubClient {
   calls: string[]
@@ -49,6 +49,11 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
     if (answer === 'forbidden') throw Object.assign(new Error('Resource not accessible by integration'), { status: 403 })
     if (answer === 'org-blocked' && name !== 'users.getAuthenticated') {
       throw Object.assign(new Error('Resource not accessible by integration'), { status: 403 })
+    }
+    if (answer === 'graphql-forbidden' && name === 'graphql') {
+      throw Object.assign(new Error('Resource not accessible by integration'), {
+        errors: [{ type: 'FORBIDDEN', message: 'Resource not accessible by integration' }],
+      })
     }
     if (answer === 'not-found') throw Object.assign(new Error('Not Found'), { status: 404 })
     if (answer === 'invalid') throw Object.assign(new Error('Validation Failed'), { status: 422 })
@@ -76,7 +81,21 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
       ]),
     },
   }
-  const graphql = async () => respond('graphql', { resolveReviewThread: { thread: { id: 'T_1' } } }).data
+  const graphql = async (query: string) => {
+    respond('graphql', null)
+    if (query.includes('PrChecks')) {
+      return {
+        repository: {
+          p65: {
+            number: 65,
+            headRefOid: 'head-sha',
+            commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+          },
+        },
+      }
+    }
+    return { resolveReviewThread: { thread: { id: 'T_1' } } }
+  }
   return { rest, graphql, credential: { source, token: `${source}-token` }, calls } as unknown as ScriptedClient
 }
 
@@ -145,6 +164,20 @@ describe('GitHub requests run down the credential chain', () => {
     expect(host.calls).toEqual(['pulls.list'])
     expect(cli.calls).toContain('pulls.list')
     expect(page.items[0]?.headRef).toBe('feature')
+  })
+
+  test('pull request checks fall through to the gh credential', async () => {
+    // WHY: unlike REST, GraphQL returns field access failures in an errors array
+    // on a successful HTTP response. Checks must still advance to the gh token.
+    const host = scriptedClient('host', 'graphql-forbidden')
+    const cli = scriptedClient('gh-cli', 'accepts')
+    const provider = new ChainedProvider([host, cli])
+
+    const checks = await provider.listChecks(repo, [65])
+
+    expect(host.calls).toEqual(['graphql'])
+    expect(cli.calls).toEqual(['graphql'])
+    expect(checks[0]?.summary.headSha).toBe('head-sha')
   })
 
   test('a repository-scoped viewer uses the same credential as its PR list', async () => {

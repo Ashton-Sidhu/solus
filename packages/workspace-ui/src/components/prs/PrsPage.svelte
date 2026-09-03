@@ -66,6 +66,7 @@ import Icon from "@iconify/svelte";
   import { isStackedPane } from "../../lib/pane-width";
   import { filterPrs, sortPrs, type PrSortMode } from "./lib/pr-utils";
   import {
+    showsPrDetailPanel,
     showsPrPageSkeleton,
     type ScopeSwitchPhase,
   } from "./lib/pr-list-loading";
@@ -598,9 +599,11 @@ import Icon from "@iconify/svelte";
   // the rows stay on screen so the queue is still readable while one item is
   // being reviewed. Below the width where both fit, the panel covers the list
   // instead — a 380px column beside a 380px review is neither.
-  const panelOpen = $derived(openKey !== null);
   const openPr = $derived(openKey ? (prByKey(openKey) ?? null) : null);
   const openTarget = $derived(openPr ? targetFor(openPr) : null);
+  const panelOpen = $derived(
+    showsPrDetailPanel(openPr !== null, openTarget !== null),
+  );
   const roomForSplit = $derived(pageWidth >= 1040);
   // The record rung, for the one decision a container query cannot make: the
   // virtualiser is told a row's height as a number. Same 30rem the stylesheet

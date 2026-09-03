@@ -1,12 +1,47 @@
 import { type Attributes, type Histogram } from '@opentelemetry/api'
-import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
-import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-node'
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
-import { otelResource } from './otel-resource'
 import { replaceOtlpSpanProcessor } from './observability/tracer'
 import type { OtelActiveSignals, OtelSettings } from '@solus/contracts/types'
 import { z } from 'zod'
+
+/**
+ * The OTLP SDK, loaded the first time export is actually configured.
+ *
+ * Export is opt-in and off by default, but the SDK, both exporters and the
+ * resource detector were imported at module scope — so every launch paid to
+ * load them, on every host, to send nothing. They are reached only from
+ * `configureOtel` and the histogram builder below it, both of which run long
+ * after boot on a host that exports at all.
+ */
+type OtelSdk = {
+  MeterProvider: typeof import('@opentelemetry/sdk-metrics').MeterProvider
+  PeriodicExportingMetricReader: typeof import('@opentelemetry/sdk-metrics').PeriodicExportingMetricReader
+  OTLPMetricExporter: typeof import('@opentelemetry/exporter-metrics-otlp-http').OTLPMetricExporter
+  BatchSpanProcessor: typeof import('@opentelemetry/sdk-trace-node').BatchSpanProcessor
+  OTLPTraceExporter: typeof import('@opentelemetry/exporter-trace-otlp-http').OTLPTraceExporter
+  otelResource: typeof import('./otel-resource').otelResource
+}
+
+let sdk: OtelSdk | null = null
+
+async function loadOtelSdk(): Promise<OtelSdk> {
+  if (sdk) return sdk
+  const [metrics, metricExporter, traceSdk, traceExporter, resource] = await Promise.all([
+    import('@opentelemetry/sdk-metrics'),
+    import('@opentelemetry/exporter-metrics-otlp-http'),
+    import('@opentelemetry/sdk-trace-node'),
+    import('@opentelemetry/exporter-trace-otlp-http'),
+    import('./otel-resource'),
+  ])
+  sdk = {
+    MeterProvider: metrics.MeterProvider,
+    PeriodicExportingMetricReader: metrics.PeriodicExportingMetricReader,
+    OTLPMetricExporter: metricExporter.OTLPMetricExporter,
+    BatchSpanProcessor: traceSdk.BatchSpanProcessor,
+    OTLPTraceExporter: traceExporter.OTLPTraceExporter,
+    otelResource: resource.otelResource,
+  }
+  return sdk
+}
 
 // OTLP export is opt-in, from one of two places.
 //
@@ -109,12 +144,21 @@ export async function configureOtel(settings: OtelSettings): Promise<void> {
         traces: settings.exportTraces ? { url: `${base}/v1/traces`, headers } : null,
       }
   }
+  // Nothing to export means nothing to load: a host that never turns export on
+  // never pays for the SDK. Loaded before the endpoints are live so the
+  // synchronous `recordOtelDuration` path can never see a metrics target with
+  // no SDK behind it.
+  if (!endpoints.metrics && !endpoints.traces) {
+    await replaceOtlpSpanProcessor(null)
+    return
+  }
+  const otel = await loadOtelSdk()
   // Metrics build their provider on first use. A trace copy cannot because the
   // spans come from a tracer that is already running, so its processor is
   // attached here and detached when the operator turns traces and logs off.
   await replaceOtlpSpanProcessor(
     endpoints.traces
-      ? new BatchSpanProcessor(new OTLPTraceExporter(exporterConfig(endpoints.traces)))
+      ? new otel.BatchSpanProcessor(new otel.OTLPTraceExporter(exporterConfig(endpoints.traces)))
       : null,
   )
 }
@@ -123,7 +167,7 @@ const stringAttributeSchema = z.string()
 const scalarAttributeSchema = z.union([z.number(), z.boolean()])
 const bigintAttributeSchema = z.bigint()
 
-let meterProvider: MeterProvider | null = null
+let meterProvider: InstanceType<OtelSdk['MeterProvider']> | null = null
 const histograms = new Map<string, Histogram>()
 
 /** An empty url means the environment is in charge, so the exporter is built
@@ -135,14 +179,15 @@ function exporterConfig(signal: SignalTarget) {
 function getHistogram(
   label: string,
   signal: SignalTarget,
+  otel: OtelSdk,
 ): Histogram {
   let histogram = histograms.get(label)
   if (!histogram) {
     if (!meterProvider) {
-      meterProvider = new MeterProvider({
-        resource: otelResource(),
-        readers: [new PeriodicExportingMetricReader({
-          exporter: new OTLPMetricExporter(exporterConfig(signal)),
+      meterProvider = new otel.MeterProvider({
+        resource: otel.otelResource(),
+        readers: [new otel.PeriodicExportingMetricReader({
+          exporter: new otel.OTLPMetricExporter(exporterConfig(signal)),
           exportIntervalMillis: METRIC_EXPORT_INTERVAL_MS,
         })],
       })
@@ -179,9 +224,12 @@ function toAttributes<Data extends object>(data: Data): Attributes {
 
 export function recordOtelDuration<Data extends object>(label: string, durationMs: number, data: Data): void {
   const signal = endpoints.metrics
-  if (!signal) return
+  // `sdk` is non-null whenever a metrics target is, because `configureOtel`
+  // loads it before it publishes the endpoints. The check keeps this
+  // synchronous path honest rather than assuming that ordering holds forever.
+  if (!signal || !sdk) return
   try {
-    getHistogram(label, signal).record(durationMs, toAttributes(data))
+    getHistogram(label, signal, sdk).record(durationMs, toAttributes(data))
   } catch {}
 }
 

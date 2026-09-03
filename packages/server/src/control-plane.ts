@@ -6,6 +6,7 @@ import { captureServerEvent } from './analytics'
 import { createWorktree } from './git/worktree-manager'
 import { generateWorktreeName } from './git/worktree-name'
 import { computeGitState } from './git/git-helpers'
+import { checkoutWithLiveIdentity } from './git/git-context'
 import { GitWatcher } from './git/git-watcher'
 import { warmFinder } from './server/file-finder'
 import {
@@ -3389,14 +3390,7 @@ export class ControlPlane extends EventEmitter {
       const status = statusByCwd.get(cwd) ?? null
 
       if (status) {
-        const liveBranch = status.branch
-        const gitContext: GitCheckout = {
-          ...environment.gitContext,
-          branch: liveBranch,
-          ...(liveBranch === null ? { detachedHeadSha: status.headSha } : { detachedHeadSha: undefined }),
-          targetBranch: status.targetBranch,
-          repoRoot: status.repoRoot,
-        }
+        const gitContext = checkoutWithLiveIdentity(environment.gitContext, status)
         // Only the four fields written above can differ from the stored context,
         // so compare them directly instead of double-stringifying per session.
         const previous = environment.gitContext

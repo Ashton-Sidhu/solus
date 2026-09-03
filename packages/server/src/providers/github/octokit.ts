@@ -32,13 +32,20 @@ export class GitHubReauthRequiredError extends Error {
 
 const unauthorizedSchema = z.object({ status: z.literal(401) })
 const credentialAccessFailureSchema = z.object({ status: z.union([z.literal(403), z.literal(404)]) })
+const graphqlCredentialAccessFailureSchema = z.object({
+  errors: z.array(z.object({
+    type: z.union([z.literal('FORBIDDEN'), z.literal('NOT_FOUND')]),
+  })).nonempty(),
+})
 
 /** True when GitHub rejected this credential rather than the operation itself.
- * OAuth app restrictions can surface as either 403 or a repository-hiding 404;
- * both are safe reasons to try the next authenticated account. */
+ * REST reports status 403/404. GraphQL returns HTTP 200 and puts FORBIDDEN or
+ * repository-hiding NOT_FOUND in its errors array, so both shapes must advance
+ * the same credential chain. */
 export function isGithubCredentialAccessFailure<Failure>(error: Failure): boolean {
   return error instanceof GitHubReauthRequiredError
     || credentialAccessFailureSchema.safeParse(error).success
+    || graphqlCredentialAccessFailureSchema.safeParse(error).success
 }
 
 // One client per token for the process lifetime: concurrent reads share one

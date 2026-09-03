@@ -13,7 +13,7 @@ import type { AppGlobalShortcuts, AppShortcutCombo } from '@solus/contracts/type
 import { clampZoomFactor } from '@solus/contracts/zoom'
 import { comboToAccelerator } from '@solus/workspace-ui/lib/keybindings/match'
 import { initAutoUpdater } from '@solus/desktop-main/updater'
-import { bootCore, type BootCore } from '@solus/server/boot-core'
+import type { BootCore } from '@solus/server/boot-core'
 import { clientNotificationRequestSchema, showDesktopNotification } from '@solus/desktop-main/desktop-notifications'
 import type { WindowDeps } from '@solus/server/server/handlers/window-handlers'
 import type { FileDeps } from '@solus/desktop-main/server/handlers/file-handlers'
@@ -22,14 +22,10 @@ import { destroyAllFinders } from '@solus/server/server/file-finder'
 import { registerBrowserHeadlessHost } from './browser/headless-window'
 import { registerBrowserWebviewHost } from './browser/webview-driver'
 import { preserveApplicationReloadShortcut } from './browser/guest-shortcuts'
-import { prepareTranscriptionModel, transcribeAudio } from '@solus/desktop-main/transcription'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from '@solus/server/server/auth'
 import { closeDb } from '@solus/server/db'
 import { startSessionIndexer, stopSessionIndexer } from '@solus/server/db/session-indexer'
 import { createShutdownCoordinator } from '@solus/desktop-main/shutdown-coordinator'
-import { captureServerEvent, shutdownAnalytics } from '@solus/server/analytics'
-import { registerFileHandlers } from '@solus/desktop-main/server/handlers/file-handlers'
-import { shutdownOtel } from '@solus/server/otel'
 import { handleArtifactRequest } from '@solus/desktop-main/artifact-protocol'
 import { LOCAL_DEVICE_LABEL } from '@solus/server/server/server'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
@@ -38,7 +34,12 @@ import { configurePlatformServices } from '@solus/server/platform/services'
 import { registerAccountIpc } from '@solus/desktop-main/account/ipc'
 import type { AccountSession } from '@solus/desktop-main/account/account-session'
 import { desktopServerPort } from '@solus/desktop-main/server-port'
+import { markStartup, traceRendererMarks } from '@solus/desktop-main/startup-trace'
 import { z } from 'zod'
+
+// Every static import above has now evaluated, so this is the main bundle's
+// module-graph cost — the first item on the startup critical path.
+markStartup('main.evaluated')
 
 const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
@@ -126,10 +127,31 @@ let pendingPillShowSource: string | null = null
 let sessionIndexerStarted = false
 let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 
+/**
+ * Analytics is a quit-path concern in this process: one event on the way out,
+ * and the flush that follows it. A static import loaded posthog-node before the
+ * window existed — the last heavy dependency in this file that did.
+ */
+let analytics: Promise<typeof import('@solus/server/analytics')> | null = null
+
+function captureQuitEvent(uptimeMs: number): void {
+  analytics ??= import('@solus/server/analytics')
+  void analytics
+    .then((m) => m.captureServerEvent('app_quit', { uptime_ms: uptimeMs }))
+    .catch((err: Error) => log.warn('analytics_load_failed', { error: err.message }))
+}
+
 const shutdownCoordinator = createShutdownCoordinator({
   shutdown: async () => {
     forceQuit = true
-    await Promise.all([core?.shutdown(), shutdownAnalytics(), shutdownOtel()])
+    // Only flush a client that a capture actually created. Loading the module
+    // here to shut it down would be the import this file just stopped making.
+    const flushAnalytics = analytics?.then((m) => m.shutdownAnalytics()) ?? Promise.resolve()
+    // Same reasoning, one module over: importing otel for its quit path pulled
+    // the tracer, its context manager and the resource detector in ahead of the
+    // window. By the time anything needs shutting down, boot has loaded it.
+    const stopOtel = import('@solus/server/otel').then((m) => m.shutdownOtel())
+    await Promise.all([core?.shutdown(), flushAnalytics, stopOtel])
   },
   quit: () => app.quit(),
   forceQuit: () => app.exit(0),
@@ -508,6 +530,8 @@ function createEditorWindow(): BrowserWindow {
   }
   editorWindow = new BrowserWindow(windowOptions)
   const editorContents = editorWindow.webContents
+  editorContents.once('dom-ready', () => markStartup('renderer.domReady'))
+  editorContents.once('did-finish-load', () => markStartup('renderer.didFinishLoad'))
 
   const reloadEditor = (): void => {
     if (editorContents.isDestroyed()) return
@@ -552,7 +576,45 @@ function createEditorWindow(): BrowserWindow {
   })
 
   loadRenderer(editorWindow, 'editor')
+  armBootShellDeadline()
   return editorWindow
+}
+
+/**
+ * A launch that mounts promptly shows its first real app frame and the static
+ * boot shell is never surfaced — that is the intent, and it still holds.
+ *
+ * A launch that does not get there used to leave the user with a bouncing dock
+ * icon and no window at all: a cold start on this hardware takes over four
+ * seconds to mount. Past this deadline the branded shell is better than
+ * nothing, so the window comes up and the app fills it in when it is ready.
+ *
+ * Measured from window creation because that is when the renderer starts
+ * loading. The value sits above a warm relaunch (~1.2 s to first frame here)
+ * and below a cold start (~4.3 s), so the shell appears on the launches that
+ * are actually slow and on no others.
+ */
+const BOOT_SHELL_DEADLINE_MS = 2_000
+let bootShellDeadline: ReturnType<typeof setTimeout> | null = null
+
+function armBootShellDeadline(): void {
+  if (isTestMode) return
+  clearBootShellDeadline()
+  bootShellDeadline = setTimeout(() => {
+    bootShellDeadline = null
+    if (!isLive(editorWindow) || editorWindow.isVisible()) return
+    log.info('boot_shell_deadline_reached', { deadlineMs: BOOT_SHELL_DEADLINE_MS })
+    markStartup('window.shownOnDeadline')
+    editorWindow.show()
+    focusEditorWindow()
+  }, BOOT_SHELL_DEADLINE_MS)
+  bootShellDeadline.unref?.()
+}
+
+function clearBootShellDeadline(): void {
+  if (!bootShellDeadline) return
+  clearTimeout(bootShellDeadline)
+  bootShellDeadline = null
 }
 
 function showPillWindow(source = 'unknown', options: { fromTrayShow?: boolean } = {}): void {
@@ -991,6 +1053,7 @@ function scheduleSessionIndexer(): void {
 
 ipcMain.on('solus:renderer-mounted', (_event, rawMode) => {
   if (!viewModeSchema.safeParse(rawMode).success) return
+  markStartup('renderer.mounted')
   scheduleSessionIndexer()
 })
 
@@ -1000,7 +1063,12 @@ ipcMain.on('solus:renderer-ready', (event, rawMode) => {
   const mode = parsedMode.data
   if (mode === 'editor') {
     if (!isLive(editorWindow) || editorWindow.webContents !== event.sender) return
-    if (!isTestMode) {
+    markStartup('renderer.ready')
+    traceRendererMarks(editorWindow.webContents)
+    clearBootShellDeadline()
+    // Already visible when the deadline beat the app here; show() is a no-op
+    // then, and re-focusing a window the user has been looking at is not.
+    if (!isTestMode && !editorWindow.isVisible()) {
       editorWindow.show()
       focusEditorWindow()
     }
@@ -1134,6 +1202,7 @@ if (isPairUrl) {
   })
 } else {
   app.whenReady().then(async () => {
+    markStartup('app.ready')
     protocol.handle('solus-artifact', handleArtifactRequest)
     // Teach the server how to render a browser page — in a renderer's
     // `<webview>` when a pane is showing it, and in a window that is never shown
@@ -1191,8 +1260,30 @@ if (isPairUrl) {
       // E2E mode retains its historical hidden pill test surface.
       if (isTestMode) createPillWindow()
       else if (currentViewMode === 'editor') createEditorWindow()
+      markStartup('window.created')
       snapshotWindowState('after createWindow')
     }
+
+    // Loaded here rather than at module scope, and deliberately after the
+    // window exists. `bootCore` reaches 279 of the main process's 342 eager
+    // modules and nearly every heavy dependency it has — socket.io, hono,
+    // Octokit, google-auth-library, the Claude SDK — so a static import made
+    // all of it evaluate before Electron was even ready, delaying the window
+    // and therefore the renderer behind it. None of it is needed to open a
+    // window, and the renderer's first IPC already awaits `bootPromise`, so
+    // the server graph now loads beside the renderer instead of ahead of it.
+    // Transcription comes with it: both of its exports are used only from here
+    // down, and its model downloader reaches posthog-node — the one heavy
+    // dependency still eager once the server graph moved.
+    const [
+      { bootCore },
+      { prepareTranscriptionModel, transcribeAudio },
+      { registerFileHandlers },
+    ] = await Promise.all([
+      import('@solus/server/boot-core'),
+      import('@solus/desktop-main/transcription'),
+      import('@solus/desktop-main/server/handlers/file-handlers'),
+    ])
 
     let bootedCore: BootCore
     try {
@@ -1214,6 +1305,7 @@ if (isPairUrl) {
       return
     }
     core = bootedCore
+    markStartup('core.booted')
     resolveBoot(bootedCore)
     bootedCore.controlPlane.on('active-work-changed', syncPowerSaveBlocker)
     syncPowerSaveBlocker()
@@ -1299,7 +1391,7 @@ app.on('before-quit', (event) => {
   // intercepted. All ordinary quit paths get one bounded cleanup attempt.
   if (forceQuit || shutdownCoordinator.isQuitting) return
   event.preventDefault()
-  captureServerEvent('app_quit', { uptime_ms: Math.max(0, Date.now() - bootStartedAt) })
+  captureQuitEvent(Math.max(0, Date.now() - bootStartedAt))
   shutdownCoordinator.requestQuit()
 })
 

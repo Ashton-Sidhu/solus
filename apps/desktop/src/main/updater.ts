@@ -1,15 +1,28 @@
-import { autoUpdater } from 'electron-updater'
 import { app, dialog } from 'electron'
 import { createLogger } from '@solus/server/logger'
 
 const log = createLogger('main', 'updater.ts')
 
+/**
+ * `electron-updater` is loaded here rather than at module scope. It was the
+ * single most expensive eager require in the main process, and the first thing
+ * it does is wait ten seconds before checking anything — so it has no business
+ * on the path between process start and the first window.
+ */
 export function initAutoUpdater(onBeforeQuitAndInstall?: () => void): void {
   if (!app.isPackaged) {
     log.info('auto_updater_skipped_dev')
     return
   }
+  void import('electron-updater')
+    .then(({ autoUpdater }) => attachAutoUpdater(autoUpdater, onBeforeQuitAndInstall))
+    .catch((err: Error) => log.error('auto_updater_load_failed', { error: err.message }))
+}
 
+function attachAutoUpdater(
+  autoUpdater: typeof import('electron-updater').autoUpdater,
+  onBeforeQuitAndInstall?: () => void,
+): void {
   autoUpdater.logger = {
     info: (msg: string) => log.info('electron_updater_log', { message: msg }),
     warn: (msg: string) => log.warn('electron_updater_log', { message: msg }),

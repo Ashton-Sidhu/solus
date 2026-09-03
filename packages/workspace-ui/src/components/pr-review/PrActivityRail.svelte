@@ -30,6 +30,7 @@
   import { checkDuration, orderedChecks } from "../prs/lib/checks";
   import { checkVerdict } from "./lib/check-verdict";
   import { reviewerStateColor, reviewerStateLabel } from "./lib/reviewer-state";
+  import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import { fileName, dirName } from "./lib/activity-data";
   import { mergeReadiness } from "./lib/merge-readiness";
   import {
@@ -104,7 +105,7 @@
     onGenerateGuide?: () => void;
     /** The PR's action cluster (merge CTA + quiet secondary row) — it lives
      *  with the readiness status it acts on, Linear-style, not in the header. */
-    actions?: Snippet;
+    actions?: Snippet<[PrActionsLayout]>;
     /** The ⋯ menu of rarely-used PR actions. It rides in this section's own
      *  header, where it is always present, rather than under a cluster that a
      *  draft or a closed PR leaves empty. */
@@ -332,7 +333,7 @@
           {/if}
         </div>
 
-        {#if actions}{@render actions()}{/if}
+        {#if actions}{@render actions("card")}{/if}
       </div>
     </section>
     {/if}
@@ -520,23 +521,36 @@
                   : "No reviewers available"}</DropdownMenu.Item
               >
             {:else}
-              {#each availableReviewerCandidates as candidate (candidate.login)}
-                <DropdownMenu.Item
-                  disabled={reviewerMutation === candidate.login}
-                  class="pointer-fine:[.is-laptop-display_&]:text-review-row!"
-                  onSelect={() => {
-                    handleReviewerMenuOpenChange(false);
-                    onRequestReviewer?.(candidate.login);
-                  }}
-                >
-                  <PrAvatar
-                    name={candidate.login}
-                    url={candidate.avatarUrl ?? ""}
-                    size="size-[20px] [.is-laptop-display_&]:size-[18px]"
-                  />
-                  <span class="truncate">{candidate.login}</span>
-                </DropdownMenu.Item>
-              {/each}
+              <!-- A repository routinely has fifty collaborators, and the menu
+                   has no height of its own, so the list is the part that
+                   scrolls — never the whole menu, or the search field scrolls
+                   away with it. The ceiling is whatever the window leaves below
+                   the trigger, less the room that field already takes.
+
+                   Rows, not a virtual list: the host caps candidates at fifty,
+                   and a menu item that is not in the DOM is one the arrow keys
+                   and typeahead cannot reach. -->
+              <div
+                class="max-h-[min(16rem,calc(var(--bits-dropdown-menu-content-available-height,22rem)-4rem))] overflow-y-auto overscroll-contain"
+              >
+                {#each availableReviewerCandidates as candidate (candidate.login)}
+                  <DropdownMenu.Item
+                    disabled={reviewerMutation === candidate.login}
+                    class="pointer-fine:[.is-laptop-display_&]:text-review-row!"
+                    onSelect={() => {
+                      handleReviewerMenuOpenChange(false);
+                      onRequestReviewer?.(candidate.login);
+                    }}
+                  >
+                    <PrAvatar
+                      name={candidate.login}
+                      url={candidate.avatarUrl ?? ""}
+                      size="size-[20px] [.is-laptop-display_&]:size-[18px]"
+                    />
+                    <span class="truncate">{candidate.login}</span>
+                  </DropdownMenu.Item>
+                {/each}
+              </div>
             {/if}
           </DropdownMenu.Content>
         </DropdownMenu.Root>

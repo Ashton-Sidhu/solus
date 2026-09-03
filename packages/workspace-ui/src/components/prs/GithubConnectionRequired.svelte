@@ -6,9 +6,11 @@
   let {
     serverId,
     layout = "inline",
+    message,
   }: {
     serverId: string;
     layout?: "inline" | "stacked";
+    message?: string;
   } = $props();
 
   const workspace = getWorkspaceContext();
@@ -32,7 +34,7 @@
       ? 'text-center text-pretty'
       : ''}"
   >
-    GitHub is not connected on {hostLabel}.
+    {message ?? `GitHub is not connected on ${hostLabel}.`}
   </span>
   <Button
     type="button"

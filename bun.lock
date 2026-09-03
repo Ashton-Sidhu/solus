@@ -130,6 +130,9 @@
       "name": "@solus/cli",
       "dependencies": {
         "@solus/client-core": "workspace:*",
+        "@solus/contracts": "workspace:*",
+        "socket.io-client": "^4.8.3",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "typescript": "^5.9.3",

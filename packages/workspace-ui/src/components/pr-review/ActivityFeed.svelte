@@ -46,6 +46,7 @@
   } from "./lib/activity-data";
   import PrActivityRail from "./PrActivityRail.svelte";
   import PrMergeBar from "./PrMergeBar.svelte";
+  import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import { observeContainerWidth } from "../../lib/pane-width";
   import { isRailFolded } from "./lib/rail-rows";
   import ActivityTimeline from "./ActivityTimeline.svelte";
@@ -55,6 +56,10 @@
   import PrMetaBand from "./PrMetaBand.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
+  import {
+    prActivityLoadFailureMessage,
+    type PrActivityDataSource,
+  } from "./lib/activity-load-failure";
 
   // The Activity tab: a Linear-style PR overview. The centered main column shows
   // the title, author/branch meta, the PR description, and an activity timeline
@@ -163,9 +168,11 @@
   let filesLoading = $state(true);
   // Any provider load rejecting (expired token, network) flips this so the
   // tab shows an explicit error + retry instead of masquerading as an empty PR.
-  let loadFailed = $state(false);
+  const failedLoads = new SvelteSet<PrActivityDataSource>();
   let loadError = $state<PrSurfaceError | null>(null);
-  const anyLoadFailed = $derived(loadFailed || threadsFailed);
+  const loadFailureMessage = $derived(
+    prActivityLoadFailureMessage(failedLoads, threadsFailed),
+  );
 
   let composer = $state("");
   let posting = $state(false);
@@ -279,9 +286,13 @@
     unresolvedCount + comments.reduce((count, item) => count + (item.body.trim() ? 1 : 0), 0),
   );
 
-  function markLoadFailed(n: number, error: Parameters<typeof prSurfaceError>[0]) {
+  function markLoadFailed(
+    n: number,
+    source: PrActivityDataSource,
+    error: Parameters<typeof prSurfaceError>[0],
+  ) {
     if (pr.number !== n) return;
-    loadFailed = true;
+    failedLoads.add(source);
     const mapped = prSurfaceError(error);
     if (mapped.kind === "github-auth" || !loadError) loadError = mapped;
   }
@@ -300,7 +311,7 @@
     reviewers = cached.reviewers ?? [];
     reviewerCandidates = cached.reviewerCandidates ?? [];
     changedFiles = cached.changedFiles ?? [];
-    loadFailed = false;
+    failedLoads.clear();
     loadError = null;
     filter = "all";
     unresolvedOnly = false;
@@ -329,7 +340,7 @@
         ) reviewerCandidates = [];
       })
       .catch((error) => {
-        markLoadFailed(n, error);
+        markLoadFailed(n, "details", error);
       })
       .finally(() => {
         if (pr.number === n) detailLoading = false;
@@ -341,7 +352,7 @@
           commits = c;
         }
       })
-      .catch((error) => markLoadFailed(n, error))
+      .catch((error) => markLoadFailed(n, "commits", error))
       .finally(() => {
         if (pr.number === n) commitsLoading = false;
       });
@@ -352,7 +363,7 @@
           comments = c;
         }
       })
-      .catch((error) => markLoadFailed(n, error))
+      .catch((error) => markLoadFailed(n, "comments", error))
       .finally(() => {
         if (pr.number === n) commentsLoading = false;
       });
@@ -363,7 +374,7 @@
           reviewers = r;
         }
       })
-      .catch((error) => markLoadFailed(n, error))
+      .catch((error) => markLoadFailed(n, "reviewers", error))
       .finally(() => {
         if (pr.number === n) reviewersLoading = false;
       });
@@ -378,7 +389,7 @@
       .then((candidates) => {
         if (pr.number === n) reviewerCandidates = candidates;
       })
-      .catch((error) => markLoadFailed(n, error))
+      .catch((error) => markLoadFailed(n, "reviewer-candidates", error))
       .finally(() => {
         if (pr.number === n) reviewerCandidatesLoading = false;
       });
@@ -429,7 +440,7 @@
         }
       })
       .catch((error) => {
-        markLoadFailed(n, error);
+        markLoadFailed(n, "changed-files", error);
       })
       .finally(() => {
         if (pr.number === n) filesLoading = false;
@@ -443,7 +454,7 @@
     onRefreshThreads?.();
     const targetRefresh = onRefreshTarget?.();
     if (targetRefresh) {
-      await targetRefresh.catch((error) => markLoadFailed(pr.number, error));
+      await targetRefresh.catch((error) => markLoadFailed(pr.number, "details", error));
     }
   }
 
@@ -626,7 +637,7 @@
 
 <div class="flex h-full min-h-0 flex-col bg-background">
 <div bind:this={scrollViewport} class="min-h-0 flex-1 overflow-y-auto bg-background">
-    {#if anyLoadFailed}
+    {#if loadFailureMessage}
       <div
         class="mx-auto w-full max-w-[1216px] px-[52px] pt-4 [.is-laptop-display_&]:px-8"
       >
@@ -635,10 +646,10 @@
           role="alert"
         >
           {#if loadError?.kind === "github-auth"}
-            <GithubConnectionRequired {serverId} />
+            <GithubConnectionRequired {serverId} message={loadFailureMessage} />
           {:else}
             <span class="min-w-0 flex-1 truncate">
-              Couldn't load some of this pull request's data. Check your connection or provider sign-in.
+              {loadFailureMessage}
             </span>
             <Button
               type="button"
@@ -1075,8 +1086,9 @@
   />
 {/snippet}
 
-{#snippet prActions()}
+{#snippet prActions(layout: PrActionsLayout)}
   <PrActions
+    {layout}
     pr={{ number: pr.number, title: prTitle }}
     {detail}
     {feedbackCount}

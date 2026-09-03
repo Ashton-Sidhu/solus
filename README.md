@@ -113,6 +113,9 @@ solus claim                                  # take ownership from this machine
 | `solus start` | Run the server in the foreground (`--host`, `--port`, `--data-dir`) |
 | `solus logs` | Tail the daemon log (`--lines N`) |
 | `solus claim` | Claim a fresh server |
+| `solus connect` | Link the running host to Solus Cloud with a browser approval code |
+| `solus connect status` | Show the cloud link and tunnel state (`--json` for scripts) |
+| `solus connect unlink` | Remove the host from Solus Cloud and stop its tunnel |
 | `solus update` | Update a tarball install in place (Homebrew installs defer to `brew upgrade`) |
 
 Data lives in `~/.solus`, overridable with `--data-dir` or `SOLUS_DATA_DIR`; `SOLUS_HOST` and `SOLUS_PORT` mirror the flags. The server listens on port 3000 by default.

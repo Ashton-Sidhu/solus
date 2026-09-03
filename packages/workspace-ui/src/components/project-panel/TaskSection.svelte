@@ -163,40 +163,25 @@
 </script>
 
 <!-- One list and nothing else: a line per linked object. The task's identity —
-its ref, opened date and actions — is all in the section header, and there is
-no footer, so the body never reports anything the header already says. An
-empty body is dropped rather than shown at zero, so the card has a body only
-once something is attached; sessions are read in the sidebar and on the task
-page, and the rail does not repeat them.
+its ref, opened date and actions — is all in the section header. An empty body
+is dropped rather than shown at zero, so the card has a body only once
+something is attached; sessions are read in the sidebar and on the task page,
+and the rail does not repeat them.
 
 Every row here is the rail's row, not the mock's: full width of the card's
 inner edge with 8px of its own padding, exactly like MenuRow in Environment
-and Git. That 8px is the card's text measure, so the group label and every
-row label set on the same left edge.
+and Git.
 
 Type comes from the rail, which declares the display's chrome rung once, so a
 row label here reads at the same size as a Git or Environment row. Only the
-quiet trailing readings and the group label pin themselves a rung below. -->
+quiet trailing readings pin themselves a rung below. -->
 {#if linkList.total}
   <div class="mb-2 flex flex-col {task.status === 'done' ? 'opacity-[.62]' : ''}">
-    <div class="mt-0.5 flex items-center gap-2 px-2">
-      <span
-        class="text-chrome-shelf font-medium text-(--solus-text-tertiary) uppercase"
-      >
-        Linked
-      </span>
-      <span
-        class="text-chrome-shelf tabular-nums text-(--solus-text-tertiary) opacity-70"
-      >
-        {linkList.total}
-      </span>
-    </div>
-
     <!-- A task can collect more links than the rail has room for. Keep the
     group bounded so it does not push the rest of the project rail off
     screen; reveal the standard thumb while the pointer is over the list. -->
     <div
-      class="scrollbar-on-hover mt-0.5 flex max-h-32 flex-col gap-px overflow-y-auto overscroll-contain"
+      class="scrollbar-on-hover flex max-h-32 flex-col gap-px overflow-y-auto overscroll-contain"
     >
         {#each linkList.rows as row (row.key)}
           {@const KindIcon = row.icon}

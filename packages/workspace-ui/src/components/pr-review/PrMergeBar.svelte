@@ -3,6 +3,7 @@
   import type { PrChecksSummary } from "@solus/contracts/checks-types";
   import type { PullRequest } from "@solus/contracts/providers";
   import { mergeReadiness } from "./lib/merge-readiness";
+  import type { PrActionsLayout } from "./lib/pr-actions-layout";
 
   /**
    * Merge state as the bottom bar, for a pane too narrow to carry the rail
@@ -35,8 +36,9 @@
     checks: PrChecksSummary | undefined;
     unresolvedCount: number;
     openedTime: string | null;
-    /** The same actions the rail's card carries — merge, address comments. */
-    actions?: Snippet;
+    /** The same actions the rail's card carries — merge, address comments —
+     *  rendered in their row geometry rather than the card's stacked one. */
+    actions?: Snippet<[PrActionsLayout]>;
     /** Opens the sheet holding the rail's reference sections. */
     details?: Snippet;
   }
@@ -89,8 +91,13 @@
     {#if details}
       <span class="flex shrink-0 items-center">{@render details()}</span>
     {/if}
+    <!-- The cluster may shrink; the merge control inside it may not. At the
+         narrowest pane the bar can appear in there is not room for the
+         readiness sentence, Details, the merge control and a second action all
+         at full size, and the one that gives is the quiet one's label — not the
+         decision the bar exists for, and not by spilling past the bar's edge. -->
     {#if actions}
-      <span class="flex shrink-0 items-center gap-1.5">{@render actions()}</span>
+      <span class="flex min-w-0 items-center">{@render actions("bar")}</span>
     {/if}
   </div>
 {/if}

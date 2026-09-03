@@ -1,13 +1,21 @@
 import { spawn } from 'child_process'
-import { createHash } from 'crypto'
 import type { ChildProcess } from 'child_process'
 import { z } from 'zod'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { tmpdir } from 'os'
 import { basename, dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
+import { connectHost, connectStatus, disconnectHost, type ConnectOptions } from './lib/connect'
 import { renderQrAscii } from './lib/qr'
 import { defaultDataDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type ServerLock } from './lib/runtime'
+import {
+  compareVersions,
+  isBrewManaged,
+  isTarballInstall,
+  normalizeVersion,
+  replaceInstallDirectory,
+  verifyArchiveSha256,
+} from './lib/update'
 import { bestEndpoint, extractGitCredentialAction, formatPairBlock, hostForUrl, parseFlags, parsePort } from '@solus/contracts/entrypoint'
 import packageJson from '../../../package.json'
 
@@ -71,6 +79,9 @@ async function main(argv: string[]): Promise<void> {
     case 'pair':
       await pair(parseCommonOptions(rest))
       return
+    case 'connect':
+      await connect(rest)
+      return
     case 'auth':
       await auth(rest)
       return
@@ -92,11 +103,61 @@ Usage:
   solus start [--data-dir PATH] [--host HOST] [--port PORT]
   solus logs [--data-dir PATH] [--lines N]
   solus pair [--data-dir PATH]
+  solus connect [--data-dir PATH] [--cloud-url URL] [--no-open]
+  solus connect status [--data-dir PATH] [--json]
+  solus connect unlink [--data-dir PATH]
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
   solus git-credential <get|store|erase> [--data-dir PATH] [--delegation DEVICE_ID]
   solus update [--repo OWNER/REPO]
   solus --version
   solus --help`)
+}
+
+async function connect(args: string[]): Promise<void> {
+  const subcommand = args[0]
+  if (subcommand === 'status') {
+    const opts = parseConnectStatusOptions(args.slice(1))
+    const status = await connectStatus(opts.dataDir)
+    console.log(opts.json ? JSON.stringify(status) : formatConnectStatus(status))
+    return
+  }
+  if (subcommand === 'unlink') {
+    const status = await disconnectHost(parseCommonOptions(args.slice(1)).dataDir)
+    console.log(status.linked ? formatConnectStatus(status) : 'Solus Cloud: not linked')
+    return
+  }
+  if (subcommand && !subcommand.startsWith('-')) {
+    throw new Error('Unknown connect command. Expected: solus connect, status, or unlink')
+  }
+
+  console.log('Solus Cloud\n')
+  const status = await connectHost(parseConnectOptions(args), {
+    stage: (message) => console.log(`✓ ${message}`),
+    deviceCode: (grant) => {
+      console.log([
+        '',
+        'Open this page to approve the server:',
+        `  ${grant.verificationUrl}`,
+        '',
+        `Code: ${formatUserCode(grant.userCode)}`,
+        '',
+        'Waiting for approval...',
+      ].join('\n'))
+    },
+  })
+  console.log(`\n${formatConnectStatus(status)}`)
+}
+
+function formatConnectStatus(status: Awaited<ReturnType<typeof connectStatus>>): string {
+  if (!status.linked) return 'Solus Cloud: not linked'
+  const detail = status.state.observed === 'error' && status.state.error
+    ? `error — ${status.state.error}`
+    : status.state.observed
+  return [
+    'Solus Cloud: linked',
+    `  Host: ${status.link.hostname}`,
+    `  Tunnel: ${detail}`,
+  ].join('\n')
 }
 
 async function start(opts: StartOptions): Promise<void> {
@@ -135,7 +196,7 @@ async function pair(opts: CommonOptions): Promise<void> {
 
   const response = await fetch(`${serverBaseUrl(lock)}/pair/open`, {
     method: 'POST',
-    headers: createAdminHeaders(signingKey),
+    headers: { ...createAdminHeaders(signingKey) },
   })
   const body = await response.json().catch(() => ({}))
   if (!response.ok) {
@@ -230,14 +291,19 @@ async function update(opts: UpdateOptions): Promise<void> {
     await downloadFile(sums.browser_download_url, sumsFile)
     verifyArchiveSha256(archive, readFileSync(sumsFile, 'utf-8'), artifactName)
 
-    const nextDir = join(tempDir, 'next')
-    mkdirSync(nextDir)
-    await run('tar', ['-xzf', archive, '-C', nextDir])
-
+    // Stage beside the install. `/tmp` can be another filesystem on Linux, where
+    // rename would fail with EXDEV after the old install had already moved away.
+    const nextDir = `${paths.installDir}.next-${process.pid}`
     const backup = `${paths.installDir}.bak-${Date.now()}`
-    renameSync(paths.installDir, backup)
-    renameSync(nextDir, paths.installDir)
-    console.log(`Updated Solus to ${release.tag_name}. Previous install moved to ${basename(backup)}. Restart the server to use the new version.`)
+    rmSync(nextDir, { recursive: true, force: true })
+    mkdirSync(nextDir)
+    try {
+      await run('tar', ['-xzf', archive, '-C', nextDir])
+      replaceInstallDirectory(paths.installDir, nextDir, backup)
+      console.log(`Updated Solus to ${release.tag_name}. Previous install moved to ${basename(backup)}. Restart the server to use the new version.`)
+    } finally {
+      rmSync(nextDir, { recursive: true, force: true })
+    }
   } finally {
     rmSync(tempDir, { recursive: true, force: true })
   }
@@ -259,6 +325,30 @@ function parseCommonOptions(args: string[]): CommonOptions {
     '--data-dir': { value: (value) => { opts.dataDir = value } },
   }, (arg) => new Error(`Unknown option: ${arg}`))
   return opts
+}
+
+function parseConnectOptions(args: string[]): ConnectOptions {
+  const opts: ConnectOptions = { dataDir: defaultDataDir(), noOpen: false }
+  parseFlags(args, {
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+    '--cloud-url': { value: (value) => { opts.cloudUrl = value } },
+    '--no-open': { set: () => { opts.noOpen = true } },
+  }, (arg) => new Error(`Unknown connect option: ${arg}`))
+  return opts
+}
+
+function parseConnectStatusOptions(args: string[]): CommonOptions & { json: boolean } {
+  const opts = { dataDir: defaultDataDir(), json: false }
+  parseFlags(args, {
+    '--data-dir': { value: (value) => { opts.dataDir = value } },
+    '--json': { set: () => { opts.json = true } },
+  }, (arg) => new Error(`Unknown connect status option: ${arg}`))
+  return opts
+}
+
+function formatUserCode(value: string): string {
+  const compact = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase()
+  return compact.length === 8 ? `${compact.slice(0, 4)}-${compact.slice(4)}` : value
 }
 
 function parseGitCredentialOptions(args: string[]): GitCredentialOptions {
@@ -319,18 +409,6 @@ function serverEnv(opts: StartOptions): NodeJS.ProcessEnv {
   return env
 }
 
-function isBrewManaged(installDir: string): boolean {
-  return /\/(?:Cellar|homebrew\/Cellar|linuxbrew\/Cellar)\/solus(?:-server)?\//.test(installDir)
-}
-
-function isTarballInstall(installDir: string): boolean {
-  return existsSync(join(installDir, 'bin', 'node')) &&
-    existsSync(join(installDir, 'libexec', 'server', 'standalone.js')) &&
-    existsSync(join(installDir, 'libexec', 'cli', 'solus.js'))
-}
-
-
-
 function serverBaseUrl(lock: ServerLock): string {
   return `http://${hostForUrl(localConnectHost(lock.host))}:${lock.port}`
 }
@@ -378,33 +456,10 @@ async function downloadFile(url: string, file: string): Promise<void> {
   writeFileSync(file, Buffer.from(await response.arrayBuffer()))
 }
 
-function verifyArchiveSha256(file: string, sums: string, artifactName: string): void {
-  const expected = sums.split(/\r?\n/)
-    .map((line) => line.trim().split(/\s+/))
-    .find((parts) => parts[1] === artifactName)?.[0]
-  if (!expected) throw new Error(`SHA256SUMS did not contain ${artifactName}`)
-  const actual = createHash('sha256').update(readFileSync(file)).digest('hex')
-  if (actual !== expected) throw new Error(`Checksum mismatch for ${artifactName}`)
-}
-
 async function run(command: string, args: string[]): Promise<void> {
   const child = spawn(command, args, { stdio: 'inherit' })
   const { code } = await waitForExit(child)
   if (code !== 0) throw new Error(`${command} exited with status ${code}`)
-}
-
-function normalizeVersion(version: string): string {
-  return version.trim().replace(/^v/, '')
-}
-
-function compareVersions(a: string, b: string): number {
-  const left = a.split('.').map((part) => Number(part.replace(/\D.*$/, '')))
-  const right = b.split('.').map((part) => Number(part.replace(/\D.*$/, '')))
-  for (let i = 0; i < Math.max(left.length, right.length); i++) {
-    const diff = (left[i] || 0) - (right[i] || 0)
-    if (diff !== 0) return diff
-  }
-  return 0
 }
 
 main(process.argv.slice(2)).catch((err) => {

@@ -8,6 +8,7 @@
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { MERGE_METHOD_OPTIONS, defaultMergeMethod } from "./lib/merge-method";
+  import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import type { PullRequest } from "../../contexts/prs/pull-request.svelte";
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -19,6 +20,7 @@
     methods,
     method = $bindable("merge"),
     onMerged,
+    layout = "card",
   }: {
     /** The indexed pull request. It owns the head this merge is checked
      *  against, and indexes whatever the merge makes of it. */
@@ -28,7 +30,12 @@
      *  this button would actually make instead of guessing one. */
     method?: MergeMethod;
     onMerged?: () => void;
+    /** Full-width inside the rail's merge card; content-width in the bar the
+     *  card becomes below the rail's fold. */
+    layout?: PrActionsLayout;
   } = $props();
+
+  const bar = $derived(layout === "bar");
 
   let menuOpen = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
@@ -70,13 +77,17 @@
 
 {#if merged}
   <div
-    class="flex h-[34px] items-center font-medium text-(--solus-art-positive)"
+    class="flex items-center font-medium text-(--solus-art-positive) {bar
+      ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
+      : 'h-[34px]'}"
   >
     Merged
   </div>
 {:else}
   <div
-    class="flex h-[34px] w-full items-stretch overflow-hidden rounded-[10px] bg-primary shadow-[0_1px_2px_-1px_color-mix(in_oklch,var(--primary)_55%,transparent)] transition-[scale] duration-150 active:scale-[0.985]"
+    class="flex items-stretch overflow-hidden rounded-[10px] bg-primary shadow-[0_1px_2px_-1px_color-mix(in_oklch,var(--primary)_55%,transparent)] transition-[scale] duration-150 active:scale-[0.985] {bar
+      ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
+      : 'h-[34px] w-full'}"
   >
     <Button
       type="button"

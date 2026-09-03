@@ -1,5 +1,5 @@
 import { createAppContext } from '../app/create-app-context'
-import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, StatusCardState, PrReviewContext, PromptDelivery, PromptImageRef, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
+import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, PrReviewContext, PromptDelivery, PromptImageRef, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { parseGitHubPullRequestUrl, type PrReviewTarget, type PullRequest, type RepoRef } from '@solus/contracts/providers'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewTarget } from '@solus/contracts/review'
 import type { CheckItem } from '@solus/contracts/checks-types'
@@ -3720,22 +3720,6 @@ export class WorkspaceContext {
   submitDiffFeedback(generalComment: string, tabId?: string): boolean { const submitted = submitDiffFeedback(this, generalComment, tabId); if (submitted) track('diff_feedback_submitted', {}); return submitted }
   async submitDiffFeedbackToNewSession(opts: Parameters<typeof submitDiffFeedbackToNewSession>[1]): Promise<boolean> {
     const submitted = await submitDiffFeedbackToNewSession(this, opts); if (submitted) track('diff_feedback_submitted', {}); return submitted
-  }
-
-  async startNewSessionWithPrompt(
-    prompt: string,
-    workingDirectory: string,
-    gitContext?: GitCheckout | null,
-    statusCard?: StatusCardState | null,
-  ): Promise<void> {
-    const tabId = await this.createTab(workingDirectory)
-    const session = this.sessionFor(tabId)
-    if (session && gitContext !== undefined) {
-      session.run.gitContext = gitContext ? { ...gitContext } : null
-      session.run.worktree = null
-    }
-    if (session && statusCard) session.statusCard = statusCard
-    this.sendMessage(prompt)
   }
 
   private async startPrFixSession(

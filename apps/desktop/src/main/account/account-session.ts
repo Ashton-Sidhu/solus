@@ -2,14 +2,20 @@ import type { AccountState, DeviceSignInEnd } from '@solus/contracts/account-typ
 import { createLogger } from '@solus/server/logger'
 import { formatUserCode } from './user-code-format'
 import { AccountStore, profileFromResponse, type StoredAccount } from './account-store'
-import { requestDeviceCode, waitForApproval, DEVICE_CLIENT_ID, type DeviceSignInDeps } from './device-sign-in'
+import {
+  requestDeviceCode,
+  waitForDeviceApproval,
+  type DeviceAuthorizationDeps,
+} from '@solus/client-core/device-authorization'
 
 const log = createLogger('main', 'account-session')
 
 /** How often a focused window re-checks the session with the website. */
 export const VERIFY_INTERVAL_MS = 10 * 60_000
 
-export interface AccountSessionDeps extends Omit<DeviceSignInDeps, 'cloudOrigin'> {
+export const DESKTOP_DEVICE_CLIENT_ID = 'solus-desktop'
+
+export interface AccountSessionDeps extends Omit<DeviceAuthorizationDeps, 'cloudOrigin' | 'clientId'> {
   cloudOrigin: string
   store: AccountStore
   /** Opens the approval page in the system browser. */
@@ -110,7 +116,7 @@ export class AccountSession {
 
     let grant
     try {
-      grant = await requestDeviceCode(this.deps)
+      grant = await requestDeviceCode({ ...this.deps, clientId: DESKTOP_DEVICE_CLIENT_ID })
     } catch (error) {
       log.warn('account_sign_in_ended', { end: 'error', reason: error instanceof Error ? error.message : String(error) })
       this.setState({ kind: 'invalid', reason: 'unreachable' })
@@ -125,7 +131,7 @@ export class AccountSession {
     })
     void this.deps.openExternal(grant.verificationUrl)
 
-    const result = await waitForApproval(grant, this.deps, abort.signal)
+    const result = await waitForDeviceApproval(grant, this.deps, abort.signal)
     if (this.signInAbort === abort) this.signInAbort = null
     if (result.end !== 'approved') {
       log.info('account_sign_in_ended', { end: result.end })
@@ -225,7 +231,7 @@ export class AccountSession {
       await this.deps.fetch(`${this.deps.cloudOrigin}/api/account/device-label`, {
         method: 'POST',
         headers: { ...headers, 'content-type': 'application/json' },
-        body: JSON.stringify({ deviceLabel: this.deps.deviceLabel(), clientId: DEVICE_CLIENT_ID }),
+        body: JSON.stringify({ deviceLabel: this.deps.deviceLabel(), clientId: DESKTOP_DEVICE_CLIENT_ID }),
       })
     } catch {
       // Cosmetic; the session works unnamed.

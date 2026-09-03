@@ -1,8 +1,8 @@
 <script lang="ts">
   import {
-    ArrowUpRight as OpenPageIcon,
     Copy as CopyIcon,
     Ellipsis as DotsThreeIcon,
+    ExternalLink as OpenExternalIcon,
     GitCompareArrows as CompareIcon,
     PenLine as RewriteIcon,
     RotateCw as ArrowClockwiseIcon,
@@ -116,6 +116,12 @@
       align="end"
       sideOffset={6}
       class="w-[min(23rem,calc(100vw-2rem))]"
+      onInteractOutside={(event) => {
+        // The trigger is a custom anchor, so Bits UI otherwise treats its
+        // pointer-down as an outside interaction and closes the menu before the
+        // button's click can toggle it. Keep the current state until that click.
+        if (triggerEl?.contains(event.target as Node)) event.preventDefault();
+      }}
     >
       <!-- The permanent group: the ref that names this pull request. True on
          every tab, so it holds the top row and never moves.
@@ -185,7 +191,7 @@
         <DropdownMenu.Item
           onSelect={() => void runAction(() => onOpenPage?.())}
         >
-          <OpenPageIcon size={14} />
+          <OpenExternalIcon size={14} />
           Open in browser
         </DropdownMenu.Item>
       {/if}

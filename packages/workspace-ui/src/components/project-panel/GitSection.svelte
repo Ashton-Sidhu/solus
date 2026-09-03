@@ -50,6 +50,7 @@
     isPullRequestRunning,
     type GitMenuStep,
   } from "./lib/git-action-selection";
+  import { mergeConflictDraft } from "./lib/merge-conflict-draft";
   import { repositorySetupStore } from "../../contexts/git/repository-setup.store.svelte";
   import CommitComposer from "./commit-composer/CommitComposer.svelte";
   import LinkedPullRequestRows from "./LinkedPullRequestRows.svelte";
@@ -89,6 +90,7 @@
   const isConfirmingDiscard = $derived(
     confirmingDiscard && uncommittedFileCount > 0,
   );
+  let resolvingConflicts = $state(false);
 
   const canGit = $derived(!!env.branch);
   const hasGitStatus = $derived(!!status);
@@ -311,7 +313,8 @@
             ? `Resolve ${conflictedFiles.length} conflict${conflictedFiles.length === 1 ? "" : "s"} with agent`
             : "Resolve merge conflicts with agent",
         icon: WarningCircleIcon,
-        phase: "idle",
+        phase: resolvingConflicts ? "loading" : "idle",
+        disabled: resolvingConflicts,
         run: resolveWithAgent,
       });
     }
@@ -663,26 +666,44 @@
   }
 
   async function resolveWithAgent() {
-    if (
-      !status ||
-      (!status.uncommittedChanges.mergeInProgress &&
-        conflictedFiles.length === 0)
-    )
-      return;
-    const filesToInspect =
-      conflictedFiles.length > 0
-        ? conflictedFiles
-        : status.uncommittedChanges.files;
-    const prompt = [
-      `Resolve the merge conflicts on branch ${status.branch ?? "detached HEAD"}.`,
-      filesToInspect.length > 0
-        ? "Files to inspect:"
-        : "No conflicted files are currently reported, but a merge operation is still in progress.",
-      ...filesToInspect.map((file) => `- ${file.path}`),
-      "Inspect the files, resolve the conflicts, and run the relevant checks.",
-    ].join("\n");
-    await session.startNewSessionWithPrompt(prompt, env.cwd, env.checkout);
-    requestInputFocus();
+    if (resolvingConflicts) return;
+    resolvingConflicts = true;
+    try {
+      const result = await environmentStore.refreshEnvironment(session, {
+        sourceId,
+        cwd: env.cwd,
+        level: "details",
+        force: true,
+      });
+      if (!result.ok) {
+        toasts.error(result.error ?? "Couldn't refresh the Git environment.");
+        requestInputFocus();
+        return;
+      }
+
+      const currentEnvironment = environmentStore.environmentFor(
+        session.runFor(sourceId),
+      );
+      const prompt = mergeConflictDraft(currentEnvironment.status);
+      if (!prompt) {
+        toasts.info("Merge conflicts are already resolved");
+        requestInputFocus();
+        return;
+      }
+
+      const draft = session.openSessionDraft(
+        {
+          sourceTabId: sourceId,
+          gitContext: currentEnvironment.checkout,
+          via: "click",
+        },
+        currentEnvironment.cwd,
+      );
+      draft.prompt.text = prompt;
+      requestInputFocus({ tabId: draft.id });
+    } finally {
+      resolvingConflicts = false;
+    }
   }
 </script>
 

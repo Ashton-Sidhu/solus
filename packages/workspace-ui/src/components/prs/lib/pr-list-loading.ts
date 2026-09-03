@@ -21,3 +21,15 @@ export function showsPrPageSkeleton(phase: ScopeSwitchPhase, loading: boolean, r
   if (phase !== 'idle') return true
   return loading && rowCount === 0
 }
+
+/**
+ * The list only gives width to the detail panel when that panel can render.
+ * A remembered key can outlive the row after a refresh or filter change; that
+ * stale key must not leave a narrow list beside an empty surface.
+ */
+export function showsPrDetailPanel(
+  hasPullRequest: boolean,
+  hasTarget: boolean,
+): boolean {
+  return hasPullRequest && hasTarget
+}

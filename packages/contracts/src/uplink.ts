@@ -50,12 +50,14 @@ export const uplinkDesiredStateSchema = z.enum(['linked', 'unlinked'])
 export type UplinkDesiredState = z.infer<typeof uplinkDesiredStateSchema>
 
 /** What the host's own connector reports; never leaves the host. */
-export type UplinkObservedState = 'online' | 'offline' | 'error'
+export const uplinkObservedStateSchema = z.enum(['online', 'offline', 'error'])
+export type UplinkObservedState = z.infer<typeof uplinkObservedStateSchema>
 
-export interface UplinkLinkState {
-  observed: UplinkObservedState
-  error?: string
-}
+export const uplinkLinkStateSchema = z.object({
+  observed: uplinkObservedStateSchema,
+  error: z.string().optional(),
+})
+export type UplinkLinkState = z.infer<typeof uplinkLinkStateSchema>
 
 /** A `direct` route is dialed before the `tunnel`; an `http:` route is unusable from an `https:` page. */
 export const hostRouteSchema = z.object({
@@ -150,9 +152,15 @@ export interface UplinkLinkRequest {
   directoryUrl: string
 }
 
-export type UplinkStatus =
-  | { linked: false }
-  | { linked: true; link: UplinkLinkConfig; state: UplinkLinkState }
+export const uplinkStatusSchema = z.discriminatedUnion('linked', [
+  z.object({ linked: z.literal(false) }),
+  z.object({
+    linked: z.literal(true),
+    link: uplinkLinkConfigSchema,
+    state: uplinkLinkStateSchema,
+  }),
+])
+export type UplinkStatus = z.infer<typeof uplinkStatusSchema>
 
 // ── Client shell (desktop main / cloud-served web) ───────────────────────────
 

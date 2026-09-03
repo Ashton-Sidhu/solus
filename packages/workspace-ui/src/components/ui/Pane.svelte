@@ -23,9 +23,13 @@
   // Keep it in the shell chunk so opening a draft never crosses an async
   // boundary or flashes a loading surface before the input is ready.
   import SessionDraftPane from "../session-draft/SessionDraftPane.svelte";
-  // The PR page owns its one loading state. Keep it eager so the route outlet
-  // cannot insert a second module-loading state before the data-loading state.
-  import PrsPage from "../prs/PrsPage.svelte";
+  // The PR page's own loading state, drawn while its module loads. Eagerly
+  // importing the page itself to avoid a second loading state cost the whole
+  // review stack — PrDetailPanel -> PrReviewPane -> DiffPanel + DocumentEditor,
+  // about 4 MB of Tiptap, CodeMirror and diff machinery — on every boot. The
+  // skeleton is the same silhouette the page draws for its data read, so the
+  // module load and the data load read as one state anyway.
+  import PrsPageSkeleton from "../prs/PrsPageSkeleton.svelte";
   import ListPageSkeleton from "./list-page/ListPageSkeleton.svelte";
   import RouteLoadError from "./RouteLoadError.svelte";
   import PaneChrome from "./PaneChrome.svelte";
@@ -70,8 +74,6 @@
       {onScreenshot}
       {onDesignMode}
     />
-  {:else if ref?.name === "prs"}
-    <PrsPage paneId={pane.id} />
   {:else if ref && descriptor?.component}
     {#key routeLoadAttempt}
     {#await descriptor.component()}
@@ -89,6 +91,8 @@
         <AutomationBuilderSkeleton />
       {:else if ref.name === "insights"}
         <InsightsPageSkeleton />
+      {:else if ref.name === "prs"}
+        <PrsPageSkeleton />
       {:else if ref.name === "folio"}
         <ListPageSkeleton label="Loading workspace" hasPrimaryAction />
       {:else if ref.name === "reviewMode"}

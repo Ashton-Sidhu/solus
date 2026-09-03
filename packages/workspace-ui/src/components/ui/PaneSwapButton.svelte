@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { ExternalLink as ArrowSquareOutIcon } from "@lucide/svelte";
+  import {
+    PanelLeftOpen as OpenPrimaryPaneIcon,
+    PanelRightOpen as OpenCompanionPaneIcon,
+  } from "@lucide/svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
 
@@ -52,7 +55,11 @@
             : "move-to-primary-pane"}
         aria-label={label}
       >
-        <ArrowSquareOutIcon size={iconSize} />
+        {#if isLeading}
+          <OpenCompanionPaneIcon size={iconSize} />
+        {:else}
+          <OpenPrimaryPaneIcon size={iconSize} />
+        {/if}
       </button>
     {/snippet}
   </TooltipUI.Trigger>
