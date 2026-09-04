@@ -24,9 +24,9 @@
     showRemoteLink,
     prUrl,
     onOpenRemote,
-    onChat,
+    onAskQuestion,
     onFixComments,
-    chatBusy = false,
+    askQuestionBusy = false,
     fixCommentsBusy = false,
     onRefresh,
     onLifecycleAction,
@@ -36,9 +36,9 @@
     showRemoteLink: boolean;
     prUrl: string | null;
     onOpenRemote: () => void;
-    onChat?: () => void;
+    onAskQuestion?: () => void;
     onFixComments?: () => void;
-    chatBusy?: boolean;
+    askQuestionBusy?: boolean;
     fixCommentsBusy?: boolean;
     onRefresh?: () => void;
     onLifecycleAction?: (
@@ -59,7 +59,7 @@
         (detail?.state === "closed" && allowedActions.has("reopen"))),
   );
   const hasItems = $derived(
-    !!onChat ||
+    !!onAskQuestion ||
       !!onFixComments ||
       (showRemoteLink && !!prUrl) ||
       !!prUrl ||
@@ -129,17 +129,17 @@
           Refresh
         </DropdownMenu.Item>
       {/if}
-      {#if onChat}
+      {#if onAskQuestion}
         <DropdownMenu.Item
-          disabled={chatBusy}
+          disabled={askQuestionBusy}
           class="h-auto min-h-11 items-start gap-2.5 py-2"
-          onSelect={() => runAction(onChat)}
+          onSelect={() => runAction(onAskQuestion)}
         >
           <ChatCircleQuestionIcon size={14} class="mt-0.5 shrink-0" />
           <span class="flex min-w-0 flex-1 flex-col gap-px">
-            <span>{chatBusy ? "Opening…" : "Ask a question"}</span>
+            <span>{askQuestionBusy ? "Preparing…" : "Ask a question"}</span>
             <span class="text-xs leading-[1.35] text-muted-foreground">
-              Starts a PR-aware question in the input bar.
+              Opens a PR-aware session composer with an editable question.
             </span>
           </span>
         </DropdownMenu.Item>

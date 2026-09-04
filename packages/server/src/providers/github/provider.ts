@@ -802,7 +802,7 @@ export class GitHubProvider implements ReviewProvider {
     repo: RepoRef,
     filter?: PrFilter,
     page = 1,
-    perPage = 100,
+    perPage = 30,
   ): Promise<import('@solus/contracts/providers').PrListPage> {
     return this.withClient('list_pull_requests', repo.host, async (client) => {
       const { data } = await client.rest.pulls.list({

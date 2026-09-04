@@ -3973,7 +3973,7 @@ export class WorkspaceContext {
       await this.window.setViewMode('editor')
     }
     const ctx = opts.ctx ?? this.ctx
-    const pr = await this.openPrReviewRoute(number, title, ctx, {
+    await this.openPrReviewRoute(number, title, ctx, {
       tab: opts.tab,
       via: opts.via,
       serverId: opts.serverId,
@@ -4026,17 +4026,24 @@ export class WorkspaceContext {
     },
   ): SessionDraft {
     const serverId = opts.serverId ?? this.router.params('prReview')?.serverId ?? this.fallbackServerId
+    const workingDirectory = worktreeProjectRoot(pr.worktreePath)
+    const gitContext = prReviewGitCheckout(pr)
     const draft = this.openSessionDraft(
       {
         target: opts.target,
         freshTask: opts.task === 'new',
         withoutTask: opts.task === 'none',
-        gitContext: prReviewGitCheckout(pr),
+        gitContext,
         serverId,
         via: 'click',
       },
-      worktreeProjectRoot(pr.worktreePath),
+      workingDirectory,
     )
+    // `freshTask` starts from clean defaults before the explicit checkout is
+    // applied, while taskless drafts can inherit a source run. Set both here so
+    // the two PR composer kinds finish with the same prepared destination.
+    draft.run.workingDirectory = workingDirectory
+    draft.run.gitContext = gitContext
     draft.run.serverId = serverId
     draft.run.taskServerId = serverId
     draft.run.projectGroupPath = null
@@ -4069,8 +4076,8 @@ export class WorkspaceContext {
     this.router.close('prDiff')
   }
 
-  /** Leave the review for the list it was opened from. Its agent chat remains an
-   *  ordinary workspace tab. */
+  /** Leave the review for the list it was opened from. Any session already
+   *  started from its composer remains an ordinary workspace tab. */
   exitPrReview(): void {
     this.router.close('prDiff')
     this.openPrs(this.router.params('prReview')?.cwd ?? null)

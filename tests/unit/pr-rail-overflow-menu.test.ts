@@ -21,6 +21,13 @@ const workspace = readFileSync(
   ),
   'utf8',
 )
+const sessionDraft = readFileSync(
+  new URL(
+    '../../packages/workspace-ui/src/contexts/workspace/session-draft.svelte.ts',
+    import.meta.url,
+  ),
+  'utf8',
+)
 const keybindings = readFileSync(
   new URL('../../packages/workspace-ui/src/lib/keybindings/manifest.ts', import.meta.url),
   'utf8',
@@ -33,25 +40,31 @@ describe('pull request rail overflow menu', () => {
     expect(menu).toContain('Ask a question')
     expect(menu).not.toContain('Explain this PR')
     expect(menu).toContain('Draft fixes for comments')
-    expect(menu).toContain('Starts a PR-aware question in the input bar.')
-    expect(feed).toContain('{onChat}')
+    expect(menu).toContain('Opens a PR-aware session composer with an editable question.')
+    expect(feed).toContain('{onAskQuestion}')
     expect(feed).toContain('onFixComments={feedbackCount > 0 && onAddressComments')
   })
 
   test('prepares the checkout before routing PR input into a session composer', () => {
-    expect(pane).toContain('async function openPrChat(draft?: string)')
-    expect(pane).toContain('async function openFixDraft(prompt: string, title: string)')
+    expect(pane).toContain('async function openPrComposer(prompt?: string)')
+    expect(pane).toContain('async function openFixDraft(prompt: string)')
     expect(pane).toMatch(
       /const sourceContext = await review\.ensureCheckout\(\);[\s\S]*?session\.openPrReviewDraft\(sourceContext/,
     )
-    expect(pane).toContain('prompt: draft')
+    expect(pane).toContain('const progress = toasts.progress(')
+    expect(pane).toContain('progress.update("Opening session composer…")')
+    expect(pane).toContain('progress.success(')
+    expect(pane).toContain('progress.error(')
     expect(pane).toContain('prompt,')
-    expect(pane).toContain('task: "new"')
+    expect(pane).toContain('prompt ? "question" : "checkout"')
+    expect(pane).toContain('openPreparedComposer(prompt, "new", "fix")')
     expect(pane).not.toContain('session.sendMessage')
     expect(pane).not.toContain('session.openPrReviewChat')
     expect(workspace).toContain('openPrReviewDraft(')
     expect(workspace).toContain('const draft = this.openSessionDraft(')
     expect(workspace).toContain('draft.prReview = pr')
+    expect(workspace).toContain('prReview: spec.prReview ?? null')
+    expect(sessionDraft).toContain('prReview: this.prReview')
     expect(workspace).not.toContain('startPrCommentsFixSession')
     expect(workspace).not.toContain('startPrCheckFixSession')
     expect(submitReviewModal).toContain('Submit & draft fixes')
@@ -59,9 +72,12 @@ describe('pull request rail overflow menu', () => {
   })
 
   test('keeps the explicit checkout command separate from prompt drafting', () => {
-    expect(pane).toContain('onclick={() => void openPrChat()}')
-    expect(pane).toContain('onChat={() => void openPrChat(buildPrQuestionDraft(target))}')
-    expect(pane).toContain('{openingChat ? "Preparing…" : "Check out"}')
+    expect(pane).toContain('onclick={() => void openPrComposer()}')
+    expect(pane).toContain('onAskQuestion={() => void openPrComposer(buildPrQuestionDraft(target))}')
+    expect(pane).toContain('{preparingComposer ? "Preparing…" : "Check out"}')
+    expect(pane).not.toContain('openPrChat')
+    expect(menu).not.toContain('onChat')
+    expect(feed).not.toContain('chatBusy')
   })
 
   test('includes the host link commands and remains usable at phone width', () => {

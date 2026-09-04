@@ -95,7 +95,7 @@
      reached. Beside a companion the band is legally ~40rem, and in full screen
      the traffic-light inset spends another ~6rem of it, so the widest slot
      that can give does: under 40rem the Check out action keeps its glyph and
-     drops its label (see `chatButton` in PrReviewPane). The number never gives
+     drops its label (see `checkoutButton` in PrReviewPane). The number never gives
      — in this shape the band is the only place the pull request is named.
 
      ── The record rung (`@max-[30rem]/band`) ──

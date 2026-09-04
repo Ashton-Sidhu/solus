@@ -81,8 +81,8 @@
     onFixCheck,
     onGenerateGuide,
     generationStatus,
-    onChat,
-    chatBusy = false,
+    onAskQuestion,
+    askQuestionBusy = false,
     onJump,
     onOpenCommit,
     onRefreshThreads,
@@ -106,18 +106,18 @@
     stackChain?: number[];
     /** Render the Activity header's remote PR shortcut for embedded previews. */
     showRemoteLink?: boolean;
-    /** The host has a checked-out PR worktree ready for the fix session. */
+    /** The host has a checked-out PR worktree ready for the fix composer. */
     addressCommentsReady?: boolean;
     onAddressComments?: () => Promise<void>;
-    /** Prepare the PR checkout and put one failing check in a new session input. */
+    /** Prepare the PR checkout and put one failing check in a new composer. */
     onFixCheck?: (check: CheckItem) => Promise<void>;
     onGenerateGuide?: () => void;
     /** Immediate parent-owned state while the PR checkout is being prepared.
      *  The durable store takes over as soon as the request is queued. */
     generationStatus?: PrGuideStatus;
-    onChat?: () => void;
-    /** The shared PR chat is being created or attached to its checkout. */
-    chatBusy?: boolean;
+    onAskQuestion?: () => void;
+    /** The question composer is waiting for its PR checkout. */
+    askQuestionBusy?: boolean;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Open the diff scoped to one commit's changes. */
@@ -1170,8 +1170,8 @@
     {detail}
     {showRemoteLink}
     {prUrl}
-    {onChat}
-    {chatBusy}
+    {onAskQuestion}
+    {askQuestionBusy}
     onFixComments={feedbackCount > 0 && onAddressComments ? addressComments : undefined}
     fixCommentsBusy={addressingComments}
     onOpenRemote={openPr}

@@ -62,7 +62,7 @@
   //
   // The surface mounts the moment a PR is clicked, before its worktree has been
   // fetched and checked out: `pr` is null until then, and everything that reads
-  // the checkout — the stack, the guide, the diff, the interdiff, chat — waits
+  // the checkout — the stack, the guide, the diff, the interdiff, PR handoffs — waits
   // for it. Activity does not: it is provider-backed, so it renders from
   // `target` against `targetCtx` and is usually filled from PrsStore's prefetch
   // by first paint. One mounted component across both phases is what keeps the
@@ -134,7 +134,7 @@
   const stacks = pullRequests.stacks;
 
   let activeChatTabId = $state<string | null>(null);
-  let openingChat = $state(false);
+  let preparingComposer = $state(false);
   $effect(() => {
     activeChatTabId = chatTabId;
   });
@@ -144,7 +144,7 @@
   const projectCtx = () => targetCtx ?? session.ctx;
   // DiffPanel still needs a tab id for its reusable session-oriented plumbing,
   // but this embedded PR diff is owned by the review worktree. Keep the id
-  // stable for the lifetime of the review so attaching Chat cannot reset the
+  // stable for the lifetime of the review so starting related work cannot reset the
   // diff state, refresh turn snapshots, or subscribe it to a new transcript.
   const reviewTabId = untrack(() => activeChatTabId ?? session.activeTabId);
   const getApi = () => api;
@@ -688,63 +688,81 @@
     requestInputFocus();
   }
 
-  // Checkout progress belongs to the PR surface that started it. Only after the
-  // worktree is ready do we replace that surface with a composer, so the draft
-  // never points at a temporary directory and a failed checkout leaves a clear
-  // retry path instead of an empty session.
-  async function openPrChat(draft?: string) {
-    if (!pr || openingChat) return;
-    const targetPane = paneId ?? session.router.focusedPaneId;
-    openingChat = true;
-    try {
-      const sourceContext = await review.ensureCheckout();
-      session.openPrReviewDraft(sourceContext, {
-        prompt: draft,
-        serverId,
-        target: targetPane,
-        task: "none",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toasts.error("Couldn't prepare the PR checkout", {
-        description: message,
-      });
-    } finally {
-      openingChat = false;
-    }
-    requestInputFocus();
-  }
+  type PrComposerIntent = "checkout" | "question" | "fix";
 
-  async function openFixDraft(prompt: string, title: string) {
+  // Checkout progress belongs to the PR surface that started it. One live toast
+  // names each observable phase, then becomes the terminal ready/error result.
+  // Only a prepared worktree is routed into the composer, so a failure leaves
+  // the PR and its initiating action in place for a retry.
+  async function openPreparedComposer(
+    prompt: string | undefined,
+    task: "new" | "none",
+    intent: PrComposerIntent,
+  ) {
     if (!pr) return;
     const targetPane = paneId ?? session.router.focusedPaneId;
+    const hadCheckout = review.sourceContext !== null;
+    const progress = toasts.progress(
+      hadCheckout
+        ? "Opening session composer…"
+        : `Preparing PR #${target.number} worktree…`,
+    );
     try {
       const sourceContext = await review.ensureCheckout();
+      if (!hadCheckout) progress.update("Opening session composer…");
       session.openPrReviewDraft(sourceContext, {
         prompt,
         serverId,
         target: targetPane,
-        task: "new",
+        task,
       });
+      progress.success(
+        intent === "fix"
+          ? "Fix composer ready"
+          : intent === "question"
+            ? "Question composer ready"
+            : "PR composer ready",
+        {
+          description: `PR #${target.number} · ${sourceContext.branch}`,
+        },
+      );
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      toasts.error(`Couldn't prepare ${title}`, { description: message });
+      progress.error(
+        intent === "fix"
+          ? "Couldn't prepare the fix checkout"
+          : "Couldn't prepare the PR checkout",
+        {
+          description: error instanceof Error ? error.message : String(error),
+        },
+      );
     }
     requestInputFocus();
   }
 
+  async function openPrComposer(prompt?: string) {
+    if (preparingComposer) return;
+    preparingComposer = true;
+    try {
+      await openPreparedComposer(
+        prompt,
+        "none",
+        prompt ? "question" : "checkout",
+      );
+    } finally {
+      preparingComposer = false;
+    }
+  }
+
+  async function openFixDraft(prompt: string) {
+    await openPreparedComposer(prompt, "new", "fix");
+  }
+
   async function openFixComments(feedback?: PrFixFeedback) {
-    await openFixDraft(
-      buildPrCommentsFixPrompt(target, feedback),
-      `Fix PR #${target.number}`,
-    );
+    await openFixDraft(buildPrCommentsFixPrompt(target, feedback));
   }
 
   async function openFixCheck(check: Parameters<typeof buildPrCheckFixPrompt>[1]) {
-    await openFixDraft(
-      buildPrCheckFixPrompt(target, check),
-      `Fix check for PR #${target.number}`,
-    );
+    await openFixDraft(buildPrCheckFixPrompt(target, check));
   }
 
   function exit() {
@@ -860,7 +878,7 @@
 {/snippet}
 
 <!-- The one filled surface in either header shape: it gives the pull request a
-     worktree of its own and opens the session on it. It is the shared Button in
+     worktree of its own and opens a session composer on it. It is the shared Button in
      its compact size, so it carries the same accent fill, rounded-rectangle
      radius and press response as the document and work headers' own primary
      action — a full pill read as a different family of button from every other
@@ -877,21 +895,19 @@
      the ✕ past the pane's edge, under the pane beside it. The rung is named
      against the band, so in the page shape — where no band is declared — it
      never fires and the label stays. -->
-{#snippet chatButton()}
+{#snippet checkoutButton()}
   <Button
     type="button"
     size="xs"
     class="ml-[5px] h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 pointer-fine:[.is-laptop-display_&]:h-6 pointer-fine:[.is-laptop-display_&]:px-2 @max-[40rem]/band:px-2"
-    onclick={() => void openPrChat()}
-    disabled={openingChat || !pr}
+    onclick={() => void openPrComposer()}
+    disabled={preparingComposer || !pr}
     aria-label="Check out this pull request"
-    title={openingChat
+    title={preparingComposer
       ? "Preparing checkout…"
-      : activeChatTabId
-        ? "Focus the Solus chat on this pull request's checkout"
-        : "Check out this pull request in its own worktree and open a Solus chat on it"}
+      : "Check out this pull request in its own worktree and open a session composer on it"}
   >
-    {#if openingChat}
+    {#if preparingComposer}
       <CircleNotchIcon
         class="size-3 animate-spin [animation-duration:0.9s]"
         aria-hidden="true"
@@ -900,12 +916,12 @@
       <GitPullRequestIcon class="size-3" aria-hidden="true" />
     {/if}
     <span class="@max-[40rem]/band:hidden">
-      {openingChat ? "Preparing…" : "Check out"}
+      {preparingComposer ? "Preparing…" : "Check out"}
     </span>
   </Button>
 {/snippet}
 
-<!-- The overflow both header shapes hand their once-a-session commands to: the
+<!-- The overflow both header shapes hand their occasional commands to: the
      branch name leads it, the tab's own commands sit under the rule. -->
 {#snippet overflowMenu()}
   <PrPanelOverflowMenu
@@ -936,11 +952,11 @@
         tabs={panelTabs}
     >
       <!-- The band keeps only the one action you take in the moment — Check
-           out, which gives the pull request a worktree and a Solus session.
+           out, which gives the pull request a worktree and a session composer.
            Refresh and the external host page live in the overflow, and the
            check state is read on Activity. -->
       {#snippet actions()}
-        {@render chatButton()}
+        {@render checkoutButton()}
       {/snippet}
     </PrPanelHeader>
   {:else if !headless}
@@ -957,7 +973,7 @@
       {maximized}
     >
       {#snippet actions()}
-        {@render chatButton()}
+        {@render checkoutButton()}
         <!-- The same overflow the panel band carries, so refresh, external
              host navigation, and guide rewrite (with its stale dot) are one
              object in one place whichever shape the review takes. -->
@@ -1183,8 +1199,8 @@
           onRefreshThreads={() => loadThreads(true)}
           {onRefreshTarget}
           showRemoteLink
-          onChat={() => void openPrChat(buildPrQuestionDraft(target))}
-          chatBusy={openingChat}
+          onAskQuestion={() => void openPrComposer(buildPrQuestionDraft(target))}
+          askQuestionBusy={preparingComposer}
           onJump={jumpToDiff}
           onOpenCommit={openCommitDiff}
           masthead={headless || embedded ? undefined : detailMasthead}
