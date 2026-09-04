@@ -14,7 +14,7 @@
   import Dropdown from "../ui/Dropdown.svelte";
   import DocumentPromptEditor from "../editor/DocumentPromptEditor.svelte";
   import { Input } from "../ui/input";
-  import LabelChip from "../ui/LabelChip.svelte";
+  import LabelChip from "../ui/labels/LabelChip.svelte";
   import { getWorkspaceContext } from "../../contexts";
   import type { AgentId } from "@solus/contracts/types";
   import { PRIORITY_META, STATUS_META, dueDateMeta } from "./lib/tasks-api";

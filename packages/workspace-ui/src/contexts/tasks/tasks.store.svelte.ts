@@ -384,6 +384,16 @@ export class TasksStore {
     ]
   }
 
+  /** Every label in use across a project's tasks — or across the inbox for a
+   *  task with no project — in name order. What a label picker offers beside
+   *  the labels the record already carries. */
+  knownLabels(projectKey: string | null | undefined): string[] {
+    const tasks = projectKey ? this.tasksForProject(projectKey) : this.inbox
+    return Array.from(new Set(tasks.flatMap((task) => task.labels))).sort((a, b) =>
+      a.localeCompare(b),
+    )
+  }
+
   taskForSession(sessionId: string | null | undefined): Task | null {
     if (!sessionId) return null
     const taskId = this.taskIdBySessionId.get(sessionId)

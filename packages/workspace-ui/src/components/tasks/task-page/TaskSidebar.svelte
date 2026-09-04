@@ -15,7 +15,7 @@
     type TaskUpstreamState,
   } from "./lib/task-upstream";
   import { Switch } from "../../ui/switch";
-  import TaskLabelMenu from "./TaskLabelMenu.svelte";
+  import LabelPicker from "../../ui/labels/LabelPicker.svelte";
 
   interface Props {
     task: Task;
@@ -98,6 +98,9 @@
 
   const status = $derived(STATUS_META[task.status]);
   const bars = $derived(priorityBars(task.priority));
+  // Task labels are names alone; the picker draws them in the accent.
+  const taskLabels = $derived(task.labels.map((name) => ({ name })));
+  const labelCandidateOptions = $derived(labelCandidates.map((name) => ({ name })));
 </script>
 
 
@@ -192,10 +195,12 @@
     >
       <span class="{ROW_LABEL} {sheet ? 'flex-none' : ''}">Labels</span>
       <span class="flex min-w-0 flex-1 items-center {sheet ? '' : 'pl-2'}">
-        <TaskLabelMenu
-          labels={task.labels}
-          candidates={labelCandidates}
-          {sheet}
+        <LabelPicker
+          labels={taskLabels}
+          candidates={labelCandidateOptions}
+          allowCreate
+          align={sheet ? "end" : "start"}
+          menuLabel="Edit task labels"
           onSet={canEditLabels ? (labels) => onSave({ labels }) : undefined}
         />
       </span>

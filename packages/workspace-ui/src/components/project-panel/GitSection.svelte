@@ -59,8 +59,10 @@
   interface Props {
     /** The tab or draft whose run this section describes — see `ProjectPanel`. */
     sourceId: string;
+    /** Hidden mounted tabs and a closed project panel must not poll the host. */
+    active: boolean;
   }
-  let { sourceId }: Props = $props();
+  let { sourceId, active }: Props = $props();
 
   const environmentStore = getSessionEnvironmentStore();
   const session = getWorkspaceContext();
@@ -813,6 +815,8 @@
       serverId={prServerId}
       api={prApi}
       checks={prChecks}
+      {active}
+      pushCompleted={actions.lastResult?.push.status === "pushed"}
       onMerged={() => void loadOpenPrs()}
     />
   {/if}

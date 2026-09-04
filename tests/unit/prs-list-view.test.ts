@@ -4,7 +4,6 @@ import { pullRequestFixture } from './__fixtures__/pull-request'
 import {
   OPEN_PR_STATUS_KEYS,
   emptyListView,
-  labelChipColor,
   prFetchScope,
   prInboxGroups,
   prRow,
@@ -318,18 +317,5 @@ describe('PR list author avatars', () => {
       id: 'hubot',
       initials: 'HU',
     })
-  })
-})
-
-describe('label chips take the host colour as a pastel', () => {
-  test('turns bare GitHub hex into a colour and leaves a CSS colour alone', () => {
-    // WHY: GitHub reports `0e8a16`, which as a style value paints nothing, so
-    // the chip would silently lose its tint. A provider that already reports
-    // a CSS colour must not be given a second `#`; an empty colour still gets
-    // a tint rather than an invalid one.
-    expect(labelChipColor('0e8a16')).toBe('#0e8a16')
-    expect(labelChipColor('#0e8a16')).toBe('#0e8a16')
-    expect(labelChipColor('rgb(1, 2, 3)')).toBe('rgb(1, 2, 3)')
-    expect(labelChipColor('')).toBe('var(--muted-foreground)')
   })
 })

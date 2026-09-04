@@ -250,7 +250,9 @@ export interface SolusAPI {
   prRequestReviewers(ctx: IpcContext, number: number, logins: string[]): Promise<PrReviewer[]>
   prRemoveRequestedReviewer(ctx: IpcContext, number: number, login: string): Promise<PrReviewer[]>
   prListLabelCandidates(ctx: IpcContext, number: number): Promise<PrLabel[]>
-  prSetLabels(ctx: IpcContext, number: number, names: string[]): Promise<PrLabel[]>
+  /** Replace the label set. Answers the whole pull request, the way every
+   *  other write does, so one apply path keeps list rows and detail in step. */
+  prSetLabels(ctx: IpcContext, number: number, names: string[]): Promise<PullRequest>
   prUpdateLifecycle(ctx: IpcContext, number: number, action: Exclude<PrLifecycleAction, 'merge'>, expectedHeadSha: string): Promise<PullRequest>
   prSubmitReview(ctx: IpcContext, number: number, review: DraftReview): Promise<void>
   prAddIssueComment(ctx: IpcContext, number: number, body: string): Promise<void>

@@ -1,9 +1,15 @@
-import type { ReviewDraftComment } from '@solus/contracts/review'
 import type { CheckItem } from '@solus/contracts/checks-types'
+import type { ReviewDraftComment } from '@solus/contracts/review'
 
 export interface PrFixFeedback {
   body: string
   comments: ReviewDraftComment[]
+}
+
+export function buildPrQuestionDraft(
+  pr: { number: number; title: string },
+): string {
+  return `Answer my question about PR #${pr.number}: ${promptField(pr.title)}.\n\nQuestion: `
 }
 
 export function buildPrCommentsFixPrompt(

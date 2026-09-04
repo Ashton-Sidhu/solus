@@ -139,7 +139,7 @@
           <span class="flex min-w-0 flex-1 flex-col gap-px">
             <span>{chatBusy ? "Opening…" : "Ask a question"}</span>
             <span class="text-xs leading-[1.35] text-muted-foreground">
-              Opens a session that knows which pull request you mean.
+              Starts a PR-aware question in the input bar.
             </span>
           </span>
         </DropdownMenu.Item>
@@ -150,7 +150,7 @@
           onSelect={() => runAction(onFixComments)}
         >
           <HammerIcon size={14} />
-          {fixCommentsBusy ? "Preparing…" : "Fix comments in a session"}
+          {fixCommentsBusy ? "Preparing…" : "Draft fixes for comments"}
         </DropdownMenu.Item>
       {/if}
 

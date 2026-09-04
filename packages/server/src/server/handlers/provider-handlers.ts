@@ -690,14 +690,17 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prSetLabels', async (args) => {
     const [ctx, number, requestedNames] = args
     const names = [...new Set(requestedNames.map((name) => name.trim()).filter(Boolean))]
-    const labels = await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+    return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
       if (!detail.viewerPermissions.manageLabels) throw new Error('You do not have permission to manage labels.')
-      return provider.review.setLabels(repo, number, names)
+      await provider.review.setLabels(repo, number, names)
+      // Announced like a lifecycle change, with the whole pull request: the
+      // list row and every other client draw labels too.
+      const detailAfterWrite = await pullRequest.readFresh()
+      const projectRoot = projectScopeOf(ctx.session)
+      if (projectRoot) deps.events.broadcast('pr.lifecycleChanged', { projectRoot, detail: detailAfterWrite })
+      return detailAfterWrite
     })
-    const projectRoot = projectScopeOf(ctx.session)
-    if (projectRoot) deps.events.broadcast('pr.labelsChanged', { projectRoot, number, labels })
-    return labels
   })
 
   server.register('prUpdateLifecycle', async (args) => {

@@ -14,6 +14,7 @@ import type {
 } from '@solus/contracts/task-types'
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { Work } from '@solus/contracts/types'
+import { z } from 'zod'
 import { sessionDisplayName } from '../../../../lib/sessionUtils'
 import { labelChangeText } from '../../../../lib/label-activity'
 import { PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
@@ -418,15 +419,20 @@ export function eventLine(event: TaskEvent): TaskEventLine {
   }
 }
 
-/** Decode the exact JSON snapshots written for every label event. */
-function eventLabels(value: string | null | undefined): string[] {
-  if (value == null) throw new TypeError('Label activity requires a label snapshot')
-  const labels: unknown = JSON.parse(value)
-  if (!Array.isArray(labels) || !labels.every((label) => typeof label === 'string')) {
-    throw new TypeError('Label activity snapshot must be a string array')
+/** Decode the JSON snapshot a label event carries. Null when the row has none
+ *  or it is not a list of names: this runs on a render path, so a bad row has
+ *  to read as a plain "changed the labels" rather than take the page down. */
+function eventLabels(value: string | null | undefined): string[] | null {
+  if (value == null) return null
+  try {
+    const parsed = labelSnapshotSchema.safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : null
+  } catch {
+    return null
   }
-  return labels
 }
+
+const labelSnapshotSchema = z.array(z.string())
 
 function labelsChangedText(
   who: string,
@@ -435,11 +441,13 @@ function labelsChangedText(
 ): string {
   const before = eventLabels(fromValue)
   const after = eventLabels(toValue)
+  if (!before || !after) return `${who} changed the labels`
 
   const beforeNames = new Set(before)
   const afterNames = new Set(after)
   const added = after.filter((label) => !beforeNames.has(label))
   const removed = before.filter((label) => !afterNames.has(label))
+  if (!added.length && !removed.length) return `${who} changed the labels`
   return labelChangeText(who, added, removed)
 }
 

@@ -666,10 +666,10 @@
                     size="xs"
                     disabled={fixingCheckId !== null}
                     class="h-6 shrink-0 cursor-pointer gap-1 rounded-md px-1.5 text-xs font-medium text-(--solus-art-negative) transition-[background-color,color,scale] hover:bg-[color:color-mix(in_srgb,var(--solus-art-negative)_10%,transparent)] hover:text-(--solus-art-negative) focus-visible:ring-[color:color-mix(in_srgb,var(--solus-art-negative)_24%,transparent)] active:scale-[0.96]"
-                    aria-label={`Fix failed check ${item.name} in an agent session`}
+                    aria-label={`Draft a fix for failed check ${item.name} in a new session`}
                     title={fixingCheckId === item.id
                       ? `Preparing a fix session for ${item.name}`
-                      : `Fix ${item.name} in an agent session`}
+                      : `Draft a fix for ${item.name} in a new session`}
                     onclick={() => onFixCheck(item)}
                   >
                     {#if fixingCheckId === item.id}

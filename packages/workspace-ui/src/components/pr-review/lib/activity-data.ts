@@ -75,6 +75,14 @@ export function hasVisibleBody(body: string): boolean {
   return body.replace(/<!--[\s\S]*?-->/g, '').trim().length > 0
 }
 
+/** Count body-bearing conversation entries without treating label events as feedback. */
+export function visibleConversationCount(items: PrConversationItem[]): number {
+  return items.reduce(
+    (count, item) => count + (item.kind !== 'label' && hasVisibleBody(item.body) ? 1 : 0),
+    0,
+  )
+}
+
 /**
  * A review verdict worth promoting to a timeline milestone. Non-null only for
  * approvals and change requests — COMMENTED/DISMISSED reviews stay ordinary

@@ -85,24 +85,39 @@ const NO_CHECKS = {
 
 describe('PrsStore lookups are scoped to one project', () => {
   test('a label write updates the indexed pull request and its visible list row', async () => {
-    // WHY: the detail picker and PR list stay mounted together. A successful
-    // label edit must update both without replacing the shared PR object.
+    // WHY: the detail picker and PR list stay mounted together. A label edit
+    // is applied through the one path every write and host broadcast takes,
+    // so the shared PR object and the row it is listed on agree without a
+    // second update path to keep in step.
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const store = new PrsStore()
+    const labels = [{ name: 'bug', color: 'd73a4a' }]
+    let commentReads = 0
     const api = asHostApi({
       prList: async (): Promise<PrListPage> => ({ items: [pr(65)], page: 1, hasMore: false }),
-      prSetLabels: async () => [{ name: 'bug', color: 'd73a4a' }],
+      prSetLabels: async () => pr(65, { labels }),
+      prListComments: async () => {
+        commentReads++
+        return []
+      },
       ...NO_CHECKS,
     })
     const project = store.get(api, 'host-a', ctxFor('/repos/a'))
     await project.list()
     const pullRequest = project.get(65)
+    const held = project.items[0]
+    await pullRequest.loadComments()
 
     await pullRequest.setLabels(['bug'])
 
-    expect(pullRequest.labels).toEqual([{ name: 'bug', color: 'd73a4a' }])
-    expect(project.items[0].labels).toEqual([{ name: 'bug', color: 'd73a4a' }])
+    expect(pullRequest.labels).toEqual(labels)
+    expect(held.labels).toEqual(labels)
+    expect(project.items[0]).toBe(held)
+    // The host wrote a labeled row into the conversation, so the next read
+    // must go and look rather than answer from before the write.
+    await pullRequest.loadComments()
+    expect(commentReads).toBe(2)
   })
 
   test('a project answers only for its own pull requests, whatever another project last listed', async () => {

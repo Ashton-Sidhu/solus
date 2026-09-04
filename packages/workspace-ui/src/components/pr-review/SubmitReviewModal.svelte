@@ -15,7 +15,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { useKeybinding, useScope } from "../../lib/keybindings/use-keybinding.svelte";
   import { Button } from "../ui/button";
-  import type { PrFixFeedback } from "../../contexts/workspace/pr-fix-session";
+  import type { PrFixFeedback } from "./lib/pr-input-drafts";
 
   // The submit modal (decision #14): pick an event, write a summary body, review
   // the read-only queued comments, and fire one prSubmitReview anchored to the
@@ -30,7 +30,7 @@
     onClose,
     onSubmitted,
     submitReview,
-    onSendToFixAgent,
+    onDraftFixes,
     allowedVerdicts,
   }: {
     pr: PrReviewTarget;
@@ -42,7 +42,7 @@
     /** Submits the draft against the PR's own project. Injected so the modal
      *  composes a review without owning where one is posted. */
     submitReview: (review: DraftReview) => Promise<void>;
-    onSendToFixAgent?: (feedback: PrFixFeedback) => Promise<void>;
+    onDraftFixes?: (feedback: PrFixFeedback) => void | Promise<void>;
     allowedVerdicts: PrReviewVerdict[];
   } = $props();
 
@@ -107,7 +107,7 @@
     }
   });
 
-  async function submit(sendToFixAgent = false) {
+  async function submit(draftFixes = false) {
     submitting = true;
     const feedback = {
       body: body.trim(),
@@ -137,12 +137,12 @@
     } finally {
       submitting = false;
     }
-    if (sendToFixAgent) {
+    if (draftFixes) {
       try {
-        await onSendToFixAgent?.(feedback);
+        await onDraftFixes?.(feedback);
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        toasts.error("Review submitted, but the fix agent couldn't open", {
+        toasts.error("Review submitted, but the fix draft couldn't be prepared", {
           description: message,
         });
       }
@@ -320,7 +320,7 @@
           onclick={() => void submit(true)}
         >
           <WarningCircleIcon data-icon="inline-start" weight="fill" />
-          {submitting ? "Submitting…" : "Submit & send to fix agent"}
+          {submitting ? "Submitting…" : "Submit & draft fixes"}
         </Button>
       {/if}
     </footer>

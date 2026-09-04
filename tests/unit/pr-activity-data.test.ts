@@ -4,6 +4,7 @@ import {
   buildActivityTimeline,
   filterActivityTimeline,
   prLabelActivityText,
+  visibleConversationCount,
 } from '@solus/workspace-ui/components/pr-review/lib/activity-data'
 
 describe('PR activity timeline conversation', () => {
@@ -85,5 +86,20 @@ describe('PR label activity', () => {
     const timeline = buildActivityTimeline([], [], [added])
     expect(timeline.map((event) => event.kind)).toEqual(['label'])
     expect(filterActivityTimeline(timeline, 'conversation', false)).toEqual([])
+  })
+
+  test('does not count label events as feedback with a body', () => {
+    // WHY: Label events share the provider activity list with comments but do
+    // not have a body. Reading one as feedback must not crash the PR surface.
+    expect(visibleConversationCount([
+      added,
+      {
+        id: 'comment-1',
+        kind: 'comment',
+        author: 'reviewer',
+        body: 'Please update this.',
+        createdAt: '2026-01-01T12:00:00Z',
+      },
+    ])).toBe(1)
   })
 })

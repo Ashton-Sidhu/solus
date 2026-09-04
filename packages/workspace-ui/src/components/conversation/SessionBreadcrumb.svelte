@@ -181,9 +181,40 @@
   const statusIcon = $derived(getAttentionIcon(current?.attention ?? null));
   const currentStatusColor = $derived(statusColor(currentStatus));
 
-  // The project crumb is a click, not a hover: it is the one move that changes
-  // everything under it, so it must not happen on the way past.
+  // Every crumb is a click, not a hover: a menu that opens on the way past
+  // fights the click that would toggle it, and on the mac editor the drag
+  // region between crumbs swallows the pointer, so hover could not even be
+  // trusted to close it. One menu at a time; a click elsewhere or Esc closes it.
   let menu = $state<"project" | "task" | "session" | null>(null);
+  let bandEl = $state<HTMLElement | null>(null);
+
+  function toggleMenu(kind: "project" | "session") {
+    menu = menu === kind ? null : kind;
+  }
+
+  // Dismissal lives on the document, not on a scrim: a click on another crumb
+  // has to open that crumb's menu in the same press, and a click on the
+  // transcript has to reach it. Esc runs in the capture phase so it wins over
+  // the page's own Esc handler and does not close the pane underneath.
+  $effect(() => {
+    if (!menu) return;
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target instanceof Node && bandEl?.contains(event.target)) return;
+      menu = null;
+    };
+    const onKeydown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      menu = null;
+      requestInputFocus();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeydown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeydown, true);
+    };
+  });
   // The leaf crumb edits its own name in place, mirroring the sidebar rows: set
   // to the leaf's tabId while its label is a live input rather than text.
   let renamingTabId = $state<string | null>(null);
@@ -412,6 +443,7 @@
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
+    bind:this={bandEl}
     class="workspace-titlebar crumb-band @container z-[3] flex items-center gap-px text-workspace-chrome {variant ===
  'inline'
  ? 'crumb-band--inline relative h-full min-w-0 flex-1 px-1'
@@ -420,27 +452,30 @@
       ? "padding-left:max(1.125rem, var(--solus-chrome-lead-inset, 0px))"
       : undefined}
   >
+    <!-- no-drag on the whole crumb, not only its buttons: on the mac editor the
+         band is a window-drag region, and the separators, the gaps, and the
+         edges of each item would otherwise belong to the window rather than
+         to the pointer — dead spots a click could land on and lose. The empty
+         run to the right of the crumb is what drags the window. -->
     <Breadcrumb.Root
       aria-label="Location"
-      class="flex min-w-0 shrink items-center"
+      class="no-drag flex min-w-0 shrink items-center"
     >
       <!-- The band, not the list, owns the type scale and the neutral colour:
            each crumb states its own, and the leaf stays full-contrast. -->
       <Breadcrumb.List
         class="min-w-0 flex-nowrap gap-px text-foreground"
       >
-        <Breadcrumb.Item
-          class="relative shrink-0"
-          onmouseleave={() => (menu = null)}
-        >
+        <Breadcrumb.Item class="relative shrink-0">
           <Breadcrumb.Link class="{CRUMB_BUTTON} gap-[0.4375rem] pl-[0.3125rem]">
             {#snippet child({ props })}
               <button
                 {...props}
                 type="button"
                 title="Switch project"
+                aria-haspopup="menu"
                 aria-expanded={menu === "project"}
-                onclick={() => (menu = menu === "project" ? null : "project")}
+                onclick={() => toggleMenu("project")}
               >
                 <ProjectFavicon projectRoot={projectKey} class="size-4" />
                 <span class="whitespace-nowrap text-muted-foreground"
@@ -450,10 +485,7 @@
             {/snippet}
           </Breadcrumb.Link>
           {#if menu === "project"}
-            <!-- no-drag: the band is a window-drag region on the mac editor,
-                 which swallows the pointer over anything that is not a control
-                 and reads as a mouseleave that closes the menu. -->
-            <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
+            <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
               <div class="menu-surface w-[min(18.25rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(15.25rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={MENU_HEADING}>Projects</div>
                 {#each sidebarStore.projectSummaries as project (project.projectKey)}
@@ -518,24 +550,21 @@
         >
 
         {#if leafLabels.task}
-          <!-- Hover to switch: a crumb is a menu. The menu stays open while the
-               pointer is inside it, so switching is hover, read, click. -->
+          <!-- Click to switch: a crumb is a menu. Enter and Space are clicks
+               too, so the keyboard reaches it without a focus handler that
+               would reopen the menu the moment a click tries to close it. -->
           <Breadcrumb.Item
             class="relative min-w-0 max-w-[clamp(6rem,16cqw,12rem)] shrink"
-            onmouseenter={openTaskPicker}
-            onmouseleave={() => (menu = null)}
           >
-            <!-- Hover opens it, but the click and the focus have to as well: a menu
-                 that only exists under a pointer is not reachable from the keyboard. -->
             <Breadcrumb.Link class="{CRUMB_BUTTON} max-w-full">
               {#snippet child({ props })}
                 <button
                   {...props}
                   type="button"
+                  aria-haspopup="menu"
                   aria-expanded={menu === "task"}
                   title={leafLabels.task}
                   onclick={toggleTaskPicker}
-                  onfocus={openTaskPicker}
                   oncontextmenu={(event) =>
                     task && openTaskContextMenu(event, task)}
                 >
@@ -560,7 +589,7 @@
               {/snippet}
             </Breadcrumb.Link>
             {#if menu === "task"}
-              <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
+              <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
                 <div class="menu-surface w-[min(19.75rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(16.25rem,calc(100vw-2rem))] overflow-hidden p-0 text-chrome-dense">
                   <Command.Root shouldFilter={false}>
                     <MenuSearch
@@ -673,10 +702,6 @@
           class="relative min-w-0 shrink {renamingTabId === tabId
  ? 'w-[min(20rem,42vw)]'
  : 'max-w-[clamp(9rem,28cqw,20rem)]'}"
-          onmouseenter={() => {
-            if (renamingTabId !== tabId) menu = "session";
-          }}
-          onmouseleave={() => (menu = null)}
         >
           {#if renamingTabId === tabId}
             <!-- Editing in place: the leaf keeps its column and type ramp, only
@@ -704,17 +729,17 @@
                 <button
                   {...props}
                   type="button"
+                  aria-haspopup="menu"
                   aria-expanded={menu === "session"}
                   title={leafLabels.session}
-                  onclick={() => (menu = menu === "session" ? null : "session")}
+                  onclick={() => toggleMenu("session")}
                   ondblclick={() => {
                     // Rename where the name is. The two clicks underneath have
-                    // already toggled the menu back shut; drop it anyway, since
-                    // hover reopens it and the field would render behind it.
+                    // already toggled the menu open and shut; drop it anyway
+                    // so the field never renders behind it.
                     menu = null;
                     renamingTabId = tabId;
                   }}
-                  onfocus={() => (menu = "session")}
                   oncontextmenu={(event) =>
                     current && openChildContextMenu(event, current)}
                 >
@@ -741,7 +766,7 @@
             </Breadcrumb.Link>
           {/if}
           {#if menu === "session"}
-            <div class="no-drag absolute top-[1.875rem] left-0 z-[8] pt-1.5">
+            <div class="absolute top-[1.875rem] left-0 z-[8] pt-1.5">
               <div class="menu-surface w-[min(18rem,calc(100vw-2rem))] [.is-laptop-display_&]:w-[min(15rem,calc(100vw-2rem))] p-[0.3125rem] text-chrome-dense">
                 <div class={MENU_HEADING}>Sessions</div>
                 {#each sessions as child (child.sessionId ?? child.tabId ?? child.taskId)}

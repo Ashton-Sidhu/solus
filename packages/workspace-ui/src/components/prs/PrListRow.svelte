@@ -3,7 +3,8 @@
   import ListAvatar from "../ui/list-page/ListAvatar.svelte";
   import ListChip from "../ui/list-page/ListChip.svelte";
   import { checksChip, chipSkin, compactCount } from "../ui/list-page/list-page";
-  import { labelChipColor, prStatusGlyph, type PrRowSpec } from "./lib/prs-list-view";
+  import LabelChip from "../ui/labels/LabelChip.svelte";
+  import { prStatusGlyph, type PrRowSpec } from "./lib/prs-list-view";
 
   /** One pull request in the wide list, the way a code host draws it: the
    *  lifecycle glyph leading, the title on its own line, and a line of facts
@@ -87,17 +88,8 @@
         {/if}
         {#if row.labels.length > 0}
           {@render dot()}
-          <!-- The host's colour as a pastel: mixed into the page background for
-               the fill and into the foreground for the name, so the same hex
-               reads as a tint in both themes rather than a saturated block. -->
           {#each row.labels as label (label.name)}
-            <span
-              class="inline-flex h-[19px] shrink-0 items-center rounded-full bg-[color-mix(in_oklch,var(--label-color)_22%,var(--background))] px-2 text-xs font-medium text-[color-mix(in_oklch,var(--label-color)_62%,var(--foreground))]"
-              style="--label-color: {labelChipColor(label.color)}"
-              title={label.name}
-            >
-              {label.name}
-            </span>
+            <LabelChip label={label.name} color={label.color} class="shrink-0 text-xs" />
           {/each}
           {#if row.moreLabels > 0}
             <span class="shrink-0 tabular-nums">+{row.moreLabels}</span>

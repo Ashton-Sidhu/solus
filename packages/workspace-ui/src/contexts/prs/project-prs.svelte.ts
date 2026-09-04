@@ -221,24 +221,11 @@ export class ProjectPrs {
       item.draft = source.draft
       item.updatedAt = source.updatedAt
       item.headSha = source.headSha
+      item.labels = source.labels
     }
     for (const page of this.mirrors.list.values('')) patch(page.items)
     patch(this.items)
     return pr
-  }
-
-  /** Apply one label mutation without replacing the pull request or list rows. */
-  applyLabels(number: number, labels: Contracts.PrLabel[]): void {
-    const pr = this.prs.get(number)
-    if (pr?.isDescribed) pr.labels = labels
-    const patch = (items: Contracts.PullRequest[] | undefined): void => {
-      const item = items?.find((candidate) => candidate.number === number)
-      if (item) item.labels = labels
-    }
-    for (const page of this.mirrors.list.values('')) patch(page.items)
-    patch(this.items)
-    const detail = this.mirrors.detail.fresh(String(number))
-    if (detail) detail.labels = labels
   }
 
   // --- Reading ------------------------------------------------------------

@@ -332,19 +332,24 @@ export class PullRequest implements Contracts.PullRequest {
     return reviewers
   }
 
-  async loadLabelCandidates(opts: ReadOptions = {}): Promise<PrLabel[]> {
+  /** The repository's labels. One answer per project, like the viewer: the
+   *  host reads the same list whichever pull request asks, and only needs the
+   *  number to check that this viewer may manage labels. */
+  async loadLabelCandidates(): Promise<PrLabel[]> {
     const ctx = detached(this.ctx)
     return this.store.mirrors.labelCandidates.read(
-      this.key,
-      !!opts.force,
+      'labels',
+      false,
       () => this.api.prListLabelCandidates(ctx, this.number),
     )
   }
 
-  async setLabels(names: string[]): Promise<PrLabel[]> {
-    const labels = await this.api.prSetLabels(detached(this.ctx), this.number, [...names])
-    this.store.applyLabels(this.number, labels)
-    return labels
+  async setLabels(names: string[]): Promise<PullRequest> {
+    const detail = await this.api.prSetLabels(detached(this.ctx), this.number, [...names])
+    // The host wrote a labeled/unlabeled row into the conversation; the next
+    // read of it must go and look rather than answer from before the write.
+    this.store.mirrors.comments.delete(this.key)
+    return this.store.applyPullRequest(detail)
   }
 
   /** Close, reopen, mark ready, or return to draft. */

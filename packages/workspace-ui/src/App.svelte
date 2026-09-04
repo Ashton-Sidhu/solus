@@ -428,7 +428,7 @@
     taskComposerTasks.filter((t) => t.kind === "epic"),
   );
   const taskComposerLabels = $derived(
-    Array.from(new Set(taskComposerTasks.flatMap((t) => t.labels))).sort(),
+    taskComposer ? session.tasksStore.knownLabels(taskComposer.projectKey) : [],
   );
 
   $effect(() => {
@@ -850,7 +850,7 @@
       const unsubChecks = pullRequests.checks.subscribe(activePrScope);
       const unsubGuideStatus = pullRequests.guides.subscribe();
       const unsubPullRequestChanges =
-        pullRequests.projects.subscribePullRequestChanges();
+        pullRequests.projects.subscribeLifecycleChanges();
       const unsubNeedsReview =
         pullRequests.needsReview.subscribe(activePrScope);
       // An agent can need an account before any surface that would show its

@@ -77,9 +77,9 @@
     prGroups,
     prInboxGroups,
     prStatusOf,
-    labelChipColor,
     type PrRowContext,
   } from "./lib/prs-list-view";
+  import { labelChipColor } from "../ui/labels/label-color";
   import type { PrProject } from "../../contexts/prs/prs.store.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { groupStackedPrRows } from "./lib/stack-grouping";
@@ -645,6 +645,9 @@
   // instead — a 380px column beside a 380px review is neither.
   const openPr = $derived(openKey ? (prByKey(openKey) ?? null) : null);
   const openTarget = $derived(openPr ? targetFor(openPr) : null);
+  const openPanel = $derived(
+    openPr && openTarget ? { pr: openPr, target: openTarget } : null,
+  );
   const panelOpen = $derived(
     showsPrDetailPanel(openPr !== null, openTarget !== null),
   );
@@ -1566,7 +1569,10 @@
     </ListPage>
     </div>
 
-    {#if panelOpen && openPr && openTarget}
+    <!-- A one-item each block keeps its item value while the fly outro runs.
+         An if block would keep evaluating openTarget after closePanel clears the
+         open key, so the mounted child could read .ctx from null mid-outro. -->
+    {#each openPanel ? [openPanel] : [] as panel}
       <!-- Out of the list's flow on purpose, not just when full screen: it
            covers the room the list's width leaves rather than claiming its own.
            In flow, this panel's arrival and departure were layout events — the
@@ -1581,19 +1587,19 @@
         transition:fly={{ x: 14, duration: reduceMotion ? 0 : 200 }}
       >
         <PrDetailPanel
-          number={openPr.number}
-          api={openTarget.api}
-          serverId={openTarget.serverId}
-          ctx={openTarget.ctx}
-          title={openPr.title}
-          baseRepo={openPr.baseRepo}
+          number={panel.pr.number}
+          api={panel.target.api}
+          serverId={panel.target.serverId}
+          ctx={panel.target.ctx}
+          title={panel.pr.title}
+          baseRepo={panel.pr.baseRepo}
           fullScreen={panelFullScreen}
           onToggleFullScreen={roomForSplit ? toggleFullScreen : undefined}
           onClose={closePanel}
           onStep={stepPanel}
         />
       </div>
-    {/if}
+    {/each}
 
     {#if prContextMenu}
       {@const menuPr = prContextMenu.pr}

@@ -105,14 +105,12 @@
         ? 'shrink pointer-fine:[.is-laptop-display_&]:h-7'
         : 'w-full'}"
       title={addressingComments
-        ? "Opening fix agent…"
+        ? "Preparing fix draft…"
         : addressCommentsReady
-          ? `Send ${feedbackCount} ${feedbackCount === 1 ? "comment" : "comments"} to an agent`
+          ? `Draft a fix for ${feedbackCount} ${feedbackCount === 1 ? "comment" : "comments"}`
           : "Preparing the PR worktree…"}
       onclick={onAddressComments}
     >
-      <!-- The stack is typographic: no leading glyph on a full-width labelled
-           row, and the spinner only while the agent is actually opening. -->
       {#if addressingComments}
         <CircleNotchIcon
           size={14}
@@ -124,9 +122,9 @@
            rather than the label spending it twice. -->
       <span class="truncate tabular-nums">
         {#if row}
-          Send to agent
+          Draft fix
         {:else}
-          Send {feedbackCount} {feedbackCount === 1 ? "comment" : "comments"} to agent
+          Draft fix for {feedbackCount} {feedbackCount === 1 ? "comment" : "comments"}
         {/if}
       </span>
     </Button>

@@ -46,7 +46,12 @@
   import { Button } from "../ui/button";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import StackDiffBanner from "./StackDiffBanner.svelte";
-  import type { PrFixFeedback } from "../../contexts/workspace/pr-fix-session";
+  import {
+    buildPrCheckFixPrompt,
+    buildPrCommentsFixPrompt,
+    buildPrQuestionDraft,
+    type PrFixFeedback,
+  } from "./lib/pr-input-drafts";
 
   // The review surface (M3–M5): Activity · Guide · Diff content tabs over a PR's
   // change, living maximized in the secondary pane. The "Chat" button lazily
@@ -682,19 +687,24 @@
 
   // Chat changes only the primary pane. The review stays mounted in secondary;
   // openPrReviewChat reveals the conversation and restores the split geometry.
-  async function openChat() {
+  async function openPrChat(draft?: string) {
     if (!pr || openingChat) return;
     openingChat = true;
     try {
       // Reveal a blocked conversation first. Checkout preparation can fetch and
       // create a worktree, so making the pane wait for it makes the click feel
       // broken even though useful progress is under way.
-      activeChatTabId = await session.openPrReviewChat(pr, {
+      const chatTabId = await session.openPrReviewChat(pr, {
         existingTabId: activeChatTabId,
         projectCtx: projectCtx(),
         serverId,
         task: "none",
       });
+      activeChatTabId = chatTabId;
+      const chatSession = session.sessionFor(chatTabId);
+      if (draft && chatSession && !chatSession.prompt.text) {
+        chatSession.prompt.text = draft;
+      }
       const sourceContext = await review.ensureCheckout();
       await session.openPrReviewChat(sourceContext, {
         existingTabId: activeChatTabId,
@@ -714,13 +724,11 @@
     requestInputFocus();
   }
 
-  async function openFixComments(feedback?: PrFixFeedback) {
+  async function openFixDraft(prompt: string, title: string) {
     if (!pr) return;
     let fixTabId: string | null = null;
     try {
-      // Mount the conversation before checkout starts. This puts it in the
-      // session sidebar at once and lets the same checkout card that Check out
-      // uses explain the wait.
+      // Show the new session immediately while its PR checkout is prepared.
       fixTabId = await session.openPrReviewChat(pr, {
         projectCtx: projectCtx(),
         serverId,
@@ -733,7 +741,11 @@
         serverId,
         task: "new",
       });
-      await session.startPrCommentsFixSession(sourceContext, feedback, fixTabId);
+      const fixSession = session.sessionFor(fixTabId);
+      if (fixSession) {
+        fixSession.prompt.text = prompt;
+        fixSession.title = title;
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (fixTabId) {
@@ -742,6 +754,20 @@
       toasts.error("Couldn't open the fix session", { description: message });
     }
     requestInputFocus();
+  }
+
+  async function openFixComments(feedback?: PrFixFeedback) {
+    await openFixDraft(
+      buildPrCommentsFixPrompt(target, feedback),
+      `Fix PR #${target.number}`,
+    );
+  }
+
+  async function openFixCheck(check: Parameters<typeof buildPrCheckFixPrompt>[1]) {
+    await openFixDraft(
+      buildPrCheckFixPrompt(target, check),
+      `Fix check for PR #${target.number}`,
+    );
   }
 
   function exit() {
@@ -866,13 +892,20 @@
      It sits in the band's trailing cluster, beside the #number and the tabs,
      and wears the same glyph the number does, so the row names one object once.
      Its geometry follows the chrome rung it is typed on: 26px on a desktop
-     display, 24px on a laptop, and a thumb-sized target on touch. -->
+     display, 24px on a laptop, and a thumb-sized target on touch.
+
+     Under 40rem of band it gives up its label and keeps the glyph: the band
+     beside a companion pane is legally that narrow, and with the traffic-light
+     inset in front of the tabs the full label was what pushed the overflow and
+     the ✕ past the pane's edge, under the pane beside it. The rung is named
+     against the band, so in the page shape — where no band is declared — it
+     never fires and the label stays. -->
 {#snippet chatButton()}
   <Button
     type="button"
     size="xs"
-    class="ml-[5px] h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 pointer-fine:[.is-laptop-display_&]:h-6 pointer-fine:[.is-laptop-display_&]:px-2"
-    onclick={openChat}
+    class="ml-[5px] h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 pointer-fine:[.is-laptop-display_&]:h-6 pointer-fine:[.is-laptop-display_&]:px-2 @max-[40rem]/band:px-2"
+    onclick={() => void openPrChat()}
     disabled={openingChat || !pr}
     aria-label="Check out this pull request"
     title={openingChat
@@ -882,7 +915,7 @@
         : "Check out this pull request in its own worktree and open a Solus chat on it"}
   >
     <GitPullRequestIcon class="size-3" aria-hidden="true" />
-    Check out
+    <span class="@max-[40rem]/band:hidden">Check out</span>
   </Button>
 {/snippet}
 
@@ -1157,21 +1190,14 @@
           {serverId}
           showIdentity={!embedded}
           addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
-          onAddressComments={async () => {
-            await openFixComments();
-          }}
-          onFixCheck={async (check) => {
-            await session.startPrCheckFixSession(
-              await review.ensureCheckout(),
-              check,
-            );
-          }}
+          onAddressComments={() => openFixComments()}
+          onFixCheck={openFixCheck}
           generationStatus={visibleGuideStatus}
           onGenerateGuide={generateGuide}
           onRefreshThreads={() => loadThreads(true)}
           {onRefreshTarget}
           showRemoteLink
-          onChat={() => void openChat()}
+          onChat={() => void openPrChat(buildPrQuestionDraft(target))}
           chatBusy={openingChat}
           onJump={jumpToDiff}
           onOpenCommit={openCommitDiff}
@@ -1194,8 +1220,6 @@
     bind:body={submitBody}
     onClose={() => (showSubmit = false)}
     onSubmitted={onReviewSubmitted}
-    onSendToFixAgent={async (feedback) => {
-      await openFixComments(feedback);
-    }}
+    onDraftFixes={openFixComments}
   />
 {/if}

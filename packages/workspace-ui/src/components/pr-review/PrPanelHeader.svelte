@@ -88,6 +88,16 @@
      an element cannot query itself: the band's own geometry has a record rung
      too, and it can only read the width if something outside it is measuring.
 
+     ── The ladder above the record ──
+     Every slot on the row is rigid, so the row overflows the moment their sum
+     passes the band's width, and the two it pushes off the end are the
+     overflow and the ✕ — under the pane beside this one, where they cannot be
+     reached. Beside a companion the band is legally ~40rem, and in full screen
+     the traffic-light inset spends another ~6rem of it, so the widest slot
+     that can give does: under 40rem the Check out action keeps its glyph and
+     drops its label (see `chatButton` in PrReviewPane). The number never gives
+     — in this shape the band is the only place the pull request is named.
+
      ── The record rung (`@max-[30rem]/band`) ──
      A phone renders the panel over the list, which retires the premise the
      desktop band is built on. "The way back is the close control" was true

@@ -14,6 +14,14 @@ const filterSubmenu = readFileSync(
   resolve(import.meta.dir, '../../packages/workspace-ui/src/components/prs/PrFilterSubmenu.svelte'),
   'utf8',
 )
+const reviewPane = readFileSync(
+  resolve(import.meta.dir, '../../packages/workspace-ui/src/components/pr-review/PrReviewPane.svelte'),
+  'utf8',
+)
+const panelHeader = readFileSync(
+  resolve(import.meta.dir, '../../packages/workspace-ui/src/components/pr-review/PrPanelHeader.svelte'),
+  'utf8',
+)
 const listPage = readFileSync(
   resolve(import.meta.dir, '../../packages/workspace-ui/src/components/ui/list-page/ListPage.svelte'),
   'utf8',
@@ -94,6 +102,29 @@ describe('the pull request list header', () => {
     expect(filterSubmenu).toContain("'w-72 pointer-fine:[.is-laptop-display_&]:w-60'")
     expect(filterSubmenu).toContain('--bits-dropdown-menu-content-available-height')
     expect(filterSubmenu).toContain('min-h-0 flex-1 overflow-y-auto overscroll-contain')
+  })
+
+  it('keeps the detail band\'s overflow and close reachable in a narrow pane', () => {
+    // WHY: every slot on the band is rigid, so beside a companion pane the row
+    // overflowed and its last two controls — the overflow and the ✕ — were
+    // pushed under the pane beside it. Check out is the one slot that can
+    // give: under 40rem of band it drops its label and keeps its glyph, and
+    // nothing on the band unmounts or becomes droppable.
+    expect(reviewPane).toContain('<span class="@max-[40rem]/band:hidden">Check out</span>')
+    expect(reviewPane).toContain('@max-[40rem]/band:px-2')
+    expect(panelHeader).toContain('@container/band')
+    expect(panelHeader).toContain('aria-label="Close pull request"')
+    expect(panelHeader).not.toMatch(/window\.innerWidth|isMobileViewport|isCompactViewport/)
+  })
+
+  it('keeps the detail context stable until the panel outro finishes', () => {
+    // WHY: clearing the open key makes openTarget null at once, but Svelte keeps
+    // the transitioning panel mounted through its outro. A conditional block
+    // therefore let child prop getters read openTarget.ctx after it was null.
+    // A one-item each block retains the removed item for the outro lifetime.
+    expect(page).toContain('{#each openPanel ? [openPanel] : [] as panel}')
+    expect(page).toContain('ctx={panel.target.ctx}')
+    expect(page).not.toContain('{#if panelOpen && openPr && openTarget}')
   })
 
   it('states the toolbar row height on the page as well as the split rail', () => {

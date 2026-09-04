@@ -520,7 +520,7 @@
         onToggle={() => toggleSection("git")}
         onResizePointerDown={startResize}
       >
-        <GitSection {sourceId} />
+        <GitSection {sourceId} active={active && open} />
         <GitSetupSection {sourceId} />
       </PanelSection>
     {:else if !isUnconfiguredCwd(gitCwd)}

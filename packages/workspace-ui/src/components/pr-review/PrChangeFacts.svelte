@@ -23,8 +23,10 @@
    *
    * Metadata, so it reads at the meta rung (`text-xs`) rather than at the
    * chrome rung the rail's rows take. The head ref is a literal a reader may
-   * need to type, so the whole branch row is the copy target and wraps rather
-   * than truncates; the receipt shows in place of the copy glyph.
+   * need to type, so the whole branch row is the copy target. Long refs stay on
+   * one line and truncate at the start, where their generated prefixes carry
+   * less identifying information than their suffixes. The receipt shows in
+   * place of the copy glyph.
    */
   let {
     headBranch,
@@ -83,14 +85,16 @@
       onclick={copyBranch}
     >
       {#if headBranch}
-        <span class="min-w-0 [overflow-wrap:anywhere]">{headBranch}</span>
+        <span
+          class="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap [direction:rtl] [unicode-bidi:plaintext]"
+        >{headBranch}</span>
         <ArrowRightIcon
           size={11}
           class="shrink-0 text-muted-foreground opacity-60"
           aria-hidden="true"
         />
       {/if}
-      <span class="min-w-0 [overflow-wrap:anywhere] text-muted-foreground">{baseRef}</span>
+      <span class="shrink-0 whitespace-nowrap text-muted-foreground">{baseRef}</span>
       {#if headBranch}
         <span class="grid size-3 shrink-0 place-items-center" aria-hidden="true">
           {#if copied}

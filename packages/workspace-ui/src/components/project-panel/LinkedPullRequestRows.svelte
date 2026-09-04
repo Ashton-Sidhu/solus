@@ -17,6 +17,9 @@
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
   import { linkedPrPrimaryAction } from "./lib/linked-pr-actions";
 
+  const DETAIL_REFRESH_INTERVAL_MS = 30_000;
+  const FOCUS_REFRESH_AGE_MS = 15_000;
+
   // The branch's pull request, continued in the same column: the rows above end
   // at "you have a pull request", these say what to do with it. The first row is
   // the way into the pull request pane, which owns the conversation, the diff,
@@ -29,10 +32,23 @@
     api: HostApi;
     /** The same checks reading the row above tints its glyph with. */
     checks: ChecksPresentation | null;
+    /** The owning tab and project panel are visible. */
+    active: boolean;
+    /** The Git action that just finished moved this pull request's head. */
+    pushCompleted: boolean;
     /** The pull request left this branch's open set — the rail must re-read it. */
     onMerged: () => void;
   }
-  let { pr, ctx, serverId, api, checks, onMerged }: Props = $props();
+  let {
+    pr,
+    ctx,
+    serverId,
+    api,
+    checks,
+    active,
+    pushCompleted,
+    onMerged,
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const pullRequests = getPullRequestsContext();
@@ -57,11 +73,51 @@
   const prServerId = $derived(serverId);
   const prProjectScope = $derived(projectScopeOf(ctx.session));
 
+  // A visible compact row is a live status surface, not a snapshot. Ordinary
+  // refreshes bypass the client's 30-second mirror; the server still coalesces
+  // them against its shorter detail lifetime. A push is different: it makes any
+  // remembered mergeability invalid immediately, so that path also clears the
+  // host's cache before it reads.
+  let lastDetailRefreshAt = 0;
+  let detailRefreshInFlight: Promise<void> | null = null;
+  let refreshHostAfterCurrent = false;
+
+  async function refreshDetail(forceHost = false): Promise<void> {
+    if (!active) return;
+    if (detailRefreshInFlight) {
+      if (forceHost) refreshHostAfterCurrent = true;
+      return detailRefreshInFlight;
+    }
+
+    const number = pr.number;
+    const project = pullRequests.projects.get(api, serverId, ctx);
+    const pullRequest = project.get(number);
+    const refresh = forceHost
+      ? pullRequest.refreshDetail()
+      : pullRequest.loadDetail({ force: true });
+    const operation = refresh
+      .then(() => {
+        if (pr.number === number) lastDetailRefreshAt = Date.now();
+      })
+      .catch(() => {});
+    detailRefreshInFlight = operation;
+    try {
+      await operation;
+    } finally {
+      if (detailRefreshInFlight === operation) detailRefreshInFlight = null;
+      if (refreshHostAfterCurrent) {
+        refreshHostAfterCurrent = false;
+        void refreshDetail(true);
+      }
+    }
+  }
+
   $effect(() => {
     const number = prNumber;
     const headSha = prHeadSha;
     const targetServerId = prServerId;
     const targetProjectScope = prProjectScope;
+    const isActive = active;
     merged = false;
     untrack(() => {
       if (
@@ -69,16 +125,41 @@
         projectScopeOf(ctx.session) !== targetProjectScope
       )
         return;
-      void pullRequests.projects
-        .get(api, targetServerId, ctx)
-        .get(number)
-        .loadDetail()
-        .catch(() => {});
+      if (isActive && document.visibilityState === "visible")
+        void refreshDetail();
       void pullRequests.guides
         .loadMetadata(api, targetServerId, ctx, { number, headSha })
         .catch(() => {});
     });
   });
+
+  // Expanding the Git section or returning to its mounted tab runs the effect
+  // above. A completed push forces the code-host read even if that visible read
+  // is still in flight.
+  $effect(() => {
+    if (!active || !pushCompleted) return;
+    untrack(() => void refreshDetail(true));
+  });
+
+  // The fallback exists only while the row can be seen. Browser visibility is
+  // checked too because an active Solus tab can sit behind another application.
+  $effect(() => {
+    if (!active) return;
+    const timer = setInterval(() => {
+      if (document.visibilityState === "visible") void refreshDetail();
+    }, DETAIL_REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
+  });
+
+  function refreshOnWindowFocus() {
+    if (
+      !active ||
+      document.visibilityState !== "visible" ||
+      Date.now() - lastDetailRefreshAt < FOCUS_REFRESH_AGE_MS
+    )
+      return;
+    void refreshDetail();
+  }
 
   const guideStatus = $derived(
     pullRequests.guides.statusFor(serverId, ctx, pr.number),
@@ -335,6 +416,8 @@
     else if (primary.kind === "resolve-conflicts") resolveConflicts();
   }
 </script>
+
+<svelte:window onfocus={refreshOnWindowFocus} />
 
 <div
   class="mx-2 mt-1.5 mb-1 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"

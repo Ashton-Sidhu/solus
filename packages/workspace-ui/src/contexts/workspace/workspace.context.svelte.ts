@@ -2,7 +2,6 @@ import { createAppContext } from '../app/create-app-context'
 import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, PrReviewContext, PromptDelivery, PromptImageRef, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { parseGitHubPullRequestUrl, type PrReviewTarget, type PullRequest, type RepoRef } from '@solus/contracts/providers'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewTarget } from '@solus/contracts/review'
-import type { CheckItem } from '@solus/contracts/checks-types'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
 import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflictResolverErrorCard } from '../../lib/pr-conflict-resolution'
 import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
@@ -78,7 +77,6 @@ import { readSessionMeta } from '@solus/client-core/session-meta'
 import { classifySendFailure, sendOutbox, type OutboxRecord } from '@solus/client-core/send-outbox'
 import { hostKey } from '@solus/client-core/host-key'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
-import { buildPrCheckFixPrompt, buildPrCommentsFixPrompt, type PrFixFeedback } from './pr-fix-session'
 import { prReviewGitCheckout } from './pr-review-checkout'
 import { isPristineSplitTab } from '../../lib/split-chat'
 import { moveTabToHost, prepareHostCheckout } from '../../components/servers/run-on'
@@ -3750,51 +3748,6 @@ export class WorkspaceContext {
   submitDiffFeedback(generalComment: string, tabId?: string): boolean { const submitted = submitDiffFeedback(this, generalComment, tabId); if (submitted) track('diff_feedback_submitted', {}); return submitted }
   async submitDiffFeedbackToNewSession(opts: Parameters<typeof submitDiffFeedbackToNewSession>[1]): Promise<boolean> {
     const submitted = await submitDiffFeedbackToNewSession(this, opts); if (submitted) track('diff_feedback_submitted', {}); return submitted
-  }
-
-  private async startPrFixSession(
-    pr: PrReviewContext,
-    prompt: string,
-    title: string,
-    options: { existingTabId?: string; withoutTask?: boolean } = {},
-  ): Promise<void> {
-    const tabId = options.existingTabId
-      ?? await this.createTab(worktreeProjectRoot(pr.worktreePath))
-    const session = this.sessionFor(tabId)
-    if (!session) return
-    session.run.gitContext = prReviewGitCheckout(pr)
-    session.run.worktree = null
-    session.run.permissionMode = 'auto'
-    session.prReview = pr
-    if (options.withoutTask) session.task = { kind: 'none' }
-
-    this.sendMessage(prompt, undefined, tabId)
-    session.title = title
-    requestInputFocus()
-  }
-
-  /** Hand request-changes feedback to a normal, task-backed agent session in
-   *  the PR's existing review worktree. The caller can mount the tab first so
-   *  checkout progress is visible, then this method binds and starts it. */
-  async startPrCommentsFixSession(
-    pr: PrReviewContext,
-    feedback?: PrFixFeedback,
-    existingTabId?: string,
-  ): Promise<void> {
-    await this.startPrFixSession(
-      pr,
-      buildPrCommentsFixPrompt(pr, feedback),
-      `Fix PR #${pr.number}`,
-      { existingTabId },
-    )
-  }
-
-  async startPrCheckFixSession(pr: PrReviewContext, check: CheckItem): Promise<void> {
-    await this.startPrFixSession(
-      pr,
-      buildPrCheckFixPrompt(pr, check),
-      `Fix check for PR #${pr.number}`,
-    )
   }
 
   /**

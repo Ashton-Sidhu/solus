@@ -13,6 +13,7 @@ const component = (name: string) =>
 const menu = component('PrOverflowMenu')
 const feed = component('ActivityFeed')
 const pane = component('PrReviewPane')
+const submitReviewModal = component('SubmitReviewModal')
 const workspace = readFileSync(
   new URL(
     '../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts',
@@ -28,32 +29,32 @@ const keybindings = readFileSync(
 describe('pull request rail overflow menu', () => {
   test('keeps the PR-aware agent handoffs beside the merge action', () => {
     // WHY: these commands belong to the pull request that the status card is
-    // about. A generic new chat loses that review context and its checkout.
+    // about, but the user must stay in control of when the prepared text runs.
     expect(menu).toContain('Ask a question')
     expect(menu).not.toContain('Explain this PR')
-    expect(menu).toContain('Fix comments in a session')
-    expect(menu).toContain('Opens a session that knows which pull request you mean.')
+    expect(menu).toContain('Draft fixes for comments')
+    expect(menu).toContain('Starts a PR-aware question in the input bar.')
     expect(feed).toContain('{onChat}')
     expect(feed).toContain('onFixComments={feedbackCount > 0 && onAddressComments')
   })
 
-  test('opens Ask and Fix comments through the visible checkout-card flow', () => {
-    expect(pane).toContain('async function openChat()')
-    expect(pane).toContain('async function openFixComments(feedback?: PrFixFeedback)')
+  test('opens new PR sessions and leaves their prompts in the input bar', () => {
+    expect(pane).toContain('async function openPrChat(draft?: string)')
+    expect(pane).toContain('async function openFixDraft(prompt: string, title: string)')
     expect(pane).toContain('fixTabId = await session.openPrReviewChat(pr')
-    expect(pane).toContain('session.failPrReviewChatCheckout(fixTabId')
-    expect(pane).toContain('startPrCommentsFixSession(sourceContext, feedback, fixTabId)')
+    expect(pane).toContain('task: "new"')
+    expect(pane).toContain('chatSession.prompt.text = draft')
+    expect(pane).toContain('fixSession.prompt.text = prompt')
+    expect(pane).not.toContain('session.sendMessage')
+    expect(workspace).not.toContain('startPrCommentsFixSession')
+    expect(workspace).not.toContain('startPrCheckFixSession')
+    expect(submitReviewModal).toContain('Submit & draft fixes')
+    expect(submitReviewModal).not.toContain('Submit & send to fix agent')
   })
 
-  test('keeps Ask taskless and makes the fix session task-backed', () => {
-    // WHY: Ask is an exploratory conversation and belongs in the loose session
-    // list. Fix comments is committed work and must create the task exception.
-    expect(pane).toMatch(/async function openChat\(\)[\s\S]*?task: "none"/)
-    expect(pane).toMatch(/async function openFixComments[\s\S]*?task: "new"/)
-    expect(workspace).toContain("if (opts.task === 'none') reviewSession.task = { kind: 'none' }")
-    expect(workspace).toMatch(
-      /startPrCommentsFixSession\([\s\S]*?\{ existingTabId \},[\s\S]*?\)/,
-    )
+  test('keeps the explicit checkout command separate from prompt drafting', () => {
+    expect(pane).toContain('onclick={() => void openPrChat()}')
+    expect(pane).toContain('onChat={() => void openPrChat(buildPrQuestionDraft(target))}')
   })
 
   test('includes the host link commands and remains usable at phone width', () => {

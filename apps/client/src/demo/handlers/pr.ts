@@ -61,6 +61,7 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     { name: 'documentation', color: '0075ca' },
   ])
   backend.register('prSetLabels', (args) => {
+    const ctx = arg<IpcContext>(args, 0)
     const names = arg<string[]>(args, 2)
     const detail = store.prOverview().pullRequest
     const known = new Map([
@@ -69,7 +70,8 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
       ['documentation', '0075ca'],
     ])
     detail.labels = names.map((name) => ({ name, color: known.get(name) ?? 'ededed' }))
-    return detail.labels
+    backend.broadcast('pr.lifecycleChanged', { projectRoot: projectCwd(ctx), detail })
+    return detail
   })
   backend.register('prUpdateLifecycle', (args) => {
     const ctx = arg<IpcContext>(args, 0)

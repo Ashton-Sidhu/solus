@@ -182,13 +182,32 @@ describe('people pickers follow the display density rung', () => {
     expect(initialLoad).not.toContain('loadReviewerCandidates(')
   })
 
-  it('uses smaller menu geometry on a precise-pointer laptop', () => {
-    // WHY: canonical type already follows `text-workspace-chrome`; width and
-    // control height must step with it instead of leaving a desktop-sized box.
-    expect(reviewerMenu).toContain('w-60 flex-col overflow-hidden pointer-fine:[.is-laptop-display_&]:w-52')
-    expect(reviewerMenu).toContain('pointer-fine:[.is-laptop-display_&]:h-8')
-    expect(assignees).toContain('w-60 pointer-fine:[.is-laptop-display_&]:max-h-64 pointer-fine:[.is-laptop-display_&]:w-52')
-    expect(assignees).toContain('pointer-fine:[.is-laptop-display_&]:h-8')
+  it('opens the same menu surface every other picker in the app opens', () => {
+    // WHY: the reviewer, assignee and label menus used to be hand-styled
+    // dropdowns with their own search field, so they read as a different
+    // control from the task and provider pickers beside them. All of them now
+    // stand on the shared surface, filter header and row primitive; the rows
+    // take their laptop and touch geometry from that primitive rather than
+    // restating it.
+    const labelMenu = read('packages/workspace-ui/src/components/ui/labels/LabelPicker.svelte')
+    for (const menu of [reviewerMenu, assignees, labelMenu]) {
+      expect(menu).toContain('<Popover.Content')
+      expect(menu).toContain('menu-surface')
+      expect(menu).toContain('<MenuSearch')
+      expect(menu).toContain('<Command.Item')
+      expect(menu).not.toContain('DropdownMenu')
+      // A menu opened in a 356px pane still drops out into the window; its
+      // width is capped by the window, and steps down on a precise-pointer
+      // laptop with the rows it lists.
+      expect(menu).toContain('w-[min(15rem,calc(100vw-2rem))]')
+      expect(menu).toContain('pointer-fine:[.is-laptop-display_&]:w-[min(13rem,calc(100vw-2rem))]')
+      // The row primitive pins `text-menu`, which holds 14px on every display.
+      // A picker's rows and search field take the workspace chrome rung
+      // instead, as the task and project pickers do, so the type steps to 12px
+      // on a precise-pointer laptop with the rest of the page's chrome.
+      expect(menu).toContain('[&_.menu-row]:text-workspace-chrome')
+      expect(menu).toContain('[&_[data-slot=command-input]]:text-workspace-chrome')
+    }
   })
 
   it('gives reviewer candidates a viewport while the search field stays fixed', () => {
@@ -197,23 +216,18 @@ describe('people pickers follow the display density rung', () => {
     // has to sit on the list: capping the menu instead would scroll the search
     // field — the only way to reach a name past the fold — out of view.
     const list = reviewerMenu.indexOf('{#each available as candidate')
-    const search = reviewerMenu.indexOf('aria-label="Search reviewers"')
+    const search = reviewerMenu.indexOf('<MenuSearch')
     expect(list).toBeGreaterThan(-1)
     expect(search).toBeGreaterThan(-1)
 
-    const scrollport = reviewerMenu.lastIndexOf('overflow-y-auto', list)
-    expect(scrollport).toBeGreaterThan(search)
-
-    const opening = reviewerMenu.slice(reviewerMenu.indexOf('<DropdownMenu.Content'), search)
-    expect(opening).toContain('max-h-[')
-    expect(opening).toContain('flex-col overflow-hidden')
-    expect(reviewerMenu.slice(search, list)).toContain(
-      'min-h-0 flex-1 overflow-y-auto overscroll-contain',
-    )
+    const scrollport = reviewerMenu.slice(search, list)
+    expect(scrollport).toContain('<Command.List')
+    expect(scrollport).toContain('overflow-y-auto')
+    expect(scrollport).toContain('max-h-[')
     // The window is what the ceiling is measured against, not a guessed number:
     // a menu opened near the bottom of the screen has less room than one opened
     // at the top, and only the floating layer knows which it is.
-    expect(opening).toContain('--bits-dropdown-menu-content-available-height')
+    expect(scrollport).toContain('--bits-popover-content-available-height')
   })
 
   it('draws every reviewer from their host avatar, not their initials', () => {

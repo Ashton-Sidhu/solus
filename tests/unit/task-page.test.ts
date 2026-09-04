@@ -86,6 +86,14 @@ describe('task label activity', () => {
     }).text).toBe('You added labels “design” and “ready” and removed label “old”')
   })
 
+  test('a row without a readable snapshot still reads, rather than taking the page down', () => {
+    // WHY: this runs on a render path. One malformed or snapshot-less event
+    // must not throw out of the derived that draws the whole activity list.
+    expect(eventLine({ ...event, from: null, to: '["bug"]' }).text).toBe('You changed the labels')
+    expect(eventLine({ ...event, from: '{', to: '["bug"]' }).text).toBe('You changed the labels')
+    expect(eventLine({ ...event, from: '[1]', to: '["bug"]' }).text).toBe('You changed the labels')
+    expect(eventLine({ ...event, from: '["bug"]', to: '["bug"]' }).text).toBe('You changed the labels')
+  })
 })
 
 describe('task page capabilities', () => {

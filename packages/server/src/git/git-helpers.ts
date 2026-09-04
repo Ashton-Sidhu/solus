@@ -1,4 +1,3 @@
-import { existsSync } from 'fs'
 import path from 'path'
 import type { GitIdentity, GitState, GitStateOptions, UncommittedFile } from '@solus/contracts/types'
 import type { RepoRef } from '../providers/types'
@@ -6,6 +5,7 @@ import { createLogger } from '../logger'
 import { runAsync } from './exec'
 import { getWorkingTreeStats } from './session-snapshots'
 import { getDefaultBranchLocal, getExistingPR } from './worktree-manager'
+import { isGitOperationInProgress } from './git-operation-state'
 import { z } from 'zod'
 
 const gitCommandErrorSchema = z.object({
@@ -142,10 +142,10 @@ async function computeGitStateUncached(
   // Identity is the same work `computeGitIdentity` does, so run it alongside the
   // working-tree scan rather than duplicating it — the sidebar's earlier
   // identity call is usually still in flight and gets shared.
-  const [identity, statusRaw, inProgressPaths] = await Promise.all([
+  const [identity, statusRaw, mergeInProgress] = await Promise.all([
     computeGitIdentity(cwd),
     runAsync('git', ['status', '--porcelain=v2', '--branch', '--untracked-files=normal'], cwd).catch(() => null),
-    runAsync('git', ['rev-parse', '--git-path', 'MERGE_HEAD', '--git-path', 'REBASE_HEAD', '--git-path', 'CHERRY_PICK_HEAD'], cwd).catch(() => ''),
+    isGitOperationInProgress(cwd),
   ])
   // A null identity is the ordinary "not a repository" answer, so stay quiet;
   // a repo whose status scan failed is worth a warning.
@@ -155,9 +155,6 @@ async function computeGitStateUncached(
     return null
   }
 
-  const mergeInProgress = inProgressPaths
-    .split('\n')
-    .some((p) => p.trim() && existsSync(path.resolve(cwd, p.trim())))
   const status = parseStatus(statusRaw)
   return {
     ...identity,

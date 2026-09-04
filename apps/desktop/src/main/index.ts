@@ -158,8 +158,16 @@ const shutdownCoordinator = createShutdownCoordinator({
   onError: (error) => log.error('shutdown_failed', { error: error instanceof Error ? error.message : String(error) }),
 })
 
-process.on('SIGINT', shutdownCoordinator.requestQuit)
-process.on('SIGTERM', shutdownCoordinator.requestQuit)
+const quitFromProcessSignal = () => {
+  // Electron already owns process termination. Do not route terminal signals
+  // back through before-quit's asynchronous cleanup coordinator: doing so
+  // prevents the signal's normal exit path and can leave the dev app alive.
+  forceQuit = true
+  app.quit()
+}
+
+process.on('SIGINT', quitFromProcessSignal)
+process.on('SIGTERM', quitFromProcessSignal)
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 const LOCAL_TOKEN_REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000

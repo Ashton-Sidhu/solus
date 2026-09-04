@@ -178,3 +178,14 @@ describe('the identifier column', () => {
     })
   })
 })
+
+describe('the label chip', () => {
+  test('a task label is the shared pastel pill in the accent, not a neutral ring', () => {
+    // WHY: a label reads the same on a task row, a task page and a pull
+    // request row. The colour is what selects the pill skin.
+    expect(taskRow({ ...task('t1', 'todo'), labels: ['design'] }, 0, NOW).chips[0]).toEqual({
+      label: 'design',
+      labelColor: 'var(--solus-accent)',
+    })
+  })
+})

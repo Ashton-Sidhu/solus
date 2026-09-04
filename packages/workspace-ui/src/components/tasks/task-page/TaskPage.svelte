@@ -12,7 +12,7 @@
     getWorkspaceContext,
     getPullRequestsContext,
   } from "../../../contexts";
-  import { findOpenTabForSession } from "../../../lib/sessionUtils";
+  import { attemptServerId, findOpenTabForSession } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -194,15 +194,7 @@
     projectCwd ? store.assigneeCandidatesErrorByCwd.get(projectCwd) : undefined,
   );
   const capabilities = $derived(task ? taskPageCapabilities(task, providerStatus) : null);
-  const labelCandidates = $derived(
-    Array.from(
-      new Set(
-        (projectCwd ? store.tasksForProject(projectCwd) : store.inbox).flatMap(
-          (candidate) => candidate.labels,
-        ),
-      ),
-    ).sort((a, b) => a.localeCompare(b)),
-  );
+  const labelCandidates = $derived(store.knownLabels(projectCwd));
   const publishTarget = $derived(
     task ? taskPublishTarget({ task, upstream, status: providerStatus }) : null,
   );
@@ -272,6 +264,13 @@
   function toastError(action: string, err: Parameters<typeof String>[0]) {
     toasts.error(`Couldn't ${action}`, {
       description: err instanceof Error ? err.message : String(err),
+    });
+  }
+
+  function notifySessionUnavailable() {
+    toasts.error("Session no longer available", {
+      description:
+        "This task still has the session link, but its history is not available on the host that owns it.",
     });
   }
 
@@ -434,6 +433,9 @@
               ? session.ctxForDirectory(target.projectDirectory)
               : session.ctx,
             serverId: target.serverId,
+            target: paneId
+              ? session.router.targetAcrossFrom(paneId)
+              : "aside",
           });
         }
         break;
@@ -441,12 +443,27 @@
     }
   }
 
-  /** Focus the session's tab when it's already open, otherwise resume it from
-   *  history. Resolve the indexed record first: the link stores a session id,
+  /** Focus an open session once, or resume a closed one with the activation
+   *  policy the action needs. `resumeSession` activates a foreground resume by
+   *  itself, so the caller must not select its returned tab a second time: an
+   *  already-active tab treats a second selection as an expand/collapse toggle.
+   *
+   *  Resolve the indexed record first. The link stores a stable session id,
    *  not which agent backend wrote it. */
-  async function reveal(sessionId: string): Promise<string | null> {
-    const link = store.get(taskId).sessions.find((candidate) => candidate.sessionId === sessionId);
-    const serverId = link?.executionServerId ?? store.get(taskId).serverId;
+  async function reveal(sessionId: string, background: boolean): Promise<string | null> {
+    const taskFrame = store.get(taskId);
+    const link = taskFrame.sessions.find((candidate) => candidate.sessionId === sessionId);
+    // A directly opened local task can already have loaded through the default
+    // API before its Task frame was stamped with a host. `ownerHost` normally
+    // repairs that placement. Keep the same default that served the page as the
+    // final local fallback instead of treating an unplaced frame as a deleted
+    // session.
+    const taskServerId =
+      (await taskFrame.ownerHost()) ?? serverConnections.defaultServerId();
+    const serverId = attemptServerId({
+      link: link ?? { executionServerId: null },
+      taskServerId: taskServerId ?? null,
+    });
     const openTab = findOpenTabForSession(
       sessionId,
       session.tabs,
@@ -455,22 +472,36 @@
       undefined,
       serverId ? serverConnections.resolveId(serverId) : undefined,
     );
-    if (openTab) return openTab;
+    if (openTab) {
+      if (!background) session.selectTab(openTab);
+      return openTab;
+    }
     const meta = serverId ? await readSessionMeta(serverId, sessionId) : null;
-    return meta ? await session.resumeSession(meta) : null;
+    return meta ? await session.resumeSession(meta, { background }) : null;
   }
 
   async function openSession(sessionId: string) {
-    const tabId = await reveal(sessionId);
-    if (!tabId) return;
-    session.selectTab(tabId);
-    session.router.closeGroup("page");
+    try {
+      const tabId = await reveal(sessionId, false);
+      if (!tabId) return notifySessionUnavailable();
+      session.router.closeGroup("page");
+    } catch (err) {
+      toastError("open this session", err);
+    }
   }
 
   async function openSessionSplit(sessionId: string) {
-    const tabId = await reveal(sessionId);
-    const revealed = tabId ? session.sessionFor(tabId) : undefined;
-    if (revealed) session.openSplitChat(revealed.id);
+    try {
+      // A split resume stays in the background. A foreground resume would
+      // replace this task page before trying to place that same conversation
+      // beside itself.
+      const tabId = await reveal(sessionId, true);
+      if (!tabId) return notifySessionUnavailable();
+      const revealed = session.sessionFor(tabId);
+      if (revealed) session.openSplitChat(revealed.id);
+    } catch (err) {
+      toastError("open this session in a split", err);
+    }
   }
 
   /** Compose a new session already bound to this task. The link lands when the

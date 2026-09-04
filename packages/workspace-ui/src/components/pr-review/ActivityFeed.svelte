@@ -4,6 +4,7 @@
   import {
     ArrowUp as ArrowUpIcon,
     Pen as PencilSimpleIcon,
+    Tag as TagIcon,
   } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { CommentPostingBar } from "../ui/comment-posting-bar";
@@ -45,7 +46,7 @@
   import {
     buildActivityTimeline,
     filterActivityTimeline,
-    hasVisibleBody,
+    visibleConversationCount,
   } from "./lib/activity-data";
   import PrActivityRail from "./PrActivityRail.svelte";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
@@ -58,7 +59,7 @@
   import PrChangeFacts from "./PrChangeFacts.svelte";
   import PrIdentityLink from "./PrIdentityLink.svelte";
   import PrReviewerFacts from "./PrReviewerFacts.svelte";
-  import PrLabelFacts from "./PrLabelFacts.svelte";
+  import LabelPicker from "../ui/labels/LabelPicker.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
 
@@ -108,7 +109,7 @@
     /** The host has a checked-out PR worktree ready for the fix session. */
     addressCommentsReady?: boolean;
     onAddressComments?: () => Promise<void>;
-    /** Prepare the PR checkout and hand one failing check to a fix session. */
+    /** Prepare the PR checkout and put one failing check in a new session input. */
     onFixCheck?: (check: CheckItem) => Promise<void>;
     onGenerateGuide?: () => void;
     /** Immediate parent-owned state while the PR checkout is being prepared.
@@ -171,7 +172,6 @@
   let reviewerCandidatesLoading = $state(false);
   let reviewerMutation = $state<string | null>(null);
   let labelCandidatesLoading = $state(false);
-  let labelsMutation = $state(false);
   let filesLoading = $state(true);
   // Any provider load rejecting (expired token, network) lands here, and the
   // section that asked says so in place — a description that could not be
@@ -307,7 +307,7 @@
     threads.reduce((count, thread) => count + (thread.isResolved ? 0 : 1), 0),
   );
   const feedbackCount = $derived(
-    unresolvedCount + comments.reduce((count, item) => count + (hasVisibleBody(item.body) ? 1 : 0), 0),
+    unresolvedCount + visibleConversationCount(comments),
   );
 
   function markLoadFailed(
@@ -451,29 +451,15 @@
       });
   }
 
+  // The store applies the host's answer to the facts row and every list row;
+  // the labeled/unlabeled audit row joins the timeline on its next read.
   async function setLabels(names: string[]): Promise<void> {
-    if (labelsMutation) return;
-    const number = pr.number;
-    labelsMutation = true;
     try {
-      const entity = pullRequest(number);
-      await entity.setLabels(names);
-      // The provider records a labeled/unlabeled timeline item with the exact
-      // name. Refresh that one feed after the write so the audit row appears
-      // now rather than after the ordinary activity cache expires.
-      try {
-        const updatedComments = await entity.loadComments({ force: true });
-        if (pr.number === number) comments = updatedComments;
-      } catch {
-        // The label write succeeded. Keep the current activity instead of
-        // reporting the completed mutation as a failure.
-      }
+      await pullRequest(pr.number).setLabels(names);
     } catch (error) {
       toasts.error("Couldn’t update labels", {
         description: error instanceof Error ? error.message : String(error),
       });
-    } finally {
-      labelsMutation = false;
     }
   }
 
@@ -677,7 +663,7 @@
     try {
       await onAddressComments();
     } catch (err) {
-      toasts.error("Couldn't open the fix agent", {
+      toasts.error("Couldn't draft fixes", {
         description: err instanceof Error ? err.message : String(err),
       });
     } finally {
@@ -692,7 +678,7 @@
     try {
       await onFixCheck(check);
     } catch (err) {
-      toasts.error("Couldn't open the fix agent", {
+      toasts.error("Couldn't draft fixes", {
         description: err instanceof Error ? err.message : String(err),
       });
     } finally {
@@ -1109,15 +1095,21 @@
       onRetry={refresh}
     />
   {/if}
-  <PrLabelFacts
-    labels={detail?.labels ?? []}
-    candidates={labelCandidates}
-    loading={labelCandidatesLoading}
-    loadFailed={failedLoads.has("label-candidates")}
-    mutation={labelsMutation}
-    onOpen={canManageLabels ? openLabelMenu : undefined}
-    onSet={canManageLabels ? setLabels : undefined}
-  />
+  <dt class="flex items-center gap-2">
+    <TagIcon size={12} class="shrink-0 opacity-80" aria-hidden="true" />
+    Labels
+  </dt>
+  <dd class="flex min-h-6 min-w-0 items-center">
+    <LabelPicker
+      labels={detail?.labels ?? []}
+      candidates={labelCandidates}
+      loading={labelCandidatesLoading}
+      loadFailed={failedLoads.has("label-candidates")}
+      menuLabel="Edit pull request labels"
+      onOpen={canManageLabels ? openLabelMenu : undefined}
+      onSet={canManageLabels ? setLabels : undefined}
+    />
+  </dd>
 {/snippet}
 
 <!-- One definition, two homes: a column beside the conversation where there is
@@ -1179,8 +1171,8 @@
     {showRemoteLink}
     {prUrl}
     {onChat}
-    onFixComments={feedbackCount > 0 && onAddressComments ? addressComments : undefined}
     {chatBusy}
+    onFixComments={feedbackCount > 0 && onAddressComments ? addressComments : undefined}
     fixCommentsBusy={addressingComments}
     onOpenRemote={openPr}
     onRefresh={refresh}

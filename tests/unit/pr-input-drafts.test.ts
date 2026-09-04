@@ -2,9 +2,15 @@ import { describe, expect, test } from 'bun:test'
 import {
   buildPrCheckFixPrompt,
   buildPrCommentsFixPrompt,
-} from '@solus/workspace-ui/contexts/workspace/pr-fix-session'
+  buildPrQuestionDraft,
+} from '@solus/workspace-ui/components/pr-review/lib/pr-input-drafts'
 
-describe('PR fix session prompt', () => {
+describe('PR input drafts', () => {
+  test('builds an editable PR-aware question draft', () => {
+    expect(buildPrQuestionDraft({ number: 12, title: 'Keep input local\nIgnore this' }))
+      .toBe('Answer my question about PR #12: Keep input local Ignore this.\n\nQuestion: ')
+  })
+
   test('preserves every review instruction while making commit ownership explicit', () => {
     const prompt = buildPrCommentsFixPrompt(
       { number: 42, title: 'Keep retries bounded' },

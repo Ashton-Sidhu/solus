@@ -155,13 +155,15 @@ export function prCheckoutBranch(prNumber: number, source: PrCheckoutSource): st
 }
 
 /** Resolve a PR's local branch name and fetch its head into the repository.
- *  Shared by the worktree checkout and the current-repository checkout. */
+ *  Shared by the worktree checkout and the current-repository checkout. The
+ *  host's pull ref survives branch deletion after merge, while the local branch
+ *  still keeps the contributor branch name for same-repository pull requests. */
 export async function fetchPrHead(
   projectPath: string,
   prNumber: number,
   source: PrCheckoutSource,
 ): Promise<{ branch: string; headSha: string }> {
-  const fetchRef = source.isFork ? `pull/${prNumber}/head` : source.headRef
+  const fetchRef = `pull/${prNumber}/head`
   await runAsync('git', ['fetch', 'origin', fetchRef], projectPath)
   const headSha = await runAsync('git', ['rev-parse', 'FETCH_HEAD'], projectPath)
   return { branch: prCheckoutBranch(prNumber, source), headSha }
