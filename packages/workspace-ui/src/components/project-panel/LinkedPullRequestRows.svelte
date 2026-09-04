@@ -1,10 +1,12 @@
 <script lang="ts">
   import {
+    ArrowDownToLine as GitPullIcon,
     CircleCheck as ChecksIcon,
     CircleAlert as WarningCircleIcon,
     GitMerge as GitMergeIcon,
     GitPullRequest as GitPullRequestIcon,
     Glasses as EyeglassesIcon,
+    Hammer as HammerIcon,
   } from "@lucide/svelte";
   import { onDestroy, untrack } from "svelte";
   import type { HostApi } from "@solus/client-core/host-api";
@@ -13,18 +15,40 @@
   import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
-  import type { ChecksPresentation } from "../prs/lib/checks";
-  import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
-  import { linkedPrPrimaryAction } from "./lib/linked-pr-actions";
+  import {
+    isFailing,
+    orderedChecks,
+    type ChecksPresentation,
+  } from "../prs/lib/checks";
+  import {
+    mergeReadiness,
+    type MergeAction,
+  } from "../pr-review/lib/merge-readiness";
+  import {
+    buildPrChecksFixPrompt,
+    buildPrUpdateBranchPrompt,
+  } from "../pr-review/lib/pr-input-drafts";
+  import MenuRow, {
+    type ActionRowIcon,
+    type ActionRowItem,
+  } from "./MenuRow.svelte";
 
   const DETAIL_REFRESH_INTERVAL_MS = 30_000;
   const FOCUS_REFRESH_AGE_MS = 15_000;
+  const ACTION_ICON = {
+    merge: GitMergeIcon,
+    "mark-ready": GitPullRequestIcon,
+    "resolve-conflicts": WarningCircleIcon,
+    "fix-checks": HammerIcon,
+    "update-branch": GitPullIcon,
+  } satisfies Record<MergeAction["kind"], ActionRowIcon>;
 
   // The branch's pull request, continued in the same column: the rows above end
   // at "you have a pull request", these say what to do with it. The first row is
   // the way into the pull request pane, which owns the conversation, the diff,
   // and everything else the rail does not repeat; the rest are the rail's own
-  // shortcuts, and the merge it makes itself with the host's preferred method.
+  // shortcuts, and the last row is the move the shared readiness model chose —
+  // the same one the pull request page's status card offers.
   interface Props {
     pr: PullRequest;
     ctx: IpcContext;
@@ -38,6 +62,9 @@
     pushCompleted: boolean;
     /** The pull request left this branch's open set — the rail must re-read it. */
     onMerged: () => void;
+    /** Open a new session draft for this branch with the prompt filled in —
+     *  the rail's way of handing a blocker to an agent. */
+    onAgentDraft: (prompt: string) => void;
   }
   let {
     pr,
@@ -48,6 +75,7 @@
     active,
     pushCompleted,
     onMerged,
+    onAgentDraft,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -173,7 +201,24 @@
   const guideRunning = $derived(
     guideStatus === "queued" || guideStatus === "generating",
   );
-  const primary = $derived(linkedPrPrimaryAction(detail, checks?.state));
+  // The rail reads what the host's detail and the checks snapshot say; it has
+  // not read the threads, so it passes no thread count and the model does not
+  // guess one. The same snapshot feeds the pre-merge recheck below.
+  const checksSummary = $derived(
+    pullRequests.checks.summaryFor(serverId, ctx, pr.number),
+  );
+  const checksLoadFailed = $derived(
+    pullRequests.checks.loadFailedFor(serverId, ctx),
+  );
+  function readinessOf(target: PullRequest) {
+    return mergeReadiness({
+      detail: target,
+      checks: checksSummary,
+      checksLoadFailed,
+    });
+  }
+  const readiness = $derived(detail ? readinessOf(detail) : null);
+  const primary = $derived(readiness?.action ?? null);
 
   /** Without a tab the pane opens where it was last left, which is what "Open
    *  pull request" promises; the rows below it name the tab they stand for. */
@@ -259,9 +304,9 @@
         });
         return;
       }
-      const refreshedPrimary = linkedPrPrimaryAction(refreshed, checks?.state);
+      const refreshedPrimary = readinessOf(refreshed).action;
       if (
-        refreshedPrimary.kind !== "merge" ||
+        refreshedPrimary?.kind !== "merge" ||
         refreshedPrimary.method !== method
       ) {
         toasts.info("Pull request status updated", {
@@ -316,6 +361,9 @@
     requestInputFocus();
   }
 
+  // The rail's row is a state until there is a move, and the move once there
+  // is one: a blocker nobody here can clear is reported with its note, and the
+  // same row runs the merge, the host action, or the agent handoff otherwise.
   const primaryRow = $derived.by<ActionRowItem | null>(() => {
     if (merged) {
       return {
@@ -326,29 +374,23 @@
         disabled: true,
       };
     }
-    if (primary.kind === "none") return null;
+    if (!readiness || readiness.key === "merged" || readiness.key === "closed")
+      return null;
     return {
       key: "pr-primary",
       label: refreshingBeforeMerge
         ? "Updating pull request…"
         : merging
           ? "Working…"
-          : primary.label,
-      icon:
-        primary.kind === "resolve-conflicts" || primary.kind === "blocked"
-          ? WarningCircleIcon
-          : primary.kind === "ready"
-            ? GitPullRequestIcon
-            : GitMergeIcon,
+          : (primary?.label ?? readiness.headline),
+      icon: primary ? ACTION_ICON[primary.kind] : WarningCircleIcon,
       phase: merging ? "loading" : "idle",
-      danger: primary.kind === "resolve-conflicts",
-      badge: primary.kind === "resolve-conflicts" ? "Conflicts" : undefined,
-      disabled: primary.kind === "blocked" || merging,
+      danger: primary?.kind === "resolve-conflicts",
+      badge: primary?.kind === "resolve-conflicts" ? "Conflicts" : undefined,
+      disabled: !primary || merging,
       tooltip: refreshingBeforeMerge
         ? "Checking the latest code-host state before merging."
-        : primary.kind === "blocked"
-          ? primary.reason
-          : undefined,
+        : readiness.note || undefined,
     };
   });
 
@@ -411,9 +453,22 @@
       if (hasGuide || guideRunning) openPr("guide");
       else void generateGuide();
     } else if (key === "pr-checks") openPr("activity");
-    else if (primary.kind === "merge") void merge(primary.method);
-    else if (primary.kind === "ready") void markReady();
-    else if (primary.kind === "resolve-conflicts") resolveConflicts();
+    else if (primary?.kind === "merge") void merge(primary.method);
+    else if (primary?.kind === "mark-ready") void markReady();
+    else if (primary?.kind === "resolve-conflicts") resolveConflicts();
+    else if (primary?.kind === "fix-checks")
+      onAgentDraft(
+        buildPrChecksFixPrompt(pr, orderedChecks(checksSummary).filter(isFailing)),
+      );
+    else if (primary?.kind === "update-branch" && detail)
+      onAgentDraft(
+        buildPrUpdateBranchPrompt({
+          number: pr.number,
+          title: pr.title,
+          baseRef: detail.baseRef,
+          headRef: detail.headRef,
+        }),
+      );
   }
 </script>
 

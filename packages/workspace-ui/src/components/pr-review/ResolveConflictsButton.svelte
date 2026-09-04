@@ -10,10 +10,14 @@
   // so the click lands in the session right away and this header never morphs.
   let {
     pr,
+    label,
     getCtx,
     layout = "card",
   }: {
     pr: { number: number; title: string };
+    /** The shared readiness model's words for the move, so this button and the
+     *  project rail's row say the same thing. */
+    label: string;
     getCtx: () => IpcContext;
     /** Full-width inside the rail's status card; content-width in the row the
      *  card becomes once the rail folds. */
@@ -40,5 +44,5 @@
   onclick={resolve}
   title="Open an agent session to resolve the merge conflicts"
 >
-  <span class="truncate">Resolve conflicts</span>
+  <span class="truncate">{label}</span>
 </Button>

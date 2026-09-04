@@ -693,19 +693,26 @@
         return;
       }
 
-      const draft = session.openSessionDraft(
-        {
-          sourceTabId: sourceId,
-          gitContext: currentEnvironment.checkout,
-          via: "click",
-        },
-        currentEnvironment.cwd,
-      );
-      draft.prompt.text = prompt;
-      requestInputFocus({ tabId: draft.id });
+      openAgentDraft(prompt, currentEnvironment);
     } finally {
       resolvingConflicts = false;
     }
+  }
+
+  // Every agent handoff from this card lands the same way: a new session draft
+  // for this branch, prompt filled in, cursor in the composer — the user reads
+  // and sends it, nothing runs on its own.
+  function openAgentDraft(prompt: string, environment = env) {
+    const draft = session.openSessionDraft(
+      {
+        sourceTabId: sourceId,
+        gitContext: environment.checkout,
+        via: "click",
+      },
+      environment.cwd,
+    );
+    draft.prompt.text = prompt;
+    requestInputFocus({ tabId: draft.id });
   }
 </script>
 
@@ -818,6 +825,7 @@
       {active}
       pushCompleted={actions.lastResult?.push.status === "pushed"}
       onMerged={() => void loadOpenPrs()}
+      onAgentDraft={openAgentDraft}
     />
   {/if}
 </div>

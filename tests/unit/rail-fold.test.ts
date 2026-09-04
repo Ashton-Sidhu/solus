@@ -270,17 +270,21 @@ describe("the status card's actions keep their geometry when the card becomes a 
 
   it('tells the shared cluster which of its two homes it is rendering in', () => {
     expect(feed).toContain(
-      '{#snippet prActions(layout: PrActionsLayout, isMergeReady: boolean)}',
+      '{#snippet prActions(layout: PrActionsLayout, action: MergeAction | null)}',
     )
-    expect(rail).toContain('{@render actions("card", readiness.key === "ready")}')
-    expect(rail).toContain('{@render actions("row", readiness.key === "ready")}')
+    expect(rail).toContain('{@render actions("card", readiness.action)}')
+    expect(rail).toContain('{@render actions("row", readiness.action)}')
   })
 
-  it('keeps merge hidden until the shared readiness state is ready', () => {
+  it('renders only the move the shared readiness model chose', () => {
     // WHY: permission to merge is not the same as readiness to merge. A PR
-    // with a pending review must not contradict its own status with a merge CTA.
-    expect(feed).toContain('{isMergeReady}')
-    expect(cluster).toContain('(isMergeReady || detail.mergeStateStatus === "dirty")')
+    // with a pending review must not contradict its own status with a merge
+    // CTA — so the cluster never reads the host state itself; it draws the
+    // action the same table that wrote the headline handed it.
+    expect(feed).toContain('{action}')
+    expect(cluster).toContain('action?.kind === "merge"')
+    expect(cluster).not.toContain('mergeStateStatus')
+    expect(cluster).not.toContain('isMergeReady')
   })
 
   it('lets the guide note shrink before its trailing action disappears', () => {
