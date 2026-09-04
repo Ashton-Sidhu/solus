@@ -1306,6 +1306,7 @@ export class WorkspaceContext {
       pluginCommands: this.pluginCommands,
       task: spec.task,
       boundWorkId: spec.boundWorkId,
+      prReview: spec.prReview ?? null,
       // The draft's prompt becomes the session's, same object: what the composer
       // is about to clear is what the send just read.
       prompt: spec.prompt,
@@ -1569,6 +1570,7 @@ export class WorkspaceContext {
       draft.task = spec.task
       draft.prompt = spec.prompt
       draft.boundWorkId = spec.boundWorkId ?? null
+      draft.prReview = spec.prReview ?? null
       // Empty drafts are disposable UI state, not user work. Older snapshots
       // persisted the foreground empty composer and could therefore restore its
       // `draft/<id>` route over a real active session after reload.
@@ -2305,6 +2307,15 @@ export class WorkspaceContext {
         const gitContext = gitCheckoutFromState(identity, worktreePath)
         session.run.gitContext = gitContext
         if (gitContext) session.readOnlyReason = null
+        const guideIdentity = sessionGuideIdentity(session)
+        if (guideIdentity && (!background || !!intoTabId)) {
+          void reviewGuideStore.acknowledgeSessionGuide(
+            api,
+            this.serverIdFor(tabId),
+            this.ctxFor(tabId),
+            guideIdentity,
+          )
+        }
         // Paint before registering the environment: the transcript is in hand,
         // and nothing below changes what the conversation renders. Clearing the
         // spinner here rather than in the `finally` keeps a round trip the reader
@@ -3935,7 +3946,6 @@ export class WorkspaceContext {
   async openPullRequest(
     target: PullRequestOpenTarget,
     opts: {
-      openChat?: boolean
       ctx?: IpcContext
       via?: Via
       serverId?: string
@@ -3972,15 +3982,6 @@ export class WorkspaceContext {
       externalFallbackUrl,
       preflight: opts.preflight,
     })
-    if (pr && opts.openChat) {
-      const api = opts.serverId ? serverConnections.apiFor(opts.serverId) : this.apiForContext(ctx)
-      const checkout = await api.prPrepareCheckout(ctx, pr)
-      await this.openPrReviewChat({ ...pr, ...checkout }, {
-        projectCtx: ctx,
-        serverId: opts.serverId,
-        task: 'none',
-      })
-    }
   }
 
   /** Prepare one review without changing pane placement. Review Mode uses this
@@ -4012,122 +4013,38 @@ export class WorkspaceContext {
     )
   }
 
-  /** Create (once), activate, and reveal the chat associated with a PR review.
-   * A host-only target opens a blocked draft immediately while its checkout is
-   * prepared. Calling this again with the prepared context attaches that same
-   * visible draft to the real PR branch. */
-  async openPrReviewChat(
-    pr: PrReviewTarget | PrReviewContext,
+  /** Route prepared PR work to a real session composer. No tab or session exists
+   *  until Send; the checkout, PR context, prompt, and task choice stay on the
+   *  draft and cross that boundary together. */
+  openPrReviewDraft(
+    pr: PrReviewContext,
     opts: {
-      existingTabId?: string | null
-      projectCtx?: IpcContext | null
+      prompt?: string
       serverId?: string
-      task?: 'new' | 'none'
-    } = {},
-  ): Promise<string> {
-    const checkout = 'worktreePath' in pr ? pr : null
-    const existingTabId = opts.existingTabId ?? null
-    if (existingTabId && this.tabs[existingTabId]) {
-      const reviewSession = this.sessionFor(existingTabId)
-      if (opts.task === 'none' && reviewSession && !reviewSession.agentSessionId) {
-        reviewSession.task = { kind: 'none' }
-      }
-      if (checkout) this.attachPrReviewCheckout(existingTabId, checkout)
-      this.setActiveTab(existingTabId)
-      this.revealConversationBesideReview(existingTabId)
-      this.tabs[existingTabId].hasUnread = false
-      requestInputFocus()
-      return existingTabId
-    }
-
-    const reviewGitContext = checkout ? prReviewGitCheckout(checkout) : null
-    const pendingDirectory = opts.projectCtx?.session.projectPath
-      ?? opts.projectCtx?.session.workingDirectory
-      ?? this.router.params('prReview')?.cwd
-      ?? this.staticInfo?.projectPath
-      ?? this.staticInfo?.workspacePath
-    const tabId = await this.createTab(
-      checkout ? worktreeProjectRoot(checkout.worktreePath) : pendingDirectory,
+      target?: NavTarget
+      task: 'new' | 'none'
+    },
+  ): SessionDraft {
+    const serverId = opts.serverId ?? this.router.params('prReview')?.serverId ?? this.fallbackServerId
+    const draft = this.openSessionDraft(
       {
-      activate: false,
-      gitContext: reviewGitContext,
-      gitInitialization: 'background',
-      worktreeRequested: false,
-      serverId: opts.serverId ?? this.router.params('prReview')?.serverId,
+        target: opts.target,
+        freshTask: opts.task === 'new',
+        withoutTask: opts.task === 'none',
+        gitContext: prReviewGitCheckout(pr),
+        serverId,
+        via: 'click',
       },
+      worktreeProjectRoot(pr.worktreePath),
     )
-    const reviewSession = this.sessionFor(tabId)
-    if (reviewSession) {
-      reviewSession.title = `PR #${pr.number}`
-      if (opts.task === 'none') reviewSession.task = { kind: 'none' }
-      if (checkout) this.attachPrReviewCheckout(tabId, checkout)
-      else {
-        reviewSession.status = 'connecting'
-        reviewSession.statusCard = {
-          id: `pr-chat-checkout-${pr.number}`,
-          title: `Preparing PR #${pr.number} checkout…`,
-          icon: 'git-branch',
-          status: 'active',
-          steps: [{ id: 'checkout', label: 'Connecting the conversation to the PR branch', status: 'active' }],
-        }
-      }
-    }
-    this.setActiveTab(tabId)
-    this.revealConversationBesideReview(tabId)
-    requestInputFocus()
-    return tabId
-  }
-
-  private attachPrReviewCheckout(tabId: string, pr: PrReviewContext): void {
-    const reviewSession = this.sessionFor(tabId)
-    if (!reviewSession) return
-    reviewSession.run.workingDirectory = worktreeProjectRoot(pr.worktreePath)
-    reviewSession.run.gitContext = prReviewGitCheckout(pr)
-    reviewSession.run.worktree = null
-    reviewSession.run.permissionMode = 'auto'
-    reviewSession.prReview = pr
-    reviewSession.statusCard = null
-    if (reviewSession.status === 'connecting') reviewSession.status = 'idle'
-  }
-
-  failPrReviewChatCheckout(tabId: string, prNumber: number, message: string): void {
-    const reviewSession = this.sessionFor(tabId)
-    if (!reviewSession) return
-    reviewSession.status = 'idle'
-    reviewSession.statusCard = {
-      id: `pr-chat-checkout-${prNumber}`,
-      title: `Couldn't prepare PR #${prNumber} checkout`,
-      icon: 'git-branch',
-      status: 'error',
-      steps: [{ id: 'checkout', label: message, status: 'error' }],
-    }
-  }
-
-  /** Split the review: it keeps leading, and its conversation opens beside it.
-   *  The chat and the popped-out diff share the aside, so revealing one puts
-   *  the other away — the review is what you are always looking at. The pane
-   *  names the review's session, as every companion chat does: one naming none
-   *  shows whichever conversation the pool is on, which is not this review's. */
-  private revealConversationBesideReview(tabId: string): void {
-    const sessionId = this.tabs[tabId]?.sessionId
-    if (!sessionId) return
-    this.router.close('prDiff')
-    // A review opened from a transcript link is itself the companion, and at the
-    // pane cap "beside it" would then resolve back to the leading pane — the
-    // chat would take the review's place rather than stand next to it. The
-    // review takes the lead first, which is where it belongs either way.
-    this.router.leadWith('prReview')
-    // Checkout preparation calls this method again when it attaches the blocked
-    // draft to the PR branch. By then focus is already in the secondary pane,
-    // so another relative `aside` would mean the leading pane and put the same
-    // conversation on both sides. Target the existing secondary by id instead.
-    const target = this.router.asidePanes[0]?.id ?? 'aside'
-    const pane = this.router.navigate(
-      chatRoute(sessionId, this.sessions[sessionId]?.run.serverId),
-      { target },
-    )
-    pane.defaultSize = 50
-    this.isExpanded = true
+    draft.run.serverId = serverId
+    draft.run.taskServerId = serverId
+    draft.run.projectGroupPath = null
+    draft.run.worktree = null
+    draft.run.permissionMode = 'auto'
+    draft.prReview = pr
+    if (opts.prompt) draft.prompt.text = opts.prompt
+    return draft
   }
 
   /** Pop the open review's diff out beside it, so the activity feed and the

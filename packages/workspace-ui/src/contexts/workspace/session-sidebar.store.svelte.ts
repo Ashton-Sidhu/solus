@@ -142,6 +142,9 @@ export type SidebarSessionChild = {
   isSubtask?: boolean
   /** Background walkthrough state for this exact agent session. */
   reviewGuideStatus: 'generating' | 'ready' | null
+  /** Durable walkthrough state shown in the row tooltip after its notification
+   * mark has been acknowledged. */
+  reviewGuideTooltipStatus?: 'generating' | 'ready' | null
 }
 
 function projectLabel(projectKey: string): string {
@@ -1228,10 +1231,10 @@ export class SessionSidebarStore {
     const tab = this.session.tabs[tabId]
     const sess = this.session.sessionFor(tabId)
     const attention = tab && sess ? getAttentionState(sess, tab, this.planStore.plans) : null
-    const guideStatus = reviewGuideStore.indicatorStatusFor(
-      this.session.serverIdFor(tabId),
-      sessionGuideIdentity(sess),
-    )?.status
+    const serverId = this.session.serverIdFor(tabId)
+    const guideIdentity = sessionGuideIdentity(sess)
+    const guideStatus = reviewGuideStore.indicatorStatusFor(serverId, guideIdentity)?.status
+    const guideTooltipStatus = reviewGuideStore.statusFor(serverId, guideIdentity)?.status
     return {
       tabId,
       label: sess ? sessionTitle(sess) : tabId,
@@ -1249,6 +1252,12 @@ export class SessionSidebarStore {
         guideStatus === 'queued' || guideStatus === 'generating'
           ? 'generating'
           : guideStatus === 'ready'
+            ? 'ready'
+            : null,
+      reviewGuideTooltipStatus:
+        guideTooltipStatus === 'queued' || guideTooltipStatus === 'generating'
+          ? 'generating'
+          : guideTooltipStatus === 'ready'
             ? 'ready'
             : null,
     }

@@ -205,6 +205,52 @@ describe('ReviewGuideStore', () => {
     expect(store.indicatorStatusFor(HOST, identity)?.status).toBe('ready')
   })
 
+  test('treats a cached session guide as read when its closed session reopens', async () => {
+    // WHY: reopening the conversation is already an acknowledgement of its
+    // completed work. Restoring a cached guide must not add a fresh sidebar
+    // notification for work that finished before the session was reopened.
+    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+    const { ReviewGuideStore } = await import(
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
+    )
+    const cached = status({
+      key: 'session-provider-1',
+      scope: 'session',
+      target: { kind: 'session' },
+    })
+    const api = { reviewGuideStatus: async () => cached } as unknown as typeof window.solus
+    const store = new ReviewGuideStore(() => new HostEventSubscriber())
+    const identity = { repoRoot: '/repo', key: cached.key }
+
+    await store.acknowledgeSessionGuide(api, HOST, {} as never, identity)
+
+    expect(store.statusFor(HOST, identity)?.status).toBe('ready')
+    expect(store.indicatorStatusFor(HOST, identity)).toBeNull()
+  })
+
+  test('does not acknowledge a session guide that finishes after the session reopens', async () => {
+    // WHY: reopening while generation is in flight must not consume the future
+    // completion notification. Only the guide that already existed is read.
+    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+    const { ReviewGuideStore } = await import(
+      '@solus/workspace-ui/components/review/review-guide.store.svelte'
+    )
+    const generating = status({
+      key: 'session-provider-1',
+      scope: 'session',
+      target: { kind: 'session' },
+      status: 'generating',
+    })
+    const api = { reviewGuideStatus: async () => generating } as unknown as typeof window.solus
+    const store = new ReviewGuideStore(() => new HostEventSubscriber())
+    const identity = { repoRoot: '/repo', key: generating.key }
+
+    await store.acknowledgeSessionGuide(api, HOST, {} as never, identity)
+    store.set(HOST, { ...generating, status: 'ready', updatedAt: 2 })
+
+    expect(store.indicatorStatusFor(HOST, identity)?.status).toBe('ready')
+  })
+
   test('keys guide state by host, never by the connection handle', async () => {
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
     const { ReviewGuideStore } = await import(

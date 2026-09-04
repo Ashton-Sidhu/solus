@@ -712,6 +712,9 @@ export interface SessionSpec {
   run: RunConfig
   task: TaskTarget
   boundWorkId: string | null
+  /** PR context carried by a composer opened from a pull request. Optional so
+   *  drafts saved before this field existed still restore normally. */
+  prReview?: PrReviewContext | null
 }
 
 /** UI-only state. One per open tab in the renderer. */

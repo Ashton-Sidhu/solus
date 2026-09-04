@@ -428,6 +428,6 @@
     provider={session.provider}
     modelId={session.modelId}
     attention={session.attention}
-    reviewGuideStatus={session.reviewGuideStatus}
+    reviewGuideStatus={session.reviewGuideTooltipStatus}
   />
 </TooltipUI.Root>

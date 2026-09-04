@@ -38,14 +38,20 @@ describe('pull request rail overflow menu', () => {
     expect(feed).toContain('onFixComments={feedbackCount > 0 && onAddressComments')
   })
 
-  test('opens new PR sessions and leaves their prompts in the input bar', () => {
+  test('prepares the checkout before routing PR input into a session composer', () => {
     expect(pane).toContain('async function openPrChat(draft?: string)')
     expect(pane).toContain('async function openFixDraft(prompt: string, title: string)')
-    expect(pane).toContain('fixTabId = await session.openPrReviewChat(pr')
+    expect(pane).toMatch(
+      /const sourceContext = await review\.ensureCheckout\(\);[\s\S]*?session\.openPrReviewDraft\(sourceContext/,
+    )
+    expect(pane).toContain('prompt: draft')
+    expect(pane).toContain('prompt,')
     expect(pane).toContain('task: "new"')
-    expect(pane).toContain('chatSession.prompt.text = draft')
-    expect(pane).toContain('fixSession.prompt.text = prompt')
     expect(pane).not.toContain('session.sendMessage')
+    expect(pane).not.toContain('session.openPrReviewChat')
+    expect(workspace).toContain('openPrReviewDraft(')
+    expect(workspace).toContain('const draft = this.openSessionDraft(')
+    expect(workspace).toContain('draft.prReview = pr')
     expect(workspace).not.toContain('startPrCommentsFixSession')
     expect(workspace).not.toContain('startPrCheckFixSession')
     expect(submitReviewModal).toContain('Submit & draft fixes')
@@ -55,6 +61,7 @@ describe('pull request rail overflow menu', () => {
   test('keeps the explicit checkout command separate from prompt drafting', () => {
     expect(pane).toContain('onclick={() => void openPrChat()}')
     expect(pane).toContain('onChat={() => void openPrChat(buildPrQuestionDraft(target))}')
+    expect(pane).toContain('{openingChat ? "Preparing…" : "Check out"}')
   })
 
   test('includes the host link commands and remains usable at phone width', () => {

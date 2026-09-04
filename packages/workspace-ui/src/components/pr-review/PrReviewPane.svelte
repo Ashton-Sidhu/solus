@@ -1,6 +1,9 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import {
+    GitPullRequest as GitPullRequestIcon,
+    LoaderCircle as CircleNotchIcon,
+  } from "@lucide/svelte";
   import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import type {
     DraftReview,
@@ -54,8 +57,8 @@
   } from "./lib/pr-input-drafts";
 
   // The review surface (M3–M5): Activity · Guide · Diff content tabs over a PR's
-  // change, living maximized in the secondary pane. The "Chat" button lazily
-  // creates a worktree-rooted conversation and pops it out alongside the review.
+  // change, living maximized in the secondary pane. PR handoffs prepare the
+  // worktree here, then open a session composer rooted in that checkout.
   //
   // The surface mounts the moment a PR is clicked, before its worktree has been
   // fetched and checked out: `pr` is null until then, and everything that reads
@@ -685,39 +688,27 @@
     requestInputFocus();
   }
 
-  // Chat changes only the primary pane. The review stays mounted in secondary;
-  // openPrReviewChat reveals the conversation and restores the split geometry.
+  // Checkout progress belongs to the PR surface that started it. Only after the
+  // worktree is ready do we replace that surface with a composer, so the draft
+  // never points at a temporary directory and a failed checkout leaves a clear
+  // retry path instead of an empty session.
   async function openPrChat(draft?: string) {
     if (!pr || openingChat) return;
+    const targetPane = paneId ?? session.router.focusedPaneId;
     openingChat = true;
     try {
-      // Reveal a blocked conversation first. Checkout preparation can fetch and
-      // create a worktree, so making the pane wait for it makes the click feel
-      // broken even though useful progress is under way.
-      const chatTabId = await session.openPrReviewChat(pr, {
-        existingTabId: activeChatTabId,
-        projectCtx: projectCtx(),
-        serverId,
-        task: "none",
-      });
-      activeChatTabId = chatTabId;
-      const chatSession = session.sessionFor(chatTabId);
-      if (draft && chatSession && !chatSession.prompt.text) {
-        chatSession.prompt.text = draft;
-      }
       const sourceContext = await review.ensureCheckout();
-      await session.openPrReviewChat(sourceContext, {
-        existingTabId: activeChatTabId,
-        projectCtx: projectCtx(),
+      session.openPrReviewDraft(sourceContext, {
+        prompt: draft,
         serverId,
+        target: targetPane,
         task: "none",
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (activeChatTabId) {
-        session.failPrReviewChatCheckout(activeChatTabId, pr.number, message);
-      }
-      toasts.error("Couldn't open review chat", { description: message });
+      toasts.error("Couldn't prepare the PR checkout", {
+        description: message,
+      });
     } finally {
       openingChat = false;
     }
@@ -726,32 +717,18 @@
 
   async function openFixDraft(prompt: string, title: string) {
     if (!pr) return;
-    let fixTabId: string | null = null;
+    const targetPane = paneId ?? session.router.focusedPaneId;
     try {
-      // Show the new session immediately while its PR checkout is prepared.
-      fixTabId = await session.openPrReviewChat(pr, {
-        projectCtx: projectCtx(),
-        serverId,
-        task: "new",
-      });
       const sourceContext = await review.ensureCheckout();
-      await session.openPrReviewChat(sourceContext, {
-        existingTabId: fixTabId,
-        projectCtx: projectCtx(),
+      session.openPrReviewDraft(sourceContext, {
+        prompt,
         serverId,
+        target: targetPane,
         task: "new",
       });
-      const fixSession = session.sessionFor(fixTabId);
-      if (fixSession) {
-        fixSession.prompt.text = prompt;
-        fixSession.title = title;
-      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (fixTabId) {
-        session.failPrReviewChatCheckout(fixTabId, pr.number, message);
-      }
-      toasts.error("Couldn't open the fix session", { description: message });
+      toasts.error(`Couldn't prepare ${title}`, { description: message });
     }
     requestInputFocus();
   }
@@ -914,8 +891,17 @@
         ? "Focus the Solus chat on this pull request's checkout"
         : "Check out this pull request in its own worktree and open a Solus chat on it"}
   >
-    <GitPullRequestIcon class="size-3" aria-hidden="true" />
-    <span class="@max-[40rem]/band:hidden">Check out</span>
+    {#if openingChat}
+      <CircleNotchIcon
+        class="size-3 animate-spin [animation-duration:0.9s]"
+        aria-hidden="true"
+      />
+    {:else}
+      <GitPullRequestIcon class="size-3" aria-hidden="true" />
+    {/if}
+    <span class="@max-[40rem]/band:hidden">
+      {openingChat ? "Preparing…" : "Check out"}
+    </span>
   </Button>
 {/snippet}
 

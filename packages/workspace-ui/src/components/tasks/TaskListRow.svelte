@@ -92,7 +92,10 @@
          every row would be the list repeating itself sixty times. -->
     <span
       class="flex size-7 shrink-0 items-center justify-center rounded-lg"
-      style="background:color-mix(in oklch, var({meta.token}) 20%, transparent);color:color-mix(in oklch, var({meta.token}) 62%, var(--foreground))"
+      style:background={`color-mix(in oklch, var(${meta.token}) 20%, transparent)`}
+      style:color={status === "done"
+        ? "var(--solus-art-positive)"
+        : `color-mix(in oklch, var(${meta.token}) 62%, var(--foreground))`}
       aria-hidden="true"
     >
       <svg

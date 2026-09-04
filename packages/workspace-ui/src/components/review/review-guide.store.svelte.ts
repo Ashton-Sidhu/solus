@@ -256,6 +256,21 @@ export class ReviewGuideStore {
     opened.add(`${statusKey(event)}::${event.updatedAt}`)
   }
 
+  /** Reopening a closed session is already an acknowledgement of the guide it
+   * produced. Clear an in-memory ready mark immediately, then probe the host so
+   * the same rule also covers a cached guide after an app restart. A guide that
+   * is still generating remains visible when it becomes ready later. */
+  async acknowledgeSessionGuide(
+    api: SolusApi,
+    serverId: string,
+    ctx: IpcContext,
+    identity: ReviewGuideIdentity,
+  ): Promise<void> {
+    this.markOpened(serverId, identity)
+    await this.load(api, serverId, ctx, identity, 'session')
+    this.markOpened(serverId, identity)
+  }
+
   isRunningFor(serverId: string, session: Session | undefined): boolean {
     const status = this.statusFor(serverId, sessionGuideIdentity(session))?.status
     return status === 'queued' || status === 'generating'

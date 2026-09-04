@@ -115,6 +115,13 @@
     !isSlim && hasSessions && hasDisclosure(sessions),
   );
   const reviewGuideStatus = $derived(aggregateReviewGuideStatus(sessions));
+  const reviewGuideTooltipStatus = $derived(
+    aggregateReviewGuideStatus(
+      sessions.map((session) => ({
+        reviewGuideStatus: session.reviewGuideTooltipStatus ?? null,
+      })),
+    ),
+  );
 
   // Which branch or worktree the work sits on. The row itself stays as it is;
   // the tooltip is where the answer belongs.
@@ -615,7 +622,7 @@
       provider={tooltipSession?.provider}
       modelId={tooltipSession?.modelId}
       attention={task.attention}
-      {reviewGuideStatus}
+      reviewGuideStatus={reviewGuideTooltipStatus}
     />
   </TooltipUI.Root>
 

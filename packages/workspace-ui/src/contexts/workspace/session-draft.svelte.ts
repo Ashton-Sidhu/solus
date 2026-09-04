@@ -1,4 +1,4 @@
-import type { Prompt, RunConfig, Session, SessionSpec, TaskTarget } from '@solus/contracts/types'
+import type { PrReviewContext, Prompt, RunConfig, Session, SessionSpec, TaskTarget } from '@solus/contracts/types'
 import { inheritRunConfig } from './run-config'
 import { uuid } from '@solus/contracts/uuid'
 import { makePrompt } from './session.factories'
@@ -21,6 +21,7 @@ export class SessionDraft {
   run: RunConfig
   task = $state<TaskTarget>({ kind: 'new' })
   boundWorkId = $state<string | null>(null)
+  prReview = $state<PrReviewContext | null>(null)
   /**
    * The session this draft files under once that session has a task of its own.
    * Set only by a background start, which leaves this draft behind aimed at the
@@ -49,6 +50,7 @@ export class SessionDraft {
       run: this.run,
       task: this.task,
       boundWorkId: this.boundWorkId,
+      prReview: this.prReview,
     }
   }
 
