@@ -227,6 +227,160 @@ export function hunkToPatch(filePath: string, hunk: string): string {
   return `diff --git a/${filePath} b/${filePath}\n--- a/${filePath}\n+++ b/${filePath}\n${hunk}\n`
 }
 
+/** GitHub-sized context on each side of the reviewed line. */
+export const ACTIVITY_DIFF_CONTEXT_LINES = 3
+
+export interface ActivityDiffPreview {
+  hunk: string
+  hiddenBeforeLineCount: number
+  hiddenAfterLineCount: number
+}
+
+function consumesOldLine(line: string): boolean {
+  return !line.startsWith('+') && !line.startsWith('\\')
+}
+
+function consumesNewLine(line: string): boolean {
+  return !line.startsWith('-') && !line.startsWith('\\')
+}
+
+function lineNumberAt(
+  contentLines: readonly string[],
+  start: number,
+  side: 'LEFT' | 'RIGHT',
+  target: number,
+): number {
+  let lineNumber = start
+  for (let index = 0; index < contentLines.length; index++) {
+    const consumesLine = side === 'LEFT'
+      ? consumesOldLine(contentLines[index])
+      : consumesNewLine(contentLines[index])
+    if (consumesLine) {
+      if (lineNumber === target) return index
+      lineNumber++
+    }
+  }
+  return contentLines.length - 1
+}
+
+/** Center a valid unified hunk on its review anchor. Each omitted side can be
+ * revealed independently without changing the line numbers Pierre renders. */
+export function activityDiffPreview(
+  hunk: string,
+  anchorLine: number | null,
+  side: 'LEFT' | 'RIGHT',
+  showBefore = false,
+  showAfter = false,
+): ActivityDiffPreview {
+  const lines = hunk.split('\n')
+  if (lines.at(-1) === '') lines.pop()
+  const header = lines[0] ?? ''
+  const headerMatch = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$/.exec(header)
+  const contentLines = lines.slice(1)
+  if (!headerMatch || contentLines.length === 0) {
+    return { hunk, hiddenBeforeLineCount: 0, hiddenAfterLineCount: 0 }
+  }
+
+  const anchorIndex = anchorLine === null
+    ? contentLines.length - 1
+    : lineNumberAt(
+        contentLines,
+        Number(headerMatch[side === 'LEFT' ? 1 : 2]),
+        side,
+        anchorLine,
+      )
+  const previewStart = Math.max(0, anchorIndex - ACTIVITY_DIFF_CONTEXT_LINES)
+  const previewEnd = Math.min(contentLines.length, anchorIndex + ACTIVITY_DIFF_CONTEXT_LINES + 1)
+  const start = showBefore ? 0 : previewStart
+  const end = showAfter ? contentLines.length : previewEnd
+  const hiddenBeforeLineCount = previewStart
+  const hiddenAfterLineCount = contentLines.length - previewEnd
+  if (start === 0 && end === contentLines.length) {
+    return { hunk, hiddenBeforeLineCount, hiddenAfterLineCount }
+  }
+
+  const omittedLines = contentLines.slice(0, start)
+  const visibleLines = contentLines.slice(start, end)
+  const oldStart = Number(headerMatch[1]) + omittedLines.filter(consumesOldLine).length
+  const newStart = Number(headerMatch[2]) + omittedLines.filter(consumesNewLine).length
+  const oldCount = visibleLines.filter(consumesOldLine).length
+  const newCount = visibleLines.filter(consumesNewLine).length
+  const previewHeader = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${headerMatch[3] ?? ''}`
+
+  return {
+    hunk: [previewHeader, ...visibleLines].join('\n'),
+    hiddenBeforeLineCount,
+    hiddenAfterLineCount,
+  }
+}
+
+function headerPath(line: string): string | null {
+  const encoded = line.slice(4)
+  if (encoded === '/dev/null') return null
+  let path = encoded
+  if (encoded.startsWith('"')) {
+    try {
+      // SAFETY: This branch accepts a JSON-style quoted git path; malformed
+      // values throw into the fallback below instead of entering the path map.
+      path = JSON.parse(encoded) as string
+    } catch {
+      return null
+    }
+  }
+  return path.startsWith('a/') || path.startsWith('b/') ? path.slice(2) : path
+}
+
+function hunkAtLine(chunk: string, line: number, side: 'LEFT' | 'RIGHT'): string | null {
+  const lines = chunk.split('\n')
+  for (let index = 0; index < lines.length; index++) {
+    const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(lines[index])
+    if (!match) continue
+    const start = Number(match[side === 'LEFT' ? 1 : 3])
+    const count = Number(match[side === 'LEFT' ? 2 : 4] ?? 1)
+    if (line < start || line >= start + count) continue
+    let end = index + 1
+    while (end < lines.length && !lines[end].startsWith('@@ ')) end++
+    while (lines[end - 1] === '') end--
+    return lines.slice(index, end).join('\n')
+  }
+  return null
+}
+
+/** Find each review thread's complete containing hunk in one cheap pass over
+ * the PR patch. This supplies context after GitHub's shorter comment hunk
+ * without parsing and retaining the entire diff for every mounted feed. */
+export function reviewThreadDiffHunks(
+  patch: string | null,
+  events: readonly ActivityEvent[],
+): Map<string, string> {
+  const hunks = new Map<string, string>()
+  if (!patch) return hunks
+  const threadsByPath = new Map<string, ReviewThread[]>()
+  for (const event of events) {
+    if (event.kind !== 'thread' || event.thread.line === null) continue
+    const threads = threadsByPath.get(event.thread.filePath)
+    if (threads) threads.push(event.thread)
+    else threadsByPath.set(event.thread.filePath, [event.thread])
+  }
+
+  for (const chunk of patch.split(/(?=^diff --git )/m)) {
+    if (!chunk.startsWith('diff --git ')) continue
+    const paths = chunk
+      .split('\n')
+      .filter((line) => line.startsWith('--- ') || line.startsWith('+++ '))
+      .map(headerPath)
+      .filter((path): path is string => path !== null)
+    for (const path of paths) {
+      for (const thread of threadsByPath.get(path) ?? []) {
+        if (thread.line === null) continue
+        const hunk = hunkAtLine(chunk, thread.line, thread.side)
+        if (hunk) hunks.set(thread.id, hunk)
+      }
+    }
+  }
+  return hunks
+}
+
 /** Up to two uppercase initials from a display name or login (`ashton-sidhu` → `AS`). */
 export function initials(name: string): string {
   const parts = name.split(/[\s_./-]+/).filter(Boolean)

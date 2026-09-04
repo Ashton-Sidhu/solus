@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrCommit, PrConversationItem, ReviewThread } from '@solus/contracts/providers'
 import {
+  activityDiffPreview,
   buildActivityTimeline,
   filterActivityTimeline,
   prLabelActivityText,
+  reviewThreadDiffHunks,
   visibleConversationCount,
 } from '@solus/workspace-ui/components/pr-review/lib/activity-data'
 
@@ -60,6 +62,83 @@ describe('PR activity timeline conversation', () => {
       kind: 'review',
       author: 'reviewer',
       reviewState: 'CHANGES_REQUESTED',
+    })
+  })
+})
+
+describe('PR activity inline diff preview', () => {
+  const hunk = [
+    '@@ -20,10 +20,11 @@ function example() {',
+    ' context 20',
+    ' context 21',
+    ' context 22',
+    ' context 23',
+    ' context 24',
+    '+commented 25',
+    ' context 26',
+    ' context 27',
+    ' context 28',
+    ' context 29',
+    ' context 30',
+  ].join('\n')
+
+  test('keeps three lines before and after the review anchor', () => {
+    // WHY: The reviewed line must stay centered while a large hunk does not
+    // push the thread conversation out of the activity feed.
+    expect(activityDiffPreview(hunk, 25, 'RIGHT')).toEqual({
+      hunk: [
+        '@@ -22,6 +22,7 @@ function example() {',
+        ' context 22',
+        ' context 23',
+        ' context 24',
+        '+commented 25',
+        ' context 26',
+        ' context 27',
+        ' context 28',
+      ].join('\n'),
+      hiddenBeforeLineCount: 2,
+      hiddenAfterLineCount: 2,
+    })
+  })
+
+  test('reveals context before and after the anchor independently', () => {
+    expect(activityDiffPreview(hunk, 25, 'RIGHT', true, false).hunk).toContain(' context 20')
+    expect(activityDiffPreview(hunk, 25, 'RIGHT', true, false).hunk).not.toContain(' context 30')
+    expect(activityDiffPreview(hunk, 25, 'RIGHT', false, true).hunk).not.toContain(' context 20')
+    expect(activityDiffPreview(hunk, 25, 'RIGHT', false, true).hunk).toContain(' context 30')
+    expect(activityDiffPreview(hunk, 25, 'RIGHT', true, true).hunk).toBe(hunk)
+  })
+
+  test('uses the full PR hunk so the preview has context after the comment', () => {
+    const hunk = [
+      '@@ -20,4 +20,5 @@ function example() {',
+      ' context 20',
+      ' context 21',
+      '+commented 22',
+      ' context 23',
+      ' context 24',
+    ].join('\n')
+    const patch = `diff --git a/example.ts b/example.ts\n--- a/example.ts\n+++ b/example.ts\n${hunk}\n`
+    const thread: ReviewThread = {
+      id: 'thread-1',
+      filePath: 'example.ts',
+      line: 22,
+      side: 'RIGHT',
+      isResolved: false,
+      isOutdated: false,
+      comments: [],
+    }
+
+    expect(reviewThreadDiffHunks(patch, [{ kind: 'thread', ts: 0, thread }]).get(thread.id)).toBe(hunk)
+  })
+
+  test('leaves a short hunk unchanged without offering expansion', () => {
+    const shortHunk = '@@ -1,3 +1,3 @@\n one\n two\n three\n'
+
+    expect(activityDiffPreview(shortHunk, 2, 'RIGHT')).toEqual({
+      hunk: shortHunk,
+      hiddenBeforeLineCount: 0,
+      hiddenAfterLineCount: 0,
     })
   })
 })

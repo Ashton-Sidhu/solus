@@ -27,14 +27,15 @@
   import PrAvatar from "../prs/PrAvatar.svelte";
   import PrReviewStateBadge from "../prs/PrReviewStateBadge.svelte";
   import PrThreadCard from "./PrThreadCard.svelte";
-  import type { ActivityEvent } from "./lib/activity-data";
   import {
     activityEventKey,
     commitRunAuthorLabel,
     commitRunPreview,
     hasVisibleBody,
     prLabelActivityText,
+    reviewThreadDiffHunks,
     reviewMilestone,
+    type ActivityEvent,
   } from "./lib/activity-data";
 
   // The activity timeline proper: the opened event plus commits, review
@@ -44,6 +45,7 @@
   // commit runs demote to small tertiary nodes that collapse when long.
   let {
     events,
+    diffPatch = null,
     loading = false,
     loadFailed = false,
     onRetry,
@@ -62,6 +64,8 @@
      *  identity (PrThreadCard mutates reply/resolve in place — the Diff tab
      *  renders the same objects). */
     events: ActivityEvent[];
+    /** Full PR patch for comment-centered inline diff context. */
+    diffPatch?: string | null;
     /** Commits/comments still loading — renders ghost rows on the spine. */
     loading?: boolean;
     /** A commit, comment, or thread read did not answer. The spine says so in
@@ -85,6 +89,8 @@
     onResolve: (threadId: string, resolved: boolean) => Promise<void>;
     onDeleteComment: (commentId: string) => Promise<void>;
   } = $props();
+
+  const threadDiffHunks = $derived(reviewThreadDiffHunks(diffPatch, events));
 
   // Comment/review bodies are GitHub markdown — same pipeline *and* the same
   // `.prose-pr` typography as the description above them. Sizes/colour can't be
@@ -399,6 +405,7 @@
           <div class="min-w-0 flex-1">
             <PrThreadCard
               thread={event.thread}
+              fullDiffHunk={threadDiffHunks.get(event.thread.id)}
               {onJump}
               {onReply}
               {onResolve}

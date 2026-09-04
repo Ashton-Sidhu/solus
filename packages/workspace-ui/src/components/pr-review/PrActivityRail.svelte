@@ -129,7 +129,7 @@
     onRetry?: () => void;
     /** The PR's action cluster (merge CTA + quiet secondary row) — it lives
      *  with the readiness status it acts on, Linear-style, not in the header. */
-    actions?: Snippet<[PrActionsLayout]>;
+    actions?: Snippet<[PrActionsLayout, boolean]>;
     /** The ⋯ menu of rarely-used PR actions. It rides in the status card,
      *  where it is always present, rather than under a cluster that a draft
      *  or a closed PR leaves empty. */
@@ -198,7 +198,15 @@
   // Headline, sub-line, and the blocked question all come from one table so
   // they cannot drift apart (see lib/merge-readiness).
   const readiness = $derived(
-    detail ? mergeReadiness({ detail, checks, unresolvedCount, openedTime }) : null,
+    detail
+      ? mergeReadiness({
+          detail,
+          checks,
+          unresolvedCount,
+          approvedReviewCount: approvedReviewers,
+          openedTime,
+        })
+      : null,
   );
   const tone = $derived(readiness ? readinessTone(readiness.key) : "neutral");
   // Both lists are virtualized, so each needs a row height and a scrollport
@@ -355,7 +363,7 @@
       <ReviewGuideGlyph size={13} class="shrink-0 text-muted-foreground" />
       <span class="min-w-0 flex-1 truncate">Review guide</span>
       {#if guideNote}
-        <span class="shrink-0 truncate text-xs text-muted-foreground">
+        <span class="min-w-0 truncate text-xs text-muted-foreground">
           {guideNote}
         </span>
       {/if}
@@ -417,7 +425,7 @@
             {@render readinessText()}
           </div>
           <div class="flex min-w-0 items-center gap-2">
-            {#if actions}{@render actions("row")}{/if}
+            {#if actions}{@render actions("row", readiness.key === "ready")}{/if}
             {#if menu}<span class="shrink-0">{@render menu()}</span>{/if}
           </div>
         </div>
@@ -431,7 +439,7 @@
                  empties. -->
             {#if menu}<span class="-mr-1 shrink-0">{@render menu()}</span>{/if}
           </div>
-          {#if actions}{@render actions("card")}{/if}
+          {#if actions}{@render actions("card", readiness.key === "ready")}{/if}
         </div>
       {/if}
       {@render guideRow()}

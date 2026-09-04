@@ -26,6 +26,7 @@
     onAddressComments,
     getCtx,
     onMerged,
+    isMergeReady,
     layout = "card",
   }: {
     pr: { number: number; title: string };
@@ -38,6 +39,8 @@
     onAddressComments?: () => void;
     getCtx: () => IpcContext;
     onMerged?: () => void;
+    /** True only when the shared readiness model says the PR can merge now. */
+    isMergeReady: boolean;
     layout?: PrActionsLayout;
   } = $props();
 
@@ -61,7 +64,10 @@
       mergeMethods.length > 0,
   );
   const showMerge = $derived(
-    detail?.state === "open" && !detail.draft && canMerge,
+    detail?.state === "open" &&
+      !detail.draft &&
+      canMerge &&
+      (isMergeReady || detail.mergeStateStatus === "dirty"),
   );
   // The cluster owns its own top margin: a draft has none of these actions, and
   // an empty wrapper still held a gap inside the card.

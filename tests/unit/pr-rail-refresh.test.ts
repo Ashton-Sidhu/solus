@@ -36,4 +36,12 @@ describe('Git rail pull request freshness', () => {
     expect(linkedRows).toContain('if (!active || !pushCompleted) return;')
     expect(linkedRows).toContain('void refreshDetail(true)')
   })
+
+  test('uses the visible check state when it decides whether to show merge', () => {
+    // WHY: the project-panel row is separate from the PR-page status card. It
+    // must pass its own live check result into the same decision it uses before
+    // and after the final host refresh.
+    expect(linkedRows).toContain('linkedPrPrimaryAction(detail, checks?.state)')
+    expect(linkedRows).toContain('linkedPrPrimaryAction(refreshed, checks?.state)')
+  })
 })

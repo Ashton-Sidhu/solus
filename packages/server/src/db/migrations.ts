@@ -58,6 +58,43 @@ DROP TABLE empty_session_placeholders;
 DROP TABLE demoted_session_owners;
 `
 
+/**
+ * PR links used to accept either a project path or a repository as their
+ * scope. The URL is the stable identity already stored on every valid PR row,
+ * so retain the strongest authored snapshot and enforce that identity without
+ * changing the rules for works, plans, or automations.
+ */
+export const UNIQUE_TASK_PR_LINK_MIGRATION = `
+DELETE FROM task_links
+WHERE rowid IN (
+  SELECT rowid
+  FROM (
+    SELECT
+      rowid,
+      ROW_NUMBER() OVER (
+        PARTITION BY task_id, url COLLATE NOCASE
+        ORDER BY
+          CASE created_by
+            WHEN 'user' THEN 0
+            WHEN 'agent' THEN 1
+            WHEN 'automation' THEN 2
+            WHEN 'system' THEN 3
+            ELSE 4
+          END,
+          linked_at DESC,
+          rowid DESC
+      ) AS identity_rank
+    FROM task_links
+    WHERE kind = 'pr' AND url IS NOT NULL
+  ) AS ranked_pr_links
+  WHERE identity_rank > 1
+);
+
+CREATE UNIQUE INDEX task_pr_links_by_url
+ON task_links(task_id, url COLLATE NOCASE)
+WHERE kind = 'pr' AND url IS NOT NULL;
+`
+
 const migrations = [
   `
 CREATE TABLE tasks (
@@ -821,6 +858,7 @@ ALTER TABLE tasks DROP COLUMN snooze_note;
 DELETE FROM task_events WHERE kind IN ('snoozed', 'woke');
 `,
   SINGLE_SESSION_OWNER_MIGRATION,
+  UNIQUE_TASK_PR_LINK_MIGRATION,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

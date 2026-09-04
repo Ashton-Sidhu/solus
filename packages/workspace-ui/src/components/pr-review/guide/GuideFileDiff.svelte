@@ -4,6 +4,7 @@
     FileDiff,
     type DiffLineAnnotation,
     type FileDiffContentsLoader,
+    type HunkSeparators,
     type SelectedLineRange,
     type SelectionSide,
   } from "@pierre/diffs";
@@ -54,6 +55,7 @@
     onSaveComment,
     onDeleteComment,
     moveAnalysis: sharedMoveAnalysis,
+    hunkSeparators = "line-info-basic",
   }: {
     patch: string;
     filePath: string;
@@ -62,6 +64,8 @@
     onSaveComment?: (comment: GuideDiffCommentSave) => void;
     onDeleteComment?: (id: string) => void;
     moveAnalysis?: DiffMoveAnalysis;
+    /** Compact embedded diffs can own their context disclosure outside Pierre. */
+    hunkSeparators?: HunkSeparators;
   } = $props();
 
   const theme = getSettingsContext();
@@ -192,7 +196,7 @@
       // line noise in a walkthrough meant for reading. This one says how many
       // lines it skipped and, once the file's contents are loaded, lets the
       // reader pull them in without leaving the card.
-      hunkSeparators: "line-info-basic",
+      hunkSeparators,
       loadDiffFiles,
       onPostRender: (node: HTMLElement) => {
         decorateMovedLines(

@@ -66,7 +66,7 @@
     </span>
 
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
-      <span class="truncate text-sm font-medium text-foreground" title={row.title}>
+      <span class="truncate text-workspace-chrome font-medium text-foreground" title={row.title}>
         {row.title}
       </span>
 

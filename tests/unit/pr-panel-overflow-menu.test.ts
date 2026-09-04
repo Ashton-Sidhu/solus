@@ -20,4 +20,13 @@ describe('pull request panel overflow menu', () => {
       /onInteractOutside=\{\(event\) => \{[\s\S]*triggerEl\?\.contains\(event\.target as Node\)[\s\S]*event\.preventDefault\(\)/,
     )
   })
+
+  test('scales the header trigger and menu with the client display', () => {
+    // WHY: the PR header is shared by the full page and the list-side panel.
+    // Its overflow must follow the same 14px desktop / 12px laptop chrome rung.
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:size-6')
+    expect(source).toContain('pointer-fine:[.is-laptop-display_&]:size-3.5')
+    expect(source).toContain('[&_.menu-row]:text-workspace-chrome')
+    expect(source).toContain('size-[max(100%,3rem)]')
+  })
 })

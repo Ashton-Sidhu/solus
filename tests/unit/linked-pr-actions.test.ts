@@ -56,9 +56,43 @@ describe('linked pull request primary action', () => {
 
   test('an unmergeable pull request reports why rather than inviting the click', () => {
     const blocked = linkedPrPrimaryAction(detailOf({ mergeable: false }))
-    expect(blocked.kind).toBe('blocked')
-    // Still computing is not the same as no: the row stays live.
-    expect(linkedPrPrimaryAction(detailOf({ mergeable: null })).kind).toBe('merge')
+    expect(blocked).toMatchObject({ kind: 'blocked', label: 'Merge status pending' })
+    expect(linkedPrPrimaryAction(detailOf({ mergeable: null }))).toMatchObject({
+      kind: 'blocked',
+      label: 'Merge status pending',
+    })
+  })
+
+  test('reports branch and code-host requirements instead of showing a merge action', () => {
+    expect(linkedPrPrimaryAction(detailOf({ mergeStateStatus: 'behind' }))).toMatchObject({
+      kind: 'blocked',
+      label: 'Branch is out of date',
+    })
+    expect(linkedPrPrimaryAction(detailOf({ mergeStateStatus: 'blocked' }))).toMatchObject({
+      kind: 'blocked',
+      label: 'Merge requirements pending',
+    })
+  })
+
+  test('reports failing, pending, and unavailable checks instead of showing a merge action', () => {
+    expect(linkedPrPrimaryAction(detailOf(), 'failing')).toMatchObject({
+      kind: 'blocked',
+      label: 'Checks need attention',
+    })
+    expect(linkedPrPrimaryAction(detailOf(), 'pending')).toMatchObject({
+      kind: 'blocked',
+      label: 'Checks in progress',
+    })
+    expect(linkedPrPrimaryAction(detailOf(), 'unavailable')).toMatchObject({
+      kind: 'blocked',
+      label: 'Checks unavailable',
+    })
+  })
+
+  test('accepts a mergeable host state with passing hooks', () => {
+    expect(
+      linkedPrPrimaryAction(detailOf({ mergeStateStatus: 'has_hooks' }), 'passing').kind,
+    ).toBe('merge')
   })
 
   test('offers nothing once the pull request has left the open state or the viewer cannot merge', () => {

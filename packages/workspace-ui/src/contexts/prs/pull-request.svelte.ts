@@ -108,6 +108,7 @@ export class PullRequest implements Contracts.PullRequest {
   changedFiles = $state<number | null>(null)
   mergeable = $state<boolean | null>(null)
   mergeStateStatus = $state<string | null>(null)
+  requiredApprovingReviewCount = $state<number | null>(null)
   capabilities = $state<Contracts.PullRequest['capabilities']>(UNDESCRIBED_CAPABILITIES)
   viewerPermissions = $state<Contracts.PullRequest['viewerPermissions']>(UNDESCRIBED_PERMISSIONS)
   effort = $state<Contracts.PullRequest['effort']>()
@@ -164,6 +165,7 @@ export class PullRequest implements Contracts.PullRequest {
     this.changedFiles = source.changedFiles
     this.mergeable = source.mergeable
     this.mergeStateStatus = source.mergeStateStatus
+    this.requiredApprovingReviewCount = source.requiredApprovingReviewCount ?? null
     this.capabilities = source.capabilities
     this.viewerPermissions = source.viewerPermissions
     this.effort = source.effort

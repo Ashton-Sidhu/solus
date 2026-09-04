@@ -269,9 +269,27 @@ describe("the status card's actions keep their geometry when the card becomes a 
   const feed = read(`${dir}ActivityFeed.svelte`)
 
   it('tells the shared cluster which of its two homes it is rendering in', () => {
-    expect(feed).toContain('{#snippet prActions(layout: PrActionsLayout)}')
-    expect(rail).toContain('{@render actions("card")}')
-    expect(rail).toContain('{@render actions("row")}')
+    expect(feed).toContain(
+      '{#snippet prActions(layout: PrActionsLayout, isMergeReady: boolean)}',
+    )
+    expect(rail).toContain('{@render actions("card", readiness.key === "ready")}')
+    expect(rail).toContain('{@render actions("row", readiness.key === "ready")}')
+  })
+
+  it('keeps merge hidden until the shared readiness state is ready', () => {
+    // WHY: permission to merge is not the same as readiness to merge. A PR
+    // with a pending review must not contradict its own status with a merge CTA.
+    expect(feed).toContain('{isMergeReady}')
+    expect(cluster).toContain('(isMergeReady || detail.mergeStateStatus === "dirty")')
+  })
+
+  it('lets the guide note shrink before its trailing action disappears', () => {
+    // WHY: the laptop rail is narrower. A long status such as "Generation
+    // failed" must yield space to the Generate action instead of clipping it.
+    const start = rail.indexOf('{#snippet guideRow()}')
+    const guide = rail.slice(start, rail.indexOf('{/snippet}', start))
+    expect(guide).toContain('class="min-w-0 truncate text-xs text-muted-foreground"')
+    expect(guide).not.toContain('class="shrink-0 truncate text-xs text-muted-foreground"')
   })
 
   it('passes that answer down to every control the cluster owns', () => {

@@ -89,7 +89,7 @@
   <button
     bind:this={triggerEl}
     type="button"
-    class="no-drag pointer-events-auto relative flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] {open
+    class="no-drag pointer-events-auto relative flex size-[26px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] pointer-fine:[.is-laptop-display_&]:size-6 {open
       ? 'bg-[var(--wash-3)] text-foreground'
       : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-3)] hover:text-foreground'}"
     aria-label={flagsStale
@@ -100,13 +100,17 @@
     title={flagsStale ? "New commits since guide" : "More options"}
     onclick={() => (open = !open)}
   >
-    <DotsThreeIcon size={15} />
+    <DotsThreeIcon class="size-[15px] pointer-fine:[.is-laptop-display_&]:size-3.5" />
     {#if flagsStale}
       <span
         class="absolute top-[3px] right-[3px] size-[5px] rounded-full bg-primary"
         aria-hidden="true"
       ></span>
     {/if}
+    <span
+      class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+      aria-hidden="true"
+    ></span>
   </button>
 
   <DropdownMenu.Root bind:open>
@@ -115,7 +119,7 @@
       side="bottom"
       align="end"
       sideOffset={6}
-      class="w-[min(23rem,calc(100vw-2rem))]"
+      class="w-[min(23rem,calc(100vw-2rem))] [&_.menu-row]:text-workspace-chrome"
       onInteractOutside={(event) => {
         // The trigger is a custom anchor, so Bits UI otherwise treats its
         // pointer-down as an outside interaction and closes the menu before the
@@ -149,7 +153,9 @@
               aria-hidden="true"
             ></span>
           </DropdownMenu.SubTrigger>
-          <DropdownMenu.SubContent class="w-auto min-w-52">
+          <DropdownMenu.SubContent
+            class="w-auto min-w-52 [&_.menu-row]:text-workspace-chrome"
+          >
             <DropdownMenu.Item
               onSelect={() => void runAction(() => guide.onRegenerate("new-commits"))}
             >

@@ -1187,6 +1187,7 @@
           status={statusKey}
           threads={reviewThreads}
           threadsFailed={threadsLoadFailed}
+          diffPatch={review.diffPatch}
           getCtx={prCtx}
           {getApi}
           {serverId}

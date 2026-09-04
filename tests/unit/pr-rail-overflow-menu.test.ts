@@ -84,6 +84,8 @@ describe('pull request rail overflow menu', () => {
     expect(menu).toContain('Open on {pr.host?.includes("github") ? "GitHub"')
     expect(menu).toContain('Copy link')
     expect(menu).toContain('w-[min(23rem,calc(100vw-2rem))]')
+    expect(menu).toContain('[&_.menu-row]:text-workspace-chrome')
+    expect(menu).toContain('size-[max(100%,3rem)]')
     expect(menu).toMatch(
       /onInteractOutside=\{\(event\) => \{[\s\S]*triggerEl\?\.contains\(event\.target as Node\)[\s\S]*event\.preventDefault\(\)/,
     )

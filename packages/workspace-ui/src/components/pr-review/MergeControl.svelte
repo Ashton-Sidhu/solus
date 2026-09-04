@@ -13,7 +13,8 @@
   import { Button } from "../ui/button";
   import * as DropdownMenu from "../ui/dropdown-menu";
 
-  // The parent decides visibility: open, non-draft, non-conflicting PRs only.
+  // The parent decides visibility from the shared readiness state: only a PR
+  // that is ready to merge, or needs its conflicts resolved, reaches here.
   // This control maps directly to the code host's individual merge operation.
   let {
     pullRequest,

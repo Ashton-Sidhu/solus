@@ -1,5 +1,5 @@
 import { GitHubAuth } from './auth'
-import type { GitHubClient } from './octokit'
+import { GitHubReauthRequiredError, type GitHubClient } from './octokit'
 import { githubClients, runGithubRequest } from './request'
 import { resolveUploadTarget, uploadGithubAsset } from './asset-upload'
 import type { ChangedFileStat, MergeMethod } from '@solus/contracts/types'
@@ -57,6 +57,26 @@ interface GithubDiffFile {
   patch?: string
 }
 
+interface GithubBranchRule {
+  type: string
+  parameters?: { required_approving_review_count?: number }
+}
+
+/** The strongest active pull-request rule wins when repository and
+ * organization rules both apply to the base branch. */
+export function requiredApprovalCount(
+  rules: GithubBranchRule[],
+  branchProtectionCount: number | null = null,
+): number {
+  return rules.reduce(
+    (required, rule) =>
+      rule.type === 'pull_request'
+        ? Math.max(required, rule.parameters?.required_approving_review_count ?? 0)
+        : required,
+    branchProtectionCount ?? 0,
+  )
+}
+
 function diffPath(path: string): string {
   return /[\s"\\]/.test(path) ? JSON.stringify(path) : path
 }
@@ -110,6 +130,26 @@ export function githubComparedHeadSha(comparison: {
 // ─── GraphQL documents ────────────────────────────────────────────────────────
 // REST can't report a thread's resolution state, and there is no REST mutation to
 // resolve/unresolve — so threads and their lifecycle go through GraphQL (§6.3).
+
+interface ApprovalRequirementResponse {
+  repository?: {
+    pullRequest?: {
+      baseRef?: {
+        branchProtectionRule?: { requiredApprovingReviewCount?: number | null } | null
+      } | null
+    } | null
+  } | null
+}
+
+const APPROVAL_REQUIREMENT_QUERY = `
+  query PullRequestApprovalRequirement($owner: String!, $repo: String!, $number: Int!) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        baseRef { branchProtectionRule { requiredApprovingReviewCount } }
+      }
+    }
+  }
+`
 
 const REVIEW_THREADS_QUERY = `
   query($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
@@ -682,6 +722,7 @@ function toPullRequest(
   repo: RepoRef,
   access: PullRequestAccess,
   reviewStatus?: PullRequestReviewStatus,
+  requiredApprovingReviewCount?: number | null,
 ): PullRequest {
   return {
     number: pr.number,
@@ -712,9 +753,60 @@ function toPullRequest(
     changedFiles: pr.changed_files ?? null,
     mergeable: pr.mergeable ?? null,
     mergeStateStatus: pr.mergeable_state ?? null,
+    requiredApprovingReviewCount,
     ...(reviewStatus ? { reviewStatus } : {}),
     ...access,
   }
+}
+
+async function loadRequiredApprovalCount(
+  client: GitHubClient,
+  repo: RepoRef,
+  branch: string,
+  number: number,
+): Promise<number | null> {
+  const [rulesResult, protectionResult] = await Promise.allSettled([
+    client.rest.paginate(client.rest.repos.getBranchRules, {
+      owner: repo.owner,
+      repo: repo.repo,
+      branch,
+      per_page: 100,
+    }),
+    client.graphql<ApprovalRequirementResponse>(APPROVAL_REQUIREMENT_QUERY, {
+      owner: repo.owner,
+      repo: repo.repo,
+      number,
+    }),
+  ])
+  for (const result of [rulesResult, protectionResult]) {
+    if (result.status === 'rejected' && result.reason instanceof GitHubReauthRequiredError) {
+      throw result.reason
+    }
+  }
+  if (rulesResult.status === 'rejected' || protectionResult.status === 'rejected') {
+    log.warn('github_branch_rules_unavailable', {
+      owner: repo.owner,
+      repo: repo.repo,
+      branch,
+      rulesError: rulesResult.status === 'rejected'
+        ? rulesResult.reason instanceof Error
+          ? rulesResult.reason.message
+          : String(rulesResult.reason)
+        : null,
+      protectionError: protectionResult.status === 'rejected'
+        ? protectionResult.reason instanceof Error
+          ? protectionResult.reason.message
+          : String(protectionResult.reason)
+        : null,
+    })
+  }
+  if (rulesResult.status === 'rejected' && protectionResult.status === 'rejected') return null
+  const rules = rulesResult.status === 'fulfilled' ? rulesResult.value : []
+  const branchProtectionCount = protectionResult.status === 'fulfilled'
+    ? protectionResult.value.repository?.pullRequest?.baseRef?.branchProtectionRule
+        ?.requiredApprovingReviewCount ?? null
+    : null
+  return requiredApprovalCount(rules, branchProtectionCount)
 }
 
 const REVIEWER_STATES = new Set<NonNullable<PrReviewer['state']>>([
@@ -1098,7 +1190,11 @@ export class GitHubProvider implements ReviewProvider {
         repo: repo.repo,
         pull_number: number,
       })
-      return toPullRequest(pr, repo, await accessFor(client, repo, pr.user?.login ?? ''))
+      const [access, requiredApprovingReviewCount] = await Promise.all([
+        accessFor(client, repo, pr.user?.login ?? ''),
+        loadRequiredApprovalCount(client, repo, pr.base.ref, number),
+      ])
+      return toPullRequest(pr, repo, access, undefined, requiredApprovingReviewCount)
     })
   }
 

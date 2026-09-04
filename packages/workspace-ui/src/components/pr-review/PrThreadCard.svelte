@@ -3,6 +3,7 @@
     CircleCheck as CheckCircleIcon,
     ChevronDown as CaretDownIcon,
     ChevronRight as CaretRightIcon,
+    ChevronUp as CaretUpIcon,
     CornerUpLeft as ArrowBendUpLeftIcon,
   } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
@@ -11,7 +12,12 @@
   import PrAvatar from "../prs/PrAvatar.svelte";
   import { Button } from "../ui/button";
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
-  import { hunkToPatch, fileName, dirName } from "./lib/activity-data";
+  import {
+    activityDiffPreview,
+    dirName,
+    fileName,
+    hunkToPatch,
+  } from "./lib/activity-data";
   import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
   import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import { toasts } from "../../lib/toasts";
@@ -24,11 +30,14 @@
   // Diff tab renders the same objects) — the host only supplies the RPCs.
   let {
     thread,
+    fullDiffHunk,
     onJump,
     onReply,
     onResolve,
   }: {
     thread: ReviewThread;
+    /** Complete containing hunk from the PR patch, when it has loaded. */
+    fullDiffHunk?: string;
     /** Jump to the thread's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     onReply: (threadId: string, body: string) => Promise<ReviewComment>;
@@ -36,7 +45,7 @@
   } = $props();
 
   const firstComment = $derived(thread.comments[0]);
-  const diffHunk = $derived(firstComment?.diffHunk);
+  const diffHunk = $derived(fullDiffHunk ?? firstComment?.diffHunk);
 
   // Comment bodies are GitHub markdown — same pipeline + `.prose-pr`
   // typography as the PR description and the timeline's conversation rows.
@@ -52,6 +61,24 @@
   let showResolved = $state(false);
   const collapsed = $derived(thread.isResolved && !showResolved);
   let diffOpen = $state(true);
+  let diffBeforeExpanded = $state(false);
+  let diffAfterExpanded = $state(false);
+  const collapsedDiffPreview = $derived(
+    diffHunk
+      ? activityDiffPreview(diffHunk, thread.line, thread.side)
+      : null,
+  );
+  const visibleDiffPreview = $derived(
+    diffHunk
+      ? activityDiffPreview(
+          diffHunk,
+          thread.line,
+          thread.side,
+          diffBeforeExpanded,
+          diffAfterExpanded,
+        )
+      : null,
+  );
 
   function cancelReply() {
     replying = false;
@@ -173,10 +200,54 @@
          rendered through the same @pierre/diffs engine as the Diff tab. -->
     {#if diffHunk && diffOpen}
       <div class="border-b border-border">
+        {#if collapsedDiffPreview && collapsedDiffPreview.hiddenBeforeLineCount > 0}
+          <div class="flex min-h-8 items-center gap-2 px-3 py-1 [.is-laptop-display_&]:px-2.5">
+            <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
+            <Button
+              type="button"
+              variant="ghost"
+              class="relative h-6 cursor-pointer rounded-md py-1 pr-2.5 pl-1.5 text-review-control text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
+              aria-expanded={diffBeforeExpanded}
+              onclick={() => (diffBeforeExpanded = !diffBeforeExpanded)}
+            >
+              <span class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true"></span>
+              {#if diffBeforeExpanded}
+                <CaretDownIcon size={14} /> Collapse earlier lines
+              {:else}
+                <CaretUpIcon size={14} /> Show {collapsedDiffPreview.hiddenBeforeLineCount} earlier {collapsedDiffPreview.hiddenBeforeLineCount === 1 ? "line" : "lines"}
+              {/if}
+            </Button>
+            <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
+          </div>
+        {/if}
         <GuideFileDiff
-          patch={hunkToPatch(thread.filePath, diffHunk)}
+          patch={hunkToPatch(
+            thread.filePath,
+            visibleDiffPreview?.hunk ?? diffHunk,
+          )}
           filePath={thread.filePath}
+          hunkSeparators="simple"
         />
+        {#if collapsedDiffPreview && collapsedDiffPreview.hiddenAfterLineCount > 0}
+          <div class="flex min-h-8 items-center gap-2 px-3 py-1 [.is-laptop-display_&]:px-2.5">
+            <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
+            <Button
+              type="button"
+              variant="ghost"
+              class="relative h-6 cursor-pointer rounded-md py-1 pr-1.5 pl-2.5 text-review-control text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground"
+              aria-expanded={diffAfterExpanded}
+              onclick={() => (diffAfterExpanded = !diffAfterExpanded)}
+            >
+              <span class="absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden" aria-hidden="true"></span>
+              {#if diffAfterExpanded}
+                Collapse later lines <CaretUpIcon size={14} />
+              {:else}
+                Show {collapsedDiffPreview.hiddenAfterLineCount} later {collapsedDiffPreview.hiddenAfterLineCount === 1 ? "line" : "lines"} <CaretDownIcon size={14} />
+              {/if}
+            </Button>
+            <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
+          </div>
+        {/if}
       </div>
     {/if}
 

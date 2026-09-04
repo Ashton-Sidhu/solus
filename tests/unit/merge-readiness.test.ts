@@ -29,7 +29,7 @@ function checksOf(state: PrChecksSummary['state'], headSha = 'sha-1'): PrChecksS
   return { state, headSha } as PrChecksSummary
 }
 
-const quiet = { unresolvedCount: 0, openedTime: '2 days ago' }
+const quiet = { unresolvedCount: 0, approvedReviewCount: 0, openedTime: '2 days ago' }
 
 describe('merge readiness', () => {
   test('a clean, green, fully-resolved PR is the only one that reads as ready', () => {
@@ -97,6 +97,121 @@ describe('merge readiness', () => {
     expect(stale.note).toBe('Checks are refreshing')
   })
 
+  test('names an out-of-date base branch and tells the user how to continue', () => {
+    const behind = mergeReadiness({
+      detail: detailOf({ mergeStateStatus: 'behind', baseRef: 'release' }),
+      checks: checksOf('passing'),
+      ...quiet,
+    })
+    expect(behind).toMatchObject({
+      key: 'behind',
+      headline: 'Branch is out of date',
+      note: 'Update this branch with release',
+      blocked: true,
+    })
+  })
+
+  test('names failing and pending checks instead of using a generic review state', () => {
+    expect(
+      mergeReadiness({ detail: detailOf({}), checks: checksOf('failing'), ...quiet }),
+    ).toMatchObject({
+      key: 'checks',
+      headline: 'Checks need attention',
+      note: 'Fix failing checks to continue',
+      blocked: true,
+    })
+    expect(
+      mergeReadiness({ detail: detailOf({}), checks: checksOf('pending'), ...quiet }),
+    ).toMatchObject({
+      key: 'open',
+      headline: 'Checks in progress',
+      note: 'Wait for checks to finish',
+      blocked: false,
+    })
+  })
+
+  test('uses the host status when check details have not exposed the failure', () => {
+    const unstable = mergeReadiness({
+      detail: detailOf({ mergeStateStatus: 'unstable' }),
+      checks: checksOf('passing'),
+      ...quiet,
+    })
+    expect(unstable).toMatchObject({
+      key: 'checks',
+      headline: 'Checks need attention',
+      note: 'Fix failing checks to continue',
+      blocked: true,
+    })
+  })
+
+  test('explains when GitHub is still calculating merge readiness', () => {
+    const pending = mergeReadiness({
+      detail: detailOf({ mergeable: null, mergeStateStatus: null }),
+      checks: checksOf('passing'),
+      ...quiet,
+    })
+    expect(pending).toMatchObject({
+      key: 'open',
+      headline: 'Merge status pending',
+      note: 'GitHub is calculating merge readiness',
+      blocked: false,
+    })
+  })
+
+  test('accepts a mergeable host state that has passing hooks', () => {
+    const withHooks = mergeReadiness({
+      detail: detailOf({ mergeStateStatus: 'has_hooks' }),
+      checks: checksOf('passing'),
+      ...quiet,
+    })
+    expect(withHooks.key).toBe('ready')
+  })
+
+  test('an unknown or host-blocked merge state never exposes a ready action', () => {
+    // WHY: permission to request a merge does not prove that the host can land
+    // the current head. Null is still computing; blocked still needs a review
+    // or branch-protection requirement satisfied.
+    for (const detail of [
+      detailOf({ mergeable: null, mergeStateStatus: null }),
+      detailOf({ mergeStateStatus: 'blocked' }),
+    ]) {
+      expect(
+        mergeReadiness({ detail, checks: checksOf('passing'), ...quiet }).key,
+      ).toBe('open')
+    }
+  })
+
+  test('states the remaining approving review requirement', () => {
+    const waiting = mergeReadiness({
+      detail: detailOf({
+        mergeStateStatus: 'blocked',
+        requiredApprovingReviewCount: 2,
+      }),
+      checks: checksOf('passing'),
+      ...quiet,
+      approvedReviewCount: 1,
+    })
+    expect(waiting.key).toBe('open')
+    expect(waiting.note).toBe('1 approving review required')
+
+    const approved = mergeReadiness({
+      detail: detailOf({ requiredApprovingReviewCount: 2 }),
+      checks: checksOf('passing'),
+      ...quiet,
+      approvedReviewCount: 2,
+    })
+    expect(approved.key).toBe('ready')
+  })
+
+  test('explains a host blocker when no numeric approval reason is available', () => {
+    const blocked = mergeReadiness({
+      detail: detailOf({ mergeStateStatus: 'blocked' }),
+      checks: checksOf('passing'),
+      ...quiet,
+    })
+    expect(blocked.note).toBe('Merge requirements are still pending')
+  })
+
   test('a merged or draft PR is never reported as blocked', () => {
     expect(
       mergeReadiness({ detail: detailOf({ state: 'merged' }), checks: undefined, ...quiet }),
@@ -114,6 +229,7 @@ describe('merge readiness', () => {
     expect(readinessTone('ready')).toBe('positive')
     expect(readinessTone('checks')).toBe('negative')
     expect(readinessTone('conflicts')).toBe('negative')
+    expect(readinessTone('behind')).toBe('negative')
     expect(readinessTone('closed')).toBe('negative')
     expect(readinessTone('merged')).toBe('review')
     expect(readinessTone('open')).toBe('neutral')

@@ -1,5 +1,4 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -23,6 +22,7 @@ let tasks: TaskModule
 let taskSessions: TaskSessionsModule
 let taskLinks: TaskLinksModule
 let ids: UlidModule
+let testHandlerCtx: import('@solus/server/server/server').HandlerCtx
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
@@ -35,6 +35,7 @@ beforeAll(async () => {
   taskSessions = await import('@solus/server/tasks/task-sessions')
   taskLinks = await import('@solus/server/tasks/task-links')
   ids = await import('@solus/server/tasks/ulid')
+  testHandlerCtx = (await import('./helpers/handler-ctx')).TEST_HANDLER_CTX
 })
 
 afterEach(() => {
@@ -86,7 +87,7 @@ describe('native task migration', () => {
     // SAFETY: Bun's in-memory Database implements the DatabaseSync methods the migration runner uses.
     migrations.runMigrations(legacy as never)
 
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 31 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 32 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()
@@ -130,7 +131,18 @@ describe('native task migration', () => {
         snooze_note TEXT
       );
       CREATE TABLE task_comments(task_id TEXT NOT NULL);
-      CREATE TABLE task_links(task_id TEXT NOT NULL);
+      CREATE TABLE task_links (
+        task_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        target_scope TEXT NOT NULL DEFAULT '',
+        target_key TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        url TEXT,
+        created_by TEXT NOT NULL DEFAULT 'user',
+        origin_session_id TEXT,
+        linked_at INTEGER NOT NULL,
+        PRIMARY KEY (task_id, kind, target_scope, target_key)
+      );
       CREATE TABLE task_session_links (
         task_id TEXT NOT NULL,
         session_id TEXT NOT NULL,
@@ -194,12 +206,50 @@ describe('native task migration', () => {
     })
     expect(legacy.query("SELECT name FROM pragma_table_info('tasks') WHERE name IN ('branch', 'worktree_key')").all())
       .toEqual([])
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 31 })
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 32 })
     legacy.close()
   })
 })
 
 describe('native task CRUD', () => {
+  test('migration removes duplicate PR identities without folding other link kinds', () => {
+    const legacy = new Database(':memory:')
+    legacy.exec(`
+      PRAGMA user_version = 31;
+      CREATE TABLE task_links (
+        task_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        target_scope TEXT NOT NULL DEFAULT '',
+        target_key TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        url TEXT,
+        created_by TEXT NOT NULL DEFAULT 'user',
+        origin_session_id TEXT,
+        linked_at INTEGER NOT NULL,
+        PRIMARY KEY (task_id, kind, target_scope, target_key)
+      );
+      INSERT INTO task_links VALUES
+        ('task-1', 'pr', '/workspace/solus', '321', '#321 discovered',
+          'https://github.com/acme/solus/pull/321', 'system', 'session-1', 1),
+        ('task-1', 'pr', 'github.com/acme/solus', '321', '#321 explicit',
+          'https://github.com/acme/solus/pull/321', 'agent', 'session-2', 2),
+        ('task-1', 'work', '', 'work-1', 'First work',
+          'https://example.com/shared', 'user', NULL, 1),
+        ('task-1', 'work', '', 'work-2', 'Second work',
+          'https://example.com/shared', 'user', NULL, 2);
+    `)
+
+    migrations.runMigrations(legacy as never)
+
+    expect(legacy.query("SELECT target_scope, title FROM task_links WHERE kind = 'pr'").all()).toEqual([
+      { target_scope: 'github.com/acme/solus', title: '#321 explicit' },
+    ])
+    expect(legacy.query("SELECT target_key FROM task_links WHERE kind = 'work' ORDER BY target_key").all())
+      .toEqual([{ target_key: 'work-1' }, { target_key: 'work-2' }])
+    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 32 })
+    legacy.close()
+  })
+
   test('lists more than 99 tasks without truncation', async () => {
     // WHY: the global task picker consumes this complete native snapshot. A
     // hidden two-digit boundary would make older work impossible to search.
@@ -250,7 +300,7 @@ describe('native task CRUD', () => {
         {
           number: 43,
           title: '#43',
-          targetScope: '/workspace/solus',
+          targetScope: 'github.com/solus-sh/solus',
           url: 'https://github.com/solus-sh/solus/pull/43',
           createdBy: 'agent',
           originSessionId: 'session-43',
@@ -394,8 +444,21 @@ describe('session minting and durable links', () => {
     const instance = await tasks.Task.byId(task.id)
 
     await instance.linkWork('work-1', { title: 'Architecture notes' })
+    await instance.link({
+      kind: 'work',
+      targetScope: '/ignored/path',
+      targetKey: 'work-1',
+      title: 'Architecture notes',
+    })
     await instance.linkPlan('session-plan', 'tool-plan', { title: 'Implementation plan' })
-    const details = await instance.linkAutomation('automation-1', { title: 'Nightly verification' })
+    await instance.linkPlan('session-plan', 'tool-plan', { title: 'Implementation plan' })
+    await instance.linkAutomation('automation-1', { title: 'Nightly verification' })
+    const details = await instance.link({
+      kind: 'automation',
+      targetScope: '/ignored/path',
+      targetKey: 'automation-1',
+      title: 'Nightly verification',
+    })
 
     expect(details.links.map((link) => ({
       kind: link.kind,
@@ -447,7 +510,7 @@ describe('session minting and durable links', () => {
     expect(details.links).toEqual([
       expect.objectContaining({
         kind: 'pr',
-        targetScope: '/workspace/solus',
+        targetScope: 'github.com/acme/solus',
         targetKey: '321',
         title: '#321 Attach session PRs',
         url: pullRequest.url,
@@ -460,6 +523,44 @@ describe('session minting and durable links', () => {
       number: 321,
       url: pullRequest.url,
     })
+  })
+
+  test('folds project-path and repository scopes for the same PR into one link', async () => {
+    // WHY: the PR picker discovers from a project path while a pasted URL and
+    // agent tool identify the repository. Those entry points still mean one PR.
+    const task = await taskStore.createTask({
+      title: 'Keep one PR identity',
+      projectKey: '/workspace/solus',
+    })
+    const taskInstance = await tasks.Task.byId(task.id)
+    const url = 'https://github.com/acme/solus/pull/321'
+
+    await taskInstance.linkPullRequest({
+      number: 321,
+      targetScope: '/workspace/solus',
+      url,
+      createdBy: 'system',
+      originSessionId: 'session-discovery',
+    })
+    const details = await taskInstance.linkPullRequest({
+      number: 321,
+      targetScope: 'github.com/acme/solus',
+      url,
+      title: '#321 One durable identity',
+      createdBy: 'agent',
+      originSessionId: 'session-explicit',
+    })
+
+    expect(details.links.filter((link) => link.kind === 'pr')).toEqual([
+      expect.objectContaining({
+        targetScope: 'github.com/acme/solus',
+        targetKey: '321',
+        url,
+        title: '#321 One durable identity',
+        originSessionId: 'session-explicit',
+      }),
+    ])
+    expect(details.events.filter((event) => event.kind === 'linked')).toHaveLength(1)
   })
 
   test('replaces stale automatic PR identity for the same session', async () => {
@@ -975,7 +1076,7 @@ describe('session minting and durable links', () => {
       agentIdFromContext: () => 'codex',
     })
 
-    await server.handle('setSessionTitle', ['second-session', 'Renamed second session', 'manual'], TEST_HANDLER_CTX)
+    await server.handle('setSessionTitle', ['second-session', 'Renamed second session', 'manual'], testHandlerCtx)
 
     expect((await tasks.Task.byId(task!.id)).record()).toMatchObject({
       title: 'Shared task title',

@@ -48,6 +48,7 @@ const log = createLogger('main', 'task')
 const taskIdRowSchema = z.object({ task_id: z.string() })
 const taskPrRowSchema = z.object({ pr: z.string().nullable() })
 const existingPrLinkRowSchema = z.object({
+  target_scope: z.string(),
   url: z.string().nullable(),
   title: z.string(),
   origin_session_id: z.string().nullable(),
@@ -532,61 +533,85 @@ export class Task implements TaskRecord {
       throw new Error(`Task pull request #${input.number} needs its full GitHub pull request URL.`)
     }
     const url = parsedUrl.url
-    const targetScope = input.targetScope.trim()
+    // A project path is only where Solus discovered the PR. The repository is
+    // the PR's durable identity, so every entry point must persist one scope.
+    const targetScope = [
+      parsedUrl.baseRepo.host,
+      parsedUrl.baseRepo.owner,
+      parsedUrl.baseRepo.repo,
+    ].join('/').toLowerCase()
     const targetKey = String(input.number)
     const originSessionId = normalizedOptional(input.originSessionId)
     const changed = withTx(() => {
       const db = database()
       const task = requireTask(this.id, db)
-      const removedStaleSystemLinks = input.createdBy === 'system' && originSessionId
-        ? db.prepare(`
-          DELETE FROM task_links
-          WHERE task_id = ? AND kind = 'pr' AND created_by = 'system'
-            AND origin_session_id = ?
-            AND NOT (target_scope = ? AND target_key = ?)
-        `).run(this.id, originSessionId, targetScope, targetKey).changes > 0
-        : false
       const existingLink = existingPrLinkRowSchema.nullish().parse(db.prepare(`
-        SELECT url, title, origin_session_id FROM task_links
-        WHERE task_id = ? AND kind = 'pr' AND target_scope = ? AND target_key = ?
-      `).get(this.id, targetScope, targetKey))
+        SELECT target_scope, url, title, origin_session_id
+        FROM task_links
+        WHERE task_id = ? AND kind = 'pr' AND target_key = ?
+          AND (target_scope = ? COLLATE NOCASE OR url = ? COLLATE NOCASE)
+        LIMIT 1
+      `).get(this.id, targetKey, targetScope, url))
 
-      let needsCapturedPr = false
-      if (url) {
-        const captured = JSON.stringify({ number: input.number, url })
-        needsCapturedPr = task.pr !== captured
-        if (originSessionId) {
-          const parsedAttempt = taskPrRowSchema.safeParse(db.prepare(`
-            SELECT pr FROM task_session_links
+      const captured = JSON.stringify({ number: input.number, url })
+      let needsCapturedPr = task.pr !== captured
+      if (originSessionId) {
+        const parsedAttempt = taskPrRowSchema.safeParse(db.prepare(`
+          SELECT pr FROM task_session_links
+          WHERE task_id = ? AND session_id = ?
+        `).get(this.id, originSessionId))
+        if (parsedAttempt.success && parsedAttempt.data.pr !== captured) {
+          needsCapturedPr = true
+          db.prepare(`
+            UPDATE task_session_links SET pr = ?
             WHERE task_id = ? AND session_id = ?
-          `).get(this.id, originSessionId))
-          if (parsedAttempt.success && parsedAttempt.data.pr !== captured) {
-            needsCapturedPr = true
-            db.prepare(`
-              UPDATE task_session_links SET pr = ?
-              WHERE task_id = ? AND session_id = ?
-            `).run(captured, this.id, originSessionId)
-          }
+          `).run(captured, this.id, originSessionId)
         }
-        if (task.pr !== captured) db.prepare('UPDATE tasks SET pr = ? WHERE id = ?').run(captured, this.id)
       }
+      if (task.pr !== captured) db.prepare('UPDATE tasks SET pr = ? WHERE id = ?').run(captured, this.id)
       if (existingLink) {
         const { title, originSessionId: nextOriginSessionId } = nextPrLinkIdentity(existingLink, {
           title: input.title,
           originSessionId,
           claimsRow: input.createdBy !== 'system',
         })
-        const needsLinkUpdate = existingLink.url !== url
+        const needsLinkUpdate = existingLink.target_scope !== targetScope
+          || existingLink.url !== url
           || existingLink.title !== title
           || existingLink.origin_session_id !== nextOriginSessionId
         if (needsLinkUpdate) {
           db.prepare(`
             UPDATE task_links
-            SET url = ?, title = ?, origin_session_id = ?
+            SET target_scope = ?, url = ?, title = ?, origin_session_id = ?
             WHERE task_id = ? AND kind = 'pr' AND target_scope = ? AND target_key = ?
-          `).run(url, title, nextOriginSessionId, this.id, targetScope, targetKey)
+          `).run(
+            targetScope,
+            url,
+            title,
+            nextOriginSessionId,
+            this.id,
+            existingLink.target_scope,
+            targetKey,
+          )
         }
+        const removedStaleSystemLinks = input.createdBy === 'system' && originSessionId
+          ? db.prepare(`
+            DELETE FROM task_links
+            WHERE task_id = ? AND kind = 'pr' AND created_by = 'system'
+              AND origin_session_id = ?
+              AND NOT (target_scope = ? AND target_key = ?)
+          `).run(this.id, originSessionId, targetScope, targetKey).changes > 0
+          : false
         return removedStaleSystemLinks || needsCapturedPr || needsLinkUpdate
+      }
+
+      if (input.createdBy === 'system' && originSessionId) {
+        db.prepare(`
+          DELETE FROM task_links
+          WHERE task_id = ? AND kind = 'pr' AND created_by = 'system'
+            AND origin_session_id = ?
+            AND NOT (target_scope = ? AND target_key = ?)
+        `).run(this.id, originSessionId, targetScope, targetKey)
       }
 
       writeTaskLink(db, this.id, {

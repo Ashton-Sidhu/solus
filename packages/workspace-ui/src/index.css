@@ -1098,6 +1098,10 @@ html, body, #root {
      then 10px on a precise-pointer laptop. */
   --text-review-file: 0.75rem;
   --text-review-file--line-height: 1.25;
+  /* Compact controls embedded in pull request diffs: 12px on desktop and
+     touch, then 10px on a precise-pointer laptop. */
+  --text-review-control: 0.75rem;
+  --text-review-control--line-height: 1rem;
   /* The symbol card's two dense rungs. The card is a reference surface floating
      over code, so its body takes the canonical `--text-workspace-chrome` rung
      and these two hang under it. `meta` annotates a line rather than saying it:
@@ -1142,6 +1146,12 @@ html, body, #root {
   --text-footnote--line-height: 1.35;
   --text-caption: calc(0.875rem * var(--solus-font-scale, 1));
   --text-caption--line-height: 1.5;
+  /* Task and pull request descriptions, plus their posted comments, are
+     reading content inside dense workspace surfaces. They sit one step above
+     their previous size on each precise-pointer display rung, while touch
+     keeps the larger values. */
+  --text-description-prose: calc(1rem * var(--solus-font-scale, 1));
+  --text-pr-prose-compact: calc(0.875rem * var(--solus-font-scale, 1));
   --text-body: calc(1rem * var(--solus-font-scale, 1));
   --text-body--line-height: 1.6;
   --text-h3: calc(1.25rem * var(--solus-font-scale, 1));
@@ -1172,12 +1182,15 @@ html, body, #root {
        block is for everywhere else. */
     --text-review-meta: 0.625rem;
     --text-review-file: 0.625rem;
+    --text-review-control: 0.625rem;
     --text-symbol-card-meta: 0.625rem;
     --text-symbol-card-code: 0.6875rem;
     --text-micro: 0.5625rem;
     --text-transcript-card: 0.75rem;
     --text-transcript-meta: 0.6875rem;
     --text-activity-label: 0.6875rem;
+    --text-description-prose: calc(0.875rem * var(--solus-font-scale, 1));
+    --text-pr-prose-compact: calc(0.75rem * var(--solus-font-scale, 1));
     --text-tool-step: 0.625rem;
   }
 }
@@ -3681,7 +3694,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .task-description-prose .solus-doc-editor .ProseMirror {
   /* Every size below is a ratio of this one, so a denser surface (the inline
      diff card) re-scales the whole ruleset by setting it once. */
-  --prose-pr-size: var(--text-caption);
+  --prose-pr-size: var(--text-description-prose);
   font-size: var(--prose-pr-size);
   line-height: 1.75;
   font-weight: 400;
@@ -3690,6 +3703,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   color: var(--solus-text-secondary);
   text-wrap: pretty;
 }
+
 /* The task description is that same prose in an editable shell, so the two
    things the shell adds have to come back off: the prompt editor's left gutter
    (a drag-handle lane the task header doesn't use) indents the body off the
@@ -3712,12 +3726,10 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    full width of the window. */
 .prose-pr-description { max-width: 104ch; }
 
-/* Activity bodies sit inside the review timeline rather than in the pull
-   request's long-form description. Keep them on the chrome rung the timeline
-   itself reads at, so the whole event, including rendered Markdown, takes the
-   laptop display step with it. */
+/* Activity bodies use the same reading rung as the description. The rung owns
+   the laptop step instead of borrowing the smaller timeline chrome size. */
 .prose-pr-activity {
-  --prose-pr-size: var(--text-workspace-chrome);
+  --prose-pr-size: var(--text-description-prose);
 }
 
 /* The editable PR body uses the same shared document editor as task and plan
@@ -3758,7 +3770,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h1,
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h2 {
   margin: 2rem 0 0.625rem;
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--prose-pr-size);
   font-weight: 500;
   line-height: 1.35;
   color: var(--solus-text-primary);
@@ -3768,7 +3780,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h5,
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h6 {
   margin: 1.25rem 0 0.375rem;
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--prose-pr-size);
   font-weight: 500;
   line-height: 1.4;
   color: var(--solus-text-primary);
@@ -3823,7 +3835,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li {
   margin: 0;
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--prose-pr-size);
   line-height: 1.7;
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) li + li { margin-top: 0.75rem; }
@@ -3859,7 +3871,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    outside) so a two-digit item never shifts the text column. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) ol > li::marker {
   font-family: var(--solus-code-font-family);
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--prose-pr-size);
   color: var(--solus-text-tertiary);
 }
 
@@ -3903,7 +3915,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   border-radius: 0.5rem;
   background: var(--solus-surface-hover);
   color: var(--solus-text-tertiary);
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--prose-pr-size);
   line-height: 1.7;
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote > :first-child { margin-top: 0; }
@@ -3918,7 +3930,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   border-radius: 0.5rem;
   background: color-mix(in srgb, var(--markdown-alert-color) 10%, transparent);
   color: var(--solus-text-tertiary);
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--prose-pr-size);
   line-height: 1.7;
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title { margin-bottom: 0.25rem; }
@@ -4005,7 +4017,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    column beside a mostly-empty value. Auto layout then splits the width by how
    much content each column actually carries. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) {
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  font-size: var(--prose-pr-size);
 }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) table:not(:has(td:nth-child(3))) :is(th, td) {
   padding: 0.5em 1.25em 0.5em 0;
@@ -4021,7 +4033,7 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    rhythm halved by hand — description spacing is tuned for a full pane, and
    32px above a heading would be most of the card. */
 .github-markdown.prose-cloud.prose-pr-compact {
-  --prose-pr-size: calc(0.75rem * var(--solus-font-scale, 1));
+  --prose-pr-size: var(--text-pr-prose-compact);
   line-height: 1.65;
 }
 .github-markdown.prose-cloud.prose-pr-compact p { margin-bottom: 0.5rem; }

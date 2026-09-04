@@ -113,6 +113,9 @@ export interface PullRequest {
   mergeable: boolean | null
   /** Host-specific merge state, e.g. GitHub REST's `dirty` for merge conflicts. */
   mergeStateStatus: string | null
+  /** Active branch rules' numeric approval requirement; absent when the host
+   *  cannot report it. Zero means no approving reviews are required. */
+  requiredApprovingReviewCount?: number | null
   capabilities: PrReviewCapabilities
   viewerPermissions: PrViewerPermissions
   /** Pacing guidance only; review always opens the complete diff. */

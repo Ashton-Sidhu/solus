@@ -102,7 +102,7 @@
     bind:ref={triggerEl}
     variant="ghost"
     size="icon-sm"
-    class="size-6 shrink-0 cursor-pointer rounded-full bg-transparent p-0 text-muted-foreground transition-colors hover:bg-[var(--wash-3)] hover:text-foreground"
+    class="relative size-6 shrink-0 cursor-pointer rounded-full bg-transparent p-0 text-muted-foreground transition-colors hover:bg-[var(--wash-3)] hover:text-foreground"
     aria-label="More pull request actions"
     aria-haspopup="menu"
     aria-expanded={open}
@@ -110,6 +110,10 @@
     onclick={() => (open = !open)}
   >
     <DotsThreeIcon size={14} weight="bold" />
+    <span
+      class="pointer-events-none absolute top-1/2 left-1/2 size-[max(100%,3rem)] -translate-1/2 pointer-fine:hidden"
+      aria-hidden="true"
+    ></span>
   </Button>
 
   <DropdownMenu.Root bind:open>
@@ -118,7 +122,7 @@
       side="bottom"
       align="end"
       sideOffset={6}
-      class="w-[min(23rem,calc(100vw-2rem))]"
+      class="w-[min(23rem,calc(100vw-2rem))] [&_.menu-row]:text-workspace-chrome"
       onInteractOutside={(event) => {
         if (triggerEl?.contains(event.target as Node)) event.preventDefault();
       }}

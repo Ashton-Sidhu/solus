@@ -74,6 +74,7 @@
     status,
     threads,
     threadsFailed = false,
+    diffPatch = null,
     stackChain = [],
     showRemoteLink = false,
     addressCommentsReady = true,
@@ -102,6 +103,8 @@
     threads: ReviewThread[];
     /** The parent's thread fetch failed — folded into this tab's error banner. */
     threadsFailed?: boolean;
+    /** Full PR patch used to provide context after review anchors. */
+    diffPatch?: string | null;
     /** Ordered PR numbers in this stack. The current PR is highlighted. */
     stackChain?: number[];
     /** Render the Activity header's remote PR shortcut for embedded previews. */
@@ -1014,6 +1017,7 @@
 
         <ActivityTimeline
           events={visibleTimeline}
+          {diffPatch}
           loading={timelineLoading}
           loadFailed={timelineLoadFailed}
           onRetry={refresh}
@@ -1150,9 +1154,10 @@
   />
 {/snippet}
 
-{#snippet prActions(layout: PrActionsLayout)}
+{#snippet prActions(layout: PrActionsLayout, isMergeReady: boolean)}
   <PrActions
     {layout}
+    {isMergeReady}
     pr={{ number: pr.number, title: prTitle }}
     {detail}
     {feedbackCount}

@@ -1,5 +1,6 @@
 import type { MergeMethod } from '@solus/contracts/types'
 import type { PullRequest } from '@solus/contracts/providers'
+import type { PrChecksState } from '@solus/contracts/checks-types'
 import { MERGE_METHOD_OPTIONS, defaultMergeMethod } from '../../pr-review/lib/merge-method'
 
 /**
@@ -19,11 +20,16 @@ export type LinkedPrPrimaryAction =
   /** Nothing to offer: merged, closed, or the viewer may not act. */
   | { kind: 'none' }
 
+type LinkedPrChecksState = PrChecksState | 'unavailable'
+
 function mergeActionLabel(method: MergeMethod): string {
   return MERGE_METHOD_OPTIONS.find((option) => option.value === method)?.action ?? 'Merge pull request'
 }
 
-export function linkedPrPrimaryAction(detail: PullRequest | null): LinkedPrPrimaryAction {
+export function linkedPrPrimaryAction(
+  detail: PullRequest | null,
+  checksState?: LinkedPrChecksState,
+): LinkedPrPrimaryAction {
   if (!detail || detail.state !== 'open') return { kind: 'none' }
   const allowed = new Set(detail.viewerPermissions.actions)
   // A draft cannot merge at all, so the rail promotes the step that unblocks it
@@ -40,13 +46,44 @@ export function linkedPrPrimaryAction(detail: PullRequest | null): LinkedPrPrima
   // an agent for that, so the row becomes the resolver instead of a dead merge.
   if (detail.mergeStateStatus === 'dirty')
     return { kind: 'resolve-conflicts', label: 'Resolve merge conflicts with agent' }
-  // `mergeable: null` means the host is still computing; the row stays live and
-  // the host's refusal is reported if the answer turns out to be no.
-  if (detail.mergeable === false)
+  if (checksState === 'failing' || detail.mergeStateStatus === 'unstable')
     return {
       kind: 'blocked',
-      label: 'Merge pull request',
-      reason: 'The code host reports this pull request cannot merge yet.',
+      label: 'Checks need attention',
+      reason: 'Fix failing checks before you merge.',
+    }
+  if (checksState === 'pending')
+    return {
+      kind: 'blocked',
+      label: 'Checks in progress',
+      reason: 'Wait for checks to finish before you merge.',
+    }
+  if (checksState === 'unavailable')
+    return {
+      kind: 'blocked',
+      label: 'Checks unavailable',
+      reason: 'Refresh the checks before you merge.',
+    }
+  if (detail.mergeStateStatus === 'behind')
+    return {
+      kind: 'blocked',
+      label: 'Branch is out of date',
+      reason: `Update this branch with ${detail.baseRef ?? 'main'} before you merge.`,
+    }
+  if (detail.mergeStateStatus === 'blocked')
+    return {
+      kind: 'blocked',
+      label: 'Merge requirements pending',
+      reason: 'Complete the remaining code-host requirements before you merge.',
+    }
+  if (
+    detail.mergeable !== true ||
+    (detail.mergeStateStatus !== 'clean' && detail.mergeStateStatus !== 'has_hooks')
+  )
+    return {
+      kind: 'blocked',
+      label: 'Merge status pending',
+      reason: 'The code host is calculating merge readiness.',
     }
   const method = defaultMergeMethod(methods)
   return { kind: 'merge', label: mergeActionLabel(method), method }

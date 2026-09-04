@@ -173,7 +173,7 @@
   const guideRunning = $derived(
     guideStatus === "queued" || guideStatus === "generating",
   );
-  const primary = $derived(linkedPrPrimaryAction(detail));
+  const primary = $derived(linkedPrPrimaryAction(detail, checks?.state));
 
   /** Without a tab the pane opens where it was last left, which is what "Open
    *  pull request" promises; the rows below it name the tab they stand for. */
@@ -259,7 +259,7 @@
         });
         return;
       }
-      const refreshedPrimary = linkedPrPrimaryAction(refreshed);
+      const refreshedPrimary = linkedPrPrimaryAction(refreshed, checks?.state);
       if (
         refreshedPrimary.kind !== "merge" ||
         refreshedPrimary.method !== method
@@ -335,7 +335,7 @@
           ? "Working…"
           : primary.label,
       icon:
-        primary.kind === "resolve-conflicts"
+        primary.kind === "resolve-conflicts" || primary.kind === "blocked"
           ? WarningCircleIcon
           : primary.kind === "ready"
             ? GitPullRequestIcon
