@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PullRequest } from '@solus/contracts/providers'
-import { mergeReadiness } from '@solus/workspace-ui/components/pr-review/lib/merge-readiness'
+import {
+  mergeReadiness,
+  readinessTone,
+} from '@solus/workspace-ui/components/pr-review/lib/merge-readiness'
 
 // The rail states merge readiness once, in a headline and a sub-line. These
 // assert the rules a reader acts on: a PR that cannot land must never read as
@@ -103,4 +106,17 @@ describe('merge readiness', () => {
     ).toMatchObject({ key: 'draft', blocked: false })
   })
 
+  test('the card is coloured only when the colour says something the headline does not', () => {
+    // WHY: the glyph follows the host palette the list's status dots use, so
+    // green means "will land", red means "will not", purple means "did". A
+    // pull request still in motion — under review, a draft — stays neutral
+    // rather than making the card alternate colours as reviews come in.
+    expect(readinessTone('ready')).toBe('positive')
+    expect(readinessTone('checks')).toBe('negative')
+    expect(readinessTone('conflicts')).toBe('negative')
+    expect(readinessTone('closed')).toBe('negative')
+    expect(readinessTone('merged')).toBe('review')
+    expect(readinessTone('open')).toBe('neutral')
+    expect(readinessTone('draft')).toBe('neutral')
+  })
 })

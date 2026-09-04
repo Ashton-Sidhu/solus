@@ -113,15 +113,22 @@ export class PrsStore {
     await Promise.all(Array.from({ length: Math.min(concurrency, targets.length) }, worker))
   }
 
-  /** A lifecycle change anywhere reaches the project holding that pull request.
-   *  Wired once, for the whole workspace. */
-  subscribeLifecycleChanges(): () => void {
-    return subscribeAllHosts('pr.lifecycleChanged', (serverId, event) => {
+  /** A pull-request delta reaches the project holding it. Wired once, for the
+   *  whole workspace so every mounted list and detail stays consistent. */
+  subscribePullRequestChanges(): () => void {
+    const unsubscribeLifecycle = subscribeAllHosts('pr.lifecycleChanged', (serverId, event) => {
       // Updated, never created: an event for a project nothing has opened has
       // nothing here to update, and inventing one would index a project the
       // user never asked about.
       this.at(serverId, event.projectRoot)?.applyPullRequest(event.detail)
     })
+    const unsubscribeLabels = subscribeAllHosts('pr.labelsChanged', (serverId, event) => {
+      this.at(serverId, event.projectRoot)?.applyLabels(event.number, event.labels)
+    })
+    return () => {
+      unsubscribeLifecycle()
+      unsubscribeLabels()
+    }
   }
 }
 

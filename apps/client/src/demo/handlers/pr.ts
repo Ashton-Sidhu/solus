@@ -55,6 +55,22 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
     if (index >= 0) reviewers.splice(index, 1)
     return reviewers
   })
+  backend.register('prListLabelCandidates', () => [
+    { name: 'bug', color: 'd73a4a' },
+    { name: 'enhancement', color: 'a2eeef' },
+    { name: 'documentation', color: '0075ca' },
+  ])
+  backend.register('prSetLabels', (args) => {
+    const names = arg<string[]>(args, 2)
+    const detail = store.prOverview().pullRequest
+    const known = new Map([
+      ['bug', 'd73a4a'],
+      ['enhancement', 'a2eeef'],
+      ['documentation', '0075ca'],
+    ])
+    detail.labels = names.map((name) => ({ name, color: known.get(name) ?? 'ededed' }))
+    return detail.labels
+  })
   backend.register('prUpdateLifecycle', (args) => {
     const ctx = arg<IpcContext>(args, 0)
     const action = arg<'close' | 'reopen' | 'ready' | 'draft'>(args, 2)
@@ -68,7 +84,7 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
   })
   backend.register('prChangedFiles', () => store.prChangedFiles())
   backend.register('prListThreads', () => store.prThreads())
-  backend.register('providerViewer', () => DEMO_VIEWER)
+  backend.register('providerViewer', () => ({ login: DEMO_VIEWER }))
   // The demo's one pull request is the visitor's own, so the review queue is
   // empty — an inbox that listed your own branch back to you would be a lie.
   backend.register('prNeedsReview', () => [])

@@ -2,7 +2,7 @@ import type { AgentDispatcher } from './agent-runner'
 import type { AgentTool } from './tools/agent-tool'
 import { buildSystemPrompt } from './system-hint'
 import { isWorkspacePath } from '../workspace'
-import type { AgentId, ReasoningEffort } from '@solus/contracts/types'
+import type { AgentId, PromptOptions, ReasoningEffort } from '@solus/contracts/types'
 import { SPAN_SERVICES, type SpanService } from '../observability/registries'
 import { resolveHomePath } from '../platform/paths'
 
@@ -18,6 +18,7 @@ export interface TextGenerationOptions {
   fastMode?: boolean
   systemPrompt?: string
   additionalDirs?: string[]
+  imageAttachments?: PromptOptions['imageAttachments']
   abortSignal?: AbortSignal
   timeoutMs?: number
   maxTurns?: number
@@ -52,6 +53,7 @@ export class TextGenerator {
       persistence: 'ephemeral',
       service: options.service ?? SPAN_SERVICES.textGeneration,
       additionalDirectories: options.additionalDirs,
+      imageAttachments: options.imageAttachments,
       fastMode: options.fastMode,
       systemPrompt,
       maxTurns: options.maxTurns,

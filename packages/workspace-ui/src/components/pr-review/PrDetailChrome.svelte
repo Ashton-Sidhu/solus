@@ -4,7 +4,6 @@
   import type { PullRequest } from "@solus/contracts/providers";
   import { projectScopeOf } from "@solus/contracts/types";
   import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
-  import { requestInputFocus } from "../../lib/inputFocus";
   import { prGroups, type PrRowContext } from "../prs/lib/prs-list-view";
   import { SubPageCrumbLine, SUB_PAGE_CRUMB_BTN } from "../ui/list-page";
   import { statusDotColor } from "./lib/pr-status";
@@ -15,8 +14,8 @@
    *
    * The `#411` *is* the switcher: it opens the same rows in the same order as
    * the list you came from, filters and all, so a lateral move never costs a
-   * round trip. The band's stepper walks that same queue — K up, J down — and
-   * carries how far through it you are.
+   * round trip. K and J walk that same queue from the keyboard; the band does
+   * not spend a slot on a stepper saying where in it you are.
    */
   let {
     number,
@@ -56,7 +55,6 @@
   // re-deriving is what makes "the same order as the list behind it" true by
   // construction instead of by coincidence.
   const order = $derived(pullRequests.view.listOrder);
-  const position = $derived(order.indexOf(number) + 1);
 
   const rowContext = $derived<PrRowContext>({
     checks: (pr) => pullRequests.checks.summaryFor(serverId, projectCtx(), pr.number),
@@ -92,13 +90,6 @@
     });
   }
 
-  function step(delta: number) {
-    menuOpen = false;
-    session.stepPrReview(delta, projectCtx());
-    requestInputFocus();
-  }
-
-  const canStep = $derived(order.length > 1);
 </script>
 
 {#snippet switcher()}
@@ -205,15 +196,6 @@
   onOpenPage={onExit}
   leafControl={switcher}
   {actions}
-  stepper={{
-    onPrevious: canStep ? () => step(-1) : null,
-    onNext: canStep ? () => step(1) : null,
-    itemLabel: "pull request",
-    position,
-    total: order.length,
-    previousHint: "K",
-    nextHint: "J",
-  }}
   {onMoveAcross}
   {isLeading}
   {onToggleMaximize}

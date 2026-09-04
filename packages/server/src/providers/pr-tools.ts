@@ -217,6 +217,10 @@ export async function executePrTool(
       if (conversation.length) {
         lines.push('', 'Top-level conversation:')
         for (const item of conversation) {
+          if (item.kind === 'label') {
+            lines.push(`- ${item.author} ${item.action} label “${item.label.name}” (${item.createdAt})`)
+            continue
+          }
           const state = item.kind === 'review' && item.reviewState ? ` [${item.reviewState}]` : ''
           lines.push(`- ${item.author}${state} (${item.createdAt})\n${item.body}`)
         }

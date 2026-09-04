@@ -1,10 +1,13 @@
 <script lang="ts">
   import type { DiffComment } from "@solus/contracts/types";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
+  import { Button } from "../ui/button";
 
   // A local review note the reader has left on a line but not yet sent. Distinct
   // from DiffThreadComment, which renders an existing GitHub conversation pulled
-  // from the host; this one is always the reader's own unsent draft.
+  // from the host; this one is always the reader's own unsent draft. Mounted by
+  // every diff panel (session diff, PR review guide, file preview), so it is the
+  // one card shape they all share.
   interface Props {
     comment: DiffComment;
     onEdit?: (c: DiffComment) => void;
@@ -25,24 +28,22 @@
   const age = $derived(formatTimeAgoFromTimestamp(comment.createdAt));
 </script>
 
-<!-- Border and shadow live in `style` because Tailwind can't classify either
-     value: the color-mix border and the comma-bearing rgba shadow both compile
-     to classes that drop their value silently. -->
+<!-- Same card as DiffThreadComment: the diff's light DOM is set in the code
+     font, so the card restates the UI face and the Activity tab's card surface. -->
 <div
-  class="text-xs group relative mx-3 my-1.5 overflow-hidden rounded-2xl bg-(--solus-popover-bg) px-3 py-2.5"
-  style="border:0.0625rem solid color-mix(in oklab, var(--solus-accent) 22%, var(--solus-container-border));box-shadow:0 0.75rem 1.875rem -1.25rem rgba(0, 0, 0, 0.5)"
+  class="group relative mx-3 my-1.5 overflow-hidden rounded-xl border border-border bg-card px-3 py-2 font-[family-name:var(--solus-font-family)] text-xs leading-normal text-foreground"
   data-diff-line="{comment.side}:{comment.endLine}"
   data-comment-id={comment.id}
 >
-  <div class="flex items-center gap-2">
+  <div class="flex items-center gap-2 text-muted-foreground">
     <span
-      class="shrink-0 text-(--solus-text-tertiary) tabular-nums"
+      class="shrink-0 tabular-nums"
       style="font-family:var(--solus-code-font-family)"
     >
       {anchor}
     </span>
     {#if age}
-      <span class="shrink-0 text-(--solus-text-tertiary)">{age}</span>
+      <span class="shrink-0">{age}</span>
     {/if}
     <!-- Revealed on focus-within for the keyboard, and simply at rest for a
          coarse pointer, which has no :hover and nothing to focus first. -->
@@ -51,35 +52,37 @@
         class="ml-auto flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100"
       >
         {#if onEdit}
-          <button
+          <Button
             type="button"
-            class="rounded-md px-1.5 py-0.5 text-(--solus-text-tertiary) transition-colors hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+            variant="ghost"
+            size="xs"
+            class="cursor-pointer font-medium text-muted-foreground"
             onclick={(e) => {
               e.stopPropagation();
               onEdit?.(comment);
             }}
           >
             Edit
-          </button>
+          </Button>
         {/if}
         {#if onDelete}
-          <button
+          <Button
             type="button"
-            class="rounded-md px-1.5 py-0.5 text-(--solus-text-tertiary) transition-colors hover:text-(--solus-status-error) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent)"
+            variant="ghost"
+            size="xs"
+            class="cursor-pointer font-medium text-muted-foreground hover:text-destructive"
             onclick={(e) => {
               e.stopPropagation();
               onDelete?.(comment.id);
             }}
           >
             Delete
-          </button>
+          </Button>
         {/if}
       </div>
     {/if}
   </div>
-  <p
-    class="m-0 mt-1 leading-[1.55] text-pretty whitespace-pre-wrap text-(--solus-text-primary)"
-  >
+  <p class="m-0 mt-1 text-pretty whitespace-pre-wrap">
     {comment.comment}
   </p>
 </div>

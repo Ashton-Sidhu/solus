@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   commentSessionName,
+  eventLine,
   linkGroups,
   linkRow,
   linkedTableLinks,
@@ -17,7 +18,7 @@ import {
 import { taskPrRows } from '@solus/workspace-ui/components/tasks/task-page/lib/task-prs'
 import { taskRow } from '@solus/workspace-ui/components/tasks/lib/tasks-list-view'
 import { upstreamTaskDetails } from '@solus/workspace-ui/contexts/tasks/upstream-task-details'
-import type { Task, TaskComment, TaskExternalLink, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
+import type { Task, TaskComment, TaskEvent, TaskExternalLink, TaskLink, TaskSessionLink } from '@solus/contracts/task-types'
 import type { Work } from '@solus/contracts/types'
 
 // Attempt naming is `sessionDisplayName`, shared by every surface that lists a
@@ -57,6 +58,34 @@ describe('task comment session attribution', () => {
       .toBe('01M0B1F5')
     expect(commentSessionName({}, [session])).toBeNull()
   })
+})
+
+describe('task label activity', () => {
+  const event = {
+    id: 'event-1',
+    taskId: 'task-1',
+    kind: 'labels_changed',
+    actor: 'user',
+    createdAt: 1,
+  } satisfies TaskEvent
+
+  test('names a label that was added or removed', () => {
+    // WHY: the activity feed is an audit trail. "Changed labels" does not say
+    // what changed and forces the reader to reconstruct old task state.
+    expect(eventLine({ ...event, from: '[]', to: '["bug"]' }).text)
+      .toBe('You added label “bug”')
+    expect(eventLine({ ...event, from: '["bug"]', to: '[]' }).text)
+      .toBe('You removed label “bug”')
+  })
+
+  test('names both sides of a replacement and handles several labels', () => {
+    expect(eventLine({
+      ...event,
+      from: '["old"]',
+      to: '["design","ready"]',
+    }).text).toBe('You added labels “design” and “ready” and removed label “old”')
+  })
+
 })
 
 describe('task page capabilities', () => {

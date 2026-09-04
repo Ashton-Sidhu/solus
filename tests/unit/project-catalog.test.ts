@@ -146,4 +146,30 @@ describe('ProjectCatalogStore', () => {
     const restarted = new ProjectCatalogStore()
     expect(restarted.entries).toHaveLength(0)
   })
+
+  test('passive host discovery does not restore an explicitly removed project', () => {
+    const catalog = new ProjectCatalogStore()
+    const project = { serverId: 'host-a', projectRoot: '/repos/solus' }
+    catalog.recordDiscovered(project, 'Solus')
+    catalog.remove(project)
+
+    catalog.recordDiscovered(project, 'Solus')
+
+    expect(catalog.entries).toHaveLength(0)
+  })
+
+  test('the discovery exclusion persists, but opening the project restores it', () => {
+    const project = { serverId: 'host-a', projectRoot: '/repos/solus' }
+    const first = new ProjectCatalogStore()
+    first.recordDiscovered(project, 'Solus')
+    first.remove(project)
+    first.flush()
+
+    const restarted = new ProjectCatalogStore()
+    restarted.recordDiscovered(project, 'Solus')
+    expect(restarted.entries).toHaveLength(0)
+
+    restarted.record(project, 'Solus')
+    expect(restarted.entries).toHaveLength(1)
+  })
 })

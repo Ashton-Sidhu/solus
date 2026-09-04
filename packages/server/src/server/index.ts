@@ -1,6 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { hostname } from 'os'
 import { z } from 'zod'
 import { createServer as createNodeHttpServer, type IncomingMessage, type Server as HttpServer } from 'http'
 import { SolusServer } from './server'
@@ -11,6 +10,7 @@ import { UplinkLinkManager } from './uplink/link'
 import type { UplinkLinkConfig } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './handlers/uplink-handlers'
 import { hostOperatingSystem } from '../platform/host-operating-system'
+import { hostDisplayName } from '../platform/host-display-name'
 import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { isTrustedRequesterAddress } from './trusted-requesters'
@@ -431,7 +431,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   uplinkManager = new UplinkLinkManager({
     installationId: getInstallationId,
-    hostLabel: () => getServerSettings().name ?? hostname() ?? 'Solus host',
+    hostLabel: hostDisplayName,
     os: hostOperatingSystem,
     proxiedPort: () => tunnelPort,
     connector: uplinkConnector,
@@ -443,6 +443,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     host,
     port,
     staticDir: opts.staticDir,
+    name: hostDisplayName,
     getHost: () => host,
     getPort: () => actualPort,
     requireAuth: () => requireAuth,
@@ -607,6 +608,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     try {
       lanDiscovery = await startLanDiscoveryService(() => ({
         port: actualPort,
+        name: hostDisplayName(),
         installationId: getInstallationId(),
         isReachable: !isLoopbackHost(host),
       }))

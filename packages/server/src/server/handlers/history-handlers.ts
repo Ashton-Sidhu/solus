@@ -179,8 +179,8 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('generateSessionMetadata', (args) => {
-    const [promptText, cwd] = args
-    return generateSessionMetadata(controlPlane, promptText, cwd)
+    const [promptText, cwd, context] = args
+    return generateSessionMetadata(controlPlane, promptText, cwd, context)
   })
 
   server.register('setSessionTitle', async (args) => {

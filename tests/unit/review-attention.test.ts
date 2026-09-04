@@ -20,7 +20,7 @@ describe('review attention', () => {
   })
 
   test('keeps current and repeated review requests impossible to miss', () => {
-    const [result] = attachReviewAttention([pr({ requestedReviewers: ['Viewer'] })], 'viewer')
+    const [result] = attachReviewAttention([pr({ requestedReviewers: [{ login: 'Viewer' }] })], 'viewer')
 
     expect(result.needsMyReview).toBe(true)
     expect(result.reviewAttention).toBe('requested')
@@ -29,7 +29,7 @@ describe('review attention', () => {
   test('includes assignments but does not ask authors to review their own PR', () => {
     const [assigned, own] = attachReviewAttention([
       pr({ number: 1, assignees: ['viewer'] }),
-      pr({ number: 2, author: 'viewer', requestedReviewers: ['viewer'] }),
+      pr({ number: 2, author: 'viewer', requestedReviewers: [{ login: 'viewer' }] }),
     ], 'viewer')
 
     expect(assigned.reviewAttention).toBe('assigned')
@@ -38,7 +38,7 @@ describe('review attention', () => {
 
   test('ignores stale requests on closed PRs', () => {
     const [result] = attachReviewAttention([
-      pr({ state: 'closed', requestedReviewers: ['viewer'] }),
+      pr({ state: 'closed', requestedReviewers: [{ login: 'viewer' }] }),
     ], 'viewer')
 
     expect(result.needsMyReview).toBeUndefined()

@@ -102,7 +102,7 @@
       open = !open;
     } else {
       if (session.router.at('settings')) {
-        session.closeSettings();
+        session.router.close('settings');
       } else {
         session.showSettings();
       }
@@ -155,7 +155,7 @@
   async function handleToggle() {
     if (!isPillMode) {
       if (session.router.at('settings')) {
-        session.closeSettings();
+        session.router.close('settings');
       } else {
         session.showSettings();
       }

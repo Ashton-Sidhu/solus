@@ -104,3 +104,26 @@ export function mergeReadiness({
   return { key: 'open', headline: 'Review in progress', note: line, blocked }
 }
 
+export type MergeReadinessTone = 'positive' | 'negative' | 'review' | 'neutral'
+
+/**
+ * The colour the status card's glyph takes. It follows the same host palette
+ * the list's status dots use — merged is purple, a blocker is red, ready is
+ * green — and everything still in motion stays neutral, so the card is only
+ * ever coloured when the colour says something the headline does not.
+ */
+export function readinessTone(key: MergeReadinessKey): MergeReadinessTone {
+  switch (key) {
+    case 'ready':
+      return 'positive'
+    case 'checks':
+    case 'conflicts':
+    case 'closed':
+      return 'negative'
+    case 'merged':
+      return 'review'
+    default:
+      return 'neutral'
+  }
+}
+

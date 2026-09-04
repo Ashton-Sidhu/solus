@@ -9,7 +9,7 @@ export function attachReviewAttention(
   const login = viewer.toLowerCase()
   return pullRequests.map((pr) => {
     if (pr.state !== 'open' || pr.author.toLowerCase() === login) return pr
-    const requested = pr.requestedReviewers?.some((reviewer) => reviewer.toLowerCase() === login)
+    const requested = pr.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === login)
     const assigned = pr.assignees?.some((assignee) => assignee.toLowerCase() === login)
     if (!requested && !assigned) return pr
     return {

@@ -8,7 +8,12 @@
  * mapping from `Task` / `PullRequest` into these specs.
  */
 
-import type { ChevronRight } from '@lucide/svelte'
+import {
+  type ChevronRight,
+  CircleCheck as CircleCheckIcon,
+  CircleDashed as CircleDashedIcon,
+  CircleX as CircleXIcon,
+} from '@lucide/svelte'
 import { z } from 'zod'
 
 /**
@@ -60,10 +65,16 @@ export interface ListPerson {
 
 export interface ListChipSpec {
   label: string
+  /** A domain label uses the shared pastel pill treatment in this host colour. */
+  labelColor?: string
   /** Omit for the neutral ring-only chip. */
   tint?: ListTint
+  /** Strong semantic colour for high-signal outcomes such as CI passing or failing. */
+  emphasis?: 'strong'
   /** Branch names and other machine strings set their own face. */
   mono?: boolean
+  /** A glyph before the words, so a state reads at a glance before it is read. */
+  icon?: ListIcon
 }
 
 /**
@@ -81,15 +92,33 @@ export interface ListRevealSpec {
 }
 
 /**
- * Slot 5 — a check outcome, but only the states worth a row's width. Passing is
- * the expected case and gets a glyph; failing is the exception and gets words.
- * `none` reserves the slot without drawing in it, so a result landing later does
- * not shift the row. Pages with no notion of checks omit the field and the slot.
+ * Slot 5 — the check outcome, stated in words for every state the host has
+ * reported: passing, still running, or failing. `none` reserves the slot
+ * without drawing in it, so a result landing later does not shift the row.
+ * Pages with no notion of checks omit the field and the slot.
  */
 export interface ListChecksSpec {
-  state: 'passing' | 'failing' | 'none'
-  /** The failing state's words; the passing glyph's tooltip. */
+  state: 'passing' | 'pending' | 'failing' | 'none'
+  /** The chip's words. Empty for `none`. */
   label: string
+}
+
+/**
+ * The chip a check state draws as — one glyph and one tint per state, so the
+ * wide row's slot 5 and an inbox row's chip strip say the same thing the same
+ * way. Null for `none`, which draws nothing.
+ */
+export function checksChip(checks: ListChecksSpec): ListChipSpec | null {
+  switch (checks.state) {
+    case 'passing':
+      return { label: checks.label, tint: 'success', emphasis: 'strong', icon: CircleCheckIcon }
+    case 'pending':
+      return { label: checks.label, tint: 'running', icon: CircleDashedIcon }
+    case 'failing':
+      return { label: checks.label, tint: 'failure', emphasis: 'strong', icon: CircleXIcon }
+    case 'none':
+      return null
+  }
 }
 
 /** Slot 6 — churn. Colour carries the sign, so size and direction read in one pass. */
@@ -122,7 +151,8 @@ export interface ListRowSpec {
   source?: ListRowSource
   /** Slot 3 — the only full-strength text in the row. */
   title: string
-  /** Slot 4 — 0–2 chips: the domain first, then a state that needs colour. */
+  /** Slot 4 — a few chips: the lifecycle state first where the page states it
+   *  per row, then a fact that needs colour (a merge conflict, a running job). */
   chips: ListChipSpec[]
   /** Slot 4 — the hover-revealed fact, in place of a chip that would spend the
    *  same width on every row of the list. */
@@ -142,10 +172,12 @@ export interface ListRowSpec {
   timeTitle?: string
 }
 
-export interface ListGroupSpec {
+/** A page whose rows carry facts beyond the shared grammar (the PR row's
+ *  repository and labels) names its own row type; the group shape is the same. */
+export interface ListGroupSpec<Row extends ListRowSpec = ListRowSpec> {
   key: string
   label: string
-  rows: ListRowSpec[]
+  rows: Row[]
 }
 
 /** One line of the inbox — two lines of text, and a right end that swaps
@@ -376,7 +408,10 @@ export interface ListChipSkin {
   boxShadow: string
 }
 
-export function chipSkin(tint: ListTint | undefined): ListChipSkin {
+export function chipSkin(
+  tint: ListTint | undefined,
+  emphasis?: ListChipSpec['emphasis'],
+): ListChipSkin {
   switch (tint) {
     case 'primary':
     case 'running':
@@ -387,8 +422,11 @@ export function chipSkin(tint: ListTint | undefined): ListChipSkin {
       }
     case 'success':
       return {
-        background: 'color-mix(in oklch, var(--success) 15%, transparent)',
-        color: 'color-mix(in oklch, var(--success) 62%, var(--foreground))',
+        background: `color-mix(in oklch, var(--success) ${emphasis === 'strong' ? 19 : 15}%, transparent)`,
+        color:
+          emphasis === 'strong'
+            ? 'var(--success)'
+            : 'color-mix(in oklch, var(--success) 62%, var(--foreground))',
         boxShadow: 'none',
       }
     case 'warning':
@@ -399,8 +437,11 @@ export function chipSkin(tint: ListTint | undefined): ListChipSkin {
       }
     case 'failure':
       return {
-        background: 'color-mix(in oklch, var(--failure) 13%, transparent)',
-        color: 'color-mix(in oklch, var(--failure) 70%, var(--foreground))',
+        background: `color-mix(in oklch, var(--failure) ${emphasis === 'strong' ? 17 : 13}%, transparent)`,
+        color:
+          emphasis === 'strong'
+            ? 'var(--failure)'
+            : 'color-mix(in oklch, var(--failure) 70%, var(--foreground))',
         boxShadow: 'none',
       }
     default:

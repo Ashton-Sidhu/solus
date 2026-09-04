@@ -128,6 +128,9 @@ export type SidebarSessionChild = {
   unread: boolean
   /** Session history mixes hosts, so each row has to carry the one it runs on. */
   serverId: string | null
+  /** Agent and resolved model used by this session. */
+  provider?: string | null
+  modelId?: string | null
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
   runStartedAt: number
   /** Newest known session activity. The task/session index supplies this for
@@ -1235,6 +1238,8 @@ export class SessionSidebarStore {
       attention,
       unread: tab?.hasUnread ?? false,
       serverId: sess?.run.serverId ?? null,
+      provider: sess?.run.provider ?? null,
+      modelId: sess ? (sess.sessionModel ?? sess.run.modelConfig.modelId) : null,
       // The mounted tab's environment is live, so it outranks whatever branch
       // the task record captured when it was last written.
       branchName: this.session.environment.environmentFor(this.session.sessionFor(tabId)?.run).branch,
@@ -1400,6 +1405,8 @@ export class SessionSidebarStore {
           sessionId: link.sessionId,
           projectKey,
           serverId: child.serverId ?? linkServerId,
+          provider: child.provider ?? link.provider,
+          modelId: child.modelId ?? link.model,
           branchName: child.branchName ?? link.branch ?? null,
           // A restored tab can exist before its transcript is hydrated. The
           // durable link still knows when that session was active; do not turn
@@ -1420,6 +1427,8 @@ export class SessionSidebarStore {
         attention: liveState?.attention ?? null,
         unread: liveState?.attention === 'error',
         serverId: linkServerId,
+        provider: link.provider,
+        modelId: link.model,
         runStartedAt: liveState?.attention === 'running' ? liveState.runStartedAt : 0,
         lastActivityAt: link.lastActivityAt ?? link.linkedAt,
         reviewGuideStatus: null,

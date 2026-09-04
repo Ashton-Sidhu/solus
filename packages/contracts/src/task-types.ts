@@ -572,6 +572,8 @@ export interface TaskSessionLink {
   /** Agent that ran the session, as the session index stores it (`claude`,
    *  `codex`, `opencode`). Null for a link whose session is not indexed yet. */
   provider: string | null
+  /** Resolved model that ran the session. Null until the session is indexed. */
+  model: string | null
   /** Start of the stable Solus session lineage. Null when the session is not
    *  indexed yet. This is session chronology, unlike `linkedAt`, which can be
    *  later when a task is created after work begins. */

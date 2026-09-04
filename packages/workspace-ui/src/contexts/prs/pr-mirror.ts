@@ -19,8 +19,10 @@ import type {
   PrCommit,
   PrConversationItem,
   PrListPage,
+  PrLabel,
   PrReviewer,
   PrReviewerCandidate,
+  ProviderViewer,
   PullRequest,
   PullRequestOverview,
   ReviewThread,
@@ -138,11 +140,12 @@ export class PrMirrors {
   readonly commits = new PrMirror<PrCommit[]>()
   readonly reviewers = new PrMirror<PrReviewer[]>()
   readonly reviewerCandidates = new PrMirror<PrReviewerCandidate[]>()
+  readonly labelCandidates = new PrMirror<PrLabel[]>()
   readonly threads = new PrMirror<ReviewThread[]>()
   readonly comments = new PrMirror<PrConversationItem[]>()
   readonly changedFiles = new PrMirror<ChangedFileStat[]>()
   readonly interdiff = new PrMirror<PrInterdiffResult>(PR_LARGE_MIRROR_MAX_ENTRIES)
-  readonly viewer = new PrMirror<string>()
+  readonly viewer = new PrMirror<ProviderViewer>()
 
   /** Forget everything filed under one project. */
   forgetPrefix(prefix: string): void {
@@ -153,6 +156,7 @@ export class PrMirrors {
       this.commits,
       this.reviewers,
       this.reviewerCandidates,
+      this.labelCandidates,
       this.threads,
       this.comments,
       this.changedFiles,

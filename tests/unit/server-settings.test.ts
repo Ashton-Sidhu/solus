@@ -16,6 +16,7 @@ afterEach(() => {
 interface PersistedSettingsFixture {
   remoteAccess?: boolean
   agentTaskLifecyclePolicy?: string
+  name?: string
 }
 
 async function loadSettings(name: string, persisted?: PersistedSettingsFixture) {
@@ -57,6 +58,12 @@ describe.serial('server settings defaults', () => {
 
     settings.setMetricsRetentionDays(14)
     expect(settings.getServerSettings().metricsRetentionDays).toBe(14)
+  })
+
+  test('ignores the removed custom host-name setting', async () => {
+    const settings = await loadSettings('removed-host-name', { name: 'Legacy override' })
+
+    expect(settings.getServerSettings()).not.toHaveProperty('name')
   })
 
   test('loads a persisted autonomous task lifecycle policy', async () => {

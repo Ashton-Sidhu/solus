@@ -38,7 +38,6 @@ const persistedServerSettingsSchema = z.object({
   remoteAccess: z.boolean().optional(),
   metricsRetentionDays: z.number().optional(),
   trustLocalNetwork: z.boolean().optional(),
-  name: z.string().optional(),
   projectsBaseDirectory: z.string().optional(),
   hostConfig: hostConfigPatchSchema.optional(),
   analytics: z.boolean().optional(),
@@ -50,8 +49,8 @@ const persistedServerSettingsSchema = z.object({
 }).strip()
 
 /**
- * What belongs to the machine rather than to the workspace: how it is reached,
- * what it is called, how much history it keeps. Everything a user or an
+ * What belongs to the machine rather than to the workspace: how it is reached
+ * and how much history it keeps. Everything a user or an
  * operator *configures* now lives in `hostConfig`, which has one schema, one
  * validation path, and one change event.
  */
@@ -61,7 +60,6 @@ export interface ServerSettings {
   /** Requesters from private-range (RFC1918) addresses skip pairing. Off by
    *  default: a shared network is not an identity unless the owner says so. */
   trustLocalNetwork: boolean
-  name?: string
   /**
    * Where projects live on this host: what "Open project" lists, and where its
    * primary action puts a clone. Empty means the home folder.
@@ -95,7 +93,6 @@ export function getServerSettings(): ServerSettings {
         remoteAccess: parsed?.remoteAccess === true,
         metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
         trustLocalNetwork: parsed?.trustLocalNetwork === true,
-        name: normalizeServerName(parsed?.name),
         projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
         hostConfig: loadHostConfig(parsed),
       }
@@ -187,14 +184,6 @@ export function setTrustLocalNetwork(trustLocalNetwork: boolean): ServerSettings
   return _settings
 }
 
-export function setServerName(name: string): ServerSettings {
-  const normalized = normalizeServerName(name)
-  if (!normalized) throw new Error('Server name cannot be empty.')
-  _settings = { ...getServerSettings(), name: normalized }
-  persistSettings(_settings)
-  return _settings
-}
-
 /** Empty clears the setting, so the picker falls back to the home folder. */
 export function setProjectsBaseDirectory(path: string): ServerSettings {
   _settings = { ...getServerSettings(), projectsBaseDirectory: normalizeProjectsBaseDirectory(path) }
@@ -219,12 +208,6 @@ export function resolveSourceControlWriterModel(): TextGenerationModelSelection 
 function persistSettings(next: ServerSettings): void {
   if (!existsSync(SOLUS_DIR)) mkdirSync(SOLUS_DIR, { recursive: true })
   writeFileSync(SETTINGS_FILE, JSON.stringify(next, null, 2), { mode: 0o600 })
-}
-
-function normalizeServerName(value: string | undefined): string | undefined {
-  if (value === undefined) return undefined
-  const trimmed = value.trim().replace(/\s+/g, ' ')
-  return trimmed ? trimmed.slice(0, 80) : undefined
 }
 
 function normalizeProjectsBaseDirectory(value: string | undefined): string | undefined {

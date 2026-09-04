@@ -6,6 +6,7 @@ const pinnedSessionRowsSchema = z.array(z.object({
   session_id: z.string(),
   server_id: z.string(),
   provider: z.enum(['claude-code', 'codex', 'opencode']),
+  model: z.string().nullable(),
   title: z.string(),
   cwd: z.string(),
   pinned_at: z.number(),
@@ -14,18 +15,30 @@ const pinnedSessionRowsSchema = z.array(z.object({
 /** Pinned sessions, most-recently-pinned first. */
 export async function readManifest(): Promise<PinnedSession[]> {
   const rows = pinnedSessionRowsSchema.parse(getDb().prepare(`
-    SELECT session_id, server_id, provider, title, cwd, pinned_at
+    SELECT
+      pinned_sessions.session_id,
+      pinned_sessions.server_id,
+      pinned_sessions.provider,
+      sessions.model,
+      pinned_sessions.title,
+      pinned_sessions.cwd,
+      pinned_sessions.pinned_at
     FROM pinned_sessions
-    ORDER BY pinned_at DESC
+    LEFT JOIN sessions ON sessions.session_id = pinned_sessions.session_id
+    ORDER BY pinned_sessions.pinned_at DESC
   `).all())
-  return rows.map((row) => ({
-    sessionId: row.session_id,
-    serverId: row.server_id || undefined,
-    provider: row.provider,
-    title: row.title,
-    cwd: row.cwd,
-    pinnedAt: row.pinned_at,
-  }))
+  return rows.map((row) => {
+    const session: PinnedSession = {
+      sessionId: row.session_id,
+      serverId: row.server_id || undefined,
+      provider: row.provider,
+      title: row.title,
+      cwd: row.cwd,
+      pinnedAt: row.pinned_at,
+    }
+    if (row.model !== null) session.model = row.model
+    return session
+  })
 }
 
 /** Keep a pin's label in step with the session it points at. The pin stores its

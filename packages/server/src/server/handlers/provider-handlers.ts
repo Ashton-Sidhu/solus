@@ -13,7 +13,7 @@ import { estimateReviewEffort } from '../../review/effort'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
 import type { Provider, RepoRef } from '../../providers/types'
 import type { PrEffortRequest, PrEffortResult, PrListPage, PrReviewTarget, DraftReview, PullRequestUpdate } from '@solus/contracts/providers'
-import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
+import { projectScopeOf, worktreeProjectRoot, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
@@ -241,6 +241,7 @@ export async function prepareReviewGuidePrContext(
         ...ctx.session,
         workingDirectory: checkout.worktreePath,
         gitContext: {
+          repoRoot: worktreeProjectRoot(checkout.worktreePath),
           branch: checkout.branch,
           targetBranch: current.baseRef,
           worktreePath: checkout.worktreePath,
@@ -349,7 +350,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const [ctx] = args
     const provider = await providerForContext(ctx)
     if (!provider) throw new Error('No git provider is available for this repository.')
-    return provider.review.getViewer()
+    return provider.review.getViewerProfile()
   })
 
   // ─── PR review mode ─────────────────────────────────────────────────────────
@@ -676,6 +677,27 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       if (!detail.viewerPermissions.requestReviewers) throw new Error('You do not have permission to remove requested reviewers.')
       return provider.review.removeRequestedReviewer(repo, number, login)
     })
+  })
+
+  server.register('prListLabelCandidates', async (args) => {
+    const [ctx, number] = args
+    const { repo, provider } = await reviewTargetFor(ctx)
+    const detail = await prIndex.pullRequest(repo, provider, number).readFresh()
+    if (!detail.viewerPermissions.manageLabels) throw new Error('You do not have permission to manage labels.')
+    return provider.review.listLabelCandidates(repo)
+  })
+
+  server.register('prSetLabels', async (args) => {
+    const [ctx, number, requestedNames] = args
+    const names = [...new Set(requestedNames.map((name) => name.trim()).filter(Boolean))]
+    const labels = await writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
+      const detail = await pullRequest.readFresh()
+      if (!detail.viewerPermissions.manageLabels) throw new Error('You do not have permission to manage labels.')
+      return provider.review.setLabels(repo, number, names)
+    })
+    const projectRoot = projectScopeOf(ctx.session)
+    if (projectRoot) deps.events.broadcast('pr.labelsChanged', { projectRoot, number, labels })
+    return labels
   })
 
   server.register('prUpdateLifecycle', async (args) => {

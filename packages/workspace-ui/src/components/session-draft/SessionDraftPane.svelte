@@ -220,7 +220,6 @@
    *  the pane it was filling goes with it. */
   function discard() {
     session.discardSessionDraft(params.draftId);
-    session.router.closePane(paneId);
     requestInputFocus();
   }
 

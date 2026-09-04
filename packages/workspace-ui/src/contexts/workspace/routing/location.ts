@@ -182,16 +182,18 @@ export function place(location: Location, ref: RouteRef, target: NavTarget = 'fo
 
 /**
  * Close a pane. The leading pane is the workspace's home, so it falls back to
- * the conversation rather than disappearing — which is also what keeps the
- * location from ever reaching zero panes.
+ * `home` rather than disappearing — which is also what keeps the location from
+ * ever reaching zero panes. `home` is the conversation unless the caller knows
+ * better: with no tab open the pool has nothing to show, and the workspace
+ * names the composer instead.
  */
-export function closePane(location: Location, paneId: PaneId): void {
+export function closePane(location: Location, paneId: PaneId, home: RouteRef = CHAT_ROUTE): void {
   const index = paneIndexOf(location, paneId)
   if (index === -1) return
   if (index === 0) {
     const pane = location.panes[0]
     pane.overlay = null
-    if (!sameRoute(pane.base, CHAT_ROUTE)) pane.base = CHAT_ROUTE
+    if (!sameRoute(pane.base, home)) pane.base = home
     location.focusedPaneId = pane.id
     return
   }
@@ -212,7 +214,12 @@ export function closeOverlay(location: Location, paneId: PaneId): void {
  * and "move back to the main pane". The source pane is dropped afterwards, so
  * this moves content rather than swapping two surfaces.
  */
-export function movePane(location: Location, paneId: PaneId, delta: number): void {
+export function movePane(
+  location: Location,
+  paneId: PaneId,
+  delta: number,
+  home: RouteRef = CHAT_ROUTE,
+): void {
   const index = paneIndexOf(location, paneId)
   if (index === -1) return
   const source = location.panes[index]
@@ -224,7 +231,7 @@ export function movePane(location: Location, paneId: PaneId, delta: number): voi
     if (location.panes.length >= MAX_PANES) return
     const pane = makePane(base, overlay)
     location.panes.push(pane)
-    dropPane(location, source.id)
+    dropPane(location, source.id, home)
     location.focusedPaneId = pane.id
     return
   }
@@ -232,17 +239,18 @@ export function movePane(location: Location, paneId: PaneId, delta: number): voi
   const target = location.panes[targetIndex]
   target.base = base
   target.overlay = overlay
-  dropPane(location, source.id)
+  dropPane(location, source.id, home)
   location.focusedPaneId = target.id
 }
 
 /** Remove a pane outright during a move — no conversation fallback, because the
- *  route it held is being placed elsewhere in the same operation. */
-function dropPane(location: Location, paneId: PaneId): void {
+ *  route it held is being placed elsewhere in the same operation. The leading
+ *  pane still cannot vanish, so it rests on `home` like a closed one does. */
+function dropPane(location: Location, paneId: PaneId, home: RouteRef): void {
   const index = paneIndexOf(location, paneId)
   if (index === -1) return
   if (index === 0) {
-    location.panes[0].base = CHAT_ROUTE
+    location.panes[0].base = home
     location.panes[0].overlay = null
     return
   }

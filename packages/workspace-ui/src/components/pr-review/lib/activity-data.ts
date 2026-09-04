@@ -2,7 +2,14 @@
 // inline thread previews, and the initials shown in author/comment avatars.
 // (Per-file +/- counts come from the provider-backed `prChangedFiles` handler.)
 
-import type { PrCommit, PrConversationItem, ReviewThread } from '@solus/contracts/providers'
+import type {
+  PrCommit,
+  PrCommentActivityItem,
+  PrConversationItem,
+  PrLabelActivityItem,
+  ReviewThread,
+} from '@solus/contracts/providers'
+import { labelChangeText } from '../../../lib/label-activity'
 
 /**
  * One entry in the activity timeline. The opened event is rendered separately as
@@ -14,12 +21,26 @@ import type { PrCommit, PrConversationItem, ReviewThread } from '@solus/contract
 export type ActivityEvent =
   | { kind: 'commits'; ts: number; commits: PrCommit[] }
   | { kind: 'thread'; ts: number; thread: ReviewThread }
-  | { kind: 'comment'; ts: number; comment: PrConversationItem }
+  | { kind: 'comment'; ts: number; comment: PrCommentActivityItem }
+  | { kind: 'label'; ts: number; item: PrLabelActivityItem }
+
+/** The provider reads the Activity tab makes on its own. Each fails on its
+ *  own too, and the section that read it says so in place — there is no
+ *  page-wide banner to fold them into. */
+export type PrActivityDataSource =
+  | 'details'
+  | 'commits'
+  | 'comments'
+  | 'reviewers'
+  | 'reviewer-candidates'
+  | 'label-candidates'
+  | 'changed-files'
 
 /** Stable key for `{#each}` — first commit sha of a run, or thread/comment id. */
 export function activityEventKey(event: ActivityEvent): string {
   if (event.kind === 'commits') return `commits:${event.commits[0].sha}`
   if (event.kind === 'thread') return event.thread.id
+  if (event.kind === 'label') return event.item.id
   return event.comment.id
 }
 
@@ -37,9 +58,21 @@ export function filterActivityTimeline(
   unresolvedOnly: boolean,
 ): ActivityEvent[] {
   if (unresolvedOnly) return events.filter((e) => e.kind === 'thread' && !e.thread.isResolved)
-  if (filter === 'conversation') return events.filter((e) => e.kind !== 'commits')
+  if (filter === 'conversation') {
+    return events.filter((event) => event.kind === 'thread' || event.kind === 'comment')
+  }
   if (filter === 'commits') return events.filter((e) => e.kind === 'commits')
   return events
+}
+
+/**
+ * Whether a conversation body paints anything once rendered. Bots wrap their
+ * state in HTML comments, and a review whose only content is such a marker
+ * arrives with a non-empty body that the markdown pipeline hides in full — a
+ * row that keeps its card for it shows an empty box under the author line.
+ */
+export function hasVisibleBody(body: string): boolean {
+  return body.replace(/<!--[\s\S]*?-->/g, '').trim().length > 0
 }
 
 /**
@@ -48,7 +81,7 @@ export function filterActivityTimeline(
  * avatar rows since their state carries no verdict.
  */
 export function reviewMilestone(
-  item: PrConversationItem,
+  item: PrCommentActivityItem,
 ): { headline: string; tone: 'positive' | 'negative' } | null {
   if (item.kind !== 'review') return null
   if (item.reviewState === 'APPROVED') return { headline: 'approved these changes', tone: 'positive' }
@@ -99,7 +132,8 @@ export function buildActivityTimeline(
   type Raw =
     | { kind: 'commit'; ts: number; commit: PrCommit }
     | { kind: 'thread'; ts: number; thread: ReviewThread }
-    | { kind: 'comment'; ts: number; comment: PrConversationItem }
+    | { kind: 'comment'; ts: number; comment: PrCommentActivityItem }
+    | { kind: 'label'; ts: number; item: PrLabelActivityItem }
   const raw: Raw[] = []
   for (const commit of commits) {
     raw.push({ kind: 'commit', ts: new Date(commit.committedAt).getTime(), commit })
@@ -109,7 +143,9 @@ export function buildActivityTimeline(
     raw.push({ kind: 'thread', ts, thread })
   }
   for (const comment of comments) {
-    raw.push({ kind: 'comment', ts: new Date(comment.createdAt).getTime(), comment })
+    const ts = new Date(comment.createdAt).getTime()
+    if (comment.kind === 'label') raw.push({ kind: 'label', ts, item: comment })
+    else raw.push({ kind: 'comment', ts, comment })
   }
   raw.sort((a, b) => a.ts - b.ts)
 
@@ -126,11 +162,22 @@ export function buildActivityTimeline(
       }
     } else if (item.kind === 'thread') {
       events.push({ kind: 'thread', ts: item.ts, thread: item.thread })
+    } else if (item.kind === 'label') {
+      events.push({ kind: 'label', ts: item.ts, item: item.item })
     } else {
       events.push({ kind: 'comment', ts: item.ts, comment: item.comment })
     }
   }
   return events
+}
+
+export function prLabelActivityText(item: PrLabelActivityItem, viewerLogin: string): string {
+  const who = item.author === viewerLogin ? 'You' : item.author || 'Someone'
+  return labelChangeText(
+    who,
+    item.action === 'added' ? [item.label.name] : [],
+    item.action === 'removed' ? [item.label.name] : [],
+  )
 }
 
 /**

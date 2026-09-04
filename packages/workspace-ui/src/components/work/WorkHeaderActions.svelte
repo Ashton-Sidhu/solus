@@ -369,7 +369,7 @@
      of its own to stay right on a laptop. */
   .wha-verb {
     flex-shrink: 0;
-    height: 1.5rem;
+    height: 1.625rem;
     padding: 0 0.4375rem;
     border-radius: 0.375rem;
     font-family: inherit;
@@ -394,19 +394,22 @@
   }
 
   /* Reaching Solus is the surface's primary action, so it carries the only
-     filled surface in the cluster. Squared off on the input bar's radius: the
-     app's controls are rounded rectangles, and a full pill here read as a
-     different family of button from every other action the user presses. */
+     filled surface in the cluster. Squared off on the shared Button's own
+     radius (`--radius-md`, the compact size's): the app's controls are rounded
+     rectangles, and a full pill here read as a different family of button from
+     every other action the user presses. It is the same geometry the pull
+     request header's Check out takes, so the app's one filled "reach Solus"
+     action is one object wherever it appears. */
   .wha-solus {
     display: inline-flex;
     align-items: stretch;
-    height: 1.5rem;
+    height: 1.625rem;
     /* Set apart from the verbs on its left and from the pane's floating chrome
        cluster on its right, so the row's one filled surface is not shouldered
        by either. */
     margin-left: 0.25rem;
     margin-right: 0.125rem;
-    border-radius: 0.4375rem;
+    border-radius: var(--radius-md);
     background: var(--solus-accent);
     color: var(--solus-text-on-accent);
     overflow: hidden;
@@ -464,8 +467,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
+    width: 1.625rem;
+    height: 1.625rem;
     border-radius: 0.375rem;
     background: transparent;
     color: var(--solus-text-tertiary);
@@ -490,6 +493,23 @@
   }
   .wha-actions {
     display: contents;
+  }
+  /* The row's laptop rung. The runtime owns the display boundary and stamps
+     `is-laptop-display` on the document, so the cluster steps down with the
+     chrome around it instead of holding a desktop height on a 13" screen. The
+     whole row moves together — a filled pill 2px taller than the verbs beside
+     it would read as a second row. Fenced to a precise pointer above the
+     record width so the 40px touch strip below still wins: this selector
+     carries an ancestor and would otherwise outrank it. */
+  @media (pointer: fine) and (min-width: 768px) {
+    :global(html.is-laptop-display) .wha-verb,
+    :global(html.is-laptop-display) .wha-solus {
+      height: 1.5rem;
+    }
+    :global(html.is-laptop-display) .wha-overflow {
+      width: 1.5rem;
+      height: 1.5rem;
+    }
   }
   /* Mobile: the header is the formatting strip, whose buttons are 40px touch
      targets — these have to match it or they read as a second, smaller row. */

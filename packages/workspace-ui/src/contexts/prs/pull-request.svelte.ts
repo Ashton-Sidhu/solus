@@ -23,6 +23,7 @@ import type {
   PrCommit,
   PrConversationItem,
   PrLifecycleAction,
+  PrLabel,
   PrReviewer,
   PrReviewerCandidate,
   PullRequestOverview,
@@ -70,6 +71,7 @@ const UNDESCRIBED_CAPABILITIES: Contracts.PullRequest['capabilities'] = {
   mergeMethods: [],
   reviewerRequests: false,
   reviewerCandidates: false,
+  labelManagement: false,
 }
 const UNDESCRIBED_PERMISSIONS: Contracts.PullRequest['viewerPermissions'] = {
   actions: [],
@@ -77,6 +79,7 @@ const UNDESCRIBED_PERMISSIONS: Contracts.PullRequest['viewerPermissions'] = {
   comment: false,
   resolveThreads: false,
   requestReviewers: false,
+  manageLabels: false,
 }
 
 export class PullRequest implements Contracts.PullRequest {
@@ -108,7 +111,7 @@ export class PullRequest implements Contracts.PullRequest {
   capabilities = $state<Contracts.PullRequest['capabilities']>(UNDESCRIBED_CAPABILITIES)
   viewerPermissions = $state<Contracts.PullRequest['viewerPermissions']>(UNDESCRIBED_PERMISSIONS)
   effort = $state<Contracts.PullRequest['effort']>()
-  requestedReviewers = $state<string[]>()
+  requestedReviewers = $state<Contracts.PrRequestedReviewer[]>()
   assignees = $state<string[]>()
   reviewAttention = $state<Contracts.PullRequest['reviewAttention']>()
   needsMyReview = $state<boolean>()
@@ -327,6 +330,21 @@ export class PullRequest implements Contracts.PullRequest {
     const reviewers = await this.api.prRemoveRequestedReviewer(detached(this.ctx), this.number, login)
     this.store.mirrors.reviewers.seed(this.key, reviewers)
     return reviewers
+  }
+
+  async loadLabelCandidates(opts: ReadOptions = {}): Promise<PrLabel[]> {
+    const ctx = detached(this.ctx)
+    return this.store.mirrors.labelCandidates.read(
+      this.key,
+      !!opts.force,
+      () => this.api.prListLabelCandidates(ctx, this.number),
+    )
+  }
+
+  async setLabels(names: string[]): Promise<PrLabel[]> {
+    const labels = await this.api.prSetLabels(detached(this.ctx), this.number, [...names])
+    this.store.applyLabels(this.number, labels)
+    return labels
   }
 
   /** Close, reopen, mark ready, or return to draft. */

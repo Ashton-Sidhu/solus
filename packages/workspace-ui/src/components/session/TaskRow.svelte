@@ -119,6 +119,7 @@
   // Which branch or worktree the work sits on. The row itself stays as it is;
   // the tooltip is where the answer belongs.
   const branchName = $derived(taskRowBranchName(task.branchName, sessions));
+  const tooltipSession = $derived(disclosable ? null : sessions[0]);
 
   // Which machine, on the same rule as the elapsed readout: with one session
   // under the task there is a single answer and the row states it, so you never
@@ -440,7 +441,7 @@
       {#snippet child({ props: tooltipProps })}
   <div
     {...tooltipProps}
-    class="group/row relative -mx-2 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] transition-[background,color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {bulkSelected
+    class="group/row relative -mx-2 flex cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-[0.625rem] transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)] {bulkSelected
  ? 'bg-[color-mix(in_oklch,var(--primary)_9%,transparent)]'
  : ''} {isSlim ? 'h-[2.25rem]' : 'h-[3.875rem]'} {recedes
  ? 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)] hover:text-foreground'
@@ -611,6 +612,8 @@
       projectLabel={task.projectLabel}
       {branchName}
       serverId={task.serverId}
+      provider={tooltipSession?.provider}
+      modelId={tooltipSession?.modelId}
       attention={task.attention}
       {reviewGuideStatus}
     />

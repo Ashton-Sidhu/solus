@@ -34,7 +34,7 @@
   import { portal } from "../portal";
   import { extractHeadings, type PlanHeading } from "./headings";
   import { countThreadsByHeading } from "../comments/lib/anchors";
-  import { hasOutlineMarginRoom, sectionJumpIndex } from "./lib/outline";
+  import { hasOutlineMarginRoom, hasOutlineTickRail, sectionJumpIndex } from "./lib/outline";
   import { bylineContent } from "./lib/byline";
   import { formatSavedAgo } from "./saveStatus";
   import { isActive, cmd } from "./toolbar";
@@ -358,10 +358,14 @@
   );
   // The fit rule's other half. Where the panel cannot render beside the prose
   // it does not render over it either: the gutter keeps its at-rest bars, and
-  // the contents opens from the header — a popover under the breadcrumb, over
-  // the toolbar's empty band, never over glyphs.
+  // hovering one names that section alone. The header only takes the contents
+  // back where the pane is too narrow for the rail itself — with no ticks to
+  // hover, a popover under the breadcrumb is the one way left in.
   const contentsOpensFromHeader = $derived(
-    !isMobile && tocHeadings.length >= 2 && !outlineHasMarginRoom,
+    !isMobile &&
+      tocHeadings.length >= 2 &&
+      !outlineHasMarginRoom &&
+      !hasOutlineTickRail(shellWidth),
   );
   let contentsPopoverOpen = $state(false);
   $effect(() => {

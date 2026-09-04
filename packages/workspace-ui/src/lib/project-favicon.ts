@@ -13,6 +13,14 @@ const FAVICON_FILENAMES = [
   'favicon.jpeg',
 ]
 
+/** Common nested locations. Keep this list short: each miss is a host request,
+ * and root-level files remain the unambiguous project-owned convention. */
+const NESTED_FAVICON_PATHS = [
+  'public/favicon.ico',
+  'static/favicon.ico',
+  'apps/web/public/favicon.ico',
+]
+
 export interface ProjectFaviconRequest {
   serverId: string
   projectRoot: string
@@ -88,7 +96,10 @@ export class ProjectFaviconResolver {
 
 export function faviconCandidatePaths(projectRoot: string): string[] {
   const root = normalizedRoot(projectRoot)
-  return FAVICON_FILENAMES.map((name) => `${root}/${name}`)
+  return [
+    ...FAVICON_FILENAMES.map((name) => `${root}/${name}`),
+    ...NESTED_FAVICON_PATHS.map((path) => `${root}/${path}`),
+  ]
 }
 
 function normalizedRoot(projectRoot: string): string {

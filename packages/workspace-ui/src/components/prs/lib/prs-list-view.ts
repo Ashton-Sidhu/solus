@@ -8,20 +8,107 @@
  * belongs to Pull requests — its groups, its identifier width, its chips
  * (branch, checks), its meta column (diff size) and its verbs.
  */
+import {
+  GitMerge as GitMergeIcon,
+  GitPullRequest as GitPullRequestIcon,
+  GitPullRequestClosed as GitPullRequestClosedIcon,
+  GitPullRequestDraft as GitPullRequestDraftIcon,
+  TriangleAlert as TriangleAlertIcon,
+} from '@lucide/svelte'
 import type { PullRequest } from '@solus/contracts/providers'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PrGuideStatus } from '@solus/contracts/review'
+import { z } from 'zod'
 import {
   absoluteTime,
+  checksChip,
   compactCount,
   compactRelativeTime,
   personFrom,
   type InboxGroupSpec,
   type ListChecksSpec,
   type ListGroupSpec,
+  type ListIcon,
   type ListRevealSpec,
   type ListRowSpec,
+  type ListTint,
 } from '../../ui/list-page/list-page'
+import { relativeTime } from './pr-utils'
+
+/** One of the host's labels, as the row's facts line draws it: the name on a
+ *  pastel of the host's colour. */
+export interface PrRowLabel {
+  name: string
+  /** Hex without the `#`, as GitHub reports it. */
+  color: string
+}
+
+/**
+ * The host's label colour as a CSS colour. GitHub reports bare hex
+ * (`0e8a16`), which as a style value paints nothing; a provider that reports
+ * a CSS colour keeps it. The chip mixes this with the page's own background
+ * and foreground, so one saturated host colour reads as a pastel in both
+ * themes rather than as a block the title has to compete with.
+ */
+export function labelChipColor(color: string): string {
+  const trimmed = color.trim()
+  if (!trimmed) return 'var(--muted-foreground)'
+  return /^[0-9a-f]{3,8}$/i.test(trimmed) ? `#${trimmed}` : trimmed
+}
+
+/**
+ * The pull request row. The shared grammar carries the title, ident, people,
+ * churn and checks; what a PR row says beyond that — which repository, whose
+ * labels, and the lifecycle glyph that leads the row — is declared here.
+ */
+export interface PrRowSpec extends ListRowSpec {
+  status: PrStatusKey
+  /** `owner/repo`, so a cross-project list says where each row lives. */
+  repo: string
+  labels: PrRowLabel[]
+  /** Labels past the three drawn, as a `+n` after them. */
+  moreLabels: number
+  /** `9h ago` — the wide row has room for the word the 32px slot does not. */
+  updated: string
+}
+
+/** Two lines at every width: a title, then a line of facts that truncates. A
+ *  fixed number because the row sits in a virtualiser, which is told a height
+ *  before layout. `PrListRow.svelte` states the same 62. */
+export const PR_LIST_ROW_HEIGHT = 62
+
+const LABELS_SHOWN = 3
+
+export interface PrStatusGlyph {
+  icon: ListIcon
+  label: string
+  /** A CSS colour: the state's tone mixed toward the foreground so it holds in
+   *  both light and dark mode. */
+  color: string
+}
+
+/** The lifecycle state as the glyph that leads the row, the way a code host
+ *  draws it: one shape and one tone per state, no word. */
+export function prStatusGlyph(status: PrStatusKey): PrStatusGlyph {
+  switch (status) {
+    case 'open':
+      return {
+        icon: GitPullRequestIcon,
+        label: 'Open',
+        color: 'color-mix(in oklch, var(--success) 72%, var(--foreground))',
+      }
+    case 'draft':
+      return { icon: GitPullRequestDraftIcon, label: 'Draft', color: 'var(--muted-foreground)' }
+    case 'merged':
+      return { icon: GitMergeIcon, label: 'Merged', color: 'var(--review)' }
+    case 'closed':
+      return {
+        icon: GitPullRequestClosedIcon,
+        label: 'Closed',
+        color: 'color-mix(in oklch, var(--failure) 70%, var(--foreground))',
+      }
+  }
+}
 
 /** Per-PR facts the page has loaded separately from the list fetch. Both take
  *  the full record, not a bare number — a workspace-wide list can hold the
@@ -38,6 +125,44 @@ function guideChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
   if (status === 'queued') return [{ label: 'Guide queued', tint: 'running' }]
   if (status === 'generating') return [{ label: 'Generating guide', tint: 'running' }]
   return []
+}
+
+/** The host has finished computing the merge and found it cannot happen.
+ *  `mergeable: null` is still computing, so it says nothing. */
+function hasMergeConflicts(pr: PullRequest): boolean {
+  return pr.state === 'open' && (pr.mergeStateStatus === 'dirty' || pr.mergeable === false)
+}
+
+/** A conflict is a fact of an open PR that neither the group nor the state
+ *  glyph carries, so it is the one state that is always a chip. */
+function conflictChips(pr: PullRequest): ListRowSpec['chips'] {
+  return hasMergeConflicts(pr) ? [{ label: 'Conflicts', tint: 'warning', icon: TriangleAlertIcon }] : []
+}
+
+/**
+ * The lifecycle state as a chip, for the inbox row: its groups are about you
+ * rather than about lifecycle, and it has no leading glyph, so the state has
+ * to be said in words there.
+ */
+function stateChips(pr: PullRequest): ListRowSpec['chips'] {
+  const status = prStatusOf(pr)
+  const glyph = prStatusGlyph(status)
+  return [{ label: glyph.label, tint: STATE_CHIP_TINT[status], icon: glyph.icon }, ...conflictChips(pr)]
+}
+
+/** Draft is the one state that is not news, so it is the one that stays neutral. */
+const STATE_CHIP_TINT: Record<PrStatusKey, ListTint | undefined> = {
+  open: 'success',
+  draft: undefined,
+  merged: 'primary',
+  closed: 'failure',
+}
+
+function rowLabels(pr: PullRequest): Pick<PrRowSpec, 'labels' | 'moreLabels'> {
+  return {
+    labels: pr.labels.slice(0, LABELS_SHOWN).map(({ name, color }) => ({ name, color })),
+    moreLabels: Math.max(0, pr.labels.length - LABELS_SHOWN),
+  }
 }
 
 /**
@@ -80,6 +205,8 @@ export const PR_STATUS_OPTIONS: { value: PrStatusKey; label: string }[] = [
 
 /** What the list opens on: what can still be landed. */
 export const OPEN_PR_STATUS_KEYS: PrStatusKey[] = ['open', 'draft']
+
+const LEGACY_REVIEWER_LOGIN = z.string()
 
 export function prStatusOf(pr: PullRequest): PrStatusKey {
   if (pr.state === 'merged') return 'merged'
@@ -137,10 +264,9 @@ function revealFor(pr: PullRequest, stackParent: number | null): ListRevealSpec 
 }
 
 /**
- * Slot 5 — a check state, but only when it has something to say. Passing gets a
- * glyph and no words; failing gets words. Pending resolves on its own and stale
- * results are not the PR's, so both hold the slot in silence rather than
- * asserting anything.
+ * Slot 5 — the check state, in words. A stale result is not this head's, and a
+ * PR with no checks configured has nothing to report, so both hold the slot in
+ * silence rather than asserting anything.
  */
 function checksFor(pr: PullRequest, checks: PrChecksSummary | undefined): ListChecksSpec {
   if (!checks || checks.headSha !== pr.headSha) return { state: 'none', label: '' }
@@ -148,10 +274,11 @@ function checksFor(pr: PullRequest, checks: PrChecksSummary | undefined): ListCh
     const failing = checks.required.filter((check) => check.conclusion === 'failure').length
     return {
       state: 'failing',
-      label: failing > 0 ? `${failing} check${failing === 1 ? '' : 's'} failing` : 'checks failing',
+      label: failing > 0 ? `${failing} check${failing === 1 ? '' : 's'} failing` : 'Checks failing',
     }
   }
   if (checks.state === 'passing') return { state: 'passing', label: 'Checks passing' }
+  if (checks.state === 'pending') return { state: 'pending', label: 'Checks running' }
   return { state: 'none', label: '' }
 }
 
@@ -164,15 +291,27 @@ export function prRow(
    *  a cross-repo list must pass a qualified key or two repos' identical
    *  numbers collide into one row. */
   key: string = String(pr.number),
-): ListRowSpec {
-  const reviewers = (pr.requestedReviewers ?? []).map((login) => personFrom(login))
+): PrRowSpec {
+  // A mounted PR store can still hold the former string-only shape during a
+  // development hot reload. Keep those rows usable until the next host fetch.
+  const reviewers = (pr.requestedReviewers ?? []).map((reviewer) => {
+    const legacyLogin = LEGACY_REVIEWER_LOGIN.safeParse(reviewer)
+    return legacyLogin.success
+      ? personFrom(legacyLogin.data)
+      : personFrom(reviewer.login, undefined, reviewer.avatarUrl)
+  })
   return {
     key,
     ident: `#${pr.number}`,
     title: pr.title,
-    // Nothing sits between the number and the trailing metrics at rest, so the
-    // title is the only thing competing for the middle of the row.
-    chips: guideChips(pr, ctx),
+    status: prStatusOf(pr),
+    repo: `${pr.baseRepo.owner}/${pr.baseRepo.repo}`,
+    ...rowLabels(pr),
+    updated: relativeTime(pr.updatedAt, now),
+    // The state leads the row as a glyph, so the chips are only what needs
+    // saying beyond it; the branch stays a hover reveal so the title is still
+    // the only elastic thing in the middle of the row.
+    chips: [...conflictChips(pr), ...guideChips(pr, ctx)],
     reveal: revealFor(pr, stackParent),
     checks: checksFor(pr, ctx.checks(pr)),
     meta: '',
@@ -195,7 +334,7 @@ export function prGroups(
   stackParentOf?: (pr: PullRequest) => number | null,
   /** Row identity override — see `prRow`. */
   keyFor?: (pr: PullRequest) => string,
-): ListGroupSpec[] {
+): ListGroupSpec<PrRowSpec>[] {
   return GROUP_ORDER.map((key) => ({
     key,
     label: GROUP_LABELS[key],
@@ -300,14 +439,14 @@ export function prInboxGroups(
   return groups
 }
 
+/** The lifecycle state rides as a chip, so the line only names the failing
+ *  check — the one fact the chip's count cannot carry. */
 function yourPrContext(pr: PullRequest, ctx: PrRowContext): string {
   const checks = ctx.checks(pr)
-  const state = checks?.headSha === pr.headSha && checks.state === 'failing'
-    ? failingContext(checks)
-    : pr.draft
-      ? 'Draft'
-      : 'Open'
-  return `Your PR · ${state}${pr.headRef ? ` · ${pr.headRef}` : ''}`
+  const parts = ['Your PR']
+  if (checks?.headSha === pr.headSha && checks.state === 'failing') parts.push(failingContext(checks))
+  if (pr.headRef) parts.push(pr.headRef)
+  return parts.join(' · ')
 }
 
 function inboxRowBase(
@@ -325,8 +464,14 @@ function inboxRowBase(
     time: compactRelativeTime(pr.updatedAt, now),
     timeTitle: absoluteTime(pr.updatedAt),
     unread: false,
-    chips: guideChips(pr, ctx),
+    chips: [...stateChips(pr), ...inboxChecksChips(pr, ctx), ...guideChips(pr, ctx)],
   }
+}
+
+/** The inbox row has no checks slot, so the same fact rides as a chip. */
+function inboxChecksChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
+  const chip = checksChip(checksFor(pr, ctx.checks(pr)))
+  return chip ? [chip] : []
 }
 
 function reviewContext(pr: PullRequest, ctx: PrRowContext): string {
@@ -363,12 +508,12 @@ export interface PrListView {
    *  *fetch* scope, since the server pages open and closed separately. */
   statusKeys: string[]
   sortMode: 'updated' | 'created' | 'effort'
-  minesOnly: boolean
-  failingOnly: boolean
-  /** Only the pull requests waiting on this viewer. A narrowing like the two
-   *  above it, and reset with them — it used to sit apart on the store, which
-   *  made one concept live in two places. */
-  needsReviewOnly: boolean
+  involvement: 'all' | 'created' | 'assigned' | 'review-requested'
+  author: string | null
+  label: string | null
+  draft: 'all' | 'ready' | 'draft'
+  review: 'all' | 'approved' | 'changes-requested' | 'review-required' | 'no-reviews'
+  checks: 'all' | 'passing' | 'pending' | 'failing'
   collapsedGroups: Record<string, boolean>
   selectedNumber: number | null
   scrollTop: number
@@ -384,10 +529,13 @@ export function emptyListView(): PrListView {
   return {
     query: '',
     statusKeys: [...OPEN_PR_STATUS_KEYS],
-    sortMode: 'updated',
-    minesOnly: false,
-    failingOnly: false,
-    needsReviewOnly: false,
+    sortMode: 'created',
+    involvement: 'all',
+    author: null,
+    label: null,
+    draft: 'all',
+    review: 'all',
+    checks: 'all',
     collapsedGroups: {},
     selectedNumber: null,
     scrollTop: 0,

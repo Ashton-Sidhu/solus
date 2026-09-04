@@ -674,16 +674,23 @@ describe('session minting and durable links', () => {
 
   test('task session links include indexed session chronology and display metadata', async () => {
     // WHY: closed attempts have no mounted renderer session, so the sidebar
-    // needs their persisted display metadata on the durable task link.
+    // needs their persisted display and model metadata on the durable task link.
     const task = await taskSessions.prepareSessionTask({
       sessionId: 'session-with-metadata',
       projectKey: '/workspace/solus',
       prompt: 'Raw session prompt',
     })
     db.getDb().prepare(`
-      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
-      VALUES (?, ?, ?, ?, ?)
-    `).run('session-with-metadata', 'codex', 'First session message', 'Named session', 1_725_000_000_000)
+      INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp, model)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      'session-with-metadata',
+      'codex',
+      'First session message',
+      'Named session',
+      1_725_000_000_000,
+      'gpt-5.6-sol',
+    )
     db.getDb().prepare(`
       INSERT INTO session_lineage_members(
         session_id, position, provider, provider_session_id, cwd, started_at, updated_at
@@ -712,6 +719,7 @@ describe('session minting and durable links', () => {
       expect.objectContaining({
         sessionId: 'session-with-metadata',
         sessionTitle: 'Named session',
+        model: 'gpt-5.6-sol',
         startedAt: 1_724_000_000_000,
         lastActivityAt: 1_725_000_000_000,
       }),
@@ -720,6 +728,7 @@ describe('session minting and durable links', () => {
       expect.objectContaining({
         sessionId: 'session-with-metadata',
         sessionTitle: 'Named session',
+        model: 'gpt-5.6-sol',
         startedAt: 1_724_000_000_000,
         lastActivityAt: 1_725_000_000_000,
       }),

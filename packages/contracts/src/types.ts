@@ -41,7 +41,6 @@ export interface ServerCapabilities {
   gitAuth: {
     github: boolean
   }
-  serverName?: string
   /** Where this host's folder picker starts when opening a new project. */
   projectsBaseDirectory?: string
   /** How much control agents have over task lifecycle status. */
@@ -488,6 +487,22 @@ export interface PromptImageRef {
   name?: string
 }
 
+/** Bounded, transport-safe attachment context for naming a session. File bytes
+ * travel only through the existing image lanes below; client-local paths and
+ * design payloads never cross to another host. */
+export interface SessionMetadataAttachment {
+  name: string
+  type: 'image' | 'file' | 'design-selection'
+  mimeType?: string
+  size?: number
+}
+
+export interface SessionMetadataGenerationContext {
+  attachments?: SessionMetadataAttachment[]
+  imageAttachments?: Array<{ mimeType: string; dataUrl: string }>
+  imageAttachmentRefs?: PromptImageRef[]
+}
+
 export interface Attachment {
   id: string
   type: 'image' | 'file' | 'design-selection'
@@ -887,6 +902,8 @@ export interface PinnedSession {
   /** Host holding the session. Missing only on pins saved before scoped refs. */
   serverId?: string
   provider: AgentId
+  /** Resolved model from the session index, when available. */
+  model?: string | null
   title: string
   /** Real working directory; the backend re-encodes this to locate the transcript. */
   cwd: string
@@ -2551,32 +2568,38 @@ export function worktreeProjectRoot(path: string): string {
 /** `SOLUS_WORKTREE_PATH_MARKER` as it appears inside an encoded Claude folder name. */
 export const SOLUS_WORKTREE_ENCODED_MARKER = encodePathAsFolder(SOLUS_WORKTREE_PATH_MARKER)
 
-export interface GitCheckout {
+interface GitCheckoutIdentity {
   /** The branch or worktree branch the session is running in */
   branch: string | null
   /** Present when the checkout is detached instead of being on a named branch. */
   detachedHeadSha?: string
   /** Remote default branch — always present so DiffPanel always has a diff target */
   targetBranch: string
-  /** Only present when running in worktree isolation */
-  worktreePath?: string
-  /** Absolute path of the git repo root (rev-parse --show-toplevel) */
-  repoRoot?: string
 }
+
+/** A worktree must name both its checkout and its owning project. */
+export type GitCheckout = GitCheckoutIdentity & (
+  | { worktreePath: string; repoRoot: string }
+  | { worktreePath?: undefined; repoRoot?: string }
+)
 
 export function gitCheckoutFromState(
   status: GitIdentity | null | undefined,
   worktreePath?: string,
 ): GitCheckout | null {
   if (!status) return null
-  const checkout: GitCheckout = {
+  const checkoutIdentity: GitCheckoutIdentity = {
     branch: status.branch,
     targetBranch: status.targetBranch,
-    repoRoot: status.repoRoot,
   }
-  if (status.branch === null) checkout.detachedHeadSha = status.headSha
-  if (worktreePath) checkout.worktreePath = worktreePath
-  return checkout
+  if (status.branch === null) checkoutIdentity.detachedHeadSha = status.headSha
+  return worktreePath
+    ? {
+        ...checkoutIdentity,
+        repoRoot: worktreeProjectRoot(worktreePath),
+        worktreePath,
+      }
+    : { ...checkoutIdentity, repoRoot: status.repoRoot }
 }
 
 export interface GitCheckoutBranchResult {

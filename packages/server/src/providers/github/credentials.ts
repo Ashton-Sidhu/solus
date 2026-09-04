@@ -65,10 +65,15 @@ const ghTokenByHost = new Map<string, { token: Promise<string | null>; readAt: n
 function ghCliGithubToken(host: string): Promise<string | null> {
   const cached = ghTokenByHost.get(host)
   if (cached && Date.now() - cached.readAt < GH_TOKEN_TTL_MS) return cached.token
+  log.info('gh_credential_lookup_started', { host })
   const token = runAsync('gh', ['auth', 'token', '--hostname', host], ANY_DIRECTORY, { timeout: GH_TIMEOUT_MS })
-    .then((output) => output || null)
+    .then((output) => {
+      if (output) return output
+      log.warn('gh_credential_unavailable', { host, error: 'gh auth token returned no token' })
+      return null
+    })
     .catch((error) => {
-      log.debug('gh_credential_unavailable', { host, error: error instanceof Error ? error.message : String(error) })
+      log.warn('gh_credential_unavailable', { host, error: error instanceof Error ? error.message : String(error) })
       return null
     })
   ghTokenByHost.set(host, { token, readAt: Date.now() })

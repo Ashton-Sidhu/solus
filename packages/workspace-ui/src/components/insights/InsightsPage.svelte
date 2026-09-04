@@ -221,18 +221,10 @@
             : "No query has run yet",
   );
 
-  /** A run with no earlier answer to keep on screen — the page's first one, or
-   *  the first after a host change. The chart and the list have nothing to draw
-   *  yet, and an empty listing there would state that the host records nothing
-   *  rather than that the answer is still coming. A re-run keeps its answer, so
-   *  this never flashes over rows the reader is already reading.
-   *
-   *  It starts at the opening load, not at the statement: the registry and the
-   *  saved queries are read first, and gating on `running` alone left that gap
-   *  showing a real empty page between the pane's loading cover and this one. */
-  const awaitingFirstAnswer = $derived(
-    (store.running || store.bootstrapping) && !store.result,
-  );
+  /** The chart and listing are one answer. While the next answer is compiling
+   *  or running, replace both with their shared skeleton instead of briefly
+   *  deriving a chart from the old result under the new query state. */
+  const awaitingAnswer = $derived(store.running || store.bootstrapping);
 
   const emptyHint = $derived(
     selection
@@ -592,7 +584,7 @@
       </p>
     {/if}
 
-    {#if awaitingFirstAnswer}
+    {#if awaitingAnswer}
       <InsightsResultSkeleton />
     {:else}
       {#if showVolume}

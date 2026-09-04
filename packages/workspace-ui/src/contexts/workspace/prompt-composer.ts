@@ -1,5 +1,5 @@
 import { existingTaskId, taskBindingSessionId } from './session-draft.svelte'
-import type { Attachment, Prompt, PromptImageRef, PromptOptions, Session } from '@solus/contracts/types'
+import type { Attachment, Prompt, PromptImageRef, PromptOptions, Session, SessionMetadataGenerationContext } from '@solus/contracts/types'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { PlanStore } from '../plans/plan.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
@@ -111,7 +111,7 @@ export class PromptComposer {
    * goes inline, and a host that cannot resolve refs takes everything inline.
    */
   composeImagePayload(
-    input: Prompt,
+    input: Pick<Prompt, 'attachments'>,
     serverId: string,
     hostResolvesRefs: boolean,
   ): PromptImagePayload {
@@ -129,6 +129,28 @@ export class PromptComposer {
       }
     }
     return { refs, inline }
+  }
+
+  /** Session naming gets the real image through the same remote-safe transport
+   * as the turn plus only safe display metadata. */
+  composeSessionMetadataContext(
+    attachments: Attachment[],
+    serverId: string,
+    hostResolvesRefs: boolean,
+  ): SessionMetadataGenerationContext | undefined {
+    if (attachments.length === 0) return undefined
+    const imagePayload = this.composeImagePayload({ attachments }, serverId, hostResolvesRefs)
+    const context: SessionMetadataGenerationContext = {
+      attachments: attachments.slice(0, 8).map((attachment) => ({
+        name: attachment.name,
+        type: attachment.type,
+        mimeType: attachment.mimeType,
+        size: attachment.size,
+      })),
+    }
+    if (imagePayload.refs.length > 0) context.imageAttachmentRefs = imagePayload.refs
+    if (imagePayload.inline.length > 0) context.imageAttachments = imagePayload.inline
+    return context
   }
 }
 

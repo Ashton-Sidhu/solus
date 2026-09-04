@@ -38,7 +38,7 @@
     schemaRevision?: number;
     placeholder?: string;
     readOnly?: boolean;
-    /** The inline console shows five rows on desktop and three on a laptop.
+    /** The inline console shows seven rows on desktop and three on a laptop.
      *  The pop-out takes the editor into a focused, viewport-bounded surface. */
     surface?: "inline" | "popout";
   }
@@ -324,6 +324,6 @@
   bind:this={host}
   class="w-full text-insights-chrome {surface === 'popout'
     ? 'min-h-13 overflow-visible'
-    : 'h-[7.5rem] overflow-auto [.is-laptop-display_&]:h-[4.5rem]'}"
+    : 'h-[10.5rem] overflow-auto [.is-laptop-display_&]:h-[4.5rem]'}"
   data-sb
 ></div>

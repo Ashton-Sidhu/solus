@@ -25,7 +25,11 @@
   } from "../../../lib/keybindings/use-keybinding.svelte";
   import { paneActions } from "../../ui/lib/pane-actions.svelte";
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
-  import { authorInitials, sortTasks } from "../lib/tasks-api";
+  import {
+    authorInitials,
+    DEFAULT_TASK_SORT,
+    sortTasks,
+  } from "../lib/tasks-api";
   import {
     isTaskRailFolded,
     linkedWorkProvider,
@@ -190,6 +194,15 @@
     projectCwd ? store.assigneeCandidatesErrorByCwd.get(projectCwd) : undefined,
   );
   const capabilities = $derived(task ? taskPageCapabilities(task, providerStatus) : null);
+  const labelCandidates = $derived(
+    Array.from(
+      new Set(
+        (projectCwd ? store.tasksForProject(projectCwd) : store.inbox).flatMap(
+          (candidate) => candidate.labels,
+        ),
+      ),
+    ).sort((a, b) => a.localeCompare(b)),
+  );
   const publishTarget = $derived(
     task ? taskPublishTarget({ task, upstream, status: providerStatus }) : null,
   );
@@ -245,7 +258,7 @@
   const siblings = $derived(
     sortTasks(
       task?.projectKey ? store.tasksForProject(task.projectKey) : store.inbox,
-      "updated",
+      DEFAULT_TASK_SORT,
     ),
   );
   const position = $derived(siblings.findIndex((t) => t.id === taskId));
@@ -262,12 +275,13 @@
     });
   }
 
-  function save(patch: TaskUpdatePatch) {
+  async function save(patch: TaskUpdatePatch): Promise<void> {
     if (!taskId) return;
-    void store
-      .get(taskId)
-      .update(patch)
-      .catch((err) => toastError("save task", err));
+    try {
+      await store.get(taskId).update(patch);
+    } catch (err) {
+      toastError("save task", err);
+    }
   }
 
   function openAssigneeMenu(): void {
@@ -681,6 +695,7 @@
       canEditPlanningFields={capabilities?.canEditPlanningFields ?? false}
       canEditPriority={capabilities?.canEditPriority ?? false}
       canEditLabels={capabilities?.canEditLabels ?? false}
+      {labelCandidates}
       canEditAssignee={capabilities?.canEditAssignee ?? false}
       {assigneeCandidates}
       {assigneeCandidatesLoading}

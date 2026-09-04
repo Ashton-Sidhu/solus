@@ -1084,21 +1084,20 @@ html, body, #root {
      a path. A keycap sets `leading-none` on itself and is unaffected. */
   --text-micro: 0.625rem;
   --text-micro--line-height: 1.25;
-  /* The pull request review's rungs. This surface is the one place in the
-     workspace that puts a reading column and a dense reference rail side by
-     side, and the two want opposite things from a single rung: at the chrome
-     rung's 14px the rail's refs, verdicts and churn shout over the prose they
-     annotate, and the labelled meta band under the title reads as a second
-     heading rather than as a caption. The design system draws it as three
-     steps — 12.5px rows, 11px meta and sub-lines, and a letterspaced caption
-     that is the shared `--text-micro` rung above, not a review-owned one — so
-     they are named here rather than restated per component. Each steps down
-     on a precise-pointer laptop for the same reason every rung above does;
-     touch keeps the desktop size. */
-  --text-review-row: 0.78125rem;
-  --text-review-row--line-height: 1.5;
+  /* The chip rung the browser snapshot gallery and lightbox annotate an image
+     with: a viewport size or an error count laid over the capture, where the
+     chrome rung would cover what it labels. It began as the pull request
+     review's meta rung; the review now reads at the chrome rung like the rest
+     of the workspace, and only these overlays still want the smaller step.
+     Steps down on a precise-pointer laptop for the same reason every rung
+     above does; touch keeps the desktop size. */
   --text-review-meta: 0.6875rem;
   --text-review-meta--line-height: 1.45;
+  /* File paths in the pull request rail are dense reference data rather than
+     action labels. Keep them below the rail chrome: 12px on desktop and touch,
+     then 10px on a precise-pointer laptop. */
+  --text-review-file: 0.75rem;
+  --text-review-file--line-height: 1.25;
   /* The symbol card's two dense rungs. The card is a reference surface floating
      over code, so its body takes the canonical `--text-workspace-chrome` rung
      and these two hang under it. `meta` annotates a line rather than saying it:
@@ -1171,8 +1170,8 @@ html, body, #root {
        both displays and its shortcut hints hold 12px. Stepping them made a
        laptop menu read as squinted-at rather than quiet, which is what this
        block is for everywhere else. */
-    --text-review-row: 0.6875rem;
     --text-review-meta: 0.625rem;
+    --text-review-file: 0.625rem;
     --text-symbol-card-meta: 0.625rem;
     --text-symbol-card-code: 0.6875rem;
     --text-micro: 0.5625rem;
@@ -3714,10 +3713,11 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .prose-pr-description { max-width: 104ch; }
 
 /* Activity bodies sit inside the review timeline rather than in the pull
-   request's long-form description. Keep them on the review row rung so the
-   whole event, including rendered Markdown, takes the laptop display step. */
+   request's long-form description. Keep them on the chrome rung the timeline
+   itself reads at, so the whole event, including rendered Markdown, takes the
+   laptop display step with it. */
 .prose-pr-activity {
-  --prose-pr-size: var(--text-review-row);
+  --prose-pr-size: var(--text-workspace-chrome);
 }
 
 /* The editable PR body uses the same shared document editor as task and plan
@@ -3745,6 +3745,14 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) > * + * { margin-top: 0; }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) > :last-child { margin-bottom: 0; }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) p { margin: 0 0 0.75rem; }
+
+/* A GitHub video is published as a bare URL. Its renderer promotes that one
+   otherwise unreadable paragraph to an action card; ordinary prose links keep
+   the platform link treatment above. */
+.github-markdown a.markdown-media-link-card {
+  color: var(--solus-text-primary);
+  text-decoration: none;
+}
 
 /* An h1 in the body is demoted to h2 — the PR title is the page's h1. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) h1,
@@ -3782,7 +3790,16 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   border-radius: 0.25rem;
   background: var(--solus-surface-hover);
   color: var(--solus-text-primary);
-  font-size: calc(0.875rem * var(--solus-font-scale, 1));
+  /* `em`, not a rem: the description (caption rung) and an activity comment
+     (chrome rung) read at different sizes, and the chip has to follow both. */
+  font-size: 0.9em;
+}
+/* The fenced block already is the chip; its inner `code` carries none of it. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) pre code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font-size: inherit;
 }
 /* A commit SHA is an address, not a literal you'd retype: accent, no chip. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) code.markdown-sha {
@@ -3907,8 +3924,10 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title { margin-bottom: 0.25rem; }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert-title svg { width: 0.9375rem; height: 0.9375rem; }
 
-/* No chrome and no language label — a fenced block is a quotation of a
-   terminal, and it scrolls rather than wrapping. */
+/* No chrome and no language label. A fenced block in a review comment is as
+   often a prompt or a log line as it is code, so it wraps at spaces and only
+   breaks inside a token that has none; nothing scrolls sideways in a column
+   that is already narrow. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) pre {
   margin: 1rem 0;
   padding: 0.75rem 0.875rem;
@@ -3916,11 +3935,11 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   border-radius: 0.5rem;
   background: var(--solus-code-tint);
   color: var(--solus-text-primary);
-  font-size: calc(0.75rem * var(--solus-font-scale, 1));
+  font-size: 0.9em;
   line-height: 1.65;
-  white-space: pre;
+  white-space: pre-wrap;
   word-break: normal;
-  overflow-wrap: normal;
+  overflow-wrap: anywhere;
 }
 
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) hr {
@@ -4012,6 +4031,32 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .github-markdown.prose-cloud.prose-pr-compact li + li { margin-top: 0.375rem; }
 .github-markdown.prose-cloud.prose-pr-compact :is(pre, blockquote, .markdown-alert) { margin: 0.625rem 0; }
 .github-markdown.prose-cloud.prose-pr-compact hr { margin: 0.875rem 0 0.625rem; }
+/* The full ruleset pins list items, quotes and callouts at the description's
+   14px; in a 12px card that reads as a size jump mid-comment, so they follow
+   the card's ratio instead. */
+.github-markdown.prose-cloud.prose-pr-compact :is(li, blockquote, .markdown-alert, table),
+.github-markdown.prose-cloud.prose-pr-compact ol > li::marker {
+  font-size: inherit;
+  line-height: inherit;
+}
+/* The card already sits on the container surface, where the code tint is a
+   near-match; the hover wash reads as a block on both surfaces and themes. */
+.github-markdown.prose-cloud.prose-pr-compact pre {
+  padding: 0.5rem 0.625rem;
+  background: var(--solus-surface-hover);
+}
+/* A bot's "Details" / "Also found in…" disclosures are footnotes, not section
+   headings: quiet row, no 40px transcript-sized hit target, muted marker. */
+.github-markdown.prose-cloud.prose-pr-compact details { margin: 0.375rem 0; }
+.github-markdown.prose-cloud.prose-pr-compact summary {
+  min-height: 0;
+  padding: 0.125rem 0;
+  font-weight: 500;
+  color: var(--solus-text-secondary);
+}
+.github-markdown.prose-cloud.prose-pr-compact summary:hover { color: var(--solus-text-primary); }
+.github-markdown.prose-cloud.prose-pr-compact details[open] > summary { margin-bottom: 0.25rem; }
+.github-markdown.prose-cloud.prose-pr-compact details > :not(summary) { margin-left: 1rem; }
 
 /* ─── Pulsing dot animation ─── */
 @keyframes pulse-dot {

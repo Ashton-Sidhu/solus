@@ -78,6 +78,10 @@
     actions?: Snippet;
     /** The narrowing row: search, filter chips, sort. Fixed, under the crumb. */
     filters?: Snippet;
+    /** `filters` is a 32px toolbar (a search card and menu buttons) rather than
+     *  the 28px chip band, so the row is stated at that height whether or not
+     *  the list is split — the same row the split rail already draws. */
+    toolbarFilters?: boolean;
     /** The scroll region. */
     children: Snippet;
     scrollEl?: HTMLDivElement | null;
@@ -92,6 +96,9 @@
     /** Removes the crumb line when the host surface already owns those
      *  controls. The narrowing row keeps the split head's top inset. */
     hideHeader?: boolean;
+    /** A docked record can keep a stable page title without turning it into a
+     *  second page-navigation control. */
+    pageSwitcherEnabled?: boolean;
   }
   let {
     projects,
@@ -121,12 +128,14 @@
     onClose,
     actions,
     filters,
+    toolbarFilters = false,
     children,
     scrollEl = $bindable(null),
     contentOwnsScroll = false,
     contentHeight = $bindable(0),
     split = false,
     hideHeader = false,
+    pageSwitcherEnabled = true,
   }: Props = $props();
 
   // The head's own measure. A laptop display gives up the generous desktop top
@@ -188,6 +197,7 @@
           {projectSwitchNote}
           {page}
           pageLabel={title}
+          {pageSwitcherEnabled}
           {actions}
           {onRefresh}
           {refreshing}
@@ -207,7 +217,9 @@
            and the filter bar takes a full-width second, where it splits itself
            into a search field and a scrolling chip row. -->
       <div
-        class="box-content flex h-[30px] shrink-0 items-center gap-2 pb-[14px] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:pb-3 @max-[30rem]/pane:h-auto! @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:gap-y-2.5 @max-[30rem]/pane:pb-3"
+        class="box-content flex shrink-0 items-center gap-2 {split || toolbarFilters
+          ? 'h-8 pb-[14px]'
+          : 'h-[30px] pb-[14px] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:pb-3'} @max-[30rem]/pane:h-auto! @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:gap-y-2.5 @max-[30rem]/pane:pb-3"
       >
         {#if onViewChange}
           <!-- The broadest narrowing there is, so it leads the row: everything

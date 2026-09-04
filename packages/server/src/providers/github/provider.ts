@@ -23,7 +23,7 @@ import type {
   ReviewProvider,
   ReviewThread,
 } from '../types'
-import type { PrConversationItem } from '@solus/contracts/providers'
+import type { PrConversationItem, PrLabel, PrRequestedReviewer, ProviderViewer } from '@solus/contracts/providers'
 import { createLogger } from '../../logger'
 import { canonicalRepoRef } from './canonical-repo'
 import {
@@ -161,14 +161,16 @@ const DELETE_ISSUE_COMMENT_MUTATION = `
 `
 
 const PR_CONVERSATION_QUERY = `
-  query(
+  query PrConversation(
     $owner: String!
     $repo: String!
     $number: Int!
     $commentsCursor: String
     $reviewsCursor: String
+    $timelineCursor: String
     $includeComments: Boolean!
     $includeReviews: Boolean!
+    $includeTimeline: Boolean!
   ) {
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
@@ -179,6 +181,28 @@ const PR_CONVERSATION_QUERY = `
         reviews(first: 100, after: $reviewsCursor) @include(if: $includeReviews) {
           pageInfo { hasNextPage endCursor }
           nodes { id author { login avatarUrl } body createdAt submittedAt state url }
+        }
+        timelineItems(
+          first: 100
+          after: $timelineCursor
+          itemTypes: [LABELED_EVENT, UNLABELED_EVENT]
+        ) @include(if: $includeTimeline) {
+          pageInfo { hasNextPage endCursor }
+          nodes {
+            __typename
+            ... on LabeledEvent {
+              id
+              actor { login avatarUrl }
+              createdAt
+              label { name color }
+            }
+            ... on UnlabeledEvent {
+              id
+              actor { login avatarUrl }
+              createdAt
+              label { name color }
+            }
+          }
         }
       }
     }
@@ -204,7 +228,7 @@ const NEEDS_REVIEW_FIELDS = `
     reviewRequests(first: 100) {
       nodes {
         requestedReviewer {
-          ... on User { login }
+          ... on User { login avatarUrl }
         }
       }
     }
@@ -215,6 +239,8 @@ const NEEDS_REVIEW_FIELDS = `
     headRefName
     changedFiles
     mergeable
+    reviewDecision
+    reviews(first: 1) { totalCount }
     baseRepository { nameWithOwner }
     headRepository { nameWithOwner name owner { login } }
   }
@@ -290,7 +316,15 @@ interface GqlConversationNode {
 
 interface GqlReviewBody extends GqlConversationNode {
   submittedAt: string | null
-  state: NonNullable<PrConversationItem['reviewState']>
+  state: Exclude<PrReviewer['state'], null>
+}
+
+interface GqlLabelEvent {
+  __typename: 'LabeledEvent' | 'UnlabeledEvent'
+  id: string
+  actor: { login: string; avatarUrl: string } | null
+  createdAt: string
+  label: { name: string; color: string }
 }
 
 interface GqlConversationPage<T> {
@@ -303,6 +337,7 @@ interface PrConversationResponse {
     pullRequest: {
       comments?: GqlConversationPage<GqlConversationNode>
       reviews?: GqlConversationPage<GqlReviewBody>
+      timelineItems?: GqlConversationPage<GqlLabelEvent>
     }
   }
 }
@@ -321,7 +356,7 @@ interface GqlNeedsReviewPullRequest {
   additions: number
   deletions: number
   reviewRequests: {
-    nodes: Array<{ requestedReviewer: { login?: string } | null }>
+    nodes: Array<{ requestedReviewer: { login?: string; avatarUrl?: string } | null }>
   }
   assignees: { nodes: Array<{ login: string }> }
   body: string
@@ -330,6 +365,8 @@ interface GqlNeedsReviewPullRequest {
   headRefName: string
   changedFiles: number
   mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN'
+  reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
+  reviews: { totalCount: number }
   baseRepository: { nameWithOwner: string } | null
   headRepository: { nameWithOwner: string; name: string; owner: { login: string } } | null
 }
@@ -387,7 +424,9 @@ function toNeedsReviewPullRequest(
     labels: pr.labels.nodes,
     additions: pr.additions,
     deletions: pr.deletions,
-    requestedReviewers: logins(pr.reviewRequests.nodes.map((node) => node.requestedReviewer)),
+    requestedReviewers: requestedReviewers(
+      pr.reviewRequests.nodes.map((node) => node.requestedReviewer),
+    ),
     assignees: pr.assignees.nodes.map(({ login }) => login),
     body: pr.body,
     baseRef: pr.baseRefName,
@@ -398,8 +437,54 @@ function toNeedsReviewPullRequest(
     // `mergeStateStatus` is behind an Accept-header preview this query does not
     // request; search rows say "not computed" rather than guessing a state.
     mergeStateStatus: null,
+    reviewStatus: reviewStatusOf(pr.reviewDecision, pr.reviews.totalCount),
     ...access,
   }
+}
+
+type PullRequestReviewStatus = NonNullable<PullRequest['reviewStatus']>
+
+function reviewStatusOf(
+  decision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null,
+  reviewCount: number,
+): PullRequestReviewStatus {
+  if (decision === 'APPROVED') return 'approved'
+  if (decision === 'CHANGES_REQUESTED') return 'changes-requested'
+  if (decision === 'REVIEW_REQUIRED') return 'review-required'
+  return reviewCount === 0 ? 'no-reviews' : 'reviewed'
+}
+
+interface ReviewStatusResponse {
+  nodes: Array<{
+    id: string
+    reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null
+    reviews: { totalCount: number }
+  } | null>
+}
+
+const REVIEW_STATUS_QUERY = `
+  query PrReviewStatuses($ids: [ID!]!) {
+    nodes(ids: $ids) {
+      ... on PullRequest {
+        id
+        reviewDecision
+        reviews(first: 1) { totalCount }
+      }
+    }
+  }
+`
+
+async function reviewStatuses(
+  client: GitHubClient,
+  nodeIds: string[],
+): Promise<Map<string, PullRequestReviewStatus>> {
+  if (nodeIds.length === 0) return new Map()
+  const response = await client.graphql<ReviewStatusResponse>(REVIEW_STATUS_QUERY, { ids: nodeIds })
+  return new Map(
+    response.nodes.flatMap((node) => node
+      ? [[node.id, reviewStatusOf(node.reviewDecision, node.reviews.totalCount)] as const]
+      : []),
+  )
 }
 
 const githubApiErrorSchema = z.object({
@@ -475,7 +560,7 @@ interface RestPull {
   labels?: Array<{ name: string; color: string }> | null
   additions?: number
   deletions?: number
-  requested_reviewers?: Array<{ login: string } | null> | null
+  requested_reviewers?: Array<{ login: string; avatar_url?: string } | null> | null
   assignees?: Array<{ login: string } | null> | null
   body?: string | null
   changed_files?: number
@@ -511,6 +596,19 @@ function logins(users: Array<{ login?: string } | null> | null | undefined): str
   return (users ?? []).flatMap((user) => user?.login ? [user.login] : [])
 }
 
+/** The same rule as `logins`, keeping the profile image the list already paid
+ *  for so a row can draw the reviewer rather than their initials. Both of
+ *  GitHub's spellings land here: REST's `avatar_url` and GraphQL's `avatarUrl`. */
+function requestedReviewers(
+  users: Array<{ login?: string; avatarUrl?: string; avatar_url?: string } | null> | null | undefined,
+): PrRequestedReviewer[] {
+  return (users ?? []).flatMap((user) => {
+    if (!user?.login) return []
+    const avatarUrl = user.avatarUrl ?? user.avatar_url
+    return [avatarUrl ? { login: user.login, avatarUrl } : { login: user.login }]
+  })
+}
+
 /**
  * The one REST mapper. `pulls.list` and `pulls.get` return the same shape; the
  * list simply leaves the three host-computed fields off, which is what their
@@ -518,7 +616,12 @@ function logins(users: Array<{ login?: string } | null> | null | undefined): str
  * `repos.get` for the whole page — is filled here so no reader downstream has
  * to ask which endpoint a row came from.
  */
-function toPullRequest(pr: RestPull, repo: RepoRef, access: PullRequestAccess): PullRequest {
+function toPullRequest(
+  pr: RestPull,
+  repo: RepoRef,
+  access: PullRequestAccess,
+  reviewStatus?: PullRequestReviewStatus,
+): PullRequest {
   return {
     number: pr.number,
     url: pr.html_url,
@@ -540,7 +643,7 @@ function toPullRequest(pr: RestPull, repo: RepoRef, access: PullRequestAccess): 
     labels: (pr.labels ?? []).map((l) => ({ name: l.name, color: l.color })),
     additions: pr.additions ?? 0,
     deletions: pr.deletions ?? 0,
-    requestedReviewers: logins(pr.requested_reviewers),
+    requestedReviewers: requestedReviewers(pr.requested_reviewers),
     assignees: logins(pr.assignees),
     body: pr.body ?? '',
     baseRef: pr.base.ref,
@@ -548,6 +651,7 @@ function toPullRequest(pr: RestPull, repo: RepoRef, access: PullRequestAccess): 
     changedFiles: pr.changed_files ?? null,
     mergeable: pr.mergeable ?? null,
     mergeStateStatus: pr.mergeable_state ?? null,
+    ...(reviewStatus ? { reviewStatus } : {}),
     ...access,
   }
 }
@@ -566,6 +670,14 @@ function reviewerState(state: string): NonNullable<PrReviewer['state']> {
     return state as NonNullable<PrReviewer['state']>
   }
   return 'COMMENTED'
+}
+
+function reviewer(
+  login: string,
+  avatarUrl: string | undefined,
+  state: PrReviewer['state'],
+): PrReviewer {
+  return avatarUrl ? { login, avatarUrl, state } : { login, state }
 }
 
 function toComment(c: GqlComment): ReviewComment {
@@ -596,21 +708,29 @@ function toThread(t: GqlThread): ReviewThread {
  *  passes, so the viewer identity is always the github.com one. */
 const GITHUB_HOST = 'github.com'
 
-/** Login of the account a client is signed in as, read once per client. */
-const viewerLoginByClient = new WeakMap<GitHubClient, Promise<string>>()
+/** The account a client is signed in as, read once per client. */
+const viewerByClient = new WeakMap<GitHubClient, Promise<ProviderViewer>>()
 
-function viewerLogin(client: GitHubClient): Promise<string> {
-  let login = viewerLoginByClient.get(client)
-  if (!login) {
-    login = client.rest.users.getAuthenticated()
-      .then(({ data }) => data.login)
+function viewerProfile(client: GitHubClient): Promise<ProviderViewer> {
+  let viewer = viewerByClient.get(client)
+  if (!viewer) {
+    viewer = client.rest.users.getAuthenticated()
+      .then(({ data }) => {
+        const profile: ProviderViewer = { login: data.login }
+        if (data.avatar_url) profile.avatarUrl = data.avatar_url
+        return profile
+      })
       .catch((error) => {
-        viewerLoginByClient.delete(client)
+        viewerByClient.delete(client)
         throw error
       })
-    viewerLoginByClient.set(client, login)
+    viewerByClient.set(client, viewer)
   }
-  return login
+  return viewer
+}
+
+async function viewerLogin(client: GitHubClient): Promise<string> {
+  return (await viewerProfile(client)).login
 }
 
 /**
@@ -664,6 +784,10 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
+  async getViewerProfile(): Promise<ProviderViewer> {
+    return this.withClient('get_github_viewer', GITHUB_HOST, viewerProfile)
+  }
+
   async listPullRequests(repo: RepoRef, filter?: PrFilter): Promise<PullRequest[]> {
     const data: PullRequest[] = []
     for (let page = 1; ; page++) {
@@ -694,8 +818,17 @@ export class GitHubProvider implements ReviewProvider {
       const wanted = filter?.author
         ? data.filter((pr) => (pr.user?.login ?? '').toLowerCase() === filter.author?.toLowerCase())
         : data
+      const statuses = await reviewStatuses(
+        client,
+        wanted.flatMap((pr) => pr.node_id ? [pr.node_id] : []),
+      )
       const items = await Promise.all(
-        wanted.map(async (pr) => toPullRequest(pr, repo, await accessFor(client, repo, pr.user?.login ?? ''))),
+        wanted.map(async (pr) => toPullRequest(
+          pr,
+          repo,
+          await accessFor(client, repo, pr.user?.login ?? ''),
+          pr.node_id ? statuses.get(pr.node_id) : undefined,
+        )),
       )
       return { items, page, hasMore: data.length === perPage }
     })
@@ -981,12 +1114,12 @@ export class GitHubProvider implements ReviewProvider {
         if (state === 'PENDING') continue
         const prev = map.get(login)?.state
         if (state === 'COMMENTED' && (prev === 'APPROVED' || prev === 'CHANGES_REQUESTED')) continue
-        map.set(login, { login, state })
+        map.set(login, reviewer(login, r.user?.avatar_url, state))
       }
       // Users who are requested but haven't reviewed yet.
       for (const u of requested.users) {
         if (!map.has(u.login)) {
-          map.set(u.login, { login: u.login, state: null })
+          map.set(u.login, reviewer(u.login, u.avatar_url, null))
         }
       }
       return [...map.values()]
@@ -999,6 +1132,29 @@ export class GitHubProvider implements ReviewProvider {
       repo.host,
       (client) => listGithubReviewerCandidates(client, repo, pullRequest.author),
     )
+  }
+
+  async listLabelCandidates(repo: RepoRef): Promise<PrLabel[]> {
+    return this.withClient('list_pull_request_label_candidates', repo.host, async ({ rest }) => {
+      const labels = await rest.paginate(rest.issues.listLabelsForRepo, {
+        owner: repo.owner,
+        repo: repo.repo,
+        per_page: 100,
+      })
+      return labels.map((label) => ({ name: label.name, color: label.color }))
+    })
+  }
+
+  async setLabels(repo: RepoRef, number: number, names: string[]): Promise<PrLabel[]> {
+    return this.withClient('set_pull_request_labels', repo.host, async ({ rest }) => {
+      const { data } = await rest.issues.setLabels({
+        owner: repo.owner,
+        repo: repo.repo,
+        issue_number: number,
+        labels: names,
+      })
+      return data.map((label) => ({ name: label.name, color: label.color ?? '' }))
+    })
   }
 
   async requestReviewers(repo: RepoRef, number: number, logins: string[]): Promise<PrReviewer[]> {
@@ -1134,20 +1290,24 @@ export class GitHubProvider implements ReviewProvider {
       const items: PrConversationItem[] = []
       let commentsCursor: string | null = null
       let reviewsCursor: string | null = null
+      let timelineCursor: string | null = null
       let includeComments = true
       let includeReviews = true
+      let includeTimeline = true
 
       // The two GraphQL connections paginate independently. Once one is complete,
       // @include keeps later pages of the other from refetching duplicate nodes.
-      while (includeComments || includeReviews) {
+      while (includeComments || includeReviews || includeTimeline) {
         const res: PrConversationResponse = await graphql<PrConversationResponse>(PR_CONVERSATION_QUERY, {
           owner: repo.owner,
           repo: repo.repo,
           number,
           commentsCursor,
           reviewsCursor,
+          timelineCursor,
           includeComments,
           includeReviews,
+          includeTimeline,
         })
         const conversation: PrConversationResponse['repository']['pullRequest'] = res.repository.pullRequest
         if (conversation.comments) {
@@ -1183,6 +1343,22 @@ export class GitHubProvider implements ReviewProvider {
           }
           includeReviews = conversation.reviews.pageInfo.hasNextPage
           reviewsCursor = conversation.reviews.pageInfo.endCursor
+        }
+        if (conversation.timelineItems) {
+          for (const event of conversation.timelineItems.nodes) {
+            const item: PrConversationItem = {
+              id: event.id,
+              kind: 'label',
+              author: event.actor?.login ?? '',
+              createdAt: event.createdAt,
+              action: event.__typename === 'LabeledEvent' ? 'added' : 'removed',
+              label: event.label,
+            }
+            if (event.actor?.avatarUrl) item.authorAvatarUrl = event.actor.avatarUrl
+            items.push(item)
+          }
+          includeTimeline = conversation.timelineItems.pageInfo.hasNextPage
+          timelineCursor = conversation.timelineItems.pageInfo.endCursor
         }
       }
 

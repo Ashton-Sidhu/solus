@@ -15,6 +15,7 @@
     type TaskUpstreamState,
   } from "./lib/task-upstream";
   import { Switch } from "../../ui/switch";
+  import TaskLabelMenu from "./TaskLabelMenu.svelte";
 
   interface Props {
     task: Task;
@@ -28,6 +29,7 @@
     canEditPlanningFields: boolean;
     canEditPriority: boolean;
     canEditLabels: boolean;
+    labelCandidates: string[];
     canEditAssignee: boolean;
     assigneeCandidates: TaskAssigneeCandidate[];
     assigneeCandidatesLoading: boolean;
@@ -48,7 +50,7 @@
     onPublishAll: () => void;
     onPublishTask: () => void;
     onOpenUpstream: (url: string) => void;
-    onSave: (patch: TaskUpdatePatch) => void;
+    onSave: (patch: TaskUpdatePatch) => Promise<void> | void;
     onOpenAssigneeMenu: () => void;
   }
 
@@ -62,6 +64,7 @@
     canEditPlanningFields,
     canEditPriority,
     canEditLabels,
+    labelCandidates,
     canEditAssignee,
     assigneeCandidates,
     assigneeCandidatesLoading,
@@ -95,22 +98,6 @@
 
   const status = $derived(STATUS_META[task.status]);
   const bars = $derived(priorityBars(task.priority));
-
-  let labelDraft = $state("");
-
-  function addLabel() {
-    const next = labelDraft
-      .split(",")
-      .map((l) => l.trim())
-      .filter(Boolean)
-      .filter((l) => !task.labels.includes(l));
-    labelDraft = "";
-    if (next.length) onSave({ labels: [...task.labels, ...next] });
-  }
-
-  function removeLabel(label: string) {
-    onSave({ labels: task.labels.filter((l) => l !== label) });
-  }
 </script>
 
 
@@ -199,56 +186,18 @@
     </div>
 
     <div
-      class="flex min-h-[34px] items-start {sheet
+      class="flex min-h-[34px] items-center {sheet
         ? 'min-h-[54px] gap-[11px] px-3.5 py-2.5'
         : ''}"
     >
-      <span class="{ROW_LABEL} leading-[34px] {sheet ? 'flex-none' : ''}"
-        >Labels</span
-      >
-      <span
-        class="flex min-w-0 flex-1 flex-wrap items-center gap-1 pt-1 {sheet
-          ? 'justify-end'
-          : 'pl-2'}"
-      >
-        {#each task.labels as label (label)}
-          <span
-            class="inline-flex h-[19px] items-center gap-1 rounded-full px-1.5  font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)]"
-          >
-            {label}
-            {#if canEditLabels}
-              <button
-                type="button"
-                class="cursor-pointer opacity-60 hover:opacity-100"
-                onclick={() => removeLabel(label)}
-                aria-label="Remove label {label}"
-              >
-                ×
-              </button>
-            {/if}
-          </span>
-        {/each}
-        {#if canEditLabels}
-          <!-- In the column the field takes the row's remaining width. In the
-               sheet every value sits at the trailing edge, so a `flex-1` field
-               stretched back across the row and printed its placeholder next to
-               the word "Labels" instead of opposite it. -->
-          <input
-            data-dictation="false"
-            class="h-[19px] bg-transparent text-muted-foreground outline-none placeholder:text-muted-foreground/70 {sheet
-              ? 'w-[7.5rem] text-right'
-              : 'min-w-[60px] flex-1'}"
-            bind:value={labelDraft}
-            placeholder="Add a label…"
-            onblur={addLabel}
-            onkeydown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                addLabel();
-              }
-            }}
-          />
-        {/if}
+      <span class="{ROW_LABEL} {sheet ? 'flex-none' : ''}">Labels</span>
+      <span class="flex min-w-0 flex-1 items-center {sheet ? '' : 'pl-2'}">
+        <TaskLabelMenu
+          labels={task.labels}
+          candidates={labelCandidates}
+          {sheet}
+          onSet={canEditLabels ? (labels) => onSave({ labels }) : undefined}
+        />
       </span>
     </div>
 

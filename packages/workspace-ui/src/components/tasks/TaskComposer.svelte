@@ -14,6 +14,7 @@
   import Dropdown from "../ui/Dropdown.svelte";
   import DocumentPromptEditor from "../editor/DocumentPromptEditor.svelte";
   import { Input } from "../ui/input";
+  import LabelChip from "../ui/LabelChip.svelte";
   import { getWorkspaceContext } from "../../contexts";
   import type { AgentId } from "@solus/contracts/types";
   import { PRIORITY_META, STATUS_META, dueDateMeta } from "./lib/tasks-api";
@@ -757,13 +758,11 @@
           {#if labels.length}
             <div class="flex flex-wrap gap-1">
               {#each labels as label (label)}
-                <span
-                  class="inline-flex items-center gap-1 rounded-md bg-(--solus-surface-hover) px-1.5 py-0.5 text-(--solus-text-secondary)"
-                >
-                  {label}
+                <span class="inline-flex items-center gap-0.5">
+                  <LabelChip {label} />
                   <button
                     type="button"
-                    class="relative grid size-3 place-items-center rounded-sm border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer after:absolute after:-inset-1.5 hover:text-(--solus-text-primary)"
+                    class="relative grid size-4 place-items-center rounded-full border-0 bg-transparent text-(--solus-text-tertiary) cursor-pointer after:absolute after:-inset-1 hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary)"
                     onclick={() => removeLabel(label)}
                     aria-label={`Remove ${label}`}
                   >
@@ -773,14 +772,14 @@
               {/each}
             </div>
           {/if}
-          <input
-            data-dictation="false"
-            bind:this={labelInputEl}
+          <Input
+            dictation={false}
+            bind:ref={labelInputEl}
             bind:value={labelDraft}
             type="text"
             placeholder="Add a label…"
             aria-label="Add a label"
-            class="w-full appearance-none rounded-md border-0 bg-(--solus-surface-hover) px-2 py-1 text-(--solus-text-secondary) shadow-none outline-none placeholder:text-(--solus-text-tertiary)"
+            class="h-9 text-workspace-chrome pointer-fine:[.is-laptop-display_&]:h-8"
             onkeydown={(e) => {
               if (e.key === "Enter") {
                 e.preventDefault();

@@ -225,6 +225,20 @@ export class ProjectPrs {
     return pr
   }
 
+  /** Apply one label mutation without replacing the pull request or list rows. */
+  applyLabels(number: number, labels: Contracts.PrLabel[]): void {
+    const pr = this.prs.get(number)
+    if (pr?.isDescribed) pr.labels = labels
+    const patch = (items: Contracts.PullRequest[] | undefined): void => {
+      const item = items?.find((candidate) => candidate.number === number)
+      if (item) item.labels = labels
+    }
+    for (const page of this.mirrors.list.values('')) patch(page.items)
+    patch(this.items)
+    const detail = this.mirrors.detail.fresh(String(number))
+    if (detail) detail.labels = labels
+  }
+
   // --- Reading ------------------------------------------------------------
 
   /**
@@ -347,10 +361,10 @@ export class ProjectPrs {
     }
   }
 
-  /** Login for the connected token's user — the identity comment composers post
-   *  as. Stable per project, so the short list lifetime costs at most an
-   *  occasional refetch of a value the provider caches per token anyway. */
-  async loadViewer(): Promise<string> {
+  /** The connected token's user — the identity comment composers post as, with
+   *  the avatar they draw. Stable per project, so the short list lifetime costs
+   *  at most an occasional refetch of a value the provider caches per token. */
+  async loadViewer(): Promise<Contracts.ProviderViewer> {
     const ctx = detached(this.ctx)
     return this.mirrors.viewer.read('viewer', false, () => this.api.providerViewer(ctx))
   }

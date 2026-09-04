@@ -60,7 +60,10 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
     return { data }
   }
   const rest = {
-    users: { getAuthenticated: async () => respond('users.getAuthenticated', { login: 'sidhu' }) },
+    users: {
+      getAuthenticated: async () =>
+        respond('users.getAuthenticated', { login: 'sidhu', avatar_url: 'https://avatars.test/sidhu' }),
+    },
     repos: {
       get: async () => respond('repos.get', {
         permissions: { push: true },
@@ -72,6 +75,17 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
     pulls: {
       get: async () => respond('pulls.get', restPullRequest),
       list: async () => respond('pulls.list', [restPullRequest]),
+      listReviews: async () => respond('pulls.listReviews', [
+        {
+          state: 'APPROVED',
+          user: { login: 'octocat', avatar_url: 'https://avatars.test/octocat' },
+        },
+      ]),
+      listRequestedReviewers: async () => respond('pulls.listRequestedReviewers', {
+        users: [
+          { login: 'hubot', avatar_url: 'https://avatars.test/hubot' },
+        ],
+      }),
       create: async () => respond('pulls.create', restPullRequest),
       merge: async () => respond('pulls.merge', { merged: true, message: 'Pull Request successfully merged' }),
     },
@@ -79,10 +93,25 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
       listAssignees: async () => respond('issues.listAssignees', [
         { login: 'octocat', avatar_url: 'https://avatars.test/octocat' },
       ]),
+      listLabelsForRepo: async () => respond('issues.listLabelsForRepo', [
+        { name: 'bug', color: 'd73a4a' },
+        { name: 'documentation', color: '0075ca' },
+      ]),
+      setLabels: async ({ labels }: { labels: string[] }) => respond(
+        'issues.setLabels',
+        labels.map((name) => ({ name, color: name === 'bug' ? 'd73a4a' : '0075ca' })),
+      ),
     },
   }
+  const paginate = async <T>(request: () => Promise<{ data: T }>): Promise<T> =>
+    (await request()).data
   const graphql = async (query: string) => {
     respond('graphql', null)
+    if (query.includes('PrReviewStatuses')) {
+      return {
+        nodes: [{ id: 'PR_1', reviewDecision: 'APPROVED', reviews: { totalCount: 1 } }],
+      }
+    }
     if (query.includes('PrChecks')) {
       return {
         repository: {
@@ -94,9 +123,29 @@ function scriptedClient(source: GithubCredentialSource, answer: Answer): Scripte
         },
       }
     }
+    if (query.includes('PrConversation')) {
+      return {
+        repository: {
+          pullRequest: {
+            comments: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+            reviews: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [] },
+            timelineItems: {
+              pageInfo: { hasNextPage: false, endCursor: null },
+              nodes: [{
+                __typename: 'LabeledEvent',
+                id: 'LE_1',
+                actor: { login: 'sidhu', avatarUrl: 'https://avatars.test/sidhu' },
+                createdAt: '2026-01-01T11:00:00Z',
+                label: { name: 'bug', color: 'd73a4a' },
+              }],
+            },
+          },
+        },
+      }
+    }
     return { resolveReviewThread: { thread: { id: 'T_1' } } }
   }
-  return { rest, graphql, credential: { source, token: `${source}-token` }, calls } as unknown as ScriptedClient
+  return { rest: { ...rest, paginate }, graphql, credential: { source, token: `${source}-token` }, calls } as unknown as ScriptedClient
 }
 
 class ChainedProvider extends GitHubProvider {
@@ -120,6 +169,39 @@ class ChainedTaskProvider extends GitHubTaskProvider {
 }
 
 describe('GitHub requests run down the credential chain', () => {
+  test('pull request activity keeps the exact label mutation', async () => {
+    const provider = new ChainedProvider([scriptedClient('host', 'accepts')])
+
+    expect(await provider.listComments(repo, 65)).toEqual([{
+      id: 'LE_1',
+      kind: 'label',
+      author: 'sidhu',
+      authorAvatarUrl: 'https://avatars.test/sidhu',
+      createdAt: '2026-01-01T11:00:00Z',
+      action: 'added',
+      label: { name: 'bug', color: 'd73a4a' },
+    }])
+  })
+
+  test('pull request label candidates and mutations keep host colours', async () => {
+    // WHY: the detail picker reuses the same coloured label records as the PR
+    // list. Returning only names would make the selected chips lose their host
+    // colour as soon as the mutation response lands.
+    const client = scriptedClient('host', 'accepts')
+    const provider = new ChainedProvider([client])
+
+    expect(await provider.listLabelCandidates(repo)).toEqual([
+      { name: 'bug', color: 'd73a4a' },
+      { name: 'documentation', color: '0075ca' },
+    ])
+    expect(await provider.setLabels(repo, 65, ['bug', 'documentation'])).toEqual([
+      { name: 'bug', color: 'd73a4a' },
+      { name: 'documentation', color: '0075ca' },
+    ])
+    expect(client.calls).toContain('issues.listLabelsForRepo')
+    expect(client.calls).toContain('issues.setLabels')
+  })
+
   test('a rejected credential hands the same read to the next one, answered in the same shape', async () => {
     // WHY: the fallback used to be a second implementation over `gh pr view`,
     // which carried no avatars and spelled merge states differently. One client
@@ -134,6 +216,25 @@ describe('GitHub requests run down the credential chain', () => {
     expect(cli.calls).toContain('pulls.get')
     expect(pullRequest.authorAvatarUrl).toBe('https://avatars.test/sidhu')
     expect(pullRequest.viewerPermissions.actions).toContain('merge')
+  })
+
+  test('reviewers keep the GitHub avatars returned by the review endpoints', async () => {
+    // WHY: the PR page must show the same GitHub identity image for reviewers
+    // that it shows for the author, whether the reviewer answered or is pending.
+    const provider = new ChainedProvider([scriptedClient('host', 'accepts')])
+
+    await expect(provider.listReviewers(repo, 65)).resolves.toEqual([
+      {
+        login: 'octocat',
+        avatarUrl: 'https://avatars.test/octocat',
+        state: 'APPROVED',
+      },
+      {
+        login: 'hubot',
+        avatarUrl: 'https://avatars.test/hubot',
+        state: null,
+      },
+    ])
   })
 
   test('organization access failures hand the request to the gh credential', async () => {
@@ -164,6 +265,7 @@ describe('GitHub requests run down the credential chain', () => {
     expect(host.calls).toEqual(['pulls.list'])
     expect(cli.calls).toContain('pulls.list')
     expect(page.items[0]?.headRef).toBe('feature')
+    expect(page.items[0]?.reviewStatus).toBe('approved')
   })
 
   test('pull request checks fall through to the gh credential', async () => {
@@ -193,6 +295,20 @@ describe('GitHub requests run down the credential chain', () => {
     expect(host.calls).toEqual(['users.getAuthenticated', 'repos.get'])
     expect(cli.calls).toEqual(['users.getAuthenticated', 'repos.get'])
     expect(viewer).toBe('sidhu')
+  })
+
+  test('the viewer profile carries the host avatar the composer draws', async () => {
+    // WHY: the comment composer shows who a post will belong to. GitHub already
+    // answers the avatar in the same `/user` read as the login, so the profile
+    // must hand it on rather than leaving the composer to draw initials.
+    const cli = scriptedClient('gh-cli', 'accepts')
+    const provider = new ChainedProvider([cli])
+
+    const profile = await provider.getViewerProfile()
+
+    expect(profile).toEqual({ login: 'sidhu', avatarUrl: 'https://avatars.test/sidhu' })
+    expect(await provider.getViewer()).toBe('sidhu')
+    expect(cli.calls.filter((call) => call === 'users.getAuthenticated')).toHaveLength(1)
   })
 
   test('a domain failure is final', async () => {

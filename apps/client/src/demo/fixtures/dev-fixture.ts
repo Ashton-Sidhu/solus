@@ -202,6 +202,7 @@ export const devFixtures: DemoFixtures = {
           mergeMethods: ['merge', 'squash', 'rebase'],
           reviewerRequests: true,
           reviewerCandidates: true,
+          labelManagement: true,
         },
         viewerPermissions: {
           actions: ['merge', 'close', 'reopen', 'ready', 'draft'],
@@ -209,6 +210,7 @@ export const devFixtures: DemoFixtures = {
           comment: true,
           resolveThreads: true,
           requestReviewers: true,
+          manageLabels: true,
         },
       },
       commits: [],

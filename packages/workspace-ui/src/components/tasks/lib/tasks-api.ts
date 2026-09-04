@@ -1,9 +1,10 @@
 // Pure, non-reactive helpers for the tasks UI.
 import type { Task, TaskStatus, TaskPriority } from '@solus/contracts/task-types'
 
-/** How the list/board orders tasks. `updated` is the default;
+/** How the list/board orders tasks. `created` is the default;
  *  `priority` and `due` answer "what's next". */
-export type TaskSort = 'updated' | 'priority' | 'due'
+export type TaskSort = 'created' | 'updated' | 'priority' | 'due'
+export const DEFAULT_TASK_SORT: TaskSort = 'created'
 
 /** Display + ordering metadata per priority. `rank` drives the sort (lower =
  *  more urgent); the colour classes drive the badge. */
@@ -39,11 +40,15 @@ function dueRank(t: Task): number {
  *  recency, so "what's next" surfaces urgent + soon-due work first. */
 export function sortTasks(tasks: Task[], sort: TaskSort): Task[] {
   const byUpdated = (a: Task, b: Task) => b.updatedAt - a.updatedAt
+  const byCreated = (a: Task, b: Task) =>
+    (b.createdAt ?? b.updatedAt) - (a.createdAt ?? a.updatedAt)
   const arr = [...tasks]
   if (sort === 'priority') {
     arr.sort((a, b) => priorityRank(a) - priorityRank(b) || dueRank(a) - dueRank(b) || byUpdated(a, b))
   } else if (sort === 'due') {
     arr.sort((a, b) => dueRank(a) - dueRank(b) || priorityRank(a) - priorityRank(b) || byUpdated(a, b))
+  } else if (sort === 'created') {
+    arr.sort(byCreated)
   } else {
     arr.sort(byUpdated)
   }

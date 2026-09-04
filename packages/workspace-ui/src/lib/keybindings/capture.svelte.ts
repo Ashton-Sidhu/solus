@@ -7,7 +7,7 @@ function heldModifiers(e: KeyboardEvent): string[] {
   const keys: string[] = []
   // Mirrors `formatCombo`: the platform's primary modifier always reads ⌘.
   if (isMac ? e.metaKey : e.ctrlKey) keys.push('⌘')
-  else if (isMac ? e.ctrlKey : e.metaKey) keys.push(isMac ? '⌃' : '⌘')
+  if (isMac ? e.ctrlKey : e.metaKey) keys.push(isMac ? '⌃' : '⌘')
   if (e.altKey) keys.push('⌥')
   if (e.shiftKey) keys.push('⇧')
   return keys

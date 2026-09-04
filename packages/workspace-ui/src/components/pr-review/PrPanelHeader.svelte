@@ -3,7 +3,6 @@
     Minimize2 as ArrowsInSimpleIcon,
     Maximize2 as ArrowsOutSimpleIcon,
     ChevronLeft as CaretLeftIcon,
-    ChevronRight as CaretRightIcon,
     GitPullRequest as GitPullRequestIcon,
     X as XIcon,
   } from "@lucide/svelte";
@@ -18,9 +17,10 @@
    * branch are the same object in the same places.
    *
    * Slots, left to right and fixed at every width: the tab group, flexible
-   * space, the pull request's number, its primary action, the queue scrubber,
-   * the overflow, then the pane controls. Nothing appears or disappears as the
-   * tab changes — only the overflow's contents follow it.
+   * space, the pull request's number, its primary action, the overflow, then
+   * the pane controls. Nothing appears or disappears as the tab changes — only
+   * the overflow's contents follow it. J and K still walk the list's order;
+   * the band does not spend a slot saying where in it you are.
    *
    * The band states which pull request you are in, not what is true of it. The
    * refs and the check state are facts about the change, so they are read on
@@ -36,10 +36,7 @@
   let {
     number,
     tab,
-    position,
-    total,
     fullScreen,
-    onStep,
     onToggleFullScreen,
     onOpenPage,
     onMoveAcross,
@@ -56,11 +53,7 @@
     /** Which view is showing. The overflow's contents follow it; the band's
      *  slots do not. */
     tab: "activity" | "map" | "guide" | "diff";
-    /** 1-based place in the list order; 0 when this PR is not in the list. */
-    position: number;
-    total: number;
     fullScreen: boolean;
-    onStep: (delta: number) => void;
     /** Absent when the surface is too narrow to hold a split at all — there is
      *  no smaller state to go back to, so the control is not offered. */
     onToggleFullScreen?: () => void;
@@ -81,15 +74,9 @@
     headRef?: string;
     /** Map · Guide · Diff, pinned left. */
     tabs?: Snippet;
-    /** The surface's own primary action — Ask Solus. */
+    /** The surface's own primary action — Check out. */
     actions?: Snippet;
   } = $props();
-
-  // A queue of one, or a pull request the list is not showing (opened, then
-  // filtered out) has nowhere to step to: `onStep` walks the published list
-  // order and returns early when this number is not in it. Offer the control
-  // only where it moves, rather than leaving two arrows and a blank count.
-  const canStepQueue = $derived(position > 0 && total > 1);
 </script>
 
 <!-- Its own container: every rung below is the *panel's* width, not the
@@ -107,9 +94,9 @@
      beside a visible list; covering it, the ✕ was the *last* thing on a row
      that already overflowed, so it was clipped off the right edge and the
      review became a surface with no exit at all. So the record leads with the
-     platform's back chevron, the queue and the pane controls stand down — one
-     pane, no J/K, and full screen is the only state there is — and the tabs
-     take a row of their own underneath, where four of them fit. -->
+     platform's back chevron, the pane controls stand down — one pane, and
+     full screen is the only state there is — and the tabs take a row of their
+     own underneath, where four of them fit. -->
 <div class="@container/band workspace-titlebar shrink-0" data-testid="pr-panel-header">
 <div
   class="flex h-(--solus-chrome-row-h,2.75rem) items-center gap-1.5 pr-3 @min-[34rem]/band:gap-2.5 @min-[53.75rem]/band:gap-3.5 @max-[30rem]/band:h-auto @max-[30rem]/band:flex-col @max-[30rem]/band:items-stretch @max-[30rem]/band:gap-0 @max-[30rem]/band:pr-0"
@@ -148,51 +135,13 @@
        it takes the slack instead of the spacer above, so the number sits in the
        middle of the band the way every other phone title does. -->
   <span
-    class="flex shrink-0 items-center gap-1.5 text-chrome-dense tabular-nums text-muted-foreground @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
+    class="flex shrink-0 items-center gap-1.5 text-workspace-chrome tabular-nums text-muted-foreground @max-[30rem]/band:min-w-0 @max-[30rem]/band:flex-1 @max-[30rem]/band:justify-center"
   >
     <GitPullRequestIcon size={12} aria-hidden="true" />
     <span>#{number}</span>
   </span>
 
   {#if actions}{@render actions()}{/if}
-
-  <!-- Position, not history: how far through the queue this review is. Same
-       pill as the local review's turn scrubber, with a fixed label column so
-       stepping past 9 never nudges its neighbours. -->
-  {#if canStepQueue}
-    <div
-      class="no-drag flex h-7 shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-2)] px-[0.1875rem] [.is-laptop-display_&]:h-6.5 @max-[30rem]/band:hidden"
-      role="group"
-      aria-label="Review queue"
-    >
-      <button
-        type="button"
-        class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground"
-        title="Previous pull request (K)"
-        aria-label="Previous pull request"
-        onclick={() => onStep(-1)}
-      >
-        <CaretLeftIcon size={12} />
-      </button>
-      <span class="text-center font-mono text-chrome-dense tabular-nums">
-        <span class="hidden min-w-[3.25rem] @min-[62.5rem]/band:inline-block">
-          {position} of {total}
-        </span>
-        <span class="inline-block min-w-[1.75rem] @min-[62.5rem]/band:hidden">
-          {position}/{total}
-        </span>
-      </span>
-      <button
-        type="button"
-        class="flex size-[22px] shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent text-muted-foreground transition-colors duration-150 hover:bg-card hover:text-foreground"
-        title="Next pull request (J)"
-        aria-label="Next pull request"
-        onclick={() => onStep(1)}
-      >
-        <CaretRightIcon size={12} />
-      </button>
-    </div>
-  {/if}
 
   <PrPanelOverflowMenu
     {tab}

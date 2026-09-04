@@ -1,5 +1,4 @@
 <script lang="ts">
-import Icon from "@iconify/svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
@@ -11,7 +10,17 @@ import Icon from "@iconify/svelte";
     LoaderCircle as CircleNotchIcon,
     Play as PlayIcon,
     User as UserIcon,
-    TriangleAlert as WarningIcon,
+    Users as UsersIcon,
+    Tag as TagIcon,
+    FilePenLine as DraftIcon,
+    MessageSquareCheck as ReviewIcon,
+    CircleCheck as ChecksIcon,
+    CircleDashed as PendingIcon,
+    CircleSlash as NoReviewIcon,
+    CircleX as FailureIcon,
+    EyeOff as HideIcon,
+    GitPullRequestDraft as DraftOnlyIcon,
+    Layers as AllIcon,
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
   import type { PullRequest } from "@solus/contracts/providers";
@@ -36,47 +45,39 @@ import Icon from "@iconify/svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { hostKey } from "@solus/client-core/host-key";
   import { subscribeAllHosts } from "@solus/client-core/host-events";
-  import SortMenu from "../ui/SortMenu.svelte";
   import { Button } from "../ui/button";
   import PageEmpty from "../ui/PageEmpty.svelte";
   import {
     InboxRow,
     ListEmpty,
-    ListFilterBar,
     ListGroup,
     ListPage,
     ListRailRow,
-    ListRow,
-    ListScopeMenu,
-    ListStatusMenu,
     syncStamp,
     VirtualList,
-    FILTER_SORT_CHIP,
     LIST_GROUP_HEADER_HEIGHT,
     inboxRowHeight,
     listRowHeight,
-    inInboxScope,
     virtualGroupItems,
-    type ListFilterSpec,
     type ListPageView,
     type ListProjectOption,
-    type ListScopeOption,
-    type ListStatusOption,
   } from "../ui/list-page";
   import { isStackedPane } from "../../lib/pane-width";
-  import { filterPrs, sortPrs, type PrSortMode } from "./lib/pr-utils";
+  import { filterPrFacets, filterPrs, sortPrs, type PrSortMode } from "./lib/pr-utils";
   import {
     showsPrDetailPanel,
     showsPrPageSkeleton,
     type ScopeSwitchPhase,
   } from "./lib/pr-list-loading";
   import {
+    PR_LIST_ROW_HEIGHT,
     PR_STATUS_OPTIONS,
     OPEN_PR_STATUS_KEYS,
     prFetchScope,
     prGroups,
     prInboxGroups,
     prStatusOf,
+    labelChipColor,
     type PrRowContext,
   } from "./lib/prs-list-view";
   import type { PrProject } from "../../contexts/prs/prs.store.svelte";
@@ -95,8 +96,11 @@ import Icon from "@iconify/svelte";
     type PrInboxFailure,
   } from "./lib/pr-inbox-failure";
   import PrDetailPanel from "./PrDetailPanel.svelte";
+  import PrListRow from "./PrListRow.svelte";
   import PrContextMenu from "./PrContextMenu.svelte";
   import PrsPageSkeleton from "./PrsPageSkeleton.svelte";
+  import PrListToolbar from "./PrListToolbar.svelte";
+  import type { PrFilterGroup } from "./lib/pr-filter-menu";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import type { InlinePageProps } from "../ui/lib/pane-surface";
 
@@ -290,8 +294,8 @@ import Icon from "@iconify/svelte";
   const activeRefreshing = $derived(isInboxView ? inboxLoading : (shown?.loading ?? false));
 
   const SORT_OPTIONS: { value: PrSortMode; label: string }[] = [
-    { value: "updated", label: "Updated" },
     { value: "created", label: "Created" },
+    { value: "updated", label: "Updated" },
     { value: "effort", label: "Effort" },
   ];
 
@@ -300,34 +304,11 @@ import Icon from "@iconify/svelte";
   // asking for them has to widen the load before anything can be filtered.
   const statuses = $derived(new Set(listView.statusKeys));
   const fetchScope = $derived(prFetchScope(listView.statusKeys));
-  // Narrowing the cross-project inbox to a few repos is a filter, not a move:
-  // the page is still the cross-project one, so this lives on the narrowing row
-  // and the crumb keeps saying "All projects". Empty is every project.
-  let inboxProjectKeys = $state<string[]>([]);
-  function inboxScopeKeyFor(pr: PullRequest): string[] {
-    const owner = qualified.byPr.get(pr);
-    return owner ? [hostKey(owner.serverId, owner.projectRoot)] : [];
-  }
-  // The inbox already reads one project at a time, so its own project list is
-  // the menu — including a project that currently has nothing open, which is a
-  // legible answer rather than a missing row.
-  const inboxScopeChoices = $derived<ListScopeOption[]>(
-    qualifiedProjects
-      .map((project) => ({
-        value: hostKey(project.serverId, project.projectRoot),
-        projectKey: project.projectRoot,
-        label: project.label,
-        count: project.items.length,
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label)),
-  );
   // The item list this visit is reading: one project's cache, or every
   // project's last-safe snapshot merged together.
   const activeItems = $derived(
     isInboxView
-      ? qualified.items.filter((pr) =>
-          inInboxScope(inboxScopeKeyFor(pr), inboxProjectKeys),
-        )
+      ? qualified.items
       : scopedProjectPath
         ? (shown?.items ?? [])
         : [],
@@ -389,31 +370,31 @@ import Icon from "@iconify/svelte";
 
   const searched = $derived(
     sortPrs(
-      filterPrs(
-        listView.needsReviewOnly
-          ? activeItems.filter((pr) => pr.needsMyReview)
-          : activeItems,
-        listView.query,
-        fetchScope,
-      ),
+      filterPrs(activeItems, listView.query, fetchScope),
       listView.sortMode,
     ),
   );
 
+  function viewerLoginFor(pr: PullRequest): string | null {
+    const owner = isInboxView ? qualified.byPr.get(pr) : undefined;
+    const serverId = owner?.serverId ?? prsServerId;
+    const projectPath = owner?.projectRoot ?? scopedProjectPath;
+    return serverId && projectPath
+      ? (viewerLogins.get(hostKey(serverId, projectPath)) ?? null)
+      : null;
+  }
+
+  function currentChecksState(pr: PullRequest): "passing" | "pending" | "failing" | null {
+    const checks = rowContext.checks(pr);
+    return checks?.headSha === pr.headSha ? checks.state : null;
+  }
+
   const filtered = $derived.by(() => {
-    let rows = searched.filter((pr) => statuses.has(prStatusOf(pr)));
-    if (listView.minesOnly) rows = rows.filter((pr) => rowContext.isMine(pr));
-    if (listView.failingOnly) {
-      rows = rows.filter((pr) => {
-        const checks = rowContext.checks(pr);
-        return (
-          !!checks &&
-          checks.headSha === pr.headSha &&
-          checks.state === "failing"
-        );
-      });
-    }
-    return rows;
+    return filterPrFacets(
+      searched.filter((pr) => statuses.has(prStatusOf(pr))),
+      listView,
+      { viewerLogin: viewerLoginFor, checksState: currentChecksState },
+    );
   });
   const showPageSkeleton = $derived(
     showsPrPageSkeleton(scopeSwitch, activeLoading, filtered.length),
@@ -445,7 +426,7 @@ import Icon from "@iconify/svelte";
   // The row's verb picks the tab it lands on: a row that says Review opens on
   // the diff, everything else on Activity.
   const inboxGroups = $derived.by(() => {
-    const groups = prInboxGroups(activeItems, rowContext, now, {
+    const groups = prInboxGroups(filtered, rowContext, now, {
       review: (pr) => selectPr(pr, "diff"),
       open: (pr) => selectPr(pr),
       openExternal: openPrExternal,
@@ -488,56 +469,119 @@ import Icon from "@iconify/svelte";
     inboxGroups.find((g) => g.key === "needs")?.rows.length ?? 0,
   );
 
-  // Counts are the first thing to go at rail width: they are a nice-to-know
-  // beside a label that has to survive, and the list under the chip answers the
-  // same question.
-  const listFilters = $derived<ListFilterSpec[]>([
+  const authorOptions = $derived.by(() => {
+    const authors = new Map<string, { avatarUrl: string; count: number }>();
+    for (const pr of searched) {
+      const current = authors.get(pr.author);
+      if (current) current.count += 1;
+      else if (pr.author) authors.set(pr.author, { avatarUrl: pr.authorAvatarUrl, count: 1 });
+    }
+    return [
+      { value: "", label: "Anyone", count: searched.length },
+      ...Array.from(authors, ([author, facts]) => ({
+        value: author,
+        label: author,
+        avatarUrl: facts.avatarUrl,
+        count: facts.count,
+      })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    ];
+  });
+  const labelOptions = $derived.by(() => {
+    const labels = new Map<string, { color: string; count: number }>();
+    for (const pr of searched) {
+      for (const label of pr.labels) {
+        const current = labels.get(label.name);
+        if (current) current.count += 1;
+        else labels.set(label.name, { color: labelChipColor(label.color), count: 1 });
+      }
+    }
+    return [
+      { value: "", label: "Any", count: searched.length },
+      ...Array.from(labels, ([label, facts]) => ({
+        value: label,
+        label,
+        color: facts.color,
+        count: facts.count,
+      })).sort((a, b) => b.count - a.count || a.label.localeCompare(b.label)),
+    ];
+  });
+  const stateValue = $derived(
+    listView.statusKeys.length === PR_STATUS_OPTIONS.length
+      ? "all"
+      : listView.statusKeys.includes("open")
+        ? "open"
+        : (listView.statusKeys[0] ?? "all"),
+  );
+  const filterGroups = $derived<PrFilterGroup[]>([
     {
-      key: "mine",
-      label: "Yours",
-      icon: UserIcon,
-      count: splitList
-        ? undefined
-        : searched.filter((pr) => rowContext.isMine(pr)).length,
-      active: listView.minesOnly,
-      toggle: () => (listView.minesOnly = !listView.minesOnly),
+      key: "state", label: "State", icon: GitPullRequestIcon,
+      value: stateValue, valueLabel: stateValue === "all" ? "All" : `${stateValue[0].toUpperCase()}${stateValue.slice(1)}`,
+      active: stateValue !== "open",
+      options: [
+        { value: "open", label: "Open" }, { value: "merged", label: "Merged" },
+        { value: "closed", label: "Closed" }, { value: "all", label: "All" },
+      ],
+      select: (value) => onStatusChange(value === "open" ? [...OPEN_PR_STATUS_KEYS] : value === "all" ? PR_STATUS_OPTIONS.map((option) => option.value) : [value]),
     },
     {
-      key: "failing",
-      label: "Checks failing",
-      icon: WarningIcon,
-      count: splitList
-        ? undefined
-        : searched.filter((pr) => {
-            const checks = rowContext.checks(pr);
-            return (
-              !!checks &&
-              checks.headSha === pr.headSha &&
-              checks.state === "failing"
-            );
-          }).length,
-      active: listView.failingOnly,
-      toggle: () => (listView.failingOnly = !listView.failingOnly),
+      key: "involvement", label: "Involvement", icon: UsersIcon,
+      value: listView.involvement,
+      valueLabel: ({ all: "All", created: "Created", assigned: "Assigned", "review-requested": "Review requested" })[listView.involvement],
+      active: listView.involvement !== "all",
+      options: [
+        { value: "all", label: "All" }, { value: "created", label: "Created by you" },
+        { value: "assigned", label: "Assigned to you" }, { value: "review-requested", label: "Review requested from you" },
+      ], select: (value) => (listView.involvement = value as typeof listView.involvement),
+    },
+    {
+      key: "author", label: "Author", icon: UserIcon,
+      value: listView.author ?? "", valueLabel: listView.author ?? "Anyone",
+      active: listView.author !== null, searchable: true, options: authorOptions,
+      select: (value) => (listView.author = value || null),
+    },
+    {
+      key: "labels", label: "Labels", icon: TagIcon,
+      value: listView.label ?? "", valueLabel: listView.label ?? "Any",
+      active: listView.label !== null, options: labelOptions,
+      select: (value) => (listView.label = value || null),
+    },
+    {
+      key: "draft", label: "Draft", icon: DraftIcon,
+      value: listView.draft, valueLabel: ({ all: "All", ready: "Ready", draft: "Draft" })[listView.draft],
+      active: listView.draft !== "all",
+      options: [
+        { value: "all", label: "All", icon: AllIcon },
+        { value: "draft", label: "Drafts only", icon: DraftOnlyIcon },
+        { value: "ready", label: "Hide drafts", icon: HideIcon },
+      ],
+      select: (value) => (listView.draft = value as typeof listView.draft),
+    },
+    {
+      key: "review", label: "Review", icon: ReviewIcon,
+      value: listView.review,
+      valueLabel: ({ all: "All", approved: "Approved", "changes-requested": "Changes requested", "review-required": "Review required", "no-reviews": "No reviews" })[listView.review],
+      active: listView.review !== "all",
+      options: [
+        { value: "all", label: "All", icon: AllIcon },
+        { value: "approved", label: "Approved", icon: ChecksIcon },
+        { value: "changes-requested", label: "Changes requested", icon: FailureIcon },
+        { value: "review-required", label: "Review required", icon: PendingIcon },
+        { value: "no-reviews", label: "No reviews", icon: NoReviewIcon },
+      ],
+      select: (value) => (listView.review = value as typeof listView.review),
+    },
+    {
+      key: "checks", label: "Checks", icon: ChecksIcon,
+      value: listView.checks, valueLabel: ({ all: "All", passing: "Passing", pending: "Running", failing: "Failing" })[listView.checks],
+      active: listView.checks !== "all",
+      options: [
+        { value: "all", label: "All", icon: AllIcon },
+        { value: "passing", label: "Passing", icon: ChecksIcon },
+        { value: "failing", label: "Failing", icon: FailureIcon },
+      ],
+      select: (value) => (listView.checks = value as typeof listView.checks),
     },
   ]);
-
-  // The rail's filter row fits the search field and the two toggles, so the
-  // menu-backed controls step aside — except when the status menu is actually
-  // narrowing the list, which must never be hidden with no way to see or undo it.
-  const statusFilterNarrowed = $derived(
-    listView.statusKeys.length !== OPEN_PR_STATUS_KEYS.length ||
-      OPEN_PR_STATUS_KEYS.some((key) => !listView.statusKeys.includes(key)),
-  );
-
-  // A status the page has not fetched can't be counted, so its count reads 0
-  // until it is picked and the widened fetch lands. Better than a blank, and it
-  // corrects itself the moment the answer exists.
-  const statusOptions = $derived<ListStatusOption[]>(
-    PR_STATUS_OPTIONS.map((option) => ({
-      ...option,
-      count: searched.filter((pr) => prStatusOf(pr) === option.value).length,
-    })),
-  );
 
   // How much is waiting on you used to be restated over the list; the inbox
   // segment carries that count now, and the list's own group headers carry the
@@ -736,10 +780,14 @@ import Icon from "@iconify/svelte";
     if (!api || !serverId) return;
     const projectPath = scopedProjectPath;
     void shownScope()?.list({ filter: { state: fetchScope } });
+    // The host only volunteers checks for the repository the *active tab* is
+    // in. This page may be scoped elsewhere, so it asks for its own — or every
+    // row would sit with an empty checks slot until that tab happened to match.
+    void pullRequests.checks.load(api, serverId, prsCtx()).catch(() => {});
     void store
       .get(api, serverId, prsCtx())
       .loadViewer()
-      .then((login) => viewerLogins.set(hostKey(serverId, projectPath), login))
+      .then((viewer) => viewerLogins.set(hostKey(serverId, projectPath), viewer.login))
       .catch(() => {});
     stacksReady = false;
     void stacks.load(api, serverId, prsCtx()).then(
@@ -771,7 +819,7 @@ import Icon from "@iconify/svelte";
         void store
           .get(project.api, project.serverId, project.ctx)
           .loadViewer()
-          .then((login) => viewerLogins.set(hostKey(project.serverId, project.projectRoot), login))
+          .then((viewer) => viewerLogins.set(hostKey(project.serverId, project.projectRoot), viewer.login))
           .catch(() => {});
       }
     });
@@ -1000,7 +1048,6 @@ import Icon from "@iconify/svelte";
   function onStatusChange(next: string[]) {
     const scope = prFetchScope(next);
     const refetch = scope !== fetchScope;
-    listView.needsReviewOnly = false;
     listView.statusKeys = next;
     if (!refetch) return;
     if (isInboxView) {
@@ -1132,52 +1179,21 @@ import Icon from "@iconify/svelte";
 {/snippet}
 
 {#snippet filterBar()}
-  <ListFilterBar
+  <!-- One row in every shape the list takes. The inbox orders itself, so it
+       has no Sort. Refresh joins the row only while the crumb line that carries
+       it is gone. -->
+  <PrListToolbar
     bind:query={listView.query}
     bind:searchEl
-    compactText
-    placeholder={view === "global"
-      ? splitList
-        ? "Search pull requests…"
-        : "Search pull requests, branches, authors…"
-      : "Search your inbox…"}
-    filters={view === "global" ? listFilters : []}
-  >
-    {#snippet trailing()}
-      {#if isInboxView && !splitList}
-        <!-- Wanting "just these two repos" narrows the inbox without moving the
-             page, so it is a filter and sits with the others. -->
-        <ListScopeMenu
-          options={inboxScopeChoices}
-          selected={inboxProjectKeys}
-          onChange={(next) => (inboxProjectKeys = next)}
-          compactText
-        />
-      {/if}
-      {#if !splitList || statusFilterNarrowed}
-        <ListStatusMenu
-          options={statusOptions}
-          selected={listView.statusKeys}
-          onChange={onStatusChange}
-          ariaLabel="Filter pull requests by status"
-          compactText
-        />
-      {/if}
-      {#if view === "global" && !splitList}
-        <!-- Sort is presentation, not membership — hence the divider. -->
-        <span
-          class="mx-0.5 h-[18px] w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-          aria-hidden="true"
-        ></span>
-        <SortMenu
-          bind:value={listView.sortMode}
-          options={SORT_OPTIONS}
-          ariaLabel="Sort pull requests"
-          class="{FILTER_SORT_CHIP} text-xs"
-        />
-      {/if}
-    {/snippet}
-  </ListFilterBar>
+    placeholder={isInboxView
+      ? "Search your inbox…"
+      : "Search pull requests, branches, authors…"}
+    bind:sortMode={listView.sortMode}
+    sortOptions={isInboxView ? undefined : SORT_OPTIONS}
+    {filterGroups}
+    onRefresh={splitList ? refreshList : undefined}
+    refreshing={activeRefreshing}
+  />
 {/snippet}
 
 {#snippet pageActions()}
@@ -1226,23 +1242,25 @@ import Icon from "@iconify/svelte";
       onSelectProject={selectProject}
       onRemoveProjectHistory={removeProjectHistory}
       page="prs"
-      title={isInboxView ? "Inbox" : undefined}
+      title={splitList ? "Pull Requests" : isInboxView ? "Inbox" : undefined}
       {view}
-      onViewChange={setView}
+      onViewChange={splitList ? undefined : setView}
       globalLabel="Project"
       inboxLabel="Inbox"
       compactViewSwitcherText
       {unreadCount}
-      onRefresh={refreshList}
+      onRefresh={splitList ? undefined : refreshList}
       refreshing={activeRefreshing}
       syncedAt={synced.at}
       onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
       isLeading={pane.isLeading}
       onClose={close}
-      actions={pageActions}
+      actions={splitList ? undefined : pageActions}
       filters={filterBar}
+      toolbarFilters
       contentOwnsScroll
-      hideHeader={splitList}
+      hideHeader={panelOpen}
+      pageSwitcherEnabled={!splitList}
       bind:contentHeight
     >
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -1427,8 +1445,12 @@ import Icon from "@iconify/svelte";
                 class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
                 onclick={() => {
                   listView.query = "";
-                  listView.minesOnly = false;
-                  listView.failingOnly = false;
+                  listView.involvement = "all";
+                  listView.author = null;
+                  listView.label = null;
+                  listView.draft = "all";
+                  listView.review = "all";
+                  listView.checks = "all";
                   onStatusChange([...OPEN_PR_STATUS_KEYS]);
                 }}
               >
@@ -1443,7 +1465,9 @@ import Icon from "@iconify/svelte";
             itemSize={(index) =>
               globalVirtualItems[index].kind === "header"
                 ? LIST_GROUP_HEADER_HEIGHT
-                : listRowHeight({ record: recordRows, split: splitList })}
+                : splitList
+                  ? listRowHeight({ record: recordRows, split: true })
+                  : PR_LIST_ROW_HEIGHT}
             keyOf={(item) => item.key}
             activeKey={globalActiveKey}
             scrollOffset={listView.scrollTop}
@@ -1502,10 +1526,8 @@ import Icon from "@iconify/svelte";
                       }}
                     />
                   {:else}
-                    <ListRow
+                    <PrListRow
                       row={item.row}
-                      identWidth={44}
-                      responsiveTitle
                       selected={rowSelected}
                       leading={reviewCheckbox}
                       onSelect={() => {

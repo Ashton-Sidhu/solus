@@ -21,12 +21,29 @@
     /** Overrides the page's own name, for a surface that renders one page under
      *  two titles. Does not change which row the menu marks as current. */
     label?: string;
+    /** Lets a shared crumb line keep adjacent menus mutually exclusive. */
+    menuOpen?: boolean;
+    onOpenMenu?: () => void;
+    /** Keeps the page label as a title when this narrow surface is already a
+     *  navigation rail for an open record. */
+    switchable?: boolean;
   }
-  let { page, label }: Props = $props();
+  let {
+    page,
+    label,
+    menuOpen = $bindable(false),
+    onOpenMenu,
+    switchable = true,
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const spec = $derived(navPageSpec(page));
-  let menuOpen = $state(false);
+
+  function toggle() {
+    const opening = !menuOpen;
+    if (opening) onOpenMenu?.();
+    menuOpen = opening;
+  }
 
   function pick(next: NavPage) {
     menuOpen = false;
@@ -48,6 +65,11 @@
   });
 </script>
 
+{#if !switchable}
+  <h1 class="truncate px-2.5 font-semibold tracking-[-0.013em]">
+    {label ?? spec.label}
+  </h1>
+{:else}
 <div class="relative min-w-0 shrink-0 @max-[30rem]/pane:flex-1">
   <!-- The scrim closes the menu on the next click anywhere, so the trigger has
        no dismissal logic of its own. -->
@@ -66,7 +88,7 @@
     aria-haspopup="menu"
     aria-expanded={menuOpen}
     data-testid="page-crumb"
-    onclick={() => (menuOpen = !menuOpen)}
+    onclick={toggle}
   >
     <!-- On a record the page name is no longer the second half of a crumb — the
          project has moved to a chip at the far end, so this is the page's own
@@ -119,3 +141,4 @@
     </div>
   {/if}
 </div>
+{/if}

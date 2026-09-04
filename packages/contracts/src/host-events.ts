@@ -5,7 +5,7 @@ import type { AttentionEntry } from './attention-types'
 import type { PrChecksSnapshot } from './checks-rpc-types'
 import type { ReviewGuideStatusEvent, ReviewProgressEvent, PrGuideStatusEvent } from './review'
 import type { StackGraph } from './stack-types'
-import type { PullRequest } from './providers'
+import type { PrLabel, PullRequest } from './providers'
 import type {
   AgentUsageLimits,
   AnnotationsChanged,
@@ -53,6 +53,7 @@ export interface HostEventMap {
   'outbox.changed': Record<string, never>
   'prs.invalidated': { projectRoot: string }
   'pr.lifecycleChanged': { projectRoot: string; detail: PullRequest }
+  'pr.labelsChanged': { projectRoot: string; number: number; labels: PrLabel[] }
   'annotations.changed': AnnotationsChanged
   'attention.snapshotChanged': { entries: AttentionEntry[] }
   'stack.graphChanged': { repoRoot: string; graph: StackGraph }
@@ -114,6 +115,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'outbox.changed': { owner: 'outbox', category: 'invalidation', recovery: 'reload', description: 'The host outbox changed; connected clients should drain it.' },
   'prs.invalidated': { owner: 'prs', category: 'invalidation', recovery: 'reload', description: 'Pull-request state changed for one project.' },
   'pr.lifecycleChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull request changed lifecycle state.' },
+  'pr.labelsChanged': { owner: 'prs', category: 'delta', recovery: 'reload', description: 'A pull request changed labels.' },
   'annotations.changed': { owner: 'annotations', category: 'delta', recovery: 'reload', description: 'Plan or work annotations changed.' },
   'attention.snapshotChanged': { owner: 'attention', category: 'snapshot', recovery: 'reload', description: 'The bounded attention list changed.' },
   'stack.graphChanged': { owner: 'stacks', category: 'snapshot', recovery: 'reload', description: 'A repository PR stack graph changed.' },

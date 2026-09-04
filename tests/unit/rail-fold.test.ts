@@ -15,24 +15,22 @@ const read = (path: string) => readFileSync(resolve(import.meta.dir, '../../', p
 /**
  * A rail with nowhere to be used to stay where it was, full width, under the
  * reading column — which put it below the comment composer, past every comment
- * on the page. Both surfaces now take the rail out at that point and give it a
- * sheet instead.
+ * on the page. Both surfaces now take the rail out of the column at that point.
  *
- * What these tests hold is that the rail leaves and its replacement arrives on
- * one rung. The old defect was two rungs: a container query decided the fold
- * and a JavaScript branch decided the replacement, 500-odd pixels apart, and
- * nothing in the build could notice. So each surface asserts that the rail's
- * column, the sheet, and the control that opens the sheet all read one value.
+ * What these tests hold is that the rail leaves its column and its other home
+ * arrives on one rung. The old defect was two rungs: a container query decided
+ * the fold and a JavaScript branch decided the replacement, 500-odd pixels
+ * apart, and nothing in the build could notice.
  */
 
-describe('the PR review rail becomes a sheet the moment it loses its column', () => {
+describe('the PR review rail moves under the title the moment it loses its column', () => {
   const rail = read('packages/workspace-ui/src/components/pr-review/PrActivityRail.svelte')
   const feed = read('packages/workspace-ui/src/components/pr-review/ActivityFeed.svelte')
-  const bar = read('packages/workspace-ui/src/components/pr-review/PrMergeBar.svelte')
+  const type = read('packages/workspace-ui/src/index.css')
 
   it('owns the rung in one place, with no stylesheet copy to drift from', () => {
     // The rail used to carry a `@max-[1000px]` fold of its own. Two owners of
-    // one number is what put a folded rail and no bottom bar on screen at once.
+    // one number is what put a folded rail and no replacement on screen at once.
     expect(rail).not.toContain('@max-[1000px]')
     expect(rail).not.toContain('@min-[1001px]')
   })
@@ -41,31 +39,68 @@ describe('the PR review rail becomes a sheet the moment it loses its column', ()
     expect(feed).toContain('{#if !railFolded}\n        {@render railPanel("column")}')
   })
 
-  it('renders the rail from one definition, not two', () => {
-    // PrActivityRail takes twenty props. A second call site is twenty props
-    // kept in step by hand, which is how a sheet drifts from the column it
-    // mirrors.
+  it('draws it inline under the title on that same rung, from the same definition', () => {
+    // WHY: the folded layout used to be a bottom bar plus a sheet, which on a
+    // desktop pane beside the list — where the rail is nearly always folded —
+    // read as a mobile surface stapled to the bottom of a window. The rail's
+    // other home is now the reading column itself, above the description, so
+    // the merge state is still the first thing on screen and nothing is
+    // portalled. PrActivityRail takes twenty props; a second call site would
+    // be twenty props kept in step by hand.
     expect(feed.match(/<PrActivityRail/g)?.length).toBe(1)
-    expect(feed).toContain('{@render railPanel("column")}')
-    expect(feed).toContain('{@render railPanel("sheet")}')
+    expect(feed).toContain('{#if railFolded}')
+    expect(feed).toContain('{@render railPanel("inline")}')
+    expect(feed).not.toContain('PrMergeBar')
+    expect(feed).not.toContain('BottomSheet')
   })
 
-  it('opens the sheet, and offers the control that opens it, on that same rung', () => {
-    expect(feed).toContain('{#if railFolded && railOpen}')
-    expect(feed).toContain('details={railSheetTrigger}')
+  it('moves the reviewers into the facts list once the rail folds, and out of the rail', () => {
+    // WHY: inline, the rail's sections start folded, so the reviewers sat
+    // behind a disclosure under the title. They are the one fact a reader
+    // wants at a glance, so the folded page lists them beside the branch and
+    // the churn instead — and the inline rail must not list them a second time.
+    expect(feed).toContain('leading={detail ? leadingFacts : undefined}')
+    expect(feed).toContain('{#if railFolded}\n    <PrReviewerFacts')
+    expect(feed).toContain('<PrReviewerFacts')
+    // The row is not a read-only stand-in: both moves the rail's rows offer
+    // — ask someone, take a request back — are wired to the same handlers.
+    expect(feed).toContain('onRequest={canRequestReviewers ? requestReviewer : undefined}')
+    expect(feed).toContain('onRemove={canRequestReviewers ? removeReviewer : undefined}')
+    const reviewersSection = rail.slice(
+      rail.indexOf('<!-- Reviewers.'),
+      rail.indexOf('<!-- Checks -->'),
+    )
+    expect(reviewersSection).toContain('{#if !inline}')
   })
 
-  it('keeps the way into the sheet even before the readiness loads', () => {
-    // The bar is the folded layout's only chrome. Gating all of it on a
-    // readiness that arrives with the PR detail would make reviewers and
-    // changed files unreachable for as long as the fetch takes.
-    expect(bar).toContain('{#if readiness || details}')
+  it('keeps the inline rail inside the header, before the description', () => {
+    // The point of the move is that the state is read before the body, not
+    // after it. The inline render has to precede the description section.
+    expect(feed.indexOf('{@render railPanel("inline")}')).toBeLessThan(
+      feed.indexOf('aria-label="Pull request description"'),
+    )
+  })
+
+  it('starts the reference sections folded only when inline', () => {
+    // Inline, three open sections would push the description off the first
+    // screen; in a column of its own there is room for them.
+    expect(rail).toContain('const startsOpen = untrack(() => variant === "column")')
+  })
+
+  it('scales changed-file rows to 12px on desktop and 10px on laptop displays', () => {
+    // WHY: file paths are dense reference data, so they sit below the rail's
+    // action-label rung while still taking the shared display-density step.
+    const files = rail.slice(rail.indexOf('<!-- Changed files -->'))
+    expect(files).toContain('text-review-file')
+    expect(type).toContain('--text-review-file: 0.75rem;')
+    expect(type).toContain('html.is-laptop-display {')
+    expect(type).toContain('--text-review-file: 0.625rem;')
   })
 
   it('measures the container the rung is resolved against, not the surface around it', () => {
     // A container query resolves against the content box. The row's border box
-    // is 104px wider, and every pixel of that gap is a pane with a folded rail
-    // and no bottom bar — which is the defect this rung exists to prevent.
+    // is 104px wider, and every pixel of that gap is a pane with the rail in
+    // the wrong home — which is the defect this rung exists to prevent.
     expect(feed).toContain('observeContainerWidth(contentRowEl')
     const opening = feed.slice(feed.indexOf('bind:this={contentRowEl}'))
     expect(opening.slice(0, opening.indexOf('>'))).toContain('@container')
@@ -131,6 +166,9 @@ describe('the task page rail becomes a sheet the moment it leaves the column', (
 describe('people pickers follow the display density rung', () => {
   const feed = read('packages/workspace-ui/src/components/pr-review/ActivityFeed.svelte')
   const reviewers = read('packages/workspace-ui/src/components/pr-review/PrActivityRail.svelte')
+  // The request menu is its own definition, so its geometry is asserted where
+  // it lives rather than on the rail row that opens it.
+  const reviewerMenu = read('packages/workspace-ui/src/components/pr-review/ReviewerRequestMenu.svelte')
   const assignees = read('packages/workspace-ui/src/components/tasks/task-page/TaskAssigneeMenu.svelte')
 
   it('loads reviewer candidates only when the reviewer menu opens', () => {
@@ -147,81 +185,103 @@ describe('people pickers follow the display density rung', () => {
   it('uses smaller menu geometry on a precise-pointer laptop', () => {
     // WHY: canonical type already follows `text-workspace-chrome`; width and
     // control height must step with it instead of leaving a desktop-sized box.
-    expect(reviewers).toContain('w-52 [.is-laptop-display_&]:w-48')
-    expect(reviewers).toContain('pointer-fine:[.is-laptop-display_&]:h-8')
+    expect(reviewerMenu).toContain('w-60 flex-col overflow-hidden pointer-fine:[.is-laptop-display_&]:w-52')
+    expect(reviewerMenu).toContain('pointer-fine:[.is-laptop-display_&]:h-8')
     expect(assignees).toContain('w-60 pointer-fine:[.is-laptop-display_&]:max-h-64 pointer-fine:[.is-laptop-display_&]:w-52')
     expect(assignees).toContain('pointer-fine:[.is-laptop-display_&]:h-8')
   })
 
-  it('gives the reviewer candidates a ceiling, and gives it to the list rather than the menu', () => {
+  it('gives reviewer candidates a viewport while the search field stays fixed', () => {
     // WHY: the host returns up to fifty collaborators and a dropdown has no
     // height of its own, so the menu ran off the bottom of the window. The cap
     // has to sit on the list: capping the menu instead would scroll the search
     // field — the only way to reach a name past the fold — out of view.
-    const list = reviewers.indexOf('{#each availableReviewerCandidates')
-    const search = reviewers.indexOf('aria-label="Search reviewers"')
+    const list = reviewerMenu.indexOf('{#each available as candidate')
+    const search = reviewerMenu.indexOf('aria-label="Search reviewers"')
     expect(list).toBeGreaterThan(-1)
     expect(search).toBeGreaterThan(-1)
 
-    const scrollport = reviewers.lastIndexOf('overflow-y-auto', list)
+    const scrollport = reviewerMenu.lastIndexOf('overflow-y-auto', list)
     expect(scrollport).toBeGreaterThan(search)
 
-    const opening = reviewers.slice(reviewers.lastIndexOf('<div', scrollport), list)
+    const opening = reviewerMenu.slice(reviewerMenu.indexOf('<DropdownMenu.Content'), search)
     expect(opening).toContain('max-h-[')
+    expect(opening).toContain('flex-col overflow-hidden')
+    expect(reviewerMenu.slice(search, list)).toContain(
+      'min-h-0 flex-1 overflow-y-auto overscroll-contain',
+    )
     // The window is what the ceiling is measured against, not a guessed number:
     // a menu opened near the bottom of the screen has less room than one opened
     // at the top, and only the floating layer knows which it is.
     expect(opening).toContain('--bits-dropdown-menu-content-available-height')
   })
+
+  it('draws every reviewer from their host avatar, not their initials', () => {
+    // WHY: the host hands each reviewer's image back with their verdict, and
+    // the rail used to drop it on the floor — the author had a face and every
+    // reviewer under them was a coloured disc.
+    const row = reviewers.slice(reviewers.indexOf('{#each reviewers as reviewer'))
+    expect(row.slice(0, row.indexOf('{/each}'))).toContain('url={reviewer.avatarUrl ?? ""}')
+  })
+
+  it('puts the verdict and its action in one cell, so the verdicts stay in a single edge', () => {
+    // WHY: a pending row used to carry an ✕ beside its verdict word, which
+    // pushed that row's word left of every other row's. Sharing a grid cell
+    // means the action takes the word's place on hover instead of a place
+    // beside it.
+    const row = reviewers.slice(reviewers.indexOf('{#each reviewers as reviewer'))
+    const cell = row.slice(0, row.indexOf('{/each}'))
+    expect(cell.match(/col-start-1 row-start-1/g)?.length).toBe(2)
+    expect(cell).toContain('pointer-fine:group-hover/reviewer:invisible')
+    expect(cell).toContain('pointer-fine:group-hover/reviewer:opacity-100')
+  })
 })
 
 /**
  * The action cluster has two homes with opposite geometry: a stacked column of
- * full-width controls inside the rail's merge card, and a row of content-width
- * controls in the bar that card becomes below the fold.
+ * full-width controls inside the rail's status card, and a row of content-width
+ * controls once the card is drawn inline beside its own headline.
  *
  * Both render one snippet, so the home has to be an argument. It was not, and
- * the bar drew the card's column — top margin and all — beside the readiness
+ * the row drew the card's column — top margin and all — beside the readiness
  * sentence, with the buttons hanging below the line they were meant to be on.
  */
-describe("the merge card's actions keep their geometry when the card becomes a bar", () => {
+describe("the status card's actions keep their geometry when the card becomes a row", () => {
   const dir = 'packages/workspace-ui/src/components/pr-review/'
   const cluster = read(`${dir}PrActions.svelte`)
   const merge = read(`${dir}MergeControl.svelte`)
   const conflicts = read(`${dir}ResolveConflictsButton.svelte`)
   const rail = read(`${dir}PrActivityRail.svelte`)
-  const bar = read(`${dir}PrMergeBar.svelte`)
   const feed = read(`${dir}ActivityFeed.svelte`)
 
   it('tells the shared cluster which of its two homes it is rendering in', () => {
     expect(feed).toContain('{#snippet prActions(layout: PrActionsLayout)}')
     expect(rail).toContain('{@render actions("card")}')
-    expect(bar).toContain('{@render actions("bar")}')
+    expect(rail).toContain('{@render actions("row")}')
   })
 
   it('passes that answer down to every control the cluster owns', () => {
     // A parent cannot override a child's own width or height from the outside,
     // so a control that is not told which home it is in stays card-shaped in
-    // the bar no matter what the cluster around it does.
+    // the row no matter what the cluster around it does.
     for (const tag of ['<ResolveConflictsButton', '<MergeControl']) {
       const open = cluster.slice(cluster.indexOf(tag))
       expect(open.slice(0, open.indexOf('/>'))).toContain('{layout}')
     }
-    expect(merge).toContain('const bar = $derived(layout === "bar")')
-    expect(conflicts).toContain('const bar = $derived(layout === "bar")')
+    expect(merge).toContain('const row = $derived(layout === "row")')
+    expect(conflicts).toContain('const row = $derived(layout === "row")')
   })
 
-  it('keeps the stacked card geometry out of the bar arm of every branch', () => {
-    // The card's utilities are the defect when they reach a one-line bar:
-    // `w-full` makes a row-item claim the whole bar, `mt-*` drops it off the
-    // bar's centre line, and `h-[34px]` leaves it taller than the Details
-    // trigger beside it.
+  it('keeps the stacked card geometry out of the row arm of every branch', () => {
+    // The card's utilities are the defect when they reach a one-line row:
+    // `w-full` makes a row-item claim the whole line, `mt-*` drops it off the
+    // centre line, and `h-[34px]` leaves it taller than the text beside it.
     for (const [name, source] of [
       ['PrActions', cluster],
       ['MergeControl', merge],
       ['ResolveConflictsButton', conflicts],
     ] as const) {
-      const arms = barArms(source)
+      const arms = rowArms(source)
       expect(arms.length).toBeGreaterThan(0)
       for (const arm of arms) {
         expect(`${name}: ${arm}`).not.toMatch(/\bw-full\b|\bmt-|h-\[34px\]/)
@@ -230,7 +290,7 @@ describe("the merge card's actions keep their geometry when the card becomes a b
   })
 })
 
-/** Every `bar ? "…" : "…"` arm taken when the control is rendering in the bar. */
-function barArms(source: string): string[] {
-  return [...source.matchAll(/\bbar\s*\?\s*(['"])(.*?)\1/g)].map((match) => match[2])
+/** Every `row ? "…" : "…"` arm taken when the control is rendering in the row. */
+function rowArms(source: string): string[] {
+  return [...source.matchAll(/\brow\s*\?\s*(['"])(.*?)\1/g)].map((match) => match[2])
 }

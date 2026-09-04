@@ -35,7 +35,8 @@
     onResolve: (threadId: string, resolved: boolean) => Promise<void>;
   } = $props();
 
-  const diffHunk = $derived(thread.comments[0]?.diffHunk);
+  const firstComment = $derived(thread.comments[0]);
+  const diffHunk = $derived(firstComment?.diffHunk);
 
   // Comment bodies are GitHub markdown — same pipeline + `.prose-pr`
   // typography as the PR description and the timeline's conversation rows.
@@ -95,13 +96,39 @@
 
 </script>
 
+{#if collapsed}
+  <!-- A resolved thread is a settled fact, not an open surface: one prose line
+       on the spine in the same voice as a commit row (the spine node already
+       carries the green check), so a run of resolved threads reads as a list
+       rather than a stack of empty cards. The row opens the full card. -->
+  <button
+    type="button"
+    class="group/resolved flex min-h-7 w-full cursor-pointer items-center gap-1.5 rounded-md pt-1 text-left text-muted-foreground transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+    onclick={() => (showResolved = true)}
+    aria-expanded="false"
+  >
+    <span class="min-w-0 flex-1 truncate">
+      <span class="font-medium text-foreground">{firstComment?.author}</span>
+      commented on
+      <span class="text-foreground">{fileName(thread.filePath)}{thread.line !== null ? `:${thread.line}` : ""}</span>
+      · resolved{#if thread.isOutdated} · outdated{/if}{#if firstComment}
+        · {formatTimeAgoFromTimestamp(new Date(firstComment.createdAt).getTime())}{/if}
+    </span>
+    <span
+      class="inline-flex shrink-0 items-center gap-1 text-xs opacity-0 transition-opacity group-hover/resolved:opacity-100 group-focus-visible/resolved:opacity-100 pointer-coarse:opacity-100"
+    >
+      Show thread
+      <CaretDownIcon size={12} weight="bold" />
+    </span>
+  </button>
+{:else}
 <div
-  class="overflow-hidden rounded-2xl border border-border bg-card text-review-row [.is-laptop-display_&]:rounded-xl"
+  class="overflow-hidden rounded-2xl border border-border bg-card [.is-laptop-display_&]:rounded-xl"
 >
   <div
     class="flex items-center gap-2 border-b border-border px-3 py-2 [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-1.5"
   >
-    {#if diffHunk && !collapsed}
+    {#if diffHunk}
       <Button
         type="button"
         variant="ghost"
@@ -142,24 +169,6 @@
     {/if}
   </div>
 
-  {#if collapsed}
-    <Button
-      type="button"
-      variant="ghost"
-      class="flex min-h-10 w-full justify-start cursor-pointer items-center gap-1.5 px-3 py-2.5 text-left hover:bg-muted"
-      onclick={() => (showResolved = true)}
-      aria-expanded="false"
-    >
-      <CheckCircleIcon size={20} weight="fill" class="shrink-0 text-(--solus-art-positive)" />
-      <span class="text-sm font-medium text-foreground">
-        Marked as resolved
-      </span>
-      <span class="ml-auto inline-flex items-center gap-1  text-muted-foreground">
-        Show thread
-        <CaretDownIcon size={14} weight="bold" />
-      </span>
-    </Button>
-  {:else}
     <!-- The diff GitHub anchored the thread to (first comment's hunk),
          rendered through the same @pierre/diffs engine as the Diff tab. -->
     {#if diffHunk && diffOpen}
@@ -254,5 +263,5 @@
         </div>
       {/if}
     </div>
-  {/if}
 </div>
+{/if}

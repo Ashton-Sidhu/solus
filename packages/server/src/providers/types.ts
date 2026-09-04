@@ -9,10 +9,12 @@ import type {
   PrCommit,
   PrConversationItem,
   PrFilter,
+  PrLabel,
   PrListPage,
   PrReviewer,
   PrReviewerCandidate,
   PrLifecycleAction,
+  ProviderViewer,
   PullRequest,
   PullRequestOverview,
   PullRequestUpdate,
@@ -95,6 +97,8 @@ export interface ReviewProvider {
    *  candidate list only needs the author off it. Asking for a number here made
    *  the provider read the same pull request a second time. */
   listReviewerCandidates(repo: RepoRef, pullRequest: PullRequest): Promise<PrReviewerCandidate[]>
+  listLabelCandidates(repo: RepoRef): Promise<PrLabel[]>
+  setLabels(repo: RepoRef, number: number, names: string[]): Promise<PrLabel[]>
   listComments(repo: RepoRef, number: number): Promise<PrConversationItem[]>
   listChecks(repo: RepoRef, numbers: number[]): Promise<NumberedPrChecksSummary[]>
 
@@ -132,6 +136,8 @@ export interface ReviewProvider {
   /** Login for the token's viewer. A repository selects the credential that
    *  can access it before answering. Implementations cache this per token. */
   getViewer(repo?: RepoRef): Promise<string>
+  /** The token's viewer as a client draws it: login plus host avatar. */
+  getViewerProfile(): Promise<ProviderViewer>
 }
 
 /** A host is the pair `{ auth, review }`, keyed by its `ProviderId`. */

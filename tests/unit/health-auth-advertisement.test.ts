@@ -56,6 +56,16 @@ describe('/health auth advertisement', () => {
     }
   })
 
+  test('advertises the configured display name instead of the network hostname', async () => {
+    const { server, baseUrl } = await listen({ name: () => 'Ashton\u2019s Mac mini' })
+    try {
+      const health = await getJson(`${baseUrl}/health`)
+      expect(health.body.name).toBe('Ashton\u2019s Mac mini')
+    } finally {
+      await close(server)
+    }
+  })
+
   test('a require-auth bind still advertises open to a trusted requester', async () => {
     // The bind policy is per-server, but trust is per-caller: the machine
     // itself and the host's own tailnet skip pairing even on a locked bind.
@@ -85,7 +95,7 @@ describe('/health auth advertisement', () => {
   })
 })
 
-async function listen(opts: Pick<HttpServerOptions, 'requireAuth' | 'isTrustedRequester'>): Promise<{ server: Server; baseUrl: string }> {
+async function listen(opts: Pick<HttpServerOptions, 'name' | 'requireAuth' | 'isTrustedRequester'>): Promise<{ server: Server; baseUrl: string }> {
   const { server } = buildHttpServer({ host: '127.0.0.1', port: 0, ...opts })
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject)

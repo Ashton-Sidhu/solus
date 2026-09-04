@@ -1,6 +1,6 @@
 import { createSocket, type RemoteInfo, type Socket } from 'dgram'
 import { randomBytes } from 'crypto'
-import { hostname, networkInterfaces } from 'os'
+import { networkInterfaces } from 'os'
 import { createLogger } from '../logger'
 import type { DiscoveredServer } from '@solus/contracts/types'
 import { z } from 'zod'
@@ -61,6 +61,7 @@ type DiscoveryMessage = DiscoveryQuery | DiscoveryResponse
 
 export interface LanDiscoveryAdvertisement {
   port: number
+  name: string
   installationId: string
   isReachable: boolean
 }
@@ -148,7 +149,7 @@ function respondToQuery(
     type: 'response',
     nonce: query.nonce,
     port: advertisement.port,
-    name: hostname() || 'Solus Server',
+    name: advertisement.name,
     installationId: advertisement.installationId,
     os: hostOperatingSystem(),
   }

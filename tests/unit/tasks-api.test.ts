@@ -2,6 +2,8 @@ import { describe, expect, test } from 'bun:test'
 import type { Task } from '@solus/contracts/task-types'
 import {
   buildBoard,
+  DEFAULT_TASK_SORT,
+  sortTasks,
   STATUS_META,
   TASK_STATUSES,
 } from '@solus/workspace-ui/components/tasks/lib/tasks-api'
@@ -48,6 +50,24 @@ describe('buildBoard', () => {
       .toEqual(['untriaged', 'ready', 'github-issue'])
     expect(columns.find((column) => column.status === 'done')?.tasks.map((row) => row.id))
       .toEqual(['abandoned', 'shipped'])
+  })
+})
+
+describe('task list sort', () => {
+  test('defaults to newest-created and keeps tasks without a creation time ordered by their update', () => {
+    // WHY: a new task should start at the top of the list even when an older
+    // task receives activity. Provider tasks that omit createdAt still need a
+    // deterministic place instead of producing a NaN comparator.
+    expect(DEFAULT_TASK_SORT).toBe('created')
+    const older = { ...task('older', 'todo', 'local'), createdAt: 10, updatedAt: 100 }
+    const newer = { ...task('newer', 'todo', 'local'), createdAt: 20, updatedAt: 20 }
+    const providerFallback = { ...task('provider', 'todo', 'github'), updatedAt: 15 }
+
+    expect(sortTasks([older, providerFallback, newer], DEFAULT_TASK_SORT).map(({ id }) => id)).toEqual([
+      'newer',
+      'provider',
+      'older',
+    ])
   })
 })
 

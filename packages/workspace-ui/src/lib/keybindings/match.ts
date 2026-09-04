@@ -19,8 +19,11 @@ export function eventMatches(e: KeyboardEvent, combo: KeyCombo): boolean {
   if (e.code !== combo.code) return false
   if (!!combo.alt !== e.altKey) return false
   if (!!combo.shift !== e.shiftKey) return false
-  const wantsMeta = combo.mod ? isMac : !!combo.meta
-  const wantsCtrl = combo.mod ? !isMac : !!combo.ctrl
+  // `mod` names the platform's primary modifier. Explicit secondary modifiers
+  // still apply, so `mod + ctrl` means Command-Control on macOS rather than
+  // silently dropping Control.
+  const wantsMeta = !!combo.meta || (!!combo.mod && isMac)
+  const wantsCtrl = !!combo.ctrl || (!!combo.mod && !isMac)
   if (wantsMeta !== e.metaKey) return false
   if (wantsCtrl !== e.ctrlKey) return false
   return true
@@ -79,9 +82,9 @@ function codeToLabel(code: string): string {
 
 export function formatCombo(combo: KeyCombo): string[] {
   const keys: string[] = []
-  if (combo.mod || (isMac && combo.meta) || (!isMac && combo.ctrl)) keys.push('⌘')
-  else if (combo.meta) keys.push('⌘')
-  else if (combo.ctrl) keys.push('⌃')
+  if (combo.mod) keys.push('⌘')
+  if (combo.meta && !(combo.mod && isMac)) keys.push('⌘')
+  if (combo.ctrl && !(combo.mod && !isMac)) keys.push('⌃')
   if (combo.alt) keys.push('⌥')
   if (combo.shift) keys.push('⇧')
   keys.push(codeToLabel(combo.code))
@@ -123,8 +126,8 @@ interface EffectiveModifiers {
 
 function effectiveMods(combo: KeyCombo): EffectiveModifiers {
   return {
-    meta: combo.mod ? isMac : !!combo.meta,
-    ctrl: combo.mod ? !isMac : !!combo.ctrl,
+    meta: !!combo.meta || (!!combo.mod && isMac),
+    ctrl: !!combo.ctrl || (!!combo.mod && !isMac),
   }
 }
 
@@ -188,10 +191,8 @@ export function comboToAccelerator(combo: KeyCombo): string | null {
   if (!key) return null
   const parts: string[] = []
   if (combo.mod) parts.push('CommandOrControl')
-  else {
-    if (combo.meta) parts.push('Command')
-    if (combo.ctrl) parts.push('Control')
-  }
+  if (combo.meta && !(combo.mod && isMac)) parts.push('Command')
+  if (combo.ctrl && !(combo.mod && !isMac)) parts.push('Control')
   if (combo.alt) parts.push('Alt')
   if (combo.shift) parts.push('Shift')
   parts.push(key)

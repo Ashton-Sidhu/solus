@@ -325,6 +325,7 @@ describe('PR mutation results', () => {
         mergeMethods: ['squash'],
         reviewerRequests: true,
         reviewerCandidates: true,
+        labelManagement: true,
       },
       viewerPermissions: {
         actions: ['ready'],
@@ -332,6 +333,7 @@ describe('PR mutation results', () => {
         comment: true,
         resolveThreads: true,
         requestReviewers: false,
+        manageLabels: false,
       },
     } satisfies PullRequest
 
@@ -371,6 +373,7 @@ describe('PR mutation results', () => {
         mergeMethods: ['squash'],
         reviewerRequests: true,
         reviewerCandidates: true,
+        labelManagement: true,
       },
       viewerPermissions: {
         actions: ['reopen'],
@@ -378,6 +381,7 @@ describe('PR mutation results', () => {
         comment: true,
         resolveThreads: true,
         requestReviewers: true,
+        manageLabels: true,
       },
     } satisfies PullRequest
     Object.assign((globalThis as unknown as { window: { solus: object } }).window.solus, {

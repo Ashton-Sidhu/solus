@@ -28,8 +28,8 @@ export function isOutlineOpen(reasons: Set<OutlineReason>): boolean {
  *
  * `canRevealPanel` is the fit rule, and it outranks every reason: the panel
  * renders beside the prose or not at all. Where there is no margin to unfold
- * into, hovering the gutter bars does nothing — the contents opens from the
- * header instead, over the toolbar's empty band rather than over glyphs.
+ * into, the gutter keeps its bars and hovering one names that section alone —
+ * a single label is a margin note the measure can carry, a 262px card is not.
  */
 export function isOutlineVisible(
   reasons: Set<OutlineReason>,
@@ -72,6 +72,22 @@ const OUTLINE_ROOM_MIN_PX = { standard: 1408, laptop: 992 }
 export function hasOutlineMarginRoom(shellWidth: number, isLaptopDisplay: boolean): boolean {
   const min = isLaptopDisplay ? OUTLINE_ROOM_MIN_PX.laptop : OUTLINE_ROOM_MIN_PX.standard
   return shellWidth >= min
+}
+
+/**
+ * Whether the gutter rail itself renders. It mirrors
+ * `@container doc-shell (max-width: 45rem)` in DocumentShell.svelte, which
+ * drops the sleeve entirely; keep the two in step or the header trigger and the
+ * ticks both vanish at the same width.
+ *
+ * Between this floor and the margin-room gate there are ticks but no panel, and
+ * hovering a tick names its section. Below it there is nothing to hover, so the
+ * contents goes back to opening from the header.
+ */
+const TICK_RAIL_MIN_PX = 720
+
+export function hasOutlineTickRail(shellWidth: number): boolean {
+  return shellWidth > TICK_RAIL_MIN_PX
 }
 
 /** Reasons that keep it open with no dwell timer — they end explicitly. */

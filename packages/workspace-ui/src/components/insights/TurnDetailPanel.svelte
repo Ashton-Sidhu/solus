@@ -11,7 +11,7 @@
   import { turnAttributes } from "./lib/turn-attributes";
   import { turnTranscript } from "./lib/turn-transcript";
   import { insightsStore } from "./insights.store.svelte";
-  import ProviderMark from "./ProviderMark.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import SessionContextChart from "./SessionContextChart.svelte";
   import SessionSummary from "./SessionSummary.svelte";
   import TraceCoverage from "./TraceCoverage.svelte";

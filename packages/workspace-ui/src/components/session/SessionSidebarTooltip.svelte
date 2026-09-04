@@ -8,7 +8,9 @@
   import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import { worktreeDisplayName } from "../../lib/git-context";
+  import { MODEL_PROFILES } from "@solus/contracts/types";
   import type { ReviewGuideIndicatorStatus } from "./lib/task-list";
+  import ProviderMark from "../ui/ProviderMark.svelte";
 
   interface Props {
     title: string;
@@ -16,6 +18,8 @@
     projectLabel?: string;
     branchName?: string | null;
     serverId?: string | null;
+    provider?: string | null;
+    modelId?: string | null;
     attention?: AttentionState;
     reviewGuideStatus?: ReviewGuideIndicatorStatus;
   }
@@ -26,6 +30,8 @@
     projectLabel,
     branchName,
     serverId,
+    provider,
+    modelId,
     attention,
     reviewGuideStatus,
   }: Props = $props();
@@ -41,6 +47,22 @@
   // The `solus/` namespace is true of every worktree Solus mints, so it names
   // nothing here either — the tooltip reads the same slug as the row.
   const resolvedBranchLabel = $derived(branchName ? worktreeDisplayName(branchName) : "");
+  const providerMark = $derived(
+    provider === "claude" || provider === "claude-code"
+      ? "claude"
+      : provider === "codex"
+        ? "codex"
+        : null,
+  );
+  const modelLabel = $derived.by(() => {
+    if (!modelId) return "";
+    if (provider === "claude" || provider === "claude-code") {
+      return MODEL_PROFILES["claude-code"]?.[modelId]?.label ?? modelId;
+    }
+    if (provider === "codex") return MODEL_PROFILES.codex?.[modelId]?.label ?? modelId;
+    if (provider === "opencode") return MODEL_PROFILES.opencode?.[modelId]?.label ?? modelId;
+    return modelId;
+  });
 </script>
 
 <TooltipUI.Content
@@ -66,6 +88,14 @@
             <LaptopIcon class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3" />
           {/if}
           <span class="min-w-0 truncate text-(--solus-text-secondary)">{resolvedProjectLabel}</span>
+        </div>
+      {/if}
+      {#if modelLabel}
+        <div class="flex min-w-0 items-center gap-2">
+          <span class="flex w-3.5 shrink-0 items-center justify-center [.is-laptop-display_&]:w-3">
+            <ProviderMark mark={providerMark} size={11} transparent />
+          </span>
+          <span class="min-w-0 truncate text-(--solus-text-secondary)">{modelLabel}</span>
         </div>
       {/if}
       <div class="flex min-w-0 items-center gap-2">

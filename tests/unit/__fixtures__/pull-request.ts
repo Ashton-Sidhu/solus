@@ -50,6 +50,7 @@ export function pullRequestFixture(
       mergeMethods: ['merge', 'squash', 'rebase'],
       reviewerRequests: true,
       reviewerCandidates: true,
+      labelManagement: true,
     },
     viewerPermissions: {
       actions: ['merge', 'close', 'reopen', 'ready', 'draft'],
@@ -57,6 +58,7 @@ export function pullRequestFixture(
       comment: true,
       resolveThreads: true,
       requestReviewers: true,
+      manageLabels: true,
     },
     ...overrides,
   }

@@ -24,15 +24,15 @@ export const CHECK_ROW_HEIGHT = { standard: 30, laptop: 28 } as const
  * shell's whole budget, and below that something has to give.
  *
  * This is the only place the rung exists. The rail used to fold under the
- * reading column at a `@max-[1000px]` of its own while the bottom bar that
- * replaces its card appeared at a JavaScript rung of 30rem, which left every
- * pane between the two with a rail stacked under the comment composer and no
- * bar. There is no stylesheet mirror to drift from now: above the rung the rail
- * is a column, below it the whole rail is the sheet `PrMergeBar` opens.
+ * reading column at a `@max-[1000px]` of its own while its replacement
+ * appeared at a JavaScript rung of 30rem, which left every pane between the
+ * two with a rail stacked under the comment composer and nothing standing in
+ * for it. There is no stylesheet mirror to drift from now: above the rung the
+ * rail is a column, below it the whole rail is drawn inline under the title.
  */
 export const RAIL_FOLD_MAX = 1000
 
-/** True once the rail has lost its column and moved into the sheet. */
+/** True once the rail has lost its column and moved under the title. */
 export function isRailFolded(contentWidth: number): boolean {
   // Width 0 is the frame before the observer reports; answering "folded" then
   // would flash the bottom bar on every mount on a wide display.

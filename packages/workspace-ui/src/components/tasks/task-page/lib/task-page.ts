@@ -15,6 +15,7 @@ import type {
 import type { DocProviderId } from '@solus/contracts/docs'
 import type { Work } from '@solus/contracts/types'
 import { sessionDisplayName } from '../../../../lib/sessionUtils'
+import { labelChangeText } from '../../../../lib/label-activity'
 import { PRIORITY_META, STATUS_META } from '../../lib/tasks-api'
 import { linkedPrTitle } from './task-prs'
 
@@ -400,7 +401,7 @@ export function eventLine(event: TaskEvent): TaskEventLine {
     case 'parent_changed':
       return { icon: EVENT_GLYPHS.arrow, text: `${who} changed the parent task` }
     case 'labels_changed':
-      return { icon: EVENT_GLYPHS.arrow, text: `${who} changed the labels` }
+      return { icon: EVENT_GLYPHS.arrow, text: labelsChangedText(who, event.from, event.to) }
     case 'linked':
       return { icon: EVENT_GLYPHS.link, text: `${who} linked ${target}` }
     case 'unlinked':
@@ -415,6 +416,31 @@ export function eventLine(event: TaskEvent): TaskEventLine {
     case 'woke':
       return { icon: EVENT_GLYPHS.clock, text: `${who} woke this task` }
   }
+}
+
+/** Decode the exact JSON snapshots written for every label event. */
+function eventLabels(value: string | null | undefined): string[] {
+  if (value == null) throw new TypeError('Label activity requires a label snapshot')
+  const labels: unknown = JSON.parse(value)
+  if (!Array.isArray(labels) || !labels.every((label) => typeof label === 'string')) {
+    throw new TypeError('Label activity snapshot must be a string array')
+  }
+  return labels
+}
+
+function labelsChangedText(
+  who: string,
+  fromValue: string | null | undefined,
+  toValue: string | null | undefined,
+): string {
+  const before = eventLabels(fromValue)
+  const after = eventLabels(toValue)
+
+  const beforeNames = new Set(before)
+  const afterNames = new Set(after)
+  const added = after.filter((label) => !beforeNames.has(label))
+  const removed = before.filter((label) => !afterNames.has(label))
+  return labelChangeText(who, added, removed)
 }
 
 function statusName(status: string | null | undefined): string {

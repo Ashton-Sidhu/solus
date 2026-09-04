@@ -37,6 +37,36 @@ const graphqlCredentialAccessFailureSchema = z.object({
     type: z.union([z.literal('FORBIDDEN'), z.literal('NOT_FOUND')]),
   })).nonempty(),
 })
+const githubFailureSchema = z.object({
+  status: z.number().optional(),
+  errors: z.array(z.object({ type: z.string() })).optional(),
+})
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+function failureFacts(error: unknown): { status: number | null; errorTypes: string[] } {
+  const parsed = githubFailureSchema.safeParse(error)
+  return parsed.success
+    ? {
+        status: parsed.data.status ?? null,
+        errorTypes: parsed.data.errors?.map(({ type }) => type) ?? [],
+      }
+    : { status: null, errorTypes: [] }
+}
+
+function requestPath(url: string): string {
+  try {
+    return new URL(url).pathname
+  } catch {
+    return url.split('?')[0]
+  }
+}
+
+function graphqlOperation(document: string): string {
+  return /\b(?:query|mutation)\s+([A-Za-z_][A-Za-z0-9_]*)/.exec(document)?.[1] ?? 'anonymous'
+}
 
 /** True when GitHub rejected this credential rather than the operation itself.
  * REST reports status 403/404. GraphQL returns HTTP 200 and puts FORBIDDEN or
@@ -86,7 +116,20 @@ function createClient(credential: GithubCredential): GitHubClient {
   }
 
   const rest = new Octokit({ auth: credential.token, userAgent: 'Solus' })
+  rest.hook.before('request', (options) => {
+    log.info('github_rest_request_started', {
+      source: credential.source,
+      method: options.method,
+      path: requestPath(options.url),
+    })
+  })
   rest.hook.error('request', (error) => {
+    const facts = failureFacts(error)
+    log.warn('github_rest_request_failed', {
+      source: credential.source,
+      status: facts.status,
+      error: errorMessage(error),
+    })
     if (unauthorizedSchema.safeParse(error).success) rejected()
     throw error
   })
@@ -98,9 +141,19 @@ function createClient(credential: GithubCredential): GitHubClient {
     document: string,
     parameters?: GraphQLParameters,
   ): Promise<ResponseData> => {
+    const operation = graphqlOperation(document)
+    log.info('github_graphql_request_started', { source: credential.source, operation })
     try {
       return await query<ResponseData>(document, parameters)
     } catch (error) {
+      const facts = failureFacts(error)
+      log.warn('github_graphql_request_failed', {
+        source: credential.source,
+        operation,
+        status: facts.status,
+        errorTypes: facts.errorTypes,
+        error: errorMessage(error),
+      })
       if (unauthorizedSchema.safeParse(error).success) rejected()
       throw error
     }

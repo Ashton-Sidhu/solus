@@ -76,9 +76,9 @@ describe('generateMetadataWith', () => {
       })
   })
 
-  test('requires both structured fields rather than inventing a ticket description', async () => {
-    // WHY: a title-only fallback would leave the new session-born ticket empty,
-    // violating the metadata generation contract while appearing successful.
+  test('rejects unstructured prose instead of using it as a legacy title fallback', async () => {
+    // WHY: accepting final prose would create a second naming protocol beside
+    // the structured tool and let commentary leak into the session index.
     const dispatcher = dispatcherAnswering({ prose: 'Worktree Cleanup' })
     expect(await generateMetadataWith(dispatcher, 'codex', 'delete stale worktrees', '/repo')).toBeNull()
   })
@@ -104,5 +104,88 @@ describe('generateMetadataWith', () => {
     })
     await generateMetadataWith(claude, 'claude-code', 'let me rename sessions', '/repo')
     expect(claude.requests[0].model).toBe('claude-haiku-4-5-20251001')
+  })
+
+  test('names the durable subject and excludes incidental workflow instructions', async () => {
+    // WHY: session names must stay recognizable after planning, implementation,
+    // review, and other temporary workflow steps are complete.
+    const dispatcher = dispatcherAnswering({
+      submitted: {
+        title: 'Session Naming Prompt',
+        description: 'Use durable subject and outcome language when naming sessions.',
+      },
+    })
+    await generateMetadataWith(
+      dispatcher,
+      'codex',
+      'use a subagent to make a plan for improving session names',
+      '/repo',
+    )
+
+    expect(dispatcher.requests[0].prompt).toContain(
+      'Title the subject and outcome. Discard incidental instructions.',
+    )
+    expect(dispatcher.requests[0].prompt).toContain(
+      'Name the product change, not the mock, plan, report, branch, or PR used to produce it.',
+    )
+    expect(dispatcher.requests[0].prompt).toContain(
+      'Models, subagents, tools, output formats, and monitoring instructions do not belong in the title',
+    )
+    expect(dispatcher.requests[0].prompt).toContain(
+      'User message:\nuse a subagent to make a plan for improving session names',
+    )
+  })
+
+  test('passes image content and safe attachment metadata to the naming run', async () => {
+    // WHY: a screenshot can be the only place that identifies the UI problem,
+    // while its client-local path must not be required by the host.
+    const dispatcher = dispatcherAnswering({
+      submitted: {
+        title: 'Mobile Navigation Overflow',
+        description: 'Correct the mobile navigation overflow shown in the attached screenshot.',
+      },
+    })
+    const imageAttachments = [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,AAAA' }]
+    await generateMetadataWith(
+      dispatcher,
+      'codex',
+      'fix this',
+      '/repo',
+      undefined,
+      {
+        attachments: [{ name: 'mobile.png', type: 'image', mimeType: 'image/png', size: 1234 }],
+        imageAttachments,
+      },
+    )
+
+    expect(dispatcher.requests[0].imageAttachments).toEqual(imageAttachments)
+    expect(dispatcher.requests[0].maxTurns).toBe(4)
+    expect(dispatcher.requests[0].prompt).toContain(
+      'Attachment metadata:\n- mobile.png (image, image/png, 1234 bytes)',
+    )
+    expect(dispatcher.requests[0].prompt).toContain(
+      'Use attached images as primary context for UI issues.',
+    )
+  })
+
+  test('allows linked context inspection before structured submission', async () => {
+    // WHY: a link can be the only source that identifies the durable subject.
+    const dispatcher = dispatcherAnswering({
+      submitted: {
+        title: 'Take Over PR 8588',
+        description: 'Take over the linked pull request and continue its work.',
+      },
+    })
+    await generateMetadataWith(
+      dispatcher,
+      'codex',
+      'take over https://github.com/example/project/pull/8588',
+      '/repo',
+    )
+
+    expect(dispatcher.requests[0].maxTurns).toBe(4)
+    expect(dispatcher.requests[0].prompt).toContain(
+      'When a URL or attachment is the only source of the subject, use available tools to inspect it directly.',
+    )
   })
 })

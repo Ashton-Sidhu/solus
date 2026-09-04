@@ -56,7 +56,9 @@
   import {
     STATUS_META,
     BOARD_COLUMNS,
+    DEFAULT_TASK_SORT,
     relativeTime,
+    sortTasks,
     type TaskSort,
   } from "./lib/tasks-api";
   import { taskCreationContextFor } from "./lib/task-creation-context";
@@ -290,7 +292,7 @@
   let layout = $state<"list" | "board">("list");
   const boardLayout = $derived(layout === "board");
   let query = $state("");
-  let sort = $state<TaskSort>("updated");
+  let sort = $state<TaskSort>(DEFAULT_TASK_SORT);
   let runningOnly = $state(false);
   let overdueOnly = $state(false);
   let assignedOnly = $state(false);
@@ -327,6 +329,7 @@
   }
 
   const SORT_OPTIONS: { value: TaskSort; label: string }[] = [
+    { value: "created", label: "Created" },
     { value: "updated", label: "Updated" },
     { value: "priority", label: "Priority" },
     { value: "due", label: "Due" },
@@ -433,7 +436,7 @@
     if (runningOnly) rows = rows.filter((task) => sessionsFor(task.id) > 0);
     if (overdueOnly) rows = rows.filter(isOverdue);
     if (assignedOnly) rows = rows.filter((task) => !!task.assignee);
-    return sortTasks(rows);
+    return sortTasks(rows, sort);
   });
 
   // The board's manual order renumbers the column a card lands in, so it only
@@ -442,24 +445,6 @@
   const boardUnfiltered = $derived(
     !query.trim() && !runningOnly && !overdueOnly && !assignedOnly,
   );
-
-  function sortTasks(tasks: Task[]): Task[] {
-    const rank = (task: Task) =>
-      task.priority
-        ? { urgent: 0, high: 1, medium: 2, low: 3 }[task.priority]
-        : 4;
-    const due = (task: Task) =>
-      task.dueDate
-        ? Date.parse(`${task.dueDate}T00:00:00`) || Infinity
-        : Infinity;
-    const arr = [...tasks];
-    if (sort === "priority")
-      arr.sort((a, b) => rank(a) - rank(b) || b.updatedAt - a.updatedAt);
-    else if (sort === "due")
-      arr.sort((a, b) => due(a) - due(b) || b.updatedAt - a.updatedAt);
-    else arr.sort((a, b) => b.updatedAt - a.updatedAt);
-    return arr;
-  }
 
   const groups = $derived(taskGroups(visibleTasks, sessionsFor, now));
   const inboxGroups = $derived.by(() => {

@@ -2,14 +2,10 @@
   import { tick, untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import {
-    RefreshCw as ArrowsClockwiseIcon,
-    GitPullRequest as GitPullRequestIcon,
     ArrowUp as ArrowUpIcon,
     Pen as PencilSimpleIcon,
-    SlidersHorizontal as PropertiesIcon,
   } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import { BottomSheet } from "../ui/bottom-sheet";
   import { CommentPostingBar } from "../ui/comment-posting-bar";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
   import { projectScopeOf, type ChangedFileStat, type IpcContext } from "@solus/contracts/types";
@@ -20,8 +16,10 @@
     PrCommit,
     PrConversationItem,
     PrLifecycleAction,
+    PrLabel,
     PrReviewer,
     PrReviewerCandidate,
+    ProviderViewer,
   } from "@solus/contracts/providers";
   import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -39,13 +37,17 @@
   import { Input } from "../ui/input";
   import { Skeleton } from "../ui/skeleton";
   import PrAvatar from "../prs/PrAvatar.svelte";
-  import type { ActivityFilter, PrActivityTarget } from "./lib/activity-data";
+  import type {
+    ActivityFilter,
+    PrActivityDataSource,
+    PrActivityTarget,
+  } from "./lib/activity-data";
   import {
     buildActivityTimeline,
     filterActivityTimeline,
+    hasVisibleBody,
   } from "./lib/activity-data";
   import PrActivityRail from "./PrActivityRail.svelte";
-  import PrMergeBar from "./PrMergeBar.svelte";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import { observeContainerWidth } from "../../lib/pane-width";
   import { isRailFolded } from "./lib/rail-rows";
@@ -53,13 +55,12 @@
   import PrActions from "./PrActions.svelte";
   import PrOverflowMenu from "./PrOverflowMenu.svelte";
   import PrStatusChip from "./PrStatusChip.svelte";
-  import PrMetaBand from "./PrMetaBand.svelte";
+  import PrChangeFacts from "./PrChangeFacts.svelte";
+  import PrIdentityLink from "./PrIdentityLink.svelte";
+  import PrReviewerFacts from "./PrReviewerFacts.svelte";
+  import PrLabelFacts from "./PrLabelFacts.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
   import { prSurfaceError, type PrSurfaceError } from "../prs/lib/pr-surface-error";
-  import {
-    prActivityLoadFailureMessage,
-    type PrActivityDataSource,
-  } from "./lib/activity-load-failure";
 
   // The Activity tab: a Linear-style PR overview. The centered main column shows
   // the title, author/branch meta, the PR description, and an activity timeline
@@ -80,6 +81,7 @@
     onGenerateGuide,
     generationStatus,
     onChat,
+    chatBusy = false,
     onJump,
     onOpenCommit,
     onRefreshThreads,
@@ -113,6 +115,8 @@
      *  The durable store takes over as soon as the request is queued. */
     generationStatus?: PrGuideStatus;
     onChat?: () => void;
+    /** The shared PR chat is being created or attached to its checkout. */
+    chatBusy?: boolean;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Open the diff scoped to one commit's changes. */
@@ -155,6 +159,7 @@
   let comments = $state<PrConversationItem[]>([]);
   let reviewers = $state<PrReviewer[]>([]);
   let reviewerCandidates = $state<PrReviewerCandidate[]>([]);
+  let labelCandidates = $state<PrLabel[]>([]);
   let changedFiles = $state<ChangedFileStat[]>([]);
   // Per-section loading so each region fills in as its own request resolves,
   // rather than the whole tab waiting on the slowest call. Threads come from the
@@ -165,26 +170,30 @@
   let reviewersLoading = $state(true);
   let reviewerCandidatesLoading = $state(false);
   let reviewerMutation = $state<string | null>(null);
+  let labelCandidatesLoading = $state(false);
+  let labelsMutation = $state(false);
   let filesLoading = $state(true);
-  // Any provider load rejecting (expired token, network) flips this so the
-  // tab shows an explicit error + retry instead of masquerading as an empty PR.
+  // Any provider load rejecting (expired token, network) lands here, and the
+  // section that asked says so in place — a description that could not be
+  // read, a spine with no events, a reviewer list with no rows — instead of
+  // masquerading as an empty PR. Only a missing GitHub connection is said once
+  // for the whole tab, because it is the one failure with a single fix.
   const failedLoads = new SvelteSet<PrActivityDataSource>();
   let loadError = $state<PrSurfaceError | null>(null);
-  const loadFailureMessage = $derived(
-    prActivityLoadFailureMessage(failedLoads, threadsFailed),
+  const timelineLoadFailed = $derived(
+    failedLoads.has("commits") || failedLoads.has("comments") || threadsFailed,
   );
 
   let composer = $state("");
   let posting = $state(false);
   let scrollViewport = $state<HTMLElement | null>(null);
 
-  // When the rail folds under the reading column it takes merge readiness past
-  // every comment on the pull request, so the bar below takes it back out. That
-  // trade is only sound if the two fire together, which means reading the same
-  // number off the same box: the content row is the `@container` the rail's
-  // rung is resolved against, and a container query measures its content box.
-  // The row's own border box would be 104px wider, which is a whole band of
-  // pane widths with a folded rail and no bar.
+  // Below the rung the rail has no column, so it is drawn inline under the
+  // title instead — the status card first, then the reference sections folded.
+  // The decision reads the content row's own box: the row is the `@container`
+  // the rail's rung is resolved against, and a container query measures its
+  // content box. The row's border box would be 104px wider, which is a whole
+  // band of pane widths with the rail in the wrong home.
   let contentRowEl = $state<HTMLElement | null>(null);
   let contentRowWidth = $state(0);
   $effect(() => {
@@ -192,10 +201,6 @@
     return observeContainerWidth(contentRowEl, (width) => (contentRowWidth = width));
   });
   const railFolded = $derived(isRailFolded(contentRowWidth));
-  /** Whether the sheet holding the rail is open. It is only ever reachable
-   *  while folded, and the `{#if railFolded && railOpen}` guard closes it on
-   *  its own when the pane widens and the rail takes its column back. */
-  let railOpen = $state(false);
   let deletingCommentIds = $state(new SvelteSet<string>());
   let editing = $state(false);
   let titleDraft = $state("");
@@ -205,10 +210,11 @@
   let titleInput = $state<HTMLInputElement | null>(null);
   let addressingComments = $state(false);
   let fixingCheckId = $state<string | null>(null);
-  // The provider token's login — who a posted comment will belong to. Empty
+  // The provider token's account — who a posted comment will belong to. Null
   // until the (cached) lookup resolves or when it fails; the avatar then shows
   // a neutral "?" rather than guessing an identity.
-  let viewerLogin = $state("");
+  let viewer = $state<ProviderViewer | null>(null);
+  const viewerLogin = $derived(viewer?.login ?? "");
 
   // Timeline focus: one quiet header control. `unresolvedOnly` and `filter`
   // are mutually exclusive — selecting either clears the other.
@@ -237,6 +243,23 @@
   const openedTime = $derived(
     openedAt ? formatTimeAgoFromTimestamp(openedAt) : null,
   );
+  // The line beside the author says when the pull request last moved, the
+  // way its host does; the rail's readiness note still says when it opened.
+  const updatedTime = $derived(
+    detail ? formatTimeAgoFromTimestamp(new Date(detail.updatedAt).getTime()) : null,
+  );
+  // Identity the way the host writes it — `owner/repo` — from the base
+  // repository the target names. `owner` on the target is the author login,
+  // so it never stands in for the repository's owner.
+  const repoLabel = $derived(
+    pr.repo ? (pr.remoteOwner ? `${pr.remoteOwner}/${pr.repo}` : pr.repo) : null,
+  );
+  const canRequestReviewers = $derived(
+    !!detail?.capabilities.reviewerRequests && detail.viewerPermissions.requestReviewers,
+  );
+  const canManageLabels = $derived(
+    !!detail?.capabilities.labelManagement && detail.viewerPermissions.manageLabels,
+  );
   // A PR opened by number alone (deep link, `#123` in a message) carries no
   // title until detail lands — hold the masthead's space instead of letting the
   // heading collapse and shove everything below it up a line.
@@ -245,11 +268,12 @@
   const authorAvatarUrl = $derived(
     detail?.authorAvatarUrl ?? pr.authorAvatarUrl ?? "",
   );
-  // Providers only hand us avatar images per PR author, so reuse that image
-  // when the viewer authored this PR (the common Solus case); otherwise the
-  // login's initials disc.
+  // The host's own image for the account, so the composer shows the same face
+  // the posted comment will. Falls back to the author's image when the viewer
+  // opened this PR and the host reported no avatar; otherwise the initials disc.
   const viewerAvatarUrl = $derived(
-    viewerLogin && viewerLogin === authorName ? authorAvatarUrl : "",
+    viewer?.avatarUrl ??
+      (viewerLogin && viewerLogin === authorName ? authorAvatarUrl : ""),
   );
   // Size of the change, stated once under the title in the meta band. The rail
   // lists the files; the band only says how big a read this is.
@@ -283,7 +307,7 @@
     threads.reduce((count, thread) => count + (thread.isResolved ? 0 : 1), 0),
   );
   const feedbackCount = $derived(
-    unresolvedCount + comments.reduce((count, item) => count + (item.body.trim() ? 1 : 0), 0),
+    unresolvedCount + comments.reduce((count, item) => count + (hasVisibleBody(item.body) ? 1 : 0), 0),
   );
 
   function markLoadFailed(
@@ -310,6 +334,7 @@
     comments = cached.comments ?? [];
     reviewers = cached.reviewers ?? [];
     reviewerCandidates = cached.reviewerCandidates ?? [];
+    labelCandidates = [];
     changedFiles = cached.changedFiles ?? [];
     failedLoads.clear();
     loadError = null;
@@ -322,13 +347,22 @@
     commentsLoading = !cached.comments;
     reviewersLoading = !cached.reviewers;
     reviewerCandidatesLoading = false;
+    labelCandidatesLoading = false;
     filesLoading = !cached.changedFiles;
 
     // Not PR-scoped (and cached per project) — best-effort, never an error.
     pullRequests.projects
       .get(getApi(), serverId, feedCtx())
       .loadViewer()
-      .then((login) => (viewerLogin = login))
+      .then((profile) => (viewer = profile))
+      .catch(() => {});
+    // The host only volunteers checks for the repository the active tab is
+    // in, and only to a client that has already asked for that project once.
+    // A review opened from a deep link, a chip, or another project had never
+    // asked, so its rail sat with no checks until a list happened to load
+    // them. Naming this PR also brings in one the poller had not seen yet.
+    void pullRequests.checks
+      .load(getApi(), serverId, feedCtx(), [n])
       .catch(() => {});
     pullRequest(n)
       .loadDetail({ force })
@@ -397,6 +431,50 @@
 
   function openReviewerMenu(): void {
     loadReviewerCandidates(pr.number);
+  }
+
+  function openLabelMenu(): void {
+    if (labelCandidatesLoading || labelCandidates.length > 0) return;
+    const number = pr.number;
+    labelCandidatesLoading = true;
+    pullRequest(number)
+      .loadLabelCandidates()
+      .then((candidates) => {
+        if (pr.number === number) {
+          labelCandidates = candidates;
+          failedLoads.delete("label-candidates");
+        }
+      })
+      .catch((error) => markLoadFailed(number, "label-candidates", error))
+      .finally(() => {
+        if (pr.number === number) labelCandidatesLoading = false;
+      });
+  }
+
+  async function setLabels(names: string[]): Promise<void> {
+    if (labelsMutation) return;
+    const number = pr.number;
+    labelsMutation = true;
+    try {
+      const entity = pullRequest(number);
+      await entity.setLabels(names);
+      // The provider records a labeled/unlabeled timeline item with the exact
+      // name. Refresh that one feed after the write so the audit row appears
+      // now rather than after the ordinary activity cache expires.
+      try {
+        const updatedComments = await entity.loadComments({ force: true });
+        if (pr.number === number) comments = updatedComments;
+      } catch {
+        // The label write succeeded. Keep the current activity instead of
+        // reporting the completed mutation as a failure.
+      }
+    } catch (error) {
+      toasts.error("Couldn’t update labels", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      labelsMutation = false;
+    }
   }
 
   async function requestReviewer(login: string): Promise<void> {
@@ -637,31 +715,13 @@
 
 <div class="flex h-full min-h-0 flex-col bg-background">
 <div bind:this={scrollViewport} class="min-h-0 flex-1 overflow-y-auto bg-background">
-    {#if loadFailureMessage}
+    {#if loadError?.kind === "github-auth"}
+      <!-- The one failure said once for the whole tab: nothing below can
+           load until the host has a credential, and the fix is one action. -->
       <div
-        class="mx-auto w-full max-w-[1216px] px-[52px] pt-4 [.is-laptop-display_&]:px-8"
+        class="mx-auto w-full max-w-[1216px] px-[52px] pt-6 [.is-laptop-display_&]:px-8"
       >
-        <div
-          class="flex items-center gap-2.5 rounded-2xl border border-border bg-card px-3.5 py-3 text-workspace-chrome"
-          role="alert"
-        >
-          {#if loadError?.kind === "github-auth"}
-            <GithubConnectionRequired {serverId} message={loadFailureMessage} />
-          {:else}
-            <span class="min-w-0 flex-1 truncate">
-              {loadFailureMessage}
-            </span>
-            <Button
-              type="button"
-              variant="ghost"
-              class="inline-flex h-[30px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground"
-              onclick={refresh}
-            >
-              <ArrowsClockwiseIcon size={12} class="shrink-0" />
-              Retry
-            </Button>
-          {/if}
-        </div>
+        <GithubConnectionRequired {serverId} />
       </div>
     {/if}
     {#if masthead}
@@ -690,45 +750,86 @@
         : '[.is-laptop-display_&]:pt-6'}"
     >
       <!-- ── Main column: title, meta, description, activity, composer ── -->
-      <main class="flex min-w-0 max-w-[768px] flex-[1_1_520px] flex-col">
+      <!-- The column declares the review's type once, at the chrome rung
+           (ADR-0013); the title, the captions and the timestamps step off it. -->
+      <main
+        class="flex min-w-0 max-w-[768px] flex-[1_1_520px] flex-col text-workspace-chrome"
+      >
         <!-- Masthead, Linear-style: no chrome in the header at all — a quiet
              mono eyebrow, the title at full measure, one line of plain-text
              facts. Actions live with the merge-readiness status in the right
-             rail (prActions below), which folds under this column rather than
+             rail (prActions below), which folds into this column rather than
              hiding, so they are reachable at every width. -->
         <header>
+          <!-- Identity the way the host writes it, when no masthead above
+               already carries it: the repository in quiet type, the number as
+               the link to the host page. -->
           {#if showIdentity && !masthead}
-            <p
-              class="flex items-center gap-2 text-xs st text-muted-foreground uppercase"
-            >
-              <!-- Identity, not state — the row below carries the state, and a
-                   tinted mark up here read as a second one. -->
-              <GitPullRequestIcon size={10} class="shrink-0" />
-              <span class="min-w-0 truncate"
-                >{pr.repo ? `${pr.repo} ` : ""}#{pr.number}</span
-              >
-            </p>
+            <PrIdentityLink
+              repo={repoLabel}
+              number={pr.number}
+              onOpenPage={prUrl ? openPr : undefined}
+            />
           {/if}
 
-          <!-- Who and what state, above the title rather than under it: they
-               qualify the title, and a reader who has already read the sentence
-               should not have to come back up for the one fact that changes how
-               it lands. The refs and the counts have moved into the band below,
-               so this row stays one line at every width. -->
+          {#if editing}
+            <Input
+              bind:this={titleInput}
+              bind:value={titleDraft}
+              class="{showIdentity && !masthead
+                ? 'mt-2'
+                : ''} h-auto w-full rounded-none border-0 bg-transparent! p-0 text-2xl leading-[1.25] font-semibold tracking-[-0.02em] outline-none shadow-none focus-visible:ring-0 dark:bg-transparent!"
+              aria-label="Pull request title"
+              onkeydown={(event) => {
+                if (event.key === "Escape") cancelEditing();
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void savePullRequest();
+                }
+              }}
+            />
+          {:else if prTitle}
+            <!-- The sentence the whole page is about, so it is the one thing on
+                 it set tight and heavy. Let it use the main column's reading
+                 measure; an extra character-based cap makes ordinary PR titles
+                 wrap while useful column width remains empty. -->
+            <!-- The page-title rung (ADR-0013): with the facts under it at
+                 the chrome rung, 24px is a clear step up without the title
+                 outweighing the whole column. -->
+            <h1
+              class="{showIdentity && !masthead
+                ? 'mt-2'
+                : ''} text-2xl leading-[1.25] font-semibold tracking-[-0.02em] text-pretty"
+            >
+              {prTitle}
+            </h1>
+          {:else}
+            <Skeleton
+              class="{showIdentity && !masthead
+                ? 'mt-2'
+                : ''} h-[30px] w-2/3 max-w-[560px] rounded-lg bg-muted"
+            />
+          {/if}
+
+          <!-- Who, what state, and when it last moved, under the title the
+               way the host writes it. The refs and the counts sit on the line
+               below, so this row stays one line at every width. -->
           <div
-            class="{showIdentity && !masthead
-              ? 'mt-3'
-              : ''} flex flex-wrap items-center gap-x-[9px] gap-y-2 text-review-meta text-muted-foreground"
+            class="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-2 text-muted-foreground"
           >
             <PrStatusChip {status} />
-            <span class="flex min-w-0 items-center gap-[7px]">
+            <span class="flex min-w-0 items-center gap-2">
               <PrAvatar
                 name={authorName}
                 url={authorAvatarUrl}
-                size="size-[18px]"
+                size="size-5 text-xs"
               />
               <span class="truncate font-medium text-foreground">{authorName}</span>
-              {#if openedTime}
+              {#if updatedTime}
+                <span class="opacity-40" aria-hidden="true">·</span>
+                <span class="shrink-0">updated {updatedTime}</span>
+              {:else if openedTime}
+                <span class="opacity-40" aria-hidden="true">·</span>
                 <span class="shrink-0">opened {openedTime}</span>
               {/if}
             </span>
@@ -755,7 +856,7 @@
               <Button
                 type="button"
                 variant="ghost"
-                class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-review-meta text-muted-foreground hover:text-foreground"
+                class="h-7 cursor-pointer gap-1.5 rounded-lg px-2.5 text-xs text-muted-foreground hover:text-foreground"
                 title="Edit pull request title and description"
                 onclick={beginEditing}
               >
@@ -765,51 +866,32 @@
             {/if}
           </div>
 
-          {#if editing}
-            <Input
-              bind:this={titleInput}
-              bind:value={titleDraft}
-              class="mt-3.5 h-auto w-full rounded-none border-0 bg-transparent! p-0 text-[29px] leading-[1.22] font-semibold tracking-[-0.023em] outline-none shadow-none focus-visible:ring-0 dark:bg-transparent! [.is-laptop-display_&]:text-2xl"
-              aria-label="Pull request title"
-              onkeydown={(event) => {
-                if (event.key === "Escape") cancelEditing();
-                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                  event.preventDefault();
-                  void savePullRequest();
-                }
-              }}
+          <!-- The facts about the change — branch, files, churn — as captioned
+               rows under the author. Reviewers, checks, and the file list are
+               the rail's while it has a column; once it folds, the reviewers
+               lead this list instead of sitting in a folded section below. -->
+          <div class="mt-4">
+            <PrChangeFacts
+              leading={detail ? leadingFacts : undefined}
+              {headBranch}
+              {baseRef}
+              fileCount={changedFiles.length}
+              {filesLoading}
+              additions={diffStat.additions}
+              deletions={diffStat.deletions}
             />
-          {:else if prTitle}
-            <!-- The sentence the whole page is about, so it is the one thing on
-                 it set tight and heavy. Let it use the main column's reading
-                 measure; an extra character-based cap makes ordinary PR titles
-                 wrap while useful column width remains empty. -->
-            <!-- 29px, not the stock 24px rung: the meta band and the rail
-                 around it now sit at the review's 12.5px row, and at 24px the
-                 title was only twice its own caption — near enough that the
-                 page read as one flat block rather than a sentence with
-                 supporting facts under it. -->
-            <h1
-              class="mt-3.5 text-[29px] leading-[1.22] font-semibold tracking-[-0.023em] text-pretty [.is-laptop-display_&]:text-2xl"
-            >
-              {prTitle}
-            </h1>
-          {:else}
-            <Skeleton
-              class="mt-3.5 h-[31px] w-2/3 max-w-[560px] rounded-lg bg-muted"
-            />
-          {/if}
+          </div>
 
-          <!-- The facts about the change — refs, files, churn — labelled and
-               ruled rather than run together in a subtitle. -->
-          <PrMetaBand
-            {headBranch}
-            {baseRef}
-            fileCount={changedFiles.length}
-            {filesLoading}
-            additions={diffStat.additions}
-            deletions={diffStat.deletions}
-          />
+          <!-- The rail's inline home. With no column beside the conversation,
+               the status card and the reference sections sit here, under the
+               facts and above the description, so the state of the pull
+               request and the move that changes it are still in the first
+               screen rather than past every comment on it. -->
+          {#if railFolded}
+            <div class="mt-5">
+              {@render railPanel("inline")}
+            </div>
+          {/if}
         </header>
 
         <!-- PR description belongs to the PR header, not the activity stream. -->
@@ -851,6 +933,19 @@
             <Skeleton class="h-3 w-11/12 rounded bg-muted" />
             <Skeleton class="h-3 w-3/4 rounded bg-muted" />
           </div>
+        {:else if failedLoads.has("details") && !detail}
+          <!-- Said where the description would be, not in a banner over the
+               page: the rest of the tab may well have loaded. -->
+          <p class="mt-8 flex items-center gap-2 text-muted-foreground" role="alert">
+            <span>Couldn’t load the description.</span>
+            <button
+              type="button"
+              class="cursor-pointer rounded-md px-1.5 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+              onclick={refresh}
+            >
+              Retry
+            </button>
+          </p>
         {:else if detail?.body?.trim()}
           <!-- No rule under the masthead: the spacing steps (4 → 8) already
                close the title block, and a hairline here would be the only one
@@ -934,6 +1029,8 @@
         <ActivityTimeline
           events={visibleTimeline}
           loading={timelineLoading}
+          loadFailed={timelineLoadFailed}
+          onRetry={refresh}
           filtered={timelineFiltered}
           {authorName}
           {openedAt}
@@ -983,91 +1080,66 @@
         </CommentPostingBar>
       </main>
 
-      <!-- ── Right rail: status + actions, reviewers, changed files ──
-           Only while there is a column to hold it. It used to stay here at full
-           width below the rung, which put reviewers and changed files under the
-           comment composer, past every comment on the pull request. Below the
-           rung it is the sheet the bottom bar opens instead. -->
+      <!-- ── Right rail: status + actions, reviewers, checks, changed files ──
+           Only while there is a column to hold it. Below the rung the same
+           rail is drawn inline in the header above, so nothing it carries is
+           ever past the comment composer. -->
       {#if !railFolded}
         {@render railPanel("column")}
       {/if}
     </div>
 </div>
-
-<!-- The folded layout's only chrome: merge state, the move that clears it, and
-     the way back to everything the rail was carrying. Outside the scrollport,
-     so all of it is reachable without reading to the end. -->
-{#if railFolded}
-  <PrMergeBar
-    {detail}
-    {checks}
-    {unresolvedCount}
-    {openedTime}
-    actions={prActions}
-    details={railSheetTrigger}
-  />
-{/if}
 </div>
 
-<!-- The rail, in order, as a sheet. It stops short of the top so the pull
-     request behind it stays identifiable — this is reference material about
-     what you are reading, and covering it entirely would leave nothing to say
-     what that is. -->
-{#if railFolded && railOpen}
-  <BottomSheet label="Pull request details" onClose={() => (railOpen = false)}>
-    {#snippet header()}
-      <div class="flex items-center justify-between">
-        <span class="text-workspace-chrome font-medium text-foreground">Details</span>
-        <button
-          type="button"
-          class="h-9 cursor-pointer rounded-lg border-0 bg-transparent px-2 font-medium text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))] [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:h-8"
-          onclick={() => (railOpen = false)}
-        >
-          Done
-        </button>
-      </div>
-    {/snippet}
-    {@render railPanel("sheet")}
-  </BottomSheet>
-{/if}
-
-{#snippet railSheetTrigger()}
-  <button
-    type="button"
-    class="flex h-8 cursor-pointer items-center gap-1.5 rounded-lg border-0 bg-transparent px-2.5 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [-webkit-tap-highlight-color:transparent] pointer-fine:[.is-laptop-display_&]:h-7 pointer-fine:[.is-laptop-display_&]:px-2"
-    onclick={() => (railOpen = true)}
-    aria-haspopup="dialog"
-    aria-expanded={railOpen}
-    aria-label="Pull request details"
-  >
-    <PropertiesIcon size={15} aria-hidden="true" />
-    Details
-  </button>
+<!-- The reviewers' home once the rail has folded: a row of the facts list,
+     not a section of the inline rail. -->
+{#snippet leadingFacts()}
+  {#if railFolded}
+    <PrReviewerFacts
+      {reviewers}
+      loading={reviewersLoading}
+      loadFailed={failedLoads.has("reviewers")}
+      candidates={reviewerCandidates}
+      candidatesLoading={reviewerCandidatesLoading}
+      candidatesLoadFailed={failedLoads.has("reviewer-candidates")}
+      mutation={reviewerMutation}
+      onOpenMenu={openReviewerMenu}
+      onRequest={canRequestReviewers ? requestReviewer : undefined}
+      onRemove={canRequestReviewers ? removeReviewer : undefined}
+      onRetry={refresh}
+    />
+  {/if}
+  <PrLabelFacts
+    labels={detail?.labels ?? []}
+    candidates={labelCandidates}
+    loading={labelCandidatesLoading}
+    loadFailed={failedLoads.has("label-candidates")}
+    mutation={labelsMutation}
+    onOpen={canManageLabels ? openLabelMenu : undefined}
+    onSet={canManageLabels ? setLabels : undefined}
+  />
 {/snippet}
 
 <!-- One definition, two homes: a column beside the conversation where there is
-     room for one, and a sheet where there is not. Rendering it twice would be
-     twenty props kept in step by hand. -->
-{#snippet railPanel(variant: "column" | "sheet")}
+     room for one, and a block under the title where there is not. Rendering it
+     twice would be twenty props kept in step by hand. -->
+{#snippet railPanel(variant: "column" | "inline")}
   <PrActivityRail
     {variant}
     {detail}
     {reviewers}
     {reviewersLoading}
+    reviewersLoadFailed={failedLoads.has("reviewers")}
     {reviewerCandidates}
     {reviewerCandidatesLoading}
+    reviewerCandidatesLoadFailed={failedLoads.has("reviewer-candidates")}
     {reviewerMutation}
     onOpenReviewerMenu={openReviewerMenu}
-    onRequestReviewer={detail?.capabilities.reviewerRequests &&
-    detail.viewerPermissions.requestReviewers
-      ? requestReviewer
-      : undefined}
-    onRemoveReviewer={detail?.capabilities.reviewerRequests &&
-    detail.viewerPermissions.requestReviewers
-      ? removeReviewer
-      : undefined}
+    onRequestReviewer={canRequestReviewers ? requestReviewer : undefined}
+    onRemoveReviewer={canRequestReviewers ? removeReviewer : undefined}
     {changedFiles}
     {filesLoading}
+    filesLoadFailed={failedLoads.has("changed-files")}
     {openedTime}
     {checks}
     {fixingCheckId}
@@ -1080,9 +1152,9 @@
     !detail.draft
       ? onGenerateGuide
       : undefined}
+    onRetry={refresh}
     actions={prActions}
     menu={prOverflowMenu}
-    showReadiness={variant === "column"}
   />
 {/snippet}
 
@@ -1107,6 +1179,9 @@
     {showRemoteLink}
     {prUrl}
     {onChat}
+    onFixComments={feedbackCount > 0 && onAddressComments ? addressComments : undefined}
+    {chatBusy}
+    fixCommentsBusy={addressingComments}
     onOpenRemote={openPr}
     onRefresh={refresh}
     onLifecycleAction={updateLifecycle}

@@ -301,8 +301,8 @@
     postingContext = structuredClone(pullRequests.view.reviewModeContext ?? session.ctx);
     const context = postingContext;
     let cancelled = false;
-    void pullRequests.projects.get(api, serverId, context).loadViewer().then((login) => {
-      if (!cancelled) viewer = login;
+    void pullRequests.projects.get(api, serverId, context).loadViewer().then((profile) => {
+      if (!cancelled) viewer = profile.login;
     }).catch(() => {});
 
     void pullRequests.stacks.load(api, serverId, context)

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte"
+  import { fade } from "svelte/transition";
   import { sectionNumbers, type PlanHeading } from "./headings";
   import { OUTLINE_DWELL_MS, afterDwell, holdsWithoutDwell, isOutlineVisible, type OutlineReason } from "./lib/outline";
 
@@ -42,6 +43,22 @@
   let reasons = $state<Set<OutlineReason>>(new Set<OutlineReason>(['top']))
   const open = $derived(isOutlineVisible(reasons, atTop, canRevealPanel))
 
+  // Where there is no room for the panel, the ticks carry the contents one row
+  // at a time: the hovered — or focused — bar names its own section, and
+  // nothing else does. `top` is measured against the rail so the label can live
+  // outside the ticks' scroller, which would otherwise clip it.
+  let railEl = $state<HTMLElement>()
+  let namedTick = $state<{ text: string; top: number } | null>(null)
+
+  function nameTick(tick: HTMLElement, text: string) {
+    if (!railEl) return
+    const bounds = tick.getBoundingClientRect()
+    namedTick = {
+      text,
+      top: bounds.top + bounds.height / 2 - railEl.getBoundingClientRect().top,
+    }
+  }
+
   function hold(reason: OutlineReason, held: boolean) {
     if (reasons.has(reason) === held) return
     const next = new Set(reasons)
@@ -72,6 +89,11 @@
   })
 </script>
 
+{#snippet tickMarks(index: number)}
+  <span class="doc-outline__numeral">{numerals[index] ?? ""}</span>
+  <span class="doc-outline__bar"></span>
+{/snippet}
+
 {#if headings.length >= 2}
   <!-- At rest the outline is a margin rule, not a panel: one tick per heading,
        and the only numeral showing is the section you are in. It renders in
@@ -79,6 +101,7 @@
        Row height and bar never move, so nothing reflows. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <nav
+    bind:this={railEl}
     class="doc-outline"
     class:doc-outline--open={open}
     aria-label="On this page"
@@ -87,14 +110,48 @@
     onfocusin={() => hold('focus', true)}
     onfocusout={() => hold('focus', false)}
   >
-    <div class="doc-outline__ticks" aria-hidden="true">
+    <!-- With no margin for the panel the bars are the contents, so each one
+         becomes its own row: hovering names that section and clicking jumps to
+         it. One label at a time is a margin note the measure can carry. -->
+    <div
+      class="doc-outline__ticks"
+      aria-hidden={canRevealPanel ? "true" : undefined}
+      onscroll={canRevealPanel ? undefined : () => (namedTick = null)}
+    >
       {#each headings as h, i (h.pos)}
-        <span class="doc-outline__tick" class:doc-outline__tick--sub={h.level > 2} class:doc-outline__tick--active={activePos === h.pos}>
-          <span class="doc-outline__numeral">{numerals[i] ?? ""}</span>
-          <span class="doc-outline__bar"></span>
-        </span>
+        {#if canRevealPanel}
+          <span class="doc-outline__tick" class:doc-outline__tick--sub={h.level > 2} class:doc-outline__tick--active={activePos === h.pos}>
+            {@render tickMarks(i)}
+          </span>
+        {:else}
+          <button
+            type="button"
+            class="doc-outline__tick doc-outline__tick--pickable"
+            class:doc-outline__tick--sub={h.level > 2}
+            class:doc-outline__tick--active={activePos === h.pos}
+            onclick={() => onScrollTo(h.pos)}
+            onpointerenter={(e) => nameTick(e.currentTarget, h.text)}
+            onpointerleave={() => (namedTick = null)}
+            onfocus={(e) => nameTick(e.currentTarget, h.text)}
+            onblur={() => (namedTick = null)}
+            aria-label={h.text}
+          >
+            {@render tickMarks(i)}
+          </button>
+        {/if}
       {/each}
     </div>
+
+    <!-- The label is anchored to the rail rather than to the tick, because the
+         ticks column scrolls and a scroller clips both axes. -->
+    {#if namedTick && !canRevealPanel}
+      <span
+        class="doc-outline__tick-label text-workspace-chrome"
+        style="top:{namedTick.top}px"
+        aria-hidden="true"
+        transition:fade={{ duration: 120 }}
+      >{namedTick.text}</span>
+    {/if}
 
     <!-- `--outline-rows` divides the cascade across however many sections this
          document has, so the dissolve lands in its 160ms whether there are
@@ -156,10 +213,55 @@
     display: none;
   }
   .doc-outline__tick {
+    position: relative;
     flex: 0 0 auto;
     display: flex;
     align-items: center;
     gap: 0.5625rem;
+    padding: 0;
+    background: transparent;
+    border: 0;
+  }
+  .doc-outline__tick--pickable {
+    cursor: pointer;
+  }
+  /* The one-label contents. It hangs off the rail's right edge rather than
+     widening it, so naming a section costs the prose no layout — and only the
+     row under the pointer is ever named. */
+  .doc-outline__tick-label {
+    position: absolute;
+    left: calc(100% + 0.5rem);
+    transform: translateY(-50%);
+    z-index: 25;
+    max-width: 13rem;
+    padding: 0.1875rem 0.5rem;
+    border-radius: 0.4375rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    color: var(--solus-text-primary);
+    background: var(--solus-container-bg);
+    border: 0.0625rem solid var(--solus-popover-border);
+    box-shadow: 0 0.25rem 0.75rem rgba(60, 45, 30, 0.1);
+    pointer-events: none;
+  }
+  :global(.dark) .doc-outline__tick-label {
+    box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.35);
+  }
+  /* The numeral is transparent at rest; the hovered row earns its own. `:not`
+     keeps the section you are in accented — `:hover` would otherwise outrank
+     the active rule below on specificity alone. */
+  .doc-outline__tick--pickable:not(.doc-outline__tick--active):hover .doc-outline__numeral,
+  .doc-outline__tick--pickable:not(.doc-outline__tick--active):focus-visible .doc-outline__numeral {
+    color: var(--solus-text-tertiary);
+  }
+  .doc-outline__tick--pickable:not(.doc-outline__tick--active):hover .doc-outline__bar {
+    background: color-mix(in srgb, var(--solus-text-tertiary) 60%, transparent);
+  }
+  .doc-outline__tick--pickable:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.1875rem;
+    border-radius: 0.25rem;
   }
   /* Transparent rather than absent: the numeral holds its column so the bars
      stay on one right edge whether or not a section is active. */

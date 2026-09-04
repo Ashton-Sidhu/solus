@@ -1,4 +1,4 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { z } from 'zod'
 import type { ProjectCatalogEntry, ProjectRef } from './project-catalog'
 import { normalizeProjectRoot, projectRefKey } from './project-catalog'
@@ -23,25 +23,38 @@ const catalogEntrySchema = z.object({
 const catalogSchema = z.object({
   version: z.literal(1),
   entries: z.array(catalogEntrySchema),
+  ignoredDiscoveryKeys: z.array(z.string()).optional(),
 })
 
-function loadCatalog(): ProjectCatalogEntry[] {
+interface StoredCatalog {
+  entries: ProjectCatalogEntry[]
+  ignoredDiscoveryKeys: string[]
+}
+
+function loadCatalog(): StoredCatalog {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (!raw) return []
+    if (!raw) return { entries: [], ignoredDiscoveryKeys: [] }
     const parsed = catalogSchema.safeParse(JSON.parse(raw))
-    return parsed.success ? parsed.data.entries : []
+    return parsed.success
+      ? {
+          entries: parsed.data.entries,
+          ignoredDiscoveryKeys: parsed.data.ignoredDiscoveryKeys ?? [],
+        }
+      : { entries: [], ignoredDiscoveryKeys: [] }
   } catch {
-    return []
+    return { entries: [], ignoredDiscoveryKeys: [] }
   }
 }
 
 export class ProjectCatalogStore {
   private readonly entriesByKey = new SvelteMap<string, ProjectCatalogEntry>()
+  private readonly ignoredDiscoveryKeys = new SvelteSet<string>()
   private saveTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(initial: ProjectCatalogEntry[] = loadCatalog()) {
-    for (const entry of initial) this.entriesByKey.set(projectRefKey(entry), entry)
+  constructor(initial: StoredCatalog = loadCatalog()) {
+    for (const entry of initial.entries) this.entriesByKey.set(projectRefKey(entry), entry)
+    for (const key of initial.ignoredDiscoveryKeys) this.ignoredDiscoveryKeys.add(key)
   }
 
   get entries(): ProjectCatalogEntry[] {
@@ -58,12 +71,27 @@ export class ProjectCatalogStore {
     const projectRoot = normalizeProjectRoot(ref.projectRoot)
     if (!ref.serverId || !projectRoot || projectRoot === '~') return
     const key = projectRefKey({ serverId: ref.serverId, projectRoot })
+    this.ignoredDiscoveryKeys.delete(key)
+    this.recordKey(key, ref.serverId, projectRoot, label)
+  }
+
+  /** Import host history without undoing an explicit removal. A later real
+   *  open or session calls `record` and makes the project visible again. */
+  recordDiscovered(ref: ProjectRef, label: string): void {
+    const projectRoot = normalizeProjectRoot(ref.projectRoot)
+    if (!ref.serverId || !projectRoot || projectRoot === '~') return
+    const key = projectRefKey({ serverId: ref.serverId, projectRoot })
+    if (this.ignoredDiscoveryKeys.has(key)) return
+    this.recordKey(key, ref.serverId, projectRoot, label)
+  }
+
+  private recordKey(key: string, serverId: string, projectRoot: string, label: string): void {
     const existing = this.entriesByKey.get(key)
     if (existing) {
       existing.lastSeenAt = Date.now()
       if (label) existing.label = label
     } else {
-      this.entriesByKey.set(key, { serverId: ref.serverId, projectRoot, label: label || projectRoot, lastSeenAt: Date.now() })
+      this.entriesByKey.set(key, { serverId, projectRoot, label: label || projectRoot, lastSeenAt: Date.now() })
     }
     this.scheduleSave()
   }
@@ -71,7 +99,9 @@ export class ProjectCatalogStore {
   /** Explicit history removal — forgets the entry only. Never touches the
    *  project's files, sessions, or server-side records. */
   remove(ref: ProjectRef): void {
-    if (!this.entriesByKey.delete(projectRefKey(ref))) return
+    const key = projectRefKey(ref)
+    if (!this.entriesByKey.delete(key)) return
+    this.ignoredDiscoveryKeys.add(key)
     this.scheduleSave()
   }
 
@@ -81,7 +111,11 @@ export class ProjectCatalogStore {
     if (this.saveTimer) clearTimeout(this.saveTimer)
     this.saveTimer = null
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ version: 1, entries: this.entries }))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        version: 1,
+        entries: this.entries,
+        ignoredDiscoveryKeys: [...this.ignoredDiscoveryKeys],
+      }))
     } catch {}
   }
 

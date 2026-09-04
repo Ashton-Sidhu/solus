@@ -25,6 +25,9 @@
     hasPrimaryAction?: boolean;
     /** Trailing controls on the narrowing row (status segments, sort). */
     filterSlots?: number;
+    /** The page passes `toolbarFilters` to `ListPage`: its narrowing row is
+     *  the 32px toolbar, not the 28px chip band. */
+    toolbarFilters?: boolean;
     /** Same value the page passes to `ListRow`. */
     identWidth?: number;
     /** Row title widths, grouped as they render. */
@@ -38,6 +41,7 @@
     hasRefresh = true,
     hasPrimaryAction = false,
     filterSlots = 2,
+    toolbarFilters = false,
     identWidth = 62,
     plan,
   }: Props = $props();
@@ -74,15 +78,17 @@
 
     <!-- Row 2. -->
     <div
-      class="box-content flex h-[30px] shrink-0 items-center gap-2 pb-[14px] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:pb-3"
+      class="box-content flex shrink-0 items-center gap-2 {toolbarFilters
+        ? 'h-8 pb-[14px]'
+        : 'h-[30px] pb-[14px] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:pb-3'}"
     >
       {#if hasViewSwitcher}
         <Skeleton class="h-[30px] w-48 shrink-0 rounded-full opacity-60" />
       {/if}
-      <Skeleton class="h-7 min-w-0 flex-1 rounded-lg opacity-55" />
+      <Skeleton class="min-w-0 flex-1 rounded-lg opacity-55 {toolbarFilters ? 'h-8' : 'h-7'}" />
       {#each Array(filterSlots) as _, index (index)}
         <Skeleton
-          class="h-7 shrink-0 rounded-lg opacity-45 {index === 0
+          class="shrink-0 rounded-lg opacity-45 {toolbarFilters ? 'h-8' : 'h-7'} {index === 0
             ? 'w-20 @max-[34rem]:hidden'
             : 'w-16 @max-[44rem]:hidden'}"
         />

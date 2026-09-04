@@ -45,6 +45,7 @@ const taskSessionLinkRowSchema = z.object({
    *  read. Null when the session is not in the index yet. */
   session_title: z.string().nullable(),
   session_provider: z.string().nullable(),
+  session_model: z.string().nullable(),
   session_server_id: z.string().nullable(),
   session_is_worktree: z.number().nullable(),
   session_started_at: z.number().nullable(),
@@ -79,6 +80,7 @@ function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
     sessionId: row.session_id,
     sessionTitle: row.session_title ?? null,
     provider: row.session_provider ?? null,
+    model: row.session_model ?? null,
     startedAt: row.session_started_at ?? null,
     lastActivityAt: row.last_activity_at ?? null,
     // Execution facts are projected from the session row. The relationship
@@ -243,6 +245,7 @@ const LINK_SELECT = `
     task_session_links.linked_at,
     COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
     sessions.provider AS session_provider,
+    sessions.model AS session_model,
     sessions.server_id AS session_server_id,
     sessions.branch AS branch,
     sessions.is_worktree AS session_is_worktree,

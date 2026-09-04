@@ -64,7 +64,7 @@ function exactReviewRows(
     return rows.filter((row) => row.assignees?.some((value) => value.toLowerCase() === login))
   }
   if (involvement === 'review_requested') {
-    return rows.filter((row) => row.requestedReviewers?.some((value) => value.toLowerCase() === login))
+    return rows.filter((row) => row.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === login))
   }
   return rows
 }

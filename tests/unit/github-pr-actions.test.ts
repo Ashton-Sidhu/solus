@@ -13,6 +13,7 @@ describe('GitHub pull request capabilities', () => {
       viewer: 'reader',
       author: 'author',
       canWrite: false,
+      canTriage: false,
       allowMergeCommit: false,
       allowSquashMerge: true,
       allowRebaseMerge: false,
@@ -23,6 +24,7 @@ describe('GitHub pull request capabilities', () => {
     expect(access.viewerPermissions.actions).toEqual([])
     expect(access.viewerPermissions.reviewVerdicts).toEqual(['comment', 'approve', 'request-changes'])
     expect(access.viewerPermissions.requestReviewers).toBe(false)
+    expect(access.viewerPermissions.manageLabels).toBe(false)
   })
 
   test('does not offer approval or change requests on the viewer own pull request', () => {
@@ -30,6 +32,7 @@ describe('GitHub pull request capabilities', () => {
       viewer: 'Author',
       author: 'author',
       canWrite: true,
+      canTriage: false,
       allowMergeCommit: true,
       allowSquashMerge: true,
       allowRebaseMerge: true,
@@ -38,6 +41,22 @@ describe('GitHub pull request capabilities', () => {
     expect(access.viewerPermissions.reviewVerdicts).toEqual(['comment'])
     expect(access.viewerPermissions.actions).toContain('merge')
     expect(access.viewerPermissions.actions).toContain('draft')
+  })
+
+  test('lets a triage viewer manage labels without granting write actions', () => {
+    const access = githubPullRequestAccess({
+      viewer: 'triager',
+      author: 'author',
+      canWrite: false,
+      canTriage: true,
+      allowMergeCommit: true,
+      allowSquashMerge: true,
+      allowRebaseMerge: true,
+    })
+
+    expect(access.viewerPermissions.manageLabels).toBe(true)
+    expect(access.viewerPermissions.requestReviewers).toBe(false)
+    expect(access.viewerPermissions.actions).toEqual([])
   })
 })
 

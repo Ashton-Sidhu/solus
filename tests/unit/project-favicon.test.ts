@@ -41,7 +41,24 @@ describe('project favicon resolver', () => {
       '/repo/favicon.webp',
       '/repo/favicon.jpg',
       '/repo/favicon.jpeg',
+      '/repo/public/favicon.ico',
+      '/repo/static/favicon.ico',
+      '/repo/apps/web/public/favicon.ico',
     ])
+  })
+
+  test('finds a favicon in a monorepo web app', async () => {
+    const calls: string[] = []
+    const resolver = new ProjectFaviconResolver({
+      resolve: async ({ path }) => {
+        calls.push(path ?? '')
+        if (path !== '/repo/apps/web/public/favicon.ico') throw new Error('missing')
+        return 'https://host.example/api/assets/favicon'
+      },
+    })
+
+    expect(await resolver.resolve(request('host-a'))).toBe('https://host.example/api/assets/favicon')
+    expect(calls.at(-1)).toBe('/repo/apps/web/public/favicon.ico')
   })
 
   test('the host can mint a signed URL for an ico favicon', async () => {
@@ -94,6 +111,6 @@ describe('project favicon resolver', () => {
 
     expect(await resolver.resolve(input)).toBeNull()
     expect(await resolver.resolve(input)).toBeNull()
-    expect(calls).toBe(6)
+    expect(calls).toBe(faviconCandidatePaths('/repo').length)
   })
 })

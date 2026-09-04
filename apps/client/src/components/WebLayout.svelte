@@ -465,11 +465,11 @@ import {
       canShowDiffPanel={canShowSidePanel}
       changedFilesCount={changedFiles.length}
       onToggleWorkspace={() => {
-        if (router.at("settings")) session.closeSettings();
+        router.close("settings");
         toggleWorkspace();
       }}
       onToggleDiff={() => {
-        if (router.at("settings")) session.closeSettings();
+        router.close("settings");
         toggleDiff();
       }}
     />

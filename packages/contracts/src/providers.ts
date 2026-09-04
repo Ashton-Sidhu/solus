@@ -101,7 +101,7 @@ export interface PullRequest {
   createdAt: string
   updatedAt: string
   draft: boolean
-  labels: { name: string; color: string }[]
+  labels: PrLabel[]
   additions: number
   deletions: number
   body: string
@@ -117,13 +117,16 @@ export interface PullRequest {
   viewerPermissions: PrViewerPermissions
   /** Pacing guidance only; review always opens the complete diff. */
   effort?: ReviewEffort
-  /** Host logins currently requested to review this PR. */
-  requestedReviewers?: string[]
+  /** Who the host has asked to review this PR and who has not answered yet. */
+  requestedReviewers?: PrRequestedReviewer[]
   /** Host logins currently assigned to this PR. */
   assignees?: string[]
   /** Why this PR belongs in the connected viewer's review queue. */
   reviewAttention?: 'requested' | 'assigned'
   needsMyReview?: boolean
+  /** GitHub's aggregate review result for list filtering. A direct REST read
+   *  can omit it; list pages enrich the row through one batched GraphQL read. */
+  reviewStatus?: 'approved' | 'changes-requested' | 'review-required' | 'no-reviews' | 'reviewed'
 }
 
 export type PrReviewVerdict = 'comment' | 'approve' | 'request-changes'
@@ -147,6 +150,7 @@ export interface PrReviewCapabilities {
   mergeMethods: PrMergeMethod[]
   reviewerRequests: boolean
   reviewerCandidates: boolean
+  labelManagement: boolean
 }
 
 /** Operations the connected viewer may perform on this pull request. */
@@ -156,10 +160,31 @@ export interface PrViewerPermissions {
   comment: boolean
   resolveThreads: boolean
   requestReviewers: boolean
+  manageLabels: boolean
+}
+
+/** One repository label, in the form the host uses for PR metadata. */
+export interface PrLabel {
+  name: string
+  color: string
 }
 
 export interface PrReviewerCandidate {
   login: string
+  avatarUrl?: string
+}
+
+/** The account the connected provider token belongs to, as a client shows it. */
+export interface ProviderViewer {
+  login: string
+  /** The host's profile image; absent when the host does not report one. */
+  avatarUrl?: string
+}
+
+/** A reviewer the host has asked for, as the list fetch already knows them. */
+export interface PrRequestedReviewer {
+  login: string
+  /** The host's profile image; absent for a team or a deleted account. */
   avatarUrl?: string
 }
 
@@ -265,6 +290,8 @@ export interface ReviewThread {
 /** A reviewer requested on (or who has reviewed) a PR. */
 export interface PrReviewer {
   login: string
+  /** The host's profile image; absent for a deleted account. */
+  avatarUrl?: string
   /** Current review state; null when the user was requested but hasn't reviewed yet. */
   state: 'APPROVED' | 'CHANGES_REQUESTED' | 'COMMENTED' | 'DISMISSED' | 'PENDING' | null
 }
@@ -289,16 +316,29 @@ export interface DraftReview {
   comments: DraftReviewComment[]
 }
 
-/** A top-level PR conversation entry, distinct from an inline review thread. */
-export interface PrConversationItem {
+interface PrActivityItemBase {
   id: string
-  kind: 'comment' | 'review'
   author: string
   /** The author's GitHub avatar; absent for a deleted/ghost account. */
   authorAvatarUrl?: string
-  body: string
   createdAt: string
-  /** Present only for review bodies; uses the host's canonical review state. */
-  reviewState?: Exclude<PrReviewer['state'], null>
   url?: string
 }
+
+/** A top-level PR conversation entry, distinct from an inline review thread. */
+export interface PrCommentActivityItem extends PrActivityItemBase {
+  kind: 'comment' | 'review'
+  body: string
+  /** Present only for review bodies; uses the host's canonical review state. */
+  reviewState?: Exclude<PrReviewer['state'], null>
+}
+
+/** A label mutation from the provider's pull request timeline. */
+export interface PrLabelActivityItem extends PrActivityItemBase {
+  kind: 'label'
+  action: 'added' | 'removed'
+  label: PrLabel
+}
+
+/** Provider activity interleaved with commits and inline review threads. */
+export type PrConversationItem = PrCommentActivityItem | PrLabelActivityItem

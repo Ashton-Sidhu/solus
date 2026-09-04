@@ -75,4 +75,21 @@ describe('how a turn carries its images', () => {
     expect(payload.refs).toEqual([])
     expect(payload.inline).toEqual([])
   })
+
+  test('session metadata carries image refs and safe attachment facts only', () => {
+    const context = composer.composeSessionMetadataContext(
+      [image({ size: 1234, designData: { screenshot: 'large-private-payload' } })],
+      RUN_HOST,
+      true,
+    )
+
+    expect(context).toEqual({
+      attachments: [{ name: 'shot.png', type: 'image', mimeType: 'image/png', size: 1234 }],
+      imageAttachmentRefs: [
+        { mimeType: 'image/png', hostPath: '/srv/solus/attachments/session/0-shot.png', name: 'shot.png' },
+      ],
+    })
+    expect(JSON.stringify(context)).not.toContain('/Users/client/shot.png')
+    expect(JSON.stringify(context)).not.toContain('large-private-payload')
+  })
 })

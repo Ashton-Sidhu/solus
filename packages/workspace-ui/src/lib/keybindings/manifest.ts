@@ -190,6 +190,7 @@ export const KEYBINDINGS = {
 
   // ── PR review ──────────────────────────────────────────────────────────────
   'pr-review.approve':            { combo: { alt: true, code: 'KeyA' },                    scope: 'pr-review',          label: 'Approve pull request',     group: 'Pull Requests' },
+  'pr-review.copy-link':          { combo: { mod: true, ctrl: true, code: 'KeyC' },         scope: 'pr-review',          label: 'Copy GitHub link',         group: 'Pull Requests' },
 
   // ── Design annotation ──────────────────────────────────────────────────────
   'annotation.cancel':            { combo: { code: 'Escape' },                             scope: 'design-annotation',  label: 'Cancel / dismiss',         group: 'Annotation' },

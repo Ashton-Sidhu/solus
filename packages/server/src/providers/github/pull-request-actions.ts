@@ -14,6 +14,7 @@ interface RepositoryAccess {
   viewer: string
   author: string
   canWrite: boolean
+  canTriage: boolean
   allowMergeCommit: boolean
   allowSquashMerge: boolean
   allowRebaseMerge: boolean
@@ -21,6 +22,7 @@ interface RepositoryAccess {
 
 interface RepositorySettings {
   canWrite: boolean
+  canTriage: boolean
   allowMergeCommit: boolean
   allowSquashMerge: boolean
   allowRebaseMerge: boolean
@@ -50,6 +52,7 @@ export async function githubPullRequestAccessFor(
     settings = client.rest.repos.get({ owner: repo.owner, repo: repo.repo })
       .then(({ data }) => ({
         canWrite: !!(data.permissions?.push || data.permissions?.maintain || data.permissions?.admin),
+        canTriage: !!data.permissions?.triage,
         allowMergeCommit: data.allow_merge_commit ?? true,
         allowSquashMerge: data.allow_squash_merge ?? true,
         allowRebaseMerge: data.allow_rebase_merge ?? true,
@@ -87,6 +90,7 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
       mergeMethods,
       reviewerRequests: true,
       reviewerCandidates: true,
+      labelManagement: true,
     },
     viewerPermissions: {
       actions: lifecycle,
@@ -94,6 +98,7 @@ export function githubPullRequestAccess(access: RepositoryAccess): PullRequestAc
       comment: true,
       resolveThreads: true,
       requestReviewers: access.canWrite,
+      manageLabels: access.canWrite || access.canTriage,
     },
   }
 }

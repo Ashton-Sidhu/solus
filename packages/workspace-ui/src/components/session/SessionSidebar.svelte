@@ -1320,6 +1320,8 @@
                   title={pin.title}
                   projectKey={pin.cwd}
                   serverId={pin.serverId}
+                  provider={pin.provider}
+                  modelId={pin.model}
                 />
               </TooltipUI.Root>
             {/each}

@@ -137,7 +137,7 @@
     {#snippet child({ props: tooltipProps })}
 <div
   {...tooltipProps}
-  class="group/session relative -mx-2 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-11 @max-[15rem]:gap-1.5 @max-[15rem]:pl-[2.375rem] transition-[background,color] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] {recedes
+  class="group/session relative -mx-2 flex h-[2.875rem] cursor-pointer items-center gap-[0.5625rem] rounded-lg pr-2 pl-11 @max-[15rem]:gap-1.5 @max-[15rem]:pl-[2.375rem] transition-[background,color,box-shadow] duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring hover:bg-card hover:shadow-[0_0_0_0.5px_color-mix(in_oklch,var(--foreground)_10%,transparent),0_2px_6px_color-mix(in_oklch,var(--foreground)_8%,transparent)] dark:hover:bg-[color-mix(in_oklch,var(--card)_94%,white)] {recedes
     ? 'text-[color-mix(in_oklch,var(--solus-text-secondary)_75%,transparent)] hover:text-foreground'
     : 'text-foreground'}"
   role="treeitem"
@@ -425,6 +425,8 @@
     {projectLabel}
     branchName={session.branchName}
     serverId={session.serverId}
+    provider={session.provider}
+    modelId={session.modelId}
     attention={session.attention}
     reviewGuideStatus={session.reviewGuideStatus}
   />

@@ -523,7 +523,7 @@
         <button
           class={LIST_ROW}
           onclick={() => handleAction(() => {
-            if (session.router.at("settings")) session.closeSettings();
+            if (session.router.at("settings")) session.router.close("settings");
             else session.showSettings();
           })}
         >

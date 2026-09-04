@@ -16,7 +16,7 @@ import { GitHubAuth } from '../../providers/github/auth'
 import { buildClient } from '../../providers/github/octokit'
 import { hasGithubCliScopes, parseGithubScopes } from '@solus/contracts/github-auth'
 import { PARAKEET_MODEL_DIR } from '../../model-downloader'
-import { getHostConfig, getServerSettings, setProjectsBaseDirectory, setServerName } from '../settings'
+import { getHostConfig, getServerSettings, setProjectsBaseDirectory } from '../settings'
 import { WORKSPACE_DIR } from '../../workspace'
 import { listProjects, recordProject } from '../../project-config/projects-manifest'
 import { resolveProjectKey } from '../../project-config/project-config'
@@ -142,7 +142,6 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
     gitAuth: {
       github: hasGithubAuth(),
     },
-    serverName: getServerSettings().name,
     projectsBaseDirectory: getServerSettings().projectsBaseDirectory,
     agentTaskLifecyclePolicy: getHostConfig().config.agentTaskLifecyclePolicy,
     workspacePath: WORKSPACE_DIR,
@@ -287,12 +286,6 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       throw new Error(`Dispatch history is limited to ${MAX_DISPATCH_HISTORY_REPO_KEYS} repositories per request.`)
     }
     return resolveDispatchHistoryRoots(projectsRoot(), deviceId, repoKeys)
-  })
-
-  server.register('setServerName', (args) => {
-    const [name] = args
-    const next = setServerName(z.string().parse(name))
-    return { name: next.name }
   })
 
   server.register('setProjectsBaseDirectory', (args) => {

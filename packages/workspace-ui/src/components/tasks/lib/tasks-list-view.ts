@@ -106,7 +106,7 @@ function sourceFor(task: Task): ListRowSource {
 function chipsFor(task: Task, now: number): ListChipSpec[] {
   const chips: ListChipSpec[] = []
   const label = visibleLabels(task)[0]
-  if (label) chips.push({ label })
+  if (label) chips.push({ label, labelColor: 'var(--solus-accent)' })
 
   const overdue =
     task.dueDate && task.status !== 'done' && task.status !== 'dropped'

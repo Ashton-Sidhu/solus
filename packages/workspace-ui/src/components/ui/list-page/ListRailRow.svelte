@@ -1,7 +1,12 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
   import ListAvatar from "./ListAvatar.svelte";
-  import { chipSkin, compactCount, type ListRowSpec } from "./list-page";
+  import {
+    checksChip,
+    chipSkin,
+    compactCount,
+    type ListRowSpec,
+  } from "./list-page";
 
   /** The list docked beside an open detail panel.
    *
@@ -44,15 +49,18 @@
         ? { id: "solus", initials: "S", name: "Solus", fallback: "solus" as const }
         : null),
   );
-  // A failing build is the one thing the wide row says in colour, so it is also
-  // what survives the fold — as words, not as the glyph the wide row can afford.
+  // A failing build is the most urgent thing the wide row says in colour, so it
+  // is what survives the fold; otherwise the first tinted chip (the lifecycle
+  // state on a PR row) takes the note.
   const note = $derived(
     row.checks?.state === "failing"
-      ? { label: row.checks.label, tint: "failure" as const }
+      ? checksChip(row.checks)
       : (row.chips.find((chip) => !!chip.tint) ?? null),
   );
   const noteColor = $derived(
-    note ? chipSkin(note.tint).color : "var(--muted-foreground)",
+    note
+      ? chipSkin(note.tint, note.emphasis).color
+      : "var(--muted-foreground)",
   );
   // At rail width churn is one more machine fact on the meta line, so it reads
   // as text rather than as the wide row's two coloured columns.

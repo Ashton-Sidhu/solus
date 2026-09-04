@@ -2,11 +2,13 @@
   import {
     RefreshCcw as ArrowsCounterClockwiseIcon,
     ChevronDown as CaretDownIcon,
+    CircleAlert as CircleAlertIcon,
     CircleCheck as CheckCircleIcon,
     MessageCircle as ChatCircleIcon,
     GitCommitHorizontal as GitCommitIcon,
     GitPullRequest as GitPullRequestIcon,
     LoaderCircle as LoaderIcon,
+    Tag as TagIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
@@ -30,6 +32,8 @@
     activityEventKey,
     commitRunAuthorLabel,
     commitRunPreview,
+    hasVisibleBody,
+    prLabelActivityText,
     reviewMilestone,
   } from "./lib/activity-data";
 
@@ -41,6 +45,8 @@
   let {
     events,
     loading = false,
+    loadFailed = false,
+    onRetry,
     filtered = false,
     authorName,
     openedAt,
@@ -58,6 +64,10 @@
     events: ActivityEvent[];
     /** Commits/comments still loading — renders ghost rows on the spine. */
     loading?: boolean;
+    /** A commit, comment, or thread read did not answer. The spine says so in
+     *  the row those events would fill, and offers the retry. */
+    loadFailed?: boolean;
+    onRetry?: () => void;
     /** A header filter is active, so an empty list means "nothing matches". */
     filtered?: boolean;
     /** PR author, the opened event's subject and commit-author fallback. */
@@ -79,8 +89,7 @@
   // Comment/review bodies are GitHub markdown — same pipeline *and* the same
   // `.prose-pr` typography as the description above them. Sizes/colour can't be
   // set with utilities here: the `.prose-cloud` rules are unlayered and win.
-  const bodyProseClass =
-    "github-markdown prose-cloud prose-pr prose-pr-activity mt-1.5";
+  const bodyProseClass = "github-markdown prose-cloud prose-pr prose-pr-activity";
 
   // Which commit runs are expanded past their preview, keyed by event key.
   // Mutated in place ($state proxies are deeply reactive); stale keys from a
@@ -131,6 +140,54 @@
   </Button>
 {/snippet}
 
+<!-- A comment's body sits on the same raised card a review thread does, under
+     its header row on the spine — one kind of surface for everything said on
+     the pull request, so a bot's screenful and a one-line reply read as the
+     same object. -->
+{#snippet commentBody(body: string)}
+  <div
+    class="mt-2 rounded-2xl border border-border bg-card px-3 py-2.5 [.is-laptop-display_&]:rounded-xl [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-2"
+  >
+    <div class={bodyProseClass}>
+      <SvelteMarkdown
+        source={body}
+        extensions={githubMarkdownExtensions}
+        renderers={githubMarkdownRenderers}
+        sanitizeUrl={remoteMarkdownSanitizeUrl}
+      />
+    </div>
+  </div>
+{/snippet}
+
+<!-- A person on the spine: their host avatar as the node, opaque over the
+     rail. A verdict, when the row carries one, is a small tinted badge on the
+     avatar's corner rather than a glyph in the person's place. The node is
+     pinned to the avatar's 22px: as a flex child it would otherwise stretch
+     to the row's full height, and its opaque background would blank the
+     spine for the whole row. -->
+{#snippet avatarNode(author: string, avatarUrl: string | undefined, tone?: "positive" | "negative")}
+  <span
+    class="relative z-10 mt-0.5 size-[22px] shrink-0 self-start rounded-full bg-background shadow-[0_0_0_3px_var(--background)]"
+  >
+    <PrAvatar name={author} url={avatarUrl} size="size-[22px] text-xs" />
+    {#if tone}
+      <span
+        class="absolute -right-1 -bottom-1 grid size-[14px] place-items-center rounded-full bg-background {tone ===
+        'positive'
+          ? 'text-(--solus-art-positive)'
+          : 'text-(--solus-art-negative)'}"
+        aria-hidden="true"
+      >
+        {#if tone === "positive"}
+          <CheckCircleIcon size={12} weight="fill" />
+        {:else}
+          <ArrowsCounterClockwiseIcon size={11} weight="bold" />
+        {/if}
+      </span>
+    {/if}
+  </span>
+{/snippet}
+
 {#snippet deleteCommentButton(commentId: string, author: string)}
   <Button
     type="button"
@@ -151,9 +208,12 @@
 {/snippet}
 
 <!-- The spine: a 1px rail under 22px nodes, so every row's content column
-     starts 30px in (node + gap) and the rail runs through the node centers. -->
+     starts 30px in (node + gap) and the rail runs through the node centers.
+     Every node is opaque — the muted wash is mixed over the page background
+     rather than laid over it — so the rail stops at a node's edge instead of
+     showing through it. -->
 <ol
-  class="relative flex flex-col gap-5 text-review-row [.is-laptop-display_&]:gap-4"
+  class="relative flex flex-col gap-5 [.is-laptop-display_&]:gap-4"
   role="list"
 >
   <span
@@ -166,7 +226,7 @@
        reads as one material instead of a column of coloured badges. -->
   <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
     <span
-      class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-primary"
+      class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-primary"
     >
       <GitPullRequestIcon size={13} weight="bold" />
     </span>
@@ -189,12 +249,35 @@
     </div>
   </li>
 
-  {#if loading}
+  {#if loadFailed}
+    <!-- The failure sits on the spine in the row the events would have
+         filled, rather than as a banner over the page. -->
+    <li class="relative flex gap-2">
+      <span
+        class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+        aria-hidden="true"
+      >
+        <CircleAlertIcon size={13} />
+      </span>
+      <p class="flex min-w-0 flex-1 items-center gap-2 pt-1 text-muted-foreground" role="alert">
+        <span class="min-w-0">Couldn’t load the activity.</span>
+        {#if onRetry}
+          <button
+            type="button"
+            class="shrink-0 cursor-pointer rounded-md px-1.5 py-0.5 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            onclick={onRetry}
+          >
+            Retry
+          </button>
+        {/if}
+      </p>
+    </li>
+  {:else if loading}
     <!-- Ghost rows share the spine so loading reads as the timeline filling in. -->
     {#each [0, 1, 2] as ghost (ghost)}
       <li class="relative flex gap-2" aria-hidden="true">
         <Skeleton
-          class="relative z-10 mt-0.5 size-[22px] shrink-0 rounded-full bg-muted"
+          class="relative z-10 mt-0.5 size-[22px] shrink-0 rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))]"
         />
         <div class="flex min-w-0 flex-1 flex-col gap-2 pt-1.5">
           <Skeleton class="h-3 w-52 rounded bg-muted" />
@@ -215,7 +298,7 @@
              alone demotes them. Long runs collapse behind a quiet expander. -->
         <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
           <span
-            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-muted-foreground"
+            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
           >
             <GitCommitIcon size={12} weight="bold" />
           </span>
@@ -279,12 +362,32 @@
             {/if}
           </div>
         </li>
+      {:else if event.kind === "label"}
+        <li class="relative flex gap-2">
+          <span
+            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-muted-foreground"
+            aria-hidden="true"
+          >
+            <TagIcon size={12} />
+          </span>
+          <p class="min-w-0 flex-1 pt-1 text-muted-foreground">
+            {prLabelActivityText(event.item, viewerLogin)}
+            <TooltipUI.Root>
+              <TooltipUI.Trigger>
+                {#snippet child({ props: tooltipProps })}
+                  <span {...tooltipProps}>· {formatTimeAgoFromTimestamp(event.ts)}</span>
+                {/snippet}
+              </TooltipUI.Trigger>
+              <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
+            </TooltipUI.Root>
+          </p>
+        </li>
       {:else if event.kind === "thread"}
         <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
           <span
             class={event.thread.isResolved
-              ? "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-(--solus-art-positive)"
-              : "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-primary"}
+              ? "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-(--solus-art-positive)"
+              : "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-primary"}
           >
             {#if event.thread.isResolved}
               <CheckCircleIcon size={13} weight="fill" />
@@ -306,24 +409,19 @@
         {@const milestone = reviewMilestone(event.comment)}
         {@const ts = commentTs(event.comment.createdAt)}
         {@const eventKey = activityEventKey(event)}
-        {@const hasBody = event.comment.body.trim().length > 0}
+        {@const hasBody = hasVisibleBody(event.comment.body)}
         {#if milestone}
           <!-- Milestone verdict: the single most important event in a PR's
-               life — tinted node + bold headline, no badge (the headline IS
-               the verdict). Same icons as PrReviewStateBadge. -->
+               life — the reviewer's avatar with the verdict as its badge, and
+               a bold headline (the headline IS the verdict). Same icons as
+               PrReviewStateBadge. -->
           <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-            <span
-              class={milestone.tone === "positive"
-                ? "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-(--solus-art-positive)"
-                : "relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-muted text-(--solus-art-negative)"}
-            >
-              {#if milestone.tone === "positive"}
-                <CheckCircleIcon size={13} weight="fill" />
-              {:else}
-                <ArrowsCounterClockwiseIcon size={13} weight="bold" />
-              {/if}
-            </span>
-            <div class="group/comment min-w-0 flex-1 pt-1">
+            {@render avatarNode(
+              event.comment.author,
+              event.comment.authorAvatarUrl,
+              milestone.tone,
+            )}
+            <div class="group/comment min-w-0 flex-1 pt-0.5">
               <p class="flex items-start gap-2  font-medium">
                 <span class="min-w-0 flex-1">
                   {event.comment.author}
@@ -345,28 +443,13 @@
                 {/if}
               </p>
               {#if hasBody && !collapsedComments[eventKey]}
-                <div class={bodyProseClass}>
-                  <SvelteMarkdown
-                    source={event.comment.body}
-                    extensions={githubMarkdownExtensions}
-                    renderers={githubMarkdownRenderers}
-                    sanitizeUrl={remoteMarkdownSanitizeUrl}
-                  />
-                </div>
+                {@render commentBody(event.comment.body)}
               {/if}
             </div>
           </li>
         {:else}
           <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">
-            <span
-              class="relative z-10 mt-0.5 shrink-0 rounded-full shadow-[0_0_0_3px_var(--card)]"
-            >
-              <PrAvatar
-                name={event.comment.author}
-                url={event.comment.authorAvatarUrl}
-                size="size-[22px] text-xs"
-              />
-            </span>
+            {@render avatarNode(event.comment.author, event.comment.authorAvatarUrl)}
             <div class="group/comment min-w-0 flex-1 pt-0.5">
               <div class="flex items-start gap-2 ">
                 <span class="min-w-0 flex-1">
@@ -399,14 +482,7 @@
                 {/if}
               </div>
               {#if hasBody && !collapsedComments[eventKey]}
-                <div class={bodyProseClass}>
-                  <SvelteMarkdown
-                    source={event.comment.body}
-                    extensions={githubMarkdownExtensions}
-                    renderers={githubMarkdownRenderers}
-                    sanitizeUrl={remoteMarkdownSanitizeUrl}
-                  />
-                </div>
+                {@render commentBody(event.comment.body)}
               {/if}
             </div>
           </li>

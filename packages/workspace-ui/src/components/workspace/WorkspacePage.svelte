@@ -208,7 +208,7 @@
   async function refreshCatalogFromRecents(serverId: string) {
     const recentProjects = await serversStore.recentProjectsFor(serverId);
     for (const project of recentProjects) {
-      projectCatalog.record(
+      projectCatalog.recordDiscovered(
         { serverId, projectRoot: project.path },
         project.folderName,
       );

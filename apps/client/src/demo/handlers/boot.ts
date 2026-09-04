@@ -34,7 +34,6 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     projectCount: 1,
     agentAuth: { claude: true },
     gitAuth: { github: false },
-    serverName: 'Solus Demo',
     agentTaskLifecyclePolicy,
   }))
   backend.register('setAgentTaskLifecyclePolicy', (args) => {

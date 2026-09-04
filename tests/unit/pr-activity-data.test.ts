@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test'
 import type { PrCommit, PrConversationItem, ReviewThread } from '@solus/contracts/providers'
-import { buildActivityTimeline } from '@solus/workspace-ui/components/pr-review/lib/activity-data'
+import {
+  buildActivityTimeline,
+  filterActivityTimeline,
+  prLabelActivityText,
+} from '@solus/workspace-ui/components/pr-review/lib/activity-data'
 
 describe('PR activity timeline conversation', () => {
   test('interleaves durable issue comments and review bodies with commits and threads', () => {
@@ -56,5 +60,30 @@ describe('PR activity timeline conversation', () => {
       author: 'reviewer',
       reviewState: 'CHANGES_REQUESTED',
     })
+  })
+})
+
+describe('PR label activity', () => {
+  const added = {
+    id: 'label-1',
+    kind: 'label',
+    author: 'sidhu',
+    createdAt: '2026-01-01T11:00:00Z',
+    action: 'added',
+    label: { name: 'bug', color: 'd73a4a' },
+  } satisfies PrConversationItem
+
+  test('names the label and uses You for the connected viewer', () => {
+    // WHY: PR activity is an audit trail too. The exact label must survive the
+    // provider boundary instead of collapsing to "changed the labels".
+    expect(prLabelActivityText(added, 'sidhu')).toBe('You added label “bug”')
+    expect(prLabelActivityText({ ...added, action: 'removed' }, 'someone-else'))
+      .toBe('sidhu removed label “bug”')
+  })
+
+  test('interleaves label events but does not call them conversation', () => {
+    const timeline = buildActivityTimeline([], [], [added])
+    expect(timeline.map((event) => event.kind)).toEqual(['label'])
+    expect(filterActivityTimeline(timeline, 'conversation', false)).toEqual([])
   })
 })

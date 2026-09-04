@@ -36,7 +36,7 @@ afterAll(() => {
 })
 
 describe('pinned session manifest', () => {
-  test('round-trips the session host with the pinned entry', async () => {
+  test('reads the pinned session host and indexed model', async () => {
     const pin = {
       sessionId: 'session-1',
       serverId: 'studio',
@@ -45,9 +45,14 @@ describe('pinned session manifest', () => {
       cwd: '/repo',
       pinnedAt: 42,
     }
+    db.getDb().prepare(`
+      INSERT INTO sessions(session_id, provider, model)
+      VALUES (?, ?, ?)
+    `).run(pin.sessionId, pin.provider, 'gpt-5.6-sol')
+    const indexedPin = { ...pin, model: 'gpt-5.6-sol' }
 
-    expect(await pinnedSessions.togglePinnedSession(pin)).toEqual([pin])
-    expect(await pinnedSessions.readManifest()).toEqual([pin])
+    expect(await pinnedSessions.togglePinnedSession(pin)).toEqual([indexedPin])
+    expect(await pinnedSessions.readManifest()).toEqual([indexedPin])
   })
 
   test('keeps equal provider session ids distinct across hosts', async () => {

@@ -3,7 +3,7 @@
   import { ChevronDown as CaretDownIcon, User as UserIcon } from "@lucide/svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import ProviderMark from "./ProviderMark.svelte";
+  import ProviderMark from "../ui/ProviderMark.svelte";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import CopyButton from "../ui/CopyButton.svelte";

@@ -60,6 +60,7 @@
     onMoveAcross?: () => void;
     isLeading?: boolean;
     onClose?: () => void;
+    pageSwitcherEnabled?: boolean;
   }
   let {
     projects,
@@ -81,6 +82,7 @@
     onMoveAcross,
     isLeading = true,
     onClose,
+    pageSwitcherEnabled = true,
   }: Props = $props();
 
   // The chip's label ages while the page sits open, so it needs a clock of its
@@ -96,6 +98,8 @@
   );
 
   const hasWindowActions = $derived(!!onMoveAcross || !!onClose);
+  let projectMenuOpen = $state(false);
+  let pageMenuOpen = $state(false);
 </script>
 
 <!-- Full width by declaration: the row's own spacer is what pushes the window
@@ -147,6 +151,8 @@
           onSelectAll={onSelectAllProjects}
           allLabel={allProjectsLabel}
           footerNote={projectSwitchNote}
+          bind:menuOpen={projectMenuOpen}
+          onOpenMenu={() => (pageMenuOpen = false)}
         />
       </span>
       <span
@@ -154,7 +160,13 @@
         aria-hidden="true">/</span
       >
     {/if}
-    <PageCrumbMenu {page} label={pageLabel} />
+    <PageCrumbMenu
+      {page}
+      label={pageLabel}
+      switchable={pageSwitcherEnabled}
+      bind:menuOpen={pageMenuOpen}
+      onOpenMenu={() => (projectMenuOpen = false)}
+    />
     {#if trailingCrumb}
       <span
         class="shrink-0 px-px text-[15px] text-muted-foreground opacity-30"

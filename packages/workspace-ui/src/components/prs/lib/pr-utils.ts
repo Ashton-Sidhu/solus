@@ -9,6 +9,47 @@ import {
 export type PrStateFilter = 'open' | 'closed' | 'all'
 export type PrSortMode = 'updated' | 'created' | 'effort'
 
+export interface PrFacetSelection {
+  involvement: 'all' | 'created' | 'assigned' | 'review-requested'
+  author: string | null
+  label: string | null
+  draft: 'all' | 'ready' | 'draft'
+  review: 'all' | 'approved' | 'changes-requested' | 'review-required' | 'no-reviews'
+  checks: 'all' | 'passing' | 'pending' | 'failing'
+}
+
+interface PrFacetContext {
+  viewerLogin: (pr: PullRequest) => string | null
+  checksState: (pr: PullRequest) => 'passing' | 'pending' | 'failing' | null
+}
+
+/** Applies only filters backed by facts present on every loaded list row. */
+export function filterPrFacets(
+  items: PullRequest[],
+  selection: PrFacetSelection,
+  context: PrFacetContext,
+): PullRequest[] {
+  return items.filter((pr) => {
+    const viewer = context.viewerLogin(pr)?.toLowerCase() ?? null
+    if (selection.involvement === 'created' && pr.author.toLowerCase() !== viewer) return false
+    if (
+      selection.involvement === 'assigned' &&
+      !pr.assignees?.some((login) => login.toLowerCase() === viewer)
+    ) return false
+    if (
+      selection.involvement === 'review-requested' &&
+      !pr.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === viewer)
+    ) return false
+    if (selection.author && pr.author.toLowerCase() !== selection.author.toLowerCase()) return false
+    if (selection.label && !pr.labels.some((label) => label.name === selection.label)) return false
+    if (selection.draft === 'ready' && pr.draft) return false
+    if (selection.draft === 'draft' && !pr.draft) return false
+    if (selection.review !== 'all' && pr.reviewStatus !== selection.review) return false
+    if (selection.checks !== 'all' && context.checksState(pr) !== selection.checks) return false
+    return true
+  })
+}
+
 export interface PrStatusBadge {
   label: string
   Icon: typeof GitPullRequestIcon

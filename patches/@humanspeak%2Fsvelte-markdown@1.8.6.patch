@@ -6,10 +6,10 @@ index ca45d65..f042d03 100644
                      {/if}
                  </HtmlComponent>
              {/if}
-+        {:else if !htmlTag}
-+            <!-- Marked emits an unpaired HTML-looking tag without a structured
-+                 tag name. Keep it visible as escaped text while the stream is
-+                 incomplete instead of dropping it from the output. -->
++        {:else if !htmlTag && !String(sanitizedRest.raw).trimStart().startsWith('<!--')}
++            <!-- Marked emits both HTML comments and unpaired HTML-looking tags
++                 without a structured tag name. Comments stay hidden; keep only
++                 the incomplete tag visible as escaped text while streaming. -->
 +            <renderers.rawtext text={sanitizedRest.raw} {...sanitizedRest} />
          {:else}
              {@const fallbackRest = Object.fromEntries(

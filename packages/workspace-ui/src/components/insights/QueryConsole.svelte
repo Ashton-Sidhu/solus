@@ -242,8 +242,8 @@
     <div class="relative flex h-12 items-center gap-2.5 pr-2 pl-2.5 [.is-laptop-display_&]:h-11">
       {@render languageSegment()}
       <MagnifyingGlassIcon size={12} class="shrink-0 text-muted-foreground opacity-70" />
-      <div class="flex min-w-0 flex-1 items-center gap-1">
-        <div class="min-w-0 flex-1">
+      <div class="flex min-w-0 flex-1 items-center">
+        <div class="min-w-0 flex-1 [--rc-mic-right:-0.25rem]">
           <Input
             class="h-auto rounded-none border-0 bg-transparent p-0 text-insights-query shadow-none focus-visible:ring-0 dark:bg-transparent"
             placeholder="Which sessions were slowest after 21:00?"
@@ -310,7 +310,7 @@
         <button
           type="button"
           title={preset.description}
-          class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome whitespace-nowrap text-muted-foreground transition-[background-color,color,box-shadow,scale] hover:bg-[var(--wash-1)] hover:text-foreground hover:shadow-[shadow:var(--elev-ring)] active:scale-[0.96]"
+          class="h-6 shrink-0 cursor-pointer rounded-md px-2 text-insights-chrome whitespace-nowrap text-muted-foreground outline-none transition-[background-color,color,box-shadow,scale] hover:bg-[var(--wash-1)] hover:text-foreground hover:shadow-[shadow:var(--elev-ring)] focus-visible:bg-[var(--wash-1)] focus-visible:text-foreground focus-visible:shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_38%,transparent),0_0_0_2px_color-mix(in_oklch,var(--primary)_9%,transparent)] active:scale-[0.96]"
           onclick={() => onPreset(preset)}>{preset.label}</button
         >
       {/each}

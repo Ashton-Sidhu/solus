@@ -23,12 +23,20 @@ interface WatchedScope {
   ctx: IpcContext
 }
 
+interface ReportedActivity {
+  api: HostApi
+  projectScope: string
+  reviewSurfaceOpen: boolean
+  active: boolean
+}
+
 export class PrChecksStore {
   private readonly byProject = new SvelteMap<string, PrChecksSnapshot>()
   /** Which repository each project's snapshot came from, so a broadcast about
    *  one repository reaches every checkout of it. */
   private readonly repoByProject = new Map<string, string>()
   private reviewSurfaceOpen = false
+  private lastReportedActivity: ReportedActivity | undefined
 
   summaryFor(serverId: string, ctx: IpcContext, number: number): PrChecksSummary | undefined {
     return this.byProject.get(projectPrsKey(serverId, ctx))?.checks
@@ -68,6 +76,7 @@ export class PrChecksStore {
       window.removeEventListener('blur', report)
       document.removeEventListener('visibilitychange', report)
       const scope = watching()
+      this.lastReportedActivity = undefined
       // Say so on the way out, or the host keeps polling for a surface that is
       // no longer there.
       if (projectScopeOf(scope.ctx.session)) {
@@ -82,10 +91,22 @@ export class PrChecksStore {
     this.reportActivity(api, ctx)
   }
 
-  reportActivity(api: HostApi, ctx: IpcContext): void {
-    if (!projectScopeOf(ctx.session)) return
+  reportActivity(api: HostApi, ctx: IpcContext, force = false): void {
+    const projectScope = projectScopeOf(ctx.session)
+    if (!projectScope) return
     const active = document.visibilityState === 'visible' && document.hasFocus()
-    void api.prChecksActivity(detached(ctx), this.reviewSurfaceOpen, active).catch(() => {})
+    const report = { api, projectScope, reviewSurfaceOpen: this.reviewSurfaceOpen, active }
+    const previous = this.lastReportedActivity
+    if (!force
+      && previous?.api === report.api
+      && previous.projectScope === report.projectScope
+      && previous.reviewSurfaceOpen === report.reviewSurfaceOpen
+      && previous.active === report.active) return
+
+    this.lastReportedActivity = report
+    void api.prChecksActivity(detached(ctx), report.reviewSurfaceOpen, report.active).catch(() => {
+      if (this.lastReportedActivity === report) this.lastReportedActivity = undefined
+    })
   }
 
   /** Forget one project's checks. */

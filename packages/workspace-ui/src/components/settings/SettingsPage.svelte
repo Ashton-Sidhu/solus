@@ -229,7 +229,7 @@
   let searchInputEl = $state<HTMLInputElement | null>(null);
 
   function close() {
-    session.closeSettings();
+    session.router.close("settings");
     requestInputFocus();
   }
 

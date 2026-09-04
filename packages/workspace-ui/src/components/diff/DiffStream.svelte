@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { mount, unmount, onMount, untrack } from "svelte";
+  import { getAllContexts, mount, unmount, onMount, untrack } from "svelte";
   import {
     CodeView,
     type CodeViewDiffItem,
@@ -48,6 +48,10 @@
     | { kind: "draft" };
 
   const DRAFT_META: AnnotationMeta = { kind: "draft" };
+  // @pierre/diffs asks us to mount annotations as separate Svelte roots. Carry
+  // this component's contexts into those roots so nested renderers such as
+  // CodeSpan can still reach the workspace.
+  const annotationContexts = getAllContexts();
   const ACTION_BAR_SCROLL_GUTTER = 88;
   // File-header height. Mirrors the CSS in diffTheme.ts (DIFFS_THEME_CSS) — keep
   // the three tiers in sync so virtualization/sticky math matches the painted
@@ -615,6 +619,7 @@
           const target = document.createElement("div");
           const instance = mount(DiffThreadComment, {
             target,
+            context: annotationContexts,
             props: {
               thread: annotation.metadata.thread,
               collapsed: isThreadCollapsed(annotation.metadata.thread),

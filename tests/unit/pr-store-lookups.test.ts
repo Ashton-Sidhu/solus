@@ -64,6 +64,7 @@ function pr(number: number, overrides: Partial<PullRequest> = {}): PullRequest {
       mergeMethods: ['squash'],
       reviewerRequests: true,
       reviewerCandidates: true,
+      labelManagement: true,
     },
     viewerPermissions: {
       actions: ['merge', 'close'],
@@ -71,6 +72,7 @@ function pr(number: number, overrides: Partial<PullRequest> = {}): PullRequest {
       comment: true,
       resolveThreads: true,
       requestReviewers: true,
+      manageLabels: true,
     },
     ...overrides,
   }
@@ -82,6 +84,27 @@ const NO_CHECKS = {
 }
 
 describe('PrsStore lookups are scoped to one project', () => {
+  test('a label write updates the indexed pull request and its visible list row', async () => {
+    // WHY: the detail picker and PR list stay mounted together. A successful
+    // label edit must update both without replacing the shared PR object.
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const api = asHostApi({
+      prList: async (): Promise<PrListPage> => ({ items: [pr(65)], page: 1, hasMore: false }),
+      prSetLabels: async () => [{ name: 'bug', color: 'd73a4a' }],
+      ...NO_CHECKS,
+    })
+    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
+    await project.list()
+    const pullRequest = project.get(65)
+
+    await pullRequest.setLabels(['bug'])
+
+    expect(pullRequest.labels).toEqual([{ name: 'bug', color: 'd73a4a' }])
+    expect(project.items[0].labels).toEqual([{ name: 'bug', color: 'd73a4a' }])
+  })
+
   test('a project answers only for its own pull requests, whatever another project last listed', async () => {
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')

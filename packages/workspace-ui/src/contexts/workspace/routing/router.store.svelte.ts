@@ -65,6 +65,14 @@ export class RouterStore {
    *  request-id counter. */
   navigationEpoch = $state(0)
 
+  /**
+   * What the leading pane rests on once whatever it held closes. Routing only
+   * knows the conversation pool; the workspace knows whether that pool has a
+   * tab to show, and answers the composer when it does not. Asked only when the
+   * leading pane is the one closing, so answering may mint a draft.
+   */
+  leadingHome: () => RouteRef = () => CHAT_ROUTE
+
   private history: RouteHistory
   private detachHistory: (() => void) | null = null
   private resolved = new SvelteMap<string, PrReviewTarget>()
@@ -166,7 +174,7 @@ export class RouterStore {
   }
 
   closePane(paneId: PaneId): void {
-    closeLocationPane(this.location, paneId)
+    closeLocationPane(this.location, paneId, this.homeFor(paneId))
     this.commit(null, {})
   }
 
@@ -185,7 +193,7 @@ export class RouterStore {
   }
 
   movePane(paneId: PaneId, delta: number): void {
-    moveLocationPane(this.location, paneId, delta)
+    moveLocationPane(this.location, paneId, delta, this.homeFor(paneId))
     this.commit(null, {})
   }
 
@@ -205,7 +213,7 @@ export class RouterStore {
   close(name: RouteName): void {
     for (const pane of this.location.panes.slice()) {
       if (pane.overlay?.name === name) closePaneOverlay(this.location, pane.id)
-      else if (pane.base?.name === name) closeLocationPane(this.location, pane.id)
+      else if (pane.base?.name === name) closeLocationPane(this.location, pane.id, this.homeFor(pane.id))
     }
     this.commit(null, {})
   }
@@ -215,7 +223,7 @@ export class RouterStore {
   closeGroup(group: 'page' | 'artifact'): void {
     for (const pane of this.location.panes.slice()) {
       if (pane.base && ROUTES[pane.base.name].exclusiveGroup === group) {
-        closeLocationPane(this.location, pane.id)
+        closeLocationPane(this.location, pane.id, this.homeFor(pane.id))
       }
     }
     this.commit(null, {})
@@ -333,6 +341,12 @@ export class RouterStore {
   }
 
   // ─── Internals ───
+
+  /** A companion pane closes outright, so only the leading pane needs a home —
+   *  and only then is the workspace asked, since answering may mint a draft. */
+  private homeFor(paneId: PaneId): RouteRef {
+    return paneId === this.leadingPane.id ? this.leadingHome() : CHAT_ROUTE
+  }
 
   private commit(ref: RouteRef | null, opts: NavigateOptions): void {
     const serialized = serializeLocation(this.location)

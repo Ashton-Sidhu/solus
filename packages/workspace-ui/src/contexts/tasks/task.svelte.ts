@@ -508,6 +508,7 @@ export class Task implements TaskRecord {
       sessionId,
       sessionTitle: null,
       provider: null,
+      model: null,
       startedAt: Date.now(),
       lastActivityAt: null,
       linkedAt: Date.now(),

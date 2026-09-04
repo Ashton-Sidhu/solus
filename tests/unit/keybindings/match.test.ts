@@ -6,6 +6,8 @@ import {
   comboFromEvent,
   comboEquals,
   comboToAccelerator,
+  eventMatches,
+  formatCombo,
 } from '@solus/workspace-ui/lib/keybindings/match'
 import type { BindingDef, KeyCombo } from '@solus/workspace-ui/lib/keybindings/types'
 
@@ -52,6 +54,23 @@ describe('comboFromEvent', () => {
     // On mac, ctrl is the secondary modifier (does not collapse to mod).
     const combo = comboFromEvent(ev({ code: 'KeyK', metaKey: !isMac, ctrlKey: isMac }))
     expect(combo).toEqual(isMac ? { code: 'KeyK', ctrl: true } : { code: 'KeyK', meta: true })
+  })
+})
+
+describe('multi-modifier shortcuts', () => {
+  test('keeps an explicit secondary modifier beside the platform modifier', () => {
+    const combo = { mod: true, ctrl: true, code: 'KeyC' }
+    expect(
+      eventMatches(
+        ev({ code: 'KeyC', metaKey: isMac, ctrlKey: true }),
+        combo,
+      ),
+    ).toBe(true)
+    expect(formatCombo(combo)).toEqual(isMac ? ['⌘', '⌃', 'C'] : ['⌘', 'C'])
+    expect(comboEquals(combo, { mod: true, code: 'KeyC' })).toBe(false)
+    expect(comboToAccelerator(combo)).toBe(
+      isMac ? 'CommandOrControl+Control+C' : 'CommandOrControl+C',
+    )
   })
 })
 

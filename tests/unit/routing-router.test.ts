@@ -236,6 +236,54 @@ describe('leading with a route that is already open', () => {
   })
 })
 
+describe('closing the leading pane', () => {
+  const DRAFT: RouteRef = { name: 'draft', params: { draftId: 'd_1' } }
+
+  test('rests on whatever the workspace names as home, however it closes', () => {
+    // WHY: every page's own close button, the palette toggle and the pane
+    // chrome all reach the router by a different method. The bug — a closed
+    // page dropping an empty workspace onto a bare chat — has to be fixed once,
+    // below all of them, or it comes back with the next call site.
+    for (const close of [
+      (router: InstanceType<typeof RouterStore>) => router.closePane(router.leadingPane.id),
+      (router: InstanceType<typeof RouterStore>) => router.close('tasks'),
+      (router: InstanceType<typeof RouterStore>) => router.closeGroup('page'),
+    ]) {
+      const router = new RouterStore()
+      router.leadingHome = () => DRAFT
+      router.navigate(TASKS)
+
+      close(router)
+
+      expect(router.leadingPane.base).toEqual(DRAFT)
+    }
+  })
+
+  test('the workspace is asked only when the leading pane is the one closing', () => {
+    // WHY: answering may mint a draft, so a companion closing — which simply
+    // leaves the split — must not cost the workspace one.
+    const router = new RouterStore()
+    let asked = 0
+    router.leadingHome = () => { asked += 1; return DRAFT }
+    const companion = router.navigate(PLAN, { target: 'aside' })
+
+    router.closePane(companion.id)
+
+    expect(asked).toBe(0)
+    expect(router.leadingPane.base).toEqual({ name: 'chat', params: {} })
+  })
+
+  test('moving the lead\'s content aside leaves home behind it', () => {
+    const router = new RouterStore()
+    router.leadingHome = () => DRAFT
+    router.navigate(TASKS)
+
+    router.movePane(router.leadingPane.id, 1)
+
+    expect(router.panes.map((pane) => pane.base)).toEqual([DRAFT, TASKS])
+  })
+})
+
 describe('resolved payloads', () => {
   test('a route resolves once and is served from the cache after that', async () => {
     const router = new RouterStore()

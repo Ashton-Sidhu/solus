@@ -15,12 +15,12 @@
   }: {
     pr: { number: number; title: string };
     getCtx: () => IpcContext;
-    /** Full-width inside the rail's merge card; content-width in the bar the
-     *  card becomes below the rail's fold. */
+    /** Full-width inside the rail's status card; content-width in the row the
+     *  card becomes once the rail folds. */
     layout?: PrActionsLayout;
   } = $props();
 
-  const bar = $derived(layout === "bar");
+  const row = $derived(layout === "row");
 
   const session = getWorkspaceContext();
 
@@ -34,7 +34,7 @@
 
 <Button
   type="button"
-  class="flex cursor-pointer items-center justify-center overflow-hidden rounded-[10px] border-0 bg-(--solus-art-negative) px-3.5 font-medium text-white transition-[background-color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--solus-art-negative)_88%,var(--foreground))] focus-visible:ring-[color:color-mix(in_srgb,var(--solus-art-negative)_28%,transparent)] active:scale-[0.96] {bar
+  class="flex cursor-pointer items-center justify-center overflow-hidden rounded-[10px] border-0 bg-(--solus-art-negative) px-3.5 font-medium text-white transition-[background-color,scale] duration-150 hover:bg-[color-mix(in_oklch,var(--solus-art-negative)_88%,var(--foreground))] focus-visible:ring-[color:color-mix(in_srgb,var(--solus-art-negative)_28%,transparent)] active:scale-[0.96] {row
     ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
     : 'h-[34px] w-full'}"
   onclick={resolve}

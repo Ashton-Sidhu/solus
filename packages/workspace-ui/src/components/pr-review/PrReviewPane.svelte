@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
-  import { Sparkles as SparkleIcon } from "@lucide/svelte";
+  import { GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import type {
     DraftReview,
@@ -15,7 +15,7 @@
     getSettingsContext,
     getAgentContext,
   } from "../../contexts";
-  import { toasts } from "../../lib/toasts";
+  import { copyText, toasts } from "../../lib/toasts";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
   import { requestInputFocus } from "../../lib/inputFocus";
   import type { HostApi } from "@solus/client-core/host-api";
@@ -46,6 +46,7 @@
   import { Button } from "../ui/button";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import StackDiffBanner from "./StackDiffBanner.svelte";
+  import type { PrFixFeedback } from "../../contexts/workspace/pr-fix-session";
 
   // The review surface (M3–M5): Activity · Guide · Diff content tabs over a PR's
   // change, living maximized in the secondary pane. The "Chat" button lazily
@@ -692,12 +693,14 @@
         existingTabId: activeChatTabId,
         projectCtx: projectCtx(),
         serverId,
+        task: "none",
       });
       const sourceContext = await review.ensureCheckout();
       await session.openPrReviewChat(sourceContext, {
         existingTabId: activeChatTabId,
         projectCtx: projectCtx(),
         serverId,
+        task: "none",
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -707,6 +710,36 @@
       toasts.error("Couldn't open review chat", { description: message });
     } finally {
       openingChat = false;
+    }
+    requestInputFocus();
+  }
+
+  async function openFixComments(feedback?: PrFixFeedback) {
+    if (!pr) return;
+    let fixTabId: string | null = null;
+    try {
+      // Mount the conversation before checkout starts. This puts it in the
+      // session sidebar at once and lets the same checkout card that Check out
+      // uses explain the wait.
+      fixTabId = await session.openPrReviewChat(pr, {
+        projectCtx: projectCtx(),
+        serverId,
+        task: "new",
+      });
+      const sourceContext = await review.ensureCheckout();
+      await session.openPrReviewChat(sourceContext, {
+        existingTabId: fixTabId,
+        projectCtx: projectCtx(),
+        serverId,
+        task: "new",
+      });
+      await session.startPrCommentsFixSession(sourceContext, feedback, fixTabId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (fixTabId) {
+        session.failPrReviewChatCheckout(fixTabId, pr.number, message);
+      }
+      toasts.error("Couldn't open the fix session", { description: message });
     }
     requestInputFocus();
   }
@@ -721,11 +754,6 @@
     if (onStep) onStep(delta);
     else session.stepPrReview(delta, projectCtx());
   }
-
-  // Where this review sits in the list order the PRs page publishes — the same
-  // rows, in the same order, as the list it was opened from.
-  const listOrder = $derived(pullRequests.view.listOrder);
-  const queuePosition = $derived(listOrder.indexOf(target.number) + 1);
 
   const summary = $derived(
     pullRequests.projects.at(serverId, projectScopeOf(projectCtx().session))?.prFor(target.number) ?? null,
@@ -748,6 +776,16 @@
   function openPr() {
     if (prUrl) void localApi.openExternal(prUrl);
   }
+
+  useKeybinding(
+    "pr-review.copy-link",
+    async () => {
+      if (!prUrl) return;
+      await copyText(prUrl);
+      requestInputFocus();
+    },
+    { enabled: () => !headless && !!prUrl },
+  );
 
   // Esc is the only way out, and J / K walk the queue. All three skip while a
   // comment/text field is focused (it owns its own keys) or the submit modal is
@@ -792,6 +830,9 @@
 
 {#snippet detailMasthead()}
   <PrDetailMasthead
+    repo={targetRepo ? `${targetRepo.owner}/${targetRepo.repo}` : null}
+    number={target.number}
+    onOpenPage={prUrl ? openPr : undefined}
     tab={sub === "guide" || sub === "map" ? sub : "activity"}
     diffOpen={diffPoppedOut}
     guideDisabled={showingFullDiff}
@@ -815,28 +856,33 @@
   />
 {/snippet}
 
-<!-- The same pill the document and work headers use to reach Solus: one filled,
-     rounded-full surface, so "ask Solus about the thing you are looking at" is
-     the same object wherever you meet it.
-     It sits in the band's trailing cluster, beside the #number and the 26px
-     round pane controls, so it takes that cluster's dense rung rather than the
-     tabs' reading rung — at 14px in a filled surface it read as the heaviest
-     object in the row. Touch keeps a thumb-sized target. -->
+<!-- The one filled surface in either header shape: it gives the pull request a
+     worktree of its own and opens the session on it. It is the shared Button in
+     its compact size, so it carries the same accent fill, rounded-rectangle
+     radius and press response as the document and work headers' own primary
+     action — a full pill read as a different family of button from every other
+     control the user presses.
+
+     It sits in the band's trailing cluster, beside the #number and the tabs,
+     and wears the same glyph the number does, so the row names one object once.
+     Its geometry follows the chrome rung it is typed on: 26px on a desktop
+     display, 24px on a laptop, and a thumb-sized target on touch. -->
 {#snippet chatButton()}
   <Button
     type="button"
-    class="ml-[5px] h-6.5 shrink-0 gap-1.5 rounded-full border-0 bg-(--solus-accent) px-2.5 text-chrome-dense font-medium text-(--solus-text-on-accent) transition-colors hover:bg-[color-mix(in_srgb,var(--solus-accent)_88%,black)] disabled:opacity-50 pointer-coarse:h-10 pointer-coarse:px-3.5"
+    size="xs"
+    class="ml-[5px] h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 pointer-fine:[.is-laptop-display_&]:h-6 pointer-fine:[.is-laptop-display_&]:px-2"
     onclick={openChat}
     disabled={openingChat || !pr}
-    aria-label="Ask Solus"
+    aria-label="Check out this pull request"
     title={openingChat
       ? "Preparing checkout…"
       : activeChatTabId
-        ? "Focus the Solus chat about this pull request"
-        : "Ask Solus about this pull request"}
+        ? "Focus the Solus chat on this pull request's checkout"
+        : "Check out this pull request in its own worktree and open a Solus chat on it"}
   >
-    <SparkleIcon size={11} weight="fill" />
-    Ask Solus
+    <GitPullRequestIcon class="size-3" aria-hidden="true" />
+    Check out
   </Button>
 {/snippet}
 
@@ -859,24 +905,21 @@
       number={target.number}
       headRef={pr?.headRef ?? summary?.headRef}
       tab={sub}
-      position={queuePosition}
-      total={listOrder.length}
       {fullScreen}
       {onToggleFullScreen}
       onOpenPage={prUrl ? openPr : undefined}
       {onMoveAcross}
       isLeading={false}
-      onStep={step}
       onClose={exit}
       onRefresh={() => void refreshPr()}
       refreshing={refreshingPr}
       guide={guideHeaderActions}
         tabs={panelTabs}
     >
-      <!-- The band keeps only the one action you take in the moment — Ask
-           Solus, which is also how this pull request gets checked out. Refresh
-           and the external host page live in the overflow, and the check state is read on
-           Activity. -->
+      <!-- The band keeps only the one action you take in the moment — Check
+           out, which gives the pull request a worktree and a Solus session.
+           Refresh and the external host page live in the overflow, and the
+           check state is read on Activity. -->
       {#snippet actions()}
         {@render chatButton()}
       {/snippet}
@@ -1115,12 +1158,7 @@
           showIdentity={!embedded}
           addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
           onAddressComments={async () => {
-            if (!pr) return;
-            try {
-              await session.startPrCommentsFixSession(await review.ensureCheckout());
-            } catch (error) {
-              toasts.error(error instanceof Error ? error.message : String(error));
-            }
+            await openFixComments();
           }}
           onFixCheck={async (check) => {
             await session.startPrCheckFixSession(
@@ -1132,6 +1170,9 @@
           onGenerateGuide={generateGuide}
           onRefreshThreads={() => loadThreads(true)}
           {onRefreshTarget}
+          showRemoteLink
+          onChat={() => void openChat()}
+          chatBusy={openingChat}
           onJump={jumpToDiff}
           onOpenCommit={openCommitDiff}
           masthead={headless || embedded ? undefined : detailMasthead}
@@ -1154,7 +1195,7 @@
     onClose={() => (showSubmit = false)}
     onSubmitted={onReviewSubmitted}
     onSendToFixAgent={async (feedback) => {
-      await session.startPrCommentsFixSession(await review.ensureCheckout(), feedback);
+      await openFixComments(feedback);
     }}
   />
 {/if}

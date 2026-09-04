@@ -1,10 +1,10 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  import { CircleCheck as CheckCircleIcon } from "@lucide/svelte";
   import ListAvatar from "./ListAvatar.svelte";
   import ListChip from "./ListChip.svelte";
   import SourceLogo from "./SourceLogo.svelte";
   import {
+    checksChip,
     compactCount,
     participantsAfterLead,
     type ListRowSpec,
@@ -184,26 +184,16 @@
       </span>
     {/if}
 
-    <!-- Slot 5 — passing is the expected case and gets a glyph; failing is the
-         exception and gets words. Anything else holds the width in silence. -->
+    <!-- Slot 5 — the check state in words, tinted by outcome. `none` holds the
+         width in silence so a result landing later does not shift the row. -->
     {#if row.checks}
-      {#if row.checks.state === "failing"}
+      {@const chip = checksChip(row.checks)}
+      {#if chip}
         <span class="flex shrink-0 items-center @max-[30rem]/pane:order-10">
-          <ListChip chip={{ label: row.checks.label, tint: "failure" }} />
+          <ListChip {chip} />
         </span>
       {:else}
-        <span
-          class="flex w-4 shrink-0 items-center justify-center @max-[30rem]/pane:order-10"
-          title={row.checks.state === "passing" ? row.checks.label : undefined}
-        >
-          {#if row.checks.state === "passing"}
-            <CheckCircleIcon
-              size={12}
-              class="text-[color:color-mix(in_oklch,var(--success)_72%,var(--foreground))]"
-              aria-label={row.checks.label}
-            />
-          {/if}
-        </span>
+        <span class="flex w-4 shrink-0 items-center justify-center @max-[30rem]/pane:order-10"></span>
       {/if}
     {/if}
 

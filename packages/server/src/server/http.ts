@@ -11,7 +11,7 @@ import { getRequestListener } from '@hono/node-server'
 import { serveStatic } from '@hono/node-server/serve-static'
 import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, isAbsolute } from 'path'
-import { hostname, tmpdir } from 'os'
+import { tmpdir } from 'os'
 import { z } from 'zod'
 import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, isDeviceRevoked, issueGrantWsTicket, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken } from './auth'
 import { listReachableEndpoints } from './endpoints'
@@ -28,6 +28,7 @@ import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
 import { parseByteRange } from './byte-range'
 import { serveAssetToken } from './assets'
 import { hostOperatingSystem } from '../platform/host-operating-system'
+import { hostDisplayName } from '../platform/host-display-name'
 
 const log = createLogger('main', 'http')
 
@@ -40,6 +41,8 @@ export interface HttpServerOptions {
   getPort?: () => number
   /** Port; 0 lets the OS assign an ephemeral port. */
   port?: number
+  /** User-facing name advertised to clients on the local network. */
+  name?: () => string
   /** Path to the prebuilt web client `dist/` directory; if present, mounted at /. */
   staticDir?: string
   /** Whether connections must authenticate; advertised on /health so a served
@@ -92,6 +95,7 @@ export interface BuiltHttpServer {
 export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const host = opts.host ?? '127.0.0.1'
   const currentHost = () => opts.getHost?.() ?? host
+  const currentName = () => opts.name?.() ?? hostDisplayName()
   const port = opts.port ?? 0
   const currentPort = () => opts.getPort?.() ?? port
   const pairRateLimiter = createTokenBucketRateLimiter(10, 60_000)
@@ -154,7 +158,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     const health = { ok: true, installationId: getInstallationId(), requireAuth: await authRequiredFor(c) }
     // Name and OS are for the local network's host picker, not for the internet.
     if (viaTunnel(c)) return c.json(health)
-    return c.json({ ...health, name: hostname() || 'Solus Server', os: hostOperatingSystem() })
+    return c.json({ ...health, name: currentName(), os: hostOperatingSystem() })
   })
 
   app.get('/endpoints', async (c) => c.json({ endpoints: await listReachableEndpoints(currentHost(), currentPort()) }))

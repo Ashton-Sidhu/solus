@@ -45,6 +45,9 @@
     allLabel?: string;
     /** What the page does to the rest of its controls when the scope changes. */
     footerNote?: string;
+    /** Lets a shared crumb line keep adjacent menus mutually exclusive. */
+    menuOpen?: boolean;
+    onOpenMenu?: () => void;
   }
   let {
     projects,
@@ -56,9 +59,10 @@
     onSelectAll,
     allLabel = "All projects",
     footerNote = "Switching clears search and filters",
+    menuOpen = $bindable(false),
+    onOpenMenu,
   }: Props = $props();
 
-  let menuOpen = $state(false);
   let query = $state("");
   let queryEl = $state<HTMLInputElement | null>(null);
 
@@ -75,7 +79,9 @@
   );
 
   function toggle() {
-    menuOpen = !menuOpen;
+    const opening = !menuOpen;
+    if (opening) onOpenMenu?.();
+    menuOpen = opening;
     query = "";
     if (menuOpen) void Promise.resolve().then(() => queryEl?.focus());
   }

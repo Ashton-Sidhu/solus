@@ -9,7 +9,10 @@
    * Bar heights are fixed rather than random: a placeholder that re-shuffles on
    * every render reads as data.
    */
-  const BAR_HEIGHTS = [38, 62, 47, 80, 55, 71, 43, 66, 52, 74, 46, 59];
+  const BAR_HEIGHTS = Array.from(
+    { length: 80 },
+    (_, index) => 12 + ((index * 29 + 17) % 43) + (index % 19 === 0 ? 18 : 0),
+  );
   const ROWS = [0, 1, 2, 3, 4, 5, 6, 7];
 </script>
 
@@ -23,13 +26,20 @@
     <Skeleton class="h-2.5 w-16 rounded opacity-45" />
     <Skeleton class="h-2.5 w-16 rounded opacity-45" />
   </header>
-  <div class="flex h-52 w-full items-end gap-1.5 pl-11 sm:h-44 sm:[@media(min-height:1000px)]:h-52">
+  <div class="relative flex h-52 w-full items-end gap-0.5 pr-3 pb-5 pl-11 sm:h-44 sm:[@media(min-height:1000px)]:h-52">
     {#each BAR_HEIGHTS as height, index (index)}
-      <Skeleton
-        class="min-w-0 flex-1 rounded-t-sm opacity-55"
-        style="height:{height}%;animation-delay:{index * 55}ms"
-      />
+      <span
+        class="min-w-0 flex-1 rounded-t-[1px] bg-(--solus-surface-secondary) opacity-70 {index >= 48
+          ? '@max-[70rem]/pane:hidden'
+          : index >= 16
+            ? '@max-[30rem]/pane:hidden'
+            : ''}"
+        style="height:{height}%"
+      ></span>
     {/each}
+    <!-- One shimmer covers the plot. Animating every one of the responsive
+         bars would multiply paint work while an expensive query is running. -->
+    <Skeleton class="pointer-events-none absolute inset-x-3 top-10 bottom-8 bg-transparent" />
   </div>
 </section>
 

@@ -634,7 +634,7 @@
       refreshTheme(settings.setSystemTheme.bind(settings));
       initializeRuntime(session, sessionSidebarStore);
       const scope = activePrScope();
-      pullRequests.checks.reportActivity(scope.api, scope.ctx);
+      pullRequests.checks.reportActivity(scope.api, scope.ctx, true);
     }
   });
 
@@ -847,8 +847,8 @@
       const unsubBrowser = browserStore.subscribe();
       const unsubChecks = pullRequests.checks.subscribe(activePrScope);
       const unsubGuideStatus = pullRequests.guides.subscribe();
-      const unsubPrLifecycleChanges =
-        pullRequests.projects.subscribeLifecycleChanges();
+      const unsubPullRequestChanges =
+        pullRequests.projects.subscribePullRequestChanges();
       const unsubNeedsReview =
         pullRequests.needsReview.subscribe(activePrScope);
       // An agent can need an account before any surface that would show its
@@ -882,7 +882,7 @@
         unsubBrowser();
         unsubChecks();
         unsubGuideStatus();
-        unsubPrLifecycleChanges();
+        unsubPullRequestChanges();
         unsubNeedsReview();
         unsubConnectRequests();
         unsubHostConfig();
