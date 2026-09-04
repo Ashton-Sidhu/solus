@@ -1,5 +1,5 @@
 import { createAppContext } from '../app/create-app-context'
-import { gitCheckoutFromState, worktreeProjectRoot, type GitCheckout, type GitState, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
+import { gitCheckoutFromState, sameGitCheckout, worktreeProjectRoot, type GitCheckout, type GitState, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
@@ -26,6 +26,15 @@ export interface GitRefreshResult {
 interface GitFacetOutcome {
   ok: boolean
   error?: string
+}
+
+/** What the host was last told a session's checkout is, and on which
+ *  connection, so an unchanged checkout is not registered again. */
+interface RegisteredGitEnvironment {
+  serverId: string
+  generation: number
+  cwd: string
+  gitContext: GitCheckout | null
 }
 
 function gitErrorText(error: Parameters<typeof String>[0]): string {
@@ -118,9 +127,18 @@ export class SessionEnvironmentStore {
   private dispatchBranchesByTarget = new SvelteMap<string, string[]>()
   private dispatchBranchesLoading = new SvelteSet<string>()
   private dispatchRefsInflight = new Map<string, Promise<boolean>>()
+  private registrations = new WeakMap<Session, RegisteredGitEnvironment>()
+  private readonly registrationGenerationByServerId = new Map<string, number>()
 
   bindWorkspace(workspace: SessionEnvironmentWorkspace): void {
     this.workspace = workspace
+  }
+
+  /** A restarted host has forgotten its session-to-checkout registry. The next
+   * environment refresh must restore it even when the checkout did not change. */
+  invalidateRegistrationsForHost(serverId: string): void {
+    const generation = this.registrationGenerationByServerId.get(serverId) ?? 0
+    this.registrationGenerationByServerId.set(serverId, generation + 1)
   }
 
   bindCwd(serverId: string, cwd: string | null | undefined, api: HostApi): void {
@@ -294,16 +312,34 @@ export class SessionEnvironmentStore {
       run.worktree = worktreeRequested ? { baseBranch: worktreeBaseBranch } : null
       // A draft has no session for the host to hold an environment against, and
       // nothing is running in it yet — registration waits until Send makes one.
-      if (workspace.sessionFor(sourceId)) {
+      const session = workspace.sessionFor(sourceId)
+      if (session) {
         let registrationError: string | undefined
-        try {
-          await api.gitRegisterEnvironment(
-            $state.snapshot(workspace.ctxFor(sourceId)),
-            cwd,
-            $state.snapshot(gitContext),
-          )
-        } catch (error) {
-          registrationError = gitErrorText(error)
+        const effectiveCwd = gitContext?.worktreePath ?? cwd
+        const generation = this.registrationGenerationByServerId.get(serverId) ?? 0
+        const previous = this.registrations.get(session)
+        const unchanged = previous?.serverId === serverId
+          && previous.generation === generation
+          && previous.cwd === effectiveCwd
+          && sameGitCheckout(previous.gitContext, gitContext)
+        if (!unchanged) {
+          try {
+            await api.gitRegisterEnvironment(
+              $state.snapshot(workspace.ctxFor(sourceId)),
+              cwd,
+              $state.snapshot(gitContext),
+            )
+            // A copy: the same object becomes the run's reactive checkout below,
+            // and a later in-place branch update must not rewrite this record.
+            this.registrations.set(session, {
+              serverId,
+              generation,
+              cwd: effectiveCwd,
+              gitContext: gitContext ? { ...gitContext } : null,
+            })
+          } catch (error) {
+            registrationError = gitErrorText(error)
+          }
         }
         if (registrationError !== undefined) {
           return { status: true, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t register the Git environment', registrationError) }

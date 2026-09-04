@@ -18,6 +18,8 @@ class RuntimeStore {
   isLaptopDisplay = $state(false)
   isTouchDevice = $state(globalThis.window?.matchMedia(TOUCH_QUERY).matches ?? false)
   hasKeyboardPointer = $state(globalThis.window?.matchMedia(FINE_POINTER_QUERY).matches ?? true)
+  /** The window is on screen and has focus: someone is looking at it. */
+  isWindowForeground = $state(isWindowForeground())
   // Not reactive: only `refreshLaptopDisplay` reads it. null means settings has
   // not booted yet, which is what makes the first push identifiable.
   private zoomFactor: number | null = null
@@ -48,6 +50,14 @@ class RuntimeStore {
       this.refreshMobileViewport()
     })
     listen(FINE_POINTER_QUERY, (v) => this.hasKeyboardPointer = v)
+
+    const refreshWindowForeground = () => {
+      const next = isWindowForeground()
+      if (next !== this.isWindowForeground) this.isWindowForeground = next
+    }
+    window.addEventListener('focus', refreshWindowForeground)
+    window.addEventListener('blur', refreshWindowForeground)
+    document.addEventListener('visibilitychange', refreshWindowForeground)
   }
 
   /**
@@ -80,6 +90,11 @@ class RuntimeStore {
     this.isLaptopDisplay = next
     document.documentElement.classList.toggle('is-laptop-display', next)
   }
+}
+
+function isWindowForeground(): boolean {
+  const doc = globalThis.document
+  return doc?.visibilityState === 'visible' && doc.hasFocus()
 }
 
 export const runtime = new RuntimeStore()

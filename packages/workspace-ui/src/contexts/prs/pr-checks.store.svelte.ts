@@ -23,20 +23,11 @@ interface WatchedScope {
   ctx: IpcContext
 }
 
-interface ReportedActivity {
-  api: HostApi
-  projectScope: string
-  reviewSurfaceOpen: boolean
-  active: boolean
-}
-
 export class PrChecksStore {
   private readonly byProject = new SvelteMap<string, PrChecksSnapshot>()
   /** Which repository each project's snapshot came from, so a broadcast about
    *  one repository reaches every checkout of it. */
   private readonly repoByProject = new Map<string, string>()
-  private reviewSurfaceOpen = false
-  private lastReportedActivity: ReportedActivity | undefined
 
   summaryFor(serverId: string, ctx: IpcContext, number: number): PrChecksSummary | undefined {
     return this.byProject.get(projectPrsKey(serverId, ctx))?.checks
@@ -54,29 +45,16 @@ export class PrChecksStore {
   }
 
   /**
-   * Follow the host's polling, and tell it what is worth polling for.
+   * Follow the host's polling. Wired once, for the whole workspace.
    *
-   * The listeners are the report: a window losing focus, or a tab going to the
-   * background, is the signal that lets the server drop to its slow cadence.
-   * Wired once, for the whole workspace.
+   * What is worth polling for is reported separately through `reportActivity`,
+   * driven by the workspace's derived view of where the user is looking.
    */
   subscribe(watching: () => WatchedScope): () => void {
     const unsubscribe = subscribeAllHosts('pr.checksChanged', (serverId, snapshot) => this.apply(serverId, snapshot))
-    const report = () => {
-      const scope = watching()
-      this.reportActivity(scope.api, scope.ctx)
-    }
-    window.addEventListener('focus', report)
-    window.addEventListener('blur', report)
-    document.addEventListener('visibilitychange', report)
-    report()
     return () => {
       unsubscribe()
-      window.removeEventListener('focus', report)
-      window.removeEventListener('blur', report)
-      document.removeEventListener('visibilitychange', report)
       const scope = watching()
-      this.lastReportedActivity = undefined
       // Say so on the way out, or the host keeps polling for a surface that is
       // no longer there.
       if (projectScopeOf(scope.ctx.session)) {
@@ -85,28 +63,11 @@ export class PrChecksStore {
     }
   }
 
-  /** The review surface opening or closing changes what is worth polling. */
-  setReviewSurfaceOpen(open: boolean, api: HostApi, ctx: IpcContext): void {
-    this.reviewSurfaceOpen = open
-    this.reportActivity(api, ctx)
-  }
-
-  reportActivity(api: HostApi, ctx: IpcContext, force = false): void {
-    const projectScope = projectScopeOf(ctx.session)
-    if (!projectScope) return
-    const active = document.visibilityState === 'visible' && document.hasFocus()
-    const report = { api, projectScope, reviewSurfaceOpen: this.reviewSurfaceOpen, active }
-    const previous = this.lastReportedActivity
-    if (!force
-      && previous?.api === report.api
-      && previous.projectScope === report.projectScope
-      && previous.reviewSurfaceOpen === report.reviewSurfaceOpen
-      && previous.active === report.active) return
-
-    this.lastReportedActivity = report
-    void api.prChecksActivity(detached(ctx), report.reviewSurfaceOpen, report.active).catch(() => {
-      if (this.lastReportedActivity === report) this.lastReportedActivity = undefined
-    })
+  /** Tell the host what the user is looking at, so it can set its poll cadence.
+   *  A source with no project has nothing to poll for. */
+  reportActivity(api: HostApi, ctx: IpcContext, reviewSurfaceOpen: boolean, active: boolean): void {
+    if (!projectScopeOf(ctx.session)) return
+    void api.prChecksActivity(detached(ctx), reviewSurfaceOpen, active).catch(() => {})
   }
 
   /** Forget one project's checks. */

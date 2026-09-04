@@ -22,6 +22,32 @@ function request(serverId: string): ProjectFaviconRequest {
 }
 
 describe('project favicon resolver', () => {
+  test('reuses a missing result after the renderer reloads', async () => {
+    // WHY: a full renderer reload creates a new resolver. Session storage keeps
+    // six known misses from becoming six more host RPCs on every reload.
+    const values = new Map<string, string>()
+    const storage = {
+      get length() { return values.size },
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => { values.set(key, value) },
+      removeItem: (key: string) => { values.delete(key) },
+      key: (index: number) => [...values.keys()][index] ?? null,
+    }
+    let calls = 0
+    const assets = {
+      resolve: async () => {
+        calls++
+        throw new Error('missing')
+      },
+    }
+
+    expect(await new ProjectFaviconResolver(assets, storage, () => 1_000)
+      .resolve(request('host-a'))).toBeNull()
+    expect(await new ProjectFaviconResolver(assets, storage, () => 2_000)
+      .resolve(request('host-a'))).toBeNull()
+    expect(calls).toBe(faviconCandidatePaths('/repo').length)
+  })
+
   test('asks the project host for candidates in preference order', async () => {
     const calls: string[] = []
     const resolver = new ProjectFaviconResolver({

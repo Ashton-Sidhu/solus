@@ -41,6 +41,7 @@ export function registerSessionsHandlers(backend: DemoServer, store: DemoStore):
   })
   backend.register('loadSessionPreview', (args) => store.loadSessionPreview(arg<string>(args, 0)))
   backend.register('getSessionInfo', (args) => store.getSessionInfo(arg<string>(args, 0)))
+  backend.register('getSessionInfos', (args) => arg<string[]>(args, 0).map((sessionId) => store.getSessionInfo(sessionId)))
   backend.register('pinnedSessionsList', () => store.listPinnedSessions())
   backend.register('togglePinnedSession', (args) => store.togglePinnedSession(arg<PinnedSession>(args, 0)))
 }
