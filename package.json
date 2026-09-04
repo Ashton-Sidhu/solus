@@ -10,7 +10,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "bun run electron-vite dev 2>&1 | tee dev-console.log",
+    "dev": "bash scripts/dev.sh",
     "qa": "bun run electron-vite preview",
     "build": "bash scripts/build-parallel.sh",
     "build:desktop": "electron-vite build --logLevel warn",

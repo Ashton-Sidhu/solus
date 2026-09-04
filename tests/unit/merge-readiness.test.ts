@@ -42,9 +42,14 @@ function detailOf(
   } as PullRequest
 }
 
-function checksOf(state: PrChecksSummary['state'], headSha = 'sha-1'): PrChecksSummary {
-  // SAFETY: readiness consults the summary's state and head sha only.
-  return { state, headSha } as PrChecksSummary
+function checksOf(
+  state: PrChecksSummary['state'],
+  headSha = 'sha-1',
+  optional: PrChecksSummary['optional'] = [],
+): PrChecksSummary {
+  // SAFETY: readiness consults the summary's state, head sha, and optional
+  // checks only.
+  return { state, headSha, optional } as PrChecksSummary
 }
 
 const quiet = { unresolvedCount: 0, approvedReviewCount: 0, openedTime: '2 days ago' }
@@ -183,19 +188,31 @@ describe('merge readiness', () => {
     })
   })
 
-  test('uses the host status when check details have not exposed the failure', () => {
-    const unstable = mergeReadiness({
+  test('GitHub\'s unstable status is its yellow button, not a failing check', () => {
+    // WHY: `unstable` means "mergeable, with a non-required status not
+    // passing" — a commit with no checks at all can sit there. Reading it as a
+    // failing required check put "Fix failing checks with agent" directly
+    // under a "No checks" row. Only the checks snapshot may say a check failed.
+    const noChecks = mergeReadiness({
       detail: detailOf({ mergeStateStatus: 'unstable' }),
-      checks: checksOf('passing'),
+      checks: checksOf('none'),
       ...quiet,
     })
-    expect(unstable).toMatchObject({
-      key: 'checks',
-      headline: 'Checks need attention',
-      note: 'Fix failing checks to continue',
-      blocked: true,
-      action: { kind: 'fix-checks' },
+    expect(noChecks.key).toBe('ready')
+    expect(noChecks.action?.kind).toBe('merge')
+
+    // The red optional check is still worth a line: it is the one thing a
+    // green card would otherwise hide.
+    const optionalRed = mergeReadiness({
+      detail: detailOf({ mergeStateStatus: 'unstable' }),
+      checks: checksOf('passing', 'sha-1', [
+        { id: 'lint', name: 'lint', conclusion: 'failure', inFlight: false, detailsUrl: null, appName: null, startedAt: null, completedAt: null },
+      ]),
+      ...quiet,
     })
+    expect(optionalRed.key).toBe('ready')
+    expect(optionalRed.note).toBe('1 optional check failing')
+    expect(optionalRed.action?.kind).toBe('merge')
   })
 
   test('checks that could not be read never let the PR read as ready', () => {

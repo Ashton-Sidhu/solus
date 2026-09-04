@@ -26,6 +26,7 @@ import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessio
 import { closeDb } from '@solus/server/db'
 import { startSessionIndexer, stopSessionIndexer } from '@solus/server/db/session-indexer'
 import { createShutdownCoordinator } from '@solus/desktop-main/shutdown-coordinator'
+import { watchLauncher } from '@solus/desktop-main/launcher-watch'
 import { handleArtifactRequest } from '@solus/desktop-main/artifact-protocol'
 import { LOCAL_DEVICE_LABEL } from '@solus/server/server/server'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
@@ -158,16 +159,21 @@ const shutdownCoordinator = createShutdownCoordinator({
   onError: (error) => log.error('shutdown_failed', { error: error instanceof Error ? error.message : String(error) }),
 })
 
-const quitFromProcessSignal = () => {
-  // Electron already owns process termination. Do not route terminal signals
-  // back through before-quit's asynchronous cleanup coordinator: doing so
-  // prevents the signal's normal exit path and can leave the dev app alive.
-  forceQuit = true
-  app.quit()
+// Electron handles SIGINT, SIGTERM and SIGHUP itself and turns them into
+// app.quit(), so a `process.on` signal listener never runs in this process.
+// Those signals reach before-quit below like any other quit request. A dead
+// launcher sends no signal at all: `kill <pid>` on electron-vite leaves this
+// process orphaned, so the dev app watches for that and quits the same way.
+if (isDevMode) {
+  watchLauncher({
+    launcherPid: process.ppid,
+    readParentPid: () => process.ppid,
+    onLauncherGone: () => {
+      log.info('dev_launcher_gone')
+      app.quit()
+    },
+  })
 }
-
-process.on('SIGINT', quitFromProcessSignal)
-process.on('SIGTERM', quitFromProcessSignal)
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
 const LOCAL_TOKEN_REFRESH_AFTER_MS = 7 * 24 * 60 * 60 * 1000

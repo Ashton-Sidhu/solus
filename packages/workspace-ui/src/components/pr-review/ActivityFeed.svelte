@@ -696,11 +696,18 @@
     }
   }
 
-  // The status card's one move. Merging and conflict resolution have controls
-  // of their own; the rest arrive here. The failure toast is the cluster's, so
-  // the button only has to say it is busy.
+  // The status card's one move. The merge has a control of its own; every
+  // other move arrives here. The failure toast is the cluster's, so the button
+  // only has to say it is busy. Conflict resolution opens its own session at
+  // once — the resolver prepares a merge worktree behind a live status card —
+  // where the other agent moves open a composer for the user to send.
   async function runMergeAction(action: MergeAction): Promise<void> {
     if (action.kind === "mark-ready") await updateLifecycle("ready");
+    else if (action.kind === "resolve-conflicts")
+      await session.startConflictResolverSession(
+        { number: pr.number, title: prTitle },
+        { ctx: feedCtx() },
+      );
     else if (action.kind === "fix-checks")
       await onFixChecks?.(orderedChecks(checks).filter(isFailing));
     else if (action.kind === "update-branch") await onUpdateBranch?.();
@@ -1176,13 +1183,11 @@
     {layout}
     {action}
     onAction={runMergeAction}
-    pr={{ number: pr.number, title: prTitle }}
     {detail}
     {feedbackCount}
     {addressCommentsReady}
     {addressingComments}
     onAddressComments={onAddressComments ? addressComments : undefined}
-    getCtx={feedCtx}
     pullRequest={pullRequest(pr.number)}
   />
 {/snippet}

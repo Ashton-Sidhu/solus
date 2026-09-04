@@ -70,7 +70,7 @@ describe('PR input drafts', () => {
 
   test('names every failing check from the status card, or tells the agent to find them', () => {
     // WHY: the card's one move covers the whole red column, not one row of it;
-    // and GitHub reports `unstable` before the individual runs are readable.
+    // and a handoff with no named check must still point the agent somewhere.
     const many = buildPrChecksFixPrompt({ number: 19, title: 'Keep CI focused' }, [
       { name: 'lint', conclusion: 'failure', detailsUrl: null },
       { name: 'unit', conclusion: 'timed_out', detailsUrl: null },

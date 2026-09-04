@@ -19,7 +19,7 @@
   let {
     pullRequest,
     methods,
-    method = $bindable("merge"),
+    method = "merge",
     onMerged,
     layout = "card",
   }: {
@@ -27,8 +27,8 @@
      *  against, and indexes whatever the merge makes of it. */
     pullRequest: PullRequest;
     methods: MergeMethod[];
-    /** The picked method. Bindable so the rail's footnote can name the merge
-     *  this button would actually make instead of guessing one. */
+    /** The method the button starts on — the shared readiness model's pick.
+     *  The menu beside the button can change it for this merge. */
     method?: MergeMethod;
     onMerged?: () => void;
     /** Full-width inside the rail's status card; content-width in the row the
@@ -42,13 +42,17 @@
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let merging = $state(false);
   let merged = $state(false);
+  // The user's pick for this merge, once made; until then the button follows
+  // the model's method as it is handed down.
+  let pickedMethod = $state<MergeMethod | null>(null);
 
   const availableOptions = $derived(
     MERGE_METHOD_OPTIONS.filter((option) => methods.includes(option.value)),
   );
-  const selectedMethod = $derived(
-    methods.includes(method) ? method : defaultMergeMethod(methods),
-  );
+  const selectedMethod = $derived.by(() => {
+    const wanted = pickedMethod ?? method;
+    return methods.includes(wanted) ? wanted : defaultMergeMethod(methods);
+  });
   const actionLabel = $derived(
     availableOptions.find((option) => option.value === selectedMethod)?.action ?? "Merge pull request",
   );
@@ -142,7 +146,7 @@
           data-menu-current={selectedMethod === opt.value ? "" : undefined}
           class="h-auto min-h-11 items-start gap-2.5 py-2"
           onSelect={() => {
-            method = opt.value;
+            pickedMethod = opt.value;
             menuOpen = false;
           }}
         >

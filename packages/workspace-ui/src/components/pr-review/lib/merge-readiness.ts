@@ -1,6 +1,7 @@
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PullRequest } from '@solus/contracts/providers'
 import type { MergeMethod } from '@solus/contracts/types'
+import { isFailing } from '../../prs/lib/checks'
 import { MERGE_METHOD_OPTIONS, defaultMergeMethod } from './merge-method'
 
 /**
@@ -66,10 +67,34 @@ interface Blocker {
   action: MergeAction | null
 }
 
+// `unstable` is GitHub's yellow button: mergeable, with a non-required status
+// not passing. Whether a *required* check failed is the checks snapshot's
+// answer, never this status — a commit with no checks at all can sit at
+// `unstable`, and reading that as "fix failing checks" contradicted the
+// "No checks" row beside it.
+const HOST_MERGEABLE_STATUSES = new Set(['clean', 'has_hooks', 'unstable'])
+
 function hostCanMerge(detail: PullRequest): boolean {
   return (
     detail.mergeable === true &&
-    (detail.mergeStateStatus === 'clean' || detail.mergeStateStatus === 'has_hooks')
+    detail.mergeStateStatus !== null &&
+    HOST_MERGEABLE_STATUSES.has(detail.mergeStateStatus)
+  )
+}
+
+/**
+ * The host has finished computing the merge and found it cannot happen.
+ * `mergeable: null` is still computing, so it says nothing. The one
+ * definition the list's chip, the status badge, and the readiness card share.
+ */
+export function hasMergeConflicts(detail: {
+  state: PullRequest['state']
+  mergeable?: boolean | null
+  mergeStateStatus?: string | null
+}): boolean {
+  return (
+    detail.state === 'open' &&
+    (detail.mergeStateStatus === 'dirty' || detail.mergeable === false)
   )
 }
 
@@ -125,7 +150,7 @@ function branchBlockers(
 ): Blocker[] {
   const base = detail.baseRef ?? 'main'
   const blockers: Blocker[] = []
-  if (detail.mergeStateStatus === 'dirty' || detail.mergeable === false) {
+  if (hasMergeConflicts(detail)) {
     blockers.push({
       key: 'conflicts',
       headline: `Conflicts with ${base}`,
@@ -134,7 +159,7 @@ function branchBlockers(
       action: agentAction(detail, { kind: 'resolve-conflicts', label: 'Resolve conflicts with agent' }),
     })
   }
-  if (checksState === 'failing' || detail.mergeStateStatus === 'unstable') {
+  if (checksState === 'failing') {
     blockers.push({
       key: 'checks',
       headline: 'Checks need attention',
@@ -203,7 +228,7 @@ function blockersOf(input: MergeReadinessInput): Blocker[] {
 }
 
 export function mergeReadiness(input: MergeReadinessInput): MergeReadiness {
-  const { detail, openedTime = null } = input
+  const { detail, checks, openedTime = null } = input
   const base = detail.baseRef ?? 'main'
   const opened = openedTime ? `Opened ${openedTime}` : ''
 
@@ -230,7 +255,19 @@ export function mergeReadiness(input: MergeReadinessInput): MergeReadiness {
   }
   const [first, second] = blockers
   if (!first) {
-    return { key: 'ready', headline: 'Ready to merge', note: opened, blocked: false, action: mergeAction(detail) }
+    // A red optional check does not hold the merge, but it is the one thing a
+    // green card would otherwise hide — so it takes the note over the date.
+    const optionalFailing =
+      checks && checks.headSha === detail.headSha
+        ? checks.optional.filter(isFailing).length
+        : 0
+    return {
+      key: 'ready',
+      headline: 'Ready to merge',
+      note: optionalFailing > 0 ? `${plural(optionalFailing, 'optional check')} failing` : opened,
+      blocked: false,
+      action: mergeAction(detail),
+    }
   }
   // The headline names the first blocker, so the note spends its one line on
   // the next one rather than saying the headline again.

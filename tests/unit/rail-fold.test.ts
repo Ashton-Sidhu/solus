@@ -264,7 +264,6 @@ describe("the status card's actions keep their geometry when the card becomes a 
   const dir = 'packages/workspace-ui/src/components/pr-review/'
   const cluster = read(`${dir}PrActions.svelte`)
   const merge = read(`${dir}MergeControl.svelte`)
-  const conflicts = read(`${dir}ResolveConflictsButton.svelte`)
   const rail = read(`${dir}PrActivityRail.svelte`)
   const feed = read(`${dir}ActivityFeed.svelte`)
 
@@ -299,13 +298,13 @@ describe("the status card's actions keep their geometry when the card becomes a 
   it('passes that answer down to every control the cluster owns', () => {
     // A parent cannot override a child's own width or height from the outside,
     // so a control that is not told which home it is in stays card-shaped in
-    // the row no matter what the cluster around it does.
-    for (const tag of ['<ResolveConflictsButton', '<MergeControl']) {
-      const open = cluster.slice(cluster.indexOf(tag))
-      expect(open.slice(0, open.indexOf('/>'))).toContain('{layout}')
-    }
+    // the row no matter what the cluster around it does. The merge is the one
+    // control with a component of its own; every other move is one button in
+    // the cluster, so there is nothing else to hand the answer to.
+    const open = cluster.slice(cluster.indexOf('<MergeControl'))
+    expect(open.slice(0, open.indexOf('/>'))).toContain('{layout}')
     expect(merge).toContain('const row = $derived(layout === "row")')
-    expect(conflicts).toContain('const row = $derived(layout === "row")')
+    expect(cluster).not.toContain('ResolveConflictsButton')
   })
 
   it('keeps the stacked card geometry out of the row arm of every branch', () => {
@@ -315,7 +314,6 @@ describe("the status card's actions keep their geometry when the card becomes a 
     for (const [name, source] of [
       ['PrActions', cluster],
       ['MergeControl', merge],
-      ['ResolveConflictsButton', conflicts],
     ] as const) {
       const arms = rowArms(source)
       expect(arms.length).toBeGreaterThan(0)

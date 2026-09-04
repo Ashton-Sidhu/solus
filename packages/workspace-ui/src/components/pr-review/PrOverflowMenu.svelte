@@ -9,7 +9,10 @@
     Link as LinkIcon,
     Pen as PencilSimpleIcon,
   } from "@lucide/svelte";
-  import type { PrLifecycleAction, PullRequest } from "@solus/contracts/providers";
+  import type {
+    PrLifecycleAction,
+    PullRequest,
+  } from "@solus/contracts/providers";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { copyText, toasts } from "../../lib/toasts";
   import { Button } from "../ui/button";
@@ -48,13 +51,21 @@
 
   let open = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
-  let lifecycleAction = $state<Exclude<PrLifecycleAction, "merge"> | null>(null);
+  let lifecycleAction = $state<Exclude<PrLifecycleAction, "merge"> | null>(
+    null,
+  );
 
-  const allowedActions = $derived(new Set(detail?.viewerPermissions.actions ?? []));
+  const allowedActions = $derived(
+    new Set(detail?.viewerPermissions.actions ?? []),
+  );
   const hasLifecycleAction = $derived(
     !!onLifecycleAction &&
-      ((detail?.state === "open" && detail.draft && allowedActions.has("ready")) ||
-        (detail?.state === "open" && !detail.draft && allowedActions.has("draft")) ||
+      ((detail?.state === "open" &&
+        detail.draft &&
+        allowedActions.has("ready")) ||
+        (detail?.state === "open" &&
+          !detail.draft &&
+          allowedActions.has("draft")) ||
         (detail?.state === "open" && allowedActions.has("close")) ||
         (detail?.state === "closed" && allowedActions.has("reopen"))),
   );
@@ -143,7 +154,7 @@
           <span class="flex min-w-0 flex-1 flex-col gap-px">
             <span>{askQuestionBusy ? "Preparing…" : "Ask a question"}</span>
             <span class="text-xs leading-[1.35] text-muted-foreground">
-              Opens a PR-aware session composer with an editable question.
+              Opens a PR-aware session with an editable question.
             </span>
           </span>
         </DropdownMenu.Item>
@@ -164,7 +175,9 @@
       {#if showRemoteLink && prUrl}
         <DropdownMenu.Item onSelect={() => runAction(onOpenRemote)}>
           <ArrowSquareOutIcon size={14} weight="bold" />
-          Open on {pr.host?.includes("github") ? "GitHub" : (pr.host ?? "remote")}
+          Open on {pr.host?.includes("github")
+            ? "GitHub"
+            : (pr.host ?? "remote")}
         </DropdownMenu.Item>
       {/if}
       {#if prUrl}

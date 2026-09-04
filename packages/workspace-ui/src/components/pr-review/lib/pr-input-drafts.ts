@@ -47,9 +47,8 @@ function promptField(value: string, limit = 500): string {
 export type PrFailingCheck = Pick<CheckItem, 'name' | 'conclusion' | 'detailsUrl'>
 
 /**
- * One handoff for every failing check named, or for "whatever the host says is
- * failing" when the rollup exposed none — GitHub reports `unstable` before the
- * individual runs are readable.
+ * One handoff for every failing check named. With none named, the agent is
+ * told to read the pull request and find them rather than guess.
  */
 export function buildPrChecksFixPrompt(
   pr: { number: number; title: string },

@@ -501,6 +501,37 @@ describe('PrsStore indexes the full detail so surfaces cannot go stale', () => {
   })
 })
 
+describe('PrsStore keeps a mergeability verdict until the host computes a new one', () => {
+  test('a list row or a still-computing detail does not erase the verdict for the same head', async () => {
+    // WHY: the Git rail's merge row re-reads the detail every thirty seconds
+    // and the pull request list re-reads on its own cadence. List rows never
+    // carry a merge state and a fresh detail says `unknown` while GitHub
+    // recomputes, so every refresh flipped the row to "Merge status pending"
+    // and back. A refresh that learned nothing must change nothing.
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const ctx = ctxFor('/repos/a')
+    const computed = pr(4, { mergeable: true, mergeStateStatus: 'clean', requiredApprovingReviewCount: 1 })
+    await store.get(asHostApi({ prGetDetail: async () => computed }), 'host-a', ctx).get(4).loadDetail()
+    const project = store.at('host-a', projectScopeOf(ctx.session))!
+
+    project.applyPullRequest(pr(4, { mergeable: null, mergeStateStatus: null }))
+    expect(project.prFor(4)).toMatchObject({ mergeable: true, mergeStateStatus: 'clean', requiredApprovingReviewCount: 1 })
+
+    project.applyPullRequest(pr(4, { mergeable: null, mergeStateStatus: 'unknown', requiredApprovingReviewCount: 1 }))
+    expect(project.prFor(4)).toMatchObject({ mergeable: true, mergeStateStatus: 'clean' })
+
+    // A computed answer is a change of state and lands as one.
+    project.applyPullRequest(pr(4, { mergeable: false, mergeStateStatus: 'dirty', requiredApprovingReviewCount: 1 }))
+    expect(project.prFor(4)).toMatchObject({ mergeable: false, mergeStateStatus: 'dirty' })
+
+    // A new head has no verdict yet: the old one was about a different commit.
+    project.applyPullRequest(pr(4, { headSha: 'sha-4-next', mergeable: null, mergeStateStatus: null }))
+    expect(project.prFor(4)).toMatchObject({ mergeable: null, mergeStateStatus: null, requiredApprovingReviewCount: null })
+  })
+})
+
 describe('PrsStore carries an optimistic lifecycle edit and its rollback', () => {
   // The Activity tab applies the pending state, then either the confirmed one
   // or a revert — all through the store, so every surface shows the same thing

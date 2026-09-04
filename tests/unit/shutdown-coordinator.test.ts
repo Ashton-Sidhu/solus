@@ -65,6 +65,28 @@ describe('shutdown coordinator', () => {
     expect(coordinator.isQuitting).toBe(true)
   })
 
+  test('terminates when the quit itself is cancelled', async () => {
+    let confirmForceQuit!: () => void
+    const forceQuitCalled = new Promise<void>((resolve) => { confirmForceQuit = resolve })
+    const calls: string[] = []
+    const coordinator = createShutdownCoordinator({
+      shutdown: async () => {},
+      // A window close handler vetoed the quit, so Electron never exited.
+      quit: () => calls.push('quit'),
+      forceQuit: () => {
+        calls.push('force-quit')
+        confirmForceQuit()
+      },
+      onError: () => {},
+      gracePeriodMs: 1,
+    })
+
+    coordinator.requestQuit()
+    await forceQuitCalled
+
+    expect(calls).toEqual(['quit', 'force-quit'])
+  })
+
   test('quits after the cleanup deadline', async () => {
     let confirmQuit!: () => void
     const quitCalled = new Promise<void>((resolve) => { confirmQuit = resolve })

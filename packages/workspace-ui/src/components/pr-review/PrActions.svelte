@@ -1,12 +1,10 @@
 <script lang="ts">
   import { LoaderCircle as CircleNotchIcon } from "@lucide/svelte";
   import type { PullRequest } from "@solus/contracts/providers";
-  import type { IpcContext } from "@solus/contracts/types";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
   import MergeControl from "./MergeControl.svelte";
-  import ResolveConflictsButton from "./ResolveConflictsButton.svelte";
   import type { MergeAction } from "./lib/merge-readiness";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import type { PullRequest as IndexedPullRequest } from "../../contexts/prs/pull-request.svelte";
@@ -21,7 +19,6 @@
   // trailing half of the card's one line, so the column and its card margin
   // become a row (see lib/pr-actions-layout).
   let {
-    pr,
     pullRequest,
     detail,
     action,
@@ -30,24 +27,21 @@
     addressCommentsReady = true,
     addressingComments = false,
     onAddressComments,
-    getCtx,
     onMerged,
     layout = "card",
   }: {
-    pr: { number: number; title: string };
-    /** The indexed pull request, for the actions that change it. */
+    /** The indexed pull request, for the merge that changes it. */
     pullRequest: IndexedPullRequest;
     detail: PullRequest | null;
     /** The move the shared readiness model chose; null when the next step is
-     *  someone else's. Merging and conflict resolution have controls of their
-     *  own here; every other move runs through `onAction`. */
+     *  someone else's. The merge has a control of its own here; every other
+     *  move is one button that runs through `onAction`. */
     action: MergeAction | null;
     onAction: (action: MergeAction) => Promise<void>;
     feedbackCount?: number;
     addressCommentsReady?: boolean;
     addressingComments?: boolean;
     onAddressComments?: () => void;
-    getCtx: () => IpcContext;
     onMerged?: () => void;
     layout?: PrActionsLayout;
   } = $props();
@@ -105,25 +99,24 @@
       {onMerged}
       {layout}
     />
-  {:else if action?.kind === "resolve-conflicts"}
-    <ResolveConflictsButton
-      {pr}
-      label={action.label}
-      {getCtx}
-      {layout}
-    />
   {:else if action}
     <!-- The same saturated tier as the merge button: this is the one move the
-         card asks for, whether it runs on the host or opens a composer. -->
+         card asks for, whether it runs on the host or opens a session. A
+         conflict is the one move painted in the blocker's own colour. -->
     <Button
       type="button"
       disabled={running}
-      class="flex min-w-0 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-[10px] border-0 bg-primary px-3.5 font-medium text-primary-foreground shadow-[0_1px_2px_-1px_color-mix(in_oklch,var(--primary)_55%,transparent)] transition-[background-color,scale] duration-150 hover:bg-primary/90 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60 {row
+      class="flex min-w-0 cursor-pointer items-center justify-center gap-2 overflow-hidden rounded-[10px] border-0 px-3.5 font-medium transition-[background-color,scale] duration-150 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-60 {action.kind ===
+      'resolve-conflicts'
+        ? 'bg-(--solus-art-negative) text-white hover:bg-[color-mix(in_oklch,var(--solus-art-negative)_88%,var(--foreground))] focus-visible:ring-[color:color-mix(in_srgb,var(--solus-art-negative)_28%,transparent)]'
+        : 'bg-primary text-primary-foreground shadow-[0_1px_2px_-1px_color-mix(in_oklch,var(--primary)_55%,transparent)] hover:bg-primary/90'} {row
         ? 'h-8 shrink-0 pointer-fine:[.is-laptop-display_&]:h-7'
         : 'h-[34px] w-full'}"
       title={action.kind === "mark-ready"
         ? "Mark the pull request ready for review"
-        : "Open a new session composer with the fix drafted"}
+        : action.kind === "resolve-conflicts"
+          ? "Open an agent session to resolve the merge conflicts"
+          : "Open a new session composer with the fix drafted"}
       onclick={() => run(action)}
     >
       {#if running}
