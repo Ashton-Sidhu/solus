@@ -50,6 +50,8 @@
   } from "./lib/activity-data";
   import PrActivityRail from "./PrActivityRail.svelte";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
+  import type { MergeAction } from "./lib/merge-readiness";
+  import { isFailing, orderedChecks } from "../prs/lib/checks";
   import { observeContainerWidth } from "../../lib/pane-width";
   import { isRailFolded } from "./lib/rail-rows";
   import ActivityTimeline from "./ActivityTimeline.svelte";
@@ -79,7 +81,8 @@
     showRemoteLink = false,
     addressCommentsReady = true,
     onAddressComments,
-    onFixCheck,
+    onFixChecks,
+    onUpdateBranch,
     onGenerateGuide,
     generationStatus,
     onAskQuestion,
@@ -112,8 +115,11 @@
     /** The host has a checked-out PR worktree ready for the fix composer. */
     addressCommentsReady?: boolean;
     onAddressComments?: () => Promise<void>;
-    /** Prepare the PR checkout and put one failing check in a new composer. */
-    onFixCheck?: (check: CheckItem) => Promise<void>;
+    /** Prepare the PR checkout and put the failing checks in a new composer:
+     *  one check from its row in the rail, or all of them from the status card. */
+    onFixChecks?: (checks: CheckItem[]) => Promise<void>;
+    /** Prepare the PR checkout and put "bring the base in" in a new composer. */
+    onUpdateBranch?: () => Promise<void>;
     onGenerateGuide?: () => void;
     /** Immediate parent-owned state while the PR checkout is being prepared.
      *  The durable store takes over as soon as the request is queued. */
@@ -676,10 +682,10 @@
   }
 
   async function fixCheck(check: CheckItem) {
-    if (!onFixCheck || fixingCheckId) return;
+    if (!onFixChecks || fixingCheckId) return;
     fixingCheckId = check.id;
     try {
-      await onFixCheck(check);
+      await onFixChecks([check]);
     } catch (err) {
       toasts.error("Couldn't draft fixes", {
         description: err instanceof Error ? err.message : String(err),
@@ -688,6 +694,23 @@
       fixingCheckId = null;
       requestInputFocus();
     }
+  }
+
+  // The status card's one move. The merge has a control of its own; every
+  // other move arrives here. The failure toast is the cluster's, so the button
+  // only has to say it is busy. Conflict resolution opens its own session at
+  // once — the resolver prepares a merge worktree behind a live status card —
+  // where the other agent moves open a composer for the user to send.
+  async function runMergeAction(action: MergeAction): Promise<void> {
+    if (action.kind === "mark-ready") await updateLifecycle("ready");
+    else if (action.kind === "resolve-conflicts")
+      await session.startConflictResolverSession(
+        { number: pr.number, title: prTitle },
+        { ctx: feedCtx() },
+      );
+    else if (action.kind === "fix-checks")
+      await onFixChecks?.(orderedChecks(checks).filter(isFailing));
+    else if (action.kind === "update-branch") await onUpdateBranch?.();
   }
 
   function jumpToFile(path: string, line: number | null = null) {
@@ -1138,8 +1161,9 @@
     filesLoadFailed={failedLoads.has("changed-files")}
     {openedTime}
     {checks}
+    checksLoadFailed={pullRequests.checks.loadFailedFor(serverId, feedCtx())}
     {fixingCheckId}
-    onFixCheck={onFixCheck ? fixCheck : undefined}
+    onFixCheck={onFixChecks ? fixCheck : undefined}
     {unresolvedCount}
     onFileJump={(path) => jumpToFile(path)}
     {guideStatus}
@@ -1154,17 +1178,16 @@
   />
 {/snippet}
 
-{#snippet prActions(layout: PrActionsLayout, isMergeReady: boolean)}
+{#snippet prActions(layout: PrActionsLayout, action: MergeAction | null)}
   <PrActions
     {layout}
-    {isMergeReady}
-    pr={{ number: pr.number, title: prTitle }}
+    {action}
+    onAction={runMergeAction}
     {detail}
     {feedbackCount}
     {addressCommentsReady}
     {addressingComments}
     onAddressComments={onAddressComments ? addressComments : undefined}
-    getCtx={feedCtx}
     pullRequest={pullRequest(pr.number)}
   />
 {/snippet}

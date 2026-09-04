@@ -144,6 +144,22 @@ export class PullRequest implements Contracts.PullRequest {
    * field is not invalidated by a response that changed another.
    */
   apply(source: Contracts.PullRequest): void {
+    // A response that has not computed mergeability is not a change of state.
+    // List rows never carry it, and a detail read comes back `unknown` while
+    // GitHub recomputes after a push to either branch — so a refresh used to
+    // knock the merge row to "Merge status pending" and back again a moment
+    // later. The last verdict for the same head stands until a computed one
+    // replaces it; a new head has no verdict yet and starts over.
+    const sameHead = this.headSha === source.headSha
+    const mergeable = source.mergeable ?? (sameHead ? this.mergeable : null)
+    const mergeStateStatus =
+      source.mergeStateStatus === null || source.mergeStateStatus === 'unknown'
+        ? sameHead ? this.mergeStateStatus : null
+        : source.mergeStateStatus
+    const requiredApprovingReviewCount =
+      source.requiredApprovingReviewCount === undefined
+        ? sameHead ? this.requiredApprovingReviewCount : null
+        : source.requiredApprovingReviewCount
     this.url = source.url
     this.title = source.title
     this.body = source.body
@@ -163,9 +179,9 @@ export class PullRequest implements Contracts.PullRequest {
     this.additions = source.additions
     this.deletions = source.deletions
     this.changedFiles = source.changedFiles
-    this.mergeable = source.mergeable
-    this.mergeStateStatus = source.mergeStateStatus
-    this.requiredApprovingReviewCount = source.requiredApprovingReviewCount ?? null
+    this.mergeable = mergeable
+    this.mergeStateStatus = mergeStateStatus
+    this.requiredApprovingReviewCount = requiredApprovingReviewCount
     this.capabilities = source.capabilities
     this.viewerPermissions = source.viewerPermissions
     this.effort = source.effort

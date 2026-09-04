@@ -64,9 +64,13 @@ describe('merge conflict draft', () => {
     expect(gitSection).toContain('level: "details"')
     expect(gitSection).toContain('force: true')
     expect(gitSection).toContain('const prompt = mergeConflictDraft(currentEnvironment.status);')
+    // The draft is opened against the refreshed snapshot, not the one the row
+    // rendered from — and through the same opener every other agent handoff in
+    // the card uses, so all of them land in a composer the user still sends.
+    expect(gitSection).toContain('openAgentDraft(prompt, currentEnvironment);')
     expect(gitSection).toContain('const draft = session.openSessionDraft(')
-    expect(gitSection).toContain('gitContext: currentEnvironment.checkout')
-    expect(gitSection).toContain('currentEnvironment.cwd')
+    expect(gitSection).toContain('gitContext: environment.checkout')
+    expect(gitSection).toContain('environment.cwd')
     expect(gitSection).toContain('draft.prompt.text = prompt;')
     expect(gitSection).not.toContain('startNewSessionWithPrompt')
     expect(gitSection).not.toContain('worktreeRequested: true')

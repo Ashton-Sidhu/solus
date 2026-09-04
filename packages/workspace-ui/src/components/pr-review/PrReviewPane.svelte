@@ -50,9 +50,11 @@
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
   import StackDiffBanner from "./StackDiffBanner.svelte";
   import {
-    buildPrCheckFixPrompt,
+    buildPrChecksFixPrompt,
     buildPrCommentsFixPrompt,
     buildPrQuestionDraft,
+    buildPrUpdateBranchPrompt,
+    type PrFailingCheck,
     type PrFixFeedback,
   } from "./lib/pr-input-drafts";
 
@@ -761,8 +763,20 @@
     await openFixDraft(buildPrCommentsFixPrompt(target, feedback));
   }
 
-  async function openFixCheck(check: Parameters<typeof buildPrCheckFixPrompt>[1]) {
-    await openFixDraft(buildPrCheckFixPrompt(target, check));
+  async function openFixChecks(checks: PrFailingCheck[]) {
+    await openFixDraft(buildPrChecksFixPrompt(target, checks));
+  }
+
+  async function openUpdateBranch() {
+    if (!reviewDetail) return;
+    await openFixDraft(
+      buildPrUpdateBranchPrompt({
+        number: target.number,
+        title: target.title,
+        baseRef: reviewDetail.baseRef,
+        headRef: reviewDetail.headRef,
+      }),
+    );
   }
 
   function exit() {
@@ -1194,7 +1208,8 @@
           showIdentity={!embedded}
           addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
           onAddressComments={() => openFixComments()}
-          onFixCheck={openFixCheck}
+          onFixChecks={openFixChecks}
+          onUpdateBranch={openUpdateBranch}
           generationStatus={visibleGuideStatus}
           onGenerateGuide={generateGuide}
           onRefreshThreads={() => loadThreads(true)}

@@ -264,23 +264,26 @@ describe("the status card's actions keep their geometry when the card becomes a 
   const dir = 'packages/workspace-ui/src/components/pr-review/'
   const cluster = read(`${dir}PrActions.svelte`)
   const merge = read(`${dir}MergeControl.svelte`)
-  const conflicts = read(`${dir}ResolveConflictsButton.svelte`)
   const rail = read(`${dir}PrActivityRail.svelte`)
   const feed = read(`${dir}ActivityFeed.svelte`)
 
   it('tells the shared cluster which of its two homes it is rendering in', () => {
     expect(feed).toContain(
-      '{#snippet prActions(layout: PrActionsLayout, isMergeReady: boolean)}',
+      '{#snippet prActions(layout: PrActionsLayout, action: MergeAction | null)}',
     )
-    expect(rail).toContain('{@render actions("card", readiness.key === "ready")}')
-    expect(rail).toContain('{@render actions("row", readiness.key === "ready")}')
+    expect(rail).toContain('{@render actions("card", readiness.action)}')
+    expect(rail).toContain('{@render actions("row", readiness.action)}')
   })
 
-  it('keeps merge hidden until the shared readiness state is ready', () => {
+  it('renders only the move the shared readiness model chose', () => {
     // WHY: permission to merge is not the same as readiness to merge. A PR
-    // with a pending review must not contradict its own status with a merge CTA.
-    expect(feed).toContain('{isMergeReady}')
-    expect(cluster).toContain('(isMergeReady || detail.mergeStateStatus === "dirty")')
+    // with a pending review must not contradict its own status with a merge
+    // CTA — so the cluster never reads the host state itself; it draws the
+    // action the same table that wrote the headline handed it.
+    expect(feed).toContain('{action}')
+    expect(cluster).toContain('action?.kind === "merge"')
+    expect(cluster).not.toContain('mergeStateStatus')
+    expect(cluster).not.toContain('isMergeReady')
   })
 
   it('lets the guide note shrink before its trailing action disappears', () => {
@@ -295,13 +298,13 @@ describe("the status card's actions keep their geometry when the card becomes a 
   it('passes that answer down to every control the cluster owns', () => {
     // A parent cannot override a child's own width or height from the outside,
     // so a control that is not told which home it is in stays card-shaped in
-    // the row no matter what the cluster around it does.
-    for (const tag of ['<ResolveConflictsButton', '<MergeControl']) {
-      const open = cluster.slice(cluster.indexOf(tag))
-      expect(open.slice(0, open.indexOf('/>'))).toContain('{layout}')
-    }
+    // the row no matter what the cluster around it does. The merge is the one
+    // control with a component of its own; every other move is one button in
+    // the cluster, so there is nothing else to hand the answer to.
+    const open = cluster.slice(cluster.indexOf('<MergeControl'))
+    expect(open.slice(0, open.indexOf('/>'))).toContain('{layout}')
     expect(merge).toContain('const row = $derived(layout === "row")')
-    expect(conflicts).toContain('const row = $derived(layout === "row")')
+    expect(cluster).not.toContain('ResolveConflictsButton')
   })
 
   it('keeps the stacked card geometry out of the row arm of every branch', () => {
@@ -311,7 +314,6 @@ describe("the status card's actions keep their geometry when the card becomes a 
     for (const [name, source] of [
       ['PrActions', cluster],
       ['MergeControl', merge],
-      ['ResolveConflictsButton', conflicts],
     ] as const) {
       const arms = rowArms(source)
       expect(arms.length).toBeGreaterThan(0)

@@ -34,6 +34,7 @@ import {
   type ListTint,
 } from '../../ui/list-page/list-page'
 import { relativeTime } from './pr-utils'
+import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
 
 /** One of the host's labels, as the row's facts line draws it: the name on a
  *  pastel of the host's colour. */
@@ -112,12 +113,6 @@ function guideChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
   if (status === 'queued') return [{ label: 'Guide queued', tint: 'running' }]
   if (status === 'generating') return [{ label: 'Generating guide', tint: 'running' }]
   return []
-}
-
-/** The host has finished computing the merge and found it cannot happen.
- *  `mergeable: null` is still computing, so it says nothing. */
-function hasMergeConflicts(pr: PullRequest): boolean {
-  return pr.state === 'open' && (pr.mergeStateStatus === 'dirty' || pr.mergeable === false)
 }
 
 /** A conflict is a fact of an open PR that neither the group nor the state

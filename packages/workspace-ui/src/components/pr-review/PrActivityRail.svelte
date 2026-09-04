@@ -42,7 +42,11 @@
   } from "./lib/reviewer-state";
   import type { PrActionsLayout } from "./lib/pr-actions-layout";
   import { fileName, dirName } from "./lib/activity-data";
-  import { mergeReadiness, readinessTone } from "./lib/merge-readiness";
+  import {
+    mergeReadiness,
+    readinessTone,
+    type MergeAction,
+  } from "./lib/merge-readiness";
   import {
     CHECKS_VISIBLE_ROWS,
     FILES_VISIBLE_ROWS,
@@ -87,6 +91,7 @@
     filesLoadFailed = false,
     openedTime,
     checks,
+    checksLoadFailed = false,
     fixingCheckId = null,
     onFixCheck,
     unresolvedCount,
@@ -114,6 +119,8 @@
     filesLoadFailed?: boolean;
     openedTime: string | null;
     checks?: PrChecksSummary;
+    /** The checks could not be read; the card must not call the PR ready. */
+    checksLoadFailed?: boolean;
     fixingCheckId?: string | null;
     onFixCheck?: (check: CheckItem) => void;
     unresolvedCount: number;
@@ -127,9 +134,10 @@
     /** Re-reads everything the rail shows. Offered beside any section that
      *  failed to load. */
     onRetry?: () => void;
-    /** The PR's action cluster (merge CTA + quiet secondary row) — it lives
-     *  with the readiness status it acts on, Linear-style, not in the header. */
-    actions?: Snippet<[PrActionsLayout, boolean]>;
+    /** The PR's action cluster (the readiness move + quiet secondary row) — it
+     *  lives with the readiness status it acts on, Linear-style, not in the
+     *  header. It is handed the move the shared readiness model chose. */
+    actions?: Snippet<[PrActionsLayout, MergeAction | null]>;
     /** The ⋯ menu of rarely-used PR actions. It rides in the status card,
      *  where it is always present, rather than under a cluster that a draft
      *  or a closed PR leaves empty. */
@@ -195,13 +203,14 @@
     return run ? { ...action, run } : null;
   }
 
-  // Headline, sub-line, and the blocked question all come from one table so
-  // they cannot drift apart (see lib/merge-readiness).
+  // Headline, sub-line, the blocked question, and the move all come from one
+  // table so they cannot drift apart (see lib/merge-readiness).
   const readiness = $derived(
     detail
       ? mergeReadiness({
           detail,
           checks,
+          checksLoadFailed,
           unresolvedCount,
           approvedReviewCount: approvedReviewers,
           openedTime,
@@ -425,7 +434,7 @@
             {@render readinessText()}
           </div>
           <div class="flex min-w-0 items-center gap-2">
-            {#if actions}{@render actions("row", readiness.key === "ready")}{/if}
+            {#if actions}{@render actions("row", readiness.action)}{/if}
             {#if menu}<span class="shrink-0">{@render menu()}</span>{/if}
           </div>
         </div>
@@ -439,7 +448,7 @@
                  empties. -->
             {#if menu}<span class="-mr-1 shrink-0">{@render menu()}</span>{/if}
           </div>
-          {#if actions}{@render actions("card", readiness.key === "ready")}{/if}
+          {#if actions}{@render actions("card", readiness.action)}{/if}
         </div>
       {/if}
       {@render guideRow()}

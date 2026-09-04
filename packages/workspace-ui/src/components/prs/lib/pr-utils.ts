@@ -5,6 +5,7 @@ import {
     CircleAlert as WarningCircleIcon,
   } from "@lucide/svelte";
   import type { PullRequest } from '@solus/contracts/providers'
+import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
 
 export type PrStateFilter = 'open' | 'closed' | 'all'
 export type PrSortMode = 'updated' | 'created' | 'effort'
@@ -59,13 +60,18 @@ export interface PrStatusBadge {
 /** Status chip facts for a PR — shared by the PRs page sidebar and the PR
  *  review activity rail. */
 export function prStatusBadge(
-  detail: { state: 'open' | 'closed' | 'merged'; draft: boolean; mergeStateStatus?: string | null } | null,
+  detail: {
+    state: 'open' | 'closed' | 'merged'
+    draft: boolean
+    mergeable?: boolean | null
+    mergeStateStatus?: string | null
+  } | null,
 ): PrStatusBadge | null {
   if (!detail) return null
   if (detail.draft && detail.state === 'open') {
     return { label: 'Draft', Icon: GitBranchIcon, tone: 'var(--solus-text-tertiary)' }
   }
-  if (detail.state === 'open' && detail.mergeStateStatus === 'dirty') {
+  if (hasMergeConflicts(detail)) {
     return { label: 'Merge conflicts', Icon: WarningCircleIcon, tone: 'var(--solus-art-negative)' }
   }
   if (detail.state === 'merged') {

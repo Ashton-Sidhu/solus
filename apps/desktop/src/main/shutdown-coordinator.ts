@@ -16,11 +16,16 @@ export function createShutdownCoordinator(options: ShutdownCoordinatorOptions): 
   let state: 'running' | 'cleaning' | 'quitting' = 'running'
   let shutdownTimeout: ReturnType<typeof setTimeout> | null = null
 
+  const gracePeriodMs = options.gracePeriodMs ?? 2_000
+
   const finish = () => {
     if (state === 'quitting') return
     state = 'quitting'
     if (shutdownTimeout) clearTimeout(shutdownTimeout)
     options.quit()
+    // A quit can still be cancelled after this point by a window or renderer
+    // that vetoes its close. Cleanup already had its turn, so terminate anyway.
+    setTimeout(options.forceQuit, gracePeriodMs).unref()
   }
 
   return {
@@ -37,7 +42,7 @@ export function createShutdownCoordinator(options: ShutdownCoordinatorOptions): 
       if (state === 'quitting') return
 
       state = 'cleaning'
-      shutdownTimeout = setTimeout(finish, options.gracePeriodMs ?? 2_000)
+      shutdownTimeout = setTimeout(finish, gracePeriodMs)
       void options.shutdown()
         .catch(options.onError)
         .finally(finish)
