@@ -38,9 +38,9 @@ describe('scoped session metadata', () => {
     const resolved = await readSessionMeta('laptop', 'target', {
       resolveId: (serverId) => serverId,
       apiFor: (serverId) => ({
-        getSessionInfo: async () => {
+        getSessionInfos: async () => {
           calls.push(serverId)
-          return meta('target')
+          return [meta('target')]
         },
       }),
     })
@@ -53,12 +53,36 @@ describe('scoped session metadata', () => {
     const resolved = await readSessionMeta('laptop', 'target', {
       resolveId: (serverId) => serverId,
       apiFor: () => ({
-        getSessionInfo: async () => {
+        getSessionInfos: async () => {
           throw new Error('offline')
         },
       }),
     })
 
     expect(resolved).toBeNull()
+  })
+
+  test('batches concurrent reads for one host and deduplicates the same id', async () => {
+    // WHY: mounted rows ask independently, but one render turn must cross the
+    // transport once rather than once for every session label.
+    const batches: string[][] = []
+    const hosts = {
+      resolveId: (serverId: string) => serverId,
+      apiFor: () => ({
+        getSessionInfos: async (sessionIds: string[]) => {
+          batches.push(sessionIds)
+          return sessionIds.map(meta)
+        },
+      }),
+    }
+
+    const [one, two, oneAgain] = await Promise.all([
+      readSessionMeta('laptop', 'one', hosts),
+      readSessionMeta('laptop', 'two', hosts),
+      readSessionMeta('laptop', 'one', hosts),
+    ])
+
+    expect(batches).toEqual([['one', 'two']])
+    expect([one?.sessionId, two?.sessionId, oneAgain?.sessionId]).toEqual(['one', 'two', 'one'])
   })
 })

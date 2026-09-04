@@ -168,6 +168,18 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
+  server.register('getSessionInfos', async (args) => {
+    const [sessionIds] = args
+    return Promise.all(sessionIds.map(async (sessionId) => {
+      try {
+        return await controlPlane.getSessionInfo(sessionId)
+      } catch (err) {
+        log.error('get_session_info_failed', { error: String(err), sessionId })
+        return null
+      }
+    }))
+  })
+
   server.register('resolveSessionLineage', (args) => {
     const [provider, providerSessionId] = args
     try {

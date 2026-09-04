@@ -120,6 +120,7 @@ export const RPC_INVOKE_METHODS = [
   'loadSession',
   'loadSessionPreview',
   'getSessionInfo',
+  'getSessionInfos',
   'resolveSessionLineage',
   'generateSessionMetadata',
   'setSessionTitle',

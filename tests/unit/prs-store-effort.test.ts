@@ -60,6 +60,40 @@ function installStateRune(): void {
 }
 
 describe('PR list effort metadata', () => {
+  test('batches visible rows that ask during the same render turn', async () => {
+    // WHY: each row owns its intersection observer, but the provider endpoint
+    // accepts a page of PRs. A frame of visible rows must cost one RPC, not N.
+    installStateRune()
+    const batches: number[][] = []
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          prList: async () => ({
+            items: [listItem(), pullRequestFixture(34)],
+            page: 1,
+            hasMore: false,
+          }),
+          prGetEfforts: async (_ctx: IpcContext, requests: Array<{ number: number }>) => {
+            batches.push(requests.map(({ number }) => number))
+            return []
+          },
+        },
+      },
+    })
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const project = store.get(api(), serverId, ctx)
+    await project.list()
+
+    const first = project.loadEfforts([33])
+    const second = project.loadEfforts([34])
+    await Promise.all([first, second])
+
+    expect(batches).toEqual([[33, 34]])
+  })
+
   test('keeps exact head-branch lookups in separate cache entries', async () => {
     // WHY: task discovery asks once per unique session branch. Reusing the
     // first branch response for every later branch would attach the wrong PR.

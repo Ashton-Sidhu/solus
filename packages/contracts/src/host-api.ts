@@ -105,6 +105,7 @@ export interface SolusAPI {
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<WireSessionLoadMessage[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
+  getSessionInfos(sessionIds: string[]): Promise<Array<SessionMeta | null>>
   resolveSessionLineage(provider: AgentId, providerSessionId: string): Promise<SessionLineageResolution | null>
   /** Name a session and describe its task from the opening prompt. */
   generateSessionMetadata(

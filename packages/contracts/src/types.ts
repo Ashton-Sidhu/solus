@@ -2602,6 +2602,20 @@ export function gitCheckoutFromState(
     : { ...checkoutIdentity, repoRoot: status.repoRoot }
 }
 
+/** Whether two checkouts name the same place: branch or detached head, diff
+ *  target, worktree, and repository. Working-tree dirt is not part of identity. */
+export function sameGitCheckout(
+  a: GitCheckout | null | undefined,
+  b: GitCheckout | null | undefined,
+): boolean {
+  if (!a || !b) return !a && !b
+  return a.branch === b.branch
+    && a.detachedHeadSha === b.detachedHeadSha
+    && a.targetBranch === b.targetBranch
+    && a.worktreePath === b.worktreePath
+    && a.repoRoot === b.repoRoot
+}
+
 export interface GitCheckoutBranchResult {
   success: boolean
   gitContext?: GitCheckout

@@ -95,6 +95,8 @@ export class ProjectPrs {
     deletions: number
   }>()
   private readonly effortInFlight = new Set<string>()
+  private readonly pendingEffortNumbers = new Set<number>()
+  private effortBatch: Promise<void> | undefined
   /** What `ensure*` has already asked for, so it is safe on a render path. */
   private hasReadAllPage = false
   private readonly ensuredNumbers = new Set<number>()
@@ -376,38 +378,51 @@ export class ProjectPrs {
    * known or in flight; capped, because this is a decoration on a page rather
    * than something a reader is waiting for.
    */
-  async loadEfforts(numbers: number[]): Promise<void> {
+  loadEfforts(numbers: number[]): Promise<void> {
+    for (const number of numbers) this.pendingEffortNumbers.add(number)
+    if (!this.effortBatch) {
+      this.effortBatch = Promise.resolve()
+        .then(() => this.flushEfforts())
+        .finally(() => { this.effortBatch = undefined })
+    }
+    return this.effortBatch
+  }
+
+  private async flushEfforts(): Promise<void> {
     const inList = (number: number): Contracts.PullRequest | undefined =>
       this.items.find((item) => item.number === number)
-    const requests = numbers
-      .map(inList)
-      .filter((item): item is Contracts.PullRequest => !!item && item.state === 'open' && !item.effort)
-      .filter((item) => {
-        const key = this.effortKey(item)
-        return !this.effortByKey.has(key) && !this.effortInFlight.has(key)
-      })
-      .slice(0, 30)
-    if (requests.length === 0) return
-    const keys = requests.map((item) => this.effortKey(item))
-    for (const key of keys) this.effortInFlight.add(key)
-    try {
-      const results = await this.api.prGetEfforts(
-        detached(this.ctx),
-        requests.map(({ number, headSha }) => ({ number, headSha })),
-      )
-      for (const result of results) {
-        if (!result.effort || result.additions === undefined || result.deletions === undefined) continue
-        this.effortByKey.set(this.effortKey(result), {
-          effort: result.effort,
-          additions: result.additions,
-          deletions: result.deletions,
+    while (this.pendingEffortNumbers.size > 0) {
+      const numbers = [...this.pendingEffortNumbers].slice(0, 30)
+      for (const number of numbers) this.pendingEffortNumbers.delete(number)
+      const requests = numbers
+        .map(inList)
+        .filter((item): item is Contracts.PullRequest => !!item && item.state === 'open' && !item.effort)
+        .filter((item) => {
+          const key = this.effortKey(item)
+          return !this.effortByKey.has(key) && !this.effortInFlight.has(key)
         })
-        const item = inList(result.number)
-        if (item?.headSha !== result.headSha) continue
-        this.applyStoredEffort(item)
+      if (requests.length === 0) continue
+      const keys = requests.map((item) => this.effortKey(item))
+      for (const key of keys) this.effortInFlight.add(key)
+      try {
+        const results = await this.api.prGetEfforts(
+          detached(this.ctx),
+          requests.map(({ number, headSha }) => ({ number, headSha })),
+        )
+        for (const result of results) {
+          if (!result.effort || result.additions === undefined || result.deletions === undefined) continue
+          this.effortByKey.set(this.effortKey(result), {
+            effort: result.effort,
+            additions: result.additions,
+            deletions: result.deletions,
+          })
+          const item = inList(result.number)
+          if (item?.headSha !== result.headSha) continue
+          this.applyStoredEffort(item)
+        }
+      } finally {
+        for (const key of keys) this.effortInFlight.delete(key)
       }
-    } finally {
-      for (const key of keys) this.effortInFlight.delete(key)
     }
   }
 

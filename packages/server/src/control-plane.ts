@@ -81,7 +81,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '@solus/contracts/types'
-import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, MODEL_PROFILES, projectScopeOf } from '@solus/contracts/types'
+import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, MODEL_PROFILES, projectScopeOf, sameGitCheckout } from '@solus/contracts/types'
 import { solusDir } from './platform/paths'
 import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
@@ -3289,13 +3289,22 @@ export class ControlPlane extends EventEmitter {
   setSessionGitEnvironment(sessionId: string, cwd: string, gitContext: GitCheckout | null): void {
     if (!sessionId) return
     const session = this.activeSessions.get(sessionId)
-    if (session) session.gitContext = gitContext ?? undefined
     if (!gitContext || !cwd || cwd === '~') {
+      if (!this.sessionGitEnvironments.has(sessionId)
+        && !this.gitWatchKeys.has(sessionId)
+        && !session?.gitContext) return
+      if (session) session.gitContext = undefined
       this.sessionGitEnvironments.delete(sessionId)
       this._syncGitWatcher(sessionId, null)
       return
     }
     const checkoutCwd = gitContext.worktreePath ?? cwd
+    const existing = this.sessionGitEnvironments.get(sessionId)
+    if (existing?.cwd === checkoutCwd
+      && sameGitCheckout(existing.gitContext, gitContext)
+      && (!session || sameGitCheckout(session.gitContext, gitContext))) return
+
+    if (session) session.gitContext = gitContext
     this.sessionGitEnvironments.set(sessionId, { cwd: checkoutCwd, gitContext })
     this._syncGitWatcher(sessionId, checkoutCwd)
   }

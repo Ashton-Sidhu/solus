@@ -632,9 +632,11 @@
     }
     if (reconnected) {
       refreshTheme(settings.setSystemTheme.bind(settings));
+      const defaultServerId = serverConnections.defaultServerId();
+      if (defaultServerId) {
+        sessionEnvironmentStore.invalidateRegistrationsForHost(defaultServerId);
+      }
       initializeRuntime(session, sessionSidebarStore);
-      const scope = activePrScope();
-      pullRequests.checks.reportActivity(scope.api, scope.ctx, true);
     }
   });
 
@@ -892,18 +894,35 @@
     }),
   );
 
-  $effect(() => {
-    void session.activeTabId;
-    const reviewSurfaceOpen =
-      session.router.at("prs") ||
+  const activeProjectScope = $derived(projectScopeOf(session.ctx.session));
+
+  // What the host sets its checks poll cadence from. Every input is a primitive
+  // derived, so the report goes out only when one of them changes: a tab switch
+  // inside the same project, or a focus event that lands on the same state,
+  // sends nothing. The connection is an input too — the host forgets a client's
+  // activity when it disconnects, and a reconnect restores it here.
+  const checksReviewSurfaceOpen = $derived(
+    session.router.at("prs") ||
       session.router.at("reviewMode") ||
-      !!session.activeSession?.prReview;
+      !!session.activeSession?.prReview,
+  );
+  const activeServerId = $derived(
+    serverConnections.serverIdForApi(session.apiFor(session.activeTabId)),
+  );
+  const hostConnected = $derived(serversStore.connectionStatus === "connected");
+  $effect(() => {
+    const reviewSurfaceOpen = checksReviewSurfaceOpen;
+    const active = runtime.isWindowForeground;
+    void activeProjectScope;
+    void activeServerId;
+    if (!hostConnected) return;
     untrack(() => {
       const scope = activePrScope();
-      pullRequests.checks.setReviewSurfaceOpen(
-        reviewSurfaceOpen,
+      pullRequests.checks.reportActivity(
         scope.api,
         scope.ctx,
+        reviewSurfaceOpen,
+        active,
       );
     });
   });
@@ -912,9 +931,8 @@
   // one makes the count the sidebar is showing not just stale but wrong — the
   // store zeroes it rather than report another project's number. Fetch the new
   // project now; leaving it to the poll blanks the badge for up to a cycle.
-  const needsReviewProjectKey = $derived(projectScopeOf(session.ctx.session));
   $effect(() => {
-    void needsReviewProjectKey;
+    void activeProjectScope;
     untrack(() => {
       const scope = activePrScope();
       void pullRequests.needsReview
