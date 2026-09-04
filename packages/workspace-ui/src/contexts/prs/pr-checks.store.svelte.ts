@@ -39,7 +39,8 @@ export class PrChecksStore {
   }
 
   /** Ask for the checks of the rows now on screen. */
-  async load(api: HostApi, serverId: string, ctx: IpcContext, numbers: number[] = []): Promise<void> {
+  async load(api: HostApi, serverId: string, ctx: IpcContext, numbers: number[]): Promise<void> {
+    if (numbers.length === 0) return
     const safeCtx = detached(ctx)
     this.apply(serverId, await api.prChecks(safeCtx, numbers), projectPrsKey(serverId, ctx))
   }

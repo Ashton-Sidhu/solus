@@ -9,7 +9,6 @@ import type { HandlerCtx, SolusServer } from '../server'
 const log = createLogger('main', 'checks-handlers')
 const ACTIVE_IN_FLIGHT_MS = 10_000
 const ACTIVE_TERMINAL_MS = 30_000
-const BACKGROUND_MS = 60_000
 
 /**
  * How often to look, and what was learned last time — not where the check runs
@@ -23,9 +22,7 @@ interface RepoChecksCache {
   provider: Provider
   loadFailed: boolean
   lastAttemptAt: number
-  openPrNumbers: number[]
-  headShas: Map<number, string>
-  openPrNumbersAt: number
+  trackedPrNumbers: number[]
   refresh?: Promise<void>
 }
 
@@ -77,9 +74,7 @@ function ensureCache(repo: RepoRef, provider: Provider): RepoChecksCache {
       provider,
       loadFailed: false,
       lastAttemptAt: 0,
-      openPrNumbers: [],
-      headShas: new Map(),
-      openPrNumbersAt: 0,
+      trackedPrNumbers: [],
     }
     caches.set(key, cache)
   }
@@ -88,33 +83,28 @@ function ensureCache(repo: RepoRef, provider: Provider): RepoChecksCache {
 
 async function refreshCache(
   cache: RepoChecksCache,
-  forcePullRequests = false,
   requestedNumbers: number[] = [],
 ): Promise<void> {
   if (cache.refresh) {
     await cache.refresh
-    // A renderer refresh may have won the race without re-reading PR heads.
-    // Queue gating asked for a forced head check, so honor it after that work.
-    if (forcePullRequests) return refreshCache(cache, true)
+    if (requestedNumbers.some((number) => !cache.trackedPrNumbers.includes(number))) {
+      return refreshCache(cache, requestedNumbers)
+    }
+    return
+  }
+  if (cache.trackedPrNumbers.length === 0 && requestedNumbers.length === 0) {
+    cache.loadFailed = false
+    cache.lastAttemptAt = Date.now()
     return
   }
   const key = repoKey(cache.repo)
   cache.refresh = (async () => {
     try {
-      if (requestedNumbers.length > 0 && !forcePullRequests) {
-        cache.openPrNumbers = [...new Set([...cache.openPrNumbers, ...requestedNumbers])]
-        cache.openPrNumbersAt = Date.now()
-      } else if (forcePullRequests || cache.openPrNumbers.length === 0) {
-        const pullRequests = await cache.provider.review.listPullRequests(cache.repo, { state: 'open' })
-        cache.openPrNumbers = pullRequests.map((pullRequest) => pullRequest.number)
-        cache.headShas = new Map(pullRequests.map((pullRequest) => [pullRequest.number, pullRequest.headSha]))
-        cache.openPrNumbersAt = Date.now()
-      }
-      const checks = await cache.provider.review.listChecks(cache.repo, cache.openPrNumbers)
+      cache.trackedPrNumbers = [...new Set([...cache.trackedPrNumbers, ...requestedNumbers])]
+      const checks = await cache.provider.review.listChecks(cache.repo, cache.trackedPrNumbers)
       // The poll asks about a whole repository; the index is where that becomes
       // one pull request's own check runs.
       prIndex.absorbChecks(cache.repo, cache.provider, checks)
-      cache.headShas = new Map(checks.map((check) => [check.number, check.summary.headSha]))
       cache.loadFailed = false
     } catch (err) {
       cache.loadFailed = true
@@ -152,7 +142,7 @@ export function registerChecksHandlers(
 
   const snapshot = (cache: RepoChecksCache): PrChecksSnapshot => ({
     repo: cache.repo,
-    checks: prIndex.checksFor(cache.repo, cache.openPrNumbers),
+    checks: prIndex.checksFor(cache.repo, cache.trackedPrNumbers),
     loadFailed: cache.loadFailed,
   })
 
@@ -161,10 +151,13 @@ export function registerChecksHandlers(
       activity.repoKey === repoKey && activity.active,
     )
     if (activeClients.length === 0) return null
-    if (!activeClients.some((activity) => activity.reviewSurfaceOpen)) return BACKGROUND_MS
+    // A direct load keeps the cached answer current when a PR surface opens.
+    // Away from those surfaces there is nothing visible to update, so polling
+    // would only spend GitHub rate limit on hidden state.
+    if (!activeClients.some((activity) => activity.reviewSurfaceOpen)) return null
     const watched = caches.get(repoKey)
     const anyInFlight = watched
-      ? prIndex.checksFor(watched.repo, watched.openPrNumbers).some(({ summary }) => summary.inFlight)
+      ? prIndex.checksFor(watched.repo, watched.trackedPrNumbers).some(({ summary }) => summary.inFlight)
       : false
     return anyInFlight ? ACTIVE_IN_FLIGHT_MS : ACTIVE_TERMINAL_MS
   }
@@ -206,8 +199,8 @@ export function registerChecksHandlers(
     const key = repoKey(repo)
     const cache = ensureCache(repo, provider)
     activeRepoKey = key
-    if (cache.lastAttemptAt === 0 || numbers.some((number) => !cache.openPrNumbers.includes(number))) {
-      await refreshCache(cache, false, numbers)
+    if (cache.lastAttemptAt === 0 || numbers.some((number) => !cache.trackedPrNumbers.includes(number))) {
+      await refreshCache(cache, numbers)
     } else if (Date.now() - cache.lastAttemptAt >= ACTIVE_TERMINAL_MS) void refresh(key)
     schedule(key)
     return snapshot(cache)

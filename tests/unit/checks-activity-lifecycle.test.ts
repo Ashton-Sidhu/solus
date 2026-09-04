@@ -16,6 +16,36 @@ const { registerChecksHandlers } = await import('@solus/server/server/handlers/c
 afterEach(() => jest.useRealTimers())
 
 describe('PR checks client lifecycle', () => {
+  test('a cold checks read only tracks pull requests named by the client', async () => {
+    // WHY: repositories can have hundreds of open pull requests. An empty
+    // request must not turn one visible page into dozens of GraphQL batches.
+    const server = new SolusServer()
+    const checkedNumbers: number[][] = []
+    let listPullRequestsCalls = 0
+    const provider = {
+      review: {
+        listPullRequests: async () => { listPullRequestsCalls += 1; return [] },
+        listChecks: async (_repo: RepoRef, numbers: number[]) => {
+          checkedNumbers.push(numbers)
+          return []
+        },
+      },
+    } as unknown as Provider
+    registerChecksHandlers(server, {
+      events: new HostEventPublisher(new ClientEventRegistry()),
+      resolveReviewTarget: async () => ({
+        repo: { host: 'github.com', owner: 'owner', repo: 'scoped-cold-read' },
+        provider,
+      }),
+    })
+
+    await server.handle('prChecks', [{} as IpcContext, []], localOwnerCtx('local'))
+    await server.handle('prChecks', [{} as IpcContext, [7, 9]], localOwnerCtx('local'))
+
+    expect(listPullRequestsCalls).toBe(0)
+    expect(checkedNumbers).toEqual([[7, 9]])
+  })
+
   test('rejects an activity lookup that finishes after disconnect and accepts the reconnect', async () => {
     const server = new SolusServer()
     const repo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'repo' }
@@ -81,6 +111,39 @@ describe('PR checks client lifecycle', () => {
     jest.advanceTimersByTime(120_000)
     expect(checksCalls).toBe(0)
     expect(lifecycle.stats()).toEqual({ connectedClients: 0, activities: 0, activeRepoKey: null })
+  })
+
+  test('does not poll while no pull request surface is visible', async () => {
+    // WHY: hidden check state cannot help the user, but each refresh spends the
+    // same GitHub rate limit as a visible one.
+    jest.useFakeTimers()
+    jest.setSystemTime(0)
+    let checksCalls = 0
+    const provider = {
+      review: {
+        listChecks: async () => { checksCalls += 1; return [] },
+      },
+    } as unknown as Provider
+    const server = new SolusServer()
+    const lifecycle = registerChecksHandlers(server, {
+      events: new HostEventPublisher(new ClientEventRegistry()),
+      resolveReviewTarget: async () => ({
+        repo: { host: 'github.com', owner: 'owner', repo: 'hidden-surface' },
+        provider,
+      }),
+    })
+    const clientId = 'ws:device:hidden-surface'
+
+    lifecycle.handleClientConnected(clientId)
+    await server.handle('prChecks', [{} as IpcContext, [7]], localOwnerCtx(clientId))
+    await server.handle('prChecksActivity', [{} as IpcContext, false, true], localOwnerCtx(clientId))
+    expect(checksCalls).toBe(1)
+
+    jest.advanceTimersByTime(120_000)
+    await Promise.resolve()
+
+    expect(checksCalls).toBe(1)
+    lifecycle.handleTransportClosed()
   })
 
   test('concurrent activity reports publish one checks refresh', async () => {

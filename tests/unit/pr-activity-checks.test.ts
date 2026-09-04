@@ -14,6 +14,7 @@ const read = (path: string) => readFileSync(resolve(import.meta.dir, '../../', p
  */
 describe('the PR review page asks for its own checks', () => {
   const feed = read('packages/workspace-ui/src/components/pr-review/ActivityFeed.svelte')
+  const list = read('packages/workspace-ui/src/components/prs/PrsPage.svelte')
 
   it('loads checks for the pull request it is showing, on every open', () => {
     const initialLoad = feed.slice(
@@ -27,5 +28,12 @@ describe('the PR review page asks for its own checks', () => {
 
   it('reads the summary from the same scope it loaded into', () => {
     expect(feed).toContain('pullRequests.checks.summaryFor(serverId, feedCtx(), pr.number)')
+  })
+
+  it('limits list checks to rows the page has loaded', () => {
+    // WHY: an empty cold read used to make the host fetch checks for every open
+    // pull request, producing one GraphQL request for each batch of 25.
+    expect(list).toContain('scope.items.map((pullRequest) => pullRequest.number)')
+    expect(list).not.toContain('pullRequests.checks.load(api, serverId, prsCtx())')
   })
 })

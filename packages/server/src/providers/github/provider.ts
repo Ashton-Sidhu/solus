@@ -462,6 +462,12 @@ interface ReviewStatusResponse {
   } | null>
 }
 
+interface ListReviewStatusResponse {
+  repository: {
+    pullRequests: ReviewStatusResponse
+  } | null
+}
+
 const REVIEW_STATUS_QUERY = `
   query PrReviewStatuses($ids: [ID!]!) {
     nodes(ids: $ids) {
@@ -474,17 +480,72 @@ const REVIEW_STATUS_QUERY = `
   }
 `
 
+const LIST_REVIEW_STATUS_QUERY = `
+  query PrListReviewStatuses(
+    $owner: String!
+    $repo: String!
+    $first: Int!
+    $states: [PullRequestState!]
+  ) {
+    repository(owner: $owner, name: $repo) {
+      pullRequests(
+        first: $first
+        states: $states
+        orderBy: { field: UPDATED_AT, direction: DESC }
+      ) {
+        nodes {
+          id
+          reviewDecision
+          reviews(first: 1) { totalCount }
+        }
+      }
+    }
+  }
+`
+
+function reviewStatusMap(nodes: ReviewStatusResponse['nodes']): Map<string, PullRequestReviewStatus> {
+  return new Map(
+    nodes.flatMap((node) => node
+      ? [[node.id, reviewStatusOf(node.reviewDecision, node.reviews.totalCount)] as const]
+      : []),
+  )
+}
+
 async function reviewStatuses(
   client: GitHubClient,
   nodeIds: string[],
 ): Promise<Map<string, PullRequestReviewStatus>> {
   if (nodeIds.length === 0) return new Map()
   const response = await client.graphql<ReviewStatusResponse>(REVIEW_STATUS_QUERY, { ids: nodeIds })
-  return new Map(
-    response.nodes.flatMap((node) => node
-      ? [[node.id, reviewStatusOf(node.reviewDecision, node.reviews.totalCount)] as const]
-      : []),
-  )
+  return reviewStatusMap(response.nodes)
+}
+
+/**
+ * Read the first page's review state without waiting for REST to return its node
+ * ids. GitHub can answer the same updated-order window through GraphQL, so the
+ * two host requests run together. The caller still joins by node id and fills
+ * any gap through `reviewStatuses`; an update between the two snapshots can
+ * never attach one pull request's status to another row.
+ */
+async function firstPageReviewStatuses(
+  client: GitHubClient,
+  repo: RepoRef,
+  filter: PrFilter | undefined,
+  perPage: number,
+): Promise<Map<string, PullRequestReviewStatus>> {
+  const state = filter?.state ?? 'open'
+  const states = state === 'open'
+    ? ['OPEN']
+    : state === 'closed'
+      ? ['CLOSED', 'MERGED']
+      : ['OPEN', 'CLOSED', 'MERGED']
+  const response = await client.graphql<ListReviewStatusResponse>(LIST_REVIEW_STATUS_QUERY, {
+    owner: repo.owner,
+    repo: repo.repo,
+    first: perPage,
+    states,
+  })
+  return reviewStatusMap(response.repository?.pullRequests.nodes ?? [])
 }
 
 const githubApiErrorSchema = z.object({
@@ -708,6 +769,10 @@ function toThread(t: GqlThread): ReviewThread {
  *  passes, so the viewer identity is always the github.com one. */
 const GITHUB_HOST = 'github.com'
 
+/** Enough rows to fill the virtual list without making a large repository wait
+ * for metadata the reader has not scrolled to. Later rows stay one page away. */
+const DEFAULT_PR_LIST_PAGE_SIZE = 30
+
 /** The account a client is signed in as, read once per client. */
 const viewerByClient = new WeakMap<GitHubClient, Promise<ProviderViewer>>()
 
@@ -802,26 +867,33 @@ export class GitHubProvider implements ReviewProvider {
     repo: RepoRef,
     filter?: PrFilter,
     page = 1,
-    perPage = 30,
+    perPage = DEFAULT_PR_LIST_PAGE_SIZE,
   ): Promise<import('@solus/contracts/providers').PrListPage> {
     return this.withClient('list_pull_requests', repo.host, async (client) => {
-      const { data } = await client.rest.pulls.list({
-        owner: repo.owner,
-        repo: repo.repo,
-        state: filter?.state ?? 'open',
-        head: filter?.head ? `${repo.owner}:${filter.head}` : undefined,
-        sort: 'updated',
-        direction: 'desc',
-        per_page: perPage,
-        page,
-      })
+      const parallelStatuses = page === 1 && !filter?.head
+        ? firstPageReviewStatuses(client, repo, filter, perPage)
+        : undefined
+      const [{ data }, firstStatuses] = await Promise.all([
+        client.rest.pulls.list({
+          owner: repo.owner,
+          repo: repo.repo,
+          state: filter?.state ?? 'open',
+          head: filter?.head ? `${repo.owner}:${filter.head}` : undefined,
+          sort: 'updated',
+          direction: 'desc',
+          per_page: perPage,
+          page,
+        }),
+        parallelStatuses ?? Promise.resolve(new Map<string, PullRequestReviewStatus>()),
+      ])
       const wanted = filter?.author
         ? data.filter((pr) => (pr.user?.login ?? '').toLowerCase() === filter.author?.toLowerCase())
         : data
-      const statuses = await reviewStatuses(
-        client,
-        wanted.flatMap((pr) => pr.node_id ? [pr.node_id] : []),
-      )
+      const nodeIds = wanted.flatMap((pr) => pr.node_id ? [pr.node_id] : [])
+      const missingNodeIds = nodeIds.filter((nodeId) => !firstStatuses.has(nodeId))
+      const statuses = missingNodeIds.length > 0
+        ? new Map([...firstStatuses, ...await reviewStatuses(client, missingNodeIds)])
+        : firstStatuses
       const items = await Promise.all(
         wanted.map(async (pr) => toPullRequest(
           pr,

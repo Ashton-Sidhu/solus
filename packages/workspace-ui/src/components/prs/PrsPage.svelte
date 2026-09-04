@@ -80,7 +80,7 @@
     type PrRowContext,
   } from "./lib/prs-list-view";
   import { labelChipColor } from "../ui/labels/label-color";
-  import type { PrProject } from "../../contexts/prs/prs.store.svelte";
+  import type { PrProject, ProjectPrs } from "../../contexts/prs/prs.store.svelte";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { groupStackedPrRows } from "./lib/stack-grouping";
   import {
@@ -782,11 +782,19 @@
     const serverId = prsServerId;
     if (!api || !serverId) return;
     const projectPath = scopedProjectPath;
-    void shownScope()?.list({ filter: { state: fetchScope } });
-    // The host only volunteers checks for the repository the *active tab* is
-    // in. This page may be scoped elsewhere, so it asks for its own — or every
-    // row would sit with an empty checks slot until that tab happened to match.
-    void pullRequests.checks.load(api, serverId, prsCtx()).catch(() => {});
+    const scope = shownScope();
+    // This page may be scoped away from the active tab. Ask for the checks of
+    // its loaded rows, not every open pull request in the repository.
+    if (scope) {
+      void scope.list({ filter: { state: fetchScope } }).then(() =>
+        pullRequests.checks.load(
+          api,
+          serverId,
+          prsCtx(),
+          scope.items.map((pullRequest) => pullRequest.number),
+        ),
+      ).catch(() => {});
+    }
     void store
       .get(api, serverId, prsCtx())
       .loadViewer()
@@ -814,7 +822,19 @@
     if (!open || !isInboxView || reachableInboxKey === "") return;
     untrack(() => {
       stacksReady = true;
-      void store.listAll(inboxProjects, { state: fetchScope });
+      void store.listAll(inboxProjects, { state: fetchScope }).then(() =>
+        Promise.all(inboxProjects.map((project) => {
+          const scope = store.at(project.serverId, project.projectRoot);
+          return scope
+            ? pullRequests.checks.load(
+                project.api,
+                project.serverId,
+                project.ctx,
+                scope.items.map((pullRequest) => pullRequest.number),
+              )
+            : Promise.resolve();
+        })),
+      ).catch(() => {});
       // Warm every project's stack graph too, so All projects can tell a stack
       // apart from an unrelated pair of PRs from the first paint.
       for (const project of inboxProjects) {
@@ -1122,7 +1142,7 @@
         if (!entries.some((entry) => entry.isIntersecting)) return;
         for (const scope of paginating) {
           if (scope.hasMore && !scope.loading) {
-            void scope.list({ page: scope.nextPage });
+            void loadMore(scope);
           }
         }
       },
@@ -1130,6 +1150,16 @@
     );
     observer.observe(node);
     return { destroy: () => observer.disconnect() };
+  }
+
+  async function loadMore(scope: ProjectPrs): Promise<void> {
+    await scope.list({ page: scope.nextPage });
+    await pullRequests.checks.load(
+      scope.hostApi,
+      scope.serverId,
+      scope.hostContext,
+      scope.items.map((pullRequest) => pullRequest.number),
+    );
   }
 </script>
 
@@ -1554,7 +1584,7 @@
                     disabled={isInboxView ? inboxLoadingMore : (shown?.loadingMore ?? false)}
                     onclick={() => {
                       for (const scope of paginating) {
-                        if (scope.hasMore) void scope.list({ page: scope.nextPage });
+                        if (scope.hasMore) void loadMore(scope);
                       }
                     }}
                   >
