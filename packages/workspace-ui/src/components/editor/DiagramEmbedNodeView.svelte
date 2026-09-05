@@ -1,11 +1,11 @@
 <script lang="ts">
   import { Network as ArchitectureIcon, CircleAlert as WarningCircleIcon, PanelRight as PanelRightIcon } from "@lucide/svelte";
-  import type { DiagramEmbedWorkSource } from "./diagramEmbedExtension";
+  import type { WorkEmbedSource } from "./lib/work-embed";
 
   interface Props {
     workId: string;
     fallbackTitle: string;
-    worksStore: DiagramEmbedWorkSource;
+    worksStore: WorkEmbedSource;
     onOpen: (workId: string) => void;
     onOpenSecondary: (workId: string) => void;
   }

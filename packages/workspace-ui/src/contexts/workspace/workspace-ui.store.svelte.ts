@@ -1,4 +1,5 @@
 import { SvelteSet } from 'svelte/reactivity'
+import type { PickerScope } from '../../components/session/unified-picker/lib/picker-scope'
 import type { TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 import type { ProjectPageScope } from '../projects/project-catalog'
 
@@ -14,6 +15,10 @@ export class WorkspaceUiStore {
    *  overlays with two flags until they became one list; a caller that used to
    *  want "the session picker" or "the task picker" wants this. */
   unifiedPickerOpen = $state(false)
+  /** What project that picker is scoped to. Lives here, not in the component,
+   *  because the picker is mounted separately per layout and per surface — a
+   *  scope the editor changed must not read differently in the pill. */
+  pickerScope = $state<PickerScope>({ kind: 'current' })
   /** The standalone create-task modal: the captured environment it targets. `null` = closed.
    *  Lives here (not in App) so the command palette can open it. */
   taskComposer = $state<TaskCreationContext | null>(null)

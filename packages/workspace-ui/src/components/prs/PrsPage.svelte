@@ -31,7 +31,7 @@
     getSettingsContext,
     runtime,
     getSessionSidebarStore,
-    projectCatalog,
+    projectsStore,
     mergeProjectOptions,
     projectRefKey,
     serversStore,
@@ -190,7 +190,7 @@
                 label: project.label,
               }))
           : [],
-        projectCatalog.entries,
+        projectsStore.entries,
       ],
       (serverId) => serversStore.statusFor(serverId) !== "offline",
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
@@ -465,9 +465,6 @@
       (item) => item.kind === "row" && item.row.key === selectedKey,
     )?.key ?? null,
   );
-  const unreadCount = $derived(
-    inboxGroups.find((g) => g.key === "needs")?.rows.length ?? 0,
-  );
 
   const authorOptions = $derived.by(() => {
     const authors = new Map<string, { avatarUrl: string; count: number }>();
@@ -583,9 +580,6 @@
     },
   ]);
 
-  // How much is waiting on you used to be restated over the list; the inbox
-  // segment carries that count now, and the list's own group headers carry the
-  // rest — so the head keeps two rows instead of three.
   const synced = syncStamp(() => activeRefreshing);
 
   const listNavigationItems = $derived(groupedRows.map((row) => row.pr));
@@ -880,11 +874,6 @@
     void tick().then(() => searchEl?.focus());
   }
 
-  function setView(next: ListPageView): void {
-    view = next;
-    if (next === "inbox") session.setProjectPageScope({ kind: "all" });
-  }
-
   let observedPageScopeKey = "";
   $effect(() => {
     if (!open) return;
@@ -899,7 +888,7 @@
   });
 
   function removeProjectHistory(option: ListProjectOption): void {
-    projectCatalog.remove({ serverId: option.serverId, projectRoot: option.projectKey });
+    projectsStore.remove({ serverId: option.serverId, projectRoot: option.projectKey });
   }
 
   $effect(() => {
@@ -1273,15 +1262,11 @@
       activeProjectKey={isInboxView ? "" : activeProjectOptionKey}
       emptyProjectLabel={isInboxView ? "All projects" : "No project"}
       onSelectProject={selectProject}
+      onSelectAllProjects={() => session.setProjectPageScope({ kind: "all" })}
       onRemoveProjectHistory={removeProjectHistory}
       page="prs"
       title={splitList ? "Pull Requests" : isInboxView ? "Inbox" : undefined}
       {view}
-      onViewChange={splitList ? undefined : setView}
-      globalLabel="Project"
-      inboxLabel="Inbox"
-      compactViewSwitcherText
-      {unreadCount}
       onRefresh={splitList ? undefined : refreshList}
       refreshing={activeRefreshing}
       syncedAt={synced.at}

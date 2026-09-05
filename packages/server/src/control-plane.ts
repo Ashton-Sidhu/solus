@@ -24,7 +24,6 @@ import { isRawReviewSkill } from './agents/review-command'
 import { hostInstructionsFor, runInputFromContext } from './agents/run-input'
 import { buildHandoff, composeHandoffSeed } from './agents/session-handoff'
 import { buildSystemPrompt } from './agents/system-hint'
-import { isWorkspacePath } from './workspace'
 import { RateLimitState } from './rate-limits'
 import { AttentionService, attentionActionForStatus } from './attention/attention-service'
 import type { AttentionKind } from '@solus/contracts/attention-types'
@@ -81,7 +80,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '@solus/contracts/types'
-import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, MODEL_PROFILES, projectScopeOf, sameGitCheckout } from '@solus/contracts/types'
+import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, modelLabelFor, projectScopeOf, sameGitCheckout } from '@solus/contracts/types'
 import { solusDir } from './platform/paths'
 import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
@@ -664,7 +663,7 @@ export class ControlPlane extends EventEmitter {
           event = rateLimitEvent
         }
 
-        if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning' && !event.isUsingOverage) {
+        if (event.type === 'rate_limit' && event.status !== 'allowed' && !event.isUsingOverage) {
           const run = this.activeRunRequests.get(session.sessionId)
           const deferCurrentRun = event.deferCurrentRun === true && !!run
           this._scheduleRateLimitRelease(session.sessionId, event.resetsAt)
@@ -1171,12 +1170,8 @@ export class ControlPlane extends EventEmitter {
             role: 'system',
             content: `Switched to ${AGENT_DISPLAY_NAMES.get(member.provider)}`,
             agentChangedTo: AGENT_DISPLAY_NAMES.get(member.provider),
-            agentChangedFromModel: previousModelId
-              ? MODEL_PROFILES[previousMember.provider]?.[previousModelId]?.label ?? previousModelId
-              : undefined,
-            agentChangedToModel: targetModelId
-              ? MODEL_PROFILES[member.provider]?.[targetModelId]?.label ?? targetModelId
-              : undefined,
+            agentChangedFromModel: modelLabelFor(previousMember.provider, previousModelId) ?? undefined,
+            agentChangedToModel: modelLabelFor(member.provider, targetModelId) ?? undefined,
             agentChangedFromProvider: previousMember.provider,
             agentChangedToProvider: member.provider,
             timestamp: member.startedAt,
@@ -2841,16 +2836,12 @@ export class ControlPlane extends EventEmitter {
           () => this._logNewSessionPrompt(effectiveInput, options, backend.id),
         )
       }
-      const baseSystemPrompt = buildSystemPrompt({
-        agent: provider === 'codex' ? 'codex' : 'claude',
-        general: isWorkspacePath(effectiveCwd),
+      const userInstructions = buildSystemPrompt({
         extraInstructions: effectiveInput.extraInstructions,
         modelInstructions: effectiveInput.modelInstructions,
-        planMode: effectiveInput.permissionMode === 'plan',
-        prReview: effectiveInput.prReview,
       })
       const systemPrompt = [
-        baseSystemPrompt,
+        userInstructions,
         options.systemPrompt,
         handoffPayload?.seedSystemAppend,
       ].filter(Boolean).join('\n\n')

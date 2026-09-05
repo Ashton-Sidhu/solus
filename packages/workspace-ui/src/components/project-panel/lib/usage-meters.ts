@@ -1,4 +1,5 @@
 import type { AgentMetadata, AgentUsageLimits, UsageWindow } from '@solus/contracts/types'
+import { DAY, HOUR, MINUTE } from '../../../lib/duration'
 
 /** How much of one quota window is still available, ready to render. */
 export interface UsageMeter {
@@ -21,10 +22,6 @@ export interface ProviderUsage {
   meters: UsageMeter[]
   status: 'api' | 'unavailable' | null
 }
-
-const MINUTE = 60_000
-const HOUR = 3_600_000
-const DAY = 86_400_000
 
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
 const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']

@@ -6,15 +6,19 @@ import {
   BROWSER_MARK_TOOLS,
   BROWSER_FRAME_MAX_DIMENSION,
   BROWSER_FRAME_QUALITY,
+  BROWSER_DEFAULT_PROFILE_ID,
   BROWSER_RING_LIMIT,
+  isBrowserProfileId,
   presetById,
-  browserPartition,
+  browserProfilePartition,
   resolveViewport,
   viewportFor,
+  type BrowserAgentUse,
   type BrowserAnnotateOp,
   type BrowserAnnotationState,
   type BrowserAnnotationTool,
   type BrowserAppearance,
+  type BrowserCloseResult,
   type BrowserDetachReason,
   type BrowserInteractOp,
   type BrowserInteractResult,
@@ -40,6 +44,7 @@ import {
 import { emitBrowserCapture, emitBrowserLoad, type BrowserCaptureSpanInput } from './browser-emitter'
 import {
   browserHeadlessHost,
+  browserProfileHost,
   browserWebviewHost,
   type BrowserEmulation,
   type BrowserHeadlessHost,
@@ -65,6 +70,11 @@ const NO_SURFACE: BrowserProblem = {
 
 const WAIT_POLL_MS = 200
 const DEFAULT_WAIT_TIMEOUT_MS = 5000
+
+/** How long after an agent's last verb a page still counts as in use. A turn
+ *  is verbs with model round trips between them, and `running` is zero for most
+ *  of that wall clock (ADR 0024). Host-only: clients read presence, not time. */
+const AGENT_USE_GRACE_MS = 45_000
 
 interface PageRecord {
   page: BrowserPage
@@ -114,6 +124,10 @@ export class BrowserRegistry {
   /** The per-page frame counter, so a client can drop a frame that decoded
    *  slower than its successor. */
   private frameSeq = new Map<string, number>()
+  /** One pending announcement per page that an agent has stopped using it.
+   *  Held so a close, a shutdown, or a fresh verb cancels the old one rather
+   *  than letting a stale timer clear a use that started since. */
+  private agentUseTimers = new Map<string, NodeJS.Timeout>()
 
   constructor(
     private readonly events: BrowserEventSink,
@@ -137,6 +151,11 @@ export class BrowserRegistry {
     // it stays until somebody chooses again.
     const preset = request.presetId ? presetById(request.presetId) : undefined
     if (request.presetId && !preset) throw new Error(`Unknown device preset: ${request.presetId}`)
+    // Fixed once, here: both hosts mint the partition from it. Which profile a
+    // caller *meant* is the profile store's question, answered before this point
+    // — the registry owns pages, not the durable list of identities.
+    const profileId = request.profileId ?? BROWSER_DEFAULT_PROFILE_ID
+    if (!isBrowserProfileId(profileId)) throw new Error(`Not a browser profile id: ${profileId}`)
     const page: BrowserPage = {
       browserPageId: `browser_${randomUUID()}`,
       target: request.target,
@@ -144,6 +163,7 @@ export class BrowserRegistry {
       title: '',
       viewport: preset ? viewportFor(preset, request.orientation ?? 'portrait') : defaultViewport(),
       appearance: request.appearance ?? 'system',
+      profileId,
       hostKind: 'none',
       loadState: 'idle',
       canGoBack: false,
@@ -167,15 +187,34 @@ export class BrowserRegistry {
     })
     this.events.pageChanged(page)
     if (request.requestSurface) this.events.surfaceRequested(page.browserPageId)
-    log.info('browser_page_opened', { browserPageId: page.browserPageId, targetKind: page.target.kind })
+    log.info('browser_page_opened', {
+      browserPageId: page.browserPageId,
+      targetKind: page.target.kind,
+      profileId: page.profileId,
+    })
     return page
   }
 
-  async close(browserPageId: string): Promise<void> {
+  /**
+   * Close a page, unless an agent is working in it.
+   *
+   * The guard lives here because only the host can answer at the moment of the
+   * close: a client's copy of `agentUse` is at least one event old (ADR 0024).
+   * `force` is the answer to the question the refusal asked.
+   */
+  async close(browserPageId: string, options: { force?: boolean } = {}): Promise<BrowserCloseResult> {
     const record = this.records.get(browserPageId)
-    if (!record || record.closing) return
+    // Already gone, or already going, is closed as far as the caller is concerned.
+    if (!record || record.closing) return { closed: true }
+    const use = record.page.agentUse
+    if (use && !options.force && this.isInAgentUse(use)) {
+      // Copied: the caller holds this across a round trip while the live one
+      // keeps moving as the agent works.
+      return { closed: false, reason: 'agent-use', agentUse: { ...use } }
+    }
     record.closing = true
     this.stopLiveness(record)
+    this.stopAgentUseExpiry(browserPageId)
     this.frameWatchers.delete(browserPageId)
     this.streamStarts.delete(browserPageId)
     this.frameSeq.delete(browserPageId)
@@ -183,10 +222,92 @@ export class BrowserRegistry {
       await record.driver?.dispose().catch(() => {})
       record.driver = null
     })
-    if (this.records.get(browserPageId) !== record) return
+    if (this.records.get(browserPageId) !== record) return { closed: true }
     this.records.delete(browserPageId)
     this.events.pageClosed(browserPageId)
-    log.info('browser_page_closed', { browserPageId })
+    log.info('browser_page_closed', { browserPageId, forced: options.force === true })
+    return { closed: true }
+  }
+
+  /**
+   * Bracket one agent verb against a page.
+   *
+   * Returns the release rather than taking a callback, so every caller releases
+   * in a `finally`: a verb that threw or timed out must not leave the page
+   * unclosable. Releasing twice releases one hold.
+   *
+   * Clients only render whether `agentUse` is present, so the page is published
+   * when use begins and when it lapses — not on every verb boundary, which for a
+   * busy turn would be two broadcasts per click.
+   */
+  beginAgentUse(browserPageId: string, verb: string, sessionId?: string): () => void {
+    const record = this.records.get(browserPageId)
+    // A page already going away cannot be held open; the verb will fail on its own.
+    if (!record || record.closing) return () => {}
+    const use = this.touchAgentUse(record, verb, sessionId)
+    use.running += 1
+    this.stopAgentUseExpiry(browserPageId)
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      // The page may have been force-closed under the verb. Nothing to release.
+      const current = this.records.get(browserPageId)
+      const active = current?.page.agentUse
+      if (!current || !active) return
+      active.running = Math.max(0, active.running - 1)
+      active.at = Date.now()
+      if (active.running === 0) this.scheduleAgentUseExpiry(current)
+    }
+  }
+
+  /** Record that an agent touched a page without holding it — `browser_open`.
+   *  A page created two seconds ago is one to ask about; it decays like any
+   *  other use. */
+  noteAgentUse(browserPageId: string, verb: string, sessionId?: string): void {
+    const record = this.records.get(browserPageId)
+    if (!record || record.closing) return
+    this.touchAgentUse(record, verb, sessionId)
+    this.scheduleAgentUseExpiry(record)
+  }
+
+  private touchAgentUse(record: PageRecord, verb: string, sessionId: string | undefined): BrowserAgentUse {
+    const existing = record.page.agentUse
+    const use = existing ?? { running: 0, verb, at: 0 }
+    use.verb = verb
+    use.at = Date.now()
+    if (sessionId) use.sessionId = sessionId
+    record.page.agentUse = use
+    if (!existing) this.publish(record)
+    return use
+  }
+
+  private isInAgentUse(use: BrowserAgentUse): boolean {
+    return use.running > 0 || Date.now() - use.at < AGENT_USE_GRACE_MS
+  }
+
+  /** Publish the moment the grace window lapses, so a pane does not keep
+   *  warning about an agent that finished minutes ago. */
+  private scheduleAgentUseExpiry(record: PageRecord): void {
+    const { browserPageId } = record.page
+    this.stopAgentUseExpiry(browserPageId)
+    const timer = setTimeout(() => {
+      this.agentUseTimers.delete(browserPageId)
+      const current = this.records.get(browserPageId)
+      if (!current || current.closing) return
+      if (!current.page.agentUse || current.page.agentUse.running > 0) return
+      delete current.page.agentUse
+      this.publish(current)
+    }, AGENT_USE_GRACE_MS)
+    timer.unref?.()
+    this.agentUseTimers.set(browserPageId, timer)
+  }
+
+  private stopAgentUseExpiry(browserPageId: string): void {
+    const timer = this.agentUseTimers.get(browserPageId)
+    if (!timer) return
+    clearTimeout(timer)
+    this.agentUseTimers.delete(browserPageId)
   }
 
   /**
@@ -731,15 +852,28 @@ export class BrowserRegistry {
     })
   }
 
+  /** The cookie jar one page's guest runs in. */
+  partitionOf(page: BrowserPage): string {
+    return browserProfilePartition(
+      page.target.kind === 'url' ? page.target.projectRoot : undefined,
+      page.profileId,
+    )
+  }
+
+  /** The open pages signed in to one jar. What a profile deletion has to name
+   *  before it takes a live login away. */
+  pagesOnPartition(partition: string): BrowserPage[] {
+    return this.list().filter((page) => this.partitionOf(page) === partition)
+  }
+
   /** Forget a profile, then reload every page using it so the pane shows the
    *  logged-out state instead of a stale rendering of the old session. */
   async clearProfile(partition: string): Promise<void> {
-    const host = browserWebviewHost()
+    const host = browserProfileHost()
     if (!host) throw new Error('This host holds no browser profiles.')
     await host.clearProfile(partition)
     for (const record of this.records.values()) {
-      if (record.page.target.kind !== 'url') continue
-      if (browserPartition(record.page.target.projectRoot) !== partition) continue
+      if (this.partitionOf(record.page) !== partition) continue
       await this.queueDriver(record, async () => {
         await record.driver?.navigate({ kind: 'reload' }).catch(() => {})
       })
@@ -747,6 +881,8 @@ export class BrowserRegistry {
   }
 
   async shutdown(): Promise<void> {
+    for (const timer of this.agentUseTimers.values()) clearTimeout(timer)
+    this.agentUseTimers.clear()
     for (const record of this.records.values()) {
       record.closing = true
       this.stopLiveness(record)
@@ -849,9 +985,9 @@ export class BrowserRegistry {
       // page from laying out twice and lets the rings cover its own load.
       driver = await host.open({
         url: page.url,
-        // The project's profile, not the worktree's: a headless page uses the
-        // same login the user obtained in a pane.
-        partition: browserPartition(page.target.kind === 'url' ? page.target.projectRoot : undefined),
+        // The page's own profile inside the project, not the worktree's: a
+        // headless page uses the same login the user obtained in a pane.
+        partition: this.partitionOf(page),
         emulation: this.emulationFor(page),
         report: (report) => { this.reportSurface(page.browserPageId, report) },
       })

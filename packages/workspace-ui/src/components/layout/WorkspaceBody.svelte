@@ -275,6 +275,7 @@
   );
 
   let sidebarOpen = $state(true);
+  let isResizingSidebar = $state(false);
   let sidebarClosedForOverlay = $state(false);
   // Overlay-driven collapse/expand lands in the same single layout pass as the
   // companion pane instead of animating: the pane already snaps into the split,
@@ -644,10 +645,13 @@
       />
     </Resizable.Pane>
     <!-- The panel is inset 4px and its 1px border paints inward, so its
-         centreline sits 4.5px left of the PaneForge boundary. -->
+         centreline sits 4.5px left of the PaneForge boundary. Keep an active
+         drag enabled through collapse: disabling it removes PaneForge's
+         release listeners before they can clear its global drag state. -->
     <Resizable.Handle
       aria-label="Resize sidebar"
-      disabled={!sidebarOpen}
+      onDraggingChange={(dragging) => (isResizingSidebar = dragging)}
+      disabled={!sidebarOpen && !isResizingSidebar}
       class={`-translate-x-[4.5px] ${!sidebarOpen ? "pointer-events-none opacity-0" : ""}`}
     />
 
@@ -958,7 +962,13 @@
   .secondary-pane-content--maximized {
     position: fixed;
     inset: 0;
-    z-index: 10040;
+    /* Above every in-workspace layer (the outer scrollbar at 100, the in-tree
+       modal band at 200/210) and below the app's overlay band, which starts at
+       the popover layer's 10010 and holds every portalled menu (10002), tooltip
+       and dialog. A maximized pane covering the window is still workspace
+       content: at 10040 it painted over the very menus its own header opens, so
+       every dropdown in the surface read as a dead button. */
+    z-index: 1000;
     background: var(--solus-container-bg);
     /* Maximized panes cover the whole window (inset:0), so their top-left lands
        under the macOS traffic lights. Publish the lead inset so the surface's

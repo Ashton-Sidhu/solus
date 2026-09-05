@@ -1,4 +1,6 @@
 import { createAppContext } from '../app/create-app-context'
+import { splitHostKey } from '@solus/client-core/host-key'
+import { browserStore } from '../browser/browser.store.svelte'
 import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, PrReviewContext, PromptDelivery, PromptImageRef, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { parseGitHubPullRequestUrl, type PrReviewTarget, type PullRequest, type RepoRef } from '@solus/contracts/providers'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewTarget } from '@solus/contracts/review'
@@ -7,7 +9,7 @@ import { buildConflictResolutionPrompt, buildConflictResolverCard, buildConflict
 import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSession, hasSessionStarted } from '../../lib/sessionUtils'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { uuid } from '@solus/contracts/uuid'
-import { workPreview } from '@solus/contracts/work-preview'
+import { resolveArtifactTitle, workPreview } from '@solus/contracts/work-preview'
 import notificationSrc from '../../../../../resources/notification.mp3'
 import type { NotificationSoundLog, NotificationSoundTrigger } from '@solus/contracts/notification-types'
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
@@ -19,7 +21,7 @@ import { TasksStore } from '../tasks/tasks.store.svelte'
 import { OutboxStore } from '../outbox/outbox.store.svelte'
 import type { PullRequestsContext } from '../prs/pull-requests.context.svelte'
 import type { PrReviewTab } from '../prs/pr-view.svelte'
-import { projectCatalog } from '../projects/project-catalog.store.svelte'
+import { projectsStore } from '../projects/projects.store.svelte'
 import type { ProjectPageScope, ProjectRef } from '../projects/project-catalog'
 import { prSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { insightsStore } from '../../components/insights/insights.store.svelte'
@@ -83,6 +85,7 @@ import { moveTabToHost, prepareHostCheckout } from '../../components/servers/run
 import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
 import { quotedReplyDraft } from '../../lib/quoted-reply'
 import { GoalSync } from './goal-sync'
+import type { PickerScope } from '../../components/session/unified-picker/lib/picker-scope'
 import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 import {
   reviewGuideStore,
@@ -453,6 +456,8 @@ export class WorkspaceContext {
   set isExpanded(value: boolean) { this.ui.isExpanded = value }
   get unifiedPickerOpen(): boolean { return this.ui.unifiedPickerOpen }
   set unifiedPickerOpen(value: boolean) { this.ui.unifiedPickerOpen = value }
+  get pickerScope(): PickerScope { return this.ui.pickerScope }
+  set pickerScope(value: PickerScope) { this.ui.pickerScope = value }
   get projectPageScope(): ProjectPageScope { return this.ui.projectPageScope }
 
   setProjectPageScope(scope: ProjectPageScope): void {
@@ -656,11 +661,6 @@ export class WorkspaceContext {
   tabIdForAgentSession(agentSessionId: string, serverId: string | undefined): string | undefined {
     if (!serverId) return undefined
     return this.registry.tabIdsByAgentSession.get(hostKey(serverId, agentSessionId))?.[0]
-  }
-
-  /** The chat bound to a work item, if one is open. */
-  tabIdForWork(workId: string): string | undefined {
-    return this.tabOrder.find((tabId) => this.sessionFor(tabId)?.boundWorkId === workId)
   }
 
   /**
@@ -2868,7 +2868,7 @@ export class WorkspaceContext {
     if (session.messages.length === 0 && resolvedPath && resolvedPath !== '~') {
       void this.apiFor(targetTabId).trackRecentProject(resolvedPath)
       const catalogRoot = session.run.gitContext?.repoRoot ?? resolvedPath
-      projectCatalog.record(
+      projectsStore.record(
         { serverId: session.run.serverId, projectRoot: catalogRoot },
         projectDirLabel(catalogRoot, this.staticInfo?.workspacePath),
       )
@@ -3290,6 +3290,38 @@ export class WorkspaceContext {
     this.openWork(work.id)
   }
 
+  /** Promote an HTML block the reader liked into an `artifact` work: a durable
+   *  id the gallery lists, `update_work` revises, and a task can link. The
+   *  block itself is ephemeral, so this is the one way it acquires identity.
+   *  `sourceTabId` names the conversation it was read in; without one the work
+   *  files against the active session, the way a hand-authored work does. */
+  async createArtifact(html: string, sourceTabId?: string): Promise<{ workId: string; title: string } | null> {
+    const tabId = sourceTabId ?? this.activeTabId
+    const sess = this.sessionFor(tabId)
+    const cwd = sess?.run.workingDirectory ?? this.globalDefaults.workingDirectory ?? '~'
+    const provider: AgentId = sess?.run.provider ?? 'claude-code'
+    const api = sess ? this.apiFor(tabId) : this.defaultHostApi()
+    const serverId = sess ? this.serverIdFor(tabId) : this.defaultServerId()
+    const title = resolveArtifactTitle(undefined, html)
+    try {
+      const work = await api.createWork(
+        title,
+        'artifact',
+        html,
+        workPreview('artifact', html),
+        undefined,
+        provider,
+        cwd,
+      )
+      this.worksStore.works[work.id] = work
+      this.worksStore.rememberHost(work.id, serverId)
+      return { workId: work.id, title: work.title }
+    } catch (err) {
+      toasts.error(err instanceof Error ? err.message : 'Could not save this artifact.')
+      return null
+    }
+  }
+
   async openChatForWork(workId: string, mode: 'resume' | 'new'): Promise<void> {
     const work = this.worksStore.get(workId)
     if (!work) return
@@ -3348,6 +3380,41 @@ export class WorkspaceContext {
     }
 
     requestInputFocus()
+  }
+
+  /** Start a new session for work feedback. It joins the linked task when one
+   *  exists and stays taskless otherwise. The comment is already a complete
+   *  prompt, so no intermediate draft composer is needed. */
+  async sendMessageToNewWorkSession(workId: string, prompt: string): Promise<boolean> {
+    const work = this.worksStore.get(workId)
+    if (!work) return false
+
+    const linkTarget = { kind: 'work' as const, targetScope: '', targetKey: workId }
+    const taskServerId = this.worksStore.hostFor(workId) ?? undefined
+    await this.tasksStore.ensureLinkedTasks([linkTarget], taskServerId)
+    const owningTask = this.tasksStore.linkedTasksFor(linkTarget)?.[0]
+
+    this.router.closeGroup('page')
+    this.openWork(workId, 'aside')
+    void this.worksStore.ensureContent(
+      workId,
+      'send-message-to-work',
+      this.sessionFor(this.activeTabId)?.run.workingDirectory,
+    )
+
+    const draft = this.createSessionDraft(
+      owningTask ? { taskId: owningTask.taskId, workId } : { withoutTask: true, workId },
+      work.cwd,
+    )
+    if (taskServerId) draft.run.taskServerId = taskServerId
+    const tabId = this.startSessionDraft(draft.id, { via: 'click' })
+    if (!tabId) return false
+
+    this.router.navigate(
+      { name: 'chat', params: {} },
+      { target: this.router.leadingPane.id },
+    )
+    return this.sendMessage(prompt, undefined, tabId)
   }
 
   // ─── Pages ───
@@ -3450,6 +3517,25 @@ export class WorkspaceContext {
     // stage in, and a browser viewport inside the summon window would be
     // smaller than the phone it is showing.
     if (this.window.viewMode !== 'editor') void this.window.setViewMode('editor')
+  }
+
+  /**
+   * Open an ordinary web address in Solus's own browser.
+   *
+   * The host is named by the caller and never assumed. A link in a transcript
+   * belongs to the session that produced it, and that session's project may be
+   * served by a machine other than this one — a `localhost:5173` in an agent's
+   * output means the agent's host, not the device the user is holding. Opening
+   * it through the ambient client shell would resolve the address here instead,
+   * which for a remote session is either nothing or the wrong app.
+   *
+   * The user's default browser stays the default for a plain click. This is the
+   * explicit second way in, for the page a person wants beside the conversation
+   * they are directing.
+   */
+  async openUrlInBrowser(url: string, serverId: string): Promise<void> {
+    const key = await browserStore.open(serverId, { target: { kind: 'url', url } })
+    this.openBrowser(splitHostKey(key).path, serverId)
   }
 
   /** A surface opening fresh covers the conversation; `aside` puts it beside

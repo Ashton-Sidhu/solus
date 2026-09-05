@@ -152,25 +152,14 @@
     persist();
   }
 
-  /** Find the chat bound to this work, opening one if there isn't one yet. */
-  async function boundChatTabId(): Promise<string | null> {
-    if (!workId) return null;
-    const existing = session.tabIdForWork(workId);
-    if (existing) return existing;
-    await session.openChatForWork(workId, "new");
-    return session.tabIdForWork(workId) ?? null;
-  }
-
   /** Selection → the work's chat, quoted and *not* sent. The user still has to
    *  say what they want done with it, so this prefills the composer and puts
    *  the caret there rather than firing a half-formed prompt at the agent.
    *  Called with no text from the slash menu, where there's nothing to quote. */
   async function askSolusAbout(selectedText: string) {
     if (!workId) return;
-    const tabId = await boundChatTabId();
-    if (!tabId) return;
-    session.selectTab(tabId);
-    const prompt = session.inputFor(tabId);
+    await session.openChatForWork(workId, "new");
+    const prompt = session.leadingInput;
     // Never clobber something already half-typed in that composer.
     if (selectedText && !prompt.text) {
       const quote = selectedText
@@ -179,7 +168,7 @@
         .join("\n");
       prompt.text = `${quote}\n\n`;
     }
-    requestInputFocus({ tabId });
+    requestInputFocus();
   }
 
   // Mirror the standard submit-to-agent flow (InputBar / diff feedback): guard
@@ -202,6 +191,9 @@
     const body = formatInlineComments(unresolved);
     const msg = `Please address these comments on "${doc.title}" (work_id: ${workId}):\n${body}`;
 
+    const sent = await session.sendMessageToNewWorkSession(workId, msg);
+    if (!sent) return;
+
     // Handed to the agent, so the threads are settled — they *resolve* rather
     // than vanish. The mark keeps its dotted sage trace, so the reader can
     // still see where the conversation happened; deleting them outright made
@@ -210,11 +202,6 @@
       session.worksStore.setAnnotationResolved(workId, c.id, "solus");
     }
     persist();
-
-    const boundTabId = session.tabIdForWork(workId);
-    if (boundTabId) session.selectTab(boundTabId);
-    else await session.openChatForWork(workId, "new");
-    session.sendMessage(msg);
   }
 </script>
 

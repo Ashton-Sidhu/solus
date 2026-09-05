@@ -5,7 +5,7 @@ import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { recordOtelDuration } from '../../otel'
 import type { SolusServer } from '../server'
-import { getIndexedSession, searchIndexedSessions, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
+import { getIndexedSession, getSessionMessageWindow, searchIndexedSessions, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { generateSessionMetadata } from '../../sessions/session-title'
 import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
@@ -88,6 +88,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         providers: request.providers,
         role: request.role,
         sinceTs: request.sinceTs,
+        prefixLastToken: request.prefixLastToken,
       }, request.limit)
     } catch (err) {
       log.error('search_sessions_failed', { error: String(err) })
@@ -155,6 +156,16 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     } catch (err) {
       log.error('load_session_preview_failed', { error: String(err), sessionId, projectPath })
       return { head: [], tail: [], totalMessages: 0 }
+    }
+  })
+
+  server.register('loadSessionMessageWindow', async (args) => {
+    const [request] = args
+    try {
+      return getSessionMessageWindow(request.sessionId, request.messageId, request.radius)
+    } catch (err) {
+      log.error('load_session_message_window_failed', { error: String(err), sessionId: request.sessionId })
+      return { messages: [], hiddenBefore: 0, hiddenAfter: 0 }
     }
   })
 

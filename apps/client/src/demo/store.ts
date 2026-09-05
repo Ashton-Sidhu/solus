@@ -1,4 +1,4 @@
-import type { SessionPreviewResult } from '@solus/contracts/session-history'
+import type { SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult } from '@solus/contracts/session-history'
 import type {
   Automation,
   AutomationAction,
@@ -127,8 +127,32 @@ export class DemoStore {
         session: meta,
         snippet: meta.firstMessage ?? meta.slug ?? meta.sessionId,
         ts: Date.parse(meta.lastTimestamp),
+        // The demo matches on the opening message, so that is the hit.
+        messageId: 0,
       }))
     return request.limit === undefined ? matches : matches.slice(0, request.limit)
+  }
+
+  /** The fixture's message index stands in for the index's row id. */
+  loadSessionMessageWindow(request: SessionMessageWindowRequest): SessionMessageWindow {
+    const spoken = this.loadSession(request.sessionId)
+      .map((message, index) => ({ message, index }))
+      .filter(({ message }) => (message.role === 'user' || message.role === 'assistant') && !message.toolName)
+    const at = spoken.findIndex(({ index }) => index === request.messageId)
+    if (at < 0) return { messages: [], hiddenBefore: 0, hiddenAfter: 0 }
+    const radius = request.radius ?? 1
+    const from = Math.max(0, at - radius)
+    const to = Math.min(spoken.length, at + radius + 1)
+    return {
+      messages: spoken.slice(from, to).map(({ message, index }) => ({
+        messageId: index,
+        role: message.role === 'user' ? 'user' : 'assistant',
+        ts: message.timestamp,
+        text: message.content,
+      })),
+      hiddenBefore: from,
+      hiddenAfter: spoken.length - to,
+    }
   }
 
   loadSession(sessionId: string, limit?: number) {

@@ -2,7 +2,9 @@
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import type { Message } from "@solus/contracts/types";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import CodeBlock from "../ui/CodeBlock.svelte";
+  import FencedBlock from "./FencedBlock.svelte";
+  import HtmlBlock from "./HtmlBlock.svelte";
+  import { RAW_HTML_TOKEN, rawHtmlMarkedExtension } from "./lib/raw-html";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownImage from "./MarkdownImage.svelte";
@@ -37,13 +39,18 @@
   }
   let { message, onOpenReport }: Props = $props();
 
+  // The transcript's rule, so a subagent's reply reads the same as the main
+  // conversation's: an html fence carrying its own styles renders live.
   const markdownRenderers = {
-    code: CodeBlock,
+    code: FencedBlock,
     codespan: CodeSpan,
     image: MarkdownImage,
     link: MarkdownLink,
     rawtext: MarkdownText,
+    [RAW_HTML_TOKEN]: HtmlBlock,
   };
+
+  const markdownExtensions = [rawHtmlMarkedExtension];
 
   const entries = $derived(subagentTimeline(message));
   const tail = $derived(subagentTail(message));
@@ -115,6 +122,7 @@
               <SvelteMarkdown
                 source={entry.prompt}
                 renderers={markdownRenderers}
+                extensions={markdownExtensions}
                 sanitizeUrl={markdownSanitizeUrl}
               />
             </div>
@@ -145,6 +153,7 @@
               <SvelteMarkdown
                 source={outline.lead}
                 renderers={markdownRenderers}
+                extensions={markdownExtensions}
                 sanitizeUrl={markdownSanitizeUrl}
               />
             </div>
@@ -170,6 +179,7 @@
           <SvelteMarkdown
             source={entry.content}
             renderers={markdownRenderers}
+            extensions={markdownExtensions}
             sanitizeUrl={markdownSanitizeUrl}
           />
         </div>

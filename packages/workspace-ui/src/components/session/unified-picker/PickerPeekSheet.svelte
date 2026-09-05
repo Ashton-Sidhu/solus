@@ -138,6 +138,7 @@
         onOpenLink={(link) => onOpenLink(target.task, link)}
         {onOpenExternal}
         {onUnlink}
+        {query}
       />
     {:else}
       <!-- The title carries the same weight it does in a task peek, and the

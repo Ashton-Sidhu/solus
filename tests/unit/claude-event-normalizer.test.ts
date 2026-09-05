@@ -232,6 +232,42 @@ describe('ClaudeTurnNormalizer', () => {
     expect(normalizer.summary.sawRateLimit).toBe(true)
   })
 
+  test('drops a warning window and reports only a limit that stops the run', () => {
+    setSystemTime(new Date('2026-01-01T00:00:00Z'))
+    const normalizer = new ClaudeTurnNormalizer()
+    const warning = {
+      type: 'rate_limit_event' as const,
+      session_id: 'claude-session-1',
+      uuid: 'rate-limit-1',
+      rate_limit_info: {
+        status: 'allowed_warning',
+        resetsAt: 1767225900,
+        rateLimitType: 'seven_day',
+        isUsingOverage: false,
+      },
+    }
+
+    // Claude flags the seven-day window on nearly every turn from about a
+    // quarter spent. The sidebar usage meters already say that, so it never
+    // reaches the renderer at all.
+    expect(normalizer.push(warning)).toEqual([])
+    expect(normalizer.summary.sawRateLimit).toBe(false)
+
+    // A limit that actually stops the run is the one thing worth raising the
+    // card for.
+    expect(normalizer.push({
+      ...warning,
+      rate_limit_info: { ...warning.rate_limit_info, status: 'limited' },
+    })).toEqual([{
+      type: 'rate_limit',
+      status: 'limited',
+      resetsAt: 1767225900,
+      rateLimitType: 'seven_day',
+      isUsingOverage: false,
+    }])
+    expect(normalizer.summary.sawRateLimit).toBe(true)
+  })
+
   test('normalizes Claude terminal session-limit errors as rate limits', () => {
     setSystemTime(new Date('2026-08-14T19:14:00Z'))
     const normalizer = new ClaudeTurnNormalizer()

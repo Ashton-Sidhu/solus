@@ -10,6 +10,7 @@ import type {
   ReviewThread,
 } from '@solus/contracts/providers'
 import { labelChangeText } from '../../../lib/label-activity'
+import type { PrArtifact } from './pr-artifacts'
 
 /**
  * One entry in the activity timeline. The opened event is rendered separately as
@@ -23,6 +24,9 @@ export type ActivityEvent =
   | { kind: 'thread'; ts: number; thread: ReviewThread }
   | { kind: 'comment'; ts: number; comment: PrCommentActivityItem }
   | { kind: 'label'; ts: number; item: PrLabelActivityItem }
+  /** A render linked to a task on this pull request, at the moment it was
+   *  linked. Local to Solus: the host never sees it. */
+  | { kind: 'artifact'; ts: number; artifact: PrArtifact }
 
 /** The provider reads the Activity tab makes on its own. Each fails on its
  *  own too, and the section that read it says so in place — there is no
@@ -41,6 +45,7 @@ export function activityEventKey(event: ActivityEvent): string {
   if (event.kind === 'commits') return `commits:${event.commits[0].sha}`
   if (event.kind === 'thread') return event.thread.id
   if (event.kind === 'label') return event.item.id
+  if (event.kind === 'artifact') return `artifact:${event.artifact.workId}`
   return event.comment.id
 }
 
@@ -136,13 +141,18 @@ export function buildActivityTimeline(
   commits: PrCommit[],
   threads: ReviewThread[],
   comments: PrConversationItem[],
+  artifacts: PrArtifact[] = [],
 ): ActivityEvent[] {
   type Raw =
     | { kind: 'commit'; ts: number; commit: PrCommit }
     | { kind: 'thread'; ts: number; thread: ReviewThread }
     | { kind: 'comment'; ts: number; comment: PrCommentActivityItem }
     | { kind: 'label'; ts: number; item: PrLabelActivityItem }
+    | { kind: 'artifact'; ts: number; artifact: PrArtifact }
   const raw: Raw[] = []
+  for (const artifact of artifacts) {
+    raw.push({ kind: 'artifact', ts: artifact.linkedAt, artifact })
+  }
   for (const commit of commits) {
     raw.push({ kind: 'commit', ts: new Date(commit.committedAt).getTime(), commit })
   }
@@ -172,6 +182,8 @@ export function buildActivityTimeline(
       events.push({ kind: 'thread', ts: item.ts, thread: item.thread })
     } else if (item.kind === 'label') {
       events.push({ kind: 'label', ts: item.ts, item: item.item })
+    } else if (item.kind === 'artifact') {
+      events.push({ kind: 'artifact', ts: item.ts, artifact: item.artifact })
     } else {
       events.push({ kind: 'comment', ts: item.ts, comment: item.comment })
     }

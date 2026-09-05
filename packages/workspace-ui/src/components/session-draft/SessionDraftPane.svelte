@@ -111,8 +111,8 @@
   // No project chosen yet — "build in ~?" names nothing, so the question drops
   // its object and only the chip below is left to do the choosing.
   const hasProject = $derived(projectName !== "~");
-  // The headline names the project, so it opens the same list the chip below
-  // does. Keep its element so that shared menu drops from the control used.
+  // Only a headline click sets an external anchor. Closing clears it so the
+  // next open from the input header uses the chip's own trigger.
   let projectPickerOpen = $state(false);
   let projectPickerAnchor = $state<HTMLButtonElement | null>(null);
 
@@ -263,12 +263,14 @@
       {#if hasProject}
         What should we build in
         <button
-          bind:this={projectPickerAnchor}
           type="button"
           aria-haspopup="menu"
           aria-expanded={projectPickerOpen}
           aria-label="Change project — currently {projectName}"
-          onclick={() => (projectPickerOpen = true)}
+          onclick={(event) => {
+            projectPickerAnchor = event.currentTarget;
+            projectPickerOpen = true;
+          }}
           class="group inline whitespace-nowrap focus-visible:outline-none"
           ><ProjectFavicon
             {projectRoot}
@@ -330,7 +332,13 @@
         sourceId={current.id}
         {paneId}
         {projectPickerAnchor}
-        bind:projectPickerOpen
+        bind:projectPickerOpen={
+          () => projectPickerOpen,
+          (open) => {
+            projectPickerOpen = open;
+            if (!open) projectPickerAnchor = null;
+          }
+        }
       />
 
       <div

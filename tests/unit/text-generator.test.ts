@@ -43,7 +43,7 @@ describe('TextGenerator control-plane dispatch', () => {
     expect(request.persistence).toBe('ephemeral')
     expect(request.timeoutMs).toBe(25)
     expect(request.maxTurns).toBe(2)
-    expect(request.systemPrompt).toContain('Return only a branch name.')
+    expect(request.systemPrompt).toBe('Return only a branch name.')
     expect('gitContext' in request).toBe(false)
     expect('sessionChangedFiles' in request).toBe(false)
     expect('extraInstructions' in request).toBe(false)

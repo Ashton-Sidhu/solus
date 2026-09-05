@@ -4,6 +4,7 @@ import {
   eventLine,
   linkGroups,
   linkRow,
+  linkedArtifactForEvent,
   linkedTableLinks,
   linkedWorkProvider,
   taskPageCapabilities,
@@ -33,6 +34,44 @@ describe('task page provider labels', () => {
 
   test('identifies a local task as living in Solus', () => {
     expect(taskProviderLabel({ providerId: 'local' } as Task)).toBe('Local task')
+  })
+})
+
+describe('an artifact on the task activity feed', () => {
+  const linked: TaskEvent = {
+    id: 'e1',
+    taskId: 't',
+    kind: 'linked',
+    actor: 'agent',
+    targetKind: 'work',
+    targetScope: '',
+    targetKey: 'work-1',
+    targetTitle: 'Latency report',
+    createdAt: 1,
+  }
+  const artifact: TaskLink = {
+    taskId: 't',
+    kind: 'work',
+    targetScope: '',
+    targetKey: 'work-1',
+    title: 'Latency report',
+    liveStatus: 'artifact',
+    createdBy: 'agent',
+    linkedAt: 1,
+  }
+
+  test('a linked event shows the render it brought', () => {
+    // WHY: a render is the one link worth seeing where it arrived. The feed
+    // tells the story of the task, and "linked Latency report" with nothing
+    // under it sends the reader to the Linked table to find out what it was.
+    expect(linkedArtifactForEvent(linked, [artifact])).toBe(artifact)
+  })
+
+  test('a document, an unlinked work, and any other event get no card', () => {
+    expect(linkedArtifactForEvent(linked, [{ ...artifact, liveStatus: 'doc' }])).toBeNull()
+    expect(linkedArtifactForEvent(linked, [])).toBeNull()
+    expect(linkedArtifactForEvent({ ...linked, kind: 'unlinked' }, [artifact])).toBeNull()
+    expect(linkedArtifactForEvent({ ...linked, targetKind: 'plan' }, [artifact])).toBeNull()
   })
 })
 

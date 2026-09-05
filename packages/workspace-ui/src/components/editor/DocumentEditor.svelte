@@ -40,6 +40,7 @@
     executeSlashCommand,
     slashMenuIsOpen,
     askSolusCommand,
+    embedArtifactCommand,
     embedDiagramCommand,
     type EditorBlockCommand,
   } from "./slashCommands";
@@ -57,8 +58,8 @@
   import { installLiveTableResize } from "./lib/live-table-resize";
   import { z } from "zod";
   import RawMarkdownEditor from "./RawMarkdownEditor.svelte";
-  import DiagramEmbedPicker from "./DiagramEmbedPicker.svelte";
-  import type { DiagramEmbedChoice } from "./diagramEmbedExtension";
+  import WorkEmbedPicker from "./WorkEmbedPicker.svelte";
+  import type { WorkEmbedChoice } from "./lib/work-embed";
   import { linkActivationAction } from "./lib/link-preview";
 
   const imageSourceSchema = z.string();
@@ -89,7 +90,8 @@
     /** When set, the slash menu offers "Ask Solus to draft…". Surfaces without
      *  an agent behind them simply don't pass it. */
     onAskSolus?: () => void;
-    diagramChoices?: DiagramEmbedChoice[];
+    diagramChoices?: WorkEmbedChoice[];
+    artifactChoices?: WorkEmbedChoice[];
     class?: string;
     style?: string;
     /** Whether the hover-to-grab block drag handle is mounted. Off for surfaces
@@ -116,6 +118,7 @@
     onBlur,
     onAskSolus,
     diagramChoices,
+    artifactChoices,
     class: klass = "",
     style = "",
     dragHandle = true,
@@ -167,10 +170,13 @@
     href: string;
     pos: number;
   } | null>(null);
-  let diagramPickerOpen = $state(false);
+  // Which member of the embed family the picker is choosing, or null when it
+  // is closed. One picker, so the two can never be open at once.
+  let embedPicker = $state<"diagram" | "artifact" | null>(null);
 
   const slashExtras = $derived([
-    ...(diagramChoices ? [embedDiagramCommand(() => (diagramPickerOpen = true))] : []),
+    ...(diagramChoices ? [embedDiagramCommand(() => (embedPicker = "diagram"))] : []),
+    ...(artifactChoices ? [embedArtifactCommand(() => (embedPicker = "artifact"))] : []),
     ...(onAskSolus ? [askSolusCommand(onAskSolus)] : []),
   ]);
   const slashFiltered = $derived(filterCommands(slashQuery, slashExtras));
@@ -796,14 +802,15 @@
     executeSlashCommand(editorInstance, cmd, slashFrom, slashTo);
   }
 
-  function insertDiagram(choice: DiagramEmbedChoice) {
-    if (!editorInstance) return;
-    diagramPickerOpen = false;
+  function insertEmbed(choice: WorkEmbedChoice) {
+    if (!editorInstance || !embedPicker) return;
+    const type = embedPicker === "diagram" ? "diagramEmbed" : "artifactEmbed";
+    embedPicker = null;
     editorInstance
       .chain()
       .focus()
       .insertContent([
-        { type: "diagramEmbed", attrs: { workId: choice.workId, title: choice.title } },
+        { type, attrs: { workId: choice.workId, title: choice.title } },
         { type: "paragraph" },
       ])
       .run();
@@ -858,12 +865,13 @@
     />
   {/if}
 
-  {#if diagramPickerOpen}
-    <DiagramEmbedPicker
-      choices={diagramChoices ?? []}
-      onSelect={insertDiagram}
+  {#if embedPicker}
+    <WorkEmbedPicker
+      type={embedPicker}
+      choices={(embedPicker === "diagram" ? diagramChoices : artifactChoices) ?? []}
+      onSelect={insertEmbed}
       onClose={() => {
-        diagramPickerOpen = false;
+        embedPicker = null;
         editorInstance?.commands.focus();
       }}
     />

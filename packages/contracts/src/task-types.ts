@@ -288,6 +288,9 @@ export interface TaskLink {
   createdBy: TaskActor | 'migration'
   originSessionId?: string
   linkedAt: number
+  /** The one `work` link a task page shows open by default. At most one link
+   *  per task carries it; pinning another moves it. */
+  pinned?: boolean
 }
 
 /** The identity of a link target — the key a reverse lookup takes. */
@@ -319,6 +322,9 @@ export interface TaskLinkInput {
   url?: string | null
   createdBy?: TaskActor
   originSessionId?: string | null
+  /** Pin this link, or unpin it. Omitted leaves the current pin alone, so a
+   *  re-link that knows nothing about pinning cannot clear one. */
+  pinned?: boolean
 }
 
 /** Task history, interleaved with `TaskComment[]` to build the activity feed.

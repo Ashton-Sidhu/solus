@@ -4,13 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <!-- Safari tints its toolbars with this, then lays its own translucent
-         material over the result — so the value here is the dark edge colour
-         pre-compensated for that material, not the edge colour itself. It must
-         *render* as the opaque form of `--solus-container-bg`, which the web
-         shell fills the viewport with, or the top and bottom seams read as two
-         different blacks. `toolbarTint` in settings.context owns the maths and
-         restates this on every theme change. -->
-    <meta name="theme-color" content="#100f0c" />
+         material over the result. Black is the compensated dark value; the
+         boot script below switches to the compensated light value before the
+         first paint. `toolbarTint` in settings.context restates the value on
+         every later theme change. -->
+    <meta name="theme-color" content="#000000" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
@@ -35,6 +33,10 @@
           document.documentElement.classList.toggle('dark', isDark)
           document.documentElement.classList.toggle('light', !isDark)
           document.documentElement.style.setProperty('color-scheme', isDark ? 'dark' : 'light')
+          document.querySelector('meta[name="theme-color"]').content = isDark ? '#000000' : '#fefefb'
+          document
+            .querySelector('meta[name="apple-mobile-web-app-status-bar-style"]')
+            .setAttribute('content', isDark ? 'black-translucent' : 'default')
         } catch (e) {}
       })()
     </script>

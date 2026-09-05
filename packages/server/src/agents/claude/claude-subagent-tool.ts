@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import { isWorkspacePath } from '../../workspace'
 import { resolveHomePath } from '../../platform/paths'
 import { buildSystemPrompt } from '../system-hint'
+import { hostInstructionsFor } from '../run-input'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import type { AgentDispatcher } from '../agent-runner'
 import type { AgentTool } from '../tools/agent-tool'
@@ -86,12 +86,7 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
         persistence: 'ephemeral',
         service: SPAN_SERVICES.subagents,
         unattended: true,
-        systemPrompt: buildSystemPrompt({
-          agent: 'claude',
-          general: isWorkspacePath(context.cwd),
-          planMode: readOnly,
-          subagent: true,
-        }),
+        systemPrompt: buildSystemPrompt(hostInstructionsFor(model)) || undefined,
         onEvent: (event) => {
           if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return
           context.emit(parentSubagentEvent(event, parentToolUseId))

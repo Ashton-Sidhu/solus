@@ -128,7 +128,9 @@ describe('default model preference', () => {
     // has no such model and would fail or silently substitute its own.
     const controller = await makeController(makeSettings({ codex: 'claude-opus-5' }, 'codex'))
 
-    expect(controller.globalDefaults.modelConfig.modelId).toBe('gpt-5.6-sol')
+    expect(controller.globalDefaults.modelConfig.modelId).toBe('gpt-6-astra')
+    expect(controller.globalDefaults.modelConfig.reasoningEffort).toBe('medium')
+    expect(controller.globalDefaults.modelConfig.contextWindow).toBe(1050000)
   })
 
   test('keeps one choice per agent across a default agent switch', async () => {
@@ -152,7 +154,7 @@ describe('default model preference', () => {
       id: 'stable-session',
       agentSessionId: 'claude-session',
       status: 'idle',
-      sessionModel: 'claude-sonnet-5',
+      sessionModel: 'claude-opus-5[1m]',
       messages: [],
       run: {
         provider: 'claude-code',
@@ -181,7 +183,7 @@ describe('default model preference', () => {
     // will continue, not only the destination provider.
     expect(session.messages.at(-1)).toMatchObject({
       agentChangedTo: 'Codex',
-      agentChangedFromModel: 'Sonnet 5',
+      agentChangedFromModel: 'Opus 5',
       agentChangedToModel: 'Gpt 5.4',
       agentChangedFromProvider: 'claude-code',
       agentChangedToProvider: 'codex',
@@ -253,7 +255,7 @@ describe('settings written against a draft composer', () => {
     await controller.switchActiveAgent('codex', draft.id)
 
     expect(draft.run.provider).toBe('codex')
-    expect(draft.run.modelConfig.modelId).toBe('gpt-5.6-sol')
+    expect(draft.run.modelConfig.modelId).toBe('gpt-6-astra')
   })
 
   test('leave the agent the next composer opens on alone', async () => {

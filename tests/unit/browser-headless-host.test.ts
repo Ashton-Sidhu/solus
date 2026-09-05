@@ -106,10 +106,7 @@ function harness(options: { headless?: boolean } = {}) {
     surfaceRequested: () => {},
   }
   const webviewDriver = new FakeDriver('webview')
-  setBrowserWebviewHost({
-    attach: async () => webviewDriver,
-    clearProfile: async () => {},
-  })
+  setBrowserWebviewHost({ attach: async () => webviewDriver })
 
   const headlessOpens: BrowserHeadlessOpenRequest[] = []
   const headlessDrivers: FakeDriver[] = []

@@ -27,6 +27,11 @@ export type Scope =
   | 'saved-prompts'
   | 'diagram'
   | 'command-palette'
+  /** The one picker over tasks and their sessions. Its navigation keys are
+   *  handled on its own dialog element; only the project scope is a named,
+   *  rebindable binding, and it sits in a scope so a review surface behind the
+   *  picker can never claim the same combo. */
+  | 'task-picker'
   | 'project-search'
   | 'go-to-file'
   | 'shortcuts-help'

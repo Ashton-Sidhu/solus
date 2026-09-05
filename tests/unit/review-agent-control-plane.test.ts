@@ -67,6 +67,7 @@ describe('review agent control-plane dispatch', () => {
     expect(dispatcher.request?.persistence).toBe('ephemeral')
     expect(dispatcher.request?.unattended).toBe(true)
     expect(dispatcher.request?.timeoutMs).toBe(10 * 60_000)
+    expect(dispatcher.request?.systemPrompt).toBeUndefined()
     expect(dispatcher.request?.prompt).toContain('The review scope is already decided')
     expect(dispatcher.request?.prompt).toContain('Do not ask the user to choose')
     expect(dispatcher.request?.prompt).toContain('Review guide instructions from Settings:')

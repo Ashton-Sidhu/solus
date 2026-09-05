@@ -15,7 +15,6 @@ import type {
   JsonRpcId,
 } from './codex-protocol'
 
-const CODEX_RATE_LIMIT_WARNING_PERCENT = 80
 const CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS = 2 * 60
 
 const stringValueSchema = z.string()
@@ -344,7 +343,7 @@ export class CodexTurnNormalizer implements TurnNormalizer<{ method: string; par
   private emit(events: NormalizedEvent[]): NormalizedEvent[] {
     for (const event of events) {
       if (event.type === 'tool_call') this.turnSummary.toolCallCount++
-      if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning') {
+      if (event.type === 'rate_limit' && event.status !== 'allowed') {
         this.turnSummary.sawRateLimit = true
       }
       if (event.type === 'error') this.turnSummary.sawProtocolError = true
@@ -530,7 +529,10 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
     const windowDurationMins = window.windowDurationMins ?? null
     if (!resetsAt || !windowDurationMins) continue
 
-    let status: 'allowed_warning' | 'limited' | null = null
+    // Only a spent window reaches the transcript. A window that is filling up
+    // is what the sidebar usage meters are for; Codex reports every update, so
+    // warning on a fraction meant a card for news the reader already had.
+    let status: 'limited' | null = null
     if (reachedType && (
       reachedType === key ||
       reachedType.includes(key) ||
@@ -540,8 +542,6 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
       status = 'limited'
     } else if (usedPercent !== null && usedPercent >= 100) {
       status = 'limited'
-    } else if (usedPercent !== null && usedPercent >= CODEX_RATE_LIMIT_WARNING_PERCENT) {
-      status = 'allowed_warning'
     }
     if (!status) continue
 
@@ -561,7 +561,7 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
       durationLabel = `${windowDurationMins}m`
     }
 
-    const event: Extract<NormalizedEvent, { type: 'rate_limit' }> = {
+    events.push({
       type: 'rate_limit',
       status,
       resetsAt: resetsAt + CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS,
@@ -569,9 +569,7 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
       windowDurationMins,
       isUsingOverage: rateLimits.credits?.hasCredits,
       deferCurrentRun: true,
-    }
-    if (usedPercent !== null) event.usedPercent = usedPercent
-    events.push(event)
+    })
   }
 
   return events

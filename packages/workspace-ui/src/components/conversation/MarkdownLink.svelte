@@ -1,13 +1,14 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import { MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { MessageCircleMore as ChatCircleDotsIcon, FileText as FileTextIcon, GitPullRequest as GitPullRequestIcon, PanelRight as PanelRightIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
+  import { toasts } from "../../lib/toasts";
   import { parseFileHref, requestFilePreview } from "../../lib/filePreview";
   import { routeForHref } from "../../lib/agent-links";
   import { FILE_ICON_VIEWBOX, getFileIconPath } from "../editor/fileIcons";
   import { tokenClassName } from "../editor/tokenStyle";
-  import { faviconUrlForHref } from "./lib/external-link";
+  import { faviconUrlForHref, isWebUrl } from "./lib/external-link";
   import { codeFileLinkLabel } from "./lib/assistant-markdown";
   import { fileLinkTooltip } from "./lib/file-link-path";
   import { assetUrlCache } from "../artifact/lib/asset-url";
@@ -92,6 +93,29 @@
 
   const faviconUrl = $derived(faviconUrlForHref(href));
   let failedFaviconUrl = $state<string | null>(null);
+
+  /** An ordinary web address with nowhere better to go. A plan, a work, a pull
+   *  request, a session, a file, or a stored asset already has a destination,
+   *  and a browser pane would be the worse one. */
+  const isPlainWebLink = $derived(
+    !(assetId || linkRoute || sessionParams || fileRef) && isWebUrl(href),
+  );
+
+  /** The host that would render it: the session that wrote the link, not the
+   *  device showing it. A remote session's `localhost:5173` lives there. */
+  const linkServerId = $derived(
+    sessionLinkContext?.serverId() ?? session.fallbackServerId,
+  );
+
+  function openInSolusBrowser(event: MouseEvent) {
+    event.preventDefault();
+    event.stopPropagation();
+    void session.openUrlInBrowser(href, linkServerId).catch((error: Error) => {
+      toasts.error("Couldn't open that page in the browser", {
+        description: error.message,
+      });
+    });
+  }
 
   function basename(path: string): string {
     const stripped = path.replace(/\/+$/, "");
@@ -195,20 +219,32 @@
 </span><span>{#if codeFileLabel !== null}{codeFileLabel}{:else}{@render children?.()}{/if}{#if fileRef.line}<span class="solus-token__line-number">:{fileRef.line}</span>{/if}</span>
   </button>
 {:else}
-  <a
-    href={assetId ? assetHref || undefined : href}
-    {title}
-    class="solus-link"
-    onclick={handleClick}
-    >{#if faviconUrl && failedFaviconUrl !== faviconUrl}<img
-        class="solus-link__favicon"
-        src={faviconUrl}
-        alt=""
-        width="12"
-        height="12"
-        loading="lazy"
-        referrerpolicy="no-referrer"
-        onerror={() => (failedFaviconUrl = faviconUrl)}
-      />{/if}{@render children?.()}</a
+  <!-- A plain click still hands the address to the user's own browser, as a
+       link does everywhere else. The second destination is a control beside
+       it: revealed on hover and keyboard focus, always present on touch. -->
+  <span class="group/weblink relative inline">
+    <a
+      href={assetId ? assetHref || undefined : href}
+      {title}
+      class="solus-link"
+      onclick={handleClick}
+      >{#if faviconUrl && failedFaviconUrl !== faviconUrl}<img
+          class="solus-link__favicon"
+          src={faviconUrl}
+          alt=""
+          width="12"
+          height="12"
+          loading="lazy"
+          referrerpolicy="no-referrer"
+          onerror={() => (failedFaviconUrl = faviconUrl)}
+        />{/if}{@render children?.()}</a
+    >{#if isPlainWebLink}<button
+        type="button"
+        class="ml-0.5 inline-flex size-4 translate-y-[0.1875rem] items-center justify-center rounded-[0.25rem] align-baseline text-(--solus-text-tertiary) opacity-0 transition-opacity pointer-events-none group-hover/weblink:pointer-events-auto group-hover/weblink:opacity-100 hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary) focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100"
+        aria-label="Open in the Solus browser"
+        title="Open in the Solus browser"
+        onclick={openInSolusBrowser}
+      ><PanelRightIcon class="size-3" /></button
+      >{/if}</span
   >
 {/if}

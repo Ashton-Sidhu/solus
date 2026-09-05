@@ -1,13 +1,16 @@
 <script lang="ts">
-  import { untrack } from "svelte";
+  import { untrack, type Snippet } from "svelte";
   import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
   import { highlightCode } from "../../lib/highlight";
 
   interface Props {
     text: string;
     lang?: string;
+    /** Actions the block's own content earns, shown in the head beside Copy.
+     *  An html snippet's Render is the one caller today. */
+    actions?: Snippet;
   }
-  let { text, lang }: Props = $props();
+  let { text, lang, actions }: Props = $props();
 
   // Strip a single trailing newline so the block doesn't render an empty last line.
   let code = $derived(text.replace(/\n$/, ""));
@@ -74,6 +77,7 @@
 <div class="solus-code-block group/code">
   <div class="solus-code-head">
     <span class="solus-code-lang">{lang || "text"}</span>
+    {@render actions?.()}
     <button
       onclick={handleCopy}
       class="solus-code-copy"

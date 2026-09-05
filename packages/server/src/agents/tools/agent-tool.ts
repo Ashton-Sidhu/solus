@@ -27,6 +27,12 @@ export interface AgentTool<TFields extends ZodFieldMap = ZodFieldMap> {
   description: string
   inputFields: TFields
   requiresApproval: boolean
+  /** Keep this tool's description in every prompt. Claude Code defers MCP tool
+   *  descriptions behind tool search by default, and a tool whose description
+   *  carries guidance the agent needs before it decides to call anything —
+   *  render_artifact's fence rule, create_work's embed rule — is useless as a
+   *  bare name. Solus has no system prompt of its own to say it elsewhere. */
+  alwaysLoad?: boolean
   execute(
     input: z.output<z.ZodObject<TFields>>,
     context: AgentToolContext,

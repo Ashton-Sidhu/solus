@@ -642,8 +642,9 @@
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Open the PR', 'Open the Pull Requests page from the sidebar and select the PR.'],
-						['Check readiness', 'The review surface shows status, required checks, reviewers, and unresolved conversations.'],
-						['Merge', 'Pick <strong class="text-[#1A1714] font-medium">Merge commit</strong>, <strong class="text-[#1A1714] font-medium">Squash</strong>, or <strong class="text-[#1A1714] font-medium">Rebase</strong> and confirm. Branch-protection refusals are reported in place.'],
+						['Check readiness', 'The review surface shows status, required checks, required approvals, reviewers, and unresolved conversations. The status card names the first blocker — conflicts, failing checks, a branch behind its base, checks or approvals still pending — and offers the one action that clears it.'],
+						['Merge', 'When the PR is ready, the card offers the merge with the repository\'s preferred method. Change it to <strong class="text-[#1A1714] font-medium">Merge commit</strong>, <strong class="text-[#1A1714] font-medium">Squash</strong>, or <strong class="text-[#1A1714] font-medium">Rebase</strong> from the menu beside the button and confirm. Branch-protection refusals are reported in place.'],
+						['Hand a blocker to an agent', 'For conflicts, failing checks, or a branch that is behind its base, the same button hands the work to an agent. Failing checks and an out-of-date branch open a new session draft for the branch with the prompt already written; read it and send it. Nothing runs until you do.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -653,9 +654,11 @@
 				</ul>
 				<p class="mt-4 text-[14px] text-[#A09488]">
 					The Git section of the project panel ({@render kbd('⌥M')}) also shows the branch's
-					pull request as a row with one primary action: merge with the repository's preferred
-					method, mark a draft ready for review, or hand a conflicted PR to an agent. When the
-					PR is blocked, the row says why. Before any merge, Solus re-reads the pull request
+					pull request as a row with one primary action, the same one the PR page's status card
+					offers: merge with the repository's preferred method, mark a draft ready for review,
+					or hand conflicts, failing checks, or an out-of-date branch to an agent. When the
+					next step belongs to a reviewer, CI, or the code host, the row is disabled and says
+					why. Before any merge, Solus re-reads the pull request
 					from the code host; if new commits landed or its status changed, the merge stops so
 					you can review the latest state first.
 				</p>

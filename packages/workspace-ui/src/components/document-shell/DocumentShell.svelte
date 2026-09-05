@@ -24,7 +24,7 @@
     AlignLeft as ListIcon,
     ChevronDown as CaretDownIcon,
   } from "@lucide/svelte";
-  import { runtime, getWorkspaceContext } from "../../contexts";
+  import { runtime, getSettingsContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { blurActiveTextInputOnMobile } from "../../lib/inputFocus";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
@@ -42,6 +42,8 @@
   import type { BindingId } from "../../lib/keybindings/manifest";
   import type { Scope } from "../../lib/keybindings/types";
   import { createDiagramEmbedExtension } from "../editor/diagramEmbedExtension";
+  import { createArtifactEmbedExtension } from "../editor/artifactEmbedExtension";
+  import { createHtmlBlockExtension } from "../editor/htmlBlockExtension";
   import EditorVoiceControl from "../input/EditorVoiceControl.svelte";
   import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
 
@@ -177,18 +179,36 @@
 
   const isMobile = $derived(runtime.isMobileViewport);
   const session = getWorkspaceContext();
-  const diagramEmbedExtension = createDiagramEmbedExtension({
+  const theme = getSettingsContext();
+  const embedOptions = {
     worksStore: session.worksStore,
-    onOpen: (workId) => session.openWork(workId, "focused"),
-    onOpenSecondary: (workId) => session.openWork(workId, "aside"),
+    onOpen: (workId: string) => session.openWork(workId, "focused"),
+    onOpenSecondary: (workId: string) => session.openWork(workId, "aside"),
+  };
+  const diagramEmbedExtension = createDiagramEmbedExtension(embedOptions);
+  // A node view is mounted outside the component tree, so it reads the theme
+  // through this getter rather than the settings context.
+  const artifactEmbedExtension = createArtifactEmbedExtension({
+    ...embedOptions,
+    isDark: () => theme.isDark,
   });
-  const editorExtensions = $derived([...extraExtensions, diagramEmbedExtension]);
-  const diagramChoices = $derived(
-    Object.values(session.worksStore.works)
-      .filter((work) => work.type === "diagram")
-      .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-      .map((work) => ({ workId: work.id, title: work.title, updatedAt: work.updatedAt })),
-  );
+  const htmlBlockExtension = createHtmlBlockExtension({ isDark: () => theme.isDark });
+  const editorExtensions = $derived([
+    ...extraExtensions,
+    diagramEmbedExtension,
+    artifactEmbedExtension,
+    htmlBlockExtension,
+  ]);
+  const embedChoices = $derived.by(() => {
+    const works = Object.values(session.worksStore.works).sort((a, b) =>
+      b.updatedAt.localeCompare(a.updatedAt),
+    );
+    const pick = (type: string) =>
+      works
+        .filter((work) => work.type === type)
+        .map((work) => ({ workId: work.id, title: work.title, updatedAt: work.updatedAt }));
+    return { diagram: pick("diagram"), artifact: pick("artifact") };
+  });
 
   $effect(() => {
     void session.worksStore.loadAll();
@@ -965,7 +985,8 @@
           onModeChange={(m) => (editorMode = m)}
           onAskSolus={onAskSolus ? () => onAskSolus("") : undefined}
           extraExtensions={editorExtensions}
-          {diagramChoices}
+          diagramChoices={embedChoices.diagram}
+          artifactChoices={embedChoices.artifact}
           {placeholder}
           class={editorClass}
         />

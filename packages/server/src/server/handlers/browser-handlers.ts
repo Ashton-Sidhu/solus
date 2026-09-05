@@ -4,6 +4,17 @@ import { initBrowserRegistry, type BrowserRegistry } from '../../browser/browser
 import type { BrowserFrameChannel } from '../../browser/browser-frame-channel'
 import { discoverBrowserTargets, forgetDiscoveredTargets } from '../../browser/target-scanner'
 import { captureEvidence, evidenceOptions } from '../../browser/browser-evidence'
+import {
+  browserProfiles,
+  createBrowserProfile,
+  deleteBrowserProfileRow,
+  importBrowserCookies,
+  profileForOpen,
+  renameBrowserProfile,
+  setBrowserDefaultProfile,
+} from '../../browser/browser-profiles'
+import { discoverCookieSources } from '../../browser/cookie-sources'
+import { browserProfilePartition, type BrowserProfileSet } from '@solus/contracts/browser-types'
 import { setBrowserSpanRecorder } from '../../browser/browser-emitter'
 import { endSolusSpan, startSolusSpan } from '../../observability/tracer'
 
@@ -63,10 +74,16 @@ export function registerBrowserHandlers(
     if (request.target.kind === 'url' && !request.target.url.trim()) {
       throw new Error('browserOpen requires a URL')
     }
-    return registry.open(request)
+    return registry.open({
+      ...request,
+      profileId: profileForOpen(
+        request.target.kind === 'url' ? request.target.projectRoot : undefined,
+        request.profileId,
+      ),
+    })
   })
 
-  server.register('browserClose', async (args) => registry.close(args[0]))
+  server.register('browserClose', async (args) => registry.close(args[0], { force: args[1] === true }))
   server.register('browserNavigate', async (args) => registry.navigate(args[0], args[1]))
   server.register('browserSetViewport', async (args) => registry.setViewport(args[0], args[1]))
   server.register('browserSetAppearance', async (args) => registry.setAppearance(args[0], args[1]))
@@ -90,6 +107,43 @@ export function registerBrowserHandlers(
   server.register('browserSetAnnotationTool', async (args) => registry.setAnnotationTool(args[0], args[1]))
   server.register('browserAnnotationState', async (args) => registry.annotationState(args[0]))
   server.register('browserAnnotate', async (args) => registry.annotate(args[0], args[1]))
+
+  /** Every profile mutation answers with the whole set and broadcasts the same
+   *  set, so the caller and every other mounted client land on one list rather
+   *  than on a request result and a stale mirror. */
+  function publishProfiles(profiles: BrowserProfileSet): BrowserProfileSet {
+    deps.events.broadcast('browser.profilesChanged', { profiles })
+    return profiles
+  }
+
+  server.register('browserListProfiles', async (args) => browserProfiles(args[0]))
+  server.register('browserCreateProfile', async (args) =>
+    publishProfiles(createBrowserProfile(args[0], args[1])))
+  server.register('browserRenameProfile', async (args) =>
+    publishProfiles(renameBrowserProfile(args[0], args[1], args[2])))
+  server.register('browserSetDefaultProfile', async (args) =>
+    publishProfiles(setBrowserDefaultProfile(args[0], args[1])))
+
+  /** Delete a named profile and everything signed in to it. Refused while a page
+   *  is open on it: closing the page first is what makes the deletion deliberate. */
+  server.register('browserDeleteProfile', async (args) => {
+    const [projectRoot, profileId] = args
+    const partition = browserProfilePartition(projectRoot, profileId)
+    const open = registry.pagesOnPartition(partition)
+    if (open.length > 0) {
+      throw new Error(
+        `${open.length} browser page${open.length === 1 ? ' is' : 's are'} still open on this profile. `
+        + 'Close them first — deleting it signs them out.',
+      )
+    }
+    // The jar goes before the row: a row removed while its cookies survived
+    // would strand a signed-in partition nothing can reach or clear.
+    await registry.clearProfile(partition)
+    return publishProfiles(deleteBrowserProfileRow(projectRoot, profileId))
+  })
+
+  server.register('browserListCookieSources', async () => discoverCookieSources())
+  server.register('browserImportCookies', async (args) => importBrowserCookies(args[0]))
 
   return registry
 }

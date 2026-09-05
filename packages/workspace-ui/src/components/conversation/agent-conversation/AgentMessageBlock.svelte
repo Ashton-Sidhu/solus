@@ -7,15 +7,20 @@
   import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
   import { assistantMarkdownOptions } from "../lib/assistant-markdown";
   import { replyArtefact, wordCount, type AgentMessage } from "./lib/agent-conversation";
-  import AgentCodeBlock from "./AgentCodeBlock.svelte";
+  import AgentFencedBlock from "./AgentFencedBlock.svelte";
+  import HtmlBlock from "../HtmlBlock.svelte";
+  import { RAW_HTML_TOKEN, rawHtmlMarkedExtension } from "../lib/raw-html";
   import AgentTypingDots from "./AgentTypingDots.svelte";
 
   const markdownRenderers = {
-    code: AgentCodeBlock,
+    code: AgentFencedBlock,
     codespan: CodeSpan,
     image: MarkdownImage,
     link: MarkdownLink,
+    [RAW_HTML_TOKEN]: HtmlBlock,
   };
+
+  const markdownExtensions = [rawHtmlMarkedExtension];
 
   /**
    * One message: a label saying who said it, then the body. Both sides are
@@ -145,6 +150,7 @@
               source={message.text}
               options={assistantMarkdownOptions}
               renderers={markdownRenderers}
+              extensions={markdownExtensions}
               sanitizeUrl={markdownSanitizeUrl}
             />
           {/if}

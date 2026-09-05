@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { maximizeTargetPaneId } from '@solus/workspace-ui/components/layout/lib/workspace-body'
 import { KEYBINDINGS } from '@solus/workspace-ui/lib/keybindings/manifest'
 import { KeybindingsContext } from '@solus/workspace-ui/lib/keybindings/dispatcher.svelte'
@@ -137,4 +138,52 @@ describe('the maximize key across the whole secondary pane', () => {
     }
   })
 
+})
+
+describe('what a maximized pane is allowed to cover', () => {
+  const workspaceBody = readFileSync(
+    new URL(
+      '../../packages/workspace-ui/src/components/layout/WorkspaceBody.svelte',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+  const dropdownContent = readFileSync(
+    new URL(
+      '../../packages/workspace-ui/src/components/ui/dropdown-menu/dropdown-menu-content.svelte',
+      import.meta.url,
+    ),
+    'utf8',
+  )
+  const app = readFileSync(
+    new URL('../../packages/workspace-ui/src/App.svelte', import.meta.url),
+    'utf8',
+  )
+
+  const maximizedZ = Number(
+    /\.secondary-pane-content--maximized \{[\s\S]*?z-index: (\d+);/.exec(workspaceBody)?.[1],
+  )
+  const menuZ = Number(/z-\[(\d+)\]/.exec(dropdownContent)?.[1])
+  const popoverLayerZ = Number(/click-through-shell[\s\S]*?z-index:(\d+)/.exec(app)?.[1])
+
+  test('stays under the portalled overlay band', () => {
+    // WHY: the surface goes position:fixed over the window, so its z-index is
+    // read against the body-portalled overlays — dropdown menus, tooltips,
+    // dialogs — not against the pane it came from. Above them, every menu a
+    // maximized surface opens paints behind it and its trigger reads as a dead
+    // button: that is exactly how the work header's ⋯, publish and chat menus
+    // stopped responding the moment the pane was expanded.
+    expect(maximizedZ).toBeGreaterThan(0)
+    expect(menuZ).toBeGreaterThan(0)
+    expect(popoverLayerZ).toBeGreaterThan(0)
+    expect(maximizedZ).toBeLessThan(menuZ)
+    expect(maximizedZ).toBeLessThan(popoverLayerZ)
+  })
+
+  test('still covers the workspace chrome it replaces', () => {
+    // WHY: the other half of the constraint. The sidebar, the outer scrollbar
+    // (100) and the in-tree modal band (200/210) all sit under it, so lowering
+    // it into the workspace's own range would let them show through.
+    expect(maximizedZ).toBeGreaterThan(210)
+  })
 })

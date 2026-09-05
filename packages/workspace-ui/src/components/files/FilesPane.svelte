@@ -41,6 +41,14 @@
     persistMarkdownFileViewMode,
     type MarkdownFileViewMode,
   } from "./lib/markdown-file";
+  import {
+    HTML_FILE_VIEW_OPTIONS,
+    initialHtmlFileViewMode,
+    isHtmlFile,
+    persistHtmlFileViewMode,
+    type HtmlFileViewMode,
+  } from "./lib/html-file";
+  import HtmlFilePreview from "./HtmlFilePreview.svelte";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
   import FilesTreeContextMenu from "./FilesTreeContextMenu.svelte";
   import {
@@ -138,6 +146,9 @@
   let markdownSurfaceRef: MarkdownFileSurface | null = $state(null);
   let filePreviewRef: FilePreviewStream | null = $state(null);
   let markdownViewMode = $state<MarkdownFileViewMode>("rendered");
+  let htmlContents = $state("");
+  let htmlSourceMounted = $state(false);
+  let htmlViewMode = $state<HtmlFileViewMode>("preview");
   let treeHost: HTMLDivElement | undefined = $state();
   let treeInstance: FileTree | null = $state(null);
   let renderedTreePaths: string[] | null = null;
@@ -153,6 +164,22 @@
   const isSelectedMarkdown = $derived(
     selectedPath ? isMarkdownFile(selectedPath) : false,
   );
+  const isSelectedHtml = $derived(selectedPath ? isHtmlFile(selectedPath) : false);
+  const showsHtmlPreview = $derived(
+    isSelectedHtml && htmlViewMode === "preview" && !selectedTruncated,
+  );
+
+  async function selectHtmlView(mode: HtmlFileViewMode) {
+    if (mode === "preview") {
+      const editor = filePreviewRef;
+      await editor?.flushSave();
+      if (editor !== filePreviewRef) return;
+      htmlContents = editor?.getCurrentContents() ?? htmlContents;
+    }
+    if (mode === "source") htmlSourceMounted = true;
+    htmlViewMode = mode;
+    persistHtmlFileViewMode(mode);
+  }
 
   const statusLabel = $derived.by(() => {
     if (selectedTruncated) return "Truncated — read only";
@@ -254,6 +281,7 @@
   async function openFile(path: string, focusEditor = false) {
     selectedPath = path;
     markdownViewMode = initialMarkdownFileViewMode(path);
+    htmlViewMode = initialHtmlFileViewMode(path);
     syncTreeSelection(path);
     selectedContents = null;
     selectedSize = null;
@@ -266,12 +294,19 @@
     if (selectedPath !== path) return;
     if (result.ok) {
       selectedContents = result.contents;
+      htmlContents = result.contents;
+      htmlSourceMounted = htmlViewMode === "source";
       selectedSize = result.size;
       // A file too large to load whole is served as a prefix; editing it would
       // save the truncation back over the original.
       selectedReadOnly = result.isReadOnly;
       selectedTruncated = result.truncated === true;
-      if (selectedTruncated) markdownViewMode = "source";
+      // Half a document previews as a broken page. Both surfaces fall back to
+      // the bytes that actually arrived.
+      if (selectedTruncated) {
+        markdownViewMode = "source";
+        htmlViewMode = "source";
+      }
     } else {
       fileError = result.error;
     }
@@ -658,6 +693,15 @@
         variant="bar"
         compact
       />
+    {:else if isSelectedHtml && !selectedTruncated}
+      <SegmentedControl
+        options={HTML_FILE_VIEW_OPTIONS}
+        isActive={(mode) => htmlViewMode === mode}
+        onSelect={selectHtmlView}
+        ariaLabel="HTML file view"
+        variant="bar"
+        compact
+      />
     {/if}
     {#if statusLabel}
       <div class="flex shrink-0 items-center gap-1 text-xs font-medium {statusClass}" role="status">
@@ -771,20 +815,28 @@
               }}
             />
           {:else}
-            <FilePreviewStream
-              bind:this={filePreviewRef}
-              {api}
-              {ctx}
-              cwd={root || cwd}
-              filePath={selectedPath}
-              displayPath={selectedPath}
-              contents={selectedContents}
-              isReadOnly={selectedReadOnly}
-              {isDark}
-              onSaveStateChange={(state) => {
-                saveState = state;
-              }}
-            />
+            {#if showsHtmlPreview}
+              <HtmlFilePreview contents={htmlContents} title={selectedPath} />
+            {/if}
+            {#if !isSelectedHtml || htmlViewMode === "source" || htmlSourceMounted}
+              <div class="flex min-h-0 flex-1 flex-col" style:display={showsHtmlPreview ? "none" : undefined}>
+                <FilePreviewStream
+                  bind:this={filePreviewRef}
+                  {api}
+                  {ctx}
+                  cwd={root || cwd}
+                  filePath={selectedPath}
+                  displayPath={selectedPath}
+                  contents={selectedContents}
+                  isReadOnly={selectedReadOnly}
+                  {isDark}
+                  onSaveStateChange={(state) => {
+                    saveState = state;
+                  }}
+                  onContentsChange={(nextContents) => { htmlContents = nextContents; }}
+                />
+              </div>
+            {/if}
           {/if}
         {:else}
           <div class="flex flex-1 items-center justify-center text-xs text-(--solus-text-tertiary)">

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { MODEL_PROFILES } from "@solus/contracts/types";
+  import { modelLabelFor } from "@solus/contracts/types";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import {
@@ -54,7 +54,6 @@
   import { describeBackgroundWait } from "./lib/activity-summary";
   import ArtifactView from "../artifact/ArtifactView.svelte";
   import ReviewGuideCard from "../review/ReviewGuideCard.svelte";
-  import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownImage from "./MarkdownImage.svelte";
@@ -99,14 +98,25 @@
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import { setMarkdownImageContext } from "./lib/markdown-image";
   import { setSessionLinkContext } from "./lib/session-link-context";
+  import { setHtmlBlockOrigin } from "./lib/html-block-origin";
+  import { RAW_HTML_TOKEN, rawHtmlMarkedExtension } from "./lib/raw-html";
+  import FencedBlock from "./FencedBlock.svelte";
+  import HtmlBlock from "./HtmlBlock.svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
 
+  // `code` routes an html fence to a live render or a code block; the raw-html
+  // extension does the same for markup written without a fence. Both end at
+  // HtmlBlock, so the two ways in look the same on screen.
   const markdownRenderers = {
-    code: CodeBlock,
+    code: FencedBlock,
     codespan: CodeSpan,
     image: MarkdownImage,
     link: MarkdownLink,
+    [RAW_HTML_TOKEN]: HtmlBlock,
   };
+
+  // Built once per instance: a new array on each render would rebuild the parser.
+  const markdownExtensions = [rawHtmlMarkedExtension];
 
 
   const session = getWorkspaceContext();
@@ -152,7 +162,7 @@
     const provider = sess?.run.provider;
     const modelId = sess?.run.modelConfig.modelId;
     if (!provider || !modelId) return null;
-    return MODEL_PROFILES[provider]?.[modelId]?.label ?? modelId;
+    return modelLabelFor(provider, modelId);
   });
   setMarkdownImageContext({
     cwd: () => sess?.run.workingDirectory,
@@ -180,6 +190,10 @@
     projectKey: sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? null,
     conversationTaskId,
   });
+  // An HTML block renders from deep inside the markdown tree, where these props
+  // do not reach. Saving one as an artifact still has to file the work against
+  // this conversation's host and project rather than the active tab's.
+  setHtmlBlockOrigin(() => ({ tabId, linkContext }));
   const remoteServer = $derived(
     sess?.run.serverId && sess.run.serverId !== LOCAL_SERVER_ID
       ? serversStore.servers.find((server) => server.id === sess.run.serverId)
@@ -842,6 +856,7 @@
       source={displayContent}
       options={assistantMarkdownOptions}
       renderers={markdownRenderers}
+      extensions={markdownExtensions}
       sanitizeUrl={markdownSanitizeUrl}
     />
   </div>
@@ -1154,15 +1169,22 @@
                   {#snippet title()}{item.message.worktreeMovedTo}{/snippet}
                 </TranscriptDivider>
               {:else if item.message.agentChangedTo}
+                {@const sourceModel = modelLabelFor(
+                  item.message.agentChangedFromProvider,
+                  item.message.agentChangedFromModel,
+                )}
                 {@const targetModel = item.message === activeHandoffDivider
                   ? activeHandoffTargetModel ?? item.message.agentChangedToModel
-                  : item.message.agentChangedToModel}
+                  : modelLabelFor(
+                      item.message.agentChangedToProvider,
+                      item.message.agentChangedToModel,
+                    )}
                 <TranscriptDivider
                   timestamp={item.message.timestamp}
                   testid="agent-handoff-message"
                   {skipMotion}
                 >
-                  {#if item.message.agentChangedFromModel &&
+                  {#if sourceModel &&
                   targetModel &&
                   item.message.agentChangedFromProvider &&
                   item.message.agentChangedToProvider}
@@ -1175,7 +1197,7 @@
                         {:else}
                           <span class="inline-flex h-4 w-4 flex-shrink-0 items-center justify-center text-(--solus-accent)"><CodeIcon size={11} /></span>
                         {/if}
-                        <span class="truncate">{item.message.agentChangedFromModel}</span>
+                        <span class="truncate">{sourceModel}</span>
                       </span>
                       <ArrowRightIcon size={12} class="flex-shrink-0 text-(--solus-text-tertiary)" />
                       <span class="inline-flex min-w-0 items-center gap-1 text-(--solus-accent)">

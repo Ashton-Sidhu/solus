@@ -79,7 +79,7 @@ export interface HostConfig {
   codeFontSize: number
   documentFontFamily: DocumentFontFamily
   documentFontSize: number
-  /** App-wide instructions appended to every agent system prompt, on every turn. */
+  /** App-wide user instructions added through each provider's instruction extension point. */
   extraInstructions: string
   /** Extra instructions keyed by resolved model id, appended when that model runs. */
   modelInstructions: Record<string, string>
@@ -211,8 +211,8 @@ export const hostConfigPatchSchema = z.object({
   codeFontSize: z.number().min(8).max(32).catch(12),
   documentFontFamily: z.enum(['solus', ...APP_FONT_FAMILIES]).catch('solus'),
   documentFontSize: z.number().min(12).max(40).catch(16),
-  // Bounded because it is concatenated into every system prompt: an accidental
-  // paste of a whole file would silently eat the context window of every turn.
+  // Bounded because it is added to each agent run: an accidental paste of a
+  // whole file would silently eat the context window.
   extraInstructions: z.string().max(20_000).catch(''),
   modelInstructions: z.record(z.string(), z.string().max(20_000)).catch({}),
   analyticsEnabled: z.boolean().catch(true),

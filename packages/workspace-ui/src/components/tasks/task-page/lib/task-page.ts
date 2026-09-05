@@ -347,6 +347,17 @@ export function activityFeed(comments: TaskComment[], events: TaskEvent[]): Acti
   return entries.sort((left, right) => left.at - right.at || left.key.localeCompare(right.key))
 }
 
+/** The artifact a `linked` event brought onto the task, or null for every
+ *  other event. The feed shows a render where it was linked, collapsed, so the
+ *  reader finds it in the story of the task and not only in the Linked table.
+ *  Read against the live links: an event for a work since unlinked, or one
+ *  that is a document, gets no card. */
+export function linkedArtifactForEvent(event: TaskEvent, links: TaskLink[]): TaskLink | null {
+  if (event.kind !== 'linked' || event.targetKind !== 'work' || !event.targetKey) return null
+  const link = links.find((candidate) => candidate.kind === 'work' && candidate.targetKey === event.targetKey)
+  return link && isArtifactLink(link) ? link : null
+}
+
 /** Name the session that authored an agent comment. The durable task-session
  * link carries the indexed title; comments keep only the stable session id. */
 export function commentSessionName(

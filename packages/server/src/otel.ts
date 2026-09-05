@@ -1,5 +1,8 @@
 import { type Attributes, type Histogram } from '@opentelemetry/api'
 import { replaceOtlpSpanProcessor } from './observability/tracer'
+// Safe against the cycle noted below: the module holds one constant and imports
+// nothing itself.
+import { TELEMETRY_SHUTDOWN_TIMEOUT_MS } from './observability/telemetry-shutdown'
 import type { OtelActiveSignals, OtelSettings } from '@solus/contracts/types'
 import { z } from 'zod'
 
@@ -62,7 +65,6 @@ async function loadOtelSdk(): Promise<OtelSdk> {
 // configured, which is long after boot has built either.
 
 const METRIC_EXPORT_INTERVAL_MS = 30_000
-const SHUTDOWN_TIMEOUT_MS = 1_500
 const MAX_ATTR_STRING = 2000
 
 /** OTLP header names to values, the shape every exporter takes them in. */
@@ -249,7 +251,7 @@ export async function shutdownOtel(): Promise<void> {
     await Promise.race([
       Promise.all(closing),
       new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)
+        timeout = setTimeout(resolve, TELEMETRY_SHUTDOWN_TIMEOUT_MS)
       }),
     ])
   } catch {} finally {

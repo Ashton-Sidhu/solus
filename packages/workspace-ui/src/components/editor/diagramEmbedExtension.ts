@@ -1,22 +1,11 @@
 import { Node, mergeAttributes } from '@tiptap/core'
 import { mount, unmount } from 'svelte'
 import { parseDiagramEmbed, serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
-import type { Work } from '@solus/contracts/types'
 import DiagramEmbedNodeView from './DiagramEmbedNodeView.svelte'
-
-export interface DiagramEmbedChoice {
-  workId: string
-  title: string
-  updatedAt: string
-}
-
-export interface DiagramEmbedWorkSource {
-  works: Record<string, Work>
-  ensureContent(workId: string, source?: string): Promise<Work | null>
-}
+import type { WorkEmbedSource } from './lib/work-embed'
 
 interface DiagramEmbedExtensionOptions {
-  worksStore: DiagramEmbedWorkSource
+  worksStore: WorkEmbedSource
   onOpen: (workId: string) => void
   onOpenSecondary: (workId: string) => void
 }

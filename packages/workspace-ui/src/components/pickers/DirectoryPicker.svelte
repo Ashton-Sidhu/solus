@@ -20,7 +20,6 @@
   import {
     projectsStore,
     connectionsStore,
-    serversStore,
     runtime,
   } from "../../contexts";
   import { getPopoverLayer } from "../popoverLayer.svelte";
@@ -29,9 +28,8 @@
   import { abbreviateHome } from "../../lib/paths";
   import Kbd from "../ui/Kbd.svelte";
   import WorkspaceMark from "../ui/WorkspaceMark.svelte";
-  import type { DirectoryEntry, RecentProject } from "@solus/contracts/types";
+  import type { DirectoryEntry } from "@solus/contracts/types";
   import type { HostApi } from "@solus/client-core/host-api";
-  import { serverConnections } from "@solus/client-core/server-connections";
   import { hostPolicy } from "@solus/client-core/host-policy";
   import {
     appendPathSegment,
@@ -66,7 +64,7 @@
     api: HostApi;
     /** Shown as a chip when browsing a host other than the active server. */
     hostLabel?: string;
-    /** The browsed host; also keys the host store's temporary-connection recents cache. */
+    /** The browsed host; keys the shared project store. */
     serverId: string;
   }
 
@@ -88,11 +86,6 @@
 
   const layer = getPopoverLayer();
 
-  // Recents in Places: the client machine's own recent projects when browsing
-  // its local host; any other host — including every host on web, where the
-  // client machine is not a host — reads that host's recents remotely.
-  const isLocalHost = $derived(serverId === serverConnections.localServerId());
-
   /** The typed path is the only selection state; everything below derives from it. */
   let path = $state("");
   let relativeAnchor = $state("");
@@ -112,7 +105,6 @@
   let reloadVersion = $state(0);
   let highlightedIndex = $state(-1);
   let showHidden = $state(false);
-  let remoteRecents = $state<RecentProject[]>([]);
   let sidebarLocations = $state<
     Array<{ label: string; path: string; icon: PlaceIcon }>
   >([]);
@@ -204,7 +196,7 @@
     highlightedRow ? `directory-option-${highlightedIndex}` : undefined,
   );
   const recentProjects = $derived(
-    isLocalHost ? projectsStore.recentProjects : remoteRecents,
+    projectsStore.recentProjectsFor(serverId),
   );
 
   const fileManagerName = $derived(
@@ -248,18 +240,15 @@
     // unmounted, so keystrokes would fall on the body until the load lands.
     if (shouldAutofocus) requestAnimationFrame(() => pathInputEl?.focus());
 
-    const recents = isLocalHost
-      ? projectsStore.loadRecentProjects().then(() => projectsStore.recentProjects)
-      : serversStore.recentProjectsFor(serverId);
+    const recents = projectsStore.loadRecentProjects(serverId);
     void Promise.all([
       browseApi.getServerCapabilities().catch(() => null),
       browseApi.listDirectory("~", true).catch(() => null),
       recents.catch(() => []),
-    ]).then(([capabilities, home, loadedRecents]) => {
+    ]).then(([capabilities, home]) => {
       if (cancelled) return;
       hostSystem = capabilities?.platform ?? null;
       hostPlatform = browsePathPlatform(capabilities?.platform, initialPath);
-      remoteRecents = loadedRecents;
 
       const homePath = ensureDirectoryPath("~", hostPlatform);
       const standardNames = ["Desktop", "Documents", "Downloads"];

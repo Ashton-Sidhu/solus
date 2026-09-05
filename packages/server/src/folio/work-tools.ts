@@ -7,6 +7,7 @@ import { workPreview } from '@solus/contracts/work-preview'
 import { parseDiagram, serializeDiagram } from '@solus/contracts/diagram-types'
 import { reapplyLayout } from '@solus/contracts/diagram-layout'
 import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
+import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import type { AgentId, WorkType } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
@@ -105,13 +106,19 @@ const READ_DESC =
   'Read the full current content of a work by id, including any edits the user made manually. Always call this before update_work so you revise the latest version.'
 const CREATE_DESC = [
   'Create a NEW standalone artifact the user will keep, export, or hand off — a document, slide deck, or architecture diagram.',
-  'The content streams into a card in the conversation as you write it. Use this only for brand-new works; to revise a work the user already has open, call update_work instead (never create a duplicate).',
+  'The content streams into a card in the conversation as you write it. Use this only for brand-new works; to revise a work the user already has open, call read_work then update_work instead (never create a duplicate).',
+  '',
+  'Reach for this only for durable artifacts worth keeping — NOT for routine answers, reviews, analyses, comparisons, or plans, which belong inline in the conversation. When in doubt, answer inline. A work is never authored as a fenced code block in your reply; the content arg is the deliverable.',
+  '',
+  'When a durable document or plan needs an architecture, system, data-flow, or ER view, create the diagram work FIRST and embed the token this tool returns on its own line in the document. Do that only when relationships are central to understanding the content; prose is enough for routine plans.',
+  'To embed an existing diagram or artifact, put this exact markdown link on a line of its own: [<title>](work://embed?workId=<work_id>&type=<diagram|artifact>). list_works and read_work print the ready-made token for each embeddable work; paste it rather than writing the URL by hand. A standalone work://embed link in existing content is a live embed — preserve it unless the user asks to remove or replace it. A fenced ```html block in a document is a live render too, and is likewise not stale text.',
   '',
   DIAGRAM_GUIDANCE,
 ].join('\n')
 const UPDATE_DESC = [
   'Replace the content (and optionally the title) of an existing work by id. Use this to revise a document, diagram, or HTML artifact the user is looking at — never create a new work to revise one that already exists.',
   'The `content` arg takes the same payload shapes as create_work; see its description for the diagram contract. For an artifact, `content` is the full self-contained HTML document.',
+  'Call read_work first so you revise the latest version, and carry forward any standalone work://embed link and any fenced ```html block already in the content — both are live renders, not stale text.',
 ].join('\n')
 
 // ─── Executor (shared by Codex handler + mock backend) ───
@@ -152,6 +159,11 @@ export async function createAgentWork(
   docType: WorkType,
   content: string,
   ctx: WorkCreateCtx | undefined,
+  /** File the work on the session's task. A document written for a task
+   *  belongs on it; an artifact is a render the reader may not want on the
+   *  ticket, so `render_artifact` passes false unless asked. A dispatched
+   *  session's works are created on the task by construction either way. */
+  linkToTask = true,
 ): Promise<AgentWorkCreated> {
   const foreignTaskId = foreignTaskIdFor(ctx?.solusSessionId)
   if (foreignTaskId) {
@@ -180,7 +192,7 @@ export async function createAgentWork(
     ctx?.cwd ?? '~',
   )
 
-  if (ctx?.sessionId) {
+  if (ctx?.sessionId && linkToTask) {
     await Task.linkArtifactForSession(ctx.sessionId, {
       kind: 'work',
       targetKey: created.id,
@@ -194,6 +206,14 @@ export async function createAgentWork(
     })
   }
   return { workId: created.id, title: created.title, foreignTaskId: null }
+}
+
+/** The ready-made embed token for a work that can be embedded, so an agent
+ *  pastes it instead of writing the URL from memory — which is how a document
+ *  ended up showing `work://embed?type=artifact&id=…` as text. */
+function embedTokenNote(workId: string, title: string, type: WorkType): string {
+  if (type !== 'diagram' && type !== 'artifact') return ''
+  return ` — embed token: ${serializeWorkEmbed({ workId, title, type })}`
 }
 
 export async function executeWorkTool(
@@ -212,7 +232,7 @@ export async function executeWorkTool(
       }
       const lines = [
         ...works.map(
-          (w) => `- ${w.id} — "${w.title}" (${w.type}, ${w.storage?.kind ?? 'local'}), updated ${w.updatedAt}`,
+          (w) => `- ${w.id} — "${w.title}" (${w.type}, ${w.storage?.kind ?? 'local'}), updated ${w.updatedAt}${embedTokenNote(w.id, w.title, w.type)}`,
         ),
         ...foreignWorks.map(
           (w) => `- ${w.key} — "${w.title}" (${w.workType ?? 'doc'}, shipped from the task's host, read-only), updated ${w.updatedAt ?? 'unknown'}`,
@@ -258,7 +278,7 @@ export async function executeWorkTool(
       const annotations = await loadWorkAnnotations(workId)
       return {
         ok: true,
-        text: `Work "${work.title}" (${work.type}, id: ${work.id}):\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}`,
+        text: `Work "${work.title}" (${work.type}, id: ${work.id})${embedTokenNote(work.id, work.title, work.type)}:\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}`,
       }
     }
 
@@ -391,12 +411,14 @@ function workAgentTool(
   description: string,
   inputFields: AgentTool['inputFields'],
   requiresApproval: boolean,
+  alwaysLoad = false,
 ): AgentTool {
   return {
     name,
     description,
     inputFields,
     requiresApproval,
+    alwaysLoad,
     execute: async (args, context) => executeWorkTool(name, args, {
       ctx: {
         sessionId: context.sessionId(),
@@ -426,8 +448,11 @@ function workAgentTool(
 export const listWorksAgentTool = workAgentTool('list_works', LIST_DESC, listWorksFields, false)
 export const searchWorksAgentTool = workAgentTool('search_works', SEARCH_DESC, searchWorksFields, false)
 export const readWorkAgentTool = workAgentTool('read_work', READ_DESC, readWorkFields, false)
-export const createWorkAgentTool = workAgentTool('create_work', CREATE_DESC, createWorkFields, false)
-export const updateWorkAgentTool = workAgentTool('update_work', UPDATE_DESC, updateWorkFields, true)
+// Both descriptions carry rules the agent needs before it decides to call
+// anything: when a work is the wrong shape, and that an embed line or an html
+// fence in existing content is a live render. Kept in every prompt.
+export const createWorkAgentTool = workAgentTool('create_work', CREATE_DESC, createWorkFields, false, true)
+export const updateWorkAgentTool = workAgentTool('update_work', UPDATE_DESC, updateWorkFields, true, true)
 
 export const workAgentTools: AgentTool[] = [
   listWorksAgentTool,

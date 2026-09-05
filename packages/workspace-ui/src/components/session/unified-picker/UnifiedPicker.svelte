@@ -5,6 +5,7 @@
   import VirtualList from "svelte-tiny-virtual-list";
   import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
   import { localApi } from "@solus/client-core/local-api";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { readSessionMeta } from "@solus/client-core/session-meta";
   import type { Task, TaskLink, TaskStatus } from "@solus/contracts/task-types";
   import type { SessionMeta } from "@solus/contracts/types";
@@ -15,6 +16,8 @@
   } from "../../../contexts";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
   import { blurActiveTextInputOnMobile } from "../../../lib/inputFocus";
+  import { useKeybinding, useScope } from "../../../lib/keybindings/use-keybinding.svelte";
+  import { comboHint } from "../../../lib/keybindings/manifest";
   import { createSessionPreviewStore } from "../../../lib/preview.svelte";
   import { toasts } from "../../../lib/toasts";
   import { getPopoverLayer } from "../../popoverLayer.svelte";
@@ -29,9 +32,15 @@
   import PickerPeekSheet from "./PickerPeekSheet.svelte";
   import TaskPreviewPane from "./TaskPreviewPane.svelte";
   import UnifiedPickerRow from "./UnifiedPickerRow.svelte";
+  import { ListProjectSwitcher } from "../../ui/list-page";
+  import type { ListProjectOption } from "../../ui/list-page/list-page";
+  import { resolvePickerScope, scopeForChoice } from "./lib/picker-scope";
+  import { ConversationSearch } from "./lib/conversation-search.svelte";
   import {
     buildPickerRows,
     collapseTarget,
+    conversationProjectLabel,
+    conversationTitle,
     expandTarget,
     pickerRowHeight,
     projectLabel,
@@ -53,6 +62,10 @@
   const sidebarStore = getSessionSidebarStore();
   const layer = getPopoverLayer();
   const preview = createSessionPreviewStore();
+  // What was said, not just what things are called. The title match above is
+  // instant and local; this one asks every connected host and lands a beat
+  // later as its own section.
+  const conversationSearch = new ConversationSearch();
   let query = $state("");
   let selectedKey = $state<string | null>(null);
   let revealedTaskId = $state<string | null>(null);
@@ -60,6 +73,7 @@
   let pickerEl = $state<HTMLDivElement | null>(null);
   let listHeight = $state(0);
   let wasOpen = false;
+  let scopeMenuOpen = $state(false);
 
   let taskContextMenu = $state<{ task: Task; x: number; y: number } | null>(null);
   let sessionContextMenu = $state<{
@@ -92,11 +106,35 @@
   function sessionsFor(task: Task): SidebarSessionChild[] {
     return sidebarStore.sessionsForPickableTask(task);
   }
+  // The picker opens where the user already is. Without this it listed every
+  // root task on every connected host, so ⌘P from a project's own composer
+  // answered with everyone else's work. `currentProject` is the same rule the
+  // sidebar uses to decide what project a draft belongs to.
+  const currentProjectKey = $derived(sidebarStore.currentProject?.projectKey ?? null);
+  const scopeProjectKey = $derived(resolvePickerScope(session.pickerScope, currentProjectKey));
+  const projectChoices = $derived(sidebarStore.pickerProjectChoices);
+  const scopeProject = $derived(
+    projectChoices.find((choice) => choice.projectKey === scopeProjectKey) ?? null,
+  );
+  // The same scope control every list page uses. The picker scopes by project
+  // path across hosts, so an option's key is its path and its host is only
+  // the one its favicon is read from.
+  const projectOptions = $derived(
+    projectChoices.map<ListProjectOption>((choice) => ({
+      key: choice.projectKey,
+      projectKey: choice.projectKey,
+      serverId: serverConnections.defaultServerId() ?? "",
+      label: choice.label,
+      available: true,
+    })),
+  );
   const list = $derived(
     buildPickerRows({
       tasks, query, sessionsFor, expandedTaskIds,
+      projectKey: scopeProjectKey,
       openTaskIds: new Set(sidebarStore.activeTasks.flatMap((row) => row.taskId ?? [])),
       snoozedTaskIds: new Set(sidebarStore.snoozedTasks.flatMap((row) => row.taskId ?? [])),
+      conversations: conversationSearch.results,
     }),
   );
   const selectedIndex = $derived(
@@ -105,7 +143,14 @@
   const selectedEntry = $derived<PickerEntry | null>(
     list.entries[Math.min(selectedIndex, list.entries.length - 1)] ?? null,
   );
-  const selectedTask = $derived(selectedEntry?.task ?? null);
+  const selectedConversation = $derived(
+    selectedEntry?.kind === "conversation" ? selectedEntry : null,
+  );
+  const selectedConversationTask = $derived(selectedConversation?.task ?? null);
+  // A conversation's task is its byline, not the thing under the cursor.
+  const selectedTask = $derived(
+    selectedEntry && selectedEntry.kind !== "conversation" ? selectedEntry.task : null,
+  );
   const selectedSession = $derived(
     selectedEntry?.kind === "session" ? selectedEntry.session : null,
   );
@@ -137,6 +182,16 @@
     return child.serverId && child.sessionId ? `${child.serverId}:${child.sessionId}` : null;
   }
   $effect(() => {
+    const conversation = selectedConversation;
+    if (open && conversation) {
+      // The hit already carries the session's metadata, host stamped.
+      preview.show(
+        { kind: "history", meta: conversation.meta },
+        session.ctx,
+        () => selectedConversation === conversation,
+      );
+      return;
+    }
     const target = selectedSession;
     if (!open || !target) {
       preview.reset();
@@ -174,6 +229,7 @@
   });
 
   const previewLoading = $derived.by(() => {
+    if (selectedConversation) return preview.loading;
     const target = selectedSession;
     if (!target) return false;
     const tabId = target.tabId;
@@ -188,6 +244,12 @@
     selectedKey = null;
     revealedTaskId = null;
     if (open) void scrollSelectionIntoView();
+  });
+
+  // The scope is read here too, so widening to all projects re-asks the hosts.
+  $effect(() => {
+    if (!open) return;
+    conversationSearch.search(query, scopeProjectKey);
   });
 
   $effect(() => {
@@ -212,12 +274,34 @@
     taskContextMenu = null;
     sessionContextMenu = null;
     peekTarget = null;
+    scopeMenuOpen = false;
     revealedTaskId = null;
     open = false;
     preview.reset();
+    conversationSearch.reset();
     sessionMetas.clear();
     onClose();
     requestAnimationFrame(() => blurActiveTextInputOnMobile());
+  }
+
+  // Not exclusive: the picker's own navigation keys are handled on its dialog
+  // element, and the global bindings behind it stay live as they already were.
+  // The scope exists so this one binding outranks the ⌥A a review surface
+  // underneath the picker also claims.
+  useScope("task-picker", { active: () => open });
+  useKeybinding("task-picker.choose-project", () => (scopeMenuOpen = true), {
+    enabled: () => open && projectChoices.length > 0,
+  });
+
+  /** The chosen scope is held on the workspace, so it survives a close and
+   *  every other mounted picker. Landing back on the composer's own project
+   *  resumes following it rather than pinning it — see `scopeForChoice`. */
+  function chooseProject(projectKey: string | null): void {
+    session.pickerScope = scopeForChoice(projectKey, currentProjectKey);
+    scopeMenuOpen = false;
+    selectedKey = null;
+    void scrollSelectionIntoView();
+    searchEl?.focus();
   }
 
   /** ⏎ on a task: its latest session, or a new draft if it has none. */
@@ -238,6 +322,16 @@
   function startDraft(task: Task): void {
     close();
     void session.openTaskSession(task);
+  }
+
+  /** ⏎ on a conversation: resume it where it ran, task or no task. */
+  function resumeConversation(meta: SessionMeta): void {
+    close();
+    session.resumeSession(meta).catch((error) => {
+      toasts.error("Couldn't resume session", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   function toggleTask(taskId: string): void {
@@ -358,14 +452,18 @@
     if (entry.kind === "task") {
       sessionContextMenu = null;
       taskContextMenu = { task: entry.task, x: event.clientX, y: event.clientY };
-    } else {
+    } else if (entry.kind === "session") {
       taskContextMenu = null;
       sessionContextMenu = { session: entry.session, x: event.clientX, y: event.clientY };
     }
   }
 
+  // A conversation hit has no sheet: its row already shows the passage that
+  // matched, and a tap resumes it. The sheet serves rows whose evidence is
+  // only in the preview column a phone hides.
   function openPeek(entry: PickerEntry): void {
     selectIndex(entry.entryIndex);
+    if (entry.kind === "conversation") return;
     peekTarget =
       entry.kind === "task"
         ? { kind: "task", task: entry.task }
@@ -425,8 +523,9 @@
     // surface that desktop keeps beside the list. The sheet owns the explicit
     // Open or Resume action; desktop keeps the direct row activation promised
     // by its footer and preview pane.
-    if (runtime.isMobileViewport) openPeek(entry);
-    else if (entry.kind !== "task") selectSession(entry.session);
+    if (entry.kind === "conversation") resumeConversation(entry.meta);
+    else if (runtime.isMobileViewport) openPeek(entry);
+    else if (entry.kind === "session") selectSession(entry.session);
     else select(entry.task);
   }
 
@@ -459,7 +558,7 @@
     // While the row menu or the sheet is up it owns the keyboard, including
     // the Escape that dismisses it — arrowing the list underneath would move
     // the selection away from the row the open surface is acting on.
-    if (taskContextMenu || sessionContextMenu || peekTarget) return;
+    if (taskContextMenu || sessionContextMenu || peekTarget || scopeMenuOpen) return;
     if (event.key === "Escape") {
       event.preventDefault();
       close();
@@ -499,15 +598,57 @@
     close();
   }
 
-  const counts = $derived(
-    `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"} · ${list.sessionCount} ${list.sessionCount === 1 ? "session" : "sessions"}`,
-  );
+  const counts = $derived.by(() => {
+    const base = `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"} · ${list.sessionCount} ${list.sessionCount === 1 ? "session" : "sessions"}`;
+    const withConversations = list.conversationCount
+      ? `${base} · ${list.conversationCount} ${list.conversationCount === 1 ? "conversation" : "conversations"}`
+      : base;
+    // What the scope withheld, so widening it is a known quantity.
+    return scopeProject && list.hiddenTaskCount > 0
+      ? `${withConversations} · ${list.hiddenTaskCount} more in other projects`
+      : withConversations;
+  });
+  const isSearchingConversations = $derived(!!query.trim() && conversationSearch.loading);
+
+  /** An empty list has to say *why* it is empty, because the project scope is
+   *  the most likely reason and ⌥A is the answer. */
+  const emptyMessage = $derived.by(() => {
+    if (session.tasksStore.loading) return "Loading tasks…";
+    const where = scopeProject ? ` in ${scopeProject.label}` : "";
+    if (isSearchingConversations) return "Searching conversations…";
+    if (query.trim()) return `No tasks or conversations match “${query}”${where}`;
+    return scopeProject ? `No tasks in ${scopeProject.label} yet` : "No tasks yet";
+  });
 </script>
 
 {#snippet pickerContent()}
   <div
     class="flex shrink-0 items-center gap-3 border-b border-[var(--hairline)] px-[18px] pt-[15px] pb-3.5 max-md:border-0 max-md:px-4 max-md:pt-2 max-md:pb-1"
   >
+    <!-- The scope leads the search the way a project crumb leads a page title:
+         `<project> | search`. The same control every list page scopes with,
+         in its crumb form, which opens its menu from its own left edge — the
+         chip form hangs its menu to the right and the card clipped it. Hidden
+         only when there is no project to offer, where it would do nothing. -->
+    {#if projectChoices.length > 0}
+      <!-- The crumb yields width to its neighbours, and the search field takes
+           every pixel it is offered, so unboxed the label shrank to two letters.
+           A box that will not shrink gives the name its full width, capped so
+           a long folder name cannot push the search field off the row. -->
+      <div class="max-w-56 shrink-0 max-md:max-w-36">
+        <ListProjectSwitcher
+          variant="crumb"
+          projects={projectOptions}
+          activeKey={scopeProjectKey ?? undefined}
+          emptyLabel="All projects"
+          onSelect={(option) => chooseProject(option.projectKey)}
+          onSelectAll={() => chooseProject(null)}
+          footerNote="Switching keeps your search"
+          bind:menuOpen={scopeMenuOpen}
+        />
+      </div>
+      <span class="h-4 w-px shrink-0 bg-[var(--hairline-strong)] max-md:hidden" aria-hidden="true"></span>
+    {/if}
     <!-- The same search shape the phone uses everywhere else: a 44px card, not
          a bare rule. `display: contents` above the rung leaves the desktop row
          exactly as it was. -->
@@ -544,7 +685,7 @@
       <div class="min-h-0 flex-1 overflow-hidden" bind:clientHeight={listHeight} role="listbox" aria-label="Tasks and sessions">
         {#if list.entries.length === 0}
           <div class="flex h-full items-center justify-center px-5 text-center text-workspace-chrome text-muted-foreground">
-            {session.tasksStore.loading ? "Loading tasks…" : `No tasks match “${query}”`}
+            {emptyMessage}
           </div>
         {:else if listHeight > 0}
           <VirtualList
@@ -578,13 +719,31 @@
           </VirtualList>
         {/if}
       </div>
+      <!-- The hosts answer a beat after the title matches paint. Say so, or a
+           list that then grows a section looks like it changed its mind. -->
+      {#if isSearchingConversations && list.entries.length > 0}
+        <div class="shrink-0 px-2.5 py-1.5 text-micro text-muted-foreground" aria-live="polite">
+          Searching conversations…
+        </div>
+      {/if}
     </div>
 
     <!-- The preview scrolls; the action bar under it does not, so what you can
          do to the row is always one reach away however long its body runs. -->
     <div class="flex min-w-0 flex-1 flex-col max-md:hidden">
       <div class="min-h-0 flex-1 overflow-hidden">
-        {#if selectedSession && selectedTask}
+        {#if selectedConversation}
+          {@const conversation = selectedConversation}
+          <SessionPreview
+            preview={preview.snapshot}
+            loading={previewLoading}
+            title={conversationTitle(conversation.meta)}
+            byline={conversation.task?.title ?? conversationProjectLabel(conversation.meta)}
+            timeAgo={relativeTime(conversation.meta.lastTimestamp)}
+            hiddenCount={preview.hiddenCount}
+            {query}
+          />
+        {:else if selectedSession && selectedTask}
           <SessionPreview
             preview={preview.snapshot}
             loading={previewLoading}
@@ -604,11 +763,24 @@
               onOpenLink={(link) => openLinkedItem(selectedTask, link)}
               onOpenExternal={openLinkedExternal}
               onUnlink={(link) => void unlinkItem(link)}
+              {query}
             />
           </div>
         {/if}
       </div>
-      {#if selectedSession && selectedTask}
+      {#if selectedConversation && selectedConversationTask}
+        {@const picked = selectedConversation}
+        <div class="shrink-0 border-t border-[var(--hairline)] px-3.5 py-2.5">
+          <PickerActionBar
+            task={selectedConversationTask}
+            portalTarget={layer.el}
+            primaryLabel="Resume"
+            onPrimary={() => resumeConversation(picked.meta)}
+            onOpenTask={openTaskPage}
+            onOpenSource={openSourceTicket}
+          />
+        </div>
+      {:else if selectedSession && selectedTask}
         {@const picked = selectedSession}
         <div class="shrink-0 border-t border-[var(--hairline)] px-3.5 py-2.5">
           <PickerActionBar
@@ -641,13 +813,20 @@
 
   <div class="flex shrink-0 items-center gap-5 border-t border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2.5 text-chrome-shelf text-muted-foreground max-md:hidden">
     <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">↑↓</Kbd> navigate</span>
-    {#if selectedSession}
-      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">←</Kbd> back to task</span>
+    {#if selectedConversation}
+      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> resume</span>
+    {:else if selectedSession}
+      {#if selectedEntry?.kind === "session" && selectedEntry.nested}
+        <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">←</Kbd> back to task</span>
+      {/if}
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> resume</span>
     {:else}
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">→</Kbd> expand sessions</span>
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">Space</Kbd> expand sessions</span>
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> {selectedTask && sessionsFor(selectedTask).length ? "resume latest" : "open new draft"}</span>
+    {/if}
+    {#if projectChoices.length > 0}
+      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">{comboHint("task-picker.choose-project")}</Kbd> project</span>
     {/if}
     <span class="flex-1" aria-hidden="true"></span>
     <span class="tabular-nums">{counts}</span>

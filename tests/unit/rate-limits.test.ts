@@ -55,13 +55,14 @@ describe('rate-limit parsing', () => {
 })
 
 describe('decorateRateLimit', () => {
-  test('adds shared display info and message', () => {
+  // The card is the only surface a limit gets, and it reads `info`. Nothing
+  // renders prose about a limit, so nothing here writes any.
+  test('adds the shared display info the card reads', () => {
     const event: RateLimitEvent = {
       type: 'rate_limit',
       status: 'limited',
       resetsAt: 1767225900,
       rateLimitType: 'Codex 5h',
-      usedPercent: 100,
       isUsingOverage: false,
     }
 
@@ -73,7 +74,6 @@ describe('decorateRateLimit', () => {
         prompt: 'Solus is taking a short breather before trying again.',
         queuedPrompt: 'Queued safely. Solus will send it when the limit resets.',
       },
-      message: `Rate limited (Codex 5h, 100% used). Resets at ${new Date(1767225900 * 1000).toLocaleString()}.`,
     })
   })
 
@@ -89,7 +89,6 @@ describe('decorateRateLimit', () => {
         prompt: 'Custom prompt',
         queuedPrompt: 'Custom queue copy',
       },
-      message: 'Custom message',
     }
 
     expect(decorateRateLimit(event)).toBe(event)
@@ -97,7 +96,7 @@ describe('decorateRateLimit', () => {
 })
 
 describe('RateLimitState', () => {
-  test('stores blocking events, deduplicates warnings, expires current state, and clears sessions', () => {
+  test('stores blocking events, expires current state, and clears sessions', () => {
     const state = new RateLimitState()
     const blocking: RateLimitEvent = {
       type: 'rate_limit',
@@ -113,19 +112,24 @@ describe('RateLimitState', () => {
     expect(state.current('session-1', 200)).toBeNull()
     expect(state.hasActive('session-1')).toBe(false)
 
-    const warning: RateLimitEvent = {
-      type: 'rate_limit',
-      status: 'allowed_warning',
-      resetsAt: 300,
-      rateLimitType: 'Codex 5h',
-    }
-    expect(state.record('session-1', warning)).not.toBeNull()
-    expect(state.record('session-1', warning)).toBeNull()
-    expect(state.record('session-1', { ...warning, resetsAt: 301 })).not.toBeNull()
-
     state.record('session-1', { ...blocking, resetsAt: 400 })
     expect(state.hasActive('session-1')).toBe(true)
     state.clear('session-1')
+    expect(state.hasActive('session-1')).toBe(false)
+  })
+
+  test('a window using overage is reported but does not block the session', () => {
+    const state = new RateLimitState()
+
+    const recorded = state.record('session-1', {
+      type: 'rate_limit',
+      status: 'limited',
+      resetsAt: 400,
+      rateLimitType: 'seven_day',
+      isUsingOverage: true,
+    })
+
+    expect(recorded).not.toBeNull()
     expect(state.hasActive('session-1')).toBe(false)
   })
 })

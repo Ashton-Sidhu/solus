@@ -10,6 +10,7 @@
 // milliseconds, and every generated query, the histogram, and the NL compile
 // instruction read that same pair. Pure and non-reactive.
 
+import { DAY, HOUR, MINUTE } from '../../../lib/duration'
 import { formatDayClock } from './format'
 
 export interface RelativeRange {
@@ -33,10 +34,6 @@ export interface ResolvedRange {
   from: number
   to: number
 }
-
-const MINUTE = 60_000
-const HOUR = 60 * MINUTE
-const DAY = 24 * HOUR
 
 /** Milliseconds the explore surface looks back by default. */
 export const DEFAULT_WINDOW_MS = DAY

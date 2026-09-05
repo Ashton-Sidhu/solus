@@ -1,4 +1,5 @@
-import { findDiagramEmbeds, parseDiagramEmbed, type DiagramEmbedReference } from '@solus/contracts/diagram-embed'
+import { findDiagramEmbeds, type DiagramEmbedReference } from '@solus/contracts/diagram-embed'
+import { parseWorkEmbed } from '@solus/contracts/work-embed'
 import type {
   DocDestination,
   DocDiagramAsset,
@@ -24,20 +25,24 @@ interface PreparedDocument {
  * turns each one into a picture. Without them — an agent publishing from the
  * server, where nothing can draw a canvas — each embed becomes a named caption
  * so the reader is told what is missing rather than shown a bare title.
+ *
+ * An artifact embed always takes the caption. No provider runs HTML, and
+ * publishing a render as a picture is out of scope; what matters here is that
+ * a `work://` link never reaches a page, where it would read as a broken link.
  */
 function prepareDocument(content: string, diagramAssets?: DocDiagramAsset[]): PreparedDocument {
-  if (diagramAssets?.length) {
-    return { markdown: content, diagramAssets, lossyParts: [] }
-  }
-
+  const hasAssets = !!diagramAssets?.length
   const lossyParts: string[] = []
   const lines = content.split(/\r?\n/).map((line) => {
-    const embed = parseDiagramEmbed(line)
+    const embed = parseWorkEmbed(line)
     if (!embed) return line
-    lossyParts.push(`diagram: ${embed.title}`)
-    return `_Diagram: ${embed.title} — view it in Solus._`
+    if (embed.type === 'diagram' && hasAssets) return line
+    lossyParts.push(`${embed.type}: ${embed.title}`)
+    const label = embed.type === 'diagram' ? 'Diagram' : 'Artifact'
+    return `_${label}: ${embed.title} — view it in Solus._`
   })
-  return { markdown: lines.join('\n'), lossyParts }
+  const markdown = lines.join('\n')
+  return hasAssets ? { markdown, diagramAssets, lossyParts } : { markdown, lossyParts }
 }
 
 /** The embeds a publish carried as images, and so the ones a later pull can

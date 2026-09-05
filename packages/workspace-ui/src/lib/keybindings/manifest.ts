@@ -242,6 +242,9 @@ export const KEYBINDINGS = {
   // ── Command palette ────────────────────────────────────────────────────────
   'command-palette.close':        { combo: { code: 'Escape' },                             scope: 'command-palette',    label: 'Close',                    group: 'Palette' },
 
+  // ── Task picker ────────────────────────────────────────────────────────────
+  'task-picker.choose-project':   { combo: { alt: true, code: 'KeyA' },                    scope: 'task-picker',        label: 'Choose project scope',     group: 'Palette' },
+
   // ── Project search ─────────────────────────────────────────────────────────
   'go-to-file.close':             { combo: { code: 'Escape' },                             scope: 'go-to-file',         label: 'Close',                    group: 'Search' },
   'project-search.close':         { combo: { code: 'Escape' },                             scope: 'project-search',     label: 'Close',                    group: 'Search' },

@@ -247,6 +247,7 @@ export class SessionEventReducer {
           session,
           event.toolName,
           session.run.provider ?? this.deps.settings.activeAgent,
+          event.toolId,
         )
         break
       }
@@ -260,7 +261,10 @@ export class SessionEventReducer {
             (!event.toolId || m.toolId === event.toolId) &&
             (event.index === undefined || m.toolIndex === event.index)
           ) {
-            if (event.toolInput !== undefined) m.toolInput = event.toolInput
+            if (event.toolInput !== undefined) {
+              m.toolInput = event.toolInput
+              this.deps.workStreamTracker.updateStreamingArtifact(session, m.toolName, event.toolInput, m.toolId)
+            }
             break
           }
         }
@@ -268,6 +272,10 @@ export class SessionEventReducer {
       }
 
       case 'tool_call_complete': {
+        if (event.toolId && (event.outcome?.error || event.outcome?.declined
+          || event.outcome?.status === 'failed' || event.outcome?.status === 'error')) {
+          this.deps.workStreamTracker.failArtifact(session, event.toolId)
+        }
         let completedFileMsg: Message | null = null
         for (let i = session.messages.length - 1; i >= 0; i--) {
           const m = session.messages[i]
@@ -506,37 +514,19 @@ export class SessionEventReducer {
       }
 
       case 'rate_limit':
-        if (event.status === 'allowed_warning') {
-          session.messages.push({
-            id: nextMsgId(),
-            role: 'system',
-            content: event.message ?? `Rate limit warning (${event.rateLimitType}).`,
-            timestamp: Date.now(),
-            rateLimitNotice: true,
-          })
-          break
-        }
-
-        if (event.status !== 'allowed') {
-          let content = event.message ?? `Rate limited (${event.rateLimitType}).`
-          if (event.isUsingOverage || session.rateLimitStrategy === 'continue') {
-            content += ' Using overage.'
-          } else if (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue') {
-            if (!event.info) break
-            session.rateLimitInfo = event.info
-            session.permissionQueue = []
-            session.questionQueue = []
-          } else if (session.rateLimitStrategy === 'stop') {
-            session.outboundPrompts.splice(0, session.outboundPrompts.length)
-          }
-
-          session.messages.push({
-            id: nextMsgId(),
-            role: 'system',
-            content,
-            timestamp: Date.now(),
-            rateLimitNotice: true,
-          })
+        // A limit writes nothing into the transcript. Every strategy already
+        // has a surface that states it: `ask` gets the card, `queue` gets the
+        // held bubble and its countdown, `stop` gets the run's own failure, and
+        // `continue` is not stopped at all. A notice beside any of those was the
+        // same fact told twice.
+        if (event.status === 'allowed' || event.isUsingOverage) break
+        if (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue') {
+          if (!event.info) break
+          session.rateLimitInfo = event.info
+          session.permissionQueue = []
+          session.questionQueue = []
+        } else if (session.rateLimitStrategy === 'stop') {
+          session.outboundPrompts.splice(0, session.outboundPrompts.length)
         }
         break
 
@@ -969,6 +959,9 @@ export class SessionEventReducer {
     target.errorHead = event.errorHead
     target.contentBytes = event.contentBytes
     target.toolStatus = event.status === 'error' ? 'error' : 'completed'
+    if (event.status === 'error' && !event.parentToolUseId) {
+      this.deps.workStreamTracker.failArtifact(session, event.toolUseId)
+    }
     target.toolCompletedAt = Date.now()
     if (!event.parentToolUseId) session.currentActivity = 'Thinking...'
   }

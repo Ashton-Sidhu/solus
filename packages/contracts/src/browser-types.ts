@@ -369,8 +369,14 @@ export interface BrowserPage {
   title: string
   viewport: BrowserViewport
   appearance: BrowserAppearance
+  /** Which named identity this page signs in as. Fixed for the page's life,
+   *  because both the renderer and the host mint the partition from it (ADR 0023). */
+  profileId: string
   hostKind: BrowserHostKind
   loadState: BrowserLoadState
+  /** Present while an agent is using the page, as the host judges it. The host
+   *  clears it when the use lapses, so presence is the whole signal (ADR 0024). */
+  agentUse?: BrowserAgentUse
   /** Set while `loadState` is `failed`, or while the target port is not listening. */
   problem?: BrowserProblem
   canGoBack: boolean
@@ -390,6 +396,30 @@ export interface BrowserPage {
   label: string
   createdAt: number
 }
+
+/** Active agent use of one browser page: a verb in flight, or one that finished
+ *  moments ago. Not a record of who opened the page. */
+export interface BrowserAgentUse {
+  /** Agent verbs in flight on this page. Zero during the gaps inside a turn. */
+  running: number
+  /** The most recent verb, so the pane can name what it would interrupt. */
+  verb: string
+  /** Solus session that last drove the page, when the verb carried one. */
+  sessionId?: string
+  /** When that verb last started or finished. Host clock. */
+  at: number
+}
+
+/**
+ * What closing a page did.
+ *
+ * The host evaluates the guard at the moment of the close; a client's mirror of
+ * `agentUse` is always at least one event stale (ADR 0024). A refusal carries a
+ * copy of the state that caused it, so the client can ask about that work.
+ */
+export type BrowserCloseResult =
+  | { closed: true }
+  | { closed: false; reason: 'agent-use'; agentUse: BrowserAgentUse }
 
 /**
  * How the user points at something in the page.
@@ -737,6 +767,9 @@ export interface BrowserOpenRequest {
   orientation?: BrowserOrientation
   appearance?: BrowserAppearance
   label?: string
+  /** Which named identity the page signs in as. Omitted takes the project's
+   *  chosen default, which is the automatic profile unless the user moved it. */
+  profileId?: string
   /**
    * Ask a connected desktop client to give the page a surface — how an agent
    * opening a page ends up with something that can actually render. Explicit
@@ -781,6 +814,167 @@ export function browserPartition(projectRoot: string | undefined): string {
     hash = ((hash << 5) + hash + projectRoot.charCodeAt(i)) | 0
   }
   return `${BROWSER_PARTITION_PREFIX}-${(hash >>> 0).toString(36)}`
+}
+
+/**
+ * Named browser profiles: several signed-in identities inside one project, each
+ * a cookie jar of its own, chosen when a page opens (ADR 0023). The project's
+ * automatic profile is unchanged and stays the default.
+ */
+export const BROWSER_DEFAULT_PROFILE_ID = 'default'
+export const BROWSER_DEFAULT_PROFILE_NAME = 'Default'
+export const BROWSER_PROFILE_NAME_MAX = 40
+
+/**
+ * The segment that separates a project's partition from a profile inside it.
+ *
+ * Load-bearing rather than decorative: `browserPartition` produces base-36
+ * digits after the prefix and never a hyphen, so `…-p-<id>` cannot be mistaken
+ * for another project's partition. Without it, a profile named like a hash on a
+ * page with no project root would address that project's jar.
+ */
+const BROWSER_PROFILE_SEGMENT = 'p'
+
+/** Ids are minted from names and then addressed forever, including as a
+ *  filesystem path on a Playwright host, so the set stays deliberately narrow. */
+const BROWSER_PROFILE_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]{0,30}[a-z0-9])?$/
+
+export function isBrowserProfileId(id: string): boolean {
+  return BROWSER_PROFILE_ID_PATTERN.test(id)
+}
+
+/** A name as an id. Returns an empty string when nothing usable survives, which
+ *  the host reports as a rejected name rather than inventing one. */
+export function browserProfileIdFor(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 32)
+    .replace(/-+$/, '')
+}
+
+/**
+ * The partition one page's guest runs in.
+ *
+ * The default profile resolves to the project's own partition byte for byte, so
+ * every page that existed before this feature keeps the session it had.
+ */
+export function browserProfilePartition(
+  projectRoot: string | undefined,
+  profileId: string | undefined,
+): string {
+  const base = browserPartition(projectRoot)
+  if (!profileId || profileId === BROWSER_DEFAULT_PROFILE_ID) return base
+  return `${base}-${BROWSER_PROFILE_SEGMENT}-${profileId}`
+}
+
+/** One identity inside a project. */
+export interface BrowserProfile {
+  id: string
+  name: string
+  /** Zero for the automatic default, which predates any record of it. */
+  createdAt: number
+  /** The default profile is the project's own jar. It cannot be renamed away or
+   *  deleted; clearing its data is the existing "Clear browser data". */
+  builtIn: boolean
+}
+
+/**
+ * A project's profiles as one answer.
+ *
+ * Always includes the built-in default first, so a client renders one uniform
+ * list rather than special-casing the profile that has no row.
+ */
+export interface BrowserProfileSet {
+  /** Absent for pages with no project root — those share one hostless jar. */
+  projectRoot?: string
+  profiles: BrowserProfile[]
+  /** Which profile a newly opened page in this project takes. */
+  defaultProfileId: string
+}
+
+export function browserProfileName(set: BrowserProfileSet | null, profileId: string): string {
+  const found = set?.profiles.find((profile) => profile.id === profileId)
+  if (found) return found.name
+  return profileId === BROWSER_DEFAULT_PROFILE_ID ? BROWSER_DEFAULT_PROFILE_NAME : profileId
+}
+
+/** Which browsers the host knows how to read a cookie store from. */
+export const BROWSER_COOKIE_BROWSERS = ['firefox', 'chrome', 'safari'] as const
+
+export type BrowserCookieBrowser = (typeof BROWSER_COOKIE_BROWSERS)[number]
+
+/**
+ * A browser profile on the host whose cookies could be copied into a Solus
+ * profile. What each browser costs to read, and why, is in ADR 0026.
+ */
+export interface BrowserCookieSource {
+  /** `<browser>:<profile>` — unique across browsers, and never a path. */
+  id: string
+  label: string
+  browser: BrowserCookieBrowser
+  /** When the cookie store was last written, so a user with several profiles can
+   *  tell which one they actually use. */
+  lastUsedAt?: number
+  /** How many cookies would be imported. Counted from row metadata, never by
+   *  reading a value — a scan must not unlock anything. */
+  importable: number
+  /** Set when the store was found but cannot be read here, naming what the user
+   *  would have to change. Listed rather than hidden. */
+  unavailable?: string
+  /** Set when importing will make the operating system ask the user for
+   *  something, so the consent surface can say so before the dialog appears. */
+  unlockPrompt?: string
+}
+
+/** What the host found. `supported: false` is a state the pane shows, not an
+ *  error: a server with no desktop browser on it is an ordinary host to ask. */
+export interface BrowserCookieSourceScan {
+  supported: boolean
+  /** Set when `supported` is false, in words the pane can show. */
+  unavailable?: string
+  sources: BrowserCookieSource[]
+}
+
+/** A one-time copy of one browser profile's cookies into one Solus profile.
+ *  User-initiated only; deliberately not an agent tool (ADR 0025). */
+export interface BrowserCookieImportRequest {
+  sourceId: string
+  /** The project whose profiles are the destination. */
+  projectRoot?: string
+  profileId: string
+  /** The user's explicit statement that agents driving this profile may act as
+   *  their signed-in self. The host refuses the import without it. */
+  consent: true
+}
+
+/** Why a cookie was left behind. Counts only — a domain is browsing history. */
+export interface BrowserCookieSkipCounts {
+  expired: number
+  /** Per-site partitioned storage. The partition key has no meaning in another
+   *  browser's jar, so the copy would be a cookie that never matches. */
+  partitioned: number
+  /** Container tabs and private windows: identities the user chose to keep
+   *  separate, which must not be flattened into one jar. */
+  container: number
+  /** A value the host could not decrypt: a Linux keyring Solus cannot reach, or
+   *  Windows app-bound encryption. Named apart from `unsupported` because the
+   *  cookie was not the problem. */
+  encrypted: number
+  /** A row the destination refused, or one whose host or name was unusable. */
+  unsupported: number
+}
+
+export interface BrowserCookieImportResult {
+  profileId: string
+  /** Rows the source held. */
+  read: number
+  imported: number
+  skipped: BrowserCookieSkipCounts
+  /** Rows the destination browser rejected outright. */
+  failed: number
 }
 
 /**

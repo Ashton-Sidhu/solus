@@ -859,6 +859,28 @@ DELETE FROM task_events WHERE kind IN ('snoozed', 'woke');
 `,
   SINGLE_SESSION_OWNER_MIGRATION,
   UNIQUE_TASK_PR_LINK_MIGRATION,
+  // A task page shows one artifact open above its linked table. Which one is
+  // durable and cross-host, so it belongs on the link rather than in per-client
+  // view state.
+  `
+ALTER TABLE task_links ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+`,
+  // Named browser profiles: one project, several signed-in identities. Only the
+  // named ones have rows — the project's automatic profile is the partition it
+  // always was, so nothing here backfills a login that already exists.
+  `
+CREATE TABLE browser_profiles (
+  project_root TEXT NOT NULL,
+  profile_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (project_root, profile_id)
+);
+CREATE TABLE browser_profile_defaults (
+  project_root TEXT NOT NULL PRIMARY KEY,
+  profile_id TEXT NOT NULL
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

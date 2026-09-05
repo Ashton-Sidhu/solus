@@ -27,6 +27,7 @@ const taskLinkRowSchema = z.object({
   created_by: z.enum(['user', 'agent', 'automation', 'system', 'migration']),
   origin_session_id: z.string().nullable(),
   linked_at: z.number(),
+  pinned: z.number(),
   work_title: z.string().nullable(),
   work_type: z.string().nullable(),
   automation_title: z.string().nullable(),
@@ -120,6 +121,7 @@ function linkFromRow(row: TaskLinkRow): TaskLink {
   }
   if (row.url !== null) link.url = row.url
   if (row.origin_session_id !== null) link.originSessionId = row.origin_session_id
+  if (row.pinned === 1) link.pinned = true
   return link
 }
 
@@ -165,15 +167,21 @@ export function writeTaskLink(
   const targetScope = (input.targetScope ?? '').trim()
   const title = snapshotTitle(db, { ...input, targetKey, targetScope })
 
+  // A pin is a choice, and `undefined` is the absence of one: a re-link that
+  // knows nothing about pinning must leave the existing pin alone. NULL is how
+  // that reaches the COALESCE, so it is never written to the column itself.
+  const pinned = input.pinned === undefined ? null : input.pinned ? 1 : 0
+
   db.prepare(`
     INSERT INTO task_links(
       task_id, kind, target_scope, target_key, title, url, created_by,
-      origin_session_id, linked_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      origin_session_id, linked_at, pinned
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))
     ON CONFLICT(task_id, kind, target_scope, target_key) DO UPDATE SET
       title = excluded.title,
       url = COALESCE(excluded.url, task_links.url),
-      linked_at = excluded.linked_at
+      linked_at = excluded.linked_at,
+      pinned = COALESCE(?, task_links.pinned)
   `).run(
     taskId,
     input.kind,
@@ -184,7 +192,18 @@ export function writeTaskLink(
     input.createdBy ?? actor.actor ?? 'user',
     input.originSessionId?.trim() || null,
     now,
+    pinned,
+    pinned,
   )
+  // One artifact is open on a task at a time, so pinning one clears the rest in
+  // the same transaction rather than leaving two rows claiming the slot.
+  if (pinned === 1) {
+    db.prepare(`
+      UPDATE task_links SET pinned = 0
+      WHERE task_id = ? AND pinned = 1
+        AND NOT (kind = ? AND target_scope = ? AND target_key = ?)
+    `).run(taskId, input.kind, targetScope, targetKey)
+  }
   db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(now, taskId)
   appendTaskEvent(db, taskId, {
     ...actor,
@@ -194,6 +213,37 @@ export function writeTaskLink(
     targetKey,
     targetTitle: title,
   }, now)
+}
+
+/**
+ * Move (or clear) the pin without re-linking.
+ *
+ * A pin is not a link: re-running `writeTaskLink` for it would append a second
+ * "linked <name>" line to the task's activity feed every time the reader
+ * changed which artifact the page opens with. Returns false when the pin is
+ * already where it was asked to be, so the caller can skip the broadcast.
+ */
+export function setTaskLinkPin(
+  db: DatabaseSync,
+  taskId: string,
+  target: TaskLinkTarget,
+  pinned: boolean,
+  now = Date.now(),
+): boolean {
+  const changed = db.prepare(`
+    UPDATE task_links SET pinned = ?
+    WHERE task_id = ? AND kind = ? AND target_scope = ? AND target_key = ? AND pinned <> ?
+  `).run(pinned ? 1 : 0, taskId, target.kind, target.targetScope, target.targetKey, pinned ? 1 : 0)
+  if (changed.changes === 0) return false
+  if (pinned) {
+    db.prepare(`
+      UPDATE task_links SET pinned = 0
+      WHERE task_id = ? AND pinned = 1
+        AND NOT (kind = ? AND target_scope = ? AND target_key = ?)
+    `).run(taskId, target.kind, target.targetScope, target.targetKey)
+  }
+  db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(now, taskId)
+  return true
 }
 
 /** Returns false when there was nothing to unlink, so the caller can skip the

@@ -4,6 +4,7 @@ import type { AgentId, ReasoningEffort } from '@solus/contracts/types'
 import type { ReviewProgressStep } from '@solus/contracts/review'
 import type { AgentDispatcher } from '../agents/agent-runner'
 import { buildSystemPrompt } from '../agents/system-hint'
+import { hostInstructionsFor } from '../agents/run-input'
 import {
   createReviewGuideAgentTool,
 } from './review-guide-tool'
@@ -75,11 +76,7 @@ export async function runReviewAgent(
       service: SPAN_SERVICES.reviewGuide,
       unattended: true,
       timeoutMs: REVIEW_AGENT_TIMEOUT_MS,
-      systemPrompt: buildSystemPrompt({
-        agent: input.agent === 'codex' ? 'codex' : 'claude',
-        general: false,
-        planMode: false,
-      }),
+      systemPrompt: buildSystemPrompt(hostInstructionsFor(input.model)) || undefined,
     })
     const cancel = () => run.cancel()
     if (input.abortSignal?.aborted) cancel()

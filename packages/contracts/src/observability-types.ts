@@ -113,6 +113,15 @@ export interface MetricsTurnStats {
   p95DurationMs: number | null
 }
 
+/**
+ * How many intervals the turn-volume histogram is aggregated into.
+ *
+ * The server aggregates to this, and the demo fixture has to produce the same
+ * shape or the demo histogram is not the histogram. Declared once so the two
+ * cannot disagree.
+ */
+export const TURN_VOLUME_BUCKET_COUNT = 112
+
 /** One server-aggregated chart interval. Its size is bounded independently of
  * the number of turns in the selected range. */
 export interface MetricsTurnVolumeBucket {

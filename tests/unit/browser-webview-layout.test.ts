@@ -237,7 +237,7 @@ describe('the browser toolbar at its narrowest', () => {
     expect(toolbarSource).toContain('value="Reload browser"')
     expect(toolbarSource).toContain('value="Edit browser address"')
     expect(toolbarSource).toContain(
-      'value="Clear browser data — signs this project\'s browser pages out"',
+      'value="Clear browser data — signs this profile\'s browser pages out"',
     )
     expect(toolbarSource).toContain('class="z-[10050]"')
     expect(toolbarSource).toContain('side="bottom"')

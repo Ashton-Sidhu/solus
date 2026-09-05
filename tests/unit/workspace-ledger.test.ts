@@ -151,7 +151,7 @@ describe('Workspace initial project ownership', () => {
     expect(source).not.toContain('session.openProjects')
     expect(source).not.toContain('session.galleryProjectPath')
     expect(source).not.toContain('PROJECT_SCOPE_KEY')
-    expect(source).toContain('serversStore.recentProjectsFor(serverId)')
+    expect(source).toContain('projectsStore.loadRecentProjects(host.id)')
   })
 })
 

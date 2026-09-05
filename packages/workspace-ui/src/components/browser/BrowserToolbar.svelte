@@ -58,6 +58,10 @@
     /** The capture control. Passed in rather than built here: what a capture
      *  can be attached to is the pane's business, not the address bar's. */
     capture?: Snippet;
+    /** Which identity this page is signed in as. Passed in for the same reason
+     *  the capture control is: the profile set belongs to the project, which the
+     *  address bar knows nothing about. */
+    profile?: Snippet;
   }
 
   let {
@@ -74,6 +78,7 @@
     annotating,
     onToggleAnnotating,
     capture,
+    profile,
   }: Props = $props();
 
   /** Held only while the field is being typed in. The address field is a display
@@ -225,6 +230,15 @@
     {onViewport}
   />
 
+  <!-- Which login the page is using, beside the size it is rendering at: both
+       are facts about what is on screen, and both are settings the user changes
+       from here. It shrinks rather than dropping: managing profiles is only
+       reachable from this chip, and a phone pane is narrower than every rung the
+       other controls disappear at. -->
+  <span class="inline-flex min-w-0 shrink">
+    {@render profile?.()}
+  </span>
+
   <div class="mx-0.5 h-4 w-px shrink-0 bg-[var(--hairline-strong)]"></div>
 
   <!-- Chromium's own inspector on this guest, with the device emulation already
@@ -321,7 +335,7 @@
           {...props}
           type="button"
           class="flex size-6.5 shrink-0 items-center justify-center rounded-full text-(--solus-text-secondary) transition-colors hover:bg-[var(--wash-2)] hover:text-(--solus-text-primary) disabled:pointer-events-none disabled:opacity-30 @max-[38rem]/toolbar:hidden"
-          aria-label="Clear this project's browser cookies and storage"
+          aria-label="Clear this browser profile's cookies and storage"
           onclick={onClearProfile}
         >
           <Eraser class="size-3.5" />
@@ -331,7 +345,7 @@
     <TooltipUI.Content
       class="z-[10050]"
       side="bottom"
-      value="Clear browser data — signs this project's browser pages out"
+      value="Clear browser data — signs this profile's browser pages out"
     />
   </TooltipUI.Root>
 

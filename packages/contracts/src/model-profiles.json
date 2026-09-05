@@ -78,6 +78,15 @@
     }
   },
   "codex": {
+    "gpt-6-astra": {
+      "label": "Gpt 6 Astra",
+      "isDefault": true,
+      "reasoningLevels": ["low", "medium", "high", "xhigh", "max"],
+      "defaultReasoningEffort": "medium",
+      "supportsFastMode": true,
+      "contextWindows": [1050000],
+      "defaultContextWindow": 1050000
+    },
     "gpt-5.6-sol": {
       "label": "Gpt 5.6 Sol",
       "isDefault": true,

@@ -5,6 +5,7 @@ import {
   snapshotViewportLabel,
   viewportLabel,
   type BrowserInteractOp,
+  type BrowserDiscoveredTarget,
   type BrowserOpenRequest,
   type BrowserOrientation,
   type BrowserPage,
@@ -20,6 +21,7 @@ import { createLogger } from '../logger'
 import { dataDir } from '../platform/paths'
 import { writeAssetUpload } from '../server/assets'
 import { attachEvidence } from './browser-evidence'
+import { browserProfiles, profileForOpen } from './browser-profiles'
 import { browserRegistry } from './browser-registry'
 import { discoverBrowserTargets } from './target-scanner'
 
@@ -60,6 +62,11 @@ function browserTool<Fields extends BrowserToolFields>(spec: {
   description: string
   inputFields: Fields
   deadlineMs?: number
+  /** The page this verb works in, when it works in one: the host marks it as in
+   *  use for the length of the call (ADR 0024). Declared per verb rather than
+   *  sniffed off the input, because `browser_close` carries a page id and is
+   *  not use of it. */
+  pageOf?: (input: z.output<z.ZodObject<Fields>>) => string
   execute: (
     input: z.output<z.ZodObject<Fields>>,
     context: AgentToolContext,
@@ -73,10 +80,20 @@ function browserTool<Fields extends BrowserToolFields>(spec: {
     requiresApproval: false,
     execute: async (input, context) => {
       let timer: ReturnType<typeof setTimeout> | undefined
+      // SAFETY: `executeAgentTool` parses the call against these exact fields
+      // before dispatching, so this is the tool's own validated input type.
+      const parsed = input as z.output<z.ZodObject<Fields>>
+      // Released in the `finally` below so a verb that threw or timed out cannot
+      // leave the page unclosable. Taken inside the `try`, because
+      // `browserRegistry()` throws on a host with no browser domain and that has
+      // to reach the agent as a tool result.
+      let releaseAgentUse: (() => void) | null = null
       try {
-        // SAFETY: `executeAgentTool` parses the call against these exact fields
-        // before dispatching, so this is the tool's own validated input type.
-        const work = spec.execute(input as z.output<z.ZodObject<Fields>>, context)
+        if (spec.pageOf) {
+          releaseAgentUse = browserRegistry()
+            .beginAgentUse(spec.pageOf(parsed), spec.name, context.solusSessionId())
+        }
+        const work = spec.execute(parsed, context)
         return await Promise.race([
           work,
           new Promise<never>((_resolve, reject) => {
@@ -93,6 +110,7 @@ function browserTool<Fields extends BrowserToolFields>(spec: {
         return { ok: false, text: err instanceof Error ? err.message : String(err) }
       } finally {
         clearTimeout(timer)
+        releaseAgentUse?.()
       }
     },
   }
@@ -133,6 +151,7 @@ function describePage(page: BrowserPage): string {
     `  url: ${page.url || '(none)'}${page.title ? ` — ${page.title}` : ''}`,
     `  viewport: ${viewport}`,
     `  appearance: ${page.appearance}   host: ${page.hostKind}   state: ${page.loadState}`,
+    `  profile: ${page.profileId}`,
   ]
   if (page.problem) lines.push(`  problem: ${page.problem.kind} — ${page.problem.message}`)
   // The one page state that makes every other verb fail, so it is stated where
@@ -147,7 +166,9 @@ export const browserStatusAgentTool = browserTool({
   name: 'browser_status',
   description:
     'List the open browser pages and the running dev servers this host discovered as browser targets. '
-    + 'Start here: a page you can already drive is faster than opening a new one.',
+    + 'Start here: a page you can already drive is faster than opening a new one. It also lists the '
+    + 'browser profiles each project has: a project can hold several signed-in identities, and a page '
+    + 'opens as one of them.',
   inputFields: {},
   execute: async () => {
     const pages = browserRegistry().list()
@@ -161,10 +182,34 @@ export const browserStatusAgentTool = browserTool({
           .map((target) => `  ${target.url}${target.branch ? ` — ${target.branch}` : ''}${target.title ? ` — ${target.title}` : ''}`)
           .join('\n')}`
         : 'No running dev servers were discovered. Solus does not start them; start one in your own shell first.',
+      describeProfiles(targets),
       `Device presets: ${PRESET_IDS}`,
-    ].join('\n\n'))
+    ].filter(Boolean).join('\n\n'))
   },
 })
+
+/**
+ * The profiles the projects behind the discovered targets have.
+ *
+ * Taken off the scan rather than from a parameter, for the same reason
+ * attribution is: the agent knows a URL, and the host knows which project serves
+ * it and which identities that project has signed in. A project with only its
+ * automatic profile is left out — there is nothing there to choose between.
+ */
+function describeProfiles(targets: BrowserDiscoveredTarget[]): string {
+  const roots = [...new Set(targets.flatMap((target) => (target.projectRoot ? [target.projectRoot] : [])))]
+  const lines: string[] = []
+  for (const root of roots) {
+    const set = browserProfiles(root)
+    if (set.profiles.length <= 1) continue
+    lines.push(
+      `  ${root}: ${set.profiles
+        .map((profile) => `${profile.id}${profile.id === set.defaultProfileId ? ' (default)' : ''} - ${profile.name}`)
+        .join(', ')}`,
+    )
+  }
+  return lines.length ? `Browser profiles:\n${lines.join('\n')}` : ''
+}
 
 export const browserOpenAgentTool = browserTool({
   name: 'browser_open',
@@ -185,8 +230,12 @@ export const browserOpenAgentTool = browserTool({
       'Put the page in front of the user, opening their browser pane. Default false. Only when they '
       + 'asked to see it — a page you opened to verify something is not something they asked for.',
     ),
+    profile: z.string().optional().describe(
+      'Browser profile id, when the check is about a particular signed-in identity — a project can '
+      + 'have several. browser_status lists the ids. Omit to use the project\'s chosen default.',
+    ),
   },
-  execute: async (input) => {
+  execute: async (input, context) => {
     // Attribution comes off the scan rather than the caller: the agent knows a
     // URL, the host knows which worktree is serving it.
     const match = (await discoverBrowserTargets()).find((found) => samePort(found.url, input.url))
@@ -204,8 +253,12 @@ export const browserOpenAgentTool = browserTool({
     if (input.orientation) request.orientation = input.orientation
     if (input.appearance) request.appearance = input.appearance
     if (input.label) request.label = input.label
+    // The project's chosen default when the agent named none, and a refusal when
+    // it named one this project does not have — resolved before the page exists.
+    request.profileId = profileForOpen(target.projectRoot, input.profile)
 
     const page = browserRegistry().open(request)
+    browserRegistry().noteAgentUse(page.browserPageId, 'browser_open', context.solusSessionId())
     return ok(`${describePage(page)}\n\nUse browser_snapshot with this browserPageId to see it.`)
   },
 })
@@ -214,8 +267,18 @@ export const browserCloseAgentTool = browserTool({
   name: 'browser_close',
   description: 'Close a browser page. Do this for pages you opened and no longer need.',
   inputFields: { browserPageId: z.string() },
-  execute: async (input) => {
-    await browserRegistry().close(input.browserPageId)
+  execute: async (input, context) => {
+    // No `pageOf`: tidying up a page is not use of it. The close is forced when
+    // the page is this session's own — asking a user to confirm an agent's own
+    // cleanup would be a prompt about nothing — and refused when another
+    // session is in the middle of driving it.
+    const registry = browserRegistry()
+    const user = registry.get(input.browserPageId)?.agentUse?.sessionId
+    const own = !user || user === context.solusSessionId()
+    const result = await registry.close(input.browserPageId, { force: own })
+    if (!result.closed) {
+      return fail(`Another session is ${result.agentUse.verb} on ${input.browserPageId} right now. Leave it open.`)
+    }
     return ok(`Closed ${input.browserPageId}.`)
   },
 })
@@ -228,6 +291,7 @@ export const browserNavigateAgentTool = browserTool({
     action: z.enum(['goto', 'back', 'forward', 'reload']),
     url: z.string().optional().describe('Required when action is "goto".'),
   },
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => {
     if (input.action === 'goto' && !input.url) return fail('browser_navigate with "goto" requires a url.')
     await browserRegistry().navigate(
@@ -252,6 +316,7 @@ export const browserResizeAgentTool = browserTool({
     height: z.number().optional(),
     touch: z.boolean().optional().describe('Emulate touch at a custom size. Default false.'),
   },
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => {
     const request = viewportRequestFrom(input)
     if (!request) return fail('browser_resize needs either a preset, or both width and height.')
@@ -265,6 +330,7 @@ export const browserAppearanceAgentTool = browserTool({
   name: 'browser_set_appearance',
   description: 'Force a browser page into light or dark mode, or follow the system, via emulated media.',
   inputFields: { browserPageId: z.string(), appearance: z.enum(['system', 'light', 'dark']) },
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => {
     await browserRegistry().setAppearance(input.browserPageId, input.appearance)
     return ok(`${input.browserPageId} is now rendering as ${input.appearance}.`)
@@ -295,6 +361,7 @@ export const browserSnapshotAgentTool = browserTool({
     ),
     caption: z.string().optional().describe('What the capture shows. Defaults to the page and its viewport.'),
   },
+  pageOf: (input) => input.browserPageId,
   execute: async (input, context) => {
     const options: BrowserSnapshotOptions = {}
     if (input.screenshot !== undefined) options.screenshot = input.screenshot
@@ -371,6 +438,7 @@ export const browserClickAgentTool = browserTool({
     browserPageId: z.string(),
     ref: z.string().describe('An element ref from browser_snapshot, e.g. [data-solus-browser-ref="e4"].'),
   },
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => interact(input.browserPageId, { kind: 'click', ref: input.ref }),
 })
 
@@ -383,6 +451,7 @@ export const browserTypeAgentTool = browserTool({
     text: z.string(),
     clear: z.boolean().optional().describe('Empty the field first. Default false.'),
   },
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => {
     const op: BrowserInteractOp = { kind: 'type', ref: input.ref, text: input.text }
     if (input.clear !== undefined) op.clear = input.clear
@@ -396,6 +465,7 @@ export const browserPressAgentTool = browserTool({
     'Press a key in a browser page — Enter, Tab, Escape, Backspace, Delete, or an Arrow key. '
     + 'Solus is keyboard-first, so this is how you verify a shortcut actually works.',
   inputFields: { browserPageId: z.string(), key: z.string() },
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => interact(input.browserPageId, { kind: 'press', key: input.key }),
 })
 
@@ -407,6 +477,7 @@ export const browserScrollAgentTool = browserTool({
     deltaY: z.number().describe('Positive scrolls down.'),
     ref: z.string().optional().describe('Scroll over this element instead of the page centre.'),
   },
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => {
     const op: BrowserInteractOp = { kind: 'scroll', deltaY: input.deltaY }
     if (input.ref) op.ref = input.ref
@@ -423,6 +494,7 @@ export const browserEvaluateAgentTool = browserTool({
     browserPageId: z.string(),
     expression: z.string().describe('A JavaScript expression, not a statement list.'),
   },
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => interact(input.browserPageId, { kind: 'evaluate', expression: input.expression }),
 })
 
@@ -437,6 +509,7 @@ export const browserWaitForAgentTool = browserTool({
     timeoutMs: z.number().optional().describe('Default 5000.'),
   },
   deadlineMs: WAIT_DEADLINE_MS,
+  pageOf: (input) => input.browserPageId,
   execute: async (input) => {
     const op: BrowserInteractOp = { kind: 'waitFor', expression: input.expression }
     if (input.timeoutMs !== undefined) op.timeoutMs = input.timeoutMs

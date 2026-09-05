@@ -47,6 +47,7 @@ import {
   CodexTurnNormalizer,
   normalizeThreadGoal,
 } from './codex-event-normalizer'
+import { codexCollaborationInstructions } from './codex-collaboration-instructions'
 import type {
   CodexThreadGoalClearResponse,
   CodexThreadGoalResponse,
@@ -306,17 +307,19 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     try {
       let threadId = handle.threadId
       const model = this.resolveModel(request.model ?? null)
+      const developerInstructions = request.systemPrompt?.trim()
+        ? request.systemPrompt
+        : undefined
       const threadConfig: CodexThreadStartParams = {
         model,
         serviceTier: request.fastMode ? 'fast' : null,
         cwd: resolveHomePath(request.cwd),
         approvalPolicy: approvalPolicyFor(request.permissionMode),
-        baseInstructions: request.systemPrompt ?? null,
-        developerInstructions: request.systemPrompt ?? null,
         experimentalRawEvents: false,
         persistExtendedHistory: request.persistence === 'session',
         ephemeral: request.persistence === 'ephemeral',
       }
+      if (developerInstructions) threadConfig.developerInstructions = developerInstructions
       // Dynamic tools (list/read/update_work) are an experimental app-server
       // capability — include them unless a prior start rejected them.
       const toolsConfig = this.dynamicToolsUnavailable
@@ -381,6 +384,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
 
       const isPlanMode = request.permissionMode === 'plan' && !request.unattended
+      const collaborationMode = isPlanMode ? 'plan' : 'default'
+      const collaborationReasoningEffort = isPlanMode ? 'medium' : reasoningEffort
+      const browserToolsAvailable = request.tools.some((tool) => tool.name === 'browser_status')
       const input = await this.buildTurnInput(request.prompt, request.cwd, request.imageAttachments)
       const turnParams: CodexTurnStartParams = {
         threadId,
@@ -392,10 +398,15 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         serviceTier: request.fastMode ? 'fast' : null,
         summary: 'auto',
         reasoning_effort: reasoningEffort,
-        collaborationMode: { mode: isPlanMode ? 'plan' : 'default', settings: {
+        collaborationMode: { mode: collaborationMode, settings: {
           model,
-          reasoning_effort: isPlanMode ? 'medium' : reasoningEffort,
-          developer_instructions: request.systemPrompt ?? null,
+          reasoning_effort: collaborationReasoningEffort,
+          // Collaboration behavior is provider-specific. User-configured
+          // instructions stay in the separate thread developer message.
+          developer_instructions: codexCollaborationInstructions(collaborationMode, {
+            model,
+            reasoningEffort: collaborationReasoningEffort,
+          }, browserToolsAvailable),
         }}
       }
       const turn = await this.client.request<CodexTurnStartResponse>('turn/start', turnParams)

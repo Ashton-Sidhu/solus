@@ -55,6 +55,7 @@
   import { observeContainerWidth } from "../../lib/pane-width";
   import { isRailFolded } from "./lib/rail-rows";
   import ActivityTimeline from "./ActivityTimeline.svelte";
+  import { prArtifactsFrom, taskLinksToPr } from "./lib/pr-artifacts";
   import PrActions from "./PrActions.svelte";
   import PrOverflowMenu from "./PrOverflowMenu.svelte";
   import PrStatusChip from "./PrStatusChip.svelte";
@@ -96,6 +97,7 @@
     serverId,
     masthead,
     showIdentity = true,
+    artifactsEnabled = true,
   }: {
     pr: PrActivityTarget;
     /** The list's own group key, so the subtitle chip agrees with the row the
@@ -147,6 +149,9 @@
     masthead?: import("svelte").Snippet;
     /** Show the PR icon and number above the title when no surface header owns them. */
     showIdentity?: boolean;
+    /** False while this tab is mounted but hidden behind another, so an
+     *  opened artifact does not keep a live frame nobody can see. */
+    artifactsEnabled?: boolean;
   } = $props();
 
   const session = getWorkspaceContext();
@@ -299,7 +304,29 @@
   // Commits, review threads, and the durable PR conversation, merged into one
   // chronological timeline (see buildActivityTimeline). The opened event is
   // rendered separately as the fixed first row and always leads.
-  const timeline = $derived(buildActivityTimeline(commits, threads, comments));
+  // The renders behind this change, read through the task graph that already
+  // exists: a review session's task is linked to the PR, and an artifact is
+  // linked to that task. Each joins the timeline at the moment it was linked,
+  // collapsed, so the reader meets it where it happened.
+  const tasksOnPr = $derived(
+    session.tasksStore.tasks.filter((task) =>
+      taskLinksToPr(task.prLinks, session.tasksStore.get(task.id).serverId, serverId, prUrl),
+    ),
+  );
+  $effect(() => {
+    if (!artifactsEnabled) return;
+    for (const task of tasksOnPr) void session.tasksStore.get(task.id).loadDetails();
+  });
+  const artifacts = $derived(
+    prArtifactsFrom(
+      tasksOnPr.map((task) => ({
+        taskId: task.id,
+        taskTitle: task.title,
+        links: session.tasksStore.get(task.id).details?.links ?? [],
+      })),
+    ),
+  );
+  const timeline = $derived(buildActivityTimeline(commits, threads, comments, artifacts));
   const visibleTimeline = $derived(
     filterActivityTimeline(timeline, filter, unresolvedOnly),
   );
@@ -1049,6 +1076,7 @@
           {openedAt}
           {viewerLogin}
           {deletingCommentIds}
+          {artifactsEnabled}
           onJump={jumpToFile}
           {onOpenCommit}
           onReply={replyToThread}

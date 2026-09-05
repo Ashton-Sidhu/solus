@@ -36,6 +36,7 @@ import {
   type TaskGroup,
 } from '../../components/session/lib/task-list'
 import { draftTitle, type DraftRow } from '../../components/session/lib/draft-list'
+import { pickerProjectChoices as buildPickerProjectChoices } from '../../components/session/unified-picker/lib/picker-rows'
 import { SidebarSessionStatusFeed } from '../../components/session/lib/sidebar-session-status'
 import {
   attemptServerId,
@@ -583,6 +584,35 @@ export class SessionSidebarStore {
     )
     return { projectKey, label: projectLabel(projectKey), count: 0 }
   })
+
+  /**
+   * The project the focused surface is working in, or null when it is working
+   * in none.
+   *
+   * This is "where am I right now", not "what has the sidebar been filtered
+   * to": a draft answers from its own run, so a fresh composer in a project
+   * with no task yet still names that project. `~` is the renderer's
+   * placeholder for a working directory nobody has chosen, so it is not a
+   * scope — the picker must stay wide there rather than scope to nothing.
+   */
+  currentProject: ProjectFilterChoice | null = $derived.by(() => {
+    const sourceId = this.session.focusedSourceId
+    const draft = sourceId ? this.session.sessionDrafts.get(sourceId) : undefined
+    const run = draft?.run ?? (sourceId ? this.session.sessionFor(sourceId)?.run : undefined)
+    if (!run) return null
+    const projectKey = environmentProjectKey(
+      this.session.environment.environmentFor(run),
+      run.projectGroupPath,
+    )
+    if (!projectKey || projectKey === '~') return null
+    return { projectKey, label: projectLabel(projectKey), count: 0 }
+  })
+
+  /** The projects the task picker offers as a scope. Built from what that
+   *  picker can actually list, not from the sidebar's columns. */
+  pickerProjectChoices: ProjectFilterChoice[] = $derived(
+    buildPickerProjectChoices(this.pickableTasks, this.currentProject),
+  )
 
   /** The project the list is scoped to, or null for all of them. Resolved
    *  against the column's own contents so a project that has left it never

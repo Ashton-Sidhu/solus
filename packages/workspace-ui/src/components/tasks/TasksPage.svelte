@@ -36,7 +36,7 @@
     getProjectConfigStore,
     getSessionSidebarStore,
     runtime,
-    projectCatalog,
+    projectsStore,
     mergeProjectOptions,
     projectRefKey,
     serversStore,
@@ -155,7 +155,7 @@
                 label: project.label,
               }))
           : [],
-        projectCatalog.entries,
+        projectsStore.entries,
       ],
       (serverId) => serversStore.statusFor(serverId) !== "offline",
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
@@ -536,11 +536,6 @@
       (item) => item.kind === "row" && item.row.key === selectedKey,
     )?.key ?? null,
   );
-  const unreadCount = $derived(
-    inboxGroups
-      .filter((group) => group.key === "needs" || group.key === "pull-requests")
-      .reduce((count, group) => count + group.rows.length, 0),
-  );
 
   const filters = $derived<ListFilterSpec[]>([
     {
@@ -786,7 +781,7 @@
   });
 
   function removeProjectHistory(option: ListProjectOption) {
-    projectCatalog.remove({
+    projectsStore.remove({
       serverId: option.serverId,
       projectRoot: option.projectKey,
     });
@@ -1250,16 +1245,12 @@
       activeProjectKey={view === "global" ? activeProjectOptionKey : ""}
       emptyProjectLabel={view === "global" ? "No project" : "All projects"}
       onSelectProject={selectProject}
+      onSelectAllProjects={() => setView("inbox")}
       onRemoveProjectHistory={removeProjectHistory}
       page="tasks"
       title={view === "inbox" ? "Inbox" : undefined}
       actions={providerControl}
       {view}
-      onViewChange={setView}
-      globalLabel="Project"
-      inboxLabel="Inbox"
-      compactViewSwitcherText
-      {unreadCount}
       onRefresh={refresh}
       {refreshing}
       syncedAt={upstreamRefreshedAt}

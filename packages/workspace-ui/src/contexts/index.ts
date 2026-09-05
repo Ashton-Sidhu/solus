@@ -38,9 +38,7 @@ export { getPullRequestsContext } from './prs/pull-requests.context.svelte'
 export { getTextGenerationSettingsStore } from './projects/text-generation-settings.store.svelte'
 export { getOtelSettingsStore } from './projects/otel-settings.store.svelte'
 
-/** Workspace-wide catalog of every project opened/cloned/adopted/run — the
- *  union source for page-scope project pickers (Tasks, PRs, Workspace, Automations). */
-export { projectCatalog, ProjectCatalogStore } from './projects/project-catalog.store.svelte'
+/** Shared project identity and page-picker option helpers. */
 export {
   mergeProjectOptions,
   normalizeProjectRoot,

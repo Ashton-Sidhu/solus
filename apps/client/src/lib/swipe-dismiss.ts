@@ -5,6 +5,8 @@
 // It only owns the *drag*: the host keeps its open/close transition effect and
 // animates the panel out when `onDismiss` flips its `open` prop to false.
 
+import { SWIPE_DIRECTION_LOCK_PX } from '@solus/workspace-ui/lib/swipe-actions'
+
 export interface SwipeDismissParams {
   /** Axis the panel travels along to leave the screen. */
   axis: 'x' | 'y'
@@ -27,8 +29,6 @@ export interface SwipeDismissParams {
 
 const DISMISS_DISTANCE = 80
 const DISMISS_VELOCITY = 0.3
-// Movement (px) before we commit to "this is a swipe along our axis".
-const DIRECTION_LOCK = 8
 const SNAP_BACK = 'transform 0.2s cubic-bezier(0.32, 0.72, 0, 1)'
 
 export function swipeDismiss(node: HTMLElement, params: SwipeDismissParams) {
@@ -78,7 +78,7 @@ export function swipeDismiss(node: HTMLElement, params: SwipeDismissParams) {
     if (lockedToAxis === null) {
       const a = Math.abs(distAlong)
       const b = Math.abs(distAcross)
-      if (a < DIRECTION_LOCK && b < DIRECTION_LOCK) return
+      if (a < SWIPE_DIRECTION_LOCK_PX && b < SWIPE_DIRECTION_LOCK_PX) return
       lockedToAxis = a > b
       if (!lockedToAxis) {
         // Cross-axis gesture (e.g. scrolling the drawer list) — yield to native.

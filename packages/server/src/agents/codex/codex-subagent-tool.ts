@@ -3,7 +3,7 @@ import type { AgentDispatcher } from '../agent-runner'
 import type { AgentTool } from '../tools/agent-tool'
 import { solusToolbox } from '../tools/solus-toolbox'
 import { buildSystemPrompt } from '../system-hint'
-import { isWorkspacePath } from '../../workspace'
+import { hostInstructionsFor } from '../run-input'
 import { resolveHomePath } from '../../platform/paths'
 import { isSubagentTranscriptEvent, parentSubagentEvent } from '../subagent-events'
 import { SPAN_SERVICES } from '../../observability/registries'
@@ -51,6 +51,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
     requiresApproval: false,
     execute: async (args, context) => {
       const parentToolUseId = context.parentToolUseId()
+      const model = args.model ?? 'gpt-5.6-terra'
       const run = dispatcher.runAgent({
         provider: 'codex',
         prompt: args.prompt,
@@ -66,17 +67,12 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
           ...Object.values(solusToolbox.tasks),
           ...Object.values(solusToolbox.prs),
         ],
-        model: args.model ?? 'gpt-5.6-terra',
+        model,
         reasoningEffort: args.reasoning_effort,
         permissionMode: args.read_only === true ? 'plan' : 'auto',
         persistence: 'ephemeral',
         service: SPAN_SERVICES.subagents,
-        systemPrompt: buildSystemPrompt({
-          agent: 'codex',
-          general: isWorkspacePath(context.cwd),
-          planMode: args.read_only === true,
-          subagent: true,
-        }),
+        systemPrompt: buildSystemPrompt(hostInstructionsFor(model)) || undefined,
         onEvent: (event) => {
           if (!parentToolUseId || !isSubagentTranscriptEvent(event)) return
           context.emit(parentSubagentEvent(event, parentToolUseId))

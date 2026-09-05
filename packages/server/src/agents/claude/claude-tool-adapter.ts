@@ -48,7 +48,7 @@ export function adaptClaudeTools(
         }
         if (!result.ok) response.isError = true
         return response
-      }),
+      }, agentTool.alwaysLoad ? { alwaysLoad: true } : undefined),
     ),
   })
   const allowedTools = tools

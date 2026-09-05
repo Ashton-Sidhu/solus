@@ -16,10 +16,13 @@ interface ModelTokenPricing {
  * OpenAI list prices per million tokens for every Codex model Solus supports.
  * Keep this catalog beside the cost calculation so a model cannot silently
  * fall back to zero. Prices were checked against the official model pages on
- * 2026-08-17. Cache writes use the ordinary input rate unless OpenAI publishes
+ * 2026-09-04. Cache writes use the ordinary input rate unless OpenAI publishes
  * a separate rate; GPT-5.6 writes cost 1.25x input.
  */
 export const CODEX_TOKEN_PRICING = {
+  'gpt-6-astra': {
+    standard: { input: 10, cachedInput: 1, cacheWrite: 10, output: 50 },
+  },
   'gpt-5.6-sol': {
     standard: { input: 5, cachedInput: 0.5, cacheWrite: 6.25, output: 30 },
     longContext: { thresholdTokens: 272_000, input: 10, cachedInput: 1, cacheWrite: 12.5, output: 45 },

@@ -51,6 +51,7 @@
   import TaskHeader from "./TaskHeader.svelte";
   import TaskLinkPicker from "./TaskLinkPicker.svelte";
   import TaskLinkedTable from "./TaskLinkedTable.svelte";
+  import TaskPinnedArtifact from "./TaskPinnedArtifact.svelte";
   import TaskPageSkeleton from "./TaskPageSkeleton.svelte";
   import TaskSessionsList from "./TaskSessionsList.svelte";
   import TaskSidebar from "./TaskSidebar.svelte";
@@ -108,10 +109,26 @@
   const linkedWorkIds = $derived(
     links.filter((link) => link.kind === "work").map((link) => link.targetKey),
   );
+  /** The artifact this task opens with, when the reader pinned one. `work` is
+   *  the only kind that can carry it, and only an artifact work has a render. */
+  const pinnedArtifact = $derived(
+    links.find(
+      (link) => link.kind === "work" && link.pinned === true && link.liveStatus === "artifact",
+    ) ?? null,
+  );
   const sessions = $derived(store.get(taskId).sessions);
   const projectCwd = $derived(
     task?.projectKey ?? session.tasksProjectCwd ?? undefined,
   );
+
+  // The pinned render is open by default, so its body is fetched as soon as the
+  // page is visible rather than on a disclosure the reader never has to press.
+  $effect(() => {
+    const link = pinnedArtifact;
+    if (!link || !surfaceVisible) return;
+    void session.worksStore.ensureContent(link.targetKey, "task-pinned-artifact", projectCwd);
+  });
+
   setMarkdownImageContext({
     cwd: () => projectCwd,
     serverId: () => store.get(taskId).serverId ?? LOCAL_SERVER_ID,
@@ -383,6 +400,19 @@
   }
 
   /** The host draws the still, so this waits on a browser; the row shows it. */
+  async function pinArtifact(link: TaskLink, pinned: boolean) {
+    try {
+      await store.get(link.taskId).link({
+        kind: "work",
+        targetScope: link.targetScope,
+        targetKey: link.targetKey,
+        pinned,
+      });
+    } catch (err) {
+      toastError(pinned ? "pin the artifact" : "unpin the artifact", err);
+    }
+  }
+
   async function attachArtifact(link: TaskLink) {
     try {
       await store.get(link.taskId).attachArtifact(link.targetKey, projectCwd);
@@ -883,6 +913,15 @@
           </div>
 
           <div class="flex flex-col" class:hidden={hiddenTab("linked")}>
+          {#if pinnedArtifact}
+            <TaskPinnedArtifact
+              link={pinnedArtifact}
+              html={session.worksStore.get(pinnedArtifact.targetKey)?.content || null}
+              enabled={surfaceVisible}
+              onOpen={openLink}
+              onUnpin={(link) => void pinArtifact(link, false)}
+            />
+          {/if}
           <TaskLinkedTable
             {links}
             {stacked}
@@ -897,6 +936,7 @@
             previewsEnabled={surfaceVisible}
             onAttachArtifact={attachArtifact}
             attachLabel={upstream?.canSync ? `Send to ${upstream.provider}` : "Attach preview"}
+            onPin={(link, pinned) => void pinArtifact(link, pinned)}
           />
           </div>
 
@@ -918,6 +958,8 @@
               {stacked}
               comments={details?.comments ?? []}
               events={details?.events ?? []}
+              {links}
+              enabled={surfaceVisible && !hiddenTab("activity")}
               {sessions}
               onOpenSession={(sessionId) => void openSession(sessionId)}
               provider={upstream?.canSync ? upstream.provider : null}

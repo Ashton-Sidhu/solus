@@ -7,6 +7,7 @@
     MessageCircle as ChatCircleIcon,
     GitCommitHorizontal as GitCommitIcon,
     GitPullRequest as GitPullRequestIcon,
+    LayoutTemplate as ArtifactIcon,
     LoaderCircle as LoaderIcon,
     Tag as TagIcon,
     Trash2 as TrashIcon,
@@ -25,6 +26,7 @@
   import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import { Skeleton } from "../ui/skeleton";
   import PrAvatar from "../prs/PrAvatar.svelte";
+  import ArtifactActivityCard from "../artifact/ArtifactActivityCard.svelte";
   import PrReviewStateBadge from "../prs/PrReviewStateBadge.svelte";
   import PrThreadCard from "./PrThreadCard.svelte";
   import {
@@ -54,6 +56,7 @@
     openedAt,
     viewerLogin,
     deletingCommentIds,
+    artifactsEnabled = true,
     onJump,
     onOpenCommit,
     onReply,
@@ -81,6 +84,9 @@
     /** Connected provider identity. Only this author's issue comments can be deleted. */
     viewerLogin: string;
     deletingCommentIds: ReadonlySet<string>;
+    /** False while the tab is mounted but hidden, so an opened artifact card
+     *  holds no live frame nobody can see. */
+    artifactsEnabled?: boolean;
     /** Jump to a thread's / file's location in the Diff tab. */
     onJump?: (path: string, line: number | null) => void;
     /** Open the diff scoped to one commit's changes. */
@@ -116,6 +122,13 @@
 
   function toggleComment(key: string) {
     collapsedComments[key] = !collapsedComments[key];
+  }
+
+  /** One live frame at a time: the artifact card the reader has open. */
+  let openArtifactWorkId = $state<string | null>(null);
+
+  function toggleArtifact(workId: string) {
+    openArtifactWorkId = openArtifactWorkId === workId ? null : workId;
   }
 
   function commentTs(createdAt: string): number {
@@ -387,6 +400,41 @@
               <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
             </TooltipUI.Root>
           </p>
+        </li>
+      {:else if event.kind === "artifact"}
+        <!-- A render linked to a task on this pull request, collapsed at the
+             moment it was linked. The node is the artifact glyph; the card
+             below it opens the live frame in place. -->
+        <li class="relative flex gap-2">
+          <span
+            class="relative z-10 mt-0.5 grid size-[22px] shrink-0 place-items-center rounded-full bg-[color-mix(in_oklch,var(--foreground)_6%,var(--background))] text-primary"
+            aria-hidden="true"
+          >
+            <ArtifactIcon size={12} />
+          </span>
+          <div class="min-w-0 flex-1 pt-0.5">
+            <p class="text-muted-foreground">
+              An artifact was linked
+              <TooltipUI.Root>
+                <TooltipUI.Trigger>
+                  {#snippet child({ props: tooltipProps })}
+                    <span {...tooltipProps}>· {formatTimeAgoFromTimestamp(event.ts)}</span>
+                  {/snippet}
+                </TooltipUI.Trigger>
+                <TooltipUI.Content value={formatAbsoluteTimestamp(event.ts)} />
+              </TooltipUI.Root>
+            </p>
+            <div class="mt-2">
+              <ArtifactActivityCard
+                workId={event.artifact.workId}
+                title={event.artifact.title}
+                via={event.artifact.taskTitle}
+                open={openArtifactWorkId === event.artifact.workId}
+                enabled={artifactsEnabled}
+                onToggle={() => toggleArtifact(event.artifact.workId)}
+              />
+            </div>
+          </div>
         </li>
       {:else if event.kind === "thread"}
         <li class="relative flex gap-2 [contain-intrinsic-size:auto_8rem] [content-visibility:auto]">

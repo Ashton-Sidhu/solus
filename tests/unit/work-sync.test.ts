@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { DocDiagramAsset, DocDraft, DocPatch, DocReadHints, DocRef, DocScope, NormalizedDoc } from '@solus/contracts/docs'
 import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
+import { serializeWorkEmbed } from '@solus/contracts/work-embed'
 import { DocVersionConflictError } from '@solus/server/docs/types'
 
 /**
@@ -23,6 +24,7 @@ interface FakeUpstream {
   markdown: string
   title: string
   lastPatch: DocPatch | null
+  lastDraft: DocDraft | null
   lastScope: DocScope | null
   lastAssets: DocDiagramAsset[] | null
   lastReadHints: DocReadHints | null
@@ -34,6 +36,7 @@ const upstream: FakeUpstream = {
   markdown: '# Upstream',
   title: 'Upstream title',
   lastPatch: null,
+  lastDraft: null,
   lastScope: null,
   lastAssets: null,
   lastReadHints: null,
@@ -58,6 +61,7 @@ const adapter = {
   create: async (scope: DocScope, doc: DocDraft): Promise<NormalizedDoc> => {
     upstream.lastScope = scope
     upstream.lastAssets = doc.diagramAssets ?? null
+    upstream.lastDraft = doc
     return {
       ref: {
         provider: 'confluence',
@@ -196,6 +200,49 @@ describe('publishWork', () => {
     const result = await workSync.publishWork(withDiagram, { destination: ENGINEERING })
 
     expect(result.ok && result.lossyParts).toEqual(['diagram: Architecture'])
+  })
+
+  test('an artifact embed publishes as a caption, never as a work:// link', async () => {
+    // WHY: no provider runs HTML, and publishing a render as a picture is out
+    // of scope. What matters is that the token never reaches the page, where it
+    // would read as a broken link the reader can neither follow nor fix.
+    const withArtifact = await newWork(
+      `# Spec\n\n${serializeWorkEmbed({ workId: 'a1', title: 'Latency', type: 'artifact' })}\n`,
+    )
+
+    const result = await workSync.publishWork(withArtifact, { destination: ENGINEERING })
+
+    expect(result.ok && result.lossyParts).toEqual(['artifact: Latency'])
+    expect(upstream.lastDraft?.markdown).toContain('_Artifact: Latency — view it in Solus._')
+    expect(upstream.lastDraft?.markdown).not.toContain('work://')
+  })
+
+  test('prepared diagram assets do not carry an artifact embed with them', async () => {
+    // WHY: the assets say the client drew the diagrams. It cannot draw an
+    // artifact, so that embed still has to flatten in the same publish.
+    const content = [
+      '# Spec',
+      '',
+      serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' }),
+      '',
+      serializeWorkEmbed({ workId: 'a1', title: 'Latency', type: 'artifact' }),
+      '',
+    ].join('\n')
+    const withBoth = await newWork(content)
+
+    const result = await workSync.publishWork(withBoth, {
+      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
+      diagramAssets: [{
+        workId: 'd1',
+        title: 'Architecture',
+        mimeType: 'image/png',
+        base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
+      }],
+    })
+
+    expect(result.ok && result.lossyParts).toEqual(['artifact: Latency'])
+    expect(upstream.lastDraft?.markdown).toContain('type=diagram')
+    expect(upstream.lastDraft?.markdown).not.toContain('type=artifact')
   })
 
   test('carries prepared diagram PNGs through the tracked Google publish', async () => {

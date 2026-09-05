@@ -2,6 +2,13 @@ import type { AgentId, NormalizedEvent, Session } from '@solus/contracts/types'
 import { nextMsgId } from './session.utils'
 import type { RouterStore } from './routing/router.store.svelte'
 import type { WorksStore } from '../works/works.store.svelte'
+import { runtime } from '../app/runtime.svelte'
+import { artifactHasBody, partialArtifactHtml } from './streaming-artifact'
+
+/** A floor, not a target: a slower host may raise it. Each tick re-creates the
+ *  iframe, so the reader watches the render arrive in steps rather than
+ *  watching a document repaint at the rate the model writes. */
+const PROGRESSIVE_RENDER_MS = 400
 
 /** An in-flight create_work tool call backing a provisional skeleton card. */
 interface WorkStreamEntry {
@@ -31,13 +38,17 @@ export class WorkStreamTracker {
    *  Keyed by the conversation that is streaming, not by a tab watching it —
    *  two views of one session share the one in-flight card. */
   private workStreamsBySession = new Map<string, WorkStreamEntry[]>()
+  /** When each tool call last let a streaming render through. Throttled here
+   *  rather than in the view: one clock per tool call, and the transcript
+   *  never sees an update it has to discard. */
+  private lastProgressiveTickByTool = new Map<string, number>()
 
   constructor(
     private worksStore: WorksStore,
     private router: RouterStore,
   ) {}
 
-  beginToolArtifacts(session: Session, toolName: string | undefined, agentProvider: AgentId): void {
+  beginToolArtifacts(session: Session, toolName: string | undefined, agentProvider: AgentId, toolId?: string): void {
     if (isCreateWorkTool(toolName)) {
       const tempId = this.worksStore.addProvisional(agentProvider, session.run.workingDirectory, session.run.serverId)
       const msgId = nextMsgId()
@@ -59,10 +70,34 @@ export class WorkStreamTracker {
         id: nextMsgId(),
         role: 'assistant',
         content: '',
-        artifact: { kind: 'html', pending: true },
+        artifact: { kind: 'html', pending: true, toolId },
         timestamp: Date.now(),
       })
     }
+  }
+
+  /**
+   * Show a `render_artifact` call as it is written, instead of a skeleton until
+   * it finishes. Off on a touch client, where re-creating an iframe every few
+   * hundred milliseconds costs more than the wait it saves.
+   */
+  updateStreamingArtifact(session: Session, toolName: string | undefined, toolInput: string, toolId?: string): void {
+    if (!isRenderArtifactTool(toolName) || !toolId || runtime.isTouchDevice) return
+    const now = Date.now()
+    const last = this.lastProgressiveTickByTool.get(`${session.id}:${toolId}`) ?? 0
+    if (now - last < PROGRESSIVE_RENDER_MS) return
+
+    const html = partialArtifactHtml(toolInput)
+    if (!html || !artifactHasBody(html)) return
+    const pending = session.messages.find((m) => m.artifact?.toolId === toolId && (m.artifact.pending || m.artifact.streaming))
+    if (!pending?.artifact) return
+
+    this.lastProgressiveTickByTool.set(`${session.id}:${toolId}`, now)
+    // Mutated in place, never replaced: a new message object would invalidate
+    // every derived read of the transcript on each tick.
+    pending.artifact.html = html
+    pending.artifact.pending = false
+    pending.artifact.streaming = true
   }
 
   finalizeWork(session: Session, event: WorkCreatedEvent): void {
@@ -108,15 +143,20 @@ export class WorkStreamTracker {
       this.worksStore.finalizeProvisional(null, workRef.workId, workRef.title, 'artifact', event.html, session.run.serverId)
     }
 
-    // Fill the oldest pending render_artifact skeleton (positional
-    // correlation: the executor can't see the model-side tool id). No
-    // provisional (Codex/mock emit directly) means pushing a fresh message.
-    const pending = session.messages.find((m) => m.artifact?.pending)
+    // Match only the originating call. Older hosts without a tool id append a
+    // completed card; their unmatched provisional cards are removed at turn end.
+    // The persisted document is the last word: a progressive render stops the
+    // moment this lands, so what stays on screen is the work, not a tick of it.
+    this.lastProgressiveTickByTool.delete(`${session.id}:${event.toolId}`)
+    const pending = event.toolId ? session.messages.find((m) =>
+      m.artifact && m.artifact.toolId === event.toolId && (m.artifact.pending || m.artifact.streaming),
+    ) : undefined
     if (pending?.artifact) {
       pending.artifact.kind = event.kind
       pending.artifact.html = event.html
       pending.artifact.path = event.path
       pending.artifact.pending = false
+      pending.artifact.streaming = false
       if (workRef) pending.workRef = workRef
       return
     }
@@ -131,12 +171,24 @@ export class WorkStreamTracker {
     })
   }
 
+  failArtifact(session: Session, toolId: string): void {
+    this.lastProgressiveTickByTool.delete(`${session.id}:${toolId}`)
+    const index = session.messages.findIndex((message) =>
+      message.artifact?.toolId === toolId && (message.artifact.pending || message.artifact.streaming),
+    )
+    if (index !== -1) session.messages.splice(index, 1)
+  }
+
   /** Drop provisional cards whose create_work never persisted (tool errored, or
    *  the turn ended), plus any render_artifact skeletons left pending by a failed
    *  call. Finalized streams keep their card; only the tracking is cleared. */
   sweep(session: Session): void {
+    for (const key of this.lastProgressiveTickByTool.keys()) {
+      if (key.startsWith(`${session.id}:`)) this.lastProgressiveTickByTool.delete(key)
+    }
     for (let i = session.messages.length - 1; i >= 0; i--) {
-      if (session.messages[i].artifact?.pending) session.messages.splice(i, 1)
+      const artifact = session.messages[i].artifact
+      if (artifact?.pending || artifact?.streaming) session.messages.splice(i, 1)
     }
     const entries = this.workStreamsBySession.get(session.id)
     if (!entries) return

@@ -1,7 +1,7 @@
 import { withTx } from '../db'
 import { ulid } from './ulid'
 import { diffTaskEvents, readTaskEvents, type EventActor } from './task-events'
-import { deleteTaskLink, readTaskLinks, writeTaskLink } from './task-links'
+import { deleteTaskLink, readTaskLinks, setTaskLinkPin, writeTaskLink } from './task-links'
 import {
   assertTaskStatus,
   commentsForTask,
@@ -118,6 +118,8 @@ export interface TaskLinkOptions {
   url?: string | null
   originSessionId?: string | null
   createdBy?: TaskLinkInput['createdBy']
+  /** Pin this link, or unpin it. Omitted leaves the current pin alone. */
+  pinned?: boolean
 }
 
 /** One task in Solus: its fields, and everything you can do to it.
@@ -439,6 +441,7 @@ export class Task implements TaskRecord {
       url: input.url,
       originSessionId: input.originSessionId,
       createdBy: input.createdBy,
+      pinned: input.pinned,
     }
     switch (input.kind) {
       case 'work':
@@ -492,11 +495,22 @@ export class Task implements TaskRecord {
     const changed = withTx(() => {
       const db = database()
       requireTask(this.id, db)
+      const target = {
+        kind: input.kind,
+        targetScope: input.targetScope ?? '',
+        targetKey: input.targetKey,
+      }
       const existing = db.prepare(`
         SELECT 1 FROM task_links
         WHERE task_id = ? AND kind = ? AND target_scope = ? AND target_key = ?
-      `).get(this.id, input.kind, input.targetScope ?? '', input.targetKey)
-      if (existing) return false
+      `).get(this.id, target.kind, target.targetScope, target.targetKey)
+      // Already linked: the only thing left to say is which artifact the page
+      // opens with, and that is a pin, not a second link.
+      if (existing) {
+        return input.pinned === undefined
+          ? false
+          : setTaskLinkPin(db, this.id, target, input.pinned)
+      }
       writeTaskLink(db, this.id, input, actor)
       return true
     })

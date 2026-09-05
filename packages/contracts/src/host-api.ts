@@ -2,7 +2,7 @@ import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, P
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLabel, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
-import type { SessionPreviewResult, WireSessionLoadMessage } from './session-history'
+import type { SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage } from './session-history'
 import type { AttentionEntry } from './attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest } from './review'
 import type { StackGraph } from './stack-types'
@@ -10,7 +10,7 @@ import type { PrChecksSnapshot } from './checks-rpc-types'
 import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, SearchSessionsRequest } from './rpc'
 import type { MetricsNlCompileResult, MetricsQueryResult, MetricsQuerySpec, MetricsSchema, MetricsSessionSummary, MetricsSqlValidation, MetricsTurnPageRequest, MetricsTurnPageResult, MetricsTurnTrace, MetricsValue, SavedMetricsQuery } from './observability-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from './notification-types'
-import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
+import type { BrowserAnnotateOp, BrowserAnnotationState, BrowserAnnotationTool, BrowserAppearance, BrowserCaptureRequest, BrowserCloseResult, BrowserCookieImportRequest, BrowserCookieImportResult, BrowserCookieSourceScan, BrowserDetachReason, BrowserDiscoveredTarget, BrowserEvidence, BrowserEvidenceOptions, BrowserInteractOp, BrowserInteractResult, BrowserNavigateOp, BrowserOpenRequest, BrowserPage, BrowserProfileSet, BrowserSnapshot, BrowserSnapshotOptions, BrowserSurfaceReport, BrowserViewportRequest } from './browser-types'
 import type { AtlassianJiraProject, AtlassianOAuthStartResult, AtlassianStatus } from './atlassian'
 import type { CodeIntelDocsRequest, CodeIntelDocsResult, CodeIntelInstallRequest, CodeIntelInstallResult, CodeIntelReferencesRequest, CodeIntelReferencesResult, CodeIntelReindexRequest, CodeIntelReindexResult, CodeIntelStatus, CodeIntelStatusRequest, CodeIntelSymbolRequest, CodeIntelSymbolResult } from './code-intel'
 import type { DocDestination, DocProviderId, DocProviderStatus, PlanPublishRequest, WorkExternalLink, WorkPublishRequest, WorkPublishResult, WorkPullResult } from './docs'
@@ -104,6 +104,8 @@ export interface SolusAPI {
   searchSessions(request: SearchSessionsRequest): Promise<SessionSearchResult[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<WireSessionLoadMessage[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
+  /** The passage a search hit sits in: the message and its neighbours, from the index. */
+  loadSessionMessageWindow(request: SessionMessageWindowRequest): Promise<SessionMessageWindow>
   getSessionInfo(sessionId: string): Promise<SessionMeta | null>
   getSessionInfos(sessionIds: string[]): Promise<Array<SessionMeta | null>>
   resolveSessionLineage(provider: AgentId, providerSessionId: string): Promise<SessionLineageResolution | null>
@@ -497,7 +499,9 @@ export interface SolusAPI {
   browserListTargets(ctx?: IpcContext): Promise<BrowserDiscoveredTarget[]>
   browserListPages(): Promise<BrowserPage[]>
   browserOpen(request: BrowserOpenRequest): Promise<BrowserPage>
-  browserClose(browserPageId: string): Promise<void>
+  /** Close a page, unless an agent is using it. A refusal is an answer, not an
+   *  error; `force` is what the user's "close anyway" carries back (ADR 0024). */
+  browserClose(browserPageId: string, force?: boolean): Promise<BrowserCloseResult>
   browserNavigate(browserPageId: string, op: BrowserNavigateOp): Promise<void>
   browserSetViewport(browserPageId: string, request: BrowserViewportRequest): Promise<void>
   browserSetAppearance(browserPageId: string, appearance: BrowserAppearance): Promise<void>
@@ -549,6 +553,24 @@ export interface SolusAPI {
    *  marks are made in the guest, and only the pane showing them needs them. */
   browserAnnotationState(browserPageId: string): Promise<BrowserAnnotationState>
   browserAnnotate(browserPageId: string, op: BrowserAnnotateOp): Promise<BrowserAnnotationState>
+
+  /** The named identities a project's browser pages can sign in as. Host-owned,
+   *  because the cookie jars live there. The built-in default is always first. */
+  browserListProfiles(projectRoot?: string): Promise<BrowserProfileSet>
+  browserCreateProfile(projectRoot: string | undefined, name: string): Promise<BrowserProfileSet>
+  browserRenameProfile(projectRoot: string | undefined, profileId: string, name: string): Promise<BrowserProfileSet>
+  /** Forget a profile and everything signed in to it. Refused for the built-in
+   *  default, and refused while a page is open on it — a live login is not
+   *  something to lose to a mis-click on a list. */
+  browserDeleteProfile(projectRoot: string | undefined, profileId: string): Promise<BrowserProfileSet>
+  /** Which profile a newly opened page in this project takes. */
+  browserSetDefaultProfile(projectRoot: string | undefined, profileId: string): Promise<BrowserProfileSet>
+  /** Browser profiles on *this host* that could be imported from. The host
+   *  answers, because the copy lands in a jar on the host. */
+  browserListCookieSources(): Promise<BrowserCookieSourceScan>
+  /** Copy one browser profile's cookies into one Solus profile, once. Only
+   *  counts cross back; no cookie name, value, or domain does. */
+  browserImportCookies(request: BrowserCookieImportRequest): Promise<BrowserCookieImportResult>
 
   stackGet(ctx: IpcContext): Promise<{ repoRoot: string; graph: StackGraph }>
   stackDetect(ctx: IpcContext): Promise<{ repoRoot: string; graph: StackGraph }>

@@ -1,6 +1,6 @@
 import type { AgentId, GitCheckout, IpcContext, ModelConfig, ReasoningEffort, RunConfig, Session, WorktreeEntry } from '@solus/contracts/types'
 import type { Via } from '@solus/contracts/analytics-events'
-import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, worktreeProjectRoot } from '@solus/contracts/types'
+import { MODEL_PROFILES, gitCheckoutFromState, isSolusWorktreePath, modelLabelFor, worktreeProjectRoot } from '@solus/contracts/types'
 import { track } from '../../lib/analytics'
 import { TAB_GROUP_MODES, type SettingsContext, type TabGroupMode } from '../app/settings.context.svelte'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
@@ -311,13 +311,9 @@ export class SessionConfigController {
         const pendingDivider = session.messages.findLastIndex((message) => !!message.agentChangedTo)
         if (pendingDivider !== -1) session.messages.splice(pendingDivider, 1)
       } else {
-        const sourceModel = sourceModelId
-          ? MODEL_PROFILES[result.fromProvider]?.[sourceModelId]?.label ?? sourceModelId
-          : undefined
+        const sourceModel = modelLabelFor(result.fromProvider, sourceModelId) ?? undefined
         const targetModelId = newModelConfig.modelId
-        const targetModel = targetModelId
-          ? MODEL_PROFILES[agentId]?.[targetModelId]?.label ?? targetModelId
-          : undefined
+        const targetModel = modelLabelFor(agentId, targetModelId) ?? undefined
         session.messages.push({
           id: nextMsgId(),
           role: 'system',

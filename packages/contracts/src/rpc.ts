@@ -119,6 +119,7 @@ export const RPC_INVOKE_METHODS = [
   'searchSessions',
   'loadSession',
   'loadSessionPreview',
+  'loadSessionMessageWindow',
   'getSessionInfo',
   'getSessionInfos',
   'resolveSessionLineage',
@@ -429,6 +430,13 @@ export const RPC_INVOKE_METHODS = [
   'browserSetAnnotationTool',
   'browserAnnotationState',
   'browserAnnotate',
+  'browserListProfiles',
+  'browserCreateProfile',
+  'browserRenameProfile',
+  'browserDeleteProfile',
+  'browserSetDefaultProfile',
+  'browserListCookieSources',
+  'browserImportCookies',
 
   // Observability / Insights (metrics.db query engine)
   'metricsQuery',
@@ -457,6 +465,8 @@ export interface SearchSessionsRequest {
   role?: 'user' | 'assistant'
   sinceTs?: number
   limit?: number
+  /** Match the last token as a prefix, for a query still being typed. */
+  prefixLastToken?: boolean
 }
 
 export interface RpcEnvelope {

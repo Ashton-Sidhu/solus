@@ -6,11 +6,11 @@ import type {
   MetricsTurnStatusCounts,
   MetricsTurnVolumeBucket,
 } from '@solus/contracts/observability-types'
+import { TURN_VOLUME_BUCKET_COUNT } from '@solus/contracts/observability-types'
 import { getReadOnlyMetricsDb } from './metrics-db'
 import { runCompiledSql } from './sql-guard'
 
 const MAX_PAGE_SIZE = 100
-const VOLUME_BUCKET_COUNT = 112
 
 const TURN_COLUMNS = [
   'span_id',
@@ -193,10 +193,10 @@ function stats(where: WhereClause): MetricsTurnStats {
 }
 
 function volume(where: WhereClause, from: number, to: number): MetricsTurnVolumeBucket[] {
-  const width = (to - from) / VOLUME_BUCKET_COUNT
+  const width = (to - from) / TURN_VOLUME_BUCKET_COUNT
   const rawRows: unknown = getReadOnlyMetricsDb().prepare(`
     SELECT
-      MIN(${VOLUME_BUCKET_COUNT - 1}, CAST((started_at - ?) / ? AS INTEGER)) AS bucket_index,
+      MIN(${TURN_VOLUME_BUCKET_COUNT - 1}, CAST((started_at - ?) / ? AS INTEGER)) AS bucket_index,
       COUNT(*) AS total,
       SUM(CASE WHEN provider = 'claude-code' THEN 1 ELSE 0 END) AS claude_code,
       SUM(CASE WHEN provider = 'codex' THEN 1 ELSE 0 END) AS codex,

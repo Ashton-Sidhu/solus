@@ -433,13 +433,11 @@
     if (!workId || comments.length === 0) return;
     const body = formatInlineComments($state.snapshot(comments));
     const msg = `Please address these comments on the diagram "${title}" (work_id: ${workId}):\n${body}`;
+    const sent = await session.sendMessageToNewWorkSession(workId, msg);
+    if (!sent) return;
     session.worksStore.clearAnnotationComments(workId);
     persistComments();
     applyTransientState();
-    const boundTabId = session.tabIdForWork(workId);
-    if (boundTabId) session.selectTab(boundTabId);
-    else await session.openChatForWork(workId, "new");
-    session.sendMessage(msg);
   }
   let flowControls:
     | {

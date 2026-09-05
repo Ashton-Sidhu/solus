@@ -3,7 +3,9 @@
   import { ChevronRight as CaretRightIcon, Lock as LockIcon } from "@lucide/svelte";
   import type { Message } from "@solus/contracts/types";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import CodeBlock from "../ui/CodeBlock.svelte";
+  import FencedBlock from "./FencedBlock.svelte";
+  import HtmlBlock from "./HtmlBlock.svelte";
+  import { RAW_HTML_TOKEN, rawHtmlMarkedExtension } from "./lib/raw-html";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownImage from "./MarkdownImage.svelte";
@@ -34,13 +36,18 @@
   }
   let { message, running }: Props = $props();
 
+  // The transcript's rule, so a subagent's reply reads the same as the main
+  // conversation's: an html fence carrying its own styles renders live.
   const markdownRenderers = {
-    code: CodeBlock,
+    code: FencedBlock,
     codespan: CodeSpan,
     image: MarkdownImage,
     link: MarkdownLink,
     rawtext: MarkdownText,
+    [RAW_HTML_TOKEN]: HtmlBlock,
   };
+
+  const markdownExtensions = [rawHtmlMarkedExtension];
 
   const brief = $derived(subagentInputText(parseSubagentInput(message.toolInput)));
   const asks = $derived(briefAsks(brief));
@@ -123,6 +130,7 @@
           <SvelteMarkdown
             source={brief}
             renderers={markdownRenderers}
+            extensions={markdownExtensions}
             sanitizeUrl={markdownSanitizeUrl}
           />
         </div>
@@ -142,6 +150,7 @@
         <SvelteMarkdown
           source={report}
           renderers={markdownRenderers}
+          extensions={markdownExtensions}
           sanitizeUrl={markdownSanitizeUrl}
         />
       </div>
@@ -154,6 +163,7 @@
           <SvelteMarkdown
             source={outline.lead}
             renderers={markdownRenderers}
+            extensions={markdownExtensions}
             sanitizeUrl={markdownSanitizeUrl}
           />
         </div>
@@ -197,6 +207,7 @@
                 <SvelteMarkdown
                   source={section.verdict}
                   renderers={markdownRenderers}
+                  extensions={markdownExtensions}
                   sanitizeUrl={markdownSanitizeUrl}
                 />
               </div>
@@ -207,6 +218,7 @@
               <SvelteMarkdown
                 source={section.body}
                 renderers={markdownRenderers}
+                extensions={markdownExtensions}
                 sanitizeUrl={markdownSanitizeUrl}
               />
             </div>

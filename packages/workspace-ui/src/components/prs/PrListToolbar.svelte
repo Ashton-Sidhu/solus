@@ -22,7 +22,7 @@
    *
    *  ── The ladder ──
    *  Under 40rem of pane the menus drop their labels and keep their glyphs, so
-   *  the field beside the view switch keeps a usable measure. At the record
+   *  the search field keeps a usable measure. At the record
    *  rung (30rem) the page wraps this row onto a full-width second line and the
    *  controls take a thumb-height. Nothing unmounts. */
   interface Props {

@@ -14,7 +14,10 @@ export interface SwipeActionsParams {
   enabled?: boolean
 }
 
-const DIRECTION_LOCK = 8
+/** Movement (px) before a drag commits to "this is a swipe along our axis".
+ *  Shared with the client's dismiss gesture: one number, so a swipe feels the
+ *  same wherever the thumb starts it. */
+export const SWIPE_DIRECTION_LOCK_PX = 8
 /** A deliberate swipe of one quarter of the tray opens or closes it. */
 export const SWIPE_REVEAL_COMMIT_RATIO = 0.25
 export const SWIPE_FULL_COMMIT_RATIO = 0.62
@@ -111,7 +114,7 @@ export function swipeActions(node: HTMLElement, params: SwipeActionsParams) {
     const dy = touch.clientY - startY
 
     if (lockedToAxis === null) {
-      if (Math.abs(dx) < DIRECTION_LOCK && Math.abs(dy) < DIRECTION_LOCK) return
+      if (Math.abs(dx) < SWIPE_DIRECTION_LOCK_PX && Math.abs(dy) < SWIPE_DIRECTION_LOCK_PX) return
       lockedToAxis = Math.abs(dx) > Math.abs(dy)
       if (!lockedToAxis) {
         active = false

@@ -19,6 +19,7 @@
     TaskPreviewDetails,
   } from "../lib/task-preview.svelte";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
+  import { highlightRuns, type TextRun } from "../../../lib/searchHighlight";
   import { projectLabel } from "./lib/picker-rows";
 
   /**
@@ -34,6 +35,9 @@
     onOpenLink: (link: TaskLink) => void;
     onOpenExternal: (url: string) => void;
     onUnlink: (link: TaskLink) => void;
+    /** The picker's live search term. A row only shows a passage of a body
+     *  hit; the preview is where the whole body is, so it marks the hit too. */
+    query?: string;
   }
   let {
     task,
@@ -42,6 +46,7 @@
     onOpenLink,
     onOpenExternal,
     onUnlink,
+    query = "",
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -88,6 +93,13 @@
   });
 </script>
 
+{#snippet marked(runs: TextRun[])}
+  {#each runs as run, i (i)}{#if run.hit}<mark
+        class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+        >{run.text}</mark
+      >{:else}{run.text}{/if}{/each}
+{/snippet}
+
 {#snippet sectionHeading(label: string, count: number)}
   <div class="mb-1.5 flex items-center gap-2.5 max-md:mb-0">
     <span class="text-micro font-medium tracking-[0.13em] uppercase text-muted-foreground">{label}</span>
@@ -122,9 +134,9 @@
       <span>opened {openedAt}</span>
     {/if}
   </div>
-  <h3 class="mb-2.5 text-[1.1875rem] leading-[1.3] font-semibold tracking-[-0.014em] text-pretty text-foreground max-md:mb-2">{task.title}</h3>
+  <h3 class="mb-2.5 text-[1.1875rem] leading-[1.3] font-semibold tracking-[-0.014em] text-pretty text-foreground max-md:mb-2">{@render marked(highlightRuns(task.title, query))}</h3>
   {#if task.body}
-    <p class="mb-5 whitespace-pre-wrap text-workspace-chrome leading-[1.7] text-pretty text-muted-foreground max-md:mb-[18px]">{task.body}</p>
+    <p class="mb-5 whitespace-pre-wrap text-workspace-chrome leading-[1.7] text-pretty text-muted-foreground max-md:mb-[18px]">{@render marked(highlightRuns(task.body, query))}</p>
   {:else}
     <p class="mb-5 text-workspace-chrome leading-[1.7] text-muted-foreground opacity-70 max-md:mb-[18px]">No task description.</p>
   {/if}

@@ -1,4 +1,5 @@
 import { arg, optionalArg } from './args'
+import type { SessionMessageWindowRequest } from '@solus/contracts/session-history'
 import type { PinnedSession } from '@solus/contracts/types'
 import type { DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
@@ -40,6 +41,8 @@ export function registerSessionsHandlers(backend: DemoServer, store: DemoStore):
     return messages
   })
   backend.register('loadSessionPreview', (args) => store.loadSessionPreview(arg<string>(args, 0)))
+  backend.register('loadSessionMessageWindow', (args) =>
+    store.loadSessionMessageWindow(arg<SessionMessageWindowRequest>(args, 0)))
   backend.register('getSessionInfo', (args) => store.getSessionInfo(arg<string>(args, 0)))
   backend.register('getSessionInfos', (args) => arg<string[]>(args, 0).map((sessionId) => store.getSessionInfo(sessionId)))
   backend.register('pinnedSessionsList', () => store.listPinnedSessions())

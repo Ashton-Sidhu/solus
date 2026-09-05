@@ -1,6 +1,8 @@
+import { rmSync } from 'node:fs'
 import { join } from 'path'
 import { z } from 'zod'
 import {
+  BROWSER_PARTITION_PREFIX,
   BROWSER_RING_LIMIT,
   type BrowserConsoleEntry,
   type BrowserHostKind,
@@ -15,10 +17,12 @@ import {
   emulationChanges,
   emulationRecord,
   setBrowserHeadlessHost,
+  setBrowserProfileHost,
   type AppliedEmulation,
   type BrowserEmulation,
   type BrowserFrameListener,
   type BrowserHeadlessOpenRequest,
+  type BrowserProfileCookie,
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
 } from './surface-driver'
@@ -77,8 +81,24 @@ interface PlaywrightPage {
 
 interface PlaywrightContext {
   newPage(): Promise<PlaywrightPage>
+  pages(): PlaywrightPage[]
   newCDPSession(page: PlaywrightPage): Promise<PlaywrightCdpSession>
+  addCookies(cookies: PlaywrightCookie[]): Promise<void>
+  clearCookies(): Promise<void>
   close(): Promise<void>
+}
+
+/** Playwright's cookie shape, as much of it as an import writes. */
+interface PlaywrightCookie {
+  name: string
+  value: string
+  domain: string
+  path: string
+  /** Unix seconds; -1 is a session cookie. */
+  expires: number
+  httpOnly: boolean
+  secure: boolean
+  sameSite: 'Strict' | 'Lax' | 'None'
 }
 
 interface PlaywrightChromium {
@@ -101,6 +121,7 @@ type CdpCommandParams =
   | { type: string; key: string; code: string; windowsVirtualKeyCode: number; nativeVirtualKeyCode: number }
   | { text: string }
   | { source: string }
+  | { origin: string; storageTypes: string }
 
 const consoleApiSchema = z.object({
   type: z.string().optional(),
@@ -158,13 +179,114 @@ export async function registerPlaywrightBrowserHost(): Promise<(() => Promise<vo
   setBrowserHeadlessHost({
     open: (request) => openPlaywrightGuest(chromium, contexts, request),
   })
+  // A standalone server owns its profiles as directories rather than as Electron
+  // sessions, but they are the same product feature; without this, clearing and
+  // importing would work only on the desktop.
+  setBrowserProfileHost({
+    clearProfile: async (partition) => {
+      const directory = profileDirectory(partition)
+      const pending = contexts.get(partition)
+      const context = pending ? await pending.catch(() => null) : null
+      const [page] = context?.pages() ?? []
+      if (!context || !page) {
+        // Nothing is open on the jar, so the directory can simply go. The next
+        // guest on this partition launches a fresh context over an empty one.
+        if (pending) {
+          contexts.delete(partition)
+          await context?.close().catch(() => {})
+        }
+        rmSync(directory, { recursive: true, force: true })
+        log.info('browser_profile_cleared', { partition })
+        return
+      }
+      // Pages are live on this context, and the registry reloads each of them
+      // after this returns. Closing the context would close those pages under
+      // their drivers, so the jar is emptied in place instead — the same thing
+      // Electron's `clearStorageData` does to a session it keeps alive.
+      await context.clearCookies()
+      const cdp = await context.newCDPSession(page)
+      try {
+        await withTimeout(
+          cdp.send('Storage.clearDataForOrigin', { origin: '*', storageTypes: 'all' }),
+          'Storage.clearDataForOrigin',
+          CDP_TIMEOUT_MS,
+        )
+      } finally {
+        await cdp.detach().catch(() => {})
+      }
+      log.info('browser_profile_cleared', { partition })
+    },
+    importCookies: async (partition, cookies) => {
+      const context = await contextFor(chromium, contexts, partition)
+      const converted = cookies.map(playwrightCookie)
+      try {
+        await context.addCookies(converted)
+        return { imported: converted.length, failed: 0 }
+      } catch {
+        // Playwright validates the batch and rejects all of it for one bad row.
+        // Falling back per cookie costs a round trip each, which is worth paying
+        // once so a single malformed cookie cannot lose the other nine hundred.
+        let imported = 0
+        let failed = 0
+        for (const cookie of converted) {
+          try {
+            await context.addCookies([cookie])
+            imported += 1
+          } catch {
+            // Counted, never logged: the reason would name the cookie's domain.
+            failed += 1
+          }
+        }
+        return { imported, failed }
+      }
+    },
+  })
   log.info('browser_playwright_registered', {})
   return async () => {
     setBrowserHeadlessHost(null)
+    setBrowserProfileHost(null)
     for (const pending of contexts.values()) {
       await pending.then((context) => context.close()).catch(() => {})
     }
     contexts.clear()
+  }
+}
+
+/**
+ * Where one profile's persistent state lives, checked before it is used.
+ *
+ * The partition arrives from a client and becomes a filesystem path that
+ * `clearProfile` deletes recursively. The prefix check is what keeps that from
+ * being an "erase any directory on the host" RPC; the separator check is what
+ * keeps the prefix from being escaped with `..`.
+ */
+function profileDirectory(partition: string): string {
+  if (!partition.startsWith(BROWSER_PARTITION_PREFIX) || /[\\/]/.test(partition)) {
+    throw new Error(`Refusing to touch a profile outside the browser profiles: ${partition}`)
+  }
+  return join(dataDir(), 'browser-profiles', partition)
+}
+
+/**
+ * One cookie in Playwright's terms.
+ *
+ * `SameSite=None` is only legal on a secure cookie in Chromium, and Firefox
+ * stores the pair happily — so the weaker default is used rather than losing the
+ * cookie to a validation error.
+ */
+function playwrightCookie(cookie: BrowserProfileCookie): PlaywrightCookie {
+  const sameSite = cookie.sameSite === 'no_restriction'
+    ? (cookie.secure ? 'None' : 'Lax')
+    : cookie.sameSite === 'strict' ? 'Strict' : 'Lax'
+  return {
+    name: cookie.name,
+    value: cookie.value,
+    domain: cookie.domain,
+    path: cookie.path,
+    expires: cookie.expiresAt ?? -1,
+    httpOnly: cookie.httpOnly,
+    secure: cookie.secure,
+    sameSite,
   }
 }
 
@@ -191,7 +313,7 @@ function contextFor(
 ): Promise<PlaywrightContext> {
   const existing = contexts.get(partition)
   if (existing) return existing
-  const opening = chromium.launchPersistentContext(join(dataDir(), 'browser-profiles', partition), {
+  const opening = chromium.launchPersistentContext(profileDirectory(partition), {
     headless: true,
     // Null, because the viewport is CDP's job here: emulation has to carry
     // touch, pixel ratio and user agent, which a Playwright viewport does not.

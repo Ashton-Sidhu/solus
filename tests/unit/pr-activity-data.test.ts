@@ -66,6 +66,43 @@ describe('PR activity timeline conversation', () => {
   })
 })
 
+describe('PR activity artifacts', () => {
+  const commits: PrCommit[] = [
+    { sha: 'a', message: 'First', author: 'author', committedAt: '2026-01-01T10:00:00Z' },
+    { sha: 'b', message: 'Second', author: 'author', committedAt: '2026-01-01T13:00:00Z' },
+  ]
+  const artifact = {
+    workId: 'work-1',
+    title: 'Latency report',
+    taskId: 't1',
+    taskTitle: 'Review',
+    linkedAt: new Date('2026-01-01T12:00:00Z').getTime(),
+  }
+
+  test('an artifact joins the timeline at the moment it was linked', () => {
+    // WHY: the reader meets a render in the story of the pull request — after
+    // the commit it explains, before the review that followed — rather than in
+    // a section apart from the timeline. A run of commits also has to break
+    // around it, or the artifact would appear before both commits.
+    const timeline = buildActivityTimeline(commits, [], [], [artifact])
+
+    expect(timeline.map((event) => event.kind)).toEqual(['commits', 'artifact', 'commits'])
+    const row = timeline[1]
+    expect(row.kind === 'artifact' ? row.artifact.workId : null).toBe('work-1')
+  })
+
+  test('the focus chips leave artifacts out', () => {
+    // WHY: "Conversation" and "Commits" each name what they keep. An artifact
+    // is neither, and the unresolved toggle is about review threads alone.
+    const timeline = buildActivityTimeline(commits, [], [], [artifact])
+
+    expect(filterActivityTimeline(timeline, 'all', false).some((e) => e.kind === 'artifact')).toBe(true)
+    expect(filterActivityTimeline(timeline, 'conversation', false).some((e) => e.kind === 'artifact')).toBe(false)
+    expect(filterActivityTimeline(timeline, 'commits', false).some((e) => e.kind === 'artifact')).toBe(false)
+    expect(filterActivityTimeline(timeline, 'all', true)).toEqual([])
+  })
+})
+
 describe('PR activity inline diff preview', () => {
   const hunk = [
     '@@ -20,10 +20,11 @@ function example() {',

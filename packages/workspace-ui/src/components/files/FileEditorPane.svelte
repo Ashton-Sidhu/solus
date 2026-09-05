@@ -24,6 +24,14 @@
     persistMarkdownFileViewMode,
     type MarkdownFileViewMode,
   } from "./lib/markdown-file";
+  import {
+    HTML_FILE_VIEW_OPTIONS,
+    initialHtmlFileViewMode,
+    isHtmlFile,
+    persistHtmlFileViewMode,
+    type HtmlFileViewMode,
+  } from "./lib/html-file";
+  import HtmlFilePreview from "./HtmlFilePreview.svelte";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
   import CodeIntelPopover from "../code-intel/CodeIntelPopover.svelte";
   import { codeIntelStore } from "../code-intel/code-intel.store.svelte";
@@ -133,6 +141,13 @@
   const headerPath = $derived(displayPath || file.path);
   const headerIcon = $derived(fileTypeIcon(headerPath));
   const isMarkdown = $derived(isMarkdownFile(headerPath));
+  const isHtml = $derived(isHtmlFile(headerPath));
+  let htmlContents = $state("");
+  let htmlSourceMounted = $state(false);
+  let filePreviewRef: FilePreviewStream | null = $state(null);
+  let htmlViewMode = $state<HtmlFileViewMode>(
+    untrack(() => initialHtmlFileViewMode(file.path, file.line)),
+  );
 
   const statusLabel = $derived.by(() => {
     if (isTruncated) return "Truncated — read only";
@@ -169,6 +184,18 @@
     void selectMarkdownView(markdownViewMode === "rendered" ? "source" : "rendered");
   }
 
+  async function selectHtmlView(mode: HtmlFileViewMode) {
+    if (mode === "preview") {
+      const editor = filePreviewRef;
+      await editor?.flushSave();
+      if (editor !== filePreviewRef) return;
+      htmlContents = editor?.getCurrentContents() ?? htmlContents;
+    }
+    if (mode === "source") htmlSourceMounted = true;
+    htmlViewMode = mode;
+    persistHtmlFileViewMode(mode);
+  }
+
   async function loadFile(path: string) {
     const generation = ++loadGeneration;
     loading = true;
@@ -185,10 +212,17 @@
       filePath = result.path;
       displayPath = result.displayPath;
       contents = result.contents;
+      htmlContents = result.contents;
+      htmlSourceMounted = htmlViewMode === "source";
       size = result.size;
       isReadOnly = result.isReadOnly;
       isTruncated = result.truncated === true;
-      if (isTruncated) markdownViewMode = "source";
+      // Half a document previews as a broken page. Both surfaces fall back to
+      // the bytes that actually arrived.
+      if (isTruncated) {
+        markdownViewMode = "source";
+        htmlViewMode = "source";
+      }
     } else {
       filePath = path;
       displayPath = path;
@@ -238,6 +272,15 @@
         isActive={(mode) => markdownViewMode === mode}
         onSelect={selectMarkdownView}
         ariaLabel="Markdown file view"
+        variant="bar"
+        compact
+      />
+    {:else if isHtml && !isTruncated}
+      <SegmentedControl
+        options={HTML_FILE_VIEW_OPTIONS}
+        isActive={(mode) => htmlViewMode === mode}
+        onSelect={selectHtmlView}
+        ariaLabel="HTML file view"
         variant="bar"
         compact
       />
@@ -293,23 +336,32 @@
         }}
       />
     {:else}
-      <FilePreviewStream
-        api={workspace.apiForSession(ctx.session.sessionId)}
-        {ctx}
-        {cwd}
-        {filePath}
-        {displayPath}
-        {contents}
-        line={file.line}
-        {revealEpoch}
-        {isDark}
-        {isReadOnly}
-        onSaveStateChange={(state) => {
-          saveState = state;
-        }}
-        onSymbolHit={sourceId ? handleSymbolHit : undefined}
-        symbolAvailability={sourceId ? availabilityOfSymbol : undefined}
-      />
+      {#if isHtml && htmlViewMode === "preview" && !isTruncated}
+        <HtmlFilePreview contents={htmlContents} title={headerPath} />
+      {/if}
+      {#if !isHtml || htmlViewMode === "source" || htmlSourceMounted}
+        <div class="flex min-h-0 flex-1 flex-col" style:display={isHtml && htmlViewMode === "preview" && !isTruncated ? "none" : undefined}>
+          <FilePreviewStream
+            bind:this={filePreviewRef}
+            api={workspace.apiForSession(ctx.session.sessionId)}
+            {ctx}
+            {cwd}
+            {filePath}
+            {displayPath}
+            {contents}
+            line={file.line}
+            {revealEpoch}
+            {isDark}
+            {isReadOnly}
+            onSaveStateChange={(state) => {
+              saveState = state;
+            }}
+            onSymbolHit={sourceId ? handleSymbolHit : undefined}
+            symbolAvailability={sourceId ? availabilityOfSymbol : undefined}
+            onContentsChange={(nextContents) => { htmlContents = nextContents; }}
+          />
+        </div>
+      {/if}
     {/if}
   {/if}
 </div>

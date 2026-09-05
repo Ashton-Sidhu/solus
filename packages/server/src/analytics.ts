@@ -3,9 +3,9 @@ import { getInstallationId } from './server/auth'
 import { getHostConfig } from './server/settings'
 import { createLogger } from './logger'
 import type { ServerEventMap } from '@solus/contracts/analytics-events'
+import { TELEMETRY_SHUTDOWN_TIMEOUT_MS } from './observability/telemetry-shutdown'
 
 const log = createLogger('main', 'analytics')
-const SHUTDOWN_TIMEOUT_MS = 1_500
 
 let client: PostHog | null = null
 
@@ -47,7 +47,7 @@ export async function shutdownAnalytics(): Promise<void> {
     await Promise.race([
       client.shutdown(),
       new Promise<void>((resolve) => {
-        timeout = setTimeout(resolve, SHUTDOWN_TIMEOUT_MS)
+        timeout = setTimeout(resolve, TELEMETRY_SHUTDOWN_TIMEOUT_MS)
       }),
     ])
   } finally {

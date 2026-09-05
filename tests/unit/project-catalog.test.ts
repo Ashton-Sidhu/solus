@@ -4,7 +4,7 @@ import {
   normalizeProjectRoot,
   projectRefKey,
 } from '@solus/workspace-ui/contexts/projects/project-catalog'
-import { ProjectCatalogStore } from '@solus/workspace-ui/contexts/projects/project-catalog.store.svelte'
+import { ProjectsStore } from '@solus/workspace-ui/contexts/projects/projects.store.svelte'
 import { SOLUS_WORKTREE_PATH_MARKER } from '@solus/contracts/types'
 
 class MemoryStorage implements Storage {
@@ -88,9 +88,9 @@ describe('mergeProjectOptions', () => {
   })
 })
 
-describe('ProjectCatalogStore', () => {
+describe('ProjectsStore', () => {
   test('records opened/cloned/adopted/session-run projects, touching an existing entry instead of duplicating it', () => {
-    const catalog = new ProjectCatalogStore()
+    const catalog = new ProjectsStore()
     catalog.record({ serverId: 'host-a', projectRoot: '/repos/solus' }, 'Solus')
     catalog.record({ serverId: 'host-a', projectRoot: '/repos/solus' }, 'Solus (renamed)')
 
@@ -99,7 +99,7 @@ describe('ProjectCatalogStore', () => {
   })
 
   test('equal paths on different hosts stay two distinct catalog entries', () => {
-    const catalog = new ProjectCatalogStore()
+    const catalog = new ProjectsStore()
     catalog.record({ serverId: 'host-a', projectRoot: '/repos/solus' }, 'Solus')
     catalog.record({ serverId: 'host-b', projectRoot: '/repos/solus' }, 'Solus')
 
@@ -108,7 +108,7 @@ describe('ProjectCatalogStore', () => {
   })
 
   test('explicit removal forgets only the named entry, and only that one', () => {
-    const catalog = new ProjectCatalogStore()
+    const catalog = new ProjectsStore()
     catalog.record({ serverId: 'host-a', projectRoot: '/repos/solus' }, 'Solus')
     catalog.record({ serverId: 'host-a', projectRoot: '/repos/tools' }, 'Tools')
 
@@ -118,7 +118,7 @@ describe('ProjectCatalogStore', () => {
   })
 
   test('removal never touches unrelated entries and is a no-op for an unknown project', () => {
-    const catalog = new ProjectCatalogStore()
+    const catalog = new ProjectsStore()
     catalog.record({ serverId: 'host-a', projectRoot: '/repos/solus' }, 'Solus')
 
     catalog.remove({ serverId: 'host-a', projectRoot: '/repos/unknown' })
@@ -127,28 +127,28 @@ describe('ProjectCatalogStore', () => {
   })
 
   test('persists across store instances — a project opened once is still known after a restart', () => {
-    const first = new ProjectCatalogStore()
+    const first = new ProjectsStore()
     first.record({ serverId: 'host-a', projectRoot: '/repos/solus' }, 'Solus')
     first.flush()
 
-    const restarted = new ProjectCatalogStore()
+    const restarted = new ProjectsStore()
     expect(restarted.entries).toHaveLength(1)
     expect(restarted.entries[0]).toMatchObject({ serverId: 'host-a', projectRoot: '/repos/solus', label: 'Solus' })
   })
 
   test('removal persists too — a forgotten project does not come back after a restart', () => {
-    const first = new ProjectCatalogStore()
+    const first = new ProjectsStore()
     first.record({ serverId: 'host-a', projectRoot: '/repos/solus' }, 'Solus')
     first.flush()
     first.remove({ serverId: 'host-a', projectRoot: '/repos/solus' })
     first.flush()
 
-    const restarted = new ProjectCatalogStore()
+    const restarted = new ProjectsStore()
     expect(restarted.entries).toHaveLength(0)
   })
 
   test('passive host discovery does not restore an explicitly removed project', () => {
-    const catalog = new ProjectCatalogStore()
+    const catalog = new ProjectsStore()
     const project = { serverId: 'host-a', projectRoot: '/repos/solus' }
     catalog.recordDiscovered(project, 'Solus')
     catalog.remove(project)
@@ -160,12 +160,12 @@ describe('ProjectCatalogStore', () => {
 
   test('the discovery exclusion persists, but opening the project restores it', () => {
     const project = { serverId: 'host-a', projectRoot: '/repos/solus' }
-    const first = new ProjectCatalogStore()
+    const first = new ProjectsStore()
     first.recordDiscovered(project, 'Solus')
     first.remove(project)
     first.flush()
 
-    const restarted = new ProjectCatalogStore()
+    const restarted = new ProjectsStore()
     restarted.recordDiscovered(project, 'Solus')
     expect(restarted.entries).toHaveLength(0)
 

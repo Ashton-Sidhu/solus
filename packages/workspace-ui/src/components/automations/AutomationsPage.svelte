@@ -9,7 +9,7 @@
     getWindowContext,
     runtime,
     serversStore,
-    projectCatalog,
+    projectsStore,
   } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import {
@@ -92,7 +92,7 @@
     // union them in at zero count, so the filter also offers "jump scope to a
     // project before automating it," not only ones the list already spans.
     const extra: AutomationProject[] = [];
-    for (const entry of projectCatalog.entries) {
+    for (const entry of projectsStore.entries) {
       if (entry.serverId !== selectedServerId) continue;
       const key = hostKey(entry.serverId, entry.projectRoot);
       if (base.some((project) => project.key === key)) continue;
@@ -418,7 +418,7 @@
 
   function removeProjectHistory(option: ListProjectOption) {
     if (!option.serverId) return;
-    projectCatalog.remove({
+    projectsStore.remove({
       serverId: option.serverId,
       projectRoot: option.projectKey,
     });

@@ -43,7 +43,6 @@
   import type { Command } from "./components/command-palette/lib/commands";
   import {
     projectsStore,
-    projectCatalog,
     connectionsStore,
     serversStore,
     atlassianStore,
@@ -230,7 +229,7 @@
       flushDrafts();
       flushPersistedTabs();
       flushPersistedSessionDrafts();
-      projectCatalog.flush();
+      projectsStore.flush();
     };
     const handlePageHide = (event: PageTransitionEvent) => {
       flush();
@@ -1541,8 +1540,9 @@
     void session.worksStore.loadAll(scopedCwd);
     void session.automationsStore.loadAll();
     if (taskCwd) void session.tasksStore.ensureLoaded();
+    const projectApi = session.apiForContext(ctx);
     projectsStore
-      .loadProjects({ force: true })
+      .loadProjectsFor(serverConnections.serverIdForApi(projectApi), projectApi, { force: true })
       .then((ps) => {
         paletteProjects = ps;
       })
@@ -2358,7 +2358,6 @@
 
   async function handleDirectorySelected(dir: string) {
     directoryPickerOpen = false;
-    projectsStore.invalidateRecentProjects();
     if (directoryPickerForOpenProject) {
       await finishBrowsedOpenProject(dir);
       return;

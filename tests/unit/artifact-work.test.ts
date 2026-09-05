@@ -37,6 +37,10 @@ const artifactViewSource = readFileSync(
   join(import.meta.dir, '../../packages/workspace-ui/src/components/artifact/ArtifactView.svelte'),
   'utf8',
 )
+const sandboxFrameSource = readFileSync(
+  join(import.meta.dir, '../../packages/workspace-ui/src/components/artifact/SandboxFrame.svelte'),
+  'utf8',
+)
 const webLayoutSource = readFileSync(
   join(import.meta.dir, '../../apps/client/src/components/WebLayout.svelte'),
   'utf8',
@@ -121,9 +125,40 @@ describe('the artifact work surface', () => {
     // WHY: artifact HTML normally reports its content height for transcript
     // cards. A pane must opt into the available height or it leaves the lower
     // part of the workspace as an unrelated dark block.
-    expect(artifactShellSource).toContain('<ArtifactView {artifact} fillAvailable skipMotion />')
-    expect(artifactViewSource).toContain('class:fill-available={fillAvailable}')
-    expect(artifactViewSource).toContain('.artifact-iframe.fill-available')
+    expect(artifactShellSource).toContain('<ArtifactView {artifact} {reloadKey} fillAvailable skipMotion />')
+    expect(sandboxFrameSource).toContain('class:fill-available={fillAvailable}')
+    expect(sandboxFrameSource).toContain('.artifact-iframe.fill-available')
+  })
+
+  test('expanding never re-creates the frame, and only a reload does', () => {
+    // WHY: expand is a position:fixed class on the same element, so a render
+    // with live state — a moved slider, a running simulation — survives it.
+    // Re-parenting or re-keying the iframe on expand would reload the document
+    // and silently reset that state.
+    expect(sandboxFrameSource).toContain('class="artifact-frame"')
+    expect(sandboxFrameSource).toContain('class:expanded')
+    expect(sandboxFrameSource).toContain('{#key reloadKey}')
+    expect(sandboxFrameSource).not.toContain('{#key expanded}')
+    // The same reason ancestors release paint containment rather than the frame
+    // moving out of them.
+    expect(sandboxFrameSource).toContain(':global(.cv-list > *:has(.artifact-frame.expanded))')
+  })
+
+  test('the reported height is a fixed point, never padded', () => {
+    // WHY: any additive buffer feeds back forever for a render whose body
+    // tracks the viewport — the taller frame makes the body taller, which
+    // reports taller. That creep read to the user as a resize stutter.
+    expect(sandboxFrameSource).toContain('Math.max(40, Math.ceil(parsed.data.h))')
+  })
+
+  test('a render may open a window, post a form, and download, but never reach the workspace', () => {
+    // WHY: allow-same-origin is the one flag that would give a frame the
+    // workspace DOM, its storage, and its session. Everything else an ordinary
+    // page needs is granted.
+    expect(sandboxFrameSource).toContain(
+      'sandbox="allow-scripts allow-popups allow-forms allow-modals allow-downloads"',
+    )
+    expect(sandboxFrameSource).not.toContain('allow-same-origin')
   })
 
   test('mobile uses the shared type-aware work route', () => {
@@ -151,11 +186,19 @@ describe('the artifact work surface', () => {
     // WHY: fullscreen expansion duplicates the mobile work surface and can trap
     // the user in an overlay. Image copy remains useful and cannot depend on a
     // hover pass because the iframe or image receives the first tap.
-    expect(artifactViewSource).toContain('{#if !runtime.isMobileViewport}')
-    expect(artifactViewSource).toContain('if (runtime.isMobileViewport) expanded = false;')
-    expect(artifactViewSource).toContain('@media (hover: none), (pointer: coarse)')
-    expect(artifactViewSource).toMatch(/\.artifact-actions\s*\{\s*opacity: 1;/)
-    expect(artifactViewSource).toMatch(/\.artifact-action\s*\{\s*width: 2\.5rem;\s*height: 2\.5rem;/)
+    // A render that HAS a work opens the work; one that does not — an ephemeral
+    // HTML block — has nowhere else to go and keeps the overlay.
+    expect(sandboxFrameSource).toContain(
+      'const handsOffOnTouch = $derived(!!onExpandOnTouch && runtime.isMobileViewport);',
+    )
+    expect(sandboxFrameSource).toContain('if (handsOffOnTouch) expanded = false;')
+    expect(artifactViewSource).toContain('session.openWork(workRef.workId, "focused")')
+    expect(sandboxFrameSource).toContain('@media (hover: none), (pointer: coarse)')
+    expect(sandboxFrameSource).toMatch(/\.artifact-actions\s*\{\s*opacity: 1;/)
+    expect(sandboxFrameSource).toMatch(
+      /:global\(\.artifact-action\)\s*\{\s*width: 2\.5rem;\s*height: 2\.5rem;/,
+    )
+    expect(artifactViewSource).toContain('data-testid="artifact-copy-image"')
   })
 
   test('the mobile Folio list opens HTML artifacts instead of previewing their source', () => {
@@ -243,26 +286,37 @@ describe('render_artifact persists a work', () => {
     expect((await works.listWorks()).map((work) => work.id)).toContain(artifact.workId)
   })
 
-  test('the work links to the task the rendering session is working', async () => {
-    // WHY: a document written by a session on a task appears on that task;
-    // an artifact rendered by the same session must not be the one thing
-    // that does not.
+  test('an artifact is not filed on the task unless asked', async () => {
+    // WHY: a document written for a task belongs on it, but a render is
+    // often a glance — a chart the user wanted to see once. Filing every one
+    // on the ticket turned the task's Linked list into a gallery of throwaway
+    // renders. The reader links or pins from the rail; the agent passes
+    // link_to_task when the user asked for it on the task.
     const record = await taskStore.createTask({ title: 'Report latency' })
     const task = await tasks.Task.byId(record.id)
     await task.linkSession(SESSION_ID)
 
     const emitted: Array<{ workId: string }> = []
-    await artifactTools.executeArtifactTool(
+    const unlinked = await artifactTools.executeArtifactTool(
       { html: HTML, title: 'Latency report' },
       {
         ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' },
         onArtifact: (artifact) => emitted.push(artifact),
       },
     )
+    expect(unlinked.text).toContain('not linked to a task')
+    expect((await task.details()).links.map((link) => link.targetKey)).not.toContain(emitted[0].workId)
 
-    const details = await task.details()
-    expect(details.links).toContainEqual(
-      expect.objectContaining({ kind: 'work', targetKey: emitted[0].workId, liveStatus: 'artifact' }),
+    const linked = await artifactTools.executeArtifactTool(
+      { html: HTML, title: 'Latency report, kept', link_to_task: true },
+      {
+        ctx: { sessionId: SESSION_ID, agentProvider: 'claude-code', cwd: '~' },
+        onArtifact: (artifact) => emitted.push(artifact),
+      },
+    )
+    expect(linked.text).toContain('linked to the session')
+    expect((await task.details()).links).toContainEqual(
+      expect.objectContaining({ kind: 'work', targetKey: emitted[1].workId, liveStatus: 'artifact' }),
     )
   })
 
@@ -280,13 +334,15 @@ describe('render_artifact persists a work', () => {
         sessionId: () => SESSION_ID,
         solusSessionId: () => undefined,
         provider: 'claude-code',
+        parentToolUseId: () => 'artifact-call-1',
+        abortSignal: new AbortController().signal,
         cwd: '~',
         emit: (event: NormalizedEvent) => events.push(event),
       } as unknown as Parameters<typeof artifactTools.renderArtifactAgentTool.execute>[1],
     )
     expect(result.ok).toBe(true)
     expect(events).toHaveLength(1)
-    expect(events[0]).toMatchObject({ type: 'artifact_created', kind: 'html', html: HTML, title: 'Latency report' })
+    expect(events[0]).toMatchObject({ type: 'artifact_created', toolId: 'artifact-call-1', kind: 'html', html: HTML, title: 'Latency report' })
     expect(events[0].type === 'artifact_created' && events[0].workId).toBeTruthy()
   })
 })

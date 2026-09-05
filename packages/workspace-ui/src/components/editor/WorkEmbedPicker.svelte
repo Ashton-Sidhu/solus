@@ -1,19 +1,35 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { Network as ArchitectureIcon, Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte";
+  import {
+    Network as ArchitectureIcon,
+    LayoutTemplate as ArtifactIcon,
+    Search as MagnifyingGlassIcon,
+    X as XIcon,
+  } from "@lucide/svelte";
+  import type { WorkEmbedType } from "@solus/contracts/work-embed";
   import { portal } from "../portal";
-  import type { DiagramEmbedChoice } from "./diagramEmbedExtension";
+  import type { WorkEmbedChoice } from "./lib/work-embed";
 
+  /**
+   * Choose the work a `work://embed` token points at. One picker for the whole
+   * embed family: the two members differ by their icon and their noun, which
+   * is not enough to be two dialogs.
+   */
   interface Props {
-    choices: DiagramEmbedChoice[];
-    onSelect: (choice: DiagramEmbedChoice) => void;
+    type: WorkEmbedType;
+    choices: WorkEmbedChoice[];
+    onSelect: (choice: WorkEmbedChoice) => void;
     onClose: () => void;
   }
 
-  let { choices, onSelect, onClose }: Props = $props();
+  let { type, choices, onSelect, onClose }: Props = $props();
   let query = $state("");
   let selectedIndex = $state(0);
   let input: HTMLInputElement | null = $state(null);
+
+  const noun = $derived(type === "diagram" ? "diagram" : "artifact");
+  const plural = $derived(type === "diagram" ? "diagrams" : "artifacts");
+  const Icon = $derived(type === "diagram" ? ArchitectureIcon : ArtifactIcon);
 
   const filtered = $derived(
     choices.filter((choice) => choice.title.toLowerCase().includes(query.trim().toLowerCase())),
@@ -52,11 +68,11 @@
     role="dialog"
     tabindex="-1"
     aria-modal="true"
-    aria-label="Embed diagram"
+    aria-label={`Embed ${noun}`}
   >
     <header class="flex items-center gap-2 border-b border-(--solus-container-border) px-4 py-3">
-      <ArchitectureIcon size={16} class="text-(--solus-accent)" />
-      <h2 class="min-w-0 flex-1 text-sm font-semibold text-(--solus-text-primary)">Embed diagram</h2>
+      <Icon size={16} class="text-(--solus-accent)" />
+      <h2 class="min-w-0 flex-1 text-sm font-semibold text-(--solus-text-primary)">Embed {noun}</h2>
       <button type="button" class="rounded-lg p-1 text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary)" aria-label="Close" onclick={onClose}>
         <XIcon size={15} />
       </button>
@@ -64,13 +80,13 @@
     <div class="border-b border-(--solus-container-border) p-2.5">
       <label class="flex items-center gap-2 rounded-xl bg-(--solus-surface-primary) px-3 py-2">
         <MagnifyingGlassIcon size={14} class="text-(--solus-text-tertiary)" />
-        <input bind:this={input} bind:value={query} oninput={() => (selectedIndex = 0)} class="min-w-0 flex-1 border-0 bg-transparent text-sm text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary)" placeholder="Search diagrams…" />
+        <input bind:this={input} bind:value={query} oninput={() => (selectedIndex = 0)} class="min-w-0 flex-1 border-0 bg-transparent text-sm text-(--solus-text-primary) outline-none placeholder:text-(--solus-text-tertiary)" placeholder={`Search ${plural}…`} />
       </label>
     </div>
     <div class="max-h-80 overflow-y-auto p-2">
       {#if filtered.length === 0}
         <div class="px-4 py-10 text-center text-sm text-(--solus-text-tertiary)">
-          {choices.length === 0 ? "No diagrams are available" : "No matching diagrams"}
+          {choices.length === 0 ? `No ${plural} are available` : `No matching ${plural}`}
         </div>
       {:else}
         {#each filtered as choice, index (choice.workId)}
@@ -80,7 +96,7 @@
             onmouseenter={() => (selectedIndex = index)}
             onclick={() => onSelect(choice)}
           >
-            <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-accent-light) text-(--solus-accent)"><ArchitectureIcon size={15} /></span>
+            <span class="flex size-8 shrink-0 items-center justify-center rounded-lg bg-(--solus-accent-light) text-(--solus-accent)"><Icon size={15} /></span>
             <span class="min-w-0 flex-1 truncate text-sm font-medium text-(--solus-text-primary)">{choice.title}</span>
           </button>
         {/each}

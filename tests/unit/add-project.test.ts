@@ -45,28 +45,27 @@ function fakeHost() {
 }
 
 async function stores() {
-  const { projectsStore } = await import('@solus/workspace-ui/contexts/projects/projects.store.svelte')
-  const { projectCatalog } = await import('@solus/workspace-ui/contexts/projects/project-catalog.store.svelte')
-  return { projectsStore, projectCatalog }
+  const { ProjectsStore } = await import('@solus/workspace-ui/contexts/projects/projects.store.svelte')
+  return new ProjectsStore({ entries: [], ignoredDiscoveryKeys: [] }, async () => [])
 }
 
 describe('adding a project from the directory picker', () => {
   test('records it against the browsed host and tells that host to remember it', async () => {
-    const { projectsStore, projectCatalog } = await stores()
+    const projectsStore = await stores()
     const host = fakeHost()
 
     const project = await projectsStore.addProject('studio-vm', host.api, '/repos/solus')
 
-    expect(projectCatalog.has({ serverId: 'studio-vm', projectRoot: '/repos/solus' })).toBe(true)
+    expect(projectsStore.has({ serverId: 'studio-vm', projectRoot: '/repos/solus' })).toBe(true)
     expect(host.tracked).toEqual(['/repos/solus'])
     expect(project).toEqual({ serverId: 'studio-vm', projectRoot: '/repos/solus' })
     // The folder name is what a switcher row identifies the project by.
-    const entry = projectCatalog.entries.find((e) => e.projectRoot === '/repos/solus')
+    const entry = projectsStore.entries.find((e) => e.projectRoot === '/repos/solus')
     expect(entry?.label).toBe('solus')
   })
 
   test('a worktree checkout is added as its project, not as a second project', async () => {
-    const { projectsStore, projectCatalog } = await stores()
+    const projectsStore = await stores()
     const host = fakeHost()
 
     await projectsStore.addProject(
@@ -75,33 +74,33 @@ describe('adding a project from the directory picker', () => {
       `/repos/atlas/${SOLUS_WORKTREE_PATH_MARKER}/feature-branch`,
     )
 
-    expect(projectCatalog.has({ serverId: 'local', projectRoot: '/repos/atlas' })).toBe(true)
+    expect(projectsStore.has({ serverId: 'local', projectRoot: '/repos/atlas' })).toBe(true)
     expect(host.tracked).toEqual(['/repos/atlas'])
   })
 
   test('the host workspace root is not a project, so neither record is written', async () => {
-    const { projectsStore, projectCatalog } = await stores()
+    const projectsStore = await stores()
     const host = fakeHost()
-    const before = projectCatalog.entries.length
+    const before = projectsStore.entries.length
 
     const project = await projectsStore.addProject('local', host.api, '~')
 
-    expect(projectCatalog.entries).toHaveLength(before)
+    expect(projectsStore.entries).toHaveLength(before)
     expect(host.tracked).toEqual([])
     expect(project).toBeNull()
   })
 
   test('a host that cannot record the project still leaves the switcher able to scope to it', async () => {
-    const { projectsStore, projectCatalog } = await stores()
+    const projectsStore = await stores()
     const failing = { trackRecentProject: async () => { throw new Error('host offline') } }
 
     await projectsStore.addProject('studio-vm', failing, '/repos/lighthouse')
 
-    expect(projectCatalog.has({ serverId: 'studio-vm', projectRoot: '/repos/lighthouse' })).toBe(true)
+    expect(projectsStore.has({ serverId: 'studio-vm', projectRoot: '/repos/lighthouse' })).toBe(true)
   })
 
   test('records the project before the host finishes updating its recents', async () => {
-    const { projectsStore, projectCatalog } = await stores()
+    const projectsStore = await stores()
     let finishTracking: (() => void) | undefined
     const api = {
       trackRecentProject: () => new Promise<void>((resolve) => { finishTracking = resolve }),
@@ -109,7 +108,7 @@ describe('adding a project from the directory picker', () => {
 
     const pending = projectsStore.addProject('remote', api, '/repos/instant')
 
-    expect(projectCatalog.has({ serverId: 'remote', projectRoot: '/repos/instant' })).toBe(true)
+    expect(projectsStore.has({ serverId: 'remote', projectRoot: '/repos/instant' })).toBe(true)
     finishTracking?.()
     await pending
   })

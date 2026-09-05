@@ -380,20 +380,6 @@ describe('turn collapse', () => {
     expect(turns.map((turn) => turn.live)).toEqual([false, true])
   })
 
-  test('a rate limit reported as the turn lands does not fold the answer away', () => {
-    const [turn] = turnsFor([
-      msg({ role: 'user', content: 'rescope the spec' }),
-      tool('Read', '{"file_path":"spec.md"}'),
-      msg({ role: 'assistant', content: 'Rescoped — it now reads as a build plan.' }),
-      msg({ role: 'system', content: 'Rate limit warning (seven_day).', rateLimitNotice: true }),
-    ])
-
-    // The notice is a fact about the run, so it must not be read as the end of
-    // the answer — the answer stays on screen and the notice sits under it.
-    expect(turn.body.map((item) => item.kind)).toEqual(['tool-group'])
-    expect(turn.tail.map((item) => item.kind)).toEqual(['assistant', 'system'])
-  })
-
   test('each user message opens its own turn', () => {
     const turns = turnsFor([
       msg({ role: 'user', content: 'first' }),

@@ -8,7 +8,7 @@ import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTa
 import type { WorkspaceContext } from './workspace.context.svelte'
 import { stampSessionMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
-import { projectCatalog } from '../projects/project-catalog.store.svelte'
+import { projectsStore } from '../projects/projects.store.svelte'
 import { projectDirLabel } from '../../lib/paths'
 import { z } from 'zod'
 
@@ -312,7 +312,7 @@ function _materializeTabs(
       if (snapTab.modelConfig) run.modelConfig = restoredModelConfig(snapTab)
       const catalogRoot = run.gitContext?.repoRoot ?? run.workingDirectory
       if (serverId && catalogRoot && catalogRoot !== '~') {
-        projectCatalog.record(
+        projectsStore.record(
           { serverId, projectRoot: catalogRoot },
           projectDirLabel(catalogRoot, ctx.staticInfo?.workspacePath),
         )

@@ -8,5 +8,6 @@
 <ListPageSkeleton
   label="Loading tasks"
   hasPrimaryAction
+  hasViewSwitcher={false}
   identWidth={62}
 />

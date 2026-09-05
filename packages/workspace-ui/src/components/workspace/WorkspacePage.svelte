@@ -21,7 +21,7 @@
     getPlanStore,
     getWindowContext,
     runtime,
-    projectCatalog,
+    projectsStore,
     mergeProjectOptions,
     projectRefKey,
     serversStore,
@@ -119,7 +119,7 @@
   // closing or focusing a session must not alter this page while it is open.
   const projectOptions = $derived(
     mergeProjectOptions(
-      [projectCatalog.entries],
+      [projectsStore.entries],
       (serverId) => serversStore.statusFor(serverId) !== "offline",
       (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
     ).map<ListProjectOption>((option) => ({
@@ -199,25 +199,15 @@
   }
 
   function removeProjectHistory(option: { serverId: string; projectKey: string }) {
-    projectCatalog.remove({
+    projectsStore.remove({
       serverId: option.serverId,
       projectRoot: option.projectKey,
     });
   }
 
-  async function refreshCatalogFromRecents(serverId: string) {
-    const recentProjects = await serversStore.recentProjectsFor(serverId);
-    for (const project of recentProjects) {
-      projectCatalog.recordDiscovered(
-        { serverId, projectRoot: project.path },
-        project.folderName,
-      );
-    }
-  }
-
   function refreshRecentProjects() {
     for (const host of serversStore.servers) {
-      void refreshCatalogFromRecents(host.id);
+      void projectsStore.loadRecentProjects(host.id);
     }
   }
 
@@ -294,7 +284,7 @@
     // Changes to hidden tabs and sessions after this point cannot retarget it.
     untrack(() => {
       if (projectScope) {
-        projectCatalog.record(
+        projectsStore.record(
           projectScope,
           projectDirLabel(projectScope.projectRoot, session.staticInfo?.workspacePath),
         );

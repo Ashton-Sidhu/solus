@@ -246,11 +246,6 @@ function isDivider(item: GroupedItem): boolean {
   return !!(agentChangedTo || forkSourceSessionId || worktreeMovedTo || newSessionForPlanId)
 }
 
-/** A provider rate limit is a fact about the run, not a step in the turn. */
-function isRateLimitNotice(item: GroupedItem): boolean {
-  return item.kind === 'system' && !!item.message.rateLimitNotice
-}
-
 const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant'])
 const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
   'artifact',
@@ -345,11 +340,6 @@ export function buildTurns(items: GroupedItem[], opts: { running: boolean }): Tu
     // Walk back over the answer to find where it starts. The absorbed notice is
     // not rendered at all, so it cannot end the answer.
     let tailStart = endIndex >= 0 ? endIndex : body.length
-    // A rate limit reported as the turn lands sits after the answer without being
-    // part of it. Left in the way, it would stop this walk on the first step and
-    // fold the whole answer behind the activity row — so step over it, and it
-    // rides along in the tail where it was written.
-    while (tailStart > 0 && isRateLimitNotice(body[tailStart - 1])) tailStart--
     while (tailStart > 0 && OUTPUT_KINDS.has(body[tailStart - 1].kind)) tailStart--
 
     // One cut, so both slices keep the order they happened in.

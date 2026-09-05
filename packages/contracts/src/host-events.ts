@@ -22,7 +22,7 @@ import type {
   VoiceModelStatus,
 } from './types'
 import type { GitActionProgressEvent } from './git-types'
-import type { BrowserPage } from './browser-types'
+import type { BrowserPage, BrowserProfileSet } from './browser-types'
 import type { CodeIntelStatus } from './code-intel'
 import { z } from 'zod'
 
@@ -71,6 +71,10 @@ export interface HostEventMap {
    *  calling `browserOpen` with `requestSurface`. Desktop clients answer by
    *  opening the browser pane onto that page. */
   'browser.surfaceRequested': { browserPageId: string }
+  /** One project's named browser profiles changed. Whole set rather than a
+   *  delta: the list is a handful of rows, and two mounted clients offering
+   *  different identities for one project is the failure to avoid. */
+  'browser.profilesChanged': { profiles: BrowserProfileSet }
   'atlassian.oauthCompleted': AtlassianOAuthCompleted
   /** This host's config changed. Every mounted client adopts it, so two
    *  windows or two devices cannot end a turn showing different settings. */
@@ -124,6 +128,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'browser.pageChanged': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page changed target, viewport, host, or load state.' },
   'browser.pageClosed': { owner: 'browser', category: 'delta', recovery: 'reload', description: 'A browser page was closed.' },
   'browser.surfaceRequested': { owner: 'browser', category: 'targeted', recovery: 'reset', description: 'A browser page was explicitly asked to be given a client surface.' },
+  'browser.profilesChanged': { owner: 'browser', category: 'snapshot', recovery: 'reload', description: "A project's named browser profiles changed." },
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },
   'config.changed': { owner: 'config', category: 'snapshot', recovery: 'reload', description: 'This host config changed; every mounted client adopts the snapshot.' },
   'codeIntel.statusChanged': { owner: 'code-intel', category: 'snapshot', recovery: 'reload', description: 'A project code-intelligence index started, finished, failed, or went stale.' },

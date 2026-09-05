@@ -7,7 +7,7 @@
   import { stageDrag } from "./lib/stage-drag.svelte";
   import {
     BROWSER_BLANK_URL,
-    browserPartition,
+    browserProfilePartition,
   } from "@solus/contracts/browser-types";
   import { placeGuest } from "./lib/stage-math";
   import {
@@ -126,10 +126,11 @@
                stage on the frame's white background. -->
           <webview
             src={BROWSER_BLANK_URL}
-            partition={browserPartition(
+            partition={browserProfilePartition(
               entry.page.target.kind === "url"
                 ? entry.page.target.projectRoot
                 : undefined,
+              entry.page.profileId,
             )}
             class="absolute top-0 left-0 flex origin-top-left"
             style:width="{entry.page.viewport.width}px"

@@ -10,6 +10,7 @@ import type {
   MetricsTurnTrace,
   MetricsTurnVolumeBucket,
 } from '@solus/contracts/observability-types'
+import { TURN_VOLUME_BUCKET_COUNT } from '@solus/contracts/observability-types'
 import { TURN_LISTING_COLUMNS, TURN_SELECT_COLUMNS } from '@solus/workspace-ui/components/insights/lib/insights-queries'
 import { DEMO_PROJECT } from './types'
 
@@ -138,9 +139,6 @@ export function turnListingResult(turns: DemoTurnRecord[]): MetricsQueryResult {
   }
 }
 
-/** How many buckets the histogram is aggregated into, matching the server's. */
-const VOLUME_BUCKET_COUNT = 112
-
 const SORT_VALUE = {
   started_at: (turn) => turn.startedAt,
   duration_ms: (turn) => turn.durationMs,
@@ -186,10 +184,10 @@ function statsOf(turns: DemoTurnRecord[]): MetricsTurnStats {
 }
 
 function volumeOf(turns: DemoTurnRecord[], from: number, to: number): MetricsTurnVolumeBucket[] {
-  const width = (to - from) / VOLUME_BUCKET_COUNT
+  const width = (to - from) / TURN_VOLUME_BUCKET_COUNT
   const byIndex = new Map<number, MetricsTurnVolumeBucket>()
   for (const turn of turns) {
-    const index = Math.min(VOLUME_BUCKET_COUNT - 1, Math.trunc((turn.startedAt - from) / width))
+    const index = Math.min(TURN_VOLUME_BUCKET_COUNT - 1, Math.trunc((turn.startedAt - from) / width))
     let bucket = byIndex.get(index)
     if (!bucket) {
       bucket = {

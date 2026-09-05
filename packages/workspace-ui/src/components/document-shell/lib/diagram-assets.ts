@@ -1,8 +1,7 @@
 import { findDiagramEmbeds } from '@solus/contracts/diagram-embed'
 import type { Work } from '@solus/contracts/types'
-import type { DocDiagramAsset } from '@solus/contracts/docs'
+import { MAX_DOCUMENT_DIAGRAMS, TOO_MANY_DIAGRAMS_MESSAGE, type DocDiagramAsset } from '@solus/contracts/docs'
 
-const MAX_DIAGRAMS = 20
 /** The server accepts 48 MB of PNG per publish; base64 carries three bytes in four. */
 const MAX_TOTAL_PNG_BASE64_BYTES = 64 * 1024 * 1024
 
@@ -18,7 +17,7 @@ export async function buildDiagramAssets(
   render: DocumentDiagramRenderer,
 ): Promise<DocDiagramAsset[]> {
   const unique = new Map(findDiagramEmbeds(markdown).map((reference) => [reference.workId, reference]))
-  if (unique.size > MAX_DIAGRAMS) throw new Error(`A document can include at most ${MAX_DIAGRAMS} unique diagrams.`)
+  if (unique.size > MAX_DOCUMENT_DIAGRAMS) throw new Error(TOO_MANY_DIAGRAMS_MESSAGE)
 
   let totalBytes = 0
   const assets: DocDiagramAsset[] = []

@@ -1,9 +1,13 @@
 import { serverConnections } from '@solus/client-core/server-connections'
 import { MemoryCache } from '@solus/contracts/cache'
 import type { IpcContext, SessionMeta } from '@solus/contracts/types'
-import type { SessionPreviewResult } from '@solus/contracts/session-history'
+import type { SessionMessageWindow, SessionPreviewResult } from '@solus/contracts/session-history'
 import type { PickerEntry } from './sessionUtils'
-import { extractPreviewMessages, type PreviewExtraction } from './sessionPreviewMessages'
+import {
+  extractPreviewMessages,
+  type LoadedHitWindow,
+  type PreviewExtraction,
+} from './sessionPreviewMessages'
 import type { HostApi } from '@solus/client-core/host-api'
 import { stampSessionMeta } from '@solus/client-core/session-meta'
 
@@ -13,12 +17,25 @@ import { stampSessionMeta } from '@solus/client-core/session-meta'
 export interface PreviewHost {
   serverId: string
   loadSessionPreview: HostApi['loadSessionPreview']
+  loadSessionMessageWindow: HostApi['loadSessionMessageWindow']
   getSessionInfo: HostApi['getSessionInfo']
 }
 
 interface PreviewLoaderDeps {
   hostFor(serverId: string): PreviewHost
 }
+
+/** A search hit to open the preview on: which host holds the session, and
+ *  which indexed message the words were found in. */
+export interface PreviewHitTarget {
+  serverId: string
+  sessionId: string
+  messageId: number
+}
+
+/** Messages either side of a hit. One each way: the turn the words answer
+ *  and the turn that answers them, without the pane becoming a transcript. */
+const HIT_WINDOW_RADIUS = 1
 
 /**
  * Owns the async loading of the session preview body shown beside the picker.
@@ -35,6 +52,9 @@ interface PreviewLoaderDeps {
  */
 export class PreviewLoader {
   snapshot = $state<PreviewExtraction | null>(null)
+  /** The passage a search hit sits in, when the preview was opened on one.
+   *  Set instead of `snapshot`, never beside it. */
+  hitWindow = $state<LoadedHitWindow | null>(null)
   hiddenCount = $state<number | undefined>(undefined)
   /** Everything in the transcript, shown or collapsed. The phone's peek names
    *  the size of the conversation it is showing two messages of. */
@@ -42,6 +62,7 @@ export class PreviewLoader {
   loading = $state(false)
 
   #cache = new MemoryCache<string, SessionPreviewResult>({ maxEntries: 100 })
+  #hitCache = new MemoryCache<string, SessionMessageWindow>({ maxEntries: 100 })
   #seq = 0
   #debounce: ReturnType<typeof setTimeout> | null = null
   #frame: number | null = null
@@ -50,6 +71,7 @@ export class PreviewLoader {
 
   clearCache() {
     this.#cache.clear()
+    this.#hitCache.clear()
   }
 
   /** Cancel any in-flight load and blank the body. */
@@ -64,6 +86,7 @@ export class PreviewLoader {
     }
     this.#seq++
     this.snapshot = null
+    this.hitWindow = null
     this.hiddenCount = undefined
     this.messageCount = undefined
     this.loading = false
@@ -72,9 +95,77 @@ export class PreviewLoader {
   #apply(result: SessionPreviewResult) {
     const snapshot = extractPreviewMessages([...result.head, ...result.tail])
     this.snapshot = snapshot
+    this.hitWindow = null
     const shown = (snapshot.firstUserMessage ? 1 : 0) + (snapshot.lastAssistantMessage ? 1 : 0)
     this.hiddenCount = Math.max(0, result.totalMessages - shown)
     this.messageCount = result.totalMessages
+  }
+
+  /**
+   * Open the preview on a search hit: the message the words were found in and
+   * its neighbours, from the host's index. The index can have moved on since
+   * the search that named the message; when it no longer has it, `fallback`
+   * — the session's ordinary preview — is shown instead, so the pane is never
+   * blank for a session that exists.
+   */
+  showHit(
+    hit: PreviewHitTarget,
+    fallback: PickerEntry | null,
+    ctx: IpcContext,
+    shouldApply: () => boolean,
+  ) {
+    if (this.#debounce) clearTimeout(this.#debounce)
+    if (this.#frame) cancelAnimationFrame(this.#frame)
+
+    const cacheKey = `${hit.serverId}:${hit.sessionId}:${hit.messageId}`
+    const cached = this.#hitCache.get(cacheKey)
+    if (cached) {
+      this.#seq++
+      this.loading = false
+      this.#applyHit(cached, hit, fallback, ctx, shouldApply)
+      return
+    }
+
+    const seq = ++this.#seq
+    this.loading = true
+    this.snapshot = null
+    this.hitWindow = null
+    this.hiddenCount = undefined
+    this.messageCount = undefined
+    this.#debounce = setTimeout(async () => {
+      try {
+        const host = this.deps.hostFor(hit.serverId)
+        const window = await host.loadSessionMessageWindow({
+          sessionId: hit.sessionId,
+          messageId: hit.messageId,
+          radius: HIT_WINDOW_RADIUS,
+        })
+        this.#hitCache.set(cacheKey, window)
+        if (seq === this.#seq && shouldApply()) {
+          this.loading = false
+          this.#applyHit(window, hit, fallback, ctx, shouldApply)
+        }
+      } catch {
+        if (seq === this.#seq) this.loading = false
+      }
+    }, 140)
+  }
+
+  #applyHit(
+    window: SessionMessageWindow,
+    hit: PreviewHitTarget,
+    fallback: PickerEntry | null,
+    ctx: IpcContext,
+    shouldApply: () => boolean,
+  ) {
+    if (window.messages.length === 0) {
+      if (fallback) this.show(fallback, ctx, shouldApply)
+      return
+    }
+    this.snapshot = null
+    this.hitWindow = { window, hitMessageId: hit.messageId }
+    this.hiddenCount = undefined
+    this.messageCount = window.messages.length + window.hiddenBefore + window.hiddenAfter
   }
 
   show(
@@ -95,6 +186,7 @@ export class PreviewLoader {
         this.#frame = null
         const snapshot = extractPreviewMessages(entrySession.messages)
         this.snapshot = snapshot
+        this.hitWindow = null
         const shown =
           (snapshot.firstUserMessage ? 1 : 0) + (snapshot.lastAssistantMessage ? 1 : 0)
         this.hiddenCount = Math.max(0, entrySession.messages.length - shown)
@@ -110,6 +202,7 @@ export class PreviewLoader {
       this.#seq++
       this.loading = false
       this.snapshot = null
+      this.hitWindow = null
       this.hiddenCount = undefined
       this.messageCount = undefined
       return
@@ -127,6 +220,7 @@ export class PreviewLoader {
     const seq = ++this.#seq
     this.loading = true
     this.snapshot = null
+    this.hitWindow = null
     this.hiddenCount = undefined
     this.messageCount = undefined
     this.#debounce = setTimeout(async () => {
@@ -165,6 +259,7 @@ export function createSessionPreviewStore(): PreviewLoader {
       return {
         serverId: resolvedServerId,
         loadSessionPreview: api.loadSessionPreview,
+        loadSessionMessageWindow: api.loadSessionMessageWindow,
         getSessionInfo: api.getSessionInfo,
       }
     },

@@ -94,7 +94,7 @@
      *  you are reading. */
     split?: boolean;
     /** Removes the crumb line when the host surface already owns those
-     *  controls. The narrowing row keeps the split head's top inset. */
+     *  controls. The narrowing row still clears the frame titlebar. */
     hideHeader?: boolean;
     /** A docked record can keep a stable page title without turning it into a
      *  second page-navigation control. */
@@ -163,7 +163,9 @@
     class="mx-auto flex min-h-0 w-full flex-1 flex-col {split
       ? 'px-[18px]'
       : 'max-w-[72rem] px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4'} {hideHeader
-      ? headPad
+      ? split
+        ? 'pt-[max(26px,var(--solus-page-top-inset,0px))] [.is-laptop-display_&]:pt-[max(1.25rem,var(--solus-page-top-inset,0px))]'
+        : 'pt-[max(42px,var(--solus-page-top-inset,0px))] [.is-laptop-display_&]:pt-[max(2rem,var(--solus-page-top-inset,0px))]'
       : ''}"
   >
     <!-- ── Row 1: the breadcrumb, and the controls that act on the window ── -->

@@ -2,6 +2,7 @@
   import type { TaskLink, TaskLinkKind } from "@solus/contracts/task-types";
   import type { DocProviderId } from "@solus/contracts/docs";
   import DocProviderLogo from "../../work/DocProviderLogo.svelte";
+  import { Pin as PinIcon } from "@lucide/svelte";
   import ArtifactView from "../../artifact/ArtifactView.svelte";
   import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import {
@@ -36,6 +37,9 @@
     /** What the attach control offers — "Send to GitHub", or "Attach preview"
      *  when the task has no ticket and the comment stays local. */
     attachLabel?: string;
+    /** Move the task's pinned artifact — the one the page opens with — onto
+     *  this row, or off it. */
+    onPin?: (link: TaskLink, pinned: boolean) => void;
   }
 
   let {
@@ -50,6 +54,7 @@
     previewsEnabled = true,
     onAttachArtifact,
     attachLabel = "Attach preview",
+    onPin,
   }: Props = $props();
 
   /** The row whose attach is in flight; the control says so and refuses a
@@ -321,6 +326,25 @@
             class="flex w-[88px] shrink-0 items-center justify-end gap-1.5 whitespace-nowrap text-muted-foreground opacity-75"
           >
             <span class="truncate">{row.meta}</span>
+            {#if row.isArtifact && onPin}
+              {@const pinned = row.link.pinned === true}
+              <button
+                type="button"
+                class="flex size-[18px] shrink-0 cursor-pointer items-center justify-center rounded transition-opacity hover:bg-[var(--wash-2)] hover:text-foreground {pinned
+ ? 'text-foreground'
+ : 'opacity-0 group-hover:opacity-100 pointer-coarse:opacity-100'}"
+                onclick={(e) => {
+                  e.stopPropagation();
+                  onPin(row.link, !pinned);
+                }}
+                title={pinned ? "Stop opening this task with this render" : "Open this task with this render"}
+                aria-label={pinned ? `Unpin ${row.label}` : `Pin ${row.label}`}
+                aria-pressed={pinned}
+                data-testid="task-artifact-pin"
+              >
+                <PinIcon size={10} fill={pinned ? "currentColor" : "none"} />
+              </button>
+            {/if}
             {#if row.isArtifact}
               {@const previewing = previewKey === row.key}
               <button

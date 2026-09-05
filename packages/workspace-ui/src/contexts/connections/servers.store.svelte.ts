@@ -33,7 +33,6 @@ import {
 } from '@solus/client-core/server-registry'
 import type { DiscoveredServer, HostOperatingSystem, ProjectIdentity } from '@solus/contracts/types'
 import type { HostRoute } from '@solus/contracts/uplink'
-import type { SolusAPI } from '@solus/contracts/host-api'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
 import { accountStore } from '../account/account.store.svelte'
@@ -50,7 +49,6 @@ export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved' | '
 
 const DISCOVERY_INTERVAL_MS = 30_000
 const HOST_PROBE_STALE_MS = 30_000
-const RECENT_PROJECTS_STALE_MS = 30_000
 interface ServerConnectionState {
   transportStatus: ConnectionStatus
   /** The supervisor's word on this host, when one supervises it. */
@@ -86,11 +84,6 @@ export interface UnknownRemoteHost {
   unknown: true
 }
 
-interface RecentProjectsCacheEntry {
-  projects: Awaited<ReturnType<SolusAPI['listRecentProjects']>>
-  expiresAt: number
-}
-
 class ServersStore {
   local = $state<LocalConnectionInfoLike | null>(null)
   /** What the local server calls itself — its hostname, from /health. Null
@@ -122,7 +115,6 @@ class ServersStore {
   private discoveryTimer: ReturnType<typeof setInterval> | null = null
   private scanInFlight = false
   private lastHostProbeAt = 0
-  private readonly recentProjectsByServer = new Map<string, RecentProjectsCacheEntry>()
   private readonly announcedDiscoveredInstallationIds = new Set<string>()
 
   get servers(): ServerItem[] {
@@ -190,8 +182,6 @@ class ServersStore {
   private get isWebClient(): boolean {
     return localApi.getPlatform?.() === 'web'
   }
-
-
 
   get activeServer(): ServerItem | null {
     return this.servers.find((server) => server.id === this.activeServerId) ?? this.servers[0] ?? null
@@ -529,31 +519,6 @@ class ServersStore {
     } catch {
       this.projectIdentitiesByServer[serverId] = []
     }
-  }
-
-  async recentProjectsFor(serverId: string): Promise<Awaited<ReturnType<SolusAPI['listRecentProjects']>>> {
-    const cached = this.recentProjectsByServer.get(serverId)
-    if (cached && cached.expiresAt > Date.now()) return cached.projects
-
-    let projects: Awaited<ReturnType<SolusAPI['listRecentProjects']>> = []
-    if (!serverConnections.localServerId() && serverId === LOCAL_SERVER_ID) {
-      this.recentProjectsByServer.set(serverId, {
-        projects,
-        expiresAt: Date.now() + RECENT_PROJECTS_STALE_MS,
-      })
-      return projects
-    }
-    try {
-      projects = await serverConnections.withTemporaryConnection(
-        serverId,
-        (api) => api.listRecentProjects(),
-      )
-    } catch {}
-    this.recentProjectsByServer.set(serverId, {
-      projects,
-      expiresAt: Date.now() + RECENT_PROJECTS_STALE_MS,
-    })
-    return projects
   }
 
   projectIdentitiesFor(serverId: string): ProjectIdentity[] {

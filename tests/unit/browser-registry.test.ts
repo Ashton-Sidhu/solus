@@ -2,6 +2,7 @@ import { describe, expect, jest, test } from 'bun:test'
 import { initBrowserRegistry, type BrowserEventSink } from '@solus/server/browser/browser-registry'
 import { BrowserFrameChannel } from '@solus/server/browser/browser-frame-channel'
 import {
+  setBrowserProfileHost,
   setBrowserWebviewHost,
   type BrowserEmulation,
   type BrowserFrameListener,
@@ -131,9 +132,15 @@ function harness() {
   const cleared: string[] = []
   setBrowserWebviewHost({
     attach: async (webContentsId) => webContentsId === 2 ? otherDriver : driver,
+  })
+  // The jars are a separate host from the thing that renders a page: a
+  // standalone server holds them as directories, the desktop as Electron
+  // sessions, and both answer this.
+  setBrowserProfileHost({
     clearProfile: async (partition) => {
       cleared.push(partition)
     },
+    importCookies: async () => ({ imported: 0, failed: 0 }),
   })
   const frames = new BrowserFrameChannel()
   return {
@@ -426,7 +433,7 @@ describe('browser registry', () => {
     broken.applyEmulation = async () => {
       throw new Error('Touch points must be between 1 and 16')
     }
-    setBrowserWebviewHost({ attach: async () => broken, clearProfile: async () => {} })
+    setBrowserWebviewHost({ attach: async () => broken })
     const page = registry.open({ target: TARGET })
 
     await expect(registry.attachSurface(page.browserPageId, 1)).rejects.toThrow(/touch points/i)

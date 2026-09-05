@@ -103,9 +103,9 @@ export type SettingsFields = {
 /** Safari does not paint `theme-color` neat: it lays a translucent white
  *  material over the toolbars, so chrome fed the app's own edge colour renders
  *  several steps lighter than the page it borders — exactly the seam the
- *  theme-color was there to remove. Measured at ~9% white against the dark
- *  edge on iOS Safari. */
-const TOOLBAR_MATERIAL_ALPHA = 0.092
+ *  theme-color was there to remove. Measured at ~15% white against the dark
+ *  edge on current iOS Safari. */
+const TOOLBAR_MATERIAL_ALPHA = 0.15
 
 /** The colour that resolves to `hex` once Safari's toolbar material is over it.
  *  A light edge is already near white, so the correction is invisible there and

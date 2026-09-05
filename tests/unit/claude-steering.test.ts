@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+import type { Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import type { NormalizedEvent } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -9,12 +9,16 @@ mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
  *  Only `query` is stubbed — the rest of the SDK (notably `tool`) is still
  *  needed by the MCP servers the backend builds. */
 let scriptedMessages: unknown[] = []
+let capturedOptions: Options | null = null
 const realSdk = await import('@anthropic-ai/claude-agent-sdk')
 mock.module('@anthropic-ai/claude-agent-sdk', () => ({
   ...realSdk,
-  query: () => (async function* () {
-    for (const msg of scriptedMessages) yield msg
-  })(),
+  query: ({ options }: { options: Options }) => {
+    capturedOptions = options
+    return (async function* () {
+      for (const msg of scriptedMessages) yield msg
+    })()
+  },
 }))
 
 let ClaudeBackend: typeof import('@solus/server/agents/claude/claude-backend')['ClaudeBackend']
@@ -106,6 +110,20 @@ describe('ClaudeBackend steering', () => {
 })
 
 describe('ClaudeAgent turn input lifetime', () => {
+  test('withholds Claude cloud scheduling in favor of Solus automations', async () => {
+    scriptedMessages = [{ type: 'result', subtype: 'success', result: 'done' }]
+    const { events } = new ClaudeAgent().run({ prompt: 'Schedule a reminder', cwd: '/tmp' })
+    for await (const _event of events) { /* drain the mocked run */ }
+
+    expect(capturedOptions?.disallowedTools).toEqual(expect.arrayContaining([
+      'RemoteTrigger',
+      'CronCreate',
+      'CronDelete',
+      'CronList',
+      'Skill(schedule)',
+    ]))
+  })
+
   test('holds the stream open past the result while a background task is in flight', async () => {
     scriptedMessages = [
       { type: 'system', subtype: 'task_started', task_id: 'task-1', tool_use_id: 'tool-1' },

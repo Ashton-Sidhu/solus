@@ -2,6 +2,7 @@ import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import { mount, unmount } from "svelte";
 import CodeBlockLanguageSelect from "./CodeBlockLanguageSelect.svelte";
 import { codeBlockPickerLanguage } from "./lib/code-block-language";
+import { fenceLanguage } from "../conversation/lib/html-block";
 import { z } from "zod";
 
 const codeBlockLanguageSchema = z.string().nullable().catch(null);
@@ -93,6 +94,26 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
         wrap.classList.toggle("doc-code-block__btn--on", on);
       });
 
+      // The reverse of the HTML block's "Show as code". An html fence the
+      // content test read as a snippet — or one the author marked `source` —
+      // is still something a reader may want to look at rather than read.
+      const render = control("render", "Render this HTML");
+      render.addEventListener("click", () => {
+        const pos = getPos();
+        if (pos == null) return;
+        const html = currentNode.value.textContent;
+        editor
+          .chain()
+          .focus()
+          .command(({ tr, state }) => {
+            const block = state.schema.nodes.htmlBlock?.create({ html, explicit: true });
+            if (!block) return false;
+            tr.replaceWith(pos, pos + currentNode.value.nodeSize, block);
+            return true;
+          })
+          .run();
+      });
+
       const copy = control("copy", "Copy code");
       copy.addEventListener("click", () => {
         void navigator.clipboard
@@ -104,7 +125,16 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
           .catch(() => {});
       });
 
-      controls.append(wrap, copy);
+      // Only an html fence earns it, and only where the schema has the node —
+      // the prompt editor and the task description share this view without it.
+      const syncRender = () => {
+        const language = codeBlockLanguageSchema.parse(currentNode.value.attrs.language) ?? "";
+        const show = !!editor.state.schema.nodes.htmlBlock && fenceLanguage(language) === "html";
+        render.style.display = show ? "" : "none";
+      };
+      syncRender();
+
+      controls.append(render, wrap, copy);
       caption.append(languageTarget, controls);
 
       const pre = document.createElement("pre");
@@ -143,6 +173,7 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
             codeBlockLanguageSchema.parse(updated.attrs.language),
           );
           languagePicker.setLanguage(next);
+          syncRender();
           syncFocus();
           return true;
         },

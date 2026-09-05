@@ -52,3 +52,29 @@ export interface SessionPreviewResult {
   tail: SessionLoadMessage[]
   totalMessages: number
 }
+
+/** One message as the search index holds it: the spoken turns only, no tool
+ *  traffic, keyed by the row a search hit names. */
+export interface SessionIndexedMessage {
+  messageId: number
+  role: 'user' | 'assistant'
+  ts: number | null
+  text: string
+}
+
+export interface SessionMessageWindowRequest {
+  sessionId: string
+  /** The message to centre on: the `messageId` of a search hit. */
+  messageId: number
+  /** How many messages to include on each side of it. */
+  radius?: number
+}
+
+/** The messages around one message of a session, in transcript order, with
+ *  how many the window left out on either side. Empty when the message is no
+ *  longer indexed. */
+export interface SessionMessageWindow {
+  messages: SessionIndexedMessage[]
+  hiddenBefore: number
+  hiddenAfter: number
+}

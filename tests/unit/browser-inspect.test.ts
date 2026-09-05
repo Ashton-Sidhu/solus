@@ -92,7 +92,7 @@ function harness() {
     surfaceRequested: () => {},
   }
   const driver = new InspectDriver()
-  setBrowserWebviewHost({ attach: async () => driver, clearProfile: async () => {} })
+  setBrowserWebviewHost({ attach: async () => driver })
   return { registry: initBrowserRegistry(sink), driver, published }
 }
 

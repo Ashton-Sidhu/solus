@@ -1300,7 +1300,19 @@
       const otherModifier = isMac ? e.ctrlKey : e.metaKey;
       const background =
         modifier && !e.altKey && !otherModifier && !!onDispatchInBackground;
-      handleSend(e.altKey ? "queue" : "steer", { background });
+      const delivery: PromptDelivery = e.altKey ? "queue" : "steer";
+      // On iOS the soft keyboard holds the word under the caret in flight, and
+      // clearing the composer inside this synchronous keydown is undone by it:
+      // iOS defers the settle blur `clearEditor` issues while it is still
+      // processing the key, so the word is put straight back and the bar never
+      // clears. The send button clears cleanly because a click runs in a fresh
+      // task where that blur takes effect. Hand the send to a fresh task on
+      // touch so Enter behaves the same; leave the synchronous path on desktop.
+      if (isTouch) {
+        setTimeout(() => handleSend(delivery, { background }), 0);
+      } else {
+        handleSend(delivery, { background });
+      }
     }
   }
 

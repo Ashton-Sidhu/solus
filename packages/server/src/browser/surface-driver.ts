@@ -134,9 +134,39 @@ export function emulationChanges(applied: AppliedEmulation | null, next: Applied
  */
 export interface BrowserWebviewHost {
   attach(webContentsId: number): Promise<BrowserSurfaceDriver>
-  /** Forget one browser profile. Profiles persist so a login survives a restart;
-   *  this is the way back out of that. */
+}
+
+/**
+ * Whoever owns the cookie jars on this host: Electron sessions on the desktop,
+ * Playwright user-data directories on a standalone server. Separate from the
+ * surface hosts because a profile is storage that outlives every page. Absent on
+ * a host that holds no profiles, where both operations say so.
+ */
+export interface BrowserProfileHost {
+  /** Forget one browser profile. Pages open on it stay open; the registry
+   *  reloads them afterwards so they show the signed-out state. */
   clearProfile(partition: string): Promise<void>
+  /** Put cookies into one profile's jar. Rows the browser refuses are counted
+   *  rather than thrown: one malformed cookie is not a failed import. */
+  importCookies(partition: string, cookies: BrowserProfileCookie[]): Promise<{ imported: number; failed: number }>
+}
+
+/**
+ * One cookie on its way into a profile. Deliberately absent from
+ * `@solus/contracts`, so no RPC can be declared that carries a value to a
+ * renderer even by accident.
+ */
+export interface BrowserProfileCookie {
+  name: string
+  value: string
+  /** As the source stored it, leading dot included when it was host-only=false. */
+  domain: string
+  path: string
+  secure: boolean
+  httpOnly: boolean
+  sameSite: 'no_restriction' | 'lax' | 'strict'
+  /** Unix seconds. Absent is a session cookie, which is kept as one. */
+  expiresAt?: number
 }
 
 /**
@@ -173,6 +203,7 @@ export interface BrowserHeadlessOpenRequest {
 
 let webviewHost: BrowserWebviewHost | null = null
 let headlessHost: BrowserHeadlessHost | null = null
+let profileHost: BrowserProfileHost | null = null
 
 /** Null is the way back out: a host that cannot render is a real state, and the
  *  registry answers differently for it rather than pretending. */
@@ -190,4 +221,14 @@ export function setBrowserHeadlessHost(host: BrowserHeadlessHost | null): void {
 
 export function browserHeadlessHost(): BrowserHeadlessHost | null {
   return headlessHost
+}
+
+/** Registered by whichever process owns this host's cookie jars — Electron
+ *  sessions on the desktop, Playwright user-data directories on a server. */
+export function setBrowserProfileHost(host: BrowserProfileHost | null): void {
+  profileHost = host
+}
+
+export function browserProfileHost(): BrowserProfileHost | null {
+  return profileHost
 }

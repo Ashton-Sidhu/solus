@@ -1206,6 +1206,7 @@
           {getApi}
           {serverId}
           showIdentity={!embedded}
+          artifactsEnabled={sub === "activity"}
           addressCommentsReady={!!pr && review.checkoutStatus !== "preparing"}
           onAddressComments={() => openFixComments()}
           onFixChecks={openFixChecks}

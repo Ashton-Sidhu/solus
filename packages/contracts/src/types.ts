@@ -391,6 +391,21 @@ const modelProfilesSchema = z.object({
 
 export const MODEL_PROFILES = modelProfilesSchema.parse(rawModelProfiles)
 
+/** A provider can report a runtime variant instead of the selectable model id.
+ * Resolve that variant through the same profile so user-facing surfaces do not
+ * leak backend syntax such as Claude's `[1m]` suffix. */
+export function modelLabelFor(
+  provider: AgentId | null | undefined,
+  modelId: string | null | undefined,
+): string | null {
+  if (!modelId) return null
+  if (!provider) return modelId
+  const selectableModelId = provider === 'claude-code' && modelId.endsWith('[1m]')
+    ? modelId.slice(0, -4)
+    : modelId
+  return MODEL_PROFILES[provider]?.[selectableModelId]?.label ?? modelId
+}
+
 /**
  * The window a model runs with unless the user picks another. Every site that
  * builds a run must resolve it the same way: a session that starts on 1M and is
@@ -875,7 +890,7 @@ export interface Session {
    */
   task: TaskTarget
   /** Set when this session is the chat tab of a PR review (worktree = PR head).
-   *  Drives the PR-context system hint and the `'pr'` diff scope. */
+   *  Drives the `'pr'` diff scope and PR-scoped tab routing. */
   prReview: PrReviewContext | null
   /**
    * Review feedback queued against this conversation's changes, and the comment
@@ -1094,7 +1109,18 @@ export interface Message {
    *  conversation. `pending` is true while the tool call is still in flight.
    *  An HTML artifact also carries `workRef` once it is persisted as an
    *  `artifact` work, so the frame can open it in a pane and link it. */
-  artifact?: { kind: 'html' | 'image'; html?: string; path?: string; pending?: boolean }
+  /** `pending` is the skeleton, before any markup has arrived. `streaming` is
+   *  the render that has one but is still being written: it renders live and
+   *  reloads as more lands, and is what `artifact_created` fills in. */
+  artifact?: {
+    /** Originating render_artifact call, used to correlate concurrent streams. */
+    toolId?: string
+    kind: 'html' | 'image'
+    html?: string
+    path?: string
+    pending?: boolean
+    streaming?: boolean
+  }
   /** Reference to an automation the agent created or updated in this thread,
    *  rendered as a card with an Open action. */
   automationRef?: { automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
@@ -1155,10 +1181,6 @@ export interface Message {
   clientPromptId?: string
   /** How this message entered an already-running session. */
   delivery?: PromptDelivery
-  /** Set on the system message announcing a provider rate limit. The notice is a
-   *  statement about the run, not a step the turn took, so a trailing one must
-   *  not be mistaken for the end of the turn's answer. Live-only, like `via`. */
-  rateLimitNotice?: boolean
   /** Milliseconds this prompt spent held by a rate limit before it went out.
    *  Present only on a bubble that drained from the queue, so its caption can
    *  state the wait as a fact instead of counting to a time that has passed.
@@ -1501,7 +1523,7 @@ export type NormalizedEvent =
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
   | { type: 'error'; message: string; isError: boolean; sessionId?: string }
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
-  | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; usedPercent?: number; windowDurationMins?: number; info?: RateLimitInfo; message?: string; deferCurrentRun?: boolean }
+  | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; windowDurationMins?: number; info?: RateLimitInfo; deferCurrentRun?: boolean }
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
@@ -1534,7 +1556,7 @@ export type NormalizedEvent =
   | { type: 'work_updated'; workId: string; title: string; docType: WorkType; content: string; updatedAt: string }
   /** `workId`/`title` are set when an HTML artifact was persisted as an
    *  `artifact` work; image artifacts (Codex ImageGeneration) carry neither. */
-  | { type: 'artifact_created'; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string }
+  | { type: 'artifact_created'; toolId?: string; kind: 'html' | 'image'; html?: string; path?: string; workId?: string; title?: string }
   | { type: 'automation_saved'; automationId: string; name: string; trigger: AutomationTrigger; enabled: boolean }
   | { type: 'task_created'; taskId: string; title: string; url: string | null }
   | { type: 'browser_snapshot_captured'; snapshot: BrowserSnapshotRef }
@@ -1695,7 +1717,7 @@ export interface SettingsCtx {
   fontSize: number
   codeFontFamily: AppCodeFontFamily
   codeFontSize: number
-  /** App-wide instructions appended to every agent system prompt. */
+  /** App-wide user instructions added through the provider's instruction extension point. */
   extraInstructions: string
   /** Extra instructions keyed by resolved model id, appended when that model runs. */
   modelInstructions: Record<string, string>
@@ -1770,12 +1792,10 @@ export interface SessionRunInput {
   fastMode: boolean
   permissionMode: 'ask' | 'auto' | 'plan'
   rateLimitBehavior: SettingsCtx['rateLimitBehavior']
-  /** App-wide instructions appended to every agent system prompt. */
+  /** App-wide user instructions added through the provider's instruction extension point. */
   extraInstructions: string
   /** Extra instructions scoped to the model in use, resolved from settings.modelInstructions at dispatch time. */
   modelInstructions?: string
-  /** PR review context — when set, the backend appends a PR-context system hint. */
-  prReview?: PrReviewContext | null
   /** System-level context used only when starting a new provider session. */
   handoff?: {
     fromProvider: AgentId
@@ -2003,6 +2023,9 @@ export interface SessionSearchResult {
   session: SessionMeta
   snippet: string
   ts: number
+  /** The indexed message the words were found in, so a preview can open on
+   *  that passage rather than on the transcript's ends. */
+  messageId: number
 }
 
 export interface RecentProject {

@@ -63,6 +63,10 @@ jobs:
       - name: Build Electron app
         env:
           NODE_OPTIONS: --max-old-space-size=4096
+          # electron-builder logs a single line for signing and a single line for
+          # notarization, so the whole block is opaque in CI. These make the split
+          # between codesign and Apple's notary service visible in the job log.
+          DEBUG: electron-osx-sign*,electron-notarize*
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}

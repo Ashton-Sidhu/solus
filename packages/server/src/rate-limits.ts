@@ -92,14 +92,13 @@ export function rateLimitEventFromMessage(
   if (!/(?:rate|usage|session) limit/i.test(message)) return null
   const resetsAt = findResetTimestamp(message, observedAtMs)
   if (!resetsAt) return null
-  const decorated = decorateRateLimit({
+  return decorateRateLimit({
     type: 'rate_limit',
     status: 'limited',
     resetsAt,
     rateLimitType,
     isUsingOverage: false,
   })
-  return { ...decorated, message }
 }
 
 function nextResetInTimeZone(hours: number, minutes: number, timeZone: string, observedAtMs: number): number | null {
@@ -159,13 +158,7 @@ function zonedParts(epochMs: number, timeZone: string): ZonedDateTimeParts {
 
 export function decorateRateLimit(event: RateLimitEvent): RateLimitEvent {
   if (event.info) return event
-
-  const info = rateLimitInfo(event)
-  const used = event.usedPercent === undefined ? '' : `, ${Math.round(event.usedPercent)}% used`
-  const message = event.status === 'allowed_warning'
-    ? `Rate limit warning (${event.rateLimitType}).${used ? ` ${used.slice(2)}.` : ''} Resets at ${new Date(event.resetsAt * 1000).toLocaleString()}.`
-    : `Rate limited (${event.rateLimitType}${used}). Resets at ${new Date(event.resetsAt * 1000).toLocaleString()}.`
-  return { ...event, info, message }
+  return { ...event, info: rateLimitInfo(event) }
 }
 
 function rateLimitInfo(event: RateLimitEvent): RateLimitInfo {
@@ -179,22 +172,9 @@ function rateLimitInfo(event: RateLimitEvent): RateLimitInfo {
 
 export class RateLimitState {
   private active = new Map<string, RateLimitEvent>()
-  private warningKeys = new Map<string, Set<string>>()
 
   record(sessionId: string, event: RateLimitEvent): RateLimitEvent | null {
     const decorated = decorateRateLimit(event)
-
-    if (decorated.status === 'allowed_warning') {
-      const warningKey = `${decorated.rateLimitType}:${decorated.resetsAt}`
-      let sessionWarnings = this.warningKeys.get(sessionId)
-      if (!sessionWarnings) {
-        sessionWarnings = new Set()
-        this.warningKeys.set(sessionId, sessionWarnings)
-      }
-      if (sessionWarnings.has(warningKey)) return null
-      sessionWarnings.add(warningKey)
-      return decorated
-    }
 
     if (isBlockingRateLimit(decorated)) {
       this.active.set(sessionId, decorated)
@@ -219,15 +199,13 @@ export class RateLimitState {
 
   clear(sessionId: string): void {
     this.active.delete(sessionId)
-    this.warningKeys.delete(sessionId)
   }
 
   clearAll(): void {
     this.active.clear()
-    this.warningKeys.clear()
   }
 }
 
 function isBlockingRateLimit(event: RateLimitEvent): boolean {
-  return event.status !== 'allowed' && event.status !== 'allowed_warning' && !event.isUsingOverage
+  return event.status !== 'allowed' && !event.isUsingOverage
 }

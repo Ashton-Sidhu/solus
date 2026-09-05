@@ -9,7 +9,8 @@ import type {
   SetupGithubRepo,
   SetupSshAccessResult,
 } from '@solus/contracts/types'
-import { serversStore } from '../../contexts'
+import { projectsStore } from '../../contexts/projects/projects.store.svelte'
+import type { ProjectsStore } from '../../contexts/projects/projects.store.svelte'
 import { hostSetupStore, type HostSetupSession } from './host-setup.store.svelte'
 import {
   classifyCloneInput,
@@ -60,7 +61,6 @@ type ProjectOpenedCallback = NonNullable<OpenProjectOptions['onProjectOpened']>
 
 type ResolveApi = (serverId: string) => SolusAPI
 type SessionFor = (serverId: string) => HostSetupSession
-type RecentProjectsFor = (serverId: string) => Promise<RecentProject[]>
 
 export class OpenProjectStore {
   isOpen = $state(false)
@@ -83,8 +83,13 @@ export class OpenProjectStore {
   /** Home's one box: it filters recents, and recognises a pasted clone URL. */
   homeQuery = $state('')
   /** The bound host's projects, as home's first offer. */
-  recents = $state<RecentProject[]>([])
-  recentsLoading = $state(false)
+  get recents(): RecentProject[] {
+    return this.serverId ? this.projects.recentProjectsFor(this.serverId) : []
+  }
+
+  get recentsLoading(): boolean {
+    return this.serverId ? this.projects.recentProjectsLoadingFor(this.serverId) : false
+  }
 
   repos = $state<SetupGithubRepo[]>([])
   reposLoading = $state(false)
@@ -105,7 +110,7 @@ export class OpenProjectStore {
 
   private readonly resolveApi: ResolveApi
   private readonly sessionFor: SessionFor
-  private readonly recentProjectsFor: RecentProjectsFor
+  private readonly projects: Pick<ProjectsStore, 'recentProjectsFor' | 'recentProjectsLoadingFor' | 'loadRecentProjects'>
   private retainedSetup: HostSetupSession | null = null
   /** Set by whichever action started a clone, so a retry lands in the same place. */
   private lastCloneDestination: string | undefined = undefined
@@ -121,11 +126,11 @@ export class OpenProjectStore {
   constructor(
     resolveApi: ResolveApi = (serverId) => serverConnections.apiFor(serverId),
     sessionFor: SessionFor = (serverId) => hostSetupStore.sessionFor(serverId),
-    recentProjectsFor: RecentProjectsFor = (serverId) => serversStore.recentProjectsFor(serverId),
+    projects: Pick<ProjectsStore, 'recentProjectsFor' | 'recentProjectsLoadingFor' | 'loadRecentProjects'> = projectsStore,
   ) {
     this.resolveApi = resolveApi
     this.sessionFor = sessionFor
-    this.recentProjectsFor = recentProjectsFor
+    this.projects = projects
   }
 
   // ── What the current step commits to ────────────────────────────────────────
@@ -365,18 +370,7 @@ export class OpenProjectStore {
   async loadRecents(): Promise<void> {
     const serverId = this.serverId
     if (!serverId) return
-    const issuedAt = this.hostEpoch
-    this.recentsLoading = true
-    try {
-      const recents = await this.recentProjectsFor(serverId)
-      if (this.hostEpoch === issuedAt) this.recents = recents
-    } catch {
-      // Home still offers the three actions; an unreachable host just has
-      // nothing to list, which the empty state already says.
-      if (this.hostEpoch === issuedAt) this.recents = []
-    } finally {
-      if (this.hostEpoch === issuedAt) this.recentsLoading = false
-    }
+    await this.projects.loadRecentProjects(serverId)
   }
 
   async loadRepos(): Promise<void> {
@@ -526,8 +520,6 @@ export class OpenProjectStore {
     this.retainedSetup?.release()
     this.retainedSetup = null
     this.capabilities = null
-    this.recents = []
-    this.recentsLoading = false
     this.repos = []
     this.reposLoading = false
     this.reposConnected = null

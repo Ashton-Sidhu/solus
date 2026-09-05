@@ -6,6 +6,15 @@ import {
 } from '@solus/server/observability/model-pricing'
 
 describe('Codex token pricing', () => {
+  test('offers Astra with medium reasoning by default', () => {
+    // WHY: Astra must appear in every picker with the requested default rather
+    // than inheriting a fallback that can differ between launch surfaces.
+    expect(MODEL_PROFILES.codex?.['gpt-6-astra']).toMatchObject({
+      defaultReasoningEffort: 'medium',
+      reasoningLevels: ['low', 'medium', 'high', 'xhigh', 'max'],
+    })
+  })
+
   test('has a static price entry for every supported Codex model', () => {
     // WHY: adding a selectable model without pricing must not make its cost
     // silently disappear from Insights.

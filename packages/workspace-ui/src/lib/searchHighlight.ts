@@ -23,3 +23,21 @@ export function highlightRuns(text: string, query: string): TextRun[] {
   if (from < text.length) runs.push({ text: text.slice(from), hit: false });
   return runs.length ? runs : [{ text, hit: false }];
 }
+
+/** Like `highlightRuns`, but every whitespace-separated word of `query` is a
+ *  hit on its own. For text a full-text index matched, where the words are
+ *  ANDed and need not sit next to each other. */
+export function highlightWordRuns(text: string, query: string): TextRun[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words.length) return [{ text, hit: false }];
+  const pattern = new RegExp(words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi");
+  const runs: TextRun[] = [];
+  let from = 0;
+  for (const match of text.matchAll(pattern)) {
+    if (match.index > from) runs.push({ text: text.slice(from, match.index), hit: false });
+    runs.push({ text: match[0], hit: true });
+    from = match.index + match[0].length;
+  }
+  if (from < text.length) runs.push({ text: text.slice(from), hit: false });
+  return runs.length ? runs : [{ text, hit: false }];
+}

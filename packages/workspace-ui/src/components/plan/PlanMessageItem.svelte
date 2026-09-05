@@ -51,7 +51,13 @@
   // One word, never two, never abbreviated — it states the type so the chip is
   // free to carry state and the header needs no colour at all.
   const workKicker = $derived(
-    ref.workType === "slides" ? "Slides" : isDiagram ? "Diagram" : "Document",
+    ref.workType === "slides"
+      ? "Slides"
+      : ref.workType === "artifact"
+        ? "Artifact"
+        : isDiagram
+          ? "Diagram"
+          : "Document",
   );
   const diagramSummary = $derived(
     isDiagram && ref.content

@@ -1,7 +1,7 @@
 import type { AgentDispatcher } from './agent-runner'
 import type { AgentTool } from './tools/agent-tool'
 import { buildSystemPrompt } from './system-hint'
-import { isWorkspacePath } from '../workspace'
+import { hostInstructionsFor } from './run-input'
 import type { AgentId, PromptOptions, ReasoningEffort } from '@solus/contracts/types'
 import { SPAN_SERVICES, type SpanService } from '../observability/registries'
 import { resolveHomePath } from '../platform/paths'
@@ -36,11 +36,8 @@ export class TextGenerator {
 
   async generate(options: TextGenerationOptions): Promise<string> {
     const reasoningEffort = options.reasoningEffort ?? 'low'
-    const baseSystemPrompt = buildSystemPrompt({
-      agent: options.provider === 'codex' ? 'codex' : 'claude',
-      general: isWorkspacePath(options.cwd),
-    })
-    const systemPrompt = [baseSystemPrompt, options.systemPrompt].filter(Boolean).join('\n\n')
+    const userInstructions = buildSystemPrompt(hostInstructionsFor(options.model))
+    const systemPrompt = [userInstructions, options.systemPrompt].filter(Boolean).join('\n\n')
     const run = this.dispatcher.runAgent({
       provider: options.provider,
       prompt: options.prompt,

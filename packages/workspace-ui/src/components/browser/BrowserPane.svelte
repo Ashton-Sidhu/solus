@@ -1,6 +1,7 @@
 <script lang="ts">
-  import { GitBranch, Plus, X } from "@lucide/svelte";
+  import { Bot, GitBranch, Plus, X } from "@lucide/svelte";
   import type {
+    BrowserAgentUse,
     BrowserAppearance,
     BrowserDiscoveredTarget,
     BrowserEvidenceOptions,
@@ -8,7 +9,7 @@
     BrowserTarget,
     BrowserViewportRequest,
   } from "@solus/contracts/browser-types";
-  import { browserPartition } from "@solus/contracts/browser-types";
+  import { browserProfilePartition } from "@solus/contracts/browser-types";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../contexts";
@@ -18,8 +19,11 @@
   import { paneActions } from "../ui/lib/pane-actions.svelte";
   import PaneChrome from "../ui/PaneChrome.svelte";
   import BrowserAnnotationBar from "./BrowserAnnotationBar.svelte";
+  import BrowserCloseConfirm from "./BrowserCloseConfirm.svelte";
   import BrowserCommentPopup from "./BrowserCommentPopup.svelte";
   import BrowserCaptureButton from "./BrowserCaptureButton.svelte";
+  import BrowserProfileChip from "./BrowserProfileChip.svelte";
+  import { projectRootOf } from "./lib/profiles";
   import {
     createAnnotationAttachment,
     mergeAnnotationAttachment,
@@ -75,6 +79,20 @@
   const pages = $derived(browserStore.entries);
   const pageGroups = $derived(groupPagesByBranch(pages));
   const targets = $derived(browserStore.targetsFor(serverId));
+
+  /** The identities this page's project has, mirrored from the page's own host. */
+  const projectRoot = $derived(entry ? projectRootOf(entry.page) : undefined);
+  const profileSet = $derived(
+    entry ? browserStore.profilesFor(entry.serverId, projectRoot) : null,
+  );
+
+  $effect(() => {
+    const current = entry;
+    if (!current) return;
+    void browserStore
+      .loadProfiles(current.serverId, projectRootOf(current.page))
+      .catch(failed("Couldn't load the browser profiles"));
+  });
 
   /**
    * How much the stage had to shrink the device to fit, 0–1.
@@ -564,13 +582,46 @@
 
   function clearProfile() {
     if (!entry) return;
-    const target = entry.page.target;
     void browserStore
       .clearProfile(
         entry.serverId,
-        browserPartition(target.kind === "url" ? target.projectRoot : undefined),
+        browserProfilePartition(projectRootOf(entry.page), entry.page.profileId),
       )
       .catch(failed("Couldn't clear the browser profile"));
+  }
+
+  /** The same address, signed in as another identity. A page's jar is fixed for
+   *  its life (ADR 0023), so a second page is the switch — and the only way to
+   *  have the admin and the customer signed in at once. */
+  function openAsProfile(profileId: string) {
+    const current = entry;
+    if (!current) return;
+    void browserStore
+      .open(current.serverId, { target: current.page.target, profileId })
+      .then((key) => {
+        // A deep-linked pane is pinned to its route param, so setting the
+        // store's active page alone would leave this pane on the old identity
+        // while the new page loaded out of sight.
+        const opened = browserStore.pages.get(key);
+        if (opened) activatePage(opened);
+      })
+      .catch(failed("Couldn't open that browser page"));
+  }
+
+  /** The host's refusal to close a page, held until the user answers it. */
+  let closeRequest = $state<{
+    key: string;
+    label: string;
+    use: BrowserAgentUse;
+  } | null>(null);
+
+  function requestClose(key: string, label: string, force = false) {
+    void browserStore
+      .close(key, { force })
+      .then((result) => {
+        closeRequest = result.closed ? null : { key, label, use: result.agentUse };
+      })
+      .catch(failed("Couldn't close that browser page"));
   }
 
   /** The strip's scroll box. Held so the page the user is looking at can be
@@ -700,6 +751,14 @@
                       : "Loading"}
                   ></span>
                 {/if}
+                <!-- An agent working in this page, as the host judges it: the
+                     field is present exactly while the close would be refused. -->
+                {#if candidate.page.agentUse}
+                  <Bot
+                    class="size-3 shrink-0 text-[var(--warning)]"
+                    aria-label="An agent is using this page"
+                  />
+                {/if}
                 <button
                   type="button"
                   class="text-workspace-chrome min-w-0 max-w-40 truncate font-medium {key ===
@@ -719,9 +778,7 @@
                     : 'opacity-0'}"
                   aria-label="Close {routeLabel(candidate.page.url)}"
                   onclick={() =>
-                    void browserStore
-                      .close(key)
-                      .catch(failed("Couldn't close that browser page"))}
+                    requestClose(key, routeLabel(candidate.page.url))}
                 >
                   <X class="size-2.5" />
                 </button>
@@ -775,6 +832,15 @@
       {annotating}
       onToggleAnnotating={toggleAnnotating}
     >
+      {#snippet profile()}
+        <BrowserProfileChip
+          set={profileSet}
+          selectedId={entry.page.profileId}
+          onOpenAs={openAsProfile}
+          serverId={entry.serverId}
+          {projectRoot}
+        />
+      {/snippet}
       {#snippet capture()}
         <BrowserCaptureButton
           options={evidenceOptions}
@@ -862,6 +928,21 @@
       onCancel={entry && (!isOpeningTarget || hadPageBeforeOpen)
         ? () => (choosingTarget = false)
         : undefined}
+    />
+  {/if}
+
+  <!-- Over the whole pane rather than anchored to the chip that raised it: the
+       close can come from the page strip or from a keyboard. -->
+  {#if closeRequest}
+    <BrowserCloseConfirm
+      pageLabel={closeRequest.label}
+      use={closeRequest.use}
+      onCancel={() => (closeRequest = null)}
+      onConfirm={() => {
+        const pending = closeRequest;
+        closeRequest = null;
+        if (pending) requestClose(pending.key, pending.label, true);
+      }}
     />
   {/if}
 

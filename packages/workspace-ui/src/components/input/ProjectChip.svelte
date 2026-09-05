@@ -6,10 +6,10 @@
     Plus as PlusIcon,
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
-  import { getWorkspaceContext, serversStore } from "../../contexts";
+  import { getWorkspaceContext, serversStore, projectsStore } from "../../contexts";
   import { isWorkspaceDir, projectDirLabel } from "../../lib/paths";
   import { projectHostId } from "../servers/run-on";
-  import type { RecentProject, RunConfig } from "@solus/contracts/types";
+  import type { RunConfig } from "@solus/contracts/types";
   import { comboHint } from "../../lib/keybindings/manifest";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import * as Popover from "../ui/popover";
@@ -64,10 +64,7 @@
   let tooltipOpen = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let query = $state("");
-  let recents = $state<RecentProject[]>([]);
-  // Bumped per load so a slow reply for the host you just switched away from is
-  // dropped instead of painting one host's projects under another's name.
-  let loadToken = 0;
+  const recents = $derived(projectsStore.recentProjectsFor(hostId));
 
   const projects = $derived(
     canOfferCurrent && !recents.some((project) => project.path === projectDir)
@@ -78,17 +75,6 @@
       : recents.slice(0, 3),
   );
 
-  async function loadRecents() {
-    const requestedHost = hostId;
-    const token = ++loadToken;
-    try {
-      const list = await serversStore.recentProjectsFor(requestedHost);
-      if (token === loadToken) recents = list;
-    } catch {
-      if (token === loadToken) recents = [];
-    }
-  }
-
   // The chip is no longer the only way in, so the list loads off the open state
   // itself rather than off this trigger's click. Reads `hostId` through the
   // load, which keeps an open menu on the host the run-on picker now names.
@@ -96,7 +82,7 @@
     if (!open) return;
     tooltipOpen = false;
     query = "";
-    void loadRecents();
+    void projectsStore.loadRecentProjects(hostId);
   });
 
   function handleCloseAutoFocus(event: Event) {

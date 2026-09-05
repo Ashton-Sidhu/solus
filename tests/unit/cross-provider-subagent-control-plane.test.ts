@@ -60,6 +60,7 @@ describe('cross-provider subagent control-plane dispatch', () => {
     expect(result).toEqual({ ok: true, text: 'child result' })
     expect(dispatcher.request?.provider).toBe(provider)
     expect(dispatcher.request?.persistence).toBe('ephemeral')
+    expect(dispatcher.request?.systemPrompt).toBeUndefined()
     expect(names).not.toContain('create_automation')
     expect(names).not.toContain('run_automation')
     expect(names).not.toContain('claude_subagent')

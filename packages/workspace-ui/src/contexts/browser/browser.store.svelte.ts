@@ -6,6 +6,10 @@ import type {
   BrowserAnnotationTool,
   BrowserAppearance,
   BrowserCaptureRequest,
+  BrowserCloseResult,
+  BrowserCookieImportRequest,
+  BrowserCookieImportResult,
+  BrowserCookieSourceScan,
   BrowserDetachReason,
   BrowserEvidence,
   BrowserEvidenceOptions,
@@ -17,6 +21,7 @@ import type {
   BrowserNavigateOp,
   BrowserOpenRequest,
   BrowserPage,
+  BrowserProfileSet,
   BrowserSurfaceReport,
   BrowserViewport,
   BrowserViewportRequest,
@@ -120,6 +125,11 @@ export class BrowserStore {
         this.activeKey = key
         this.onSurfaceRequested?.(key)
       }),
+      // Whole set rather than a delta: two mounted clients offering different
+      // identities for one project is the failure this prevents.
+      subscribeAllHosts('browser.profilesChanged', (serverId, { profiles }) => {
+        this.adopt(serverId, profiles)
+      }),
       serverConnections.onStatusChange((serverId, status) => {
         if (status !== 'connected') return
         void this.loadPages(serverId).catch(() => {})
@@ -163,10 +173,13 @@ export class BrowserStore {
     return key
   }
 
-  async close(key: string): Promise<void> {
+  /** Ask the host to close a page. The host may refuse (ADR 0024); nothing is
+   *  forgotten locally until it says the page is gone. */
+  async close(key: string, options: { force?: boolean } = {}): Promise<BrowserCloseResult> {
     const { serverId, path } = splitHostKey(key)
-    await serverConnections.apiFor(serverId).browserClose(path)
-    this.forget(key)
+    const result = await serverConnections.apiFor(serverId).browserClose(path, options.force)
+    if (result.closed) this.forget(key)
+    return result
   }
 
   /** Drop a page and, when it was the one showing, fall back to another rather
@@ -265,6 +278,89 @@ export class BrowserStore {
    *  with no browser page open at all. */
   clearProfile(serverId: string, partition: string): Promise<void> {
     return serverConnections.apiFor(serverId).browserClearProfile(partition)
+  }
+
+  /** A project's named browser identities, mirrored per host: the same
+   *  repository path on a laptop and on a server holds two unrelated jars. */
+  profileSets = new SvelteMap<string, BrowserProfileSet>()
+  /** One in-flight load per project, so a pane, a toolbar, and a picker asking
+   *  at once produce a single round trip rather than three. */
+  private profileLoads = new Map<string, Promise<BrowserProfileSet>>()
+
+  profileKey(serverId: string, projectRoot: string | undefined): string {
+    return hostKey(serverId, projectRoot ?? '')
+  }
+
+  profilesFor(serverId: string, projectRoot: string | undefined): BrowserProfileSet | null {
+    return this.profileSets.get(this.profileKey(serverId, projectRoot)) ?? null
+  }
+
+  loadProfiles(serverId: string, projectRoot: string | undefined): Promise<BrowserProfileSet> {
+    const key = this.profileKey(serverId, projectRoot)
+    const running = this.profileLoads.get(key)
+    if (running) return running
+    const loading = serverConnections.apiFor(serverId).browserListProfiles(projectRoot)
+      .then((set) => {
+        this.profileSets.set(key, set)
+        return set
+      })
+      .finally(() => {
+        if (this.profileLoads.get(key) === loading) this.profileLoads.delete(key)
+      })
+    this.profileLoads.set(key, loading)
+    return loading
+  }
+
+  async createProfile(serverId: string, projectRoot: string | undefined, name: string): Promise<BrowserProfileSet> {
+    return this.adopt(serverId, await serverConnections.apiFor(serverId).browserCreateProfile(projectRoot, name))
+  }
+
+  async renameProfile(
+    serverId: string,
+    projectRoot: string | undefined,
+    profileId: string,
+    name: string,
+  ): Promise<BrowserProfileSet> {
+    return this.adopt(
+      serverId,
+      await serverConnections.apiFor(serverId).browserRenameProfile(projectRoot, profileId, name),
+    )
+  }
+
+  /** Deleting signs the profile out for good. The host refuses while a page is
+   *  still open on it, so a live login cannot be lost to one mis-click. */
+  async deleteProfile(
+    serverId: string,
+    projectRoot: string | undefined,
+    profileId: string,
+  ): Promise<BrowserProfileSet> {
+    return this.adopt(serverId, await serverConnections.apiFor(serverId).browserDeleteProfile(projectRoot, profileId))
+  }
+
+  async setDefaultProfile(
+    serverId: string,
+    projectRoot: string | undefined,
+    profileId: string,
+  ): Promise<BrowserProfileSet> {
+    return this.adopt(
+      serverId,
+      await serverConnections.apiFor(serverId).browserSetDefaultProfile(projectRoot, profileId),
+    )
+  }
+
+  private adopt(serverId: string, set: BrowserProfileSet): BrowserProfileSet {
+    this.profileSets.set(this.profileKey(serverId, set.projectRoot), set)
+    return set
+  }
+
+  /** Which browsers on the *host* could be imported from. Not cached: a scan
+   *  reads the disk, and the answer changes as the user's browsers write. */
+  cookieSources(serverId: string): Promise<BrowserCookieSourceScan> {
+    return serverConnections.apiFor(serverId).browserListCookieSources()
+  }
+
+  importCookies(serverId: string, request: BrowserCookieImportRequest): Promise<BrowserCookieImportResult> {
+    return serverConnections.apiFor(serverId).browserImportCookies(request)
   }
 
   /**

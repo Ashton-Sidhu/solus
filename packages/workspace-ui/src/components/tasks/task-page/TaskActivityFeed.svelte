@@ -14,8 +14,10 @@
   import type {
     TaskComment,
     TaskEvent,
+    TaskLink,
     TaskSessionLink,
   } from "@solus/contracts/task-types";
+  import ArtifactActivityCard from "../../artifact/ArtifactActivityCard.svelte";
   import { githubMarkdownExtensions } from "../../../lib/githubMarkdown";
   import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
   import MarkdownImage from "../../conversation/MarkdownImage.svelte";
@@ -26,12 +28,19 @@
     activityFeed,
     commentSessionName,
     eventLine,
+    linkedArtifactForEvent,
   } from "./lib/task-page";
   import { commentSyncState } from "./lib/task-upstream";
 
   interface Props {
     comments: TaskComment[];
     events: TaskEvent[];
+    /** The task's current links, so a `linked` event can show the artifact
+     *  it brought, collapsed, at the point in the story where it arrived. */
+    links?: TaskLink[];
+    /** False while the feed is mounted but hidden, so an opened render holds
+     *  no live frame nobody can see. */
+    enabled?: boolean;
     sessions: TaskSessionLink[];
     onOpenSession: (sessionId: string) => void;
     /** The system a comment can be published to, when this task has one. Null
@@ -50,6 +59,8 @@
   let {
     comments,
     events,
+    links = [],
+    enabled = true,
     sessions,
     onOpenSession,
     provider,
@@ -96,6 +107,13 @@
   };
 
   let filter = $state<"all" | "comments">("all");
+
+  /** One live frame at a time: the artifact card the reader has open. */
+  let openArtifactWorkId = $state<string | null>(null);
+
+  function toggleArtifact(workId: string) {
+    openArtifactWorkId = openArtifactWorkId === workId ? null : workId;
+  }
 
   const entries = $derived(activityFeed(comments, events));
   const shown = $derived(
@@ -163,6 +181,7 @@
     {#each shown as entry (entry.key)}
       {#if entry.type === "event"}
         {@const line = eventLine(entry.event)}
+        {@const artifact = linkedArtifactForEvent(entry.event, links)}
         <div class="relative flex gap-3 py-[5px]">
           <span
             class="flex size-[25px] shrink-0 items-center justify-center rounded-full bg-background text-muted-foreground"
@@ -184,17 +203,29 @@
               >
             </span>
           </span>
-          <span
-            class="flex min-h-[25px] min-w-0 flex-1 flex-wrap items-center gap-2"
-          >
-            <span class="leading-[1.55] text-muted-foreground"
-              >{line.text}</span
-            >
+          <span class="flex min-w-0 flex-1 flex-col gap-1.5">
             <span
-              class="text-muted-foreground opacity-60"
+              class="flex min-h-[25px] min-w-0 flex-wrap items-center gap-2"
             >
-              {relativeTime(entry.at)}
+              <span class="leading-[1.55] text-muted-foreground"
+                >{line.text}</span
+              >
+              <span
+                class="text-muted-foreground opacity-60"
+              >
+                {relativeTime(entry.at)}
+              </span>
             </span>
+            {#if artifact}
+              <!-- The render the link brought, collapsed where it arrived. -->
+              <ArtifactActivityCard
+                workId={artifact.targetKey}
+                title={artifact.liveTitle || artifact.title}
+                open={openArtifactWorkId === artifact.targetKey}
+                {enabled}
+                onToggle={() => toggleArtifact(artifact.targetKey)}
+              />
+            {/if}
           </span>
         </div>
       {:else}

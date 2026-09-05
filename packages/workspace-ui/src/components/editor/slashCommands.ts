@@ -17,6 +17,7 @@ import {
     Minus as MinusIcon,
     Sparkles as SparkleIcon,
     Network as ArchitectureIcon,
+    LayoutTemplate as ArtifactIcon,
   } from "@lucide/svelte";export interface EditorBlockCommand {
   id: string
   label: string
@@ -156,6 +157,18 @@ export function embedDiagramCommand(onEmbedDiagram: () => void): EditorBlockComm
     icon: ArchitectureIcon,
     group: 'advanced',
     action: () => onEmbedDiagram(),
+  }
+}
+
+export function embedArtifactCommand(onEmbedArtifact: () => void): EditorBlockCommand {
+  return {
+    id: 'artifact',
+    label: 'Embed Artifact',
+    description: 'Insert a live HTML artifact',
+    keywords: ['html', 'render', 'chart', 'widget', 'visual', 'embed'],
+    icon: ArtifactIcon,
+    group: 'advanced',
+    action: () => onEmbedArtifact(),
   }
 }
 

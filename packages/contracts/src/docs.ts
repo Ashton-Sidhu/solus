@@ -180,3 +180,18 @@ export type WorkPublishResult =
 export type WorkPullResult =
   | { ok: true; link: WorkExternalLink; title: string; content: string; lossyParts?: string[] }
   | { ok: false; error: string }
+
+/**
+ * How many distinct diagrams one published document may carry.
+ *
+ * The renderer checks this before it spends a canvas render on each diagram,
+ * and the server checks it again because a publish is a request from a client.
+ * Two checks, one limit — they were declared separately, message included, so
+ * a change to one would have let the client build what the server rejects.
+ */
+export const MAX_DOCUMENT_DIAGRAMS = 20
+
+/** What both checks say when the limit is passed, so the client and the server
+ *  reject a document in the same words. */
+export const TOO_MANY_DIAGRAMS_MESSAGE =
+  `A document can include at most ${MAX_DOCUMENT_DIAGRAMS} unique diagrams.`

@@ -2742,12 +2742,14 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 .solus-code-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 0.25rem;
   padding: 0.3rem 0.45rem 0.3rem 0.75rem;
   border-bottom: 0.0625rem solid
     color-mix(in srgb, var(--solus-container-border) 45%, transparent);
 }
 .solus-code-lang {
+  /* The label holds the left edge; every action after it sits at the right. */
+  margin-right: auto;
   font-family: var(--solus-code-font-family);
   font-size: 0.75rem;
   line-height: 1;
@@ -2756,7 +2758,8 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   color: var(--solus-text-tertiary);
   user-select: none;
 }
-.solus-code-copy {
+.solus-code-copy,
+.solus-code-action {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
@@ -2771,15 +2774,19 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
 }
 .group\/code:hover .solus-code-copy,
-.solus-code-copy:focus-visible {
+.group\/code:hover .solus-code-action,
+.solus-code-copy:focus-visible,
+.solus-code-action:focus-visible {
   opacity: 1;
 }
 @media (hover: none) {
-  .solus-code-copy {
+  .solus-code-copy,
+  .solus-code-action {
     opacity: 1;
   }
 }
-.solus-code-copy:hover {
+.solus-code-copy:hover,
+.solus-code-action:hover {
   background: var(--solus-surface-hover);
   color: var(--solus-text-secondary);
 }

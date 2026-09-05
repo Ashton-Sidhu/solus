@@ -183,7 +183,7 @@ export class ClaudeTurnNormalizer implements TurnNormalizer<ClaudeEvent> {
   private emit(events: NormalizedEvent[]): NormalizedEvent[] {
     for (const event of events) {
       if (event.type === 'tool_call') this.turnSummary.toolCallCount++
-      if (event.type === 'rate_limit' && event.status !== 'allowed' && event.status !== 'allowed_warning') {
+      if (event.type === 'rate_limit' && event.status !== 'allowed') {
         this.turnSummary.sawRateLimit = true
       }
     }
@@ -596,6 +596,13 @@ function normalizeRateLimit(event: RateLimitEvent): NormalizedEvent[] {
   if (!info) return []
   const resetsAt = normalizeResetNumber(info.resetsAt)
   if (!resetsAt) return []
+
+  // A window that is merely filling up is the sidebar usage meters' job, not
+  // the transcript's. Claude marks one `allowed_warning` from about a quarter
+  // spent and repeats it every turn, so the conversation collected the same
+  // card over and over to say nothing had happened yet. Only a limit that
+  // actually stops a run is worth interrupting the reader.
+  if (info.status === 'allowed_warning') return []
 
   return [{
     type: 'rate_limit',

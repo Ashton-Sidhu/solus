@@ -55,6 +55,5 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
     rateLimitBehavior: settings.rateLimitBehavior,
     extraInstructions: settings.extraInstructions,
     modelInstructions: settings.modelInstructions?.[statusBar.model],
-    prReview: session.prReview ?? null,
   }
 }

@@ -85,6 +85,18 @@ export const SAFE_TOOLS = [
   'WebSearch', 'WebFetch',
 ]
 
+// Harness built-ins that schedule work as cloud CCR agents. Solus owns
+// recurring work through its own automation domain (`create_automation`), which
+// runs on this host with the session's project and provider. Leaving these
+// reachable only offers a wrong way to answer "remind me every morning", so the
+// tools are withheld rather than argued against in the system prompt.
+// `allowedTools` cannot do this — it auto-approves, it does not filter.
+const BLOCKED_TOOLS = [
+  'RemoteTrigger',
+  'CronCreate', 'CronDelete', 'CronList',
+  'Skill(schedule)',
+]
+
 // Resolved off the boot path: the synchronous alternative (`which` through an
 // interactive login shell) stalls the main process for up to several seconds at
 // import. Until the warm PATH resolves, runs pass `undefined` and the SDK falls
@@ -166,6 +178,7 @@ export class ClaudeAgent {
 
     const claudeOptions: Options = {
       allowedTools: [...(opts.allowedTools ?? SAFE_TOOLS)],
+      disallowedTools: [...BLOCKED_TOOLS],
       cwd: resolveHomePath(opts.cwd),
       systemPrompt,
       plugins: [{type: 'local', path: SOLUS_PLUGINS_DIR}],

@@ -555,6 +555,24 @@ describe('CodexTurnNormalizer', () => {
     })).toEqual([])
   })
 
+  test('reports a window only once it is spent, never while it fills', () => {
+    setSystemTime(new Date('2026-01-01T12:00:00Z'))
+    const window = (usedPercent: number) => ({
+      rateLimits: {
+        primary: { usedPercent, windowDurationMins: 300, resetsAt: 1767272520 },
+      },
+    })
+
+    // Codex reports every update. A window with room left is the sidebar usage
+    // meters' business, so none of these reach the transcript.
+    expect(normalizeCodexNotification('account/rateLimits/updated', window(60))).toEqual([])
+    expect(normalizeCodexNotification('account/rateLimits/updated', window(99))).toEqual([])
+
+    // Spent is a different fact: it stops the next run, so it is said out loud.
+    expect(normalizeCodexNotification('account/rateLimits/updated', window(100)))
+      .toMatchObject([{ type: 'rate_limit', status: 'limited', rateLimitType: 'Codex 5h' }])
+  })
+
   test('tracks account and failed-turn rate limits in the summary', async () => {
     setSystemTime(new Date('2026-01-01T12:00:00Z'))
     const { events, normalizer } = await normalizeCodexFixture('codex-rate-limit.jsonl', { planMode: false })
@@ -565,7 +583,6 @@ describe('CodexTurnNormalizer', () => {
         status: 'limited',
         resetsAt: 1767269220,
         rateLimitType: 'Codex 5h',
-        usedPercent: 100,
         windowDurationMins: 300,
         isUsingOverage: false,
         deferCurrentRun: true,

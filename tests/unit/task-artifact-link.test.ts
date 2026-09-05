@@ -81,6 +81,45 @@ describe('artifact linking across the session id boundary', () => {
     expect(resolved?.id).toBe(record.id)
   })
 
+  test('pinning one artifact unpins the other', async () => {
+    // WHY: a task page opens with exactly one render above its linked table.
+    // Two rows claiming the slot means the page picks arbitrarily, and the
+    // reader has no way to tell which pin they last set.
+    const record = await taskStore.createTask({ title: 'Report latency' })
+    const task = await tasks.Task.byId(record.id)
+    await task.linkWork('work-a', { title: 'A', pinned: true })
+    await task.linkWork('work-b', { title: 'B', pinned: true })
+
+    const pinned = (await task.details()).links.filter((link) => link.pinned)
+    expect(pinned.map((link) => link.targetKey)).toEqual(['work-b'])
+  })
+
+  test('a re-link that says nothing about pinning keeps the pin', async () => {
+    // WHY: every other path that writes a link — a rename snapshot, an agent
+    // re-linking the work it just revised — knows nothing about pinning. If
+    // absence meant "unpin", the reader's choice would not survive a save.
+    const record = await taskStore.createTask({ title: 'Report latency' })
+    const task = await tasks.Task.byId(record.id)
+    await task.linkWork('work-b', { title: 'B', pinned: true })
+    await task.linkWork('work-b', { title: 'B renamed' })
+
+    const details = await task.details()
+    expect(details.links.find((link) => link.targetKey === 'work-b')?.pinned).toBe(true)
+  })
+
+  test('unpinning leaves the link, and adds no second linked event', async () => {
+    // WHY: a pin is not a link. Re-running the link write for it would append
+    // "linked B" to the activity feed every time the reader changed the pin.
+    const record = await taskStore.createTask({ title: 'Report latency' })
+    const task = await tasks.Task.byId(record.id)
+    await task.linkWork('work-b', { title: 'B', pinned: true })
+    await task.linkWork('work-b', { title: 'B', pinned: false })
+
+    const details = await task.details()
+    expect(details.links.find((link) => link.targetKey === 'work-b')?.pinned).toBeUndefined()
+    expect(details.events.filter((event) => event.kind === 'linked')).toHaveLength(1)
+  })
+
   test('a session with no task links nothing', async () => {
     // WHY: loose conversations that predate session-born tasks are ordinary,
     // not an error, so the link stays a no-op instead of throwing.
