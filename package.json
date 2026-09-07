@@ -62,7 +62,7 @@
     "@hono/node-server": "^2.1.1",
     "@humanspeak/svelte-markdown": "^1.8.6",
     "@iconify/svelte": "^5.2.2",
-    "@octokit/graphql": "^9.0.4",
+    "@octokit/graphql": "^9.0.5",
     "@octokit/rest": "^22.0.1",
     "@opentelemetry/api": "^1.9.1",
     "@opentelemetry/exporter-metrics-otlp-http": "^0.221.0",
