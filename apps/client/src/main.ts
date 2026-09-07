@@ -164,7 +164,6 @@ async function connectToServer(
   // Remember the choice so a refresh and the servers directory both resume here.
   setActiveServerId(server.id)
 
-  webState.setConnectedServer(server)
   if (pendingNotificationRoute) {
     location.hash = pendingNotificationRoute
     pendingNotificationRoute = null
@@ -187,16 +186,12 @@ async function connectToServer(
   }
 }
 
-/**
- * No host yet: the workspace's founding invariant is that a primary host is
- * connected before it mounts, so this path never loads it. The hostless home
- * lives in the entry chunk and hands off through activateServer(), which
- * reloads into the connect path above.
- */
 function bootHostlessHome(): void {
   connectionGeneration += 1
   toasts.dismiss()
-  webState.setConnectedServer(null)
+  activeTransport?.destroy()
+  activeTransport = null
+  webState.hasConnected = false
   setConnectionState({ status: 'disconnected', attempt: 0 })
   mount(HostlessHome, { target: root })
 }
@@ -212,17 +207,8 @@ function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
 
 // Boot
 
-// The workspace API belongs to a connected host, but the entry chunk runs
-// before one exists: reaching this client over a LAN address leaves the
-// serving origin untrusted, so pairing and the hostless home are the whole
-// session. Seed `window.solus` with the no-host API so client-shell reads such
-// as getPlatform() answer instead of throwing; connectToServer replaces it.
 installWindowSolusApi(createNoHostSolusApi())
 
-/**
- * Opening a pairing QR / link lands on this SPA at `/pair#token=…` — pair
- * against our own origin and drop straight into the workspace, no forms.
- */
 async function pairFromLocation(pairToken: string): Promise<void> {
   history.replaceState({}, '', BASE)
   try {
@@ -241,13 +227,6 @@ async function pairFromLocation(pairToken: string): Promise<void> {
   }
 }
 
-/**
- * The serving origin's platform-managed catalog entry (dispatch-client step
- * 4): every Solus server serves this client, and when that server takes this
- * requester without auth (loopback, the host's own tailnet, or a trusted
- * proxy such as `tailscale serve`) it joins the catalog for this boot — one
- * host among several, auto-registered, never persisted, conferring nothing.
- */
 async function servingOriginEntry(): Promise<SavedServer | null> {
   const health = await probeServer(location.origin)
   if (!health.ok || health.requireAuth !== false || !health.installationId) return null
@@ -262,18 +241,6 @@ async function servingOriginEntry(): Promise<SavedServer | null> {
   }
 }
 
-/**
- * Catalog-driven boot: no winner-picking. The workspace mounts whenever the
- * catalog holds any host; the hostless home means the catalog is empty. The
- * boot connection order is a client preference (last chosen first), and a
- * candidate whose credential is rejected before mount simply yields to the
- * next — never a reload, never a forced picker.
- */
-/**
- * Served from the account origin (decision U8), the cookie is the way into the
- * owner's host directory: fold it into the saved hosts before the catalog boot so
- * a phone that never paired anything still finds the linked Mac.
- */
 async function adoptCloudDirectory(): Promise<void> {
   // Only the account origin mounts this bundle under a sub-path; a host serves it at
   // `/`, and asking a host for `/v1/hosts` would just cost a round trip through its
@@ -292,7 +259,9 @@ async function adoptCloudDirectory(): Promise<void> {
 async function bootFromCatalog(): Promise<void> {
   // The workspace loads on any success — overlap the import with the probe.
   void loadWorkspaceApp().catch(() => {})
-  await adoptCloudDirectory()
+  await adoptCloudDirectory().catch((error) => {
+    console.warn("[solus:boot] cloud directory unavailable", error)
+  })
   const servers = loadServers()
   const origin = await servingOriginEntry()
   const activeServer = resolveActiveSavedServer(servers)

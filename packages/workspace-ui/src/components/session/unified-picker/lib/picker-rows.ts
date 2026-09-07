@@ -1,20 +1,43 @@
 import type { Task } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
+import { snippetWindow } from '@solus/contracts/search-snippet'
 import type { SidebarSessionChild } from '../../../../contexts/workspace/session-sidebar.store.svelte'
+import type { PreviewHitTarget } from '../../../../lib/preview.svelte'
 import { taskPickerSections } from '../../../tasks/lib/task-picker-sections'
 import type { ProjectFilterChoice } from '../../lib/task-list'
+import {
+  firstWordIndex,
+  matchesEveryWord,
+  PICKER_SORT_HINTS,
+  queryWords,
+  type PickerSort,
+} from './picker-search'
 
 /** Where a task matched the query. Decides its rank and what its row shows. */
-export type TaskMatchField = 'title' | 'body' | 'other'
+export type TaskMatchField = 'title' | 'body' | 'id'
+
+/** Where a query's words were found in a session: the evidence its row shows
+ *  and the passage its preview opens on. */
+export interface ConversationHit {
+  /** The indexed message the words were found in. */
+  messageId: number
+  /** The passage that matched, cut around its first hit, with the index's
+   *  markers still on the matched words. Render it through `snippetRuns`. */
+  snippet: string
+  /** When it was said; the row's date and its recency sort key. */
+  ts: number
+  /** The index's score. Lower is better; the relevance sort key. */
+  rank: number
+}
 
 /**
  * A rendered row. Tasks and their expanded sessions share one `entryIndex`
  * sequence, so the arrow keys walk past headers and ⏎ always means "the thing
  * under the cursor" whether that is a task or one of its sessions.
  *
- * A conversation row is a session found by what was said in it rather than by
- * its name. It may belong to a task; it is still listed on its own, because
- * the reader searched for the words, not the task.
+ * A conversation row is a session no task claims, found by what was said in
+ * it. A session a task does claim is a session row whether its name or its
+ * words matched; the hit, when there is one, rides on the row.
  */
 export type PickerRow =
   | {
@@ -22,6 +45,8 @@ export type PickerRow =
       key: string
       label: string
       count: number
+      /** The count is a cap the hosts stopped at, not everything that matched. */
+      capped?: boolean
       /** How the section is ordered, stated so the reader never has to guess. */
       hint: string
       accent?: boolean
@@ -48,29 +73,31 @@ export type PickerRow =
       nested: boolean
       /** Ends the spine at this row rather than running it into the next task. */
       isLast: boolean
+      /** Under a query, the words found in the session's messages. Absent when
+       *  only its name matched. */
+      hit?: ConversationHit
     }
   | {
       kind: 'conversation'
       key: string
       entryIndex: number
       meta: SessionMeta
-      /** The passage that matched, with the index's own ellipses. */
-      snippet: string
-      /** When the matching message was said; the row's date and the sort key. */
-      ts: number
-      /** The task this session is linked to, when one is; the row's byline. */
-      task: Task | null
+      hit: ConversationHit
     }
 
 /** A row the keyboard can land on: everything except a section header. */
 export type PickerEntry = Exclude<PickerRow, { kind: 'header' }>
 
-const NEWEST_FIRST = 'newest first'
-
 /** The last path segment of the task's project, or "Inbox" when it has none. */
 export function projectLabel(task: Task): string {
   if (!task.projectKey) return 'Inbox'
   return task.projectKey.replace(/\/$/, '').split('/').at(-1) || task.projectKey
+}
+
+/** The task's human id as it is shown everywhere: `T-<n>`. Empty for a task
+ *  that has none yet. */
+export function taskShortIdLabel(task: Task): string {
+  return task.shortId === undefined ? '' : `T-${task.shortId}`
 }
 
 /** What a conversation row is called: the name the user or the agent gave the
@@ -118,33 +145,33 @@ export function pickerProjectChoices(
 }
 
 /**
- * Where the query hit a task, best field first, or null for no hit. The
- * fields are the ones the old task picker matched, kept so no result
- * disappears; the order is what a reader would rank them in.
+ * Where the query hit a task, best field first, or null for no hit. Every
+ * word has to start a token of one field — the rule the hosts' index applies
+ * to a message — so "auth flow" finds "Flow for auth" in either section and
+ * a session and a task never disagree about what a query means. The id is
+ * the human `T-<n>`; a status or a project path matched every task that
+ * shared it, which was noise, not a hit.
  */
-export function taskMatchField(task: Task, needle: string): TaskMatchField | null {
-  if (!needle) return 'title'
-  if (task.title.toLocaleLowerCase().includes(needle)) return 'title'
-  if (task.body?.toLocaleLowerCase().includes(needle)) return 'body'
-  const other = [task.shortId, task.id, task.projectKey, task.status]
-    .filter(Boolean)
-    .join(' ')
-    .toLocaleLowerCase()
-  return other.includes(needle) ? 'other' : null
+export function taskMatchField(task: Task, words: readonly string[]): TaskMatchField | null {
+  if (!words.length) return 'title'
+  if (matchesEveryWord(task.title, words)) return 'title'
+  if (task.body && matchesEveryWord(task.body, words)) return 'body'
+  const shortId = taskShortIdLabel(task)
+  return shortId && matchesEveryWord(shortId, words) ? 'id' : null
 }
 
-export function sessionMatches(session: SidebarSessionChild, needle: string): boolean {
-  return !needle || session.label.toLocaleLowerCase().includes(needle)
+export function sessionMatches(session: SidebarSessionChild, words: readonly string[]): boolean {
+  return !words.length || matchesEveryWord(session.label, words)
 }
 
-/** The passage of `text` around the first hit of `needle`, whitespace
+/** The passage of `text` around the earliest word of the query, whitespace
  *  collapsed, with ellipses where it was cut. The row's second line. */
-export function matchWindow(text: string, needle: string): string {
+export function matchWindow(text: string, words: readonly string[]): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  const at = flat.toLocaleLowerCase().indexOf(needle)
+  const at = firstWordIndex(flat, words)
   if (at < 0) return flat.slice(0, 100)
   const start = Math.max(0, at - 32)
-  const end = Math.min(flat.length, at + needle.length + 72)
+  const end = Math.min(flat.length, at + 72)
   return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
 }
 
@@ -154,6 +181,8 @@ export interface PickerRowsInput {
   /** Scope the list to one project, or null to list every project. Every task
    *  has a project, so a scope is a plain equality test with no exception. */
   projectKey?: string | null
+  /** How each section under a query is ordered. Relevance by default. */
+  sort?: PickerSort
   sessionsFor: (task: Task) => SidebarSessionChild[]
   expandedTaskIds: ReadonlySet<string>
   /** Durable tasks currently visible in the session sidebar. */
@@ -163,6 +192,8 @@ export interface PickerRowsInput {
   /** Sessions whose messages match the query, from every host searched. Only
    *  read under a query; an empty query has nothing to have matched. */
   conversations?: readonly SessionSearchResult[]
+  /** A host stopped at its result cap, so `conversations` is not every hit. */
+  conversationsCapped?: boolean
 }
 
 /**
@@ -171,10 +202,11 @@ export interface PickerRowsInput {
  * With no query the tasks sit in their lifecycle sections, newest first, and
  * a task shows its sessions only when the reader opened it.
  *
- * A query replaces that with three sections in a fixed order, each stating
- * its own rule: tasks the query hit, best field first; sessions whose name it
- * hit, newest first, flat, each naming its task; then conversations whose
- * words it hit, newest first. One row, one reason, one order.
+ * A query replaces that with two sections in a fixed order, each stating its
+ * own rule: tasks the query hit, folded; then sessions it hit by name or by
+ * what was said in them, flat, one row per session with its best evidence. A
+ * session of a listed task is not repeated below it — the task row is its way
+ * in. Both sections take the reader's order: best match first, or newest.
  */
 export interface PickerList {
   rows: PickerRow[]
@@ -184,8 +216,8 @@ export interface PickerList {
   taskCount: number
   /** Sessions listed or folded under listed tasks, for the footer. */
   sessionCount: number
-  /** Conversation hits listed, after those already shown as sessions. */
-  conversationCount: number
+  /** The session count is where the hosts stopped, not where the hits end. */
+  sessionsCapped: boolean
   /** Tasks the query kept but the project scope removed. Zero when unscoped.
    *  The scope control states this so widening is a known quantity rather than
    *  a guess. */
@@ -216,42 +248,129 @@ interface KeptTask {
   matchedIn: TaskMatchField
 }
 
+interface TaskSession {
+  task: Task
+  session: SidebarSessionChild
+}
+
+/** The task a session belongs to, and whether that task is in scope. */
+interface SessionOwner extends TaskSession {
+  inScope: boolean
+}
+
 /** The tasks the query and scope keep, and the sessions a query's words name. */
-function keepMatches(input: PickerRowsInput, needle: string) {
+function keepMatches(input: PickerRowsInput, words: readonly string[]) {
   const scope = input.projectKey ?? null
   const kept: KeptTask[] = []
-  const sessionHits: { task: Task; session: SidebarSessionChild }[] = []
+  const nameHits: TaskSession[] = []
   // Every task's sessions are read anyway; remember whose each is so a
-  // conversation hit can name its task without a second pass.
-  const taskBySessionId = new Map<string, Task>()
+  // conversation hit can find its task without a second pass.
+  const ownerBySessionId = new Map<string, SessionOwner>()
   let hiddenTaskCount = 0
   for (const task of input.tasks) {
     const sessions = input.sessionsFor(task)
+    const inScope = !scope || task.projectKey === scope
     for (const session of sessions) {
-      if (session.sessionId && !taskBySessionId.has(session.sessionId)) {
-        taskBySessionId.set(session.sessionId, task)
+      if (session.sessionId && !ownerBySessionId.has(session.sessionId)) {
+        ownerBySessionId.set(session.sessionId, { task, session, inScope })
       }
     }
-    const matchedIn = taskMatchField(task, needle)
-    const matchingSessions = needle
-      ? sessions.filter((session) => sessionMatches(session, needle))
+    const matchedIn = taskMatchField(task, words)
+    const matchingSessions = words.length
+      ? sessions.filter((session) => sessionMatches(session, words))
       : []
     if (!matchedIn && matchingSessions.length === 0) continue
-    if (scope && task.projectKey !== scope) {
+    if (!inScope) {
       hiddenTaskCount += 1
       continue
     }
     if (matchedIn) kept.push({ task, sessions, matchedIn })
-    for (const session of matchingSessions) sessionHits.push({ task, session })
+    for (const session of matchingSessions) nameHits.push({ task, session })
   }
-  return { kept, sessionHits, taskBySessionId, hiddenTaskCount }
+  return { kept, nameHits, ownerBySessionId, hiddenTaskCount }
 }
 
-const MATCH_RANK = { title: 0, body: 1, other: 2 } satisfies Record<TaskMatchField, number>
+/** One listing of the Sessions section, before it is given its row index. A
+ *  name hit is the better claim on relevance — it is the session's title — so
+ *  the listing remembers it even once a content hit takes the row. */
+type SessionListing =
+  | {
+      kind: 'session'
+      task: Task
+      session: SidebarSessionChild
+      hit?: ConversationHit
+      ts: number
+      nameMatched: boolean
+    }
+  | { kind: 'conversation'; meta: SessionMeta; hit: ConversationHit; ts: number; nameMatched: false }
+
+function conversationHit(result: SessionSearchResult): ConversationHit {
+  return {
+    messageId: result.messageId,
+    snippet: snippetWindow(result.snippet),
+    ts: result.ts,
+    rank: result.rank,
+  }
+}
+
+/** Name hits first, then the index's score, then the date; or the date alone. */
+function compareListings(sort: PickerSort) {
+  return (a: SessionListing, b: SessionListing): number => {
+    if (sort === 'relevance') {
+      if (a.nameMatched !== b.nameMatched) return a.nameMatched ? -1 : 1
+      const rankA = a.hit?.rank ?? Number.POSITIVE_INFINITY
+      const rankB = b.hit?.rank ?? Number.POSITIVE_INFINITY
+      if (rankA !== rankB) return rankA - rankB
+    }
+    return b.ts - a.ts
+  }
+}
+
+/**
+ * The sessions the query hit, one listing each.
+ *
+ * A name hit and a content hit on the same session are one listing carrying
+ * the content hit: the passage is the better evidence, and its date is when
+ * the words were said. A session of a task already listed above is left out —
+ * the task row folds it — as is one of a task the scope removed, which the
+ * host's own scope may not have caught.
+ */
+function matchedSessions(
+  nameHits: readonly TaskSession[],
+  conversations: readonly SessionSearchResult[],
+  ownerBySessionId: ReadonlyMap<string, SessionOwner>,
+  listedTaskIds: ReadonlySet<string>,
+  sort: PickerSort,
+): SessionListing[] {
+  const byKey = new Map<string, SessionListing>()
+  for (const { task, session } of nameHits) {
+    if (listedTaskIds.has(task.id)) continue
+    const key = session.sessionId ?? `tab:${session.tabId}`
+    byKey.set(key, { kind: 'session', task, session, ts: session.lastActivityAt, nameMatched: true })
+  }
+  for (const result of conversations) {
+    const sessionId = result.session.sessionId
+    const hit = conversationHit(result)
+    const owner = ownerBySessionId.get(sessionId)
+    if (owner) {
+      if (!owner.inScope || listedTaskIds.has(owner.task.id)) continue
+      const nameMatched = byKey.get(sessionId)?.nameMatched ?? false
+      byKey.set(sessionId, {
+        kind: 'session', task: owner.task, session: owner.session, hit, ts: result.ts, nameMatched,
+      })
+    } else if (!byKey.has(sessionId)) {
+      byKey.set(sessionId, { kind: 'conversation', meta: result.session, hit, ts: result.ts, nameMatched: false })
+    }
+  }
+  return [...byKey.values()].sort(compareListings(sort))
+}
+
+const MATCH_RANK = { title: 0, body: 1, id: 2 } satisfies Record<TaskMatchField, number>
 
 export function buildPickerRows(input: PickerRowsInput): PickerList {
-  const needle = input.query.trim().toLocaleLowerCase()
-  const { kept, sessionHits, taskBySessionId, hiddenTaskCount } = keepMatches(input, needle)
+  const words = queryWords(input.query)
+  const sort = input.sort ?? 'relevance'
+  const { kept, nameHits, ownerBySessionId, hiddenTaskCount } = keepMatches(input, words)
 
   const rows: PickerRow[] = []
   const entries: PickerEntry[] = []
@@ -260,7 +379,7 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
     entries.push(row)
   }
 
-  const pushTask = (item: KeptTask, expanded: boolean, needle: string) => {
+  const pushTask = (item: KeptTask, expanded: boolean, words: readonly string[]) => {
     const { task } = item
     const row: PickerEntry = {
       kind: 'task',
@@ -270,8 +389,8 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       sessions: item.sessions,
       expanded,
     }
-    if (needle) row.matchedIn = item.matchedIn
-    if (needle && item.matchedIn === 'body') row.bodySnippet = matchWindow(task.body ?? '', needle)
+    if (words.length) row.matchedIn = item.matchedIn
+    if (words.length && item.matchedIn === 'body') row.bodySnippet = matchWindow(task.body ?? '', words)
     push(row)
     if (!expanded) return
     item.sessions.forEach((session, index) => {
@@ -287,18 +406,18 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
     })
   }
 
-  if (!needle) {
+  if (!words.length) {
     for (const section of lifecycleSections(kept, input)) {
       rows.push({
         kind: 'header',
         key: `header:${section.key}`,
         label: section.label,
         count: section.items.length,
-        hint: NEWEST_FIRST,
+        hint: PICKER_SORT_HINTS.recency,
         accent: section.accent ?? false,
       })
       for (const item of section.items) {
-        pushTask(item, input.expandedTaskIds.has(item.task.id), '')
+        pushTask(item, input.expandedTaskIds.has(item.task.id), [])
       }
     }
     return {
@@ -306,41 +425,59 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       entries,
       taskCount: kept.length,
       sessionCount: kept.reduce((sum, item) => sum + item.sessions.length, 0),
-      conversationCount: 0,
+      sessionsCapped: false,
       hiddenTaskCount,
     }
   }
 
-  // Input order is newest first; a stable sort by field keeps it as the tiebreak.
-  const rankedTasks = kept.toSorted(
-    (a, b) => MATCH_RANK[a.matchedIn] - MATCH_RANK[b.matchedIn],
-  )
+  // Input order is newest first. Relevance ranks by field with a stable sort,
+  // so recency stays the tiebreak; recency keeps the input order as it is.
+  const rankedTasks = sort === 'relevance'
+    ? kept.toSorted((a, b) => MATCH_RANK[a.matchedIn] - MATCH_RANK[b.matchedIn])
+    : kept
   if (rankedTasks.length) {
     rows.push({
       kind: 'header',
       key: 'header:tasks',
       label: 'Tasks',
       count: rankedTasks.length,
-      hint: 'best match first',
+      hint: PICKER_SORT_HINTS[sort],
     })
     // Folded unless the reader opened it: the row is the evidence, and opening
     // every hit pushed the other sections below the fold.
-    for (const item of rankedTasks) pushTask(item, input.expandedTaskIds.has(item.task.id), needle)
+    for (const item of rankedTasks) pushTask(item, input.expandedTaskIds.has(item.task.id), words)
   }
 
-  const rankedSessions = sessionHits.toSorted(
-    (a, b) => b.session.lastActivityAt - a.session.lastActivityAt,
+  const listings = matchedSessions(
+    nameHits,
+    input.conversations ?? [],
+    ownerBySessionId,
+    new Set(rankedTasks.map((item) => item.task.id)),
+    sort,
   )
-  if (rankedSessions.length) {
+  const sessionsCapped = !!input.conversationsCapped
+  if (listings.length) {
     rows.push({
       kind: 'header',
       key: 'header:sessions',
       label: 'Sessions',
-      count: rankedSessions.length,
-      hint: NEWEST_FIRST,
+      count: listings.length,
+      capped: sessionsCapped,
+      hint: PICKER_SORT_HINTS[sort],
     })
-    rankedSessions.forEach(({ task, session }, index) => {
-      push({
+    listings.forEach((listing, index) => {
+      if (listing.kind === 'conversation') {
+        push({
+          kind: 'conversation',
+          key: `conversation:${listing.meta.serverId ?? ''}:${listing.meta.sessionId}`,
+          entryIndex: entries.length,
+          meta: listing.meta,
+          hit: listing.hit,
+        })
+        return
+      }
+      const { task, session } = listing
+      const row: PickerEntry = {
         kind: 'session',
         key: `session-hit:${task.id}:${session.sessionId ?? session.tabId ?? index}`,
         entryIndex: entries.length,
@@ -348,38 +485,18 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
         session,
         nested: false,
         isLast: false,
-      })
+      }
+      if (listing.hit) row.hit = listing.hit
+      push(row)
     })
-  }
-
-  const conversations = unlistedConversations(input.conversations ?? [], entries)
-  if (conversations.length) {
-    rows.push({
-      kind: 'header',
-      key: 'header:conversations',
-      label: 'In conversations',
-      count: conversations.length,
-      hint: NEWEST_FIRST,
-    })
-    for (const result of conversations) {
-      push({
-        kind: 'conversation',
-        key: `conversation:${result.session.serverId ?? ''}:${result.session.sessionId}`,
-        entryIndex: entries.length,
-        meta: result.session,
-        snippet: result.snippet,
-        ts: result.ts,
-        task: taskBySessionId.get(result.session.sessionId) ?? null,
-      })
-    }
   }
 
   return {
     rows,
     entries,
     taskCount: rankedTasks.length,
-    sessionCount: rankedSessions.length,
-    conversationCount: conversations.length,
+    sessionCount: listings.length,
+    sessionsCapped,
     hiddenTaskCount,
   }
 }
@@ -420,20 +537,22 @@ function lifecycleSections(kept: readonly KeptTask[], input: PickerRowsInput): L
 }
 
 /**
- * The hits worth their own row. A session already on screen is not listed a
- * second time; the reader can see it. One behind a folded task is not on
- * screen, so it is. Everything else the words found is kept, including
- * sessions no task ever claimed.
+ * The host and message a row's preview opens on. Null when the row has no
+ * hit — its name or its task matched — or no host to ask; the preview then
+ * shows the session's ends as it always has.
  */
-function unlistedConversations(
-  conversations: readonly SessionSearchResult[],
-  listed: readonly PickerEntry[],
-): SessionSearchResult[] {
-  if (!conversations.length) return []
-  const listedSessionIds = new Set(
-    listed.flatMap((entry) => (entry.kind === 'session' ? entry.session.sessionId ?? [] : [])),
-  )
-  return conversations.filter((result) => !listedSessionIds.has(result.session.sessionId))
+export function previewHitTarget(entry: PickerEntry | null): PreviewHitTarget | null {
+  if (!entry || entry.kind === 'task') return null
+  if (entry.kind === 'conversation') {
+    const serverId = entry.meta.serverId
+    return serverId
+      ? { serverId, sessionId: entry.meta.sessionId, messageId: entry.hit.messageId }
+      : null
+  }
+  const { serverId, sessionId } = entry.session
+  return entry.hit && serverId && sessionId
+    ? { serverId, sessionId, messageId: entry.hit.messageId }
+    : null
 }
 
 /** The row the keyboard's cursor is on, or -1 when the list is empty. */

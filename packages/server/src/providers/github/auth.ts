@@ -1,6 +1,7 @@
 import { createLogger } from '../../logger'
 import { GITHUB_OAUTH_SCOPES, parseGithubScopes } from '@solus/contracts/github-auth'
 import { GITHUB_CLIENT_ID } from './client-id'
+import { githubCredentialChain } from './credentials'
 import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'
 import type { AuthStatus, DeviceCodePrompt, ProviderAuth } from '../types'
 import { z } from 'zod'
@@ -205,6 +206,10 @@ export class GitHubAuth implements ProviderAuth {
 
   async status(): Promise<AuthStatus> {
     return toStatus(loadToken())
+  }
+
+  async hasCredential(host: string, cwd?: string): Promise<boolean> {
+    return (await githubCredentialChain(host, cwd)).length > 0
   }
 
   disconnect(): void {

@@ -222,20 +222,22 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
       // provider thread too: without it main cannot recognise the session and
       // simply opens a watch under whatever id we hand it, which is the stale
       // one whenever another client named this thread first.
+      // The same round trip attaches to the live runtime when there is a
+      // provider thread to attach to.
       const api = ctx.apiFor(tabId)
       const watched = await api.watchSession({
         sessionId,
         agentSessionId: session.agentSessionId ?? undefined,
         provider: session.run.provider ?? undefined,
+        attachRuntime: !!session.agentSessionId,
       }).catch(() => null)
       if (watched) ctx.adoptSessionId(tabId, watched.sessionId)
 
-      // Same as hydrateTab: Git doesn't depend on the bind below, so don't queue
-      // it behind one. Registration needs the watch above, hence not earlier.
+      // Registration needs the watch above, hence not earlier.
       const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: tabId, level: 'status' }).catch(() => null)
 
       if (session.agentSessionId) {
-        const info = await api.bindRuntimeSession(ctx.ctxFor(tabId)).catch(() => null)
+        const info = watched?.runtime ?? null
         if (info && session) {
           applyRuntimeConfig(session, info)
           session.status = info.status
@@ -523,15 +525,16 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     // provider thread that another client may already have open under a different
     // one. Adopt what main answers with, or events published under its id never
     // reach this client's reducer and the tab sits frozen while the other streams.
+    // The same round trip attaches to the live runtime, which a separate bind
+    // used to do after the watch.
     const watched = await api.watchSession({
       sessionId: handoff?.sessionId ?? session.id,
       agentSessionId: session.agentSessionId,
       provider: session.run.provider ?? undefined,
+      attachRuntime: true,
     })
     ctx.adoptSessionId(snapTab.tabId, watched.sessionId)
-    const info = await api
-      .bindRuntimeSession(ctx.ctxFor(snapTab.tabId))
-      .catch(() => null)
+    const info = watched.runtime ?? null
     if (info && session) {
       applyRuntimeConfig(session, info)
       session.status = info.status

@@ -109,9 +109,9 @@ interface DocToolArgs {
   overwrite?: boolean
 }
 
-export const searchDocsAgentTool = docTool(
-  'search_docs',
-  "Search the user's connected document providers — Confluence pages and Google Docs — by full text. Reach for this whenever the user refers to a document that lives outside Solus (\"the spec in Confluence\", \"that design doc\"). Each result carries a URL; pass it to read_doc to load the full content.",
+export const searchExternalDocAgentTool = docTool(
+  'search_external_doc',
+  "Search the user's connected document providers — Confluence pages and Google Docs — by full text. Reach for this whenever the user refers to a document that lives outside Solus (\"the spec in Confluence\", \"that design doc\"). Each result carries a URL; pass it to read_external_doc to load the full content.",
   {
     provider: z.string().describe(PROVIDER_ARG),
     query: z.string().describe('Full-text query.'),
@@ -123,16 +123,16 @@ export const searchDocsAgentTool = docTool(
   async (args) => {
     const { adapter, limitation } = await requireAdapter(args.provider ?? '')
     const query = args.query?.trim() ?? ''
-    if (!query) throw new Error('search_docs requires a non-empty query.')
+    if (!query) throw new Error('search_external_doc requires a non-empty query.')
     const hits = await adapter.search(args.scope, query)
     if (!hits.length) return `No ${adapter.id} documents match "${query}".${limitation}`
     return `${adapter.id} documents matching "${query}":\n${formatSummaries(hits)}${limitation}`
   },
 )
 
-export const readDocAgentTool = docTool(
-  'read_doc',
-  'Read an upstream document (a Confluence page or a Google Doc) as markdown. Pass the `url` the user gave you, or the URL from a search_docs result. Reading never changes anything upstream.',
+export const readExternalDocAgentTool = docTool(
+  'read_external_doc',
+  'Read an upstream document (a Confluence page or a Google Doc) as markdown. Pass the `url` the user gave you, or the URL from a search_external_doc result. Reading never changes anything upstream.',
   {
     url: z.string().describe('The document URL, exactly as the user pasted it.'),
   },
@@ -149,8 +149,8 @@ export const readDocAgentTool = docTool(
   },
 )
 
-export const createDocAgentTool = docTool(
-  'create_doc',
+export const createExternalDocAgentTool = docTool(
+  'create_external_doc',
   'Create a NEW document upstream — a Confluence page or a Google Doc. Use this only when the user asks for a document in that tool; to create something they keep inside Solus, use create_work instead. To publish a Solus work upstream, use publish_work, which keeps the two linked.',
   {
     provider: z.string().describe(PROVIDER_ARG),
@@ -161,15 +161,15 @@ export const createDocAgentTool = docTool(
   true,
   async (args) => {
     const { adapter } = await requireAdapter(args.provider ?? '')
-    if (!args.scope) throw new Error('create_doc requires a scope (a Confluence space key or a Drive folder id).')
-    if (!args.content?.trim()) throw new Error('create_doc requires non-empty content.')
+    if (!args.scope) throw new Error('create_external_doc requires a scope (a Confluence space key or a Drive folder id).')
+    if (!args.content?.trim()) throw new Error('create_external_doc requires non-empty content.')
     const doc = await adapter.create(args.scope, { title: args.title?.trim() || 'Untitled', markdown: args.content })
     return `Created ${adapter.id} document "${doc.title}": ${doc.ref.url}`
   },
 )
 
-export const updateDocAgentTool = docTool(
-  'update_doc',
+export const updateExternalDocAgentTool = docTool(
+  'update_external_doc',
   'Replace the content of an existing upstream document. Read it first — this replaces the whole body, and anything the markdown cannot express (Confluence macros, Docs suggestions) is lost when you write it back.',
   {
     url: z.string().describe('The document URL.'),
@@ -179,7 +179,7 @@ export const updateDocAgentTool = docTool(
   true,
   async (args) => {
     const { adapter, ref } = await resolveTarget(args.url)
-    if (!args.content?.trim()) throw new Error('update_doc requires non-empty content.')
+    if (!args.content?.trim()) throw new Error('update_external_doc requires non-empty content.')
     const patch: DocPatch = { markdown: args.content }
     if (args.title) patch.title = args.title
     const doc = await adapter.update(ref, patch)
@@ -187,15 +187,15 @@ export const updateDocAgentTool = docTool(
   },
 )
 
-export const importDocAgentTool = docTool(
-  'import_doc',
+export const importExternalDocAgentTool = docTool(
+  'import_external_doc',
   'Import an upstream document into Solus as a work, linked to its source so it can be published back later. Use this when the user pastes a Confluence or Google Docs link and wants to work on it here.',
   {
     url: z.string().describe('The Confluence page or Google Doc URL.'),
   },
   false,
   async (args, context) => {
-    if (!args.url) throw new Error('import_doc requires a url.')
+    if (!args.url) throw new Error('import_external_doc requires a url.')
     const imported = await importDocFromUrl(args.url, {
       cwd: context.cwd,
       sessionId: context.sessionId(),
@@ -212,7 +212,7 @@ export const publishWorkAgentTool = docTool(
   'publish_work',
   'Publish a Solus work upstream as a Confluence page or Google Doc, and keep it linked so later publishes update that same page instead of creating copies. On the first publish, pass `provider` and `scope`; after that neither is needed. If the upstream page changed since Solus last saw it, this reports a conflict instead of overwriting — tell the user and offer pull_work_upstream.',
   {
-    work_id: z.string().describe('The id of the work to publish (from list_works).'),
+    work_id: z.string().describe('The id of the work to publish (from find_works).'),
     provider: z.string().optional().describe(`${PROVIDER_ARG} Required only on the first publish.`),
     scope: z.string().optional().describe('Where to create it on the first publish: a Confluence space key, or a Drive folder id.'),
     overwrite: z.boolean().optional().describe('Publish over an upstream change the user has decided to discard. Ask them first.'),
@@ -251,7 +251,7 @@ export const pullWorkUpstreamAgentTool = docTool(
   'pull_work_upstream',
   'Refresh a linked work from its upstream document, replacing the local content with what the Confluence page or Google Doc says now. The previous content is kept as the work\'s previous version, so this is revertable.',
   {
-    work_id: z.string().describe('The id of the linked work to refresh (from list_works).'),
+    work_id: z.string().describe('The id of the linked work to refresh (from find_works).'),
   },
   false,
   async (args, context) => {

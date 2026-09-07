@@ -190,7 +190,7 @@
   {#if cmd.icon}
     {@const Icon = cmd.icon}
     <span
-      class="inline-flex size-[1.625rem] flex-shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary) transition-colors duration-100 group-data-[selected]/command-item:bg-(--solus-accent-soft) group-data-[selected]/command-item:text-(--solus-accent)"
+      class="inline-flex size-[1.625rem] flex-shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)"
     >
       <Icon size={14} weight="regular" />
     </span>
@@ -327,7 +327,7 @@
                       // every width, so each of those is restated behind the same
                       // modifier — an un-prefixed utility is a different merge
                       // group and would lose to the primitive's prefixed one.
-                      'group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-lg cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-accent-light)]!',
+                      'group/command-item h-[2.625rem] gap-3 w-full px-3 border-none rounded-lg cursor-pointer text-left bg-transparent font-normal text-(--solus-text-secondary) data-[selected]:text-(--solus-text-primary) data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]!',
                       'pointer-fine:[.is-laptop-display_&]:h-[2.625rem] pointer-fine:[.is-laptop-display_&]:gap-3 pointer-fine:[.is-laptop-display_&]:rounded-lg pointer-fine:[.is-laptop-display_&]:px-3',
                     )}
                     onpointermove={() => (selectedValue = cmd.id)}

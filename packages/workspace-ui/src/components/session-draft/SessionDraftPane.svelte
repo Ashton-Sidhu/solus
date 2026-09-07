@@ -363,6 +363,7 @@
           {pluginCommands}
           boundWorkId={current.boundWorkId}
           onUnbindWork={() => (current.boundWorkId = null)}
+          collapseWhenIdle={false}
           bind:prompt={current.prompt}
           onDispatch={dispatch}
           onDispatchInBackground={dispatchInBackground}

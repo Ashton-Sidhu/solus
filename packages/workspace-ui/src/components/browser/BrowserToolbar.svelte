@@ -187,7 +187,10 @@
         onfocus={(event) => event.currentTarget.select()}
         onblur={() => (editing = false)}
         onkeydown={(event) => {
-          if (event.key === "Escape") editing = false;
+          if (event.key !== "Escape") return;
+          // Spent here: the same press would otherwise close the pane too.
+          event.stopPropagation();
+          editing = false;
         }}
       />
     </form>

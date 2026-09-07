@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { useOverlayTransition } from "./lib/overlay-transition.svelte";
   import MobileSessionList from "./MobileSessionList.svelte";
   import { blurActiveTextInputOnMobile } from "@solus/workspace-ui/lib/inputFocus";
   import { swipeDismiss } from "../lib/swipe-dismiss";
@@ -11,61 +11,17 @@
   }
   let { open, onClose, onOpenServers }: Props = $props();
 
-  // 344 of 393 on an iPhone 15: wide enough that a 62px row can state a title,
-  // a project and a run count without any of them truncating, and narrow enough
-  // that the conversation stays visible behind the scrim.
-  const DRAWER_WIDTH = 344;
-
-  let hasMounted = $state(false);
-  let visible = $state(false);
-
-  $effect(() => {
-    if (open) hasMounted = true;
-  });
-
-  $effect(() => {
-    if (!hasMounted) return;
-    if (open) {
-      visible = true;
-      requestAnimationFrame(() => {
-        if (!drawerEl || !backdropEl) return;
-        drawerEl.style.transform = `translateX(-${DRAWER_WIDTH}px)`;
-        backdropEl.style.opacity = '0';
-        requestAnimationFrame(() => {
-          if (!drawerEl || !backdropEl) return;
-          drawerEl.style.transition = 'transform 0.2s cubic-bezier(0.32, 0.72, 0, 1)';
-          backdropEl.style.transition = 'opacity 0.16s ease';
-          drawerEl.style.transform = '';
-          backdropEl.style.opacity = '';
-        });
-      });
-    } else if (visible) {
-      if (drawerEl && backdropEl) {
-        drawerEl.style.transition = 'transform 0.18s ease-in';
-        backdropEl.style.transition = 'opacity 0.14s ease';
-        drawerEl.style.transform = `translateX(-${DRAWER_WIDTH}px)`;
-        backdropEl.style.opacity = '0';
-        const done = () => {
-          // A reopen may have landed while this close animation was in flight.
-          // Bailing keeps open/visible in sync — otherwise visible sticks at
-          // false while open stays true, and the toggle (which only sets
-          // open=true) can never re-trigger, wedging the drawer shut.
-          if (open) return;
-          visible = false;
-          if (drawerEl) { drawerEl.style.transition = ''; drawerEl.style.transform = ''; }
-          if (backdropEl) { backdropEl.style.transition = ''; backdropEl.style.opacity = ''; }
-          tick().then(() => requestAnimationFrame(() => blurActiveTextInputOnMobile()));
-        };
-        drawerEl.addEventListener('transitionend', done, { once: true });
-        setTimeout(done, 200);
-      } else {
-        visible = false;
-      }
-    }
-  });
-
   let drawerEl: HTMLDivElement | undefined = $state();
   let backdropEl: HTMLDivElement | undefined = $state();
+  const transition = useOverlayTransition({
+    open: () => open,
+    panel: () => drawerEl,
+    backdrop: () => backdropEl,
+    hiddenTransform: "translateX(-100%)",
+    enterDuration: 200,
+    backdropDuration: 160,
+    onHidden: blurActiveTextInputOnMobile,
+  });
 
   function handleKeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
@@ -75,12 +31,12 @@
   }
 </script>
 
-{#if hasMounted}
+{#if transition.mounted}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
     bind:this={backdropEl}
     class="drawer-backdrop"
-    class:drawer-hidden={!visible}
+    class:drawer-hidden={!transition.visible}
     onclick={onClose}
     onkeydown={handleKeydown}
   ></div>
@@ -89,7 +45,7 @@
   <div
     bind:this={drawerEl}
     class="drawer-panel"
-    class:drawer-hidden={!visible}
+    class:drawer-hidden={!transition.visible}
     use:swipeDismiss={{
       axis: "x",
       sign: -1,

@@ -40,6 +40,15 @@ describe('unified picker task disclosure', () => {
     expect(picker).toContain('<Kbd variant="keycap">Space</Kbd> expand sessions')
   })
 
+  test('Space typed into the search field stays a space', () => {
+    // WHY: the dialog's keydown handler also receives the search field's
+    // keystrokes. A task is always selected while the query has focus, so an
+    // unguarded Space branch would preventDefault every space the user types.
+    expect(picker).toMatch(
+      /event\.key === " " && selectedEntry\?\.kind === "task" && event\.target !== searchEl/,
+    )
+  })
+
   test('hover selects a task without expanding it', () => {
     // WHY: hover is only a preview and cursor action. It must not change the
     // task tree before the user clicks or uses a disclosure key.

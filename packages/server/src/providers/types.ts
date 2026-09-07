@@ -63,6 +63,14 @@ export interface ProviderAuth {
   /** Load the access token; throws if not connected. Async so an expiring-token future is a drop-in. */
   getAccessToken(): Promise<string>
   status(): Promise<AuthStatus>
+  /**
+   * Whether any credential can act on `host` from `cwd` — this host's own
+   * connection, a paired device's delegation for that checkout, or the CLI the
+   * user is signed in to. `status()` answers the narrower question of what this
+   * host connected as, so it is what Settings reports; ask this one before
+   * refusing to make a request.
+   */
+  hasCredential(host: string, cwd?: string): Promise<boolean>
   /** Forget the stored credential. */
   disconnect(): void
 }

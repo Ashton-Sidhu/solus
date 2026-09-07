@@ -24,6 +24,7 @@
     type UnknownRemoteHost,
   } from "../../contexts";
   import {
+    hostsToRunOn,
     repoKeyForPath,
     returnsToProjectHome,
     isNewWorktreeStartSelected,
@@ -134,7 +135,7 @@
       : "Local",
   );
   const otherHosts = $derived(
-    serversStore.servers.filter((server) => !server.local),
+    hostsToRunOn(serversStore.servers, currentHostId),
   );
   // Whether this run sits in a git checkout: the header offers worktree mode
   // only then, and a non-git folder shows a plain host list instead.

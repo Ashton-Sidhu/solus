@@ -49,7 +49,7 @@ function installHost() {
   const applied: BrowserViewportRequest[] = []
   let release: (() => void) | null = null
   serverConnectionsMock.registerPrimary(SERVER_ID, {
-    browserClose: async () => {},
+    browserClose: async () => ({ closed: true as const }),
     browserSetViewport: async (_browserPageId: string, request: BrowserViewportRequest) => {
       applied.push(request)
       await new Promise<void>((resolve) => {

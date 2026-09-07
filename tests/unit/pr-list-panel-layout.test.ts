@@ -75,7 +75,6 @@ describe('the pull request list header', () => {
     // list crumb mounted below it produces a second project / Pull requests
     // row — and with the crumb gone, refresh has nowhere else to live.
     expect(page).toContain('hideHeader={panelOpen}')
-    expect(page).toContain('pageSwitcherEnabled={!splitList}')
     expect(page).toContain('onRefresh={splitList ? refreshList : undefined}')
     expect(toolbar).toContain('{#if onRefresh}')
     expect(toolbar).toContain('aria-label={refreshing ? "Refreshing pull requests"')

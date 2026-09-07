@@ -73,12 +73,15 @@ import type {
   SessionRunInput,
   ReasoningEffort,
   RuntimeSessionInfo,
+  SessionDescription,
   SessionLineageResolution,
   SessionProviderSwitchResult,
   StatusCardState,
   StatusCardStep,
   ThreadGoal,
   ThreadGoalSetRequest,
+  WatchSessionInput,
+  WatchSessionResult,
 } from '@solus/contracts/types'
 import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSessionBusyStatus, isSteerableStatus, modelLabelFor, projectScopeOf, sameGitCheckout } from '@solus/contracts/types'
 import { solusDir } from './platform/paths'
@@ -141,10 +144,6 @@ interface PendingStart {
   run: SessionRunRequest
   resolve: (value: { agentSessionId: string; taskId?: string }) => void
   reject: (reason: Error) => void
-}
-
-interface WatchedSession {
-  sessionId: string
 }
 
 interface AgentTransportInfo {
@@ -875,7 +874,7 @@ export class ControlPlane extends EventEmitter {
    * a provider thread it read off disk and does not yet know Solus's id for.
    * Returns the authoritative id — which may not be the one passed in.
    */
-  watchSession(input: { sessionId?: string; agentSessionId?: string; provider?: AgentId }, clientId: string): WatchedSession {
+  watchSession(input: WatchSessionInput, clientId: string): WatchSessionResult {
     // Main resolves; the client asserts nothing. Two clients resuming one live
     // session must land on one id, or "one id" is only true within a client.
     const handoff = input.agentSessionId && input.provider
@@ -904,7 +903,9 @@ export class ControlPlane extends EventEmitter {
     }
     clients.add(clientId)
     log.info('session_watched', { sessionId, clientId, watchers: clients.size })
-    return { sessionId }
+    if (!input.attachRuntime || !input.agentSessionId) return { sessionId }
+    // Same order a separate bind would follow: drained, joined, then replayed.
+    return { sessionId, runtime: this._attachRuntime(sessionId, input.agentSessionId, clientId) }
   }
 
   unwatchSession(sessionId: string, clientId: string): void {
@@ -947,7 +948,13 @@ export class ControlPlane extends EventEmitter {
     if (!this.watches.get(sessionId)?.has(clientId)) {
       this.watchSession({ sessionId, agentSessionId }, clientId)
     }
+    return this._attachRuntime(sessionId, agentSessionId, clientId)
+  }
 
+  /** Join a watching client to a session's live runtime: replay the turn so far
+   *  to that client alone and read the run config back. Null when nothing is
+   *  running for the session any more. */
+  private _attachRuntime(sessionId: string, agentSessionId: string, clientId: string): RuntimeSessionInfo | null {
     const session = this.activeSessions.get(sessionId)
     if (!session) return null
 
@@ -1293,6 +1300,18 @@ export class ControlPlane extends EventEmitter {
 
   /** Seam (b): the row comes from the on-disk session index, so it is named by
    *  the provider's thread id. */
+  /** One read for opening a saved session: what the client used to ask for as
+   *  a lineage lookup and then a metadata lookup on whichever member it named. */
+  async describeSession(agentId: AgentId, providerSessionId: string): Promise<SessionDescription> {
+    const lineage = this.resolveSessionLineage(agentId, providerSessionId)
+    const active = lineage?.active
+    // An active member with no transcript yet has no metadata to read; the
+    // lineage alone carries what the client needs for it.
+    if (active && !active.providerSessionId) return { lineage, meta: null }
+    const meta = await this.getSessionInfo(active?.providerSessionId ?? providerSessionId)
+    return { lineage, meta }
+  }
+
   async getSessionInfo(agentSessionId: string): Promise<SessionMeta | null> {
     const handoff = resolveSessionLineageById(agentSessionId)
     const metadataMember = handoff?.active.providerSessionId
@@ -1776,7 +1795,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
-        solusToolbox.prs,
         solusToolbox.config,
       ),
     }, origin?.deviceId)
@@ -1856,7 +1874,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
-        solusToolbox.prs,
         solusToolbox.config,
       ),
       options: {
@@ -1940,7 +1957,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
-        solusToolbox.prs,
         solusToolbox.config,
       ),
       options: { prompt, displayPrompt: prompt, delivery, promptSource: 'agent', ...promptOrigin },
@@ -2041,7 +2057,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
-        solusToolbox.prs,
         solusToolbox.config,
       ),
       options: buildCreatedSessionPromptOptions(req),
@@ -2095,7 +2110,6 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
-        solusToolbox.prs,
         solusToolbox.config,
       ),
       options: {
@@ -3112,7 +3126,6 @@ export class ControlPlane extends EventEmitter {
       solusToolbox.browser,
       solusToolbox.sessions,
       solusToolbox.tasks,
-      solusToolbox.prs,
       solusToolbox.config,
     )
     if (session?.status === 'dead') {

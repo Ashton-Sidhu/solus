@@ -1,36 +1,27 @@
 <script lang="ts">
+  import { removeServer } from "@solus/client-core/server-registry";
+  import { onMount, tick } from "svelte";
+  import { HostlessHostsStore } from "./lib/hostless-hosts.store.svelte";
   import {
     ArrowRight as ArrowRightIcon,
     Database as HardDrivesIcon,
     Link2 as LinkSimpleIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import {
-    loadServers,
-    removeServer,
-    type SavedServer,
-  } from "@solus/client-core/server-registry";
   import { defaultDeviceLabel, urlHost } from "@solus/client-core/pairing";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import {
     addHostFromInput,
-    probeServingOrigin,
     type OfferedHost,
   } from "../lib/add-host";
-  import { classifyConnectInput, probeServer } from "../lib/connect";
+  import { classifyConnectInput } from "../lib/connect";
   import { cloudOrigin } from "../lib/cloud-origin.svelte";
   import { activateServer } from "../lib/primary-connection";
 
-  // The hostless home is the one surface allowed to exist without a primary
-  // connection: the workspace's founding invariant is that a host is connected
-  // before it mounts, so this scene lives in the small entry chunk and hands
-  // off through activateServer(), which reloads into the workspace boot path.
+  const hosts = new HostlessHostsStore();
+  const savedServers = $derived(hosts.servers);
+  const servingHost = $derived(hosts.servingHost);
 
-  let savedServers = $state<SavedServer[]>(loadServers());
-  /** Reachability per saved host id; absent while the probe is in flight. */
-  let reachable = $state<Partial<Record<string, boolean>>>({});
-  /** The server that served this page, when it is one we could still add. */
-  let servingHost = $state<OfferedHost | null>(null);
   /** Set when the user picks the offered host instead of typing an address. */
   let selectedHost = $state<OfferedHost | null>(null);
 
@@ -47,46 +38,34 @@
     !!selectedHost || classifyConnectInput(smartInput).kind === "address",
   );
 
-  $effect(() => {
-    void probeServingOrigin(location.origin).then((host) => {
-      servingHost = host;
-    });
-    for (const server of loadServers()) {
-      void probeServer(server.url).then((health) => {
-        reachable[server.id] = health.ok;
-      });
-    }
-    // A phone would only get its keyboard thrown over the list of hosts.
-    if (!window.matchMedia("(max-width: 767px)").matches) {
-      smartInputEl?.focus();
-    }
+  onMount(() => hosts.start(location.origin));
+  onMount(() => {
+    if (!window.matchMedia("(max-width: 767px)").matches) smartInputEl?.focus();
   });
 
-  function selectHost(host: OfferedHost) {
+  async function selectHost(host: OfferedHost) {
     selectedHost = host;
     smartInput = "";
-    setTimeout(() => codeInputEl?.focus(), 60);
+    await tick();
+    codeInputEl?.focus();
   }
 
-  function clearSelectedHost() {
+  async function clearSelectedHost() {
     selectedHost = null;
     codeInput = "";
-    setTimeout(() => smartInputEl?.focus(), 60);
-  }
-
-  function forgetServer(serverId: string) {
-    removeServer(serverId);
-    savedServers = loadServers();
+    await tick();
+    smartInputEl?.focus();
   }
 
   async function submit(event: Event) {
     event.preventDefault();
+    if (busy) return;
     busy = true;
     try {
       const server = await addHostFromInput({
         input: selectedHost?.url ?? smartInput,
         code: codeInput,
-        serverLabel: labelInput,
+        deviceLabel: labelInput,
       });
       // Activation reloads the page, so `busy` deliberately stays set — the
       // form must not accept a second submission while that lands.
@@ -101,7 +80,7 @@
 <!-- Same posture as the workspace's new-tab home: one headline, then the one
      thing this screen exists for. -->
 <div
-  class="text-sm text-xs flex min-h-dvh w-full flex-col items-center justify-center gap-8 overflow-y-auto bg-(--solus-bg) px-5 py-10"
+  class="text-sm flex min-h-dvh w-full flex-col items-center justify-center gap-8 overflow-y-auto bg-(--solus-bg) px-5 py-10"
   data-solus-ui
 >
   <header class="flex max-w-[26rem] flex-col items-center gap-2 text-center">
@@ -202,10 +181,10 @@
                 onclick={() => activateServer(server)}
               >
                 <span
-                  class="size-2 shrink-0 rounded-full {reachable[server.id] ===
+                  class="size-2 shrink-0 rounded-full {hosts.reachable.get(server.id) ===
                   true
                     ? 'bg-emerald-500'
-                    : reachable[server.id] === false
+                    : hosts.reachable.get(server.id) === false
                       ? 'bg-(--solus-text-quaternary)'
                       : 'animate-pulse bg-(--solus-text-quaternary)'}"
                   aria-hidden="true"
@@ -229,7 +208,7 @@
                 type="button"
                 class="mr-1 flex size-7 shrink-0 items-center justify-center rounded-md text-(--solus-text-quaternary) opacity-0 transition-[opacity,color] hover:text-(--solus-text-primary) focus-visible:opacity-100 focus-visible:outline-none group-hover:opacity-100 pointer-coarse:opacity-100"
                 aria-label={`Forget ${server.label}`}
-                onclick={() => forgetServer(server.id)}
+                onclick={() => removeServer(server.id)}
               >
                 <XIcon size={12} />
               </button>

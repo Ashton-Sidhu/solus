@@ -158,6 +158,23 @@ export function shouldShowRunOnPicker(input: RunOnPickerVisibility): boolean {
   )
 }
 
+/**
+ * The hosts the header's "Run on another host" group offers.
+ *
+ * "Another" means another machine than the one this run is already on, which is
+ * not the same question as `local`. Only an Electron-hosted server is flagged
+ * local, so on web the connected host is an ordinary remote row — and naming it
+ * in the "Start in" row *and* leaving it in this group listed one machine twice.
+ * Excluding the run's own host says the intended thing on every client, and is
+ * a no-op on desktop, where that host is the filtered-out local one.
+ */
+export function hostsToRunOn<Host extends { id: string; local: boolean }>(
+  servers: readonly Host[],
+  currentHostId: string,
+): Host[] {
+  return servers.filter((server) => !server.local && server.id !== currentHostId)
+}
+
 /** The combined menu has one selected destination row. A remote host owns that
  * selection, so its default new-worktree shape must not add a second check. */
 export function isNewWorktreeStartSelected(onRemoteHost: boolean, startsNewWorktree: boolean): boolean {

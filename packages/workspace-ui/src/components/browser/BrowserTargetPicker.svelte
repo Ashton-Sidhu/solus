@@ -6,6 +6,7 @@
     RefreshCw,
     RotateCw,
   } from "@lucide/svelte";
+  import type { Snippet } from "svelte";
   import type { BrowserDiscoveredTarget } from "@solus/contracts/browser-types";
   import { Skeleton } from "../ui/skeleton";
   import * as TooltipUI from "../ui/tooltip";
@@ -33,6 +34,10 @@
     /** Set when a page is already open behind this: choosing one is then
      *  optional, and leaving has to be possible. */
     onCancel?: (() => void) | undefined;
+    /** Which identity the page about to open takes. The one toolbar control
+     *  that describes something before a page exists; the rest — size,
+     *  appearance, capture — describe a page. */
+    profile?: Snippet;
   }
 
   let {
@@ -43,6 +48,7 @@
     onOpenUrl,
     openingUrl = null,
     onCancel,
+    profile,
   }: Props = $props();
 
   let manualUrl = $state("");
@@ -61,7 +67,11 @@
 <div
   class="text-workspace-chrome flex min-h-0 flex-1 flex-col"
   onkeydown={(event) => {
-    if (event.key === "Escape") onCancel?.();
+    // With a page behind it, Escape is spent on going back to that page. The
+    // empty picker lets the press through, where it closes the pane.
+    if (event.key !== "Escape" || !onCancel) return;
+    event.stopPropagation();
+    onCancel();
   }}
   role="presentation"
 >
@@ -122,6 +132,10 @@
         aria-label="Browser address"
       />
     </div>
+
+    <span class="inline-flex min-w-0 shrink">
+      {@render profile?.()}
+    </span>
   </form>
 
   <div class="flex min-h-0 flex-1 items-center justify-center px-6">

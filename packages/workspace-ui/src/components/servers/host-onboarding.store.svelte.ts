@@ -231,7 +231,9 @@ export class HostOnboardingStore {
         url,
         pairToken: trimmed,
         deviceLabel: defaultDeviceLabel(),
-        serverLabel: target.name,
+        // A discovered name is the host's own advertisement, not the user's word
+        // for the machine, so it must not outrank what the host reports later.
+        reportedName: target.name,
       })
       this.adoptPairedHost(server, target)
     } catch (err) {

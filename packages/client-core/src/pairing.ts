@@ -24,7 +24,13 @@ export interface PairServerInput {
   url: string
   pairToken: string
   deviceLabel: string
+  /** Only what the user typed. The caller must not pre-fill a fallback here:
+   *  a derived name saved as the user's would then outrank the name the host
+   *  advertises once it connects. */
   serverLabel?: string
+  /** What the host called itself on the probe that preceded pairing, used when
+   *  the user named nothing. Absent when the host was never asked. */
+  reportedName?: string
 }
 
 export interface PairServerResult {
@@ -114,9 +120,11 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
   if (!body.sessionToken) throw new Error('Pair response did not include a session token')
   if (!body.installationId) throw new Error('Pair response did not include an installation id')
 
+  const userLabel = input.serverLabel?.trim() ?? ''
   const server: SavedServer = {
     id: body.installationId,
-    label: input.serverLabel || urlHost(url),
+    label: userLabel || input.reportedName || urlHost(url),
+    hasUserLabel: !!userLabel,
     url,
     sessionToken: body.sessionToken,
     installationId: body.installationId,
@@ -130,13 +138,15 @@ export async function pairServer(input: PairServerInput): Promise<PairServerResu
 export function saveBootstrappedServer(
   urlInput: string,
   credential: SshBootstrapCredential,
-  serverLabel?: string,
+  /** What the host advertised when it was discovered. No user names a host on
+   *  this path, so the label stays derived and the host can correct it later. */
+  reportedName?: string,
   os?: HostOperatingSystem,
 ): SavedServer {
   const url = normalizeServerUrl(urlInput)
   return {
     id: credential.installationId,
-    label: serverLabel || urlHost(url),
+    label: reportedName?.trim() || urlHost(url),
     url,
     sessionToken: credential.sessionToken,
     installationId: credential.installationId,

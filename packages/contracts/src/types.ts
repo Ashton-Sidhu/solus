@@ -1,5 +1,5 @@
 import rawModelProfiles from './model-profiles.json'
-import type { GitIdentity, GitState } from './git-types'
+import type { GitIdentity, GitState, WorktreeEntry } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserSnapshotRef } from './browser-types'
@@ -54,6 +54,11 @@ export interface ServerCapabilities {
 export interface HostCapabilities {
   /** The host build's version, for the per-host skew notice. */
   version?: string
+  /** What the machine calls itself, from the operating system. `/health` withholds
+   *  this over a tunnel, so an authenticated connection is the only way a remote
+   *  client learns the friendly name — and the only one that stays current when
+   *  the machine is renamed. */
+  name?: string
   attachUpload?: boolean
   /** The host reads `PromptOptions.imageAttachmentRefs` from its own attachment
    *  store. Without it a client sends image bytes inline on every turn. */
@@ -763,6 +768,15 @@ export interface SessionLineageResolution {
   active: SessionLineageMember
   /** Changes whenever membership or a provider session binding changes. */
   lineageToken: string
+}
+
+/** Everything a client needs to open a saved session, in one read: the lineage
+ *  behind it and the metadata of the member that answers for it today — the
+ *  active member when it has a transcript, else the transcript that was asked
+ *  for. `meta` is null when no transcript is indexed for that member. */
+export interface SessionDescription {
+  lineage: SessionLineageResolution | null
+  meta: SessionMeta | null
 }
 
 export type TurnStartKind = 'fresh' | 'follow_up' | 'steer'
@@ -1851,6 +1865,23 @@ export interface RuntimeSessionInfo {
   handoffFrom?: SessionHandoffLineage
 }
 
+export interface WatchSessionInput {
+  sessionId?: string
+  agentSessionId?: string
+  provider?: AgentId
+  /** Also attach to the live runtime, as `bindRuntimeSession` would, so a
+   *  client joining a session pays one round trip rather than two. Needs
+   *  `agentSessionId`. */
+  attachRuntime?: boolean
+}
+
+export interface WatchSessionResult {
+  /** The host's id for the session, which may differ from the one asked for. */
+  sessionId: string
+  /** Set when `attachRuntime` was asked for: null means no live runtime. */
+  runtime?: RuntimeSessionInfo | null
+}
+
 export interface SessionProviderSwitchResult {
   fromProvider: AgentId
   fromSessionId: string
@@ -2021,11 +2052,17 @@ export interface SessionDelegation {
 
 export interface SessionSearchResult {
   session: SessionMeta
+  /** The passage the words were found in, with each matched token wrapped in
+   *  the markers of `search-snippet.ts`. Read it through `snippetRuns` or
+   *  `plainSnippet`; never show it raw. */
   snippet: string
   ts: number
   /** The indexed message the words were found in, so a preview can open on
    *  that passage rather than on the transcript's ends. */
   messageId: number
+  /** The index's bm25 score for the hit. Lower is a better match, and a score
+   *  is comparable only with others from the same index. */
+  rank: number
 }
 
 export interface RecentProject {
@@ -2143,8 +2180,6 @@ export interface OtelSettingsSnapshot {
 export interface TextGenerationSettings {
   /** General-purpose model for metadata and other short background writing. */
   textGenerationModel: TextGenerationModelSelection
-  /** Used when the preferred model is not available on the host. */
-  backupTextGenerationModel: TextGenerationModelSelection
   /** Optional override for commit, branch, and pull-request writing. */
   sourceControlWriterModel: TextGenerationModelSelection | null
   /** Host-wide policy applied in the repository where each Git action runs. */
@@ -2646,12 +2681,6 @@ export interface GitCheckoutBranchResult {
   success: boolean
   gitContext?: GitCheckout
   error?: string
-}
-
-export interface WorktreeEntry {
-  path: string
-  branch: string
-  lastModified?: number
 }
 
 // ─── Automations ───

@@ -1,5 +1,9 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { initBrowserRegistry, type BrowserEventSink } from '@solus/server/browser/browser-registry'
+import {
+  AGENT_USE_GRACE_MS,
+  initBrowserRegistry,
+  type BrowserEventSink,
+} from '@solus/server/browser/browser-registry'
 import {
   setBrowserHeadlessHost,
   setBrowserWebviewHost,
@@ -8,13 +12,11 @@ import {
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
 } from '@solus/server/browser/surface-driver'
-import {
-  BROWSER_AGENT_USE_GRACE_MS,
-  isBrowserPageInAgentUse,
-  type BrowserConsoleEntry,
-  type BrowserNavigateOp,
-  type BrowserNetworkEntry,
-  type BrowserPage,
+import type {
+  BrowserConsoleEntry,
+  BrowserNavigateOp,
+  BrowserNetworkEntry,
+  BrowserPage,
 } from '@solus/contracts/browser-types'
 
 /**
@@ -128,13 +130,11 @@ describe('what counts as an agent using a browser page', () => {
 
     const live = registry.get(page.browserPageId)
     expect(live?.agentUse).toBeDefined()
-    expect(isBrowserPageInAgentUse(live!)).toBe(true)
+    expect((await registry.close(page.browserPageId)).closed).toBe(false)
 
-    // Wind the last activity past the grace window the contract declares. Both
-    // sides read that one number, so the badge and the refusal cannot disagree.
-    live!.agentUse!.at = Date.now() - BROWSER_AGENT_USE_GRACE_MS - 1
-    expect(isBrowserPageInAgentUse(live!)).toBe(false)
-
+    // Wind the last activity past the grace window. The host judges use by its
+    // own clock; a client never does, so a remote clock cannot disagree with it.
+    live!.agentUse!.at = Date.now() - AGENT_USE_GRACE_MS - 1
     expect(await registry.close(page.browserPageId)).toEqual({ closed: true })
   })
 
@@ -220,18 +220,22 @@ describe('the host decides, not the client', () => {
     expect(await registry.close(page.browserPageId)).toEqual({ closed: true })
   })
 
-  test('every change to agent use reaches the clients that mirror the page', async () => {
-    // WHY: the chip that says "an agent is using this" is drawn from published
-    // page state. State that changed without an event would leave the badge on a
-    // page nothing is doing, or absent from one that is busy.
+  test('use is announced when it begins, and not again at every verb boundary', async () => {
+    // WHY: the chip that says "an agent is using this" reads whether the field
+    // is present, so the one event that matters is absent→present. A broadcast
+    // per verb start and end would be two events to every client per click for
+    // nothing a client renders.
     const { registry, published } = harness()
     const page = registry.open({ target: TARGET })
     const before = published.length
 
-    const release = registry.beginAgentUse(page.browserPageId, 'browser_click')
-    expect(published.at(-1)?.agentUse?.running).toBe(1)
-    release()
-    expect(published.at(-1)?.agentUse?.running).toBe(0)
-    expect(published.length).toBeGreaterThan(before + 1)
+    const first = registry.beginAgentUse(page.browserPageId, 'browser_click')
+    expect(published.length).toBe(before + 1)
+    expect(published.at(-1)?.agentUse?.verb).toBe('browser_click')
+
+    first()
+    const second = registry.beginAgentUse(page.browserPageId, 'browser_type')
+    second()
+    expect(published.length).toBe(before + 1)
   })
 })

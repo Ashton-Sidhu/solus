@@ -78,6 +78,19 @@
     loadPromptHistory,
     savePromptToHistory,
   } from "./lib/prompt-history";
+  import {
+    floatingLayerOf,
+    focusDestinationAfterFocusOut,
+    selectionHoldsComposerOpen,
+    shouldCollapseComposer,
+  } from "./lib/composer-collapse";
+  import {
+    composerSurfaceOf,
+    measureFold,
+    tweenComposerFold,
+    type ComposerFoldTween,
+    type FoldGeometry,
+  } from "./lib/composer-fold";
 
   import type { Snippet } from "svelte";
 
@@ -134,6 +147,10 @@
      *  this on the session itself; drafts pass it directly. */
     boundWorkId?: string | null;
     onUnbindWork?: () => void;
+    /** Whether this bar folds while the keyboard is elsewhere (ADR-0027).
+     *  A host with nothing behind the bar to give room to — the session draft
+     *  pane, where the bar is the page — turns it off. */
+    collapseWhenIdle?: boolean;
     /** Receives the saved-prompts control, which the toolbar seats in the left
      *  cluster beside the pickers rather than out with the mic and send: saving
      *  a prompt is a composer decision, not a send action. It is handed over as
@@ -155,6 +172,7 @@
     onDispatchInBackground,
     boundWorkId: draftBoundWorkId,
     onUnbindWork,
+    collapseWhenIdle = true,
     leadingActions,
   }: Props = $props();
 
@@ -305,6 +323,157 @@
   /** The composer card — the saved-prompts sheet matches its width. */
   let composerRootEl = $state<HTMLElement | null>(null);
 
+  // ─── Idle collapse (ADR-0027) ───
+
+  // Mic and send are pinned to the card's corner, out of flow, so the toolbar
+  // and the idle text well are told how much corner to keep clear.
+  let actionsWidth = $state(0);
+  let actionsHeight = $state(0);
+
+  // The keyboard is in this bar, or in a menu this bar opened. Tracked on the
+  // bar's own box rather than the host card so every host — dock, split pane,
+  // pill, draft, web — gets the same answer.
+  let composerFocused = $state(false);
+  // Menus that have been given a leave watcher, so one is not added per open.
+  const watchedMenus = new WeakSet<Element>();
+  // A press that began outside the bar and has not been released. The leave
+  // decision waits for the release, so a drag-select in the transcript never
+  // folds the bar under the gesture, and a click's focus has fully landed.
+  let outsidePointerInFlight = false;
+  let outsidePointerReleaseTimer: ReturnType<typeof setTimeout> | null = null;
+  // A live selection in the transcript is holding the bar open; it lets go
+  // when the selection does.
+  let heldBySelection = $state(false);
+  // The recorder has just settled and the keyboard is being handed back to
+  // the editor. Held until focus is next in the bar; a bar the hand-back
+  // never reaches stays open until the user comes and goes themselves.
+  let voiceRefocusPending = $state(false);
+
+  function transcriptEl(): Element | null {
+    return targetTabId
+      ? document.querySelector(
+          `[data-conversation-tab-id="${CSS.escape(targetTabId)}"]`,
+        )
+      : null;
+  }
+
+  /**
+   * Focus leaving with no destination is not yet a leave. A closing picker
+   * blurs its content first and hands focus back to the editor through a
+   * deferred focus request — a frame later, not a microtask later. Deciding
+   * before that lands folded the bar and unfolded it again on the next frame,
+   * which read as a stutter. So the decision waits two frames and then reads
+   * where focus actually is; a return to the bar or into another menu in the
+   * meantime keeps it open, as does a press still in flight or a selection
+   * still being made.
+   */
+  function collapseOnceFocusSettles() {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        if (outsidePointerInFlight) return;
+        const active = document.activeElement;
+        if (active && composerRootEl?.contains(active)) return;
+        if (active && floatingLayerOf(active)) return;
+        if (selectionHoldsComposerOpen(document.getSelection(), transcriptEl())) {
+          heldBySelection = true;
+          return;
+        }
+        heldBySelection = false;
+        composerFocused = false;
+      }),
+    );
+  }
+
+  $effect(() => {
+    if (!heldBySelection) return;
+    const release = () => {
+      if (selectionHoldsComposerOpen(document.getSelection(), transcriptEl())) return;
+      heldBySelection = false;
+      collapseOnceFocusSettles();
+    };
+    document.addEventListener("selectionchange", release);
+    return () => document.removeEventListener("selectionchange", release);
+  });
+
+  $effect(() => {
+    if (!composerFocused) return;
+    const releaseOutsidePointer = () => {
+      if (!outsidePointerInFlight) return;
+      outsidePointerInFlight = false;
+      if (outsidePointerReleaseTimer !== null) clearTimeout(outsidePointerReleaseTimer);
+      outsidePointerReleaseTimer = null;
+      collapseOnceFocusSettles();
+    };
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (composerRootEl?.contains(target) || floatingLayerOf(target)) return;
+      outsidePointerInFlight = true;
+      // A release the page never sees — the pointer left the window — must
+      // not hold the bar open for good.
+      if (outsidePointerReleaseTimer !== null) clearTimeout(outsidePointerReleaseTimer);
+      outsidePointerReleaseTimer = setTimeout(releaseOutsidePointer, 1500);
+    };
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    document.addEventListener("pointerup", releaseOutsidePointer, true);
+    document.addEventListener("pointercancel", releaseOutsidePointer, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+      document.removeEventListener("pointerup", releaseOutsidePointer, true);
+      document.removeEventListener("pointercancel", releaseOutsidePointer, true);
+      if (outsidePointerReleaseTimer !== null) clearTimeout(outsidePointerReleaseTimer);
+      outsidePointerReleaseTimer = null;
+      outsidePointerInFlight = false;
+    };
+  });
+
+  /**
+   * A menu keeps the bar open while it holds focus. bits-ui hands focus back
+   * to the trigger on close, which lands as a `focusin` here — but a menu that
+   * closes by letting go (a click on the transcript with no return target)
+   * fires nothing on this box, so the layer itself is watched for that leave.
+   */
+  function watchMenuForLeave(target: Node) {
+    const layer = floatingLayerOf(target);
+    if (!layer || watchedMenus.has(layer)) return;
+    watchedMenus.add(layer);
+    layer.addEventListener("focusout", (event) => {
+      const next = event.relatedTarget;
+      if (
+        next instanceof Node &&
+        (layer.contains(next) || composerRootEl?.contains(next))
+      )
+        return;
+      collapseOnceFocusSettles();
+    });
+  }
+
+  function handleComposerFocusIn() {
+    composerFocused = true;
+    // The keyboard is back after a dictation; the focus flag holds from here.
+    voiceRefocusPending = false;
+    claimVoice(true);
+  }
+
+  function handleComposerFocusOut(event: FocusEvent) {
+    if (!composerRootEl) return;
+    const destination = focusDestinationAfterFocusOut({
+      root: composerRootEl,
+      relatedTarget: event.relatedTarget,
+      documentHasFocus: document.hasFocus(),
+    });
+    if (destination === "inside" || destination === "window") return;
+    if (destination === "menu") {
+      if (event.relatedTarget instanceof Node) watchMenuForLeave(event.relatedTarget);
+      return;
+    }
+    // Settled rather than immediate for the same reason as a closing menu: a
+    // browser that does not focus a clicked button (Safari) reports a chip
+    // click as a leave to nowhere, and the menu it opens takes focus a beat
+    // later. Two frames on a transcript click is not a visible delay.
+    collapseOnceFocusSettles();
+  }
+
   // Skill commands, used only to strip a mobile-autocorrect duplication on send.
   const providerSkills = $derived(
     [...pluginCommands.project, ...pluginCommands.global].filter(
@@ -349,6 +518,58 @@
   const voiceControlState = $derived<"idle" | "recording" | "transcribing">(
     voice.starting && showWaveform ? "recording" : voiceState,
   );
+
+  // The whole mic cycle holds the bar open, not only the frames the waveform
+  // is on screen: the mic-permission wait before it, and the transcription
+  // after it, when the editor is back but disabled. Folding in either gap and
+  // unfolding when the transcript landed read as a stutter after every
+  // dictation.
+  const micHoldsBarOpen = $derived(
+    showWaveform ||
+      voiceState !== "idle" ||
+      (ownsVoice && voice.mode === "message" && voice.starting),
+  );
+
+  // A phone keeps its toolbar: the `+` there is the only way to attach,
+  // capture, or change the run, and collapsing it would cost a tap into the
+  // field and a soft-keyboard pop before each. Same predicate as auto-focus.
+  const isCollapsed = $derived(
+    shouldCollapseComposer({
+      enabled:
+        collapseWhenIdle &&
+        theme.collapseComposerWhenIdle &&
+        !runtime.shouldSuppressFocus,
+      focused: composerFocused,
+      recording: micHoldsBarOpen,
+      refocusPending: voiceRefocusPending,
+    }),
+  );
+
+  // The fold's tween is a FLIP: the layout flips in one step, and the card,
+  // the prompt line, and the toolbar are animated from where they were to
+  // where they are. The conversation column lays out once per fold instead
+  // of once per frame. Hosts that mark no surface get the cut.
+  let foldTween: ComposerFoldTween | null = null;
+  let geometryBeforeFold: FoldGeometry | null = null;
+  // Read before the DOM flips, so the tween starts from where the card is —
+  // mid-tween, if the last fold was interrupted.
+  $effect.pre(() => {
+    void isCollapsed;
+    geometryBeforeFold = untrack(() => {
+      const surface = composerRootEl && composerSurfaceOf(composerRootEl);
+      return surface ? measureFold(surface) : null;
+    });
+  });
+  $effect(() => {
+    const collapsed = isCollapsed;
+    untrack(() => {
+      const surface = composerRootEl && composerSurfaceOf(composerRootEl);
+      foldTween = surface
+        ? tweenComposerFold(surface, geometryBeforeFold, collapsed)
+        : null;
+    });
+    return () => foldTween?.cancel();
+  });
 
   function handleVoiceTranscript(transcript: string) {
     const text = transcript.trim();
@@ -507,6 +728,10 @@
 
   // Recording replaces the editor with the waveform. Once the recorder settles
   // and the editor is visible again, return keyboard input to the composer.
+  // The mic stops holding the bar open in this same flush, and the focus
+  // request lands a frame or two later, so the bar is held open from here
+  // (ADR-0027). The hold lets go when focus arrives — the bar is then simply
+  // focused. It never folds on its own after a dictation.
   let previousVoiceStateForFocus = untrack(() => voiceState);
   $effect(() => {
     const previousState = previousVoiceStateForFocus;
@@ -522,6 +747,7 @@
     )
       return;
 
+    voiceRefocusPending = true;
     requestAnimationFrame(() => {
       if (isActiveMode && ownsVoice && voiceState === "idle" && !showWaveform) {
         refocusComposer();
@@ -849,26 +1075,35 @@
   // The run picker lives beside this bar but owns its own open state, so the
   // shortcut names the composer that fired it and lets that pane's picker
   // answer. `null` is the workspace dock, which has no pane of its own.
+  //
+  // Both pickers anchor to chips on the toolbar row, which an idle bar has
+  // tucked away. Focusing the editor first — synchronously, not through the
+  // rAF-deferred focus request — puts the row back in the same flush the
+  // picker positions against, so it never anchors to a hidden trigger.
   useKeybinding(
     "global.run-picker",
-    () =>
+    () => {
+      composerEl?.focus();
       window.dispatchEvent(
         new CustomEvent("solus:toggle-run-picker", {
           detail: { paneId: paneId ?? null },
         }),
-      ),
+      );
+    },
     { enabled: () => ownsComposerShortcuts },
   );
   // The task chip sits in the same strip and answers the same way: the shortcut
   // names this composer's pane so only the picker beside this bar opens.
   useKeybinding(
     "global.session-task-picker",
-    () =>
+    () => {
+      composerEl?.focus();
       window.dispatchEvent(
         new CustomEvent("solus:toggle-session-task-picker", {
           detail: { paneId: paneId ?? null },
         }),
-      ),
+      );
+    },
     { enabled: () => ownsComposerShortcuts },
   );
   // ─── Reference composer wiring ───
@@ -1369,7 +1604,8 @@
   bind:this={composerRootEl}
   class="flex flex-col w-full relative"
   style="contain:layout"
-  onfocusin={() => claimVoice(true)}
+  onfocusin={handleComposerFocusIn}
+  onfocusout={handleComposerFocusOut}
 >
   {#if boundWork}
     <div class="flex pt-1.5">
@@ -1411,8 +1647,20 @@
          comes from the editor, symmetric so the first line sits centred in the
          well) and a toolbar row that never moves relative to the card's bottom
          edge. The well is inset a further 6px so prose clears the controls'
-         optical left edge. -->
-    <div class="flex flex-col w-full">
+         optical left edge.
+
+         Idle (ADR-0027), the same two boxes lie side by side instead: the
+         toolbar is hidden — never unmounted, so every picker keeps its state —
+         and mic and send sit at the end of the well's line. The editor stays
+         put through the flip; only classes change. Mic and send are pinned
+         to the card's bottom-right corner in both states, so they never move
+         between two rows. The toolbar and the well each keep the corner clear
+         through `--composer-actions-width`. -->
+    <div
+      class="relative flex w-full flex-col"
+      style:--composer-actions-width="{actionsWidth}px"
+      style:--composer-actions-height="{actionsHeight}px"
+    >
       <div class="min-w-0 px-1.5">
         {@render editorOrWaveform()}
       </div>
@@ -1422,14 +1670,41 @@
            a 1.15 text preference a 26rem card holds only ~22.6rem of row. The
            row takes the `text-workspace-chrome` rung instead, which is what
            ADR-0013 says chrome should do: the text preference grows prose
-           relative to controls, not with them. -->
-      <div class="flex w-full items-center gap-2">
-        {@render leadingActions(savedPromptsControl)}
-        <!-- The wider touch gap keeps the mic's and send's 44px tap areas from
-             overlapping; see the `pointer-coarse:tap-area` utility. -->
-        <div class="ml-auto flex shrink-0 items-center gap-1 pointer-coarse:gap-2">
-          {@render actionButtons()}
+           relative to controls, not with them.
+
+           The row is at least as tall as the pinned buttons, so they sit
+           inside it at rest rather than up into the well.
+
+           The fold is a cut here: grid rows 0fr↔1fr fold the row in one step,
+           and the bar's fold tween (composer-fold.ts) carries the motion —
+           the card's height, the prompt line, and this row's arrival. `inert`
+           and `invisible` keep a folded row out of the Tab order, so the
+           pickers are folded, never unmounted — every picker keeps its state.
+           Rings need no room here: the chips draw none outside their box. -->
+      <div
+        data-composer-toolbar
+        class="grid {isCollapsed
+          ? 'invisible grid-rows-[0fr]'
+          : 'visible grid-rows-[1fr]'}"
+        inert={isCollapsed}
+      >
+        <div class="min-h-0 overflow-hidden">
+          <div
+            class="flex items-center pr-[calc(var(--composer-actions-width)_+_0.5rem)] min-h-(--composer-actions-height)"
+          >
+            {@render leadingActions(savedPromptsControl)}
+          </div>
         </div>
+      </div>
+      <!-- The wider touch gap keeps the mic's and send's 44px tap areas from
+           overlapping; see the `pointer-coarse:tap-area` utility. Last in the
+           DOM so Tab still runs toolbar → mic → send. -->
+      <div
+        bind:clientWidth={actionsWidth}
+        bind:clientHeight={actionsHeight}
+        class="absolute bottom-0 right-0 flex shrink-0 items-center gap-1 pointer-coarse:gap-2"
+      >
+        {@render actionButtons()}
       </div>
     </div>
   {:else}
@@ -1483,16 +1758,38 @@
 {#snippet editorOrWaveform()}
   <!-- The editor's type vars live on this wrapper, not on the editor itself, so
        the waveform inherits the same padding and stands exactly as tall as the
-       text well it replaces — entering voice mode must not resize the card. -->
+       text well it replaces — entering voice mode must not resize the card.
+
+       The well is generous at rest and one tight line while idle. The idle
+       well is deliberately lopsided — 4px under the line — because the card
+       keeps its 12px bottom padding either way: 16 above and 4 + 12 below is
+       the line centred in the card, and the pinned buttons, whose centre sits
+       15px above that same edge, land on the line too. A symmetric well here
+       put the text visibly high with dead space under it. The idle well also
+       keeps the corner clear on the right, where those buttons now sit on its
+       line. With chips above, the top is tightened in every case so the well
+       does not add a second gap under them.
+
+       The well's padding flips in one step; the fold tween slides the whole
+       well from where its line was to where it is, so the line settles
+       rather than jumps. -->
   <div
-    class="[--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {attachments.length >
-    0
+    data-composer-prompt
+    class="[--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {isCollapsed
       ? mode === 'editor'
-        ? '[--plain-editor-padding:0.5rem_0_1.25rem_0]'
-        : '[--plain-editor-padding:0.5rem_0_0.9375rem_0.25rem]'
+        ? attachments.length > 0
+          ? '[--plain-editor-padding:0.5rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0]'
+          : '[--plain-editor-padding:1rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0]'
+        : attachments.length > 0
+          ? '[--plain-editor-padding:0.5rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0.25rem]'
+          : '[--plain-editor-padding:0.9375rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0.25rem]'
       : mode === 'editor'
-        ? '[--plain-editor-padding:1.25rem_0_1.25rem_0]'
-        : ''}"
+        ? attachments.length > 0
+          ? '[--plain-editor-padding:0.5rem_0_1.25rem_0]'
+          : '[--plain-editor-padding:1.25rem_0_1.25rem_0]'
+        : attachments.length > 0
+          ? '[--plain-editor-padding:0.5rem_0_0.9375rem_0.25rem]'
+          : ''}"
   >
     {#if hasMountedWaveform}
       <div

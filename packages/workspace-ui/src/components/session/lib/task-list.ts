@@ -117,17 +117,6 @@ export function taskRowBranchName(
   return sessions.length === 1 ? (sessions[0].branchName ?? taskBranchName) : taskBranchName
 }
 
-/** A child-task row represents the durable subtask, not the provider session
- * executing it. Root-task attempts remain session-named so multiple attempts
- * are distinguishable — `sessionName` is the shared `sessionDisplayName`, which
- * has already resolved the live tab, the indexed title and the task fallback. */
-export function sidebarChildLabel(
-  task: Pick<Task, 'parentId' | 'title'>,
-  sessionName: string,
-): string {
-  return task.parentId ? task.title : sessionName
-}
-
 export type ReviewGuideIndicatorStatus = 'generating' | 'ready' | null
 
 /** A task summarizes every session below it. Work in flight wins over ready so

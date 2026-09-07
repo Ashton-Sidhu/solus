@@ -73,6 +73,8 @@ export interface HostConfig {
   rateLimitBehavior: RateLimitBehavior
   autoRenameSessions: boolean
   showDiffSummaryAfterTurn: boolean
+  /** The composer tucks its toolbar row away while the keyboard is elsewhere. */
+  collapseComposerWhenIdle: boolean
   fontFamily: AppFontFamily
   fontSize: number
   codeFontFamily: AppCodeFontFamily
@@ -101,7 +103,6 @@ export interface HostConfig {
   /** Where this host sends its own telemetry. */
   otel: OtelSettings
   textGenerationModel: TextGenerationModelSelection
-  backupTextGenerationModel: TextGenerationModelSelection
   /** Null means fall back to `textGenerationModel`. */
   sourceControlWriterModel: TextGenerationModelSelection | null
   sourceControlWriting: SourceControlWritingPreferences
@@ -205,6 +206,7 @@ export const hostConfigPatchSchema = z.object({
   rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'),
   autoRenameSessions: z.boolean().catch(true),
   showDiffSummaryAfterTurn: z.boolean().catch(true),
+  collapseComposerWhenIdle: z.boolean().catch(true),
   fontFamily: z.enum(APP_FONT_FAMILIES).catch('inter'),
   fontSize: z.number().min(8).max(32).catch(13),
   codeFontFamily: z.enum(APP_CODE_FONT_FAMILIES).catch('jetbrains-mono'),
@@ -221,7 +223,6 @@ export const hostConfigPatchSchema = z.object({
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).catch('moderate'),
   otel: otelPatchSchema.catch({}),
   textGenerationModel: modelSelectionSchema,
-  backupTextGenerationModel: modelSelectionSchema,
   sourceControlWriterModel: modelSelectionSchema.nullable(),
   sourceControlWriting: sourceControlWritingPatchSchema.catch({}),
 }).partial().strip()
@@ -255,6 +256,7 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
   rateLimitBehavior: 'ask',
   autoRenameSessions: true,
   showDiffSummaryAfterTurn: true,
+  collapseComposerWhenIdle: true,
   fontFamily: 'inter',
   fontSize: 13,
   codeFontFamily: 'jetbrains-mono',
@@ -269,10 +271,6 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
   agentTaskLifecyclePolicy: 'moderate',
   otel: DEFAULT_OTEL_SETTINGS,
   textGenerationModel: { provider: 'codex', model: DEFAULT_TEXT_GENERATION_MODELS.codex },
-  backupTextGenerationModel: {
-    provider: 'claude-code',
-    model: DEFAULT_TEXT_GENERATION_MODELS['claude-code'],
-  },
   sourceControlWriterModel: null,
   sourceControlWriting: DEFAULT_SOURCE_CONTROL_WRITING,
 }
@@ -312,6 +310,7 @@ export const HOST_CONFIG_AGENT_WRITABLE = {
   rateLimitBehavior: true,
   autoRenameSessions: true,
   showDiffSummaryAfterTurn: true,
+  collapseComposerWhenIdle: true,
   fontFamily: true,
   fontSize: true,
   codeFontFamily: true,
@@ -329,7 +328,6 @@ export const HOST_CONFIG_AGENT_WRITABLE = {
   agentTaskLifecyclePolicy: false,
   otel: false,
   textGenerationModel: false,
-  backupTextGenerationModel: false,
   sourceControlWriterModel: false,
   sourceControlWriting: false,
 } as const satisfies Record<keyof HostConfig, boolean>

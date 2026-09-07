@@ -61,7 +61,6 @@
     textGenerationSettingsStore.errorFor(serverId),
   );
   let textGenerationPickerSelection = $state<PickerSelection>();
-  let backupTextGenerationPickerSelection = $state<PickerSelection>();
 
   $effect(() => {
     const targetServerId = serverId;
@@ -91,22 +90,6 @@
     }
     textGenerationPickerSelection.provider = selection.provider;
     textGenerationPickerSelection.modelId = selection.model;
-  });
-
-  $effect(() => {
-    const selection = textGenerationSnapshot?.backupTextGenerationModel;
-    if (!selection) return;
-    if (!backupTextGenerationPickerSelection) {
-      backupTextGenerationPickerSelection = {
-        provider: selection.provider,
-        modelId: selection.model,
-        reasoningEffort: "high",
-        fastMode: false,
-      };
-      return;
-    }
-    backupTextGenerationPickerSelection.provider = selection.provider;
-    backupTextGenerationPickerSelection.modelId = selection.model;
   });
 
   const themeModes = [
@@ -242,23 +225,6 @@
       .catch(() => {});
   }
 
-  async function selectBackupTextGenerationModel(
-    selection: PickerSelection,
-  ): Promise<void> {
-    if (!selection.modelId) return;
-    await textGenerationSettingsStore
-      .update(
-        { serverId, api },
-        {
-          backupTextGenerationModel: {
-            provider: selection.provider,
-            model: selection.modelId,
-          },
-        },
-      )
-      .catch(() => {});
-  }
-
   function selectAppFont(value: typeof theme.fontFamily) {
     theme.update({ fontFamily: value });
     requestInputFocus();
@@ -332,18 +298,6 @@
         "name",
         "metadata",
         "writing",
-      ],
-    },
-    {
-      id: "backup-text-generation-model",
-      keywords: [
-        "backup",
-        "fallback",
-        "model",
-        "text",
-        "generation",
-        "unavailable",
-        "haiku",
       ],
     },
     {
@@ -468,6 +422,20 @@
     {
       id: "turn-diff-summary",
       keywords: ["diff", "summary", "changed", "files", "turn", "transcript"],
+    },
+    {
+      id: "collapse-composer",
+      keywords: [
+        "collapse",
+        "composer",
+        "input",
+        "bar",
+        "toolbar",
+        "focus",
+        "idle",
+        "compact",
+        "minimize",
+      ],
     },
     {
       id: "analytics",
@@ -985,8 +953,7 @@
 
 <SettingsSection
   label="Text generation"
-  visible={isVisible("text-generation-model") ||
-    isVisible("backup-text-generation-model")}
+  visible={isVisible("text-generation-model")}
 >
   <SettingsRow
     label="Text-generation model"
@@ -1033,44 +1000,16 @@
       {/snippet}
     {/if}
   </SettingsRow>
-
-  <SettingsRow
-    label="Backup text-generation model"
-    description="Used when the text-generation model is not available on the {hostLabel} host."
-    visible={isVisible("backup-text-generation-model")}
-  >
-    {#snippet control()}
-      {#if backupTextGenerationPickerSelection && textGenerationSnapshot}
-        <SessionChip
-          selection={backupTextGenerationPickerSelection}
-          agents={textGenerationSnapshot.agents}
-          modelOnly
-          menuSide="bottom"
-          ariaLabel="Backup text-generation model"
-          returnFocusOnClose
-          class="min-w-40"
-          onSelectionChange={(selection) =>
-            void selectBackupTextGenerationModel(selection)}
-        />
-      {:else}
-        <Button
-          variant="outline"
-          size="sm"
-          disabled
-          class="min-w-40 text-xs shadow-xs"
-        >
-          Loading…
-        </Button>
-      {/if}
-    {/snippet}
-  </SettingsRow>
 </SettingsSection>
 
 <SettingsSection
   label="Workspace"
-  visible={["projects-base", "auto-rename", "turn-diff-summary"].some(
-    isVisible,
-  )}
+  visible={[
+    "projects-base",
+    "auto-rename",
+    "turn-diff-summary",
+    "collapse-composer",
+  ].some(isVisible)}
 >
   <SettingsRow
     label="Projects folder"
@@ -1144,6 +1083,22 @@
           theme.update({ showDiffSummaryAfterTurn: next })}
         size="default"
         aria-label="Toggle changed files summaries after turns"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Collapse the input bar when idle"
+    description="Tuck the toolbar away until the input bar has focus. Attachments and the work chip stay visible."
+    visible={isVisible("collapse-composer")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.collapseComposerWhenIdle}
+        onCheckedChange={(next) =>
+          theme.update({ collapseComposerWhenIdle: next })}
+        size="default"
+        aria-label="Toggle collapsing the input bar when idle"
       />
     {/snippet}
   </SettingsRow>

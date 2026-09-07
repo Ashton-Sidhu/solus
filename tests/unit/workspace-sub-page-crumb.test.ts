@@ -76,7 +76,7 @@ describe('every record page heads itself with the one shared sub page band', () 
 
 describe('the crumb names the page by its one shared spec', () => {
   test('reads the label from page-nav rather than restating it', () => {
-    // WHY: the session sidebar, the page crumb menu, and this crumb must agree
+    // WHY: the session sidebar, the page crumb, and this crumb must agree
     // on what the page is called; a literal "Workspace" here would drift.
     const crumb = source('ui/list-page/ParentPageCrumb.svelte')
     expect(crumb).toContain('navPageSpec(page)')

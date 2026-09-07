@@ -9,6 +9,7 @@ import type {
   BrowserCookieSourceScan,
 } from '@solus/contracts/browser-types'
 import { createLogger } from '../logger'
+import { openExternal } from '../platform/opener'
 import type { BrowserProfileCookie } from './surface-driver'
 import {
   chromiumCookieKey,
@@ -39,6 +40,9 @@ export interface CookieSourceDirectory {
   lastUsedAt?: number
   /** Set when the store was found but cannot be read here. */
   unavailable?: string
+  /** Set with `unavailable` when the operating system has a setting that grants
+   *  the access, as the URL that opens it on this host. */
+  accessSettingsUrl?: string
   /** Set when reading will make the operating system ask the user for something. */
   unlockPrompt?: string
 }
@@ -115,9 +119,7 @@ export function discoverCookieSources(): BrowserCookieSourceScan {
   if (directories.length === 0) {
     return {
       supported: false,
-      unavailable:
-        'No Firefox, Chrome, or Safari profile was found on this host. Cookie import reads a browser '
-        + 'installed on the machine that renders your browser pages.',
+      unavailable: 'No Firefox, Chrome, or Safari profile on this host.',
       sources: [],
     }
   }
@@ -137,8 +139,24 @@ function sourceOf(directory: CookieSourceDirectory): BrowserCookieSource {
   }
   if (directory.lastUsedAt !== undefined) source.lastUsedAt = Math.round(directory.lastUsedAt)
   if (directory.unavailable) source.unavailable = directory.unavailable
+  if (directory.accessSettingsUrl) source.canRequestAccess = true
   if (directory.unlockPrompt) source.unlockPrompt = directory.unlockPrompt
   return source
+}
+
+/**
+ * Take the user to the operating-system setting that grants access to a blocked
+ * source. The destination is the reader's, chosen from the id — a client never
+ * names a URL to open on the host. Refused for a source that is readable or that
+ * nothing on this host could grant.
+ */
+export async function requestCookieAccess(sourceId: string): Promise<void> {
+  const directory = allProfiles().find((candidate) => candidate.id === sourceId)
+  if (!directory) throw new Error(`No browser profile ${sourceId} on this host.`)
+  if (!directory.accessSettingsUrl) {
+    throw new Error(`${directory.label} does not need access granted on this host.`)
+  }
+  await openExternal(directory.accessSettingsUrl)
 }
 
 /**

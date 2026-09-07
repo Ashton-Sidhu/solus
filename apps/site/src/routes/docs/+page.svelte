@@ -1057,10 +1057,9 @@ solus pair                            # create a one-time client pairing link</d
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Text generation</h3>
 				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
 					{#each [
-						['Text-generation model', 'The model behind short background writing: session names, metadata, and generated Git messages.'],
-						['Backup text-generation model', 'Used when the first choice is not installed on the host. Solus keeps your selection and reports the model it actually used.'],
+						['Text-generation model', 'The model behind short background writing: session names, metadata, and generated Git messages. When your choice is not installed on the host, Solus uses the cheap default of whichever agent is installed and reports the model it actually used.'],
 					] as [key, val], i}
-						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 1 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
 							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
 						</div>
@@ -1167,6 +1166,7 @@ solus pair                            # create a one-time client pairing link</d
 					['⌘⇧N', 'New session without task'],
 					['⌥⇧T', 'Open tasks'],
 					['⌥⇧F', 'Task picker'],
+					['⌥A  (task picker)', 'Choose project scope'],
 					['⌃/', 'Focus sidebar task search'],
 				])}
 

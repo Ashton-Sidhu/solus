@@ -27,6 +27,7 @@
   import { CompanionPanes } from "./lib/companion-panes.svelte";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
+    closeTargetPaneId,
     COMPANION_PANE_DEFAULT_SIZE,
     COMPANION_PANE_MIN_SIZE,
     isCompanionVisible,
@@ -379,6 +380,28 @@
         session.maximizedPaneId === maximizePaneId ? null : maximizePaneId;
     },
     { enabled: () => active && !!maximizePaneId },
+  );
+  // Escape closes the companion pane it is pressed in, whatever surface it
+  // holds — the browser pane had no way out by keyboard at all. The DOM check
+  // is the ladder: a popover the pane opened is portalled to the body, so while
+  // it holds focus the press is its own and the pane stays; once it closes,
+  // focus returns to the trigger and the next Escape reaches the pane.
+  const closePaneId = $derived(
+    closeTargetPaneId(router.asidePanes, router.focusedPaneId),
+  );
+  useKeybinding(
+    "pane.close",
+    () => {
+      if (!closePaneId) return;
+      router.closePane(closePaneId);
+      requestInputFocus();
+    },
+    {
+      enabled: () =>
+        active &&
+        !!closePaneId &&
+        !!document.activeElement?.closest(".secondary-pane-wrap"),
+    },
   );
   useKeybinding(
     "global.toggle-project-panel",

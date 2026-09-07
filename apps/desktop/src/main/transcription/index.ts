@@ -7,7 +7,20 @@ import { recordOtelDuration } from '@solus/server/otel'
 import { ensureParakeetModel, getVoiceModelStatus, isParakeetModelReady } from '@solus/server/model-downloader'
 
 const log = createLogger('main', 'transcription/index.ts')
-const WORKER_PATH = join(__dirname, 'transcription-worker.js')
+
+/**
+ * The worker is a build entry, so it lands at the root of the main output
+ * directory. This module does not: the desktop entry imports it dynamically,
+ * which makes the bundler emit it into a `chunks/` directory one level below.
+ * Resolve against both instead of trusting where this module happens to sit.
+ */
+export function resolveWorkerPath(moduleDir: string): string {
+  const sibling = join(moduleDir, 'transcription-worker.js')
+  if (existsSync(sibling)) return sibling
+  return join(moduleDir, '..', 'transcription-worker.js')
+}
+
+const WORKER_PATH = resolveWorkerPath(__dirname)
 const BACKEND = 'Parakeet ONNX INT8'
 
 type PhaseMetrics = Record<string, number>

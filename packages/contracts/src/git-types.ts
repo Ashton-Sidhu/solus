@@ -97,6 +97,21 @@ export interface GitStateOptions {
   includeDetails?: boolean
   /** Ignore network-backed detail caches for explicit manual/post-action refresh. */
   bypassCache?: boolean
+  /** Also list the project's worktrees and branches, so one round trip answers
+   *  everything a full environment refresh asks. Fetches from origin first. */
+  includeRefs?: boolean
+}
+
+export interface WorktreeEntry {
+  path: string
+  branch: string
+  lastModified?: number
+}
+
+/** A project's worktrees and branches, as one picker reads them. */
+export interface GitProjectRefs {
+  branches: string[]
+  worktrees: WorktreeEntry[]
 }
 
 export interface TurnSnapshot {
@@ -236,6 +251,8 @@ export interface GitState extends GitIdentity {
   /** Commits on HEAD that are not on the target branch. Loaded with details. */
   targetAheadCount?: number
   prUrl?: string
+  /** Present only when the request asked for refs. */
+  refs?: GitProjectRefs
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { EditorId, HostCapabilities } from '@solus/contracts/types'
+import { hostDisplayName } from '../../platform/host-display-name'
 import { appVersion } from '../../platform/paths'
 import { INTERNAL_HANDLER_CTX, type SolusServer } from '../server'
 
@@ -20,6 +21,9 @@ export function registerCapabilityHandlers(server: SolusServer): void {
     const capabilities: HostCapabilities = {
       // The running build's version, for the client's per-host skew notice.
       version: appVersion(),
+      // The machine's own name. A client saved this host under whatever it could
+      // derive at pairing time; this is the host correcting that record.
+      name: hostDisplayName(),
       attachUpload: server.hasHandler('attachUpload'),
       // Not a handler: this build reads image refs off a prompt. An older host
       // omits the field, and its clients keep sending the bytes inline.

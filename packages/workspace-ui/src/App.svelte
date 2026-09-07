@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick, untrack } from "svelte";
+  import { onMount, tick, untrack } from "svelte";
   import {
     Download as DownloadSimpleIcon,
     Plus as PlusIcon,
@@ -93,6 +93,7 @@
   import {
     createReconnectDetector,
     initializeRuntime,
+    refreshRuntime,
     refreshTheme,
   } from "./contexts/app/runtime-boot";
   import {
@@ -611,9 +612,7 @@
     return unsub;
   });
 
-  $effect(() => {
-    initializeRuntime(session, sessionSidebarStore);
-  });
+  onMount(() => initializeRuntime(session, sessionSidebarStore));
 
   const detectReconnect = createReconnectDetector(
     serversStore.connectionStatus,
@@ -621,22 +620,24 @@
   $effect(() => {
     const connectionStatus = serversStore.connectionStatus;
     const reconnected = detectReconnect(connectionStatus);
-    if (connectionStatus === "connected") {
-      const defaultServerId = serverConnections.defaultServerId();
-      if (defaultServerId) {
-        void connectionsStore.refreshCapabilities({
-          serverId: defaultServerId,
-        });
+    untrack(() => {
+      if (connectionStatus === "connected") {
+        const defaultServerId = serverConnections.defaultServerId();
+        if (defaultServerId) {
+          void connectionsStore.refreshCapabilities({
+            serverId: defaultServerId,
+          });
+        }
       }
-    }
-    if (reconnected) {
-      refreshTheme(settings.setSystemTheme.bind(settings));
-      const defaultServerId = serverConnections.defaultServerId();
-      if (defaultServerId) {
-        sessionEnvironmentStore.invalidateRegistrationsForHost(defaultServerId);
+      if (reconnected) {
+        refreshTheme(settings.setSystemTheme.bind(settings));
+        const defaultServerId = serverConnections.defaultServerId();
+        if (defaultServerId) {
+          sessionEnvironmentStore.invalidateRegistrationsForHost(defaultServerId);
+        }
+        refreshRuntime(session, sessionSidebarStore);
       }
-      initializeRuntime(session, sessionSidebarStore);
-    }
+    });
   });
 
   $effect(() => {

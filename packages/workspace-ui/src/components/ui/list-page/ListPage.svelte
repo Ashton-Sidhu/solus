@@ -96,9 +96,6 @@
     /** Removes the crumb line when the host surface already owns those
      *  controls. The narrowing row still clears the frame titlebar. */
     hideHeader?: boolean;
-    /** A docked record can keep a stable page title without turning it into a
-     *  second page-navigation control. */
-    pageSwitcherEnabled?: boolean;
   }
   let {
     projects,
@@ -135,7 +132,6 @@
     contentHeight = $bindable(0),
     split = false,
     hideHeader = false,
-    pageSwitcherEnabled = true,
   }: Props = $props();
 
   // The head's own measure. A laptop display gives up the generous desktop top
@@ -199,7 +195,6 @@
           {projectSwitchNote}
           {page}
           pageLabel={title}
-          {pageSwitcherEnabled}
           {actions}
           {onRefresh}
           {refreshing}

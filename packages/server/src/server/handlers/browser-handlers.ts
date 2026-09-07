@@ -13,7 +13,7 @@ import {
   renameBrowserProfile,
   setBrowserDefaultProfile,
 } from '../../browser/browser-profiles'
-import { discoverCookieSources } from '../../browser/cookie-sources'
+import { discoverCookieSources, requestCookieAccess } from '../../browser/cookie-sources'
 import { browserProfilePartition, type BrowserProfileSet } from '@solus/contracts/browser-types'
 import { setBrowserSpanRecorder } from '../../browser/browser-emitter'
 import { endSolusSpan, startSolusSpan } from '../../observability/tracer'
@@ -31,7 +31,7 @@ import { endSolusSpan, startSolusSpan } from '../../observability/tracer'
  */
 export function registerBrowserHandlers(
   server: SolusServer,
-  deps: { events: HostEventPublisher; ownPort: () => number; frames: BrowserFrameChannel },
+  deps: { events: HostEventPublisher; frames: BrowserFrameChannel },
 ): BrowserRegistry {
   const registry = initBrowserRegistry({
     pageChanged: (page) => deps.events.broadcast('browser.pageChanged', { page }),
@@ -60,11 +60,8 @@ export function registerBrowserHandlers(
   }
 
   server.register('browserListTargets', async () => {
-    // Solus's own port is a listening socket that serves HTML; offering the app
-    // its own client as a dev-server target would be absurd but not obviously
-    // wrong from the outside, so it is excluded at the source.
     forgetDiscoveredTargets()
-    return discoverBrowserTargets({ excludePorts: [deps.ownPort()] })
+    return discoverBrowserTargets()
   })
 
   server.register('browserListPages', async () => registry.list())
@@ -143,6 +140,7 @@ export function registerBrowserHandlers(
   })
 
   server.register('browserListCookieSources', async () => discoverCookieSources())
+  server.register('browserRequestCookieAccess', async (args) => requestCookieAccess(args[0]))
   server.register('browserImportCookies', async (args) => importBrowserCookies(args[0]))
 
   return registry

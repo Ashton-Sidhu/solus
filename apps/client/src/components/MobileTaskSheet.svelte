@@ -62,7 +62,7 @@
 
   const projectLabel = $derived(
     projectDirLabel(
-      sess?.run.gitContext?.projectRoot ?? sess?.run.workingDirectory ?? "~",
+      sess?.run.gitContext?.repoRoot ?? sess?.run.workingDirectory ?? "~",
       session.staticInfo?.workspacePath,
     ),
   );
@@ -173,10 +173,6 @@
   title={task?.title ?? "This session"}
   subtitle={[task?.projectLabel, durableTask ? taskRef(durableTask) : ""].filter(Boolean).join(" / ")}
 >
-  <!-- The task's page leads: the sheet is a peek at the task, and the page is
-       where its description, comments and links live. Snooze, complete and drop
-       act on the same task under it. An individual run below is reached by
-       opening it, not by acting on it here. -->
   {#if task}
     <div class="flex flex-col gap-2 px-4 pt-1">
       {#if task.taskId}
@@ -219,10 +215,6 @@
         class="flex h-[3.125rem] w-full cursor-pointer items-center gap-2.5 border-0 bg-transparent px-3.5 text-left active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
         onclick={() => {
           onClose();
-          // Named, because every row above reads this tab: dispatched bare the
-          // pick reached the handler with no source and fell back to whatever
-          // was active. A tab that has already started still opens a new draft
-          // at the project — that guard lives in the handler, not here.
           window.dispatchEvent(
             new CustomEvent("solus:open-directory-picker", {
               detail: { requesterId: tabId },

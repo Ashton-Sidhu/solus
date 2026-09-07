@@ -43,7 +43,6 @@ const persistedServerSettingsSchema = z.object({
   analytics: z.boolean().optional(),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).optional(),
   textGenerationModel: legacyModelSelectionSchema.optional(),
-  backupTextGenerationModel: legacyModelSelectionSchema.optional(),
   sourceControlWriterModel: legacyModelSelectionSchema.nullable().optional(),
   sourceControlWriting: legacySourceControlWritingSchema.optional(),
 }).strip()
@@ -120,9 +119,6 @@ function seedHostConfig(legacy: PersistedSettings | undefined): HostConfig {
   const patch: HostConfigPatch = { analyticsEnabled: legacy?.analytics !== false }
   if (legacy?.agentTaskLifecyclePolicy) patch.agentTaskLifecyclePolicy = legacy.agentTaskLifecyclePolicy
   if (legacy?.textGenerationModel) patch.textGenerationModel = legacy.textGenerationModel
-  if (legacy?.backupTextGenerationModel) {
-    patch.backupTextGenerationModel = legacy.backupTextGenerationModel
-  }
   // Null is a real choice here — "no separate source-control writer" — so it is
   // carried forward, unlike the keys above where absence means "never set".
   if (legacy?.sourceControlWriterModel !== undefined) {
@@ -193,16 +189,12 @@ export function setProjectsBaseDirectory(path: string): ServerSettings {
 
 export function resolveTextGenerationModel(): TextGenerationModelSelection {
   const { config } = getHostConfig()
-  return resolveAvailableModel(config.textGenerationModel, config.backupTextGenerationModel)
+  return resolveAvailableModel(config.textGenerationModel)
 }
 
 export function resolveSourceControlWriterModel(): TextGenerationModelSelection {
   const { config } = getHostConfig()
-  return resolveAvailableModel(
-    config.sourceControlWriterModel,
-    config.textGenerationModel,
-    config.backupTextGenerationModel,
-  )
+  return resolveAvailableModel(config.sourceControlWriterModel, config.textGenerationModel)
 }
 
 function persistSettings(next: ServerSettings): void {
@@ -226,6 +218,11 @@ function isAvailable(selection: TextGenerationModelSelection): boolean {
     && !!MODEL_PROFILES[selection.provider]?.[selection.model]
 }
 
+/**
+ * The rule when nothing configured is installed: each backend has one cheap
+ * model for background writing, and Codex wins when both are on the host. There
+ * is no second user-chosen model to consult — the host picks what it can run.
+ */
 function automaticTextGenerationModel(): TextGenerationModelSelection {
   for (const provider of ['codex', 'claude-code'] as const) {
     const selection = { provider, model: DEFAULT_TEXT_GENERATION_MODELS[provider] }

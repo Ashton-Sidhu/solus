@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import ConversationView from "@solus/workspace-ui/components/conversation/ConversationView.svelte";
   import SessionBreadcrumb from "@solus/workspace-ui/components/conversation/SessionBreadcrumb.svelte";
   import SessionDraftPane from "@solus/workspace-ui/components/session-draft/SessionDraftPane.svelte";
@@ -32,16 +33,11 @@ import {
   const planStore = getPlanStore();
   const router = session.router;
 
-  const tab = $derived(session.tabs[session.activeTabId]);
   const sess = $derived(session.sessionFor(session.activeTabId));
-  const isRunning = $derived(
-    sess?.status === "running" || sess?.status === "connecting",
-  );
-  const changedFiles = $derived(sess?.changedFiles ?? []);
+  const changedFiles = $derived(sess?.sessionChangedFiles ?? []);
   let sidePanelSourceTabId = $state(session.activeTabId);
   const sidePanelTab = $derived(session.tabs[sidePanelSourceTabId]);
   const sidePanelSession = $derived(session.sessionFor(sidePanelSourceTabId));
-  const isWorktree = $derived(!!sidePanelSession?.run.gitContext?.worktreePath);
   const canShowDiffPanel = $derived(!!sidePanelSession?.run.workingDirectory);
   const activePlan = $derived.by(() => {
     const planId = router.params("plan")?.planId;
@@ -70,15 +66,6 @@ import {
       : null,
   );
 
-  // ── Page routes on a phone ──
-  // The shell renders one pane, so whichever page route the leading pane holds
-  // takes the content area. Read from the registry rather than a list of route
-  // names here: the drawer's section row navigates to Tasks, Pull requests and
-  // Workspace, and a shell that enumerated its own subset would answer a
-  // navigation with a blank screen for anything it had not been told about.
-  //
-  // Folio is excluded because it is mounted once and hidden below, so its
-  // filters and scroll position survive being closed.
   const leadingRef = $derived(visibleRef(router.leadingPane));
   const activePageRef = $derived(
     isPageRoute(leadingRef) && leadingRef && leadingRef.name !== "folio"
@@ -97,17 +84,7 @@ import {
     router.panes.find((pane) => pane.base?.name === "browser")?.id ?? null,
   );
 
-  // The global connection banner is retired (dispatch-client step 3): the
-  // client is host-agnostic, so an outage belongs to one host's row and the
-  // per-host status chip, never to a client-global toast — and "Retry now"
-  // dials that host's supervisor instead of reloading the whole window.
-
-  // ── Mobile-only review state ──
-  // The desktop layout reads the shared location for its review / plan / work
-  // panes. Mobile keeps its own lightweight state because it renders a single
-  // full-screen review via the snippets below, not the split-pane system.
   let diffPanelOpen = $state(false);
-  let diffPanelMaximized = $state(false);
   let diffScope = $state<DiffScope>({ kind: "session" });
   // Which of Map · Guide · Diff the mobile review is on. The desktop route
   // carries this; mobile has no location to put it in.
@@ -115,13 +92,12 @@ import {
   let editorFile = $state<FilePreviewRequest | null>(null);
   const canShowSidePanel = $derived(canShowDiffPanel || !!editorFile);
   // Mobile always shows the diff full-screen.
-  const effectiveDiffMaximized = $derived(true);
 
   // Browser/OS back closes the topmost full-screen overlay on mobile, instead of
   // leaving the app. The mobile sheets/drawers register themselves in WebMobileLayout.
   function closeDiffPanel() {
     diffPanelOpen = false;
-    diffPanelMaximized = false;
+
     editorFile = null;
   }
   // Settings, Folio and the work shell are routes now: each navigation pushes a
@@ -151,7 +127,7 @@ import {
       sidePanelSourceTabId = current;
       if (isMobile) {
         diffPanelOpen = false;
-        diffPanelMaximized = false;
+
         editorFile = null;
       } else if (router.overlay?.name === "review") {
         router.closeOverlay();
@@ -160,7 +136,7 @@ import {
     prevActiveTabId = current;
   });
 
-  $effect(() => {
+  onMount(() => {
     const handler = () => {
       session.unifiedPickerOpen = !session.unifiedPickerOpen;
     };
@@ -168,7 +144,7 @@ import {
     return () => window.removeEventListener("solus:toggle-session-picker", handler);
   });
 
-  $effect(() => {
+  onMount(() => {
     const handler = (e: Event) => {
       const detail = e instanceof CustomEvent ? e.detail : undefined;
       const sourceTabId =
@@ -185,7 +161,7 @@ import {
         editorFile = null;
         if (scope.kind === "session") {
           diffPanelOpen = false;
-          diffPanelMaximized = false;
+
           return;
         }
         if (canShowSourceDiff) {
@@ -202,14 +178,14 @@ import {
           diffScope = scope;
           diffPanelOpen = true;
         }
-        if (!diffPanelOpen) diffPanelMaximized = false;
+
       }
     };
     window.addEventListener("solus:toggle-diff-panel", handler);
     return () => window.removeEventListener("solus:toggle-diff-panel", handler);
   });
 
-  $effect(() => {
+  onMount(() => {
     const handler = (e: Event) => {
       const detail = e instanceof CustomEvent ? e.detail : undefined;
       if (!detail?.path) return;
@@ -223,7 +199,7 @@ import {
       sidePanelSourceTabId = sourceTabId;
       editorFile = detail;
       diffScope = { kind: "session" };
-      diffPanelOpen = false;
+      diffPanelOpen = true;
     };
     window.addEventListener(FILE_PREVIEW_EVENT, handler);
     return () => window.removeEventListener(FILE_PREVIEW_EVENT, handler);
@@ -240,7 +216,7 @@ import {
     if (editorFile) {
       editorFile = null;
       diffPanelOpen = false;
-      diffPanelMaximized = false;
+
       return;
     }
     const sourceTabId = session.activeTabId;
@@ -249,7 +225,7 @@ import {
       editorFile = null;
       diffScope = { kind: "session" };
       diffPanelOpen = !diffPanelOpen;
-      if (!diffPanelOpen) diffPanelMaximized = false;
+
     }
   }
 </script>
@@ -271,12 +247,6 @@ import {
 {/snippet}
 
 {#snippet chatContent()}
-  <!-- Browser is an `aside` route, and the mobile shell renders no companion
-       pane — so on a phone the pane takes the content area instead, the way the
-       diff and the workspace do. Without this branch the command opens a pane
-       nothing renders, which is why it used to be hidden here. The surface
-       inside is the streamed canvas: a phone cannot host a `<webview>`, and the
-       page is rendered on the host either way. -->
   {#if router.at("browser") && browserPaneId}
     {#await import("@solus/workspace-ui/components/browser/BrowserPane.svelte")}
       {@render loadingSurface("Loading browser…")}
@@ -290,10 +260,6 @@ import {
       </div>
     {/await}
   {:else if activePageRef && activePageComponent}
-    <!-- Tasks, the task detail, Pull requests, the PR review, Automations,
-         Insights and Settings all arrive here. The surfaces are the desktop
-         ones; what makes them a phone page is the `pane` container declared on
-         the wrapper, which is how each learns it has 393px to spend. -->
     {#await activePageComponent()}
       {@render loadingSurface("Loading page…")}
     {:then pageModule}
@@ -318,10 +284,6 @@ import {
     {/if}
     {#if !router.at("folio")}
       {#if activeWorkRoute}
-        <!-- The route surface owns work-type dispatch. Mobile must not send a
-             diagram or artifact through the document editor merely because it
-             has one visible pane. This also keeps live refresh, history,
-             export, and delete behavior identical across clients. -->
         {#key `${activeWorkRoute.params.workId}-${mobileWorkLoadAttempt}`}
         {#await import("@solus/workspace-ui/components/work/WorkPane.svelte")}
           <div class="mobile-surface flex min-h-0 flex-1 flex-col">
@@ -374,11 +336,6 @@ import {
             composerActions={isMobile ? draftComposerActions : undefined}
           />
         {:else}
-          <!-- The band belongs to the pane, not to the transcript: the desktop
-               body draws it over its leading column, and this is that column.
-               A phone has no room for it: the mobile navbar already states
-               project / task / state in one opaque 56px band, and a second
-               copy under it truncates all three. -->
           <div class="relative flex min-h-0 flex-1 flex-col">
             {#if session.activeTabId && !isMobile}
               <SessionBreadcrumb tabId={session.activeTabId} />
@@ -391,14 +348,7 @@ import {
                 <ConversationView
                   tabId={tId}
                   bandAbove={!isMobile}
-                  onDiffToggle={() => {
-                    sidePanelSourceTabId = tId;
-                    if (!session.sessionFor(tId)?.run.workingDirectory) return;
-                    editorFile = null;
-                    diffScope = { kind: "session" };
-                    diffPanelOpen = !diffPanelOpen;
-                    if (!diffPanelOpen) diffPanelMaximized = false;
-                  }}
+
                 />
               </div>
             {/each}
@@ -420,9 +370,7 @@ import {
         cwd={sidePanelSession.run.gitContext?.worktreePath ?? sidePanelSession.run.workingDirectory}
         isDark={session.settings.isDark}
         file={editorFile}
-        onClose={() => {
-          editorFile = null;
-        }}
+        onClose={closeDiffPanel}
       />
     {/await}
   {:else if diffPanelOpen && sidePanelTab && sidePanelSession && canShowDiffPanel}
@@ -447,7 +395,7 @@ import {
         scope={diffScope}
         onClose={() => {
           diffPanelOpen = false;
-          diffPanelMaximized = false;
+
         }}
       />
     {/await}

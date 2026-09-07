@@ -24,6 +24,7 @@ const editorIdSchema = z.enum(EDITOR_IDS)
 const tolerantBoolean = z.boolean().optional().catch(undefined)
 const hostCapabilitiesSchema = z.object({
   version: z.string().optional().catch(undefined),
+  name: z.string().optional().catch(undefined),
   attachUpload: tolerantBoolean,
   promptImageRefs: tolerantBoolean,
   assetUrls: tolerantBoolean,

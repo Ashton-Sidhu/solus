@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { createCipheriv, createHash, pbkdf2Sync } from 'node:crypto'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import * as realOs from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -35,6 +35,7 @@ type SafariModule = typeof import('@solus/server/browser/safari-cookies')
 type ProfilesModule = typeof import('@solus/server/browser/browser-profiles')
 type SurfaceModule = typeof import('@solus/server/browser/surface-driver')
 type DbModule = typeof import('@solus/server/db')
+type PlatformModule = typeof import('@solus/server/platform/services')
 
 let sources: SourcesModule
 let chromium: ChromiumModule
@@ -42,6 +43,7 @@ let safari: SafariModule
 let profiles: ProfilesModule
 let surface: SurfaceModule
 let db: DbModule
+let platform: PlatformModule
 
 const previousDataDir = process.env.SOLUS_DATA_DIR
 const PROJECT = '/projects/alpha'
@@ -146,6 +148,7 @@ function seedChrome(): void {
   const root = chromeRoot()
   mkdirSync(join(root, 'Default', 'Network'), { recursive: true })
   mkdirSync(join(root, 'Profile 1'), { recursive: true })
+  mkdirSync(join(root, 'Guest Profile', 'Network'), { recursive: true })
   writeFileSync(
     join(root, 'Local State'),
     JSON.stringify({ profile: { info_cache: { Default: { name: 'Personal' }, 'Profile 1': { name: 'Work' } } } }),
@@ -154,6 +157,7 @@ function seedChrome(): void {
   for (const [directory, store] of [
     ['Default', join(root, 'Default', 'Network', 'Cookies')],
     ['Profile 1', join(root, 'Profile 1', 'Cookies')],
+    ['Guest Profile', join(root, 'Guest Profile', 'Network', 'Cookies')],
   ] as const) {
     const db = new Database(store)
     db.exec(`
@@ -275,6 +279,7 @@ beforeAll(async () => {
   profiles = await import('@solus/server/browser/browser-profiles')
   surface = await import('@solus/server/browser/surface-driver')
   db = await import('@solus/server/db')
+  platform = await import('@solus/server/platform/services')
   seedFirefox()
   seedChrome()
   if (ON_MACOS) seedSafari()
@@ -307,6 +312,9 @@ describe('what the host offers to import from', () => {
     expect(byId.get(CHROME_ID)).toMatchObject({ browser: 'chrome', label: 'Chrome — Personal' })
     expect(byId.get('chrome:Profile 1')?.label).toBe('Chrome — Work')
     if (ON_MACOS) expect(byId.get(SAFARI_ID)).toMatchObject({ browser: 'safari', label: 'Safari' })
+    // Chrome's guest and system directories hold a cookie store and nobody's
+    // login. Offering them would be offering a throwaway jar.
+    expect(byId.has('chrome:Guest Profile')).toBe(false)
   })
 
   test('a scan never unlocks anything, so opening the list cannot prompt', () => {
@@ -321,8 +329,10 @@ describe('what the host offers to import from', () => {
     // which is exactly what a scan must not do.
     expect(chrome?.importable).toBe(3)
     expect(chrome?.unlockPrompt).toBe(
-      ON_MACOS ? 'macOS will ask once for permission to read Chrome’s key from your keychain.' : undefined,
+      ON_MACOS ? 'macOS will ask for your keychain password once.' : undefined,
     )
+    // The keychain asks by itself; there is no setting for the host to open.
+    expect(chrome?.canRequestAccess).toBeUndefined()
   })
 
   test('Firefox needs no unlock at all, and says so by carrying no prompt', () => {
@@ -415,6 +425,15 @@ describe('Chrome: cookies behind a key', () => {
     const sealed = Buffer.concat([Buffer.from('v11'), Buffer.from('not-openable-bytes')])
     expect(chromium.decryptChromiumValue(sealed, CHROME_KEY, '.example.com')).toBeNull()
     expect(chromium.decryptChromiumValue(Buffer.from('plain'), CHROME_KEY, '.example.com')).toBeNull()
+  })
+
+  test('a keyring-sealed value is refused by version, never tried with the wrong key', () => {
+    // WHY: CBC padding accepts roughly one wrong key in 256. A `v11` value that
+    // happened to pass would be imported as garbage; refusing the version is the
+    // only answer that cannot be wrong.
+    const cipher = createCipheriv('aes-128-cbc', CHROME_KEY, Buffer.alloc(16, ' '))
+    const v11 = Buffer.concat([Buffer.from('v11'), cipher.update('opens-with-this-key'), cipher.final()])
+    expect(chromium.decryptChromiumValue(v11, CHROME_KEY, '.example.com')).toBeNull()
   })
 
   test('an undecryptable row is counted as encrypted, under its own name', () => {
@@ -526,6 +545,44 @@ describe('Safari: cookies behind macOS itself', () => {
     // offer that can never be taken.
     const listed = safari.safariProfiles()
     expect(listed.length).toBe(ON_MACOS ? 1 : 0)
+  })
+
+  test.skipIf(!ON_MACOS)('a store macOS refuses is listed with the way to grant access, and the host opens it', async () => {
+    // WHY: macOS has no prompt for Full Disk Access. Telling the user to find the
+    // pane by hand is what "clunky" means; the host can open the exact pane, and
+    // the row offers that instead of a paragraph of directions.
+    const opened: string[] = []
+    platform.configurePlatformServices({ openExternal: async (url) => void opened.push(url) })
+    const path = safariStorePath()
+    chmodSync(path, 0o000)
+    try {
+      const scan = sources.discoverCookieSources()
+      const listed = scan.sources.find((source) => source.id === SAFARI_ID)
+      expect(listed).toMatchObject({ unavailable: 'Needs Full Disk Access.', canRequestAccess: true, importable: 0 })
+
+      await sources.requestCookieAccess(SAFARI_ID)
+      expect(opened).toEqual([safari.FULL_DISK_ACCESS_SETTINGS_URL])
+
+      // Blocked is not importable: choosing it names the fix, not an errno.
+      expect(() => sources.resolveCookieSource(SAFARI_ID)).toThrow('Full Disk Access')
+    } finally {
+      chmodSync(path, 0o600)
+      platform.configurePlatformServices({})
+    }
+  })
+
+  test('a readable source has nothing to grant, and says so rather than opening settings', async () => {
+    // WHY: the RPC takes any source id. One that is not blocked must not open a
+    // settings pane on the host for no reason.
+    const opened: string[] = []
+    platform.configurePlatformServices({ openExternal: async (url) => void opened.push(url) })
+    try {
+      await expect(sources.requestCookieAccess(FIREFOX_ID)).rejects.toThrow('does not need access')
+      await expect(sources.requestCookieAccess('safari:../etc')).rejects.toThrow('No browser profile')
+      expect(opened).toEqual([])
+    } finally {
+      platform.configurePlatformServices({})
+    }
   })
 })
 

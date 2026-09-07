@@ -120,3 +120,41 @@ describe('push click host resolution', () => {
     expect(routeForPushClick({ sessionId: 'session-1', installationId: 'install-gone' }, servers)).toBeNull()
   })
 })
+
+describe('push reconciliation scheduling', () => {
+  test('a burst shares one pass and in-flight changes run afterward', async () => {
+    const { PushReconciler } = await import('../../apps/client/src/lib/web-push-core')
+    let release!: () => void
+    const firstPass = new Promise<void>((resolve) => { release = resolve })
+    let calls = 0
+    let active = 0
+    let maxActive = 0
+    const reconciler = new PushReconciler(async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      if (++calls === 1) await firstPass
+      active -= 1
+    })
+    const first = reconciler.request()
+    expect(reconciler.request()).toBe(first)
+    await Promise.resolve()
+    expect(calls).toBe(1)
+    expect(reconciler.request()).toBe(first)
+    expect(reconciler.request()).toBe(first)
+    release()
+    await first
+    expect(calls).toBe(2)
+    expect(maxActive).toBe(1)
+  })
+
+  test('a failed browser operation does not lock later retries', async () => {
+    const { PushReconciler } = await import('../../apps/client/src/lib/web-push-core')
+    let calls = 0
+    const reconciler = new PushReconciler(async () => {
+      if (++calls === 1) throw new Error('browser unavailable')
+    })
+    await expect(reconciler.request()).rejects.toThrow('browser unavailable')
+    await reconciler.request()
+    expect(calls).toBe(2)
+  })
+})

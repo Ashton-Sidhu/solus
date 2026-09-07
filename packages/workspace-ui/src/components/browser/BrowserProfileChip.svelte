@@ -3,11 +3,11 @@
     Check,
     ChevronDown,
     CircleUserRound,
+    Cookie,
     Plus,
     Star,
     Trash2,
     Pencil,
-    DownloadCloud,
   } from "@lucide/svelte";
   import {
     BROWSER_PROFILE_NAME_MAX,
@@ -18,29 +18,32 @@
   import { toasts } from "../../lib/toasts";
   import * as Popover from "../ui/popover";
   import BrowserCookieImport from "./BrowserCookieImport.svelte";
+  import { profileRowTitle, type ProfileSelection } from "./lib/profiles";
 
   /**
    * Which signed-in identity a browser page uses, and the way to manage the set.
    *
-   * A page's identity is fixed for its life (ADR 0023), so the chip states which
-   * identity this page is, and the way to another one is to open the same
-   * address again as that profile.
+   * A page's identity is fixed for its life (ADR 0023), so on a page the chip
+   * states which identity this page is, and the way to another one is to open
+   * the same address again as that profile. In the picker, before a page
+   * exists, it states which identity the next page takes.
    */
 
   interface Props {
     set: BrowserProfileSet | null;
     /** The page's profile, or the one the next page will open as. */
     selectedId: string;
-    /** Open this page's address again as another profile. Absent where there is
-     *  no page to reopen. */
-    onOpenAs?: ((profileId: string) => void) | undefined;
+    /** What choosing a row does — see `ProfileSelection`. */
+    selection: ProfileSelection;
+    onSelect: (profileId: string) => void;
     /** The host whose profiles these are. Every mutation answers with the whole
      *  set and the host broadcasts the same set, so every client lands on one list. */
     serverId: string;
     projectRoot: string | undefined;
   }
 
-  let { set, selectedId, onOpenAs, serverId, projectRoot }: Props = $props();
+  let { set, selectedId, selection, onSelect, serverId, projectRoot }: Props =
+    $props();
 
   let open = $state(false);
   /** The popover's second view: importing is a consented, one-time act with its
@@ -168,7 +171,7 @@
         <div
           class="px-2 pt-1 pb-1.5 font-medium tracking-widest text-(--solus-text-tertiary) uppercase"
         >
-          Signed in as
+          Profiles
         </div>
 
         {#each profiles as profile (profile.id)}
@@ -183,12 +186,14 @@
                 type="button"
                 class="flex min-w-0 flex-1 items-center gap-2.5 overflow-hidden text-left"
                 aria-pressed={profile.id === selectedId}
-                disabled={!onOpenAs || profile.id === selectedId}
-                title={profile.id === selectedId
-                  ? `This page is signed in as ${profile.name}`
-                  : `Open this address again as ${profile.name}`}
+                disabled={profile.id === selectedId}
+                title={profileRowTitle(
+                  selection,
+                  profile.id === selectedId,
+                  profile.name,
+                )}
                 onclick={() => {
-                  onOpenAs?.(profile.id);
+                  onSelect(profile.id);
                   open = false;
                 }}
               >
@@ -207,12 +212,13 @@
               </button>
 
               <!-- The row's own actions. They hold their slots at zero opacity so
-                   hovering a profile never shifts the name under the pointer, and
-                   focus reveals them so the keyboard reaches every one. -->
+                   hovering a profile never shifts the name under the pointer;
+                   focus reveals them for the keyboard, and a touch screen, which
+                   cannot hover, sees them always. -->
               {#if !isDefault}
                 <button
                   type="button"
-                  class="flex size-6 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) opacity-0 transition-opacity group-hover/profile:opacity-100 hover:bg-[var(--wash-3)] hover:text-(--solus-text-primary) focus-visible:opacity-100"
+                  class="flex size-6 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) opacity-0 transition-opacity group-hover/profile:opacity-100 group-focus-within/profile:opacity-100 pointer-coarse:opacity-100hover:bg-[var(--wash-3)] hover:text-(--solus-text-primary) focus-visible:opacity-100"
                   aria-label="Open new pages as {profile.name}"
                   title="Open new pages as {profile.name}"
                   onclick={() => setDefault(profile.id)}
@@ -222,20 +228,20 @@
               {/if}
               <button
                 type="button"
-                class="flex size-6 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) opacity-0 transition-opacity group-hover/profile:opacity-100 hover:bg-[var(--wash-3)] hover:text-(--solus-text-primary) focus-visible:opacity-100"
-                aria-label="Import browser cookies into {profile.name}"
-                title="Import browser cookies into {profile.name}"
+                class="flex size-6 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) opacity-0 transition-opacity group-hover/profile:opacity-100 group-focus-within/profile:opacity-100 pointer-coarse:opacity-100hover:bg-[var(--wash-3)] hover:text-(--solus-text-primary) focus-visible:opacity-100"
+                aria-label="Import cookies from a browser into {profile.name}"
+                title="Import cookies from a browser"
                 onclick={() => {
                   deleteArmedFor = null;
                   importingInto = profile.id;
                 }}
               >
-                <DownloadCloud class="size-3" />
+                <Cookie class="size-3" />
               </button>
               {#if !profile.builtIn}
                 <button
                   type="button"
-                  class="flex size-6 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) opacity-0 transition-opacity group-hover/profile:opacity-100 hover:bg-[var(--wash-3)] hover:text-(--solus-text-primary) focus-visible:opacity-100"
+                  class="flex size-6 shrink-0 items-center justify-center rounded-full text-(--solus-text-tertiary) opacity-0 transition-opacity group-hover/profile:opacity-100 group-focus-within/profile:opacity-100 pointer-coarse:opacity-100hover:bg-[var(--wash-3)] hover:text-(--solus-text-primary) focus-visible:opacity-100"
                   aria-label="Rename {profile.name}"
                   title="Rename"
                   onclick={() => beginNaming(profile.id, profile.name)}
@@ -244,7 +250,7 @@
                 </button>
                 <button
                   type="button"
-                  class="flex shrink-0 items-center justify-center gap-1 rounded-full px-1.5 opacity-0 transition-opacity group-hover/profile:opacity-100 focus-visible:opacity-100 {deleteArmedFor ===
+                  class="flex shrink-0 items-center justify-center gap-1 rounded-full px-1.5 opacity-0 transition-opacity group-hover/profile:opacity-100 group-focus-within/profile:opacity-100 pointer-coarse:opacity-100focus-visible:opacity-100 {deleteArmedFor ===
                   profile.id
                     ? 'h-6 bg-[color-mix(in_oklch,var(--failure)_14%,transparent)] text-[var(--failure)] opacity-100'
                     : 'size-6 text-(--solus-text-tertiary) hover:bg-[var(--wash-3)] hover:text-[var(--failure)]'}"

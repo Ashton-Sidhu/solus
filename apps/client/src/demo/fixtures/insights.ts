@@ -329,7 +329,7 @@ export function demoTurnTrace(turn: DemoTurnRecord): MetricsTurnTrace {
   at += streamMs
   spans.push(span(turn.tools.length + 3, 'turn_settlement', 'settlement', at, settlementMs))
 
-  return { traceId: turn.traceId, spans, providerWaitMs: 0, gapSegments: [] }
+  return { traceId: turn.traceId, spans, logEvents: [], providerWaitMs: 0, gapSegments: [] }
 }
 
 export function demoSessionSummary(

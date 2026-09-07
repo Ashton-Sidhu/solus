@@ -1,6 +1,6 @@
 class VirtualKeyboardState {
   keyboardHeight = $state(0)
-  isKeyboardVisible = $state(false)
+  isKeyboardVisible = $derived(this.keyboardHeight > 0)
   viewportHeight = $state(window.visualViewport?.height ?? window.innerHeight)
 
   private cleanup: (() => void) | null = null
@@ -20,7 +20,6 @@ class VirtualKeyboardState {
       const height = offset > threshold ? offset : 0
       if (height !== this.keyboardHeight) {
         this.keyboardHeight = height
-        this.isKeyboardVisible = height > 0
       }
       if (vvHeight !== this.viewportHeight) {
         this.viewportHeight = vvHeight
@@ -31,6 +30,7 @@ class VirtualKeyboardState {
       if (!rafId) rafId = requestAnimationFrame(commit)
     }
 
+    commit()
     vv.addEventListener('resize', schedule)
     vv.addEventListener('scroll', schedule)
     this.cleanup = () => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import Icon from "@iconify/svelte";
   import {
     HERO_CARD,
@@ -56,10 +57,6 @@
   interface Props {
     open: boolean;
     onClose: () => void;
-    /** The composer that opened this sheet — a started session's tab, or the id
-     *  of the draft composing one. Every row reads and writes through it, so a
-     *  draft's project, host and git actions are the ones this sheet edits
-     *  rather than whatever tab happens to be active behind it. */
     sourceId?: string;
     onAttachFiles: (files: File[], sourceId?: string) => void | Promise<void>;
     onToggleWorkspace: () => void;
@@ -88,11 +85,6 @@
   const composerSourceId = $derived(sourceId ?? session.activeTabId);
   const composerRun = $derived(session.runFor(composerSourceId));
 
-  // Attach opens on what you came for; Actions holds what happens to the
-  // repository. Kept across reopens on purpose — the tab you were last in is
-  // almost always the one you want next. What the run *is* — agent, model,
-  // effort, mode — is not here: it lives behind the model button, which is the
-  // control that already names it.
   type SheetTab = "attach" | "actions";
   let tab = $state<SheetTab>("attach");
   const TABS: { id: SheetTab; label: string }[] = [
@@ -118,7 +110,9 @@
   );
 
   $effect(() => {
-    void hostCapabilitiesStore.load(attachmentServerId);
+    if (!open) return;
+    const serverId = attachmentServerId;
+    untrack(() => void hostCapabilitiesStore.load(serverId));
   });
 
   const ctx = $derived(statusBar.ctxForRun(composerRun));
@@ -133,12 +127,6 @@
     return parts[parts.length - 1] || wd;
   });
 
-  // The shared GitActions store routes every call through the session's own
-  // host (`apiFor`), so these rows work for dispatched sessions too. It is
-  // memoized per source id and shared with the desktop project panel, so the
-  // PRs store is not optional: without it, the moment a pull request is created
-  // the hand-off that lets the sidebar and task row name it throws, and the
-  // success toast never fires.
   const environmentStore = getSessionEnvironmentStore();
   const pullRequests = getPullRequestsContext();
   const actions = $derived(
@@ -147,6 +135,7 @@
   const gitEnvironment = $derived(
     environmentStore.environmentFor(composerRun),
   );
+  const gitCwd = $derived(gitEnvironment.cwd);
   const gitApi = $derived(session.apiFor(composerSourceId));
   const gitServerId = $derived(serverConnections.serverIdForApi(gitApi));
   // The same readiness model the project panel renders: an unpublished project
@@ -157,6 +146,7 @@
       githubConnected: repositorySetupStore.githubConnectedFor(gitServerId, gitEnvironment.cwd),
     }),
   );
+  const gitReadiness = $derived(gitModel.readiness);
   const gitPrimaryAction = $derived(gitModel.pullRequest.primary);
   const pushStep = $derived(gitModel.commit.steps.find((step) => step.key === "push"));
   const isCommitActionRunning = $derived(
@@ -170,22 +160,32 @@
   );
 
   $effect(() => {
-    if (!open || !gitEnvironment.cwd || gitEnvironment.cwd === "~") return;
-    return environmentStore.watchDetails(gitEnvironment.cwd);
+    if (!open || !gitCwd || gitCwd === "~") return;
+    const serverId = gitServerId;
+    const cwd = gitCwd;
+    return untrack(() => environmentStore.watchDetails(serverId, cwd));
   });
 
-  // The readiness stage decides what these rows mean, so the sheet reads the
-  // repository probe — and, only on the publish path, the GitHub connection.
   $effect(() => {
-    if (!open || !gitApi || !gitEnvironment.cwd || gitEnvironment.cwd === "~") return;
-    void repositorySetupStore.refresh(gitApi, gitServerId, gitEnvironment.cwd);
-    if (gitModel.readiness !== "local-only") return;
-    void repositorySetupStore.refreshGithubConnection(
-      gitApi,
-      gitServerId,
-      session.ctxForEnvironment(gitEnvironment.cwd, gitEnvironment.checkout, composerSourceId),
-      gitEnvironment.cwd,
-    );
+    if (!open || !gitCwd || gitCwd === "~") return;
+    const api = gitApi;
+    const serverId = gitServerId;
+    const cwd = gitCwd;
+    untrack(() => void repositorySetupStore.refresh(api, serverId, cwd));
+  });
+
+  $effect(() => {
+    if (!open || !gitCwd || gitCwd === "~" || gitReadiness !== "local-only") return;
+    const api = gitApi;
+    const serverId = gitServerId;
+    const cwd = gitCwd;
+    const sourceId = composerSourceId;
+    untrack(() => void repositorySetupStore.refreshGithubConnection(
+      api,
+      serverId,
+      session.ctxForEnvironment(cwd, gitEnvironment.checkout, sourceId),
+      cwd,
+    ));
   });
 
   let publishDialogOpen = $state(false);
@@ -232,13 +232,6 @@
     void onAttachFiles(files, composerSourceId);
   }
 
-  /**
-   * Ask for a project on behalf of *this* composer. `requesterId` takes a tab id
-   * or a draft id, which is the whole reason it exists — dispatched bare, the
-   * pick reached the handler with no source, and a draft (the only composer a
-   * phone has before Send) got a second draft opened at that project instead of
-   * being pointed at it.
-   */
   function openProjectPicker() {
     handleAction(() =>
       window.dispatchEvent(

@@ -29,7 +29,7 @@ host at the moment of the close.
 - **Active use is not "an agent opened this."** That fact never expires, and a
   page marked on it would be permanently unclosable without a prompt — by the
   third warning a user is dismissing it without reading. Use is a verb in flight,
-  or the `BROWSER_AGENT_USE_GRACE_MS` window after the last one finished. The
+  or the host's grace window after the last one finished. The
   window exists because a turn is a sequence of verbs with model round trips
   between them, and `running` is zero for most of that wall clock.
 - **Every verb takes its hold in a bracket and releases it in a `finally`.** A
@@ -39,20 +39,24 @@ host at the moment of the close.
 - **The expiry is announced, not merely computed.** A timer publishes the page
   once the grace window lapses, so a pane does not keep warning about an agent
   that finished minutes ago until some unrelated change happens to republish it.
-- **`browser_close` forces.** An agent tidying up a page it opened is the one
-  thing an agent does to a page that is not use of it, and asking a user to
-  confirm an agent's own cleanup would be a prompt about nothing.
+- **`browser_close` forces for the session's own pages, and refuses for
+  another's.** An agent tidying up a page it opened is the one thing an agent
+  does to a page that is not use of it, and asking a user to confirm an agent's
+  own cleanup would be a prompt about nothing. A page another session is in the
+  middle of driving is that session's work, and the tool answers with a refusal
+  rather than ending it.
 - `browser_open` marks the page as used without holding it: a page created two
   seconds ago is one a user should be asked about, and it decays like any other
   use.
-
-`isBrowserPageInAgentUse` and the grace window live in the contract, so the
-badge a client draws and the refusal the host issues cannot disagree about what
-"in use" means.
+- **Clients read presence, not time.** The grace window and the clock that
+  judges it are the host's alone. A client that recomputed "in use" from the
+  host's timestamp and its own clock would disagree with the host by exactly the
+  skew between the two machines, so the chip draws its badge from whether
+  `agentUse` is present and nothing else. That is also why the page is published
+  only when use begins and when it lapses: a broadcast at every verb boundary
+  would be two events to every client per click for nothing a client renders.
 
 ## Consequences
 
 Clients must treat a close as a request rather than a fact. The renderer store
-forgets a page only when the host says it is gone, and a host built before this
-existed answers nothing at all — which is read as "closed", because that is what
-that build did.
+forgets a page only when the host says it is gone.

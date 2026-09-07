@@ -11,7 +11,7 @@ export interface ConversationSearchHosts {
 
 const DEBOUNCE_MS = 180
 /** Per host. The list is scanned, not paged, so more than this is noise. */
-const RESULTS_PER_HOST = 20
+export const RESULTS_PER_HOST = 20
 
 /**
  * The picker's search of what was said in sessions, as the user types.
@@ -25,6 +25,9 @@ export class ConversationSearch {
   results = $state<SessionSearchResult[]>([])
   /** True from the first keystroke until the last host answers, debounce included. */
   loading = $state(false)
+  /** A host filled its cap, so `results` is the top of its hits, not all of
+   *  them. The list says so where it counts them. */
+  capped = $state(false)
   private timer: ReturnType<typeof setTimeout> | null = null
   private requestId = 0
 
@@ -41,6 +44,7 @@ export class ConversationSearch {
     if (!trimmed) {
       this.timer = null
       this.results = []
+      this.capped = false
       this.loading = false
       return
     }
@@ -75,9 +79,10 @@ export class ConversationSearch {
       }),
     )
     if (requestId !== this.requestId) return
-    // Rank is not comparable across hosts, so the merged list is ordered by
-    // the date each row shows, newest hit first.
+    // The list builder orders the merged hits by the reader's chosen sort;
+    // here they are only gathered, newest first as a stable starting order.
     this.results = perHost.flat().sort((a, b) => b.ts - a.ts)
+    this.capped = perHost.some((hits) => hits.length >= RESULTS_PER_HOST)
     this.loading = false
   }
 }

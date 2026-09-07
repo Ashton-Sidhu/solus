@@ -102,6 +102,14 @@ export class WorkspaceLifecycleStore {
   private appliedStartDirectory: string | null = null
   private pluginCommandRequestSequence = 0
   private pluginCommandRequests = new Map<string, number>()
+  /** The provider and directory a session's commands were last read for, so a
+   *  tab switch back to it does not read the same list again. */
+  private pluginCommandSources = new WeakMap<Session, string>()
+  /** Reads still on the wire, by request key. Boot asks for the active tab's
+   *  commands from three places within a frame; the later asks join the first.
+   *  A skill edit that lands while an identical read is in flight is caught by
+   *  the next read, which every later open or switch makes. */
+  private pluginCommandInflight = new Map<string, { source: string; promise: Promise<void> }>()
   private historyExpansions = new Map<string, Promise<void>>()
   /** Widest raw-message window already pulled for an agent session, so each bounded
    *  expansion asks for strictly more than the last one did. Keyed by agent session
@@ -269,14 +277,44 @@ export class WorkspaceLifecycleStore {
     return serverConnections.apiFor(serverId)
   }
 
-  async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
+  /**
+   * Read the slash commands a directory offers the session's provider. With
+   * `onlyIfStale`, a session whose commands were already read for this provider
+   * and directory keeps them: selecting a tab is not a reason to ask again.
+   * Skill edits and agent switches refresh without the flag.
+   */
+  async refreshPluginCommands(workingDirectory: string, tabId?: string, opts: { onlyIfStale?: boolean } = {}): Promise<void> {
     const targetTabId = tabId ?? this.deps.registry.activeTabId
     const targetSession = this.deps.registry.sessionFor(targetTabId)
+    const provider = targetSession?.run.provider ?? this.deps.settings.activeAgent
+    const source = `${provider}\0${workingDirectory}`
+    if (opts.onlyIfStale && targetSession && this.pluginCommandSources.get(targetSession) === source) {
+      if (this.deps.registry.activeTabId === targetTabId) this.pluginCommands = targetSession.pluginCommands
+      return
+    }
     const requestKey = targetSession ? targetTabId : ''
+    const inflight = this.pluginCommandInflight.get(requestKey)
+    if (inflight?.source === source) return inflight.promise
+    const promise = this.readPluginCommands(requestKey, targetTabId, targetSession, provider, workingDirectory, source)
+      .finally(() => {
+        if (this.pluginCommandInflight.get(requestKey)?.promise === promise) this.pluginCommandInflight.delete(requestKey)
+      })
+    this.pluginCommandInflight.set(requestKey, { source, promise })
+    return promise
+  }
+
+  private async readPluginCommands(
+    requestKey: string,
+    targetTabId: string,
+    targetSession: Session | undefined,
+    provider: AgentId,
+    workingDirectory: string,
+    source: string,
+  ): Promise<void> {
     const requestSequence = ++this.pluginCommandRequestSequence
     this.pluginCommandRequests.set(requestKey, requestSequence)
     const ctx = this.deps.ctxFor(targetTabId)
-    ctx.session.provider = targetSession?.run.provider ?? this.deps.settings.activeAgent
+    ctx.session.provider = provider
     const result = await this.deps.apiFor(targetTabId)
       .getPluginCommands(workingDirectory, $state.snapshot(ctx))
     if (this.pluginCommandRequests.get(requestKey) !== requestSequence) return
@@ -285,6 +323,7 @@ export class WorkspaceLifecycleStore {
       const currentSession = this.deps.registry.sessionFor(targetTabId)
       if (currentSession !== targetSession || currentSession.run.workingDirectory !== workingDirectory) return
       currentSession.pluginCommands = result
+      this.pluginCommandSources.set(currentSession, source)
       if (this.deps.registry.activeTabId === targetTabId) this.pluginCommands = result
       return
     }

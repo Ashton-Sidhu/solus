@@ -123,6 +123,7 @@ export const RPC_INVOKE_METHODS = [
   'getSessionInfo',
   'getSessionInfos',
   'resolveSessionLineage',
+  'describeSession',
   'generateSessionMetadata',
   'setSessionTitle',
   'setSessionBranch',
@@ -436,6 +437,7 @@ export const RPC_INVOKE_METHODS = [
   'browserDeleteProfile',
   'browserSetDefaultProfile',
   'browserListCookieSources',
+  'browserRequestCookieAccess',
   'browserImportCookies',
 
   // Observability / Insights (metrics.db query engine)

@@ -18,7 +18,7 @@ function context(overrides: Partial<PullRequestAuthoringContext> = {}): PullRequ
 }
 
 describe('pull request authoring', () => {
-  test('gives the writer complete branch context and strict testing rules', () => {
+  test('gives the writer complete branch context and the house body rules', () => {
     const prompt = buildPullRequestAuthoringPrompt(
       context(),
       'Use Conventional Commits for the title.',
@@ -28,9 +28,29 @@ describe('pull request authoring', () => {
     expect(prompt).toContain('Head branch: feature/pr-authoring')
     expect(prompt).toContain('feat(git): author pull requests from the complete branch')
     expect(prompt).toContain('src/main/git.ts | 20 ++++++++++++++++++++')
-    expect(prompt).toContain('Do not claim tests passed')
     expect(prompt).toContain('Use Conventional Commits for the title.')
-    expect(prompt).toContain('use Markdown headings "## Summary" and "## Testing"')
+    // The body is a demonstration, not a report on the author's own work.
+    expect(prompt).toContain('dont include that you ran tests')
+    expect(prompt).toContain('mermaid codeblock diagrams')
+    expect(prompt).toContain('baseline from target branch, candidate from the PR')
+    expect(prompt).toContain('only the final aggregate squash merge commit')
+    expect(prompt).toContain('feel free to use code refs')
+    expect(prompt).not.toContain('## Testing')
+  })
+
+  test('asks a repository template for a testing section, and never invents one', () => {
+    const withTemplate = buildPullRequestAuthoringPrompt(context({ template: '## Verification' }))
+    expect(withTemplate).toContain('only because the template asks for one')
+    expect(withTemplate).not.toContain('mermaid codeblock diagrams')
+  })
+
+  test('the fallback body reports the change without a testing section', () => {
+    const draft = fallbackPullRequestDraft(context())
+
+    expect(draft.body).toContain('## Summary')
+    expect(draft.body).toContain('- src/main/git.ts | 20 ++++++++++++++++++++')
+    expect(draft.body).not.toContain('Testing')
+    expect(draft.body).not.toContain('Not run')
   })
 
   test('preserves the repository template and removes its comments in the fallback', () => {

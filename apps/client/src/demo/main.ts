@@ -34,7 +34,7 @@ import { armReplay, createReplayEngine } from './replay/engine'
 import DemoCtaOverlay from './DemoCtaOverlay.svelte'
 import DemoHintsOverlay from './DemoHintsOverlay.svelte'
 import DemoWindowControls from './DemoWindowControls.svelte'
-import type { LocalApi } from '@solus/client-core/host-api'
+import { installWindowSolusApi } from '@solus/client-core/native-api-overlay'
 
 // The demo is only reachable through the landing-page iframe. A direct visit
 // to /demo/ redirects home; append ?standalone to bypass (local dev/testing).
@@ -63,13 +63,7 @@ registerFilesHandlers(backend, store)
 registerInsightsHandlers(backend)
 registerAgentIntercept(backend, store)
 const demoApi = createDemoSolusApi(backend)
-// The demo has no Electron preload, so the client shell's local-API slot receives the
-// same in-page backend. `HostApi` and `LocalApi` are disjoint contracts, so the value
-// is re-typed at this one shell boundary.
-const localApiSlot: unknown = demoApi
-// SAFETY: the demo answers the whole RPC surface in-page, so the host API it exposes
-// covers every method the client shell reads off `window.solus`.
-window.solus = localApiSlot as LocalApi
+installWindowSolusApi(demoApi)
 // The demo backend runs in this page, so every dial the supervisor asks for
 // succeeds immediately. Reporting acceptance is what moves the host out of
 // `connecting`; without it the workspace boots into a reconnecting shell.
@@ -110,14 +104,6 @@ seedDemoStorage(fixtures)
 subscribe(({ status, attempt }) => webState.setConnectionStatus(status, attempt))
 setConnectionState({ status: 'connected', attempt: 0 })
 
-webState.setConnectedServer({
-  id: LOCAL_SERVER_ID,
-  label: 'Solus Demo',
-  url: window.location.origin,
-  sessionToken: '',
-  installationId: DEMO_INSTALLATION_ID,
-  lastConnected: Date.now(),
-})
 mount(App, { target: document.getElementById('root')! })
 
 // The demo has no window frame of its own, so it draws the controls the desktop

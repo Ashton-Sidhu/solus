@@ -90,6 +90,11 @@ export const KEYBINDINGS = {
   'conversation.scroll-bottom':   { combo: { alt: true, code: 'KeyE' },                   scope: 'global',             label: 'Scroll to bottom',         group: 'Conversation' },
   'conversation.find':            { combo: { mod: true, code: 'KeyF' }, web: { alt: true, shift: true, code: 'KeyF' }, scope: 'global', label: 'Find in conversation',     group: 'Conversation' },
   'conversation.close-find':      { combo: { code: 'Escape' },                            scope: 'global',             label: 'Close conversation find',  group: 'Conversation' },
+  // Escape closes the companion pane it is pressed in. Declared after the find
+  // bar so what is on top goes first; a pane scope that spends Escape itself
+  // (the diff panel's ladder, a document) sits above this scope and still wins.
+  // Not reserved: an exclusive overlay owns Escape outright.
+  'pane.close':                   { combo: { code: 'Escape' },                            scope: 'global',             label: 'Close pane',               group: 'View' },
   'conversation.open-files':      { combo: { alt: true, shift: true, code: 'KeyF' }, web: { alt: true, shift: true, code: 'KeyY' }, scope: 'global', label: 'Open changed files',       group: 'Conversation' },
   'conversation.interrupt':       { combo: { ctrl: true, code: 'KeyC' },                  scope: 'global',             label: 'Stop agent',               group: 'Conversation' },
 
@@ -244,6 +249,7 @@ export const KEYBINDINGS = {
 
   // ── Task picker ────────────────────────────────────────────────────────────
   'task-picker.choose-project':   { combo: { alt: true, code: 'KeyA' },                    scope: 'task-picker',        label: 'Choose project scope',     group: 'Palette' },
+  'task-picker.search-options':   { combo: { alt: true, code: 'KeyS' },                    scope: 'task-picker',        label: 'Sort and search options',  group: 'Palette' },
 
   // ── Project search ─────────────────────────────────────────────────────────
   'go-to-file.close':             { combo: { code: 'Escape' },                             scope: 'go-to-file',         label: 'Close',                    group: 'Search' },

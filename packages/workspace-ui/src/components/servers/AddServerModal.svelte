@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from "svelte";
   import { CircleCheck as CheckCircleIcon, Link2 as LinkSimpleIcon, X as XIcon } from "@lucide/svelte";
-  import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink, urlHost } from "@solus/client-core/pairing";
+  import { defaultDeviceLabel, normalizeServerUrl, pairServer, parsePairLink } from "@solus/client-core/pairing";
   import type { SavedServer } from "@solus/client-core/server-registry";
   import { serversStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -34,7 +34,8 @@
       if (serversStore.addServerUrl) {
         mode = "manual";
         serverUrl = serversStore.addServerUrl;
-        label = label || urlHost(serversStore.addServerUrl);
+        // The name field stays empty on purpose: pre-filling the address makes a
+        // derived label look chosen, and a chosen one outranks the host's own name.
       }
       void tick().then(() => {
         if (mode === "link") linkInput?.focus();
@@ -83,7 +84,7 @@
         url,
         pairToken,
         deviceLabel: defaultDeviceLabel(),
-        serverLabel: label.trim() || urlHost(url),
+        serverLabel: label.trim(),
       });
       serversStore.savePairedServer(result.server);
       paired = result.server;

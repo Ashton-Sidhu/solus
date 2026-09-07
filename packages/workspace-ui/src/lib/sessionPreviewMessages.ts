@@ -95,6 +95,47 @@ export function passageAround(text: string, query: string, limit = HIT_PASSAGE_L
   return `${start > 0 ? '…' : ''}${flat.slice(start, end)}${end < flat.length ? '…' : ''}`
 }
 
+/**
+ * What the pane shows: the opening prompt, the passage the words were found
+ * in when the row was found by them, and the last reply. The three parts are
+ * never the same message twice: a hit that is the opening or the closing takes
+ * that slot, cut around the words, and the middle part stays empty.
+ */
+export interface PreviewParts {
+  opening: BoundedPreviewMessage | null
+  /** The passage the words were found in, unless it is one of the ends. */
+  hit: HitWindowMessage | null
+  closing: BoundedPreviewMessage | null
+}
+
+export function composePreviewParts(
+  preview: PreviewExtraction | null,
+  window: HitWindow | null,
+): PreviewParts {
+  const hitIndex = window ? window.messages.findIndex((message) => message.isHit) : -1
+  const hit = window && hitIndex >= 0 ? window.messages[hitIndex] : null
+  // The index holds only what was said, in order, so a window with nothing
+  // hidden before it starts at the opening prompt, and one with nothing hidden
+  // after it ends at the last reply.
+  const hitIsOpening =
+    !!hit && !!window && hitIndex === 0 && window.hiddenBefore === 0 && hit.role === 'user'
+  const hitIsClosing =
+    !!hit
+    && !!window
+    && hitIndex === window.messages.length - 1
+    && window.hiddenAfter === 0
+    && hit.role === 'assistant'
+  return {
+    opening: hitIsOpening
+      ? { role: 'user', snippet: hit.passage }
+      : (preview?.firstUserMessage ?? null),
+    hit: hit && !hitIsOpening && !hitIsClosing ? hit : null,
+    closing: hitIsClosing
+      ? { role: 'assistant', snippet: hit.passage }
+      : (preview?.lastAssistantMessage ?? null),
+  }
+}
+
 /** Bound a loaded hit window for the pane: the hit cut around the query's
  *  words, its neighbours cut from their start. */
 export function boundHitWindow(loaded: LoadedHitWindow, query: string): HitWindow {

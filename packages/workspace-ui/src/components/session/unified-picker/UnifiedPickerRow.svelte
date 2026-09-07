@@ -3,8 +3,9 @@
     ChevronRight as ChevronRightIcon,
     MessagesSquare as ChatsIcon,
   } from "@lucide/svelte";
+  import { snippetRuns } from "@solus/contracts/search-snippet";
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
-  import { highlightRuns, highlightWordRuns, type TextRun } from "../../../lib/searchHighlight";
+  import { highlightWordRuns, type TextRun } from "../../../lib/searchHighlight";
   import { swipeActions } from "../../../lib/swipe-actions";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
   import TaskStatusSwipeControls from "../../tasks/TaskStatusSwipeControls.svelte";
@@ -19,6 +20,7 @@
     conversationProjectLabel,
     conversationTitle,
     projectLabel,
+    taskShortIdLabel,
     type PickerEntry,
     type PickerRow,
   } from "./lib/picker-rows";
@@ -28,6 +30,10 @@
    * nested under its task. The virtualiser hands each row its position in
    * `style`; the row's own height has to agree with `pickerRowHeight`, which
    * is where the numbers in the classes below come from.
+   *
+   * Names are marked by the query's words, the rule the list matched them by.
+   * A passage from the index is marked by the index itself — its markers say
+   * which stemmed tokens hit, which the words alone cannot.
    */
   interface Props {
     row: PickerRow;
@@ -70,17 +76,29 @@
       >{:else}{run.text}{/if}{/each}
 {/snippet}
 
+<!-- The trailing byline of a two-line row: a name that yields, then a date
+     that does not. Capped, so a long task title can never squeeze the row's
+     own title out of its column. -->
+{#snippet byline(name: string | null, when: string)}
+  <span class="flex max-w-[45%] shrink-0 items-center gap-1 whitespace-nowrap font-mono text-micro tabular-nums text-(--solus-text-tertiary)">
+    {#if name}<span class="min-w-0 truncate">{name}</span><span class="shrink-0">·</span>{/if}
+    <span class="shrink-0">{when}</span>
+  </span>
+{/snippet}
+
 {#if row.kind === "header"}
+  <!-- The command palette's group heading: shelf type, a hairline to the edge. -->
   <div
-    class="flex h-8 items-center gap-3 px-2.5 pt-[5px] text-muted-foreground max-md:h-[34px] max-md:px-2 max-md:pt-2"
+    class="flex h-8 select-none items-center gap-3 px-3 pt-[5px] text-chrome-shelf font-medium uppercase text-(--solus-text-tertiary) max-md:h-[34px] max-md:px-2 max-md:pt-2"
     {style}
   >
-    <span class="text-micro font-medium tracking-[0.13em] uppercase {row.accent ? 'text-(--solus-status-unread)' : ''}">{row.label}</span>
-    <span class="font-mono text-micro tabular-nums opacity-50 max-md:order-3 max-md:opacity-60">{row.count}</span>
-    <span class="h-px flex-1 bg-[var(--hairline)] max-md:order-2" aria-hidden="true"></span>
+    <span class={row.accent ? 'text-(--solus-status-unread)' : ''}>{row.label}</span>
+    <!-- A "+" where the hosts stopped at their cap: the count is a floor. -->
+    <span class="font-mono tabular-nums opacity-60 max-md:order-3">{row.count}{row.capped ? "+" : ""}</span>
+    <span class="h-px flex-1 bg-(--solus-menu-hairline) max-md:order-2" aria-hidden="true"></span>
     <!-- The rule the section is in. Stated on every header so the order is
          something you read, not something you work out from the dates. -->
-    <span class="shrink-0 text-micro opacity-60 max-md:order-4">{row.hint}</span>
+    <span class="shrink-0 normal-case opacity-70 max-md:order-4">{row.hint}</span>
   </div>
 {:else if row.kind === "task"}
   {@const task = row.task}
@@ -88,7 +106,7 @@
   {@const isSelected = row.entryIndex === selectedIndex}
   {@const isRunning = row.sessions.some((child) => child.attention === "running")}
   <div
-    class="relative h-11 overflow-hidden rounded-xl max-md:h-[58px] max-md:rounded-lg"
+    class="relative h-11 overflow-hidden rounded-lg max-md:h-[58px]"
     {style}
   >
     <TaskStatusSwipeControls
@@ -100,8 +118,13 @@
         if (status !== task.status) onSetStatus(task, status);
       }}
     />
+    <!-- The command palette's row: `menu-row` paints the hover ink, and the
+         cursor sits in the same neutral wash every hover surface uses, with the
+         title stepping to full ink. The row keeps an opaque background so
+         the swipe controls under it on a phone stay hidden until revealed. -->
     <div
-      class="relative flex h-full items-center pr-2.5 transition-[background-color] duration-100 max-md:pr-3 {isSelected ? 'bg-[color-mix(in_oklch,var(--primary)_10%,var(--background))] max-md:bg-[color-mix(in_oklch,var(--foreground)_7%,var(--background))]' : 'bg-background hover:bg-[var(--wash-2)]'} {isDone(task) ? 'opacity-60' : ''}"
+      class="menu-row group/row relative flex h-full items-center rounded-lg bg-background pr-3 data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! {isDone(task) ? 'opacity-60' : ''}"
+      data-selected={isSelected ? '' : undefined}
       use:swipeActions={{
         revealWidth: TASK_STATUS_SWIPE_REVEAL_WIDTH,
         open: revealedTaskId === task.id,
@@ -114,7 +137,7 @@
          edge is harder to scan than an empty gutter. -->
     <button
       type="button"
-      class="flex h-full w-[26px] shrink-0 cursor-pointer items-center justify-center text-muted-foreground max-md:w-11"
+      class="flex h-full w-6 shrink-0 cursor-pointer items-center justify-center text-(--solus-text-tertiary) max-md:w-11"
       aria-label={row.expanded ? `Collapse ${task.title}` : `Expand ${task.title}`}
       aria-expanded={row.expanded}
       disabled={row.sessions.length === 0}
@@ -133,7 +156,7 @@
       role="option"
       aria-selected={isSelected}
       aria-expanded={row.sessions.length ? row.expanded : undefined}
-      class="flex h-full min-w-0 flex-1 cursor-pointer items-center overflow-hidden text-left"
+      class="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-3 overflow-hidden text-left"
       onclick={() => revealedTaskId === task.id ? onRevealChange(null) : onActivate(row)}
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
@@ -141,38 +164,39 @@
       onpointerup={onPressEnd}
       onpointercancel={onPressEnd}
     >
-      <span class="flex w-[22px] shrink-0 items-center justify-center max-md:w-4" title={taskStatus.label}>
+      <span class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)" title={taskStatus.label}>
         <TaskStatusGlyph status={task.status} size={13} />
         <span class="sr-only">{taskStatus.label}</span>
       </span>
-      <span class="min-w-0 flex-1 pl-2">
-        <span class="block truncate text-workspace-chrome font-medium text-foreground"
-          >{@render marked(highlightRuns(task.title, query))}</span
+      <span class="min-w-0 flex-1">
+        <span class="block truncate {isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
+          >{@render marked(highlightWordRuns(task.title, query))}</span
         >
         <!-- The second line is the evidence when the title is not: the body
-             passage the query hit. Otherwise it is the row's usual byline. -->
+             passage the query hit, or the id it named, marked. Otherwise it is
+             the row's usual byline. -->
         {#if row.bodySnippet}
-          <span class="mt-px block truncate text-micro text-muted-foreground opacity-[0.78] max-md:opacity-100"
-            >{@render marked(highlightRuns(row.bodySnippet, query))}</span
+          <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
+            >{@render marked(highlightWordRuns(row.bodySnippet, query))}</span
           >
         {:else}
-          <span class="mt-px block truncate text-micro text-muted-foreground opacity-[0.78] max-md:font-mono max-md:opacity-100"
-            >{projectLabel(task)} · {row.sessions.length
+          <span class="mt-px block truncate text-micro text-(--solus-text-tertiary) max-md:font-mono"
+            >{#if row.matchedIn === "id"}{@render marked(highlightWordRuns(taskShortIdLabel(task), query))} · {/if}{projectLabel(task)} · {row.sessions.length
               ? `${row.sessions.length} ${row.sessions.length === 1 ? "session" : "sessions"}`
-              : "no sessions yet"}{row.matchedIn === "other" ? " · matched id or status" : ""}</span
+              : "no sessions yet"}</span
           >
         {/if}
       </span>
       {#if isRunning}
-        <SessionStatusGlyph attention="running" class="ml-2.5" />
+        <SessionStatusGlyph attention="running" />
       {:else}
         <!-- The key the list is ordered by. Tabular figures so a column of
              dates never reflows the titles beside them. -->
-        <span class="ml-2.5 shrink-0 whitespace-nowrap font-mono text-micro tabular-nums text-muted-foreground opacity-70 max-md:opacity-75">
+        <span class="shrink-0 whitespace-nowrap font-mono text-micro tabular-nums text-(--solus-text-tertiary)">
           {relativeTime(task.updatedAt)}
         </span>
       {/if}
-      <ChevronRightIcon size={12} class="ml-2 hidden shrink-0 text-muted-foreground opacity-50 max-md:block" />
+      <ChevronRightIcon size={12} class="hidden shrink-0 text-(--solus-text-tertiary) opacity-50 max-md:block" />
       </button>
     </div>
   </div>
@@ -181,12 +205,13 @@
   <!-- The same geometry as a task row: a name, and under it the passage the
        words were found in — the evidence, so the reader can tell the hits
        apart without arrowing onto each one. -->
-  <div class="relative h-11 overflow-hidden rounded-xl max-md:h-[58px] max-md:rounded-lg" {style}>
+  <div class="relative h-11 overflow-hidden rounded-lg max-md:h-[58px]" {style}>
     <button
       type="button"
       role="option"
       aria-selected={isSelected}
-      class="flex h-full w-full cursor-pointer items-center overflow-hidden pr-2.5 pl-[26px] text-left transition-[background-color] duration-100 max-md:pr-3 max-md:pl-11 {isSelected ? 'bg-[color-mix(in_oklch,var(--primary)_10%,var(--background))] max-md:bg-[color-mix(in_oklch,var(--foreground)_7%,var(--background))]' : 'bg-background hover:bg-[var(--wash-2)]'}"
+      data-selected={isSelected ? '' : undefined}
+      class="menu-row group/row flex h-full w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg pr-3 pl-6 text-left data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! max-md:pl-11"
       onclick={() => onActivate(row)}
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
@@ -194,34 +219,35 @@
       onpointerup={onPressEnd}
       onpointercancel={onPressEnd}
     >
-      <span class="flex w-[22px] shrink-0 items-center justify-center text-muted-foreground max-md:w-4">
+      <span class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover) text-(--solus-text-tertiary)">
         <ChatsIcon size={13} />
       </span>
-      <span class="min-w-0 flex-1 pl-2">
-        <span class="block truncate text-workspace-chrome font-medium text-foreground"
+      <span class="min-w-0 flex-1">
+        <span class="block truncate {isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
           >{@render marked(highlightWordRuns(conversationTitle(row.meta), query))}</span
         >
-        <span class="mt-px block truncate text-micro text-muted-foreground opacity-[0.78] max-md:opacity-100"
-          >{@render marked(highlightWordRuns(row.snippet, query))}</span
+        <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
+          >{@render marked(snippetRuns(row.hit.snippet))}</span
         >
       </span>
-      <span class="ml-2.5 shrink-0 whitespace-nowrap font-mono text-micro tabular-nums text-muted-foreground opacity-70 max-md:opacity-75">
-        {row.task ? row.task.title : conversationProjectLabel(row.meta)} · {relativeTime(row.ts)}
-      </span>
-      <ChevronRightIcon size={12} class="ml-2 hidden shrink-0 text-muted-foreground opacity-50 max-md:block" />
+      {@render byline(conversationProjectLabel(row.meta), relativeTime(row.hit.ts))}
+      <ChevronRightIcon size={12} class="hidden shrink-0 text-(--solus-text-tertiary) opacity-50 max-md:block" />
     </button>
   </div>
 {:else if !row.nested}
   {@const child = row.session}
   {@const isSelected = row.entryIndex === selectedIndex}
-  <!-- A session the query named, listed on its own like a conversation hit:
-       its name, and under it the task it belongs to. -->
-  <div class="relative h-11 overflow-hidden rounded-xl max-md:h-[58px] max-md:rounded-lg" {style}>
+  <!-- A session the query hit, listed on its own. Its second line is the best
+       evidence: the passage the words were found in when they were found in
+       one, else the task it belongs to. The task moves to the trailing byline
+       when the passage takes its line, so the row never loses its task. -->
+  <div class="relative h-11 overflow-hidden rounded-lg max-md:h-[58px]" {style}>
     <button
       type="button"
       role="option"
       aria-selected={isSelected}
-      class="flex h-full w-full cursor-pointer items-center overflow-hidden pr-2.5 pl-[26px] text-left transition-[background-color] duration-100 max-md:pr-3 max-md:pl-11 {isSelected ? 'bg-[color-mix(in_oklch,var(--primary)_10%,var(--background))] max-md:bg-[color-mix(in_oklch,var(--foreground)_7%,var(--background))]' : 'bg-background hover:bg-[var(--wash-2)]'}"
+      data-selected={isSelected ? '' : undefined}
+      class="menu-row group/row flex h-full w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg pr-3 pl-6 text-left data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! max-md:pl-11"
       onclick={() => onActivate(row)}
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
@@ -229,21 +255,23 @@
       onpointerup={onPressEnd}
       onpointercancel={onPressEnd}
     >
-      <span class="flex w-[22px] shrink-0 items-center justify-center max-md:w-4">
+      <span class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)">
         <SessionStatusGlyph attention={child.attention} />
       </span>
-      <span class="min-w-0 flex-1 pl-2">
-        <span class="block truncate text-workspace-chrome font-medium text-foreground"
-          >{@render marked(highlightRuns(child.label, query))}</span
+      <span class="min-w-0 flex-1">
+        <span class="block truncate {isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
+          >{@render marked(highlightWordRuns(child.label, query))}</span
         >
-        <span class="mt-px block truncate text-micro text-muted-foreground opacity-[0.78] max-md:opacity-100"
-          >{row.task.title}</span
+        <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
+          >{#if row.hit}{@render marked(snippetRuns(row.hit.snippet))}{:else}{row.task.title}{/if}</span
         >
       </span>
-      <span class="ml-2.5 shrink-0 whitespace-nowrap font-mono text-micro tabular-nums text-muted-foreground opacity-70 max-md:opacity-75">
-        {relativeTime(child.lastActivityAt || row.task.updatedAt)}
-      </span>
-      <ChevronRightIcon size={12} class="ml-2 hidden shrink-0 text-muted-foreground opacity-50 max-md:block" />
+      {#if row.hit}
+        {@render byline(row.task.title, relativeTime(row.hit.ts))}
+      {:else}
+        {@render byline(null, relativeTime(child.lastActivityAt || row.task.updatedAt))}
+      {/if}
+      <ChevronRightIcon size={12} class="hidden shrink-0 text-(--solus-text-tertiary) opacity-50 max-md:block" />
     </button>
   </div>
 {:else}
@@ -262,7 +290,8 @@
       type="button"
       role="option"
       aria-selected={isSelected}
-      class="flex h-8 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg pr-2.5 pl-2 text-left transition-[background-color] duration-100 max-md:h-[50px] max-md:rounded-md max-md:pr-3 {isSelected ? 'bg-[color-mix(in_oklch,var(--primary)_10%,transparent)] max-md:bg-[var(--wash-2)]' : 'hover:bg-[var(--wash-2)]'}"
+      data-selected={isSelected ? '' : undefined}
+      class="menu-row flex h-8 w-full cursor-pointer items-center gap-2.5 overflow-hidden rounded-lg pr-3 pl-2 text-left data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! max-md:h-[50px]"
       onclick={() => onActivate(row)}
       onpointermove={(event) => onHover(event, row)}
       oncontextmenu={(event) => onContextMenu(event, row)}
@@ -272,16 +301,16 @@
     >
       <SessionStatusGlyph attention={child.attention} />
       <span class="min-w-0 flex-1">
-        <span class="block truncate text-workspace-chrome {isRunning ? 'text-foreground' : 'text-muted-foreground max-md:text-foreground'}"
-          >{@render marked(highlightRuns(child.label, query))}</span
+        <span class="block truncate {isRunning || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) max-md:text-(--solus-text-primary)'}"
+          >{@render marked(highlightWordRuns(child.label, query))}</span
         >
         <!-- The glyph beside it already says running or idle. A thumb's second
              line spends itself on the one thing the row cannot show otherwise:
              how long ago this session last said anything. -->
-        <span class="hidden truncate font-mono text-micro text-muted-foreground max-md:block">last reply {relativeTime(child.lastActivityAt || row.task.updatedAt)}</span>
+        <span class="hidden truncate font-mono text-micro text-(--solus-text-tertiary) max-md:block">last reply {relativeTime(child.lastActivityAt || row.task.updatedAt)}</span>
       </span>
       <!-- The same age, so the phone shows it once — in the sub-line. -->
-      <span class="min-w-11 shrink-0 whitespace-nowrap text-right font-mono text-micro tabular-nums text-muted-foreground opacity-60 max-md:hidden">
+      <span class="min-w-11 shrink-0 whitespace-nowrap text-right font-mono text-micro tabular-nums text-(--solus-text-tertiary) max-md:hidden">
         {relativeTime(child.lastActivityAt || row.task.updatedAt)}
       </span>
     </button>

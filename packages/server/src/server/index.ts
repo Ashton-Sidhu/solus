@@ -46,7 +46,6 @@ import { registerSettingsHandlers } from './handlers/settings-handlers'
 import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './lan-discovery'
 import { registerGoogleHandlers } from './handlers/google-handlers'
 import { prepareReviewGuidePrContext, registerProviderHandlers } from './handlers/provider-handlers'
-import { onPrsChanged } from '../providers/pr-tools'
 import { PrReconciler } from '../prs/pr-reconciler'
 import { registerCloudflareHandlers } from './handlers/cloudflare-handlers'
 import { registerAtlassianHandlers } from './handlers/atlassian-handlers'
@@ -207,7 +206,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const domainEventUnsubscribes = [
     codeIntel.onStatusChanged((status) => events.broadcast('codeIntel.statusChanged', status)),
     onAutomationsChanged((event) => events.broadcast('automation.changed', event)),
-    onPrsChanged((projectRoot) => events.broadcast('prs.invalidated', { projectRoot })),
     onAnnotationsChanged((change) => events.broadcast('annotations.changed', change)),
     onTasksChanged(() => events.broadcast('tasks.invalidated', {})),
     onOutboxChanged(() => events.broadcast('outbox.changed', {})),
@@ -338,7 +336,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // sees, and keeps addressing it after the pane closes. A headless host still
   // registers the domain: it can discover targets and hold pages, and reports
   // `no-surface` rather than pretending to drive one.
-  const browserRegistry = registerBrowserHandlers(server, { events, ownPort: () => actualPort, frames: browserFrames })
+  const browserRegistry = registerBrowserHandlers(server, { events, frames: browserFrames })
 
   server.register('getServerCapabilities', () => probeServerCapabilities({
     headless: !opts.windowDeps,

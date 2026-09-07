@@ -1,24 +1,9 @@
-/**
- * The colours a mobile row draws state in, and the words it says out loud.
- *
- * A phone reads the same glyph vocabulary as the desktop sidebar: one
- * silhouette per state, in its reserved colour, rather than a second name for
- * the same thing on a second line. The word survives as the row's accessible
- * label, which is where a state that is drawn rather than printed has to be
- * stated. Same states, same source (`SidebarTask`) — only the rendering
- * differs, so nothing here may invent a lifecycle the sidebar does not have.
- */
 import { taskStatusFor, type SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import type { AttentionState } from '@solus/workspace-ui/lib/sessionUtils'
 
 /** Which reserved colour the state glyph and its tile take. */
 export type MobileStateTone = 'running' | 'failure' | 'warning' | 'success' | 'unread' | 'muted'
 
-/**
- * Every silhouette a mobile row can draw. One per state the sidebar can be in,
- * so no two states share a mark: `limit` owns the clock, which is why `idle`
- * and `unread` spend discs instead of borrowing it.
- */
 export type MobileStateGlyph =
   | 'running'
   | 'question'
@@ -71,15 +56,6 @@ export const MOBILE_STATE_TILE_INK = {
   muted: 'var(--muted-foreground)',
 } satisfies Record<MobileStateTone, string>
 
-/**
- * Lifecycle decides the state before status does: a task the user snoozed or
- * completed reads that way even though the session under it may have ended in
- * any state. Only an active task reports what its newest run is doing.
- *
- * Unread comes last, on the sidebar's own rule (`showsUnreadIndicator`): a
- * state that wants a person keeps its more specific mark, and unread only
- * speaks for a row that has finished and has nothing else to say.
- */
 export function mobileTaskState(
   row: Pick<SidebarTask, 'lifecycle' | 'status'> & { unread?: boolean },
 ): MobileTaskState {
@@ -109,11 +85,6 @@ export function mobileTaskState(
   }
 }
 
-/**
- * The trailing timestamp. Within the current day the time is the useful fact;
- * beyond it the date is, and the year only once it stops being this one — a row
- * that reads "Aug 16" is unambiguous until next August.
- */
 export function mobileRowTimestamp(activityAt: number, now: number): string {
   if (!activityAt) return ''
   const then = new Date(activityAt)

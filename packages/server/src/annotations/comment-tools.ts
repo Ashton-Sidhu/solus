@@ -194,7 +194,7 @@ const readPlanFields = {
 }
 
 const commentDocumentFields = {
-  target_id: z.string().describe('What to comment on: a work id (from list_works) or a plan id shaped `<sessionId>__<planToolUseId>` (from read_plan).'),
+  target_id: z.string().describe('What to comment on: a work id (from find_works) or a plan id shaped `<sessionId>__<planToolUseId>` (from read_plan).'),
   comments: z
     .array(
       z.object({

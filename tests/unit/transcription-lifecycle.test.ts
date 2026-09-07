@@ -1,5 +1,8 @@
 import { describe, expect, jest, mock, test } from 'bun:test'
 import { EventEmitter } from 'node:events'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { MAX_VOICE_SAMPLES } from '@solus/contracts/voice-audio'
 
 const posted: unknown[] = []
@@ -38,6 +41,12 @@ mock.module('@solus/server/model-downloader', () => ({
   ensureParakeetModel: async () => '/tmp/model',
   getVoiceModelStatus: () => ({ state: 'ready' as const }),
   isParakeetModelReady: async () => true,
+}))
+
+// Keeps the lifecycle under test off the metrics database, which the real
+// module opens through node:sqlite at import time.
+mock.module('@solus/server/otel', () => ({
+  recordOtelDuration() {},
 }))
 
 mock.module('@solus/server/logger', () => ({
@@ -170,5 +179,23 @@ describe('transcription worker lifecycle', () => {
       phaseMs: {},
     })
     expect(await transcription).toEqual({ error: null, transcript: 'warmed' })
+  })
+
+  // The desktop entry imports the transcription module dynamically, so the
+  // bundler emits it into `chunks/` while the worker stays a build entry at the
+  // output root. Resolving the worker as a plain sibling forked a path that does
+  // not exist, and every dictation died with "exit code 1".
+  test('the worker resolves from a chunk directory as well as the output root', async () => {
+    const { resolveWorkerPath } = await import('@solus/desktop-main/transcription')
+    const outDir = mkdtempSync(join(tmpdir(), 'solus-transcription-'))
+    const workerPath = join(outDir, 'transcription-worker.js')
+    const chunkDir = join(outDir, 'chunks')
+    writeFileSync(workerPath, '')
+    mkdirSync(chunkDir)
+
+    expect(resolveWorkerPath(outDir)).toBe(workerPath)
+    expect(existsSync(resolveWorkerPath(chunkDir))).toBe(true)
+
+    rmSync(outDir, { recursive: true, force: true })
   })
 })

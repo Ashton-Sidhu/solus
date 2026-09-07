@@ -20,7 +20,7 @@ export function refreshTheme(setSystemTheme: (isDark: boolean) => void): void {
 /** Refresh host metadata and persisted conversations independently. Transcript
  * restore must not wait for the broader start() payload: a slow or failed host
  * metadata read must not leave a materialized session looking empty. */
-export function initializeRuntime(
+export function refreshRuntime(
   session: WorkspaceContext,
   sidebarStore: SessionSidebarStore,
 ): void {
@@ -33,21 +33,32 @@ export function initializeRuntime(
     })
     .catch((error) => logConnectionReadError('session runtime initialization', error))
 
+}
+
+export function initializeRuntime(
+  session: WorkspaceContext,
+  sidebarStore: SessionSidebarStore,
+): () => void {
+  refreshRuntime(session, sidebarStore)
   // Pins federate across hosts, so a host that connects after boot has to
   // contribute its own rows too — not only the hosts present at bootstrap.
-  serverConnections.onConnectionCreated(() => {
+  const stopConnections = serverConnections.onConnectionCreated(() => {
     void sidebarStore.loadPinnedSessions()
   })
 
   // The durable send outbox drains when a host's supervisor reports live:
   // queued work survives a dead host and delivers on the next session.
-  serverConnections.onPhaseChange((serverId, phase) => {
+  const stopPhases = serverConnections.onPhaseChange((serverId, phase) => {
     if (phase !== 'connected') return
     void sendOutbox.drain(serverId, (record) => session.redeliverOutboxPrompt(serverId, record))
   })
 
   // Hosts skip watch-fired freshness work while no client is foregrounded.
   startActivityLeaseHeartbeat()
+  return () => {
+    stopConnections()
+    stopPhases()
+  }
 }
 
 /** Detect reconnect edges after the first connected state has been observed. */

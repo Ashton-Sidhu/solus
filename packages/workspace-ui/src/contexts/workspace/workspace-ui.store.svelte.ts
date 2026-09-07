@@ -1,5 +1,6 @@
 import { SvelteSet } from 'svelte/reactivity'
 import type { PickerScope } from '../../components/session/unified-picker/lib/picker-scope'
+import type { PickerSearchMode, PickerSort } from '../../components/session/unified-picker/lib/picker-search'
 import type { TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 import type { ProjectPageScope } from '../projects/project-catalog'
 
@@ -19,6 +20,10 @@ export class WorkspaceUiStore {
    *  because the picker is mounted separately per layout and per surface — a
    *  scope the editor changed must not read differently in the pill. */
   pickerScope = $state<PickerScope>({ kind: 'current' })
+  /** How that picker orders a query's hits, and what it matches them against.
+   *  Held with the scope for the same reason: one picker, many mounts. */
+  pickerSort = $state<PickerSort>('relevance')
+  pickerSearchMode = $state<PickerSearchMode>('full-text')
   /** The standalone create-task modal: the captured environment it targets. `null` = closed.
    *  Lives here (not in App) so the command palette can open it. */
   taskComposer = $state<TaskCreationContext | null>(null)

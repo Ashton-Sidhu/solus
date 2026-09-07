@@ -192,7 +192,9 @@
   /* Surface */
   --solus-surface-primary: #faf3e4;
   --solus-surface-secondary: #dddad2;
-  --solus-surface-hover: rgba(0, 0, 0, 0.04);
+  /* Same lift the session sidebar rows use, so hover reads identically everywhere.
+     Defined once against `--foreground`: the mix works in light and dark. */
+  --solus-surface-hover: color-mix(in oklch, var(--foreground) 6%, transparent);
   --solus-surface-active: rgba(0, 0, 0, 0.06);
   /* Input */
   --solus-input-bg: transparent;
@@ -505,7 +507,6 @@
   /* Surface */
   --solus-surface-primary: #3d2c1f;
   --solus-surface-secondary: #3a3935;
-  --solus-surface-hover: #ffffff14;
   --solus-surface-active: #ffffff1f;
   /* Input */
   --solus-input-bg: transparent;
@@ -3392,6 +3393,36 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   /* Replaces the tighter `gap` this variant used to set on the flex row. */
   margin-right: 0.1875rem;
   opacity: 0.45;
+}
+/* A chip the user composes or has sent sits inside their own prose, so it takes
+   the prose's size instead of the fixed rung above. The input bar runs at the
+   workspace-chrome rung (12px on a laptop display, 14px elsewhere) and the
+   bubble at the body rung, and a 13px chip was larger than one and smaller
+   than the other. `em` all the way down — text, padding, glyph, gap — so the
+   box follows the text and the text-size preference on every client.
+
+   The label is mono inside proportional prose, so matching the *number* does
+   not match the size: at an equal font-size a mono face sets wider and taller
+   on the page and the chip reads as the loudest thing in the sentence. 0.875em
+   is the optical match — close to the 13px-in-16px ratio the transcript rung
+   already resolved to, now expressed against whatever the surrounding text is.
+
+   Alignment: the label shares the prose baseline, and with `line-height: 1` its
+   box is centred on the cap height, so symmetric block padding centres the chip
+   on the caps. The whole box is ~1.2em of prose, inside the line's leading at
+   both the composer's 1.5 and the bubble's 1.75, so a line with a chip is no
+   taller than one without. The assistant transcript keeps the rung above
+   because there a chip sits beside `code` spans at the same rung. */
+.prose-transcript-user .solus-token,
+.solus-token--link-chip {
+  padding: 0.1875em 0.4375em 0.1875em 0.375em;
+  font-size: 0.875em;
+}
+.prose-transcript-user .solus-token__icon,
+.solus-token--link-chip .solus-token__icon {
+  width: 0.75em;
+  height: 0.75em;
+  margin-right: 0.25em;
 }
 /* A fenced block already carries its own chrome, so the inner `code` drops the
    chip shell rather than drawing a second box inside the first. */

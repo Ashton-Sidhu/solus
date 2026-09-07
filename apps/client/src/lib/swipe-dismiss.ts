@@ -1,9 +1,3 @@
-// Reusable swipe-to-dismiss gesture for mobile sheets/drawers.
-//
-// Extracted from the original hand-rolled handlers in WebSidebarDrawer so the
-// bottom sheet (MobilePlusMenu) and the side drawer share one tested gesture.
-// It only owns the *drag*: the host keeps its open/close transition effect and
-// animates the panel out when `onDismiss` flips its `open` prop to false.
 
 import { SWIPE_DIRECTION_LOCK_PX } from '@solus/workspace-ui/lib/swipe-actions'
 
@@ -18,12 +12,6 @@ export interface SwipeDismissParams {
   backdrop?: () => HTMLElement | null | undefined
   /** When false the gesture is inert (e.g. non-touch pointers). */
   enabled?: boolean
-  /**
-   * Selector for descendants that own the horizontal drag themselves — a list
-   * row that swipes to reveal its actions. Without this the drawer and its rows
-   * both claim a leftward drag, and revealing a row's actions dismisses the
-   * drawer out from under the finger.
-   */
   ignoreWithin?: string
 }
 

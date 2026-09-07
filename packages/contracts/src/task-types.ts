@@ -420,7 +420,7 @@ export interface PrepareSessionTaskResult {
 /** A read-only copy of a content-bearing linked item — a work's document or a
  *  plan's markdown — shipped alongside the snapshot for dispatched sessions:
  *  the execution host cannot read the task host's stores, so
- *  `read_work`/`read_plan`/`list_works` answer from these copies. PR and
+ *  `read_work`/`read_plan`/`find_works` answer from these copies. PR and
  *  automation links ship no content: their facts (title, url, live status)
  *  already ride `TaskDetails.links`. */
 export interface TaskLinkedItemSnapshot {

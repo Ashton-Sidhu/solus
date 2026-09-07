@@ -20,12 +20,21 @@ const QUERY_INSIGHTS_DESCRIPTION = [
   'Only one SELECT or WITH statement is accepted. Writes, ATTACH, and PRAGMA statements are rejected. Results are JSON with columns, rows, rowCount, and truncated; at most 500 rows are returned.',
 ].join('\n')
 
-export const queryInsightsAgentTool: AgentTool<typeof queryInsightsFields> = {
+// Declared as a plain AgentTool, like every other tool in the toolbox, and its
+// input parsed here. Pinning the generic to this tool's own field shape made it
+// the one member of `solusToolbox` that no group type could hold, so any array
+// or record built from the toolbox failed to typecheck against `AgentTool`.
+export const queryInsightsAgentTool: AgentTool = {
   name: 'query_insights',
   description: QUERY_INSIGHTS_DESCRIPTION,
   inputFields: queryInsightsFields,
   requiresApproval: false,
-  execute: async ({ sql }) => {
+  execute: async (input) => {
+    const parsed = z.object(queryInsightsFields).safeParse(input)
+    if (!parsed.success) {
+      return { ok: false, text: 'query_insights requires `sql`: one read-only SELECT or WITH statement.' }
+    }
+    const { sql } = parsed.data
     try {
       const result = runGuardedSql(sql, AGENT_INSIGHTS_ROW_CAP + 1)
       const truncated = result.rows.length > AGENT_INSIGHTS_ROW_CAP

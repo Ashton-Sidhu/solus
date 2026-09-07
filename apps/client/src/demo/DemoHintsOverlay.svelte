@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import {
     completeHint,
     DEMO_HINTS,
@@ -29,7 +30,10 @@
     completed = completeHint(completed, id)
   }
 
+  onDestroy(stopPreview)
+
   function dismiss(): void {
+    stopPreview()
     open = false
     hidden = true
   }

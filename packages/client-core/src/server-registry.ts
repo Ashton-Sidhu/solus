@@ -23,6 +23,10 @@ export interface SavedServerUplink {
 export interface SavedServer {
   id: string
   label: string
+  /** The user typed `label` themselves rather than the client deriving it from an
+   *  address or a name the host reported. Their wording then outranks the name the
+   *  host advertises over the connection. */
+  hasUserLabel?: boolean
   /** Server URL as the user entered it, e.g. `http://192.168.1.42:51234`. The
    *  preferred direct route; `routes` may name more ways to reach the same host. */
   url: string
@@ -97,6 +101,7 @@ export function installationIdDecision(
 const savedServerSchema = z.looseObject({
   id: z.string().min(1),
   label: z.string().catch(''),
+  hasUserLabel: z.boolean().optional().catch(undefined),
   url: z.string().min(1),
   sessionToken: z.string().catch(''),
   installationId: z.string().min(1),

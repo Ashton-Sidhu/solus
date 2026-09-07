@@ -1,12 +1,3 @@
-/**
- * Grouping for the mobile model sheet.
- *
- * The model in this session is lifted to the top under its own label so the
- * check that marks it is not somewhere in the middle of the list. Everything
- * else is one list: Codex reads that way already, because its labels share a
- * single family name, and splitting Claude into Opus/Sonnet/Haiku cards made
- * the same sheet look like two different designs per agent.
- */
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import type { AgentId } from '@solus/contracts/types'
 

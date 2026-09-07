@@ -50,12 +50,12 @@ describe('HTML guidance without a system prompt', () => {
     expect(solusToolbox.works.update.alwaysLoad).toBe(true)
     // Tools with no guidance stay deferrable, so the prompt does not grow by
     // sixty descriptions to keep three.
-    expect(solusToolbox.works.list.alwaysLoad).toBeFalsy()
+    expect(solusToolbox.works.find.alwaysLoad).toBeFalsy()
   })
 
   test('the Claude adapter passes alwaysLoad through to the SDK tool', () => {
     const { server } = adaptClaudeTools(
-      [solusToolbox.artifact.render, solusToolbox.works.list],
+      [solusToolbox.artifact.render, solusToolbox.works.find],
       {
         provider: 'claude-code',
         cwd: '/tmp',
@@ -74,10 +74,10 @@ describe('HTML guidance without a system prompt', () => {
       _meta?: { 'anthropic/alwaysLoad'?: boolean }
     }
     const registry = (server.instance as unknown as {
-      _registeredTools: { render_artifact?: RegisteredToolMeta; list_works?: RegisteredToolMeta }
+      _registeredTools: { render_artifact?: RegisteredToolMeta; find_works?: RegisteredToolMeta }
     })._registeredTools
     expect(registry.render_artifact?._meta?.['anthropic/alwaysLoad']).toBe(true)
-    expect(registry.list_works?._meta?.['anthropic/alwaysLoad']).toBeUndefined()
+    expect(registry.find_works?._meta?.['anthropic/alwaysLoad']).toBeUndefined()
   })
 
   test('the skill description names the fence path before its body is loaded', () => {

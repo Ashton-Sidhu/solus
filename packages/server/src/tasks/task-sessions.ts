@@ -165,7 +165,7 @@ export function writeSessionLink(
  *
  * This is the rule that keeps one conversation from projecting under two
  * sidebar rows, and it lives here so it holds for every writer of the row —
- * the client's first-dispatch bind, the agent's `link_task_session`, an
+ * the client's first-dispatch bind, the agent's `link_task` with kind=session, an
  * automation, an older build. A `referenced` link is a relationship, not
  * ownership, and is left alone.
  */

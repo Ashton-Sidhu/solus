@@ -3,13 +3,15 @@ import type { SearchSessionsRequest } from '@solus/contracts/rpc'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
-let ConversationSearch: typeof import(
+type ConversationSearchModule = typeof import(
   '@solus/workspace-ui/components/session/unified-picker/lib/conversation-search.svelte'
-).ConversationSearch
+)
+let ConversationSearch: ConversationSearchModule['ConversationSearch']
+let RESULTS_PER_HOST: ConversationSearchModule['RESULTS_PER_HOST']
 
 beforeAll(async () => {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
-  ;({ ConversationSearch } = await import(
+  ;({ ConversationSearch, RESULTS_PER_HOST } = await import(
     '@solus/workspace-ui/components/session/unified-picker/lib/conversation-search.svelte'
   ))
 })
@@ -20,7 +22,7 @@ afterAll(() => {
 })
 
 function hit(sessionId: string, ts: number): SessionSearchResult {
-  return { session: { sessionId } as SessionMeta, snippet: sessionId, ts }
+  return { session: { sessionId } as SessionMeta, snippet: sessionId, ts, messageId: 1, rank: -1 }
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 5))
@@ -96,6 +98,25 @@ describe('ConversationSearch', () => {
     await settle()
     expect(search.results.map((result) => result.session.sessionId)).toEqual(['found'])
     expect(search.loading).toBe(false)
+  })
+
+  test('a host that fills its cap marks the list as capped, and clearing the query clears that too', async () => {
+    // WHY: the picker counts what it lists. When a host stopped at its cap the
+    // count is a floor, and the list has to say so rather than pass twenty rows
+    // off as twenty hits.
+    const full = Array.from({ length: RESULTS_PER_HOST }, (_, index) => hit(`s-${index}`, index))
+    const hosts = {
+      connectedServerIds: () => ['full', 'sparse'],
+      apiFor: (serverId: string) => ({
+        searchSessions: async () => (serverId === 'full' ? full : [hit('one', 1)]),
+      }),
+    }
+    const search = new ConversationSearch(hosts, 0)
+    search.search('word', null)
+    await settle()
+    expect(search.capped).toBe(true)
+    search.search('', null)
+    expect(search.capped).toBe(false)
   })
 
   test('clearing the query clears the hits at once, without asking a host', async () => {

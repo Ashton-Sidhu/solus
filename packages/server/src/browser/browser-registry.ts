@@ -74,7 +74,7 @@ const DEFAULT_WAIT_TIMEOUT_MS = 5000
 /** How long after an agent's last verb a page still counts as in use. A turn
  *  is verbs with model round trips between them, and `running` is zero for most
  *  of that wall clock (ADR 0024). Host-only: clients read presence, not time. */
-const AGENT_USE_GRACE_MS = 45_000
+export const AGENT_USE_GRACE_MS = 45_000
 
 interface PageRecord {
   page: BrowserPage

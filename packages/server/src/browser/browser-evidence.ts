@@ -97,8 +97,9 @@ export async function attachEvidence(
   if (!repo) throw new Error('This checkout has no recognized git remote to attach evidence to.')
   const provider = providerForRepo(repo)
   if (!provider) throw new Error(`Unsupported git host ${repo.host}.`)
-  const auth = await provider.auth.status()
-  if (!auth.connected) {
+  // The checkout's own credential counts here — a dispatched worktree publishes
+  // as the device that owns it, and may be the only credential this host has.
+  if (!await provider.auth.hasCredential(repo.host, target.cwd)) {
     throw new Error('GitHub is not connected — connect it in Settings → Connections.')
   }
 

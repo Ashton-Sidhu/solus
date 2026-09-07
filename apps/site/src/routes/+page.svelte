@@ -78,8 +78,8 @@
 		},
 	];
 
-	// Each entry maps to tools the agent can actually call: `search_docs`,
-	// `read_doc`, `publish_work` (packages/server/src/docs/doc-tools.ts), the
+	// Each entry maps to tools the agent can actually call: `search_external_doc`,
+	// `read_external_doc`, `publish_work` (packages/server/src/docs/doc-tools.ts), the
 	// GitHub and Jira sync adapters (packages/server/src/tasks/adapters/), and
 	// the diagram work type. Do not add a row here without one behind it.
 	//
@@ -113,7 +113,7 @@
 			label: "Specs",
 			title: "Read the spec where it lives.",
 			desc: "Hand an agent a Confluence link or a Google Doc URL and it reads the real page. Or let it search across both by full text when you only half-remember which doc it was.",
-			tools: "search_docs · read_doc",
+			tools: "search_external_doc · read_external_doc",
 			shot: null,
 		},
 		{

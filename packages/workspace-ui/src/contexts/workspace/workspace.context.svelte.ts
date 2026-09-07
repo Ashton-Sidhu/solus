@@ -1,7 +1,7 @@
 import { createAppContext } from '../app/create-app-context'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
-import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, PrReviewContext, PromptDelivery, PromptImageRef, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
+import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, RuntimeSessionInfo, SessionDescription, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, PrReviewContext, PromptDelivery, PromptImageRef, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { parseGitHubPullRequestUrl, type PrReviewTarget, type PullRequest, type RepoRef } from '@solus/contracts/providers'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewTarget } from '@solus/contracts/review'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
@@ -86,6 +86,7 @@ import { buildRemoteDispatchCard } from '../../lib/remote-dispatch-card'
 import { quotedReplyDraft } from '../../lib/quoted-reply'
 import { GoalSync } from './goal-sync'
 import type { PickerScope } from '../../components/session/unified-picker/lib/picker-scope'
+import type { PickerSearchMode, PickerSort } from '../../components/session/unified-picker/lib/picker-search'
 import { taskCreationContextFor, type TaskCreationContext } from '../../components/tasks/lib/task-creation-context'
 import {
   reviewGuideStore,
@@ -118,6 +119,20 @@ interface PersistedSessionDrafts {
 function configuredAgent(value: string): AgentId {
   if (value === 'codex' || value === 'opencode') return value
   return 'claude-code'
+}
+
+/** The lineage and answering member's metadata for a saved session. One read on
+ *  a current host; a host that predates `describeSession` rejects the method,
+ *  and the two reads it replaced still answer there. */
+async function describeSavedSession(api: HostApi, provider: AgentId, providerSessionId: string): Promise<SessionDescription> {
+  try {
+    return await api.describeSession(provider, providerSessionId)
+  } catch {
+    const lineage = await api.resolveSessionLineage(provider, providerSessionId)
+    const active = lineage?.active
+    if (active && !active.providerSessionId) return { lineage, meta: null }
+    return { lineage, meta: await api.getSessionInfo(active?.providerSessionId ?? providerSessionId) }
+  }
 }
 
 function logDevSessionState(eventType: string, session: Session): void {
@@ -161,7 +176,11 @@ interface CreateTabOptions {
   taskId?: string
   workId?: string
   gitContext?: GitCheckout | null
-  gitInitialization?: 'blocking' | 'background'
+  /** `skip` when the caller resolves the environment itself — a resume reads
+   *  identity and registers the checkout on its own path. */
+  gitInitialization?: 'blocking' | 'background' | 'skip'
+  /** True when the caller reads the directory's commands itself. */
+  skipPluginCommands?: boolean
   worktreeRequested?: boolean
   /** The host this tab's session runs on. Must be set here rather than after the
    *  fact: `createTab` resolves the git environment, and a remote working
@@ -458,6 +477,10 @@ export class WorkspaceContext {
   set unifiedPickerOpen(value: boolean) { this.ui.unifiedPickerOpen = value }
   get pickerScope(): PickerScope { return this.ui.pickerScope }
   set pickerScope(value: PickerScope) { this.ui.pickerScope = value }
+  get pickerSort(): PickerSort { return this.ui.pickerSort }
+  set pickerSort(value: PickerSort) { this.ui.pickerSort = value }
+  get pickerSearchMode(): PickerSearchMode { return this.ui.pickerSearchMode }
+  set pickerSearchMode(value: PickerSearchMode) { this.ui.pickerSearchMode = value }
   get projectPageScope(): ProjectPageScope { return this.ui.projectPageScope }
 
   setProjectPageScope(scope: ProjectPageScope): void {
@@ -926,8 +949,8 @@ export class WorkspaceContext {
     return this.lifecycle.refreshAgentAvailability()
   }
 
-  async refreshPluginCommands(workingDirectory: string, tabId?: string): Promise<void> {
-    return this.lifecycle.refreshPluginCommands(workingDirectory, tabId)
+  async refreshPluginCommands(workingDirectory: string, tabId?: string, opts?: { onlyIfStale?: boolean }): Promise<void> {
+    return this.lifecycle.refreshPluginCommands(workingDirectory, tabId, opts)
   }
 
   async switchToBranch(branch: string, sourceId?: string, via: Via = 'click'): Promise<boolean> {
@@ -985,17 +1008,19 @@ export class WorkspaceContext {
     tab.sessionId = resolvedSessionId
   }
 
-  private async attachRuntimeSession(tabId: string): Promise<void> {
+  /** Land what the host answered about a session's live runtime when the tab's
+   *  watch asked to attach: the run config, status, and queue. `undefined` means
+   *  the watch did not ask, so nothing here changes. */
+  private applyRuntimeAttach(tabId: string, info: RuntimeSessionInfo | null | undefined): void {
     const session = this.sessionFor(tabId)
-    if (!session?.agentSessionId) return
-    const info = await this.apiFor(tabId).bindRuntimeSession(this.ctxFor(tabId))
-    if (info && session) {
+    if (!session?.agentSessionId || info === undefined) return
+    if (info) {
       applyRuntimeConfig(session, info)
       session.status = info.status
       session.rateLimitInfo = info.rateLimitInfo
       this.reconcileQueuedPrompts(tabId, info.queuedPrompts)
     }
-    if (session) void this.refreshThreadGoal(session.id)
+    void this.refreshThreadGoal(session.id)
   }
 
   async refreshThreadGoal(sessionId: string): Promise<void> {
@@ -1265,10 +1290,12 @@ export class WorkspaceContext {
     if (options.activate !== false && !activeSession?.run.gitContext && inheritedGitContext) {
       this.config.applyGlobalStartTarget({ gitContext: null })
     }
-    const gitInitialization = this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested })
-    if (options.gitInitialization === 'background') void gitInitialization
-    else await gitInitialization
-    void this.refreshPluginCommands(inheritedDir)
+    if (options.gitInitialization !== 'skip') {
+      const gitInitialization = this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested })
+      if (options.gitInitialization === 'background') void gitInitialization
+      else await gitInitialization
+    }
+    if (!options.skipPluginCommands) void this.refreshPluginCommands(inheritedDir)
     if (options.activate !== false) requestInputFocus()
     return tabId
   }
@@ -1814,7 +1841,7 @@ export class WorkspaceContext {
       const paneId = this.splitChatPaneId
       if (paneId) this.router.focusPane(paneId)
       const secondarySession = this.sessionFor(tabId)
-      if (secondarySession) void this.refreshPluginCommands(secondarySession.run.workingDirectory, tabId)
+      if (secondarySession) void this.refreshPluginCommands(secondarySession.run.workingDirectory, tabId, { onlyIfStale: true })
       requestInputFocus({ tabId })
       track('tab_selected', { via })
       return
@@ -1845,7 +1872,7 @@ export class WorkspaceContext {
     if (session?.run.provider && this.settings.activeAgent !== session.run.provider) {
       this.config.followActiveSessionAgent(session.run.provider)
     }
-    if (session) void this.refreshPluginCommands(session.run.workingDirectory, tabId)
+    if (session) void this.refreshPluginCommands(session.run.workingDirectory, tabId, { onlyIfStale: true })
     track('tab_selected', { via })
   }
 
@@ -2115,16 +2142,17 @@ export class WorkspaceContext {
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
     const selectedProvider = meta.provider ?? this.settings.activeAgent
     const selectedApi = serverConnections.apiFor(meta.serverId)
-    const handoff = await selectedApi.resolveSessionLineage(selectedProvider, meta.sessionId)
+    // One read answers both what the client used to ask in turn: the lineage,
+    // then the metadata of whichever member answers for it.
+    const { lineage: handoff, meta: describedMeta } = await describeSavedSession(selectedApi, selectedProvider, meta.sessionId)
     const stableSessionId = handoff?.sessionId ?? meta.sessionId
     const activeMember = handoff?.active
     let activeProviderSessionId: string | null = meta.sessionId
     if (activeMember?.providerSessionId) {
-      const activeMeta = await selectedApi.getSessionInfo(activeMember.providerSessionId)
-      if (!activeMeta) throw new SessionUnavailableError(activeMember.providerSessionId)
+      if (!describedMeta) throw new SessionUnavailableError(activeMember.providerSessionId)
       meta = {
         ...meta,
-        ...activeMeta,
+        ...describedMeta,
         provider: activeMember.provider,
         sessionId: activeMember.providerSessionId,
         cwd: activeMember.cwd,
@@ -2135,9 +2163,8 @@ export class WorkspaceContext {
       meta = { ...meta, provider: activeMember.provider, cwd: activeMember.cwd }
       activeProviderSessionId = null
     } else {
-      const sourceMeta = await selectedApi.getSessionInfo(meta.sessionId)
-      if (!sourceMeta) throw new SessionUnavailableError(meta.sessionId)
-      meta = { ...meta, ...sourceMeta, serverId: meta.serverId }
+      if (!describedMeta) throw new SessionUnavailableError(meta.sessionId)
+      meta = { ...meta, ...describedMeta, serverId: meta.serverId }
     }
     const background = opts?.background ?? false
     const intoTabId = opts?.intoTabId
@@ -2187,7 +2214,10 @@ export class WorkspaceContext {
       tabId = await this.createTab(workingDirectory, {
         activate: shouldActivate,
         gitContext: null,
-        gitInitialization: 'background',
+        // This path reads identity, registers the checkout, and reads the
+        // directory's commands itself below; the tab must not do it too.
+        gitInitialization: 'skip',
+        skipPluginCommands: true,
         worktreeRequested: false,
         // A session never moves between machines: resuming one the picker found
         // on another host has to open against that host, not this client's.
@@ -2242,31 +2272,33 @@ export class WorkspaceContext {
     // thread off disk and minted a local id for it; if another client already
     // has that thread open, main answers with *its* id and we adopt it. Without
     // this the two clients hold different addresses for one session and "one id"
-    // is only true within a client. Must happen before the bind, which sends the
-    // id we are claiming — but nothing else here waits on identity, so the watch
-    // and the bind are one chain running beside the reads rather than ahead of
-    // them.
+    // is only true within a client. The same round trip attaches to the live
+    // runtime, which is what a separate bind used to do after the watch.
     //
-    // It is deliberately not awaited with the transcript below. This chain is two
-    // round trips and supplies only chrome around the conversation — status, rate
-    // limits, queued prompts — so joining it to that Promise.all made the spinner
-    // outlive the transcript by a watch *and* a bind. It is awaited at the end of
-    // the resume instead, once the conversation is on screen.
+    // It is deliberately not awaited with the transcript below. It supplies only
+    // chrome around the conversation — status, rate limits, queued prompts — so
+    // joining it to that Promise.all made the spinner outlive the transcript. It
+    // is awaited at the end of the resume instead, once the conversation is on
+    // screen. Settled rather than left to reject on its own: the join point is
+    // several awaits away, so a failure before then would otherwise surface as an
+    // unhandled rejection. It is carried and re-thrown at the join instead.
     const runtimeAttach = this.apiFor(tabId).watchSession({
       sessionId: stableSessionId,
       agentSessionId: activeProviderSessionId ?? undefined,
       provider,
+      attachRuntime: !!activeProviderSessionId,
     })
-      .then(({ sessionId }) => this.adoptSessionId(tabId, sessionId))
-      .catch(() => null)
-      .then(() => this.attachRuntimeSession(tabId))
-      // Settled rather than left to reject on its own. The join point is several
-      // awaits away now, so a bind that fails before we get there would otherwise
-      // surface as an unhandled rejection with nothing yet listening. The failure
-      // is carried and re-thrown at the join, keeping the caller contract intact.
       .then(
-        () => null,
-        (error: unknown) => (error instanceof Error ? error : new Error(String(error))),
+        (watched) => {
+          this.adoptSessionId(tabId, watched.sessionId)
+          this.applyRuntimeAttach(tabId, watched.runtime)
+          return null
+        },
+        // With no runtime to attach, a failed watch costs only the identity
+        // adoption and is not worth failing the resume over.
+        (error: unknown) => activeProviderSessionId
+          ? (error instanceof Error ? error : new Error(String(error)))
+          : null,
       )
 
     // The session must appear correctly grouped in the sidebar the moment the
@@ -2325,31 +2357,20 @@ export class WorkspaceContext {
         session.progress = transcript.progress
         session.historyTruncated = transcript.truncated
         session.loadingHistory = false
-        try {
-          await api.gitRegisterEnvironment?.(
-              $state.snapshot(this.ctxFor(tabId)),
-              worktreePath ?? workingDirectory,
-              $state.snapshot(gitContext),
-            )
-        } catch {
-          // A failed environment registration only delays cwd/git wiring for an
-          // immediate prompt; the background refresh re-registers it.
-        }
+        // Through the store, so the full refresh below finds this checkout
+        // already registered rather than registering it again. A failure only
+        // delays cwd/git wiring for an immediate prompt; that refresh retries.
+        await this.environment.registerEnvironment(this, tabId, worktreePath ?? workingDirectory, gitContext)
 
         // Everything below is off the critical path — a stale/failed step only
         // means the git panel / changed files / plugins catch up a beat later.
         void (async () => {
-          const restoredGitContext = api.worktreeRestore
-            ? await api.worktreeRestore(this.ctxFor(tabId), defaultDir)
-            : null
           if (!currentResumeTarget()) return
           const restoredSession = this.sessionFor(tabId)!
           let environmentRefresh: Promise<GitRefreshResult> | null = null
-          if (restoredGitContext) {
-            restoredSession.run.gitContext = restoredGitContext
-            restoredSession.readOnlyReason = null
-            environmentRefresh = this.environment.refreshEnvironment(this, { sourceId: tabId, level: 'full' })
-          } else if (isSolusWorktreePath(defaultDir)) {
+          // The identity read above already answers whether a worktree is still
+          // there: a checkout means it is, null means its branch is gone.
+          if (worktreePath && !gitContext) {
             restoredSession.run.gitContext = null
             restoredSession.readOnlyReason = 'This session is read-only because its worktree no longer exists.'
           } else {
@@ -2357,12 +2378,11 @@ export class WorkspaceContext {
           }
 
           this.recomputeChangedFiles(tabId)
-          this.onTurnSettled?.(tabId, this.sessionFor(tabId)?.run.workingDirectory ?? null)
           void this.refreshPluginCommands(workingDirectory, tabId)
           await Promise.all(transcript.planIds.map((planId) => this.planStore.hydrateAnnotations(planId)))
 
           if (environmentRefresh) await environmentRefresh
-          if (restoredGitContext) {
+          if (worktreePath && gitContext) {
             await this.hydrateChangedFilesFromDiff(tabId)
           }
         })()

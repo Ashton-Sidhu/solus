@@ -138,11 +138,11 @@ describe('getToolDescription', () => {
     // when their query or target is hidden.
     expect(
       getToolDescription(
-        'search_sessions',
+        'find_sessions',
         JSON.stringify({ query: 'host selection', role: 'any', limit: 10 }),
         { truncate: false },
       ),
-    ).toBe('search_sessions: {"query":"host selection","role":"any","limit":10}')
+    ).toBe('find_sessions: {"query":"host selection","role":"any","limit":10}')
   })
 
   test('shows the same arguments for Claude-prefixed Solus tools', () => {
@@ -170,7 +170,7 @@ describe('getToolDescription', () => {
   })
 
   test('keeps argument-free Solus tools concise', () => {
-    expect(getToolDescription('list_sessions', '{}', { truncate: false })).toBe('list_sessions')
+    expect(getToolDescription('find_sessions', '{}', { truncate: false })).toBe('find_sessions')
   })
 })
 
@@ -182,7 +182,7 @@ describe('parseToolInput', () => {
     const parsed = parseToolInput('{"query":"host selection"}')
     expect(parsed?.sourceJson).toBe('{"query":"host selection"}')
     expect(
-      getToolDescriptionFromParsed('mcp__solus__search_sessions', parsed!, { truncate: false }),
-    ).toBe('search_sessions: {"query":"host selection"}')
+      getToolDescriptionFromParsed('mcp__solus__find_sessions', parsed!, { truncate: false }),
+    ).toBe('find_sessions: {"query":"host selection"}')
   })
 })

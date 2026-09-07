@@ -89,6 +89,19 @@ export async function readPullRequestAuthoringContext(
   }
 }
 
+/**
+ * The house rules for a pull request body, quoted from the `writing-pr` skill.
+ * This is the maintainers' own wording; do not tidy the grammar or the casing.
+ */
+const HOUSE_BODY_RULES = [
+  "dont write essays, dont include that you ran tests. rather, write a concise body. focus on mermaid codeblock diagrams, code samples/snippets (this can be internals, or even sample usage). use bullet points for the text you do write. 'validation/i ran tests' is not needed",
+  'for visual changes (either directly or indirectly) show a table of before and after with uploaded images/videos.',
+  'for benchmarks, always show tables of before/after (baseline from target branch, candidate from the PR)',
+  'dont at intermidate PR details - e.g. if we reduced PR size from +6k lines to +1k lines, dont even mention it. if we refactored from one commit to another it doesnt matter. only the final aggregate squash merge commit is what matters for commentary',
+  'for truely impressive, difficult, or high risk/wide scoped changes you might write the body like a technical blog (again with context, storytelling, code samples/before/after etc diagrams, images whatever.',
+  'feel free to use code refs',
+]
+
 export function buildPullRequestAuthoringPrompt(
   context: PullRequestAuthoringContext,
   instructions = 'Use concise, specific source-control writing.',
@@ -98,17 +111,14 @@ export function buildPullRequestAuthoringPrompt(
         'Follow the repository pull request template.',
         'Fill its sections with facts from the commits and diff.',
         'Keep its Markdown structure and remove HTML comments.',
+        'Fill a testing or validation section only because the template asks for one.',
       ]
-    : [
-        'When the writing policy does not specify a body structure, use Markdown headings "## Summary" and "## Testing".',
-        'Use short bullets under both headings.',
-        'Under Testing, report only checks supported by the input. Use "Not run" when no checks are present.',
-      ]
+    : HOUSE_BODY_RULES
   return [
     'Write a pull request title and body for the complete branch change.',
     'Submit both fields with the provided tool. Do not answer with prose.',
     'The title must be concise, specific, and describe the user-visible outcome.',
-    'Do not claim tests passed unless the commits or diff say so.',
+    'Never invent a link, an image, or a number that the commits and diff do not contain.',
     '',
     'Writing policy:',
     instructions,
@@ -170,10 +180,6 @@ export function fallbackPullRequestDraft(context: PullRequestAuthoringContext): 
       '## Summary',
       '',
       context.diffStat ? `- ${context.diffStat.split(/\r?\n/).join('\n- ')}` : '- Update project changes.',
-      '',
-      '## Testing',
-      '',
-      '- Not run',
     ].join('\n'),
   }
 }

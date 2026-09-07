@@ -1,7 +1,6 @@
 <script lang="ts">
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
-  import { requestInputFocus } from "../../lib/inputFocus";
   import ActivityRow from "./ActivityRow.svelte";
   import { KIND_ICONS } from "./lib/activity-icons";
   import {
@@ -120,9 +119,10 @@
       : getToolDescription(toolName, tool.toolInput, { truncate: false });
   }
 
+  // No refocus: expanding the group means the user wants to read it, and
+  // stealing focus back to the composer scrolls the transcript away.
   function toggleExpanded(): void {
     expanded = !expanded;
-    requestInputFocus();
   }
 
   function toggleToolExpanded(toolId: string): void {

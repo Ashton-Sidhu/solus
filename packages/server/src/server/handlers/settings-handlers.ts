@@ -50,7 +50,6 @@ export function registerSettingsHandlers(
     const { config } = getHostConfig()
     return {
       textGenerationModel: config.textGenerationModel,
-      backupTextGenerationModel: config.backupTextGenerationModel,
       sourceControlWriterModel: config.sourceControlWriterModel,
       sourceControlWriting: config.sourceControlWriting,
       effectiveTextGenerationModel: resolveTextGenerationModel(),

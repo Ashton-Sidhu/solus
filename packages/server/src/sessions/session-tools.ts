@@ -5,6 +5,7 @@ import { basename } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { getSessionMessages, listProjectRoots, searchIndexedSessions } from '../db/session-indexer'
 import { formatPendingInputReport } from './session-report'
+import { plainSnippet } from '@solus/contracts/search-snippet'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import type { AgentConversationUpdate, AgentId, AgentTarget, NormalizedEvent, PlanDescriptor, PromptDelivery, ReasoningEffort, SessionMeta, SessionStatus } from '@solus/contracts/types'
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
@@ -138,13 +139,12 @@ interface SessionToolArgs {
   notify_on_completion?: unknown
   parent_task_id?: unknown
   project?: unknown
-  project_path?: unknown
   prompt?: unknown
   query?: unknown
   reasoning_effort?: unknown
   role?: unknown
+  scope?: unknown
   session_id?: unknown
-  status?: unknown
   tail?: unknown
   task_id?: unknown
   worktree_base_branch?: unknown
@@ -189,12 +189,6 @@ const createSessionFields = {
 
 const listAgentTargetsFields = {}
 
-const listSessionsFields = {
-  project_path: z.string().optional().describe('Project path to list sessions for. Defaults to the calling session cwd.'),
-  status: z.enum(['active', 'all']).optional().describe("Default 'active' lists only busy/rate-limited sessions; 'all' includes historical sessions."),
-  limit: z.number().int().min(1).max(50).optional().describe('Maximum sessions to return. Defaults to 15.'),
-}
-
 const readSessionFields = {
   session_id: z.string().describe('The session id to inspect.'),
   tail: z.number().int().min(1).max(50).optional().describe('Number of tail messages to return. Defaults to 10.'),
@@ -204,10 +198,11 @@ const readSessionFields = {
     .describe('Optional text to locate inside the session (e.g. the query you searched for). Returns the matching messages with surrounding context instead of the latest tail — use it to jump straight to the relevant passage of a long session.'),
 }
 
-const searchSessionsFields = {
-  query: z.string().describe('Full-text query to search for in session messages.'),
-  project: z.string().optional().describe("Optional project to scope to (a project name like 'solus' or a path). Scopes to sessions that RAN IN that repo (its git root + worktrees) — NOT sessions that merely mention it; a discussion about repo X held from inside repo Y is filed under Y. Omit it (the default) to search everything by content — that's the reliable way to find a past discussion. A partial name is fine; if nothing matches, the search falls back to all projects."),
-  role: z.enum(['user', 'assistant', 'any']).default('any').describe("Message role to search. Defaults to 'any'."),
+const findSessionsFields = {
+  query: z.string().optional().describe('Full-text query to search for in session messages. Omit it to list the sessions running now instead of searching history.'),
+  project: z.string().optional().describe("Optional project to scope to (a project name like 'solus' or a path). Scopes to sessions that RAN IN that repo (its git root + worktrees) — NOT sessions that merely mention it; a discussion about repo X held from inside repo Y is filed under Y. When searching, omit it (the default) to search everything by content — that's the reliable way to find a past discussion; a partial name is fine, and if nothing matches the search falls back to all projects. When listing, it defaults to the calling session's own project."),
+  scope: z.enum(['active', 'all']).optional().describe("Listing only, ignored when searching. Default 'active' lists just the busy/rate-limited sessions an orchestrator is waiting on; 'all' includes idle and historical ones."),
+  role: z.enum(['user', 'assistant', 'any']).default('any').describe("Searching only. Message role to search. Defaults to 'any'."),
   after: z
     .string()
     .optional()
@@ -216,7 +211,7 @@ const searchSessionsFields = {
     .string()
     .optional()
     .describe("Only include messages at or before this instant. ISO 8601; a date like '2026-06-30' covers through the end of that day. Omit to leave the upper bound open. DEFAULT: with BOTH after and before omitted, the search covers only the last 2 weeks (after = now − 14d, before = now)."),
-  limit: z.number().int().min(1).max(20).default(10).describe('Maximum results to return. Defaults to 10.'),
+  limit: z.number().int().min(1).max(50).optional().describe('Maximum results to return. Defaults to 10.'),
 }
 
 const promptSessionFields = {
@@ -241,12 +236,10 @@ export const CREATE_SESSION_DESC =
   "Create a NEW Solus chat session that starts running the given prompt right away on its own agent, model, and reasoning level. Task ownership is explicit: pass `task_id` to run another attempt for an existing task, or `parent_task_id` to create a new subtask under a top-level task; omit both for an independent top-level task. The required `mode` declares your intent: 'delegate' when you need the new session's answer to continue your own work — finish your turn and its first reply arrives here later as a [session report]; 'fire_and_forget' when the user asked to kick off / launch / run something in the background and does not need you to see the result — tell the user the session was started and move on; no report will come, and you must NOT poll read_session or wait for it; the user follows the session through its card. model_id is required and must be valid for the chosen configured provider; call list_agent_targets for current choices. A live agent-conversation card tracks the session's progress in this conversation in both modes. Call it once per session you want to start. Returns the new session id and its task id."
 const LIST_AGENT_TARGETS_DESC =
   'List the agent providers and models currently configured on this Solus host for create_session, including runtime availability and supported reasoning levels. Use this before choosing a cross-provider target.'
-const LIST_SESSIONS_DESC =
-  'List Solus sessions for this project, including their bound task or subtask, so an orchestrator can observe worker status. By default excludes the calling session and returns only active/busy sessions.'
-const SEARCH_SESSIONS_DESC =
-  "Full-text search over ALL your past Solus conversations (every project and its worktrees). Reach for this WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before', 'that thing we found' — instead of answering from memory. Put the topic in `query`; leave `project` unset (topic and working directory routinely differ — see that param). Each result carries a clickable session link and a `session id`; take that id and call `read_session` (pass your query as `match`) to load the full conversation before you answer. Whenever you cite one of these sessions in a reply, copy its link exactly as this tool returned it — the link opens the session in any project, and a rewritten or reconstructed one will not resolve."
+const FIND_SESSIONS_DESC =
+  "Find Solus sessions. With `query`, this is a full-text search over ALL your past Solus conversations (every project and its worktrees): reach for it WHENEVER the user refers to a prior discussion — 'the X thread', 'when we talked about Y', 'like we decided before', 'that thing we found' — instead of answering from memory. Put the topic in `query` and leave `project` unset (topic and working directory routinely differ — see that param). Without `query`, it lists the sessions running right now for this project, with their bound task or subtask, so an orchestrator can observe worker status; the calling session is excluded. Every result carries a clickable session link and a `session id`; take that id and call `read_session` (pass your query as `match`) to load the full conversation before you answer. Whenever you cite one of these sessions in a reply, copy its link exactly as this tool returned it — the link opens the session in any project, and a rewritten or reconstructed one will not resolve."
 const READ_SESSION_DESC =
-  'Load a Solus session by id: its status, bound task/subtask context, and message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after search_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. When you cite this session in a reply, copy the returned session link verbatim rather than rebuilding it.'
+  'Load a Solus session by id: its status, bound task/subtask context, and message bodies. Two uses — (1) inspect a worker\'s progress or whether it awaits input; (2) after find_sessions surfaces a past conversation, read it in full to ground your answer. By default returns the latest tail; pass `match` (typically the same text you searched for) to jump to the relevant passage of a long session instead. When you cite this session in a reply, copy the returned session link verbatim rather than rebuilding it.'
 const PROMPT_SESSION_DESC =
   "Send a prompt into another Solus session by session id. Choose delivery: 'steer' only when the target's work in progress should change now—for example to correct, interrupt, redirect, constrain, or reprioritize its current approach. Choose 'queue' for independent or sequential follow-up that should begin after the current turn; queue is the default. Steering is consumed at the provider's next decision point rather than cancelling the session, and automatically falls back to queueing if the turn is ending or cannot be steered. By default, the target's reply arrives later in this conversation as a [session report]; set notify_on_completion to false for fire-and-forget. Completion watchers do not survive app restart, so use read_session to catch up. Cannot target your own session."
 const WAIT_FOR_SESSION_DESC =
@@ -425,35 +418,6 @@ export async function executeSessionTool(
       return { ok: true, text: JSON.stringify({ targets }, null, 2) }
     }
 
-    if (name === 'list_sessions') {
-      if (!sessionController) return { ok: false, text: 'list_sessions is unavailable — no session controller is wired.' }
-      const parsed = z.object(listSessionsFields).safeParse(args)
-      if (!parsed.success) return { ok: false, text: 'list_sessions received invalid arguments.' }
-      const projectPath = parsed.data.project_path?.trim()
-        ? parsed.data.project_path.trim()
-        : (deps.ctx?.cwd ?? '~')
-      const status = parsed.data.status ?? 'active'
-      const limit = parsed.data.limit ?? 15
-      const sessions = await sessionController.listSessions([...AGENT_PROVIDER_VALUES], projectPath)
-      const calling = deps.ctx?.sessionId
-      const controller = sessionController
-      const filtered = sessions
-        .map((meta) => {
-          const liveStatus: SessionStatus = controller.liveStatus(meta.sessionId) ?? meta.status ?? 'idle'
-          return { ...meta, status: liveStatus }
-        })
-        .filter((meta) => status === 'all' || (meta.sessionId !== calling && isBusy(meta.status)))
-        .slice(0, limit)
-      if (!filtered.length) return { ok: true, text: 'No matching sessions.' }
-      const taskContexts = await Promise.all(filtered.map((meta) => taskContextForSession(meta.sessionId)))
-      const lines = filtered.map((meta, index) => {
-        const self = meta.sessionId === calling ? ' (this session)' : ''
-        const task = taskContexts[index]
-        return `${sessionLink(meta)}${self}  [${meta.status ?? 'idle'}]  ${meta.provider}  ${meta.cwd}  "${truncate(meta.firstMessage ?? '', 80)}"  (${meta.lastTimestamp})${task ? `\n  task: ${task.summary}` : '\n  task: (unbound)'}`
-      })
-      return { ok: true, text: `Sessions:\n${lines.join('\n')}` }
-    }
-
     if (name === 'read_session') {
       if (!sessionController) return { ok: false, text: 'read_session is unavailable — no session controller is wired.' }
       const parsed = z.object(readSessionFields).safeParse(args)
@@ -511,11 +475,44 @@ export async function executeSessionTool(
       }
     }
 
-    if (name === 'search_sessions') {
-      const parsed = z.object(searchSessionsFields).safeParse(args)
-      if (!parsed.success) return { ok: false, text: 'search_sessions received invalid arguments.' }
-      const query = parsed.data.query.trim()
-      if (!query) return { ok: false, text: 'search_sessions requires a non-empty query.' }
+    // One question, two answers: no query lists the sessions running now, a
+    // query searches history. Parsed once, so the branch is on the domain value.
+    if (name === 'find_sessions') {
+      const parsed = z.object(findSessionsFields).safeParse(args)
+      if (!parsed.success) return { ok: false, text: 'find_sessions received invalid arguments.' }
+      const query = parsed.data.query?.trim() ?? ''
+
+      if (!query) {
+        if (!sessionController) return { ok: false, text: 'find_sessions cannot list sessions — no session controller is wired.' }
+        // The listing takes a path, but `project` also accepts a project name —
+        // resolving it first is what keeps one parameter honest in both modes.
+        const projectArg = parsed.data.project?.trim() ?? ''
+        const resolvedProject = projectArg ? resolveProject(projectArg) : null
+        const projectPath = resolvedProject?.kind === 'one'
+          ? resolvedProject.projectRoot
+          : projectArg || (deps.ctx?.cwd ?? '~')
+        const status = parsed.data.scope ?? 'active'
+        const limit = parsed.data.limit ?? 10
+        const sessions = await sessionController.listSessions([...AGENT_PROVIDER_VALUES], projectPath)
+        const calling = deps.ctx?.sessionId
+        const controller = sessionController
+        const filtered = sessions
+          .map((meta) => {
+            const liveStatus: SessionStatus = controller.liveStatus(meta.sessionId) ?? meta.status ?? 'idle'
+            return { ...meta, status: liveStatus }
+          })
+          .filter((meta) => status === 'all' || (meta.sessionId !== calling && isBusy(meta.status)))
+          .slice(0, limit)
+        if (!filtered.length) return { ok: true, text: 'No matching sessions.' }
+        const taskContexts = await Promise.all(filtered.map((meta) => taskContextForSession(meta.sessionId)))
+        const lines = filtered.map((meta, index) => {
+          const self = meta.sessionId === calling ? ' (this session)' : ''
+          const task = taskContexts[index]
+          return `${sessionLink(meta)}${self}  [${meta.status ?? 'idle'}]  ${meta.provider}  ${meta.cwd}  "${truncate(meta.firstMessage ?? '', 80)}"  (${meta.lastTimestamp})${task ? `\n  task: ${task.summary}` : '\n  task: (unbound)'}`
+        })
+        return { ok: true, text: `Sessions:\n${lines.join('\n')}` }
+      }
+
       const role = parsed.data.role
       // Absolute time bounds. A date-only `before` covers through the end of
       // that day; both omitted → search all of time.
@@ -530,16 +527,16 @@ export async function executeSessionTool(
       let untilTs: number | undefined
       if (afterArg) {
         const t = parseBound(afterArg, false)
-        if (t === null) return { ok: false, text: `search_sessions: could not parse after="${afterArg}". Use an ISO date like 2026-06-01 or 2026-06-01T09:00:00Z.` }
+        if (t === null) return { ok: false, text: `find_sessions: could not parse after="${afterArg}". Use an ISO date like 2026-06-01 or 2026-06-01T09:00:00Z.` }
         sinceTs = t
       }
       if (beforeArg) {
         const t = parseBound(beforeArg, true)
-        if (t === null) return { ok: false, text: `search_sessions: could not parse before="${beforeArg}". Use an ISO date like 2026-06-30 or 2026-06-30T23:59:59Z.` }
+        if (t === null) return { ok: false, text: `find_sessions: could not parse before="${beforeArg}". Use an ISO date like 2026-06-30 or 2026-06-30T23:59:59Z.` }
         untilTs = t
       }
       if (sinceTs !== undefined && untilTs !== undefined && sinceTs > untilTs) {
-        return { ok: false, text: `search_sessions: after (${afterArg}) is later than before (${beforeArg}) — no messages can match.` }
+        return { ok: false, text: `find_sessions: after (${afterArg}) is later than before (${beforeArg}) — no messages can match.` }
       }
       // No bounds at all → default to the last 2 weeks (before = now, after =
       // now − 14d). Giving either bound leaves the other side open.
@@ -553,7 +550,7 @@ export async function executeSessionTool(
       const rangeNote = defaultedRange
         ? 'No time range given — searched the last 2 weeks. Pass after="YYYY-MM-DD" (optionally with before) to search a different window.\n\n'
         : ''
-      const limit = parsed.data.limit
+      const limit = parsed.data.limit ?? 10
 
       // Resolve the optional project scope. No project → search all projects.
       let projectRoot: string | undefined
@@ -585,7 +582,7 @@ export async function executeSessionTool(
       if (!results.length) return { ok: true, text: `${scopeNote}${rangeNote}No matching sessions.` }
       const lines = results.map(({ session, snippet, ts }) => {
         const project = session.projectRoot ? basename(session.projectRoot) : '(unknown)'
-        return `${sessionLink(session)}\nproject: ${project} (${session.projectRoot ?? session.cwd})\nprovider: ${session.provider}\nsession id: ${session.sessionId}\ntimestamp: ${new Date(ts).toISOString()}\nsnippet: ${truncate(snippet, 500)}`
+        return `${sessionLink(session)}\nproject: ${project} (${session.projectRoot ?? session.cwd})\nprovider: ${session.provider}\nsession id: ${session.sessionId}\ntimestamp: ${new Date(ts).toISOString()}\nsnippet: ${truncate(plainSnippet(snippet), 500)}`
       })
       const nextStep = '→ To read any result in full, call read_session with its session id (add match:"…" to jump to the relevant passage).'
       return { ok: true, text: `${scopeNote}${rangeNote}Search results:\n\n${lines.join('\n\n')}\n\n${nextStep}` }
@@ -871,10 +868,9 @@ function sessionAgentTool(
   }
 }
 
-export const listSessionsAgentTool = sessionAgentTool('list_sessions', LIST_SESSIONS_DESC, listSessionsFields, false)
+export const findSessionsAgentTool = sessionAgentTool('find_sessions', FIND_SESSIONS_DESC, findSessionsFields, false)
 export const listAgentTargetsAgentTool = sessionAgentTool('list_agent_targets', LIST_AGENT_TARGETS_DESC, listAgentTargetsFields, false)
 export const readSessionAgentTool = sessionAgentTool('read_session', READ_SESSION_DESC, readSessionFields, false)
-export const searchSessionsAgentTool = sessionAgentTool('search_sessions', SEARCH_SESSIONS_DESC, searchSessionsFields, false)
 export const createSessionAgentTool = sessionAgentTool('create_session', CREATE_SESSION_DESC, createSessionFields, false)
 export const promptSessionAgentTool = sessionAgentTool('prompt_session', PROMPT_SESSION_DESC, promptSessionFields, false)
 export const waitForSessionAgentTool = sessionAgentTool('wait_for_session', WAIT_FOR_SESSION_DESC, waitForSessionFields, false)
@@ -882,9 +878,8 @@ export const stopSessionAgentTool = sessionAgentTool('stop_session', STOP_SESSIO
 
 export const sessionAgentTools: AgentTool[] = [
   listAgentTargetsAgentTool,
-  listSessionsAgentTool,
+  findSessionsAgentTool,
   readSessionAgentTool,
-  searchSessionsAgentTool,
   createSessionAgentTool,
   promptSessionAgentTool,
   waitForSessionAgentTool,

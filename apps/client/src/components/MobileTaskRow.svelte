@@ -49,12 +49,6 @@
   const dimmed = $derived(task.lifecycle === "snoozed");
 </script>
 
-<!--
-  62px, one task. State is the leading glyph and its colour — the same
-  silhouette the desktop sidebar draws in its margin, so a reader learns one
-  vocabulary and not two. Everything else — title, project, run count — sits on
-  the second line where it cannot push the title into an ellipsis.
--->
 <button
   type="button"
   class="flex h-[3.875rem] w-full cursor-pointer items-center gap-[0.6875rem] rounded-2xl border-0 px-3 text-left [-webkit-tap-highlight-color:transparent] {active
@@ -81,11 +75,6 @@
         : 'text-(--solus-text-primary)'}"
     >{task.title}</span>
     <span class="mt-[0.1875rem] flex min-w-0 items-center gap-1.5 text-xs">
-      <!-- Where the work lives leads the line, as it does on the desktop row:
-           the mark identifies the project faster than its name, and the name
-           truncates before any of the facts that follow it. A running or
-           snoozed row used to spend this slot on its clock and say nothing at
-           all about its project. -->
       {#if task.projectLabel}
         <ProjectFavicon
           projectRoot={task.projectKey}

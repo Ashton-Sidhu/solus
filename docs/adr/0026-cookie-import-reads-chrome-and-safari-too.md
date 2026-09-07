@@ -28,9 +28,22 @@ follows is what the two new sources add.
 
 - **A source declares what it will cost before it is chosen.** A source carries
   `unlockPrompt` when reading it will make the operating system ask the user for
-  something; the panel states it on the row and again above the button. A prompt
-  nobody was warned about is one a person is right to refuse, and refusing it
-  after the fact is worse than never offering.
+  something; the panel marks the row and repeats it in the confirmation. A
+  prompt nobody was warned about is one a person is right to refuse, and
+  refusing it after the fact is worse than never offering.
+- **Consent is one sentence and the button under it.** The confirmation states
+  that agents using the profile will be signed in as the user wherever the
+  source browser is, and the button names the count it imports. Pressing it is
+  the consent the request carries; a separate checkbox said the same thing
+  twice and made a routine action ceremonial.
+- **A blocked source carries the way to unblock it, when the host has one.**
+  macOS has no prompt for Full Disk Access, so the closest a program can get is
+  to open the exact pane. A source that a setting would unblock carries
+  `canRequestAccess`, and `browserRequestCookieAccess(sourceId)` opens that pane
+  on the host — the host, because the host is the machine whose access is being
+  granted, and by id, because a client never names a URL to open there. The row
+  then offers a re-scan rather than instructions to restart, and says to
+  restart only when the re-scan still finds it blocked.
 - **A scan never unlocks anything.** `importable` is counted from each row's own
   metadata, so opening the list cannot produce a keychain dialog. The single
   consequence is that Chrome's count can exceed what lands: a value the key
@@ -78,6 +91,7 @@ the existing reader, and is deliberately not done here.
 `readCookieSource` is asynchronous solely because Chrome's key is a process
 away. The two plain stores are still read synchronously behind it.
 
-Chrome on Windows and a Safari without Full Disk Access are permanent, stated
-"unavailable" answers rather than bugs to be fixed later. Both are the operating
-system declining, and the honest response is to say so and offer Firefox.
+Chrome on Windows is a permanent, stated "unavailable" answer rather than a bug
+to be fixed later: the operating system is declining, and the honest response is
+to say so and offer Firefox. A Safari without Full Disk Access is unavailable
+until the user grants it, and the panel takes them to the setting.

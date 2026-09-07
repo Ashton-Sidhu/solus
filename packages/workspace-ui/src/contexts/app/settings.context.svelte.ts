@@ -66,6 +66,7 @@ export type SettingsFields = {
   rateLimitBehavior: RateLimitBehavior
   autoRenameSessions: boolean
   showDiffSummaryAfterTurn: boolean
+  collapseComposerWhenIdle: boolean
   fontFamily: AppFontFamily
   fontSize: number
   zoomFactor: number
@@ -266,6 +267,7 @@ const HOST_CONFIG_KEY_MAP = {
   reviewGuideInstructions: true,
   stackedPrsEnabled: true, generatePrGuidesOnOpen: true, reviewWarmingByProject: true,
   rateLimitBehavior: true, autoRenameSessions: true, showDiffSummaryAfterTurn: true,
+  collapseComposerWhenIdle: true,
   fontFamily: true, fontSize: true, codeFontFamily: true, codeFontSize: true,
   documentFontFamily: true, documentFontSize: true, extraInstructions: true,
   modelInstructions: true, analyticsEnabled: true, tabGroupMode: true,
@@ -328,6 +330,7 @@ const savedSettingsSchema = z.object({
   rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'),
   autoRenameSessions: z.boolean().catch(true),
   showDiffSummaryAfterTurn: z.boolean().catch(true),
+  collapseComposerWhenIdle: z.boolean().catch(true),
   fontFamily: z.enum(['inter', 'dm-sans', 'system', 'geist', 'lora', 'sf-pro-text', 'sf-mono']).catch(DEFAULT_APP_FONT_FAMILY),
   fontSize: z.number().min(8).catch(DEFAULT_FONT_SIZE),
   zoomFactor: z.number().transform(clampZoomFactor).catch(ZOOM_FACTOR_DEFAULT),
@@ -395,6 +398,7 @@ function loadSettings(): SettingsFields {
     rateLimitBehavior: 'ask',
     autoRenameSessions: true,
     showDiffSummaryAfterTurn: true,
+    collapseComposerWhenIdle: true,
     fontFamily: DEFAULT_APP_FONT_FAMILY,
     fontSize: DEFAULT_FONT_SIZE,
     zoomFactor: DEFAULT_ZOOM_FACTOR,
@@ -439,6 +443,7 @@ export class SettingsContext {
   rateLimitBehavior = $state<RateLimitBehavior>('ask')
   autoRenameSessions = $state(true)
   showDiffSummaryAfterTurn = $state(true)
+  collapseComposerWhenIdle = $state(true)
   fontFamily = $state<AppFontFamily>(DEFAULT_APP_FONT_FAMILY)
   fontSize = $state(13)
   zoomFactor = $state(ZOOM_FACTOR_DEFAULT)
@@ -492,6 +497,7 @@ export class SettingsContext {
     this.rateLimitBehavior = saved.rateLimitBehavior
     this.autoRenameSessions = saved.autoRenameSessions
     this.showDiffSummaryAfterTurn = saved.showDiffSummaryAfterTurn
+    this.collapseComposerWhenIdle = saved.collapseComposerWhenIdle
     this.fontFamily = saved.fontFamily
     this.fontSize = saved.fontSize
     this.zoomFactor = saved.zoomFactor
@@ -619,6 +625,8 @@ export class SettingsContext {
     if (patch.autoRenameSessions !== undefined) this.autoRenameSessions = patch.autoRenameSessions
     if (patch.showDiffSummaryAfterTurn !== undefined)
       this.showDiffSummaryAfterTurn = patch.showDiffSummaryAfterTurn
+    if (patch.collapseComposerWhenIdle !== undefined)
+      this.collapseComposerWhenIdle = patch.collapseComposerWhenIdle
     if (patch.fontFamily !== undefined) {
       this.fontFamily = patch.fontFamily
       applyFontFamily(this.fontFamily)
@@ -731,6 +739,7 @@ export class SettingsContext {
       rateLimitBehavior: this.rateLimitBehavior,
       autoRenameSessions: this.autoRenameSessions,
       showDiffSummaryAfterTurn: this.showDiffSummaryAfterTurn,
+      collapseComposerWhenIdle: this.collapseComposerWhenIdle,
       fontFamily: this.fontFamily,
       fontSize: this.fontSize,
       codeFontFamily: this.codeFontFamily,
@@ -848,6 +857,7 @@ export class SettingsContext {
         rateLimitBehavior: this.rateLimitBehavior,
         autoRenameSessions: this.autoRenameSessions,
         showDiffSummaryAfterTurn: this.showDiffSummaryAfterTurn,
+        collapseComposerWhenIdle: this.collapseComposerWhenIdle,
         fontFamily: this.fontFamily,
         fontSize: this.fontSize,
         zoomFactor: this.zoomFactor,

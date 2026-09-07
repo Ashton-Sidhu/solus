@@ -6,20 +6,21 @@
     X as XIcon,
   } from "@lucide/svelte";
   import { PAGE_ICON_BTN } from "../../../lib/page-chrome";
-  import type { NavPage } from "../../../lib/page-nav";
+  import { navPageSpec, type NavPage } from "../../../lib/page-nav";
   import { frameChrome } from "../../layout/frame-chrome.store.svelte";
   import PaneSwapButton from "../PaneSwapButton.svelte";
   import { syncLabel, type ListProjectOption } from "./list-page";
   import ListProjectSwitcher from "./ListProjectSwitcher.svelte";
-  import PageCrumbMenu from "./PageCrumbMenu.svelte";
 
   /**
    * Row one of every page head: `<project> / <page>`, then the controls that act
    * on the window rather than on the list.
    *
-   * Both crumb segments are menus. The line answers *where am I* and holds
-   * nothing that filters — narrowing lives on the row under it, so a control
-   * that does neither belongs in neither row.
+   * The project segment is a menu; the page segment is a plain title. Moving
+   * between pages is the session sidebar's job, and its shortcuts', so the crumb
+   * states where you are rather than offering a second way to leave. The line
+   * answers *where am I* and holds nothing that filters — narrowing lives on the
+   * row under it, so a control that does neither belongs in neither row.
    *
    * The utility controls land by meaning rather than in a strip: refresh is
    * fused with the timestamp it describes, and the window pair (open in split,
@@ -38,7 +39,7 @@
     onSelectAllProjects?: () => void;
     allProjectsLabel?: string;
     projectSwitchNote?: string;
-    /** Which page the second crumb stands on, and which row its menu marks. */
+    /** Which page the second crumb stands on, and where it takes its name from. */
     page: NavPage;
     /** Overrides the page's own name in the crumb. A page under two scopes
      *  passes the scope's own name ("Inbox"), so the crumb states which one is
@@ -60,7 +61,6 @@
     onMoveAcross?: () => void;
     isLeading?: boolean;
     onClose?: () => void;
-    pageSwitcherEnabled?: boolean;
   }
   let {
     projects,
@@ -82,7 +82,6 @@
     onMoveAcross,
     isLeading = true,
     onClose,
-    pageSwitcherEnabled = true,
   }: Props = $props();
 
   // The chip's label ages while the page sits open, so it needs a clock of its
@@ -98,8 +97,7 @@
   );
 
   const hasWindowActions = $derived(!!onMoveAcross || !!onClose);
-  let projectMenuOpen = $state(false);
-  let pageMenuOpen = $state(false);
+  const pageTitle = $derived(pageLabel ?? navPageSpec(page).label);
 </script>
 
 <!-- Full width by declaration: the row's own spacer is what pushes the window
@@ -151,8 +149,6 @@
           onSelectAll={onSelectAllProjects}
           allLabel={allProjectsLabel}
           footerNote={projectSwitchNote}
-          bind:menuOpen={projectMenuOpen}
-          onOpenMenu={() => (pageMenuOpen = false)}
         />
       </span>
       <span
@@ -160,13 +156,15 @@
         aria-hidden="true">/</span
       >
     {/if}
-    <PageCrumbMenu
-      {page}
-      label={pageLabel}
-      switchable={pageSwitcherEnabled}
-      bind:menuOpen={pageMenuOpen}
-      onOpenMenu={() => (projectMenuOpen = false)}
-    />
+    <!-- On a record the page name is no longer the second half of a crumb — the
+         project has moved to a chip at the far end, so this is the page's own
+         title and takes the title rung. -->
+    <h1
+      class="min-w-0 shrink truncate px-2.5 font-semibold tracking-[-0.013em] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:flex-1 @max-[30rem]/pane:px-1.5 @max-[30rem]/pane:text-[17px] @max-[30rem]/pane:tracking-[-0.014em]"
+      title={pageTitle}
+    >
+      {pageTitle}
+    </h1>
     {#if trailingCrumb}
       <span
         class="shrink-0 px-px text-[15px] text-muted-foreground opacity-30"

@@ -1,5 +1,6 @@
 import type { ReviewGuide } from '@solus/contracts/review'
 import { demoProjectFiles } from './project-files'
+import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import { DEMO_PROJECT, type DemoFixtures } from './types'
 
 const SESSION_ID = 'demo-session-complete'
@@ -44,7 +45,8 @@ export const devFixtures: DemoFixtures = {
     }],
   },
   persistedTabs: {
-    version: 1,
+    version: 2,
+    location: `/chat/${COMPLETED_SESSION_ID}`,
     activeTabId: COMPLETED_TAB_ID,
     tabOrder: [COMPLETED_TAB_ID, NEW_TAB_ID],
     tabs: [
@@ -70,6 +72,10 @@ export const devFixtures: DemoFixtures = {
         },
         permissionMode: 'auto',
         hasUnread: false,
+        titleCustom: false,
+        serverId: LOCAL_SERVER_ID,
+        taskServerId: LOCAL_SERVER_ID,
+        worktreeRequested: false,
       },
       {
         tabId: NEW_TAB_ID,
@@ -93,6 +99,10 @@ export const devFixtures: DemoFixtures = {
         },
         permissionMode: 'auto',
         hasUnread: false,
+        titleCustom: false,
+        serverId: LOCAL_SERVER_ID,
+        taskServerId: LOCAL_SERVER_ID,
+        worktreeRequested: false,
       },
     ],
   },

@@ -1,12 +1,7 @@
-// Relative (not @client-core) so bun's test runner can resolve it too.
 import { normalizeServerUrl, parsePairLink } from '@solus/client-core/pairing'
 import { z } from 'zod'
 import type { HostOperatingSystem } from '@solus/contracts/types'
 
-/**
- * The connect form takes one smart field: a full pairing link pairs directly,
- * anything else is treated as a server address that still needs its code.
- */
 export type ConnectInput =
   | { kind: 'link'; url: string; pairToken: string }
   | { kind: 'address'; url: string }
@@ -20,12 +15,6 @@ export function classifyConnectInput(raw: string): ConnectInput {
   return { kind: 'address', url: normalizeServerUrl(trimmed) }
 }
 
-/**
- * A pairing QR encodes `http://host:port/pair#token=…`. Opening it in a browser
- * lands on the server's own SPA at `/pair`, so the token in the fragment is the
- * whole handshake — scan, open, paired. `base` is where the client is mounted:
- * `/` on a host, `/app/` on the account origin.
- */
 export function pairTokenFromLocation(href: string, base = '/'): string | null {
   try {
     const url = new URL(href)

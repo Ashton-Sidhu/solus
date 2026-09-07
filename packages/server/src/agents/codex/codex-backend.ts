@@ -163,7 +163,6 @@ type CodexRunHandle = RunHandle & {
   cwd: string
   userMessagePreview: string
   baseChangedFiles: Set<string>
-  turnDiffFiles: Set<string>
   trackedFiles: Set<string>
   toolDispatcher: CodexToolDispatcher
   persistent: boolean
@@ -289,7 +288,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       cwd: resolveHomePath(request.cwd),
       userMessagePreview: request.prompt.slice(0, 80),
       baseChangedFiles: new Set(sessionState?.changedFiles ?? []),
-      turnDiffFiles: new Set(),
       trackedFiles: new Set(sessionState?.changedFiles ?? []),
       toolDispatcher,
       persistent: request.persistence === 'session',
@@ -935,16 +933,11 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   private updateTrackedFilesFromTurnDiff<T>(handle: CodexRunHandle, diff: T): string[] {
-    handle.turnDiffFiles.clear()
-    for (const filePath of extractCodexChangedFilePaths(diff)) {
-      handle.turnDiffFiles.add(filePath)
-    }
-
     handle.trackedFiles.clear()
     for (const filePath of handle.baseChangedFiles) {
       handle.trackedFiles.add(filePath)
     }
-    for (const filePath of handle.turnDiffFiles) {
+    for (const filePath of extractCodexChangedFilePaths(diff)) {
       handle.trackedFiles.add(filePath)
     }
     return [...handle.trackedFiles]
@@ -1128,9 +1121,6 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         partial,
         userMessagePreview: handle.userMessagePreview,
         sessionChangedFiles: [...handle.trackedFiles],
-        turnChangedFiles: handle.turnDiffFiles.size > 0
-          ? [...handle.turnDiffFiles]
-          : [...handle.trackedFiles],
       })
       return result?.sessionChangedFiles ?? null
     } catch (e) {

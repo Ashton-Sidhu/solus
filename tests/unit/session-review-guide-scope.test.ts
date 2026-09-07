@@ -233,7 +233,6 @@ describe('session review guide scope', () => {
     writeFileSync(join(cwd, 'unrelated.txt'), 'base\nunrelated edit\n')
     await snapshotTurn(cwd, cwd, sessionId, {
       sessionChangedFiles: ['session.txt'],
-      turnChangedFiles: ['session.txt'],
     })
 
     const dispatcher = new CapturingDispatcher()
@@ -270,7 +269,6 @@ describe('session review guide scope', () => {
     writeFileSync(join(cwd, 'session.txt'), 'base\nfirst edit\n')
     await snapshotTurn(cwd, cwd, sessionId, {
       sessionChangedFiles: ['session.txt'],
-      turnChangedFiles: ['session.txt'],
     })
 
     const dispatcher = new BlockingDispatcher()
@@ -287,7 +285,6 @@ describe('session review guide scope', () => {
     writeFileSync(join(cwd, 'session.txt'), 'base\nfirst edit\nsecond edit\n')
     await snapshotTurn(cwd, cwd, sessionId, {
       sessionChangedFiles: ['session.txt'],
-      turnChangedFiles: ['session.txt'],
     })
 
     expect(await cancelGenerateGuide(ctx, { target: { kind: 'session' } })).toBe(true)

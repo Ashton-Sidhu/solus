@@ -924,6 +924,11 @@ export interface BrowserCookieSource {
   /** Set when the store was found but cannot be read here, naming what the user
    *  would have to change. Listed rather than hidden. */
   unavailable?: string
+  /** Set with `unavailable` when the host can take the user to the operating
+   *  system setting that grants access, through `browserRequestCookieAccess`.
+   *  macOS cannot prompt for Full Disk Access, so opening the pane is the most a
+   *  program can do; the sentence says what to do once there. */
+  canRequestAccess?: boolean
   /** Set when importing will make the operating system ask the user for
    *  something, so the consent surface can say so before the dialog appears. */
   unlockPrompt?: string

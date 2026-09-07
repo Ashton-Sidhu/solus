@@ -99,9 +99,8 @@ function profileNames(root: string): Map<string, string> {
 /** Why this platform cannot produce a key, when it cannot. */
 function platformBlock(): string | null {
   if (process.platform !== 'win32') return null
-  return 'Chrome on Windows seals its cookie key with DPAPI and app-bound encryption, which '
-    + 'deliberately refuses other applications. Import from Firefox instead, or sign in inside '
-    + 'the Solus browser profile.'
+  // DPAPI plus app-bound encryption, which refuses other applications (ADR 0026).
+  return 'Chrome on Windows does not share its cookie key. Use Firefox, or sign in inside Solus.'
 }
 
 export function chromiumProfiles(): CookieSourceDirectory[] {
@@ -134,8 +133,7 @@ export function chromiumProfiles(): CookieSourceDirectory[] {
       }
       if (blocked) directory.unavailable = blocked
       else if (process.platform === 'darwin') {
-        directory.unlockPrompt =
-          'macOS will ask once for permission to read Chrome’s key from your keychain.'
+        directory.unlockPrompt = 'macOS will ask for your keychain password once.'
       }
       try {
         directory.lastUsedAt = statSync(path).mtimeMs
@@ -169,10 +167,7 @@ export async function chromiumCookieKey(): Promise<Buffer> {
     } catch {
       // Deliberately not carrying the tool's own message: it is the one place a
       // secret could reach a log through an error string.
-      throw new Error(
-        'macOS did not give Solus the Chrome keychain item. Allow it when the system asks, or '
-        + 'import from Firefox instead.',
-      )
+      throw new Error('macOS did not allow access to Chrome’s keychain item. Try again and choose Allow.')
     }
     if (!password) throw new Error('The Chrome keychain item is empty on this host.')
     return pbkdf2Sync(password, KEY_SALT, MACOS_ITERATIONS, KEY_LENGTH, 'sha1')

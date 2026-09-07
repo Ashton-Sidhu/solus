@@ -208,6 +208,43 @@ describe('session sidebar subtask rows', () => {
     ])
   })
 
+  test('each attempt under a subtask carries its own name', () => {
+    // WHY: a subtask holds as many sessions as it took attempts. Naming every
+    // one of those rows after the subtask drew four identical rows for four
+    // conversations, and renaming one of them appeared to rename all four —
+    // the typed name went onto the session while the row read its task.
+    const root = task('root', 'Ship the release')
+    const subtask = task('child', 'Verify the release', root.id)
+    const store = sidebarStore()
+    store.session = {
+      tasksStore: {
+        tasks: [root, subtask],
+        byParent: new Map([[root.id, [subtask]]]),
+        get: (taskId: string) => ({
+          serverId: 'workshop',
+          sessions: taskId === subtask.id
+            ? [
+                { taskId: subtask.id, sessionId: 'named', sessionTitle: 'lady', provider: 'claude', startedAt: 1, lastActivityAt: 1, executionServerId: null, linkedAt: 1 },
+                // Nothing has named this one, so the subtask still speaks for it.
+                { taskId: subtask.id, sessionId: 'unnamed', sessionTitle: null, provider: 'claude', startedAt: 2, lastActivityAt: 2, executionServerId: null, linkedAt: 2 },
+              ]
+            : [],
+        }),
+      },
+    }
+    store.visibleTabIds = []
+    store.pendingTabByTaskId = new Map()
+    store.dismissedRowKeys = new Set()
+    store.tabIdBySessionId = new Map()
+    store.sessionsByTaskId = new Map()
+
+    const rows = store.sessionsFor({ id: root.id, taskId: root.id, tabIds: [] } as unknown as SidebarTask)
+    expect(rows.map((row) => [row.sessionId, row.label])).toEqual([
+      ['named', 'lady'],
+      ['unnamed', 'Verify the release'],
+    ])
+  })
+
   test('a restored tab with no hydrated messages keeps the durable activity time', () => {
     // WHY: restored tabs mount before their transcript arrives. Treating that
     // empty shell as the session's last activity produces "58y ago".

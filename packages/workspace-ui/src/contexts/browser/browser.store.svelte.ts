@@ -359,6 +359,12 @@ export class BrowserStore {
     return serverConnections.apiFor(serverId).browserListCookieSources()
   }
 
+  /** Open, on the host, the operating-system setting that grants access to a
+   *  blocked source. The host chooses where; the client names only the source. */
+  requestCookieAccess(serverId: string, sourceId: string): Promise<void> {
+    return serverConnections.apiFor(serverId).browserRequestCookieAccess(sourceId)
+  }
+
   importCookies(serverId: string, request: BrowserCookieImportRequest): Promise<BrowserCookieImportResult> {
     return serverConnections.apiFor(serverId).browserImportCookies(request)
   }

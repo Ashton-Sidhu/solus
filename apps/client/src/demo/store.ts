@@ -19,6 +19,7 @@ import type {
   WriteFileResult,
 } from '@solus/contracts/types'
 import type { DraftReview, PrConversationItem, ReviewComment, ReviewThread } from '@solus/contracts/providers'
+import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '@solus/contracts/review'
 import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '@solus/contracts/task-types'
 import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '@solus/contracts/git-types'
@@ -123,13 +124,21 @@ export class DemoStore {
     const matches = this.fixtures.sessions
       .filter(({ meta }) => !request.projectPath || meta.cwd === request.projectPath || meta.projectPath === request.projectPath)
       .filter(({ meta }) => !query || `${meta.firstMessage ?? ''} ${meta.slug ?? ''}`.toLowerCase().includes(query))
-      .map(({ meta }) => ({
-        session: meta,
-        snippet: meta.firstMessage ?? meta.slug ?? meta.sessionId,
-        ts: Date.parse(meta.lastTimestamp),
-        // The demo matches on the opening message, so that is the hit.
-        messageId: 0,
-      }))
+      .map(({ meta }) => {
+        const text = meta.firstMessage ?? meta.slug ?? meta.sessionId
+        const at = query ? text.toLowerCase().indexOf(query) : -1
+        return {
+          session: meta,
+          // Marked the way the index marks its snippets, so the row shows the hit.
+          snippet: at < 0
+            ? text
+            : `${text.slice(0, at)}${SNIPPET_HIT_OPEN}${text.slice(at, at + query.length)}${SNIPPET_HIT_CLOSE}${text.slice(at + query.length)}`,
+          ts: Date.parse(meta.lastTimestamp),
+          // The demo matches on the opening message, so that is the hit.
+          messageId: 0,
+          rank: 0,
+        }
+      })
     return request.limit === undefined ? matches : matches.slice(0, request.limit)
   }
 
@@ -421,7 +430,6 @@ export class DemoStore {
       baseSha: pr?.baseSha ?? detail.baseSha,
       headSha: pr?.headSha ?? detail.headSha,
       repoRoot: DEMO_PROJECT,
-      prUrl: detail.url,
     }
   }
 
@@ -550,6 +558,8 @@ export class DemoStore {
         sessionId,
         sessionTitle: this.getSessionInfo(sessionId)?.firstMessage ?? null,
         provider: this.getSessionInfo(sessionId)?.provider ?? null,
+        model: null,
+        startedAt: null,
         lastActivityAt: null,
         linkedAt: this.nextTimestamp(),
       })

@@ -11,6 +11,7 @@ import {
 import {
   fanOutPushHosts,
   planPushReconciliation,
+  PushReconciler,
   pushHostRefs,
   type PushHostRef,
 } from './web-push-core'
@@ -26,7 +27,8 @@ class WebPushState {
 
   private initialized = false
   private enabled: boolean | null = null
-  private reconcileEpoch = 0
+  private readonly reconciler = new PushReconciler(() => this.reconcileHosts())
+  private readonly removedHosts = new Map<string, Promise<void>>()
   private activeOperations = 0
   private shellRegistration: ServiceWorkerRegistration | null = null
   private registrations = new Map<string, ServiceWorkerRegistration>()
@@ -41,13 +43,21 @@ class WebPushState {
       this.supported = false
     })
     serverConnections.onStatusChange((_serverId, status) => {
-      if (status === 'connected') void this.reconcile()
+      if (status === 'connected') this.scheduleReconcile()
     })
-    onServerSaved(() => void this.reconcile())
-    onServerRemoving((server) => void this.reconcile(server.id))
+    onServerSaved((server) => {
+      this.removedHosts.delete(server.id)
+      this.scheduleReconcile()
+    })
+    onServerRemoving((server) => {
+      // Start before the registry removes the host's credentials.
+      this.removedHosts.set(server.id, this.unsubscribeFromServer(server.id))
+      this.scheduleReconcile()
+    })
   }
 
   async syncEnabled(enabled: boolean): Promise<void> {
+    if (this.enabled === enabled) return
     this.enabled = enabled
     await this.reconcile()
   }
@@ -93,6 +103,7 @@ class WebPushState {
   }
 
   async toggle(): Promise<void> {
+    if (this.busy) return
     if (this.subscribed) {
       this.enabled = false
       await this.reconcile()
@@ -122,7 +133,7 @@ class WebPushState {
     }
     subscription ??= await registration.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: base64UrlToUint8Array(publicKey),
+      applicationServerKey: new Uint8Array(base64UrlToUint8Array(publicKey)),
     })
     const serialized = subscription.toJSON()
     if (!serialized.endpoint || !serialized.keys?.auth || !serialized.keys?.p256dh) {
@@ -148,36 +159,39 @@ class WebPushState {
     return pushHostRefs(loadServers(), bootHost)
   }
 
-  private async reconcile(removingServerId?: string): Promise<void> {
-    if (!this.supported || (this.enabled === null && !removingServerId)) return
-    const removalUnsubscribe = removingServerId
-      ? this.unsubscribeFromServer(removingServerId)
-      : null
-    const epoch = ++this.reconcileEpoch
+  private scheduleReconcile(): void {
+    void this.reconcile().catch((error) => {
+      console.warn('[solus:web-push] reconciliation failed', error)
+    })
+  }
+
+  private reconcile(): Promise<void> {
+    if (!this.supported || (this.enabled === null && this.removedHosts.size === 0)) return Promise.resolve()
+    return this.reconciler.request()
+  }
+
+  private async reconcileHosts(): Promise<void> {
     this.beginOperation()
     try {
-      const hosts = this.hosts()
+      const hosts = this.hosts().filter((host) => !this.removedHosts.has(host.serverId))
       const registrations = await this.hostRegistrations()
       const knownServerIds = new Set([
         ...hosts.map((host) => host.serverId),
         ...registrations.keys(),
+        ...this.removedHosts.keys(),
       ])
       const plan = planPushReconciliation(
         hosts,
         knownServerIds,
         this.enabled === true && Notification.permission === 'granted',
-        removingServerId,
       )
       await Promise.all([
         fanOutPushHosts(plan.subscribe, (host) => this.subscribeHost(host)),
         Promise.allSettled(plan.unsubscribe.map((serverId) => this.unsubscribeHost(
           serverId,
-          serverId === removingServerId && removalUnsubscribe
-            ? removalUnsubscribe
-            : undefined,
+          this.removedHosts.get(serverId),
         ))),
       ])
-      if (epoch !== this.reconcileEpoch) return
       this.permission = Notification.permission
       this.subscribed = (await Promise.all(plan.subscribe.map(async (host) => {
         const registration = await this.findHostRegistration(host.serverId)

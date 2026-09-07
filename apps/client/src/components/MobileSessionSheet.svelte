@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount, untrack } from "svelte";
   import {
     Check as CheckIcon,
     Minus as MinusIcon,
@@ -17,7 +18,7 @@
   import { buildAgentAvailabilityRows } from "@solus/workspace-ui/lib/agentAvailability";
   import { providerUsage } from "@solus/workspace-ui/components/project-panel/lib/usage-meters";
   import { requestInputFocus } from "@solus/workspace-ui/lib/inputFocus";
-  import { REASONING_EFFORT_LABELS } from "@solus/contracts/types";
+  import { type AgentId, REASONING_EFFORT_LABELS } from "@solus/contracts/types";
   import { portal } from "@solus/workspace-ui/components/portal";
   import { registerBackOverlay } from "../lib/back-stack.svelte";
   import MobileSheet from "./MobileSheet.svelte";
@@ -123,7 +124,7 @@
 
   // The agent decides which models exist, so the sheet stays open on a switch:
   // the list under this control is the next thing you were going to read.
-  function selectAgent(agentId: string) {
+  function selectAgent(agentId: AgentId) {
     session.switchActiveAgent(agentId, composerSourceId);
   }
 
@@ -131,7 +132,7 @@
     session.setPermissionMode(mode, composerSourceId);
   }
 
-  $effect(() => {
+  onMount(() => {
     const handler = () => {
       if (isBusy || models.length === 0 || triggerEl?.offsetParent === null) return;
       open = true;
@@ -145,7 +146,7 @@
   $effect(() => {
     if (!open) return;
     usageReadAt = Date.now();
-    void agent.refreshUsage();
+    untrack(() => void agent.refreshUsage());
   });
 
   // The filter is only worth its 44px once the list is long enough to scroll.
@@ -179,14 +180,6 @@
      would otherwise make the sheet's `position: fixed` resolve against the dock
      and render inside the pill instead of from the screen bottom. -->
 <div use:portal={document.body} data-solus-ui>
-  <!--
-    Everything the next turn runs on, in one sheet: the agent, its model, how
-    hard it thinks, and what it may do unasked. These were a Model button that
-    opened a list and a Session tab in the `+` sheet that held the other three —
-    so the model you were choosing and the effort it would run at were two
-    surfaces apart, and the tab reached them through a row that closed one sheet
-    to open another. One thing to open, nothing nested inside it.
-  -->
   <MobileSheet {open} onClose={close} title="Session">
     {#if agentRows.length > 1}
       <div class="flex flex-col gap-2 px-4 pb-3.5">

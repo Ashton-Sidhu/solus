@@ -11,7 +11,6 @@
   import GoalSection from "@solus/workspace-ui/components/project-panel/GoalSection.svelte";
   import {
     getWorkspaceContext,
-    getPlanStore,
     getPullRequestsContext,
     getSessionSidebarStore,
     runtime,
@@ -67,7 +66,6 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const planStore = getPlanStore();
   const sidebar = getSessionSidebarStore();
   const pullRequests = getPullRequestsContext();
 
@@ -101,13 +99,9 @@
   // until the session starts — the same lifetime it has on desktop.
   const sessionStarted = $derived(!mobileDraft && hasSessionStarted(sess));
 
-  // ── The header's second line: `project / T-590 · running 00:42`.
-  // One mono band replaces the two chip rows the navbar used to stack, and the
-  // whole 56px band opens the task sheet where project, host, branch and the
-  // runs inside the task are editable.
   const projectLabel = $derived(
     projectDirLabel(
-      activeRun?.gitContext?.projectRoot ?? activeRun?.workingDirectory ?? "~",
+      activeRun?.gitContext?.repoRoot ?? activeRun?.workingDirectory ?? "~",
       session.staticInfo?.workspacePath,
     ),
   );
@@ -119,10 +113,6 @@
       .filter(Boolean)
       .join(" / "),
   );
-  // The same status mark every other surface draws, from the same table, so a
-  // phone and a 1440px window never disagree about what a session is doing.
-  // `getStatusIcon` answers null for idle, which is exactly when the band has
-  // nothing to report.
   const stateIcon = $derived(
     sess && hasSessionStarted(sess) ? getStatusIcon(sess.status) : null,
   );
@@ -137,25 +127,15 @@
   );
   let now = $state(Date.now());
   $effect(() => {
-    if (!runStartedAt) return;
+    if (!runtime.isMobileViewport || !runStartedAt) return;
     return liveActivityClock.subscribe((value) => {
       now = value;
     });
   });
   const elapsed = $derived(runStartedAt ? formatElapsed(now - runStartedAt) : "");
 
-  // A page route brings its own header — a title, a scope chip and the control
-  // that opens this drawer — so the session navbar and the composer both stand
-  // down while one is on screen. Asking the registry rather than naming routes
-  // keeps this from going stale the moment a sixth destination is added: the
-  // alternative is a page rendering under a navbar that names a session it has
-  // nothing to do with.
   const onPageRoute = $derived(isPageRoute(visibleRef(session.router.leadingPane)));
 
-  // ── The section signals ──
-  // The same two numbers the home cards state ("1 running", "3 need you") and
-  // the drawer's section row carries. Read once here so the cards, the rows and
-  // the dot on the drawer control can never disagree about what is happening.
   const sectionSignals: MobileSectionSignals = $derived({
     runningTasks: sidebar.allTasks.filter((task) => task.status === "running").length,
     prsNeedingReview: pullRequests.needsReview.countFor(
@@ -180,10 +160,6 @@
   registerBackOverlay("mobile-plus-menu", () => mobileComposerMenu.open, () => (mobileComposerMenu.open = false));
   registerBackOverlay("mobile-server-sheet", () => serverSheetOpen, () => (serverSheetOpen = false));
 
-  // A page route hides the navbar that normally holds the drawer control, so
-  // the page's own header draws it instead. Published rather than imported by
-  // the header: the desktop frame has a session sidebar where this drawer would
-  // be, and a control it cannot open must not appear there at all.
   $effect(() => {
     frameChrome.openNavigationDrawer = () => (sidebarDrawerOpen = true);
     return () => {
@@ -198,7 +174,7 @@
   const kbHeight = $derived(virtualKeyboard.keyboardHeight);
 
   $effect(() => {
-    if (virtualKeyboard.isKeyboardVisible) {
+    if (runtime.isMobileViewport && virtualKeyboard.isKeyboardVisible) {
       window.dispatchEvent(
         new CustomEvent("solus:scroll-conversation-bottom", {
           detail: { tabId: session.activeTabId },

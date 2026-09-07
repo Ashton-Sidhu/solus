@@ -135,10 +135,13 @@ describe('the unified picker on a phone', () => {
     expect(picker).toMatch(/requestAnimationFrame\(\(\) => \{\s*suppressNextClick = false;/)
   })
 
-  test('the collapsed middle says when the reply it introduces landed', () => {
-    // WHY: the peek shows two messages out of many, so the divider is the only
-    // place that can date the reply below it. Without the time, a two-message
-    // sheet reads as a live conversation whatever its age.
-    expect(preview).toContain('{timeAgo ? ` ${timeAgo}` : ""}')
+  test('the sheet header dates the session it shows', () => {
+    // WHY: the peek shows two or three messages out of many, under plain rules
+    // that say nothing. Without the age in the header, a short sheet reads as
+    // a live conversation whatever its age. Every session kind carries it.
+    const sizeSnippet = peek.slice(peek.indexOf('{#snippet transcriptSize()}'), peek.indexOf('{/snippet}', peek.indexOf('{#snippet transcriptSize()}')))
+    expect(sizeSnippet).toContain('{timeAgo}')
+    expect(peek.match(/\{@render transcriptSize\(\)\}/g)).toHaveLength(2)
+    expect(preview).not.toContain('timeAgo ? `')
   })
 })

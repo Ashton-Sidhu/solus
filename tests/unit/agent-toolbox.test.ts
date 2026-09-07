@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
+import { SOLUS_AGENT_TOOL_NAMES } from '@solus/contracts/agent-tools'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -15,8 +16,7 @@ describe('Solus toolbox', () => {
     const names = tools.map((tool) => tool.name)
 
     expect(names).toEqual([
-      'list_works',
-      'search_works',
+      'find_works',
       'read_work',
       'create_work',
       'update_work',
@@ -26,18 +26,17 @@ describe('Solus toolbox', () => {
       'resolve_comment',
       'publish_work',
       'pull_work_upstream',
-      'search_docs',
-      'read_doc',
-      'create_doc',
-      'update_doc',
-      'import_doc',
+      'search_external_doc',
+      'read_external_doc',
+      'create_external_doc',
+      'update_external_doc',
+      'import_external_doc',
       'render_artifact',
       'create_automation',
       'list_automations',
       'read_automation',
       'update_automation',
       'delete_automation',
-      'set_automation_enabled',
       'run_automation',
       'list_automation_runs',
       'read_automation_run',
@@ -57,9 +56,8 @@ describe('Solus toolbox', () => {
       'browser_evaluate',
       'browser_wait_for',
       'list_agent_targets',
-      'list_sessions',
+      'find_sessions',
       'read_session',
-      'search_sessions',
       'create_session',
       'prompt_session',
       'wait_for_session',
@@ -71,18 +69,36 @@ describe('Solus toolbox', () => {
       'update_task_status',
       'create_task',
       'comment_task',
-      'link_task_session',
       'link_task',
-      'list_prs',
-      'read_pr',
-      'list_pr_threads',
-      'reply_pr_thread',
-      'resolve_pr_thread',
-      'submit_pr_review',
       'read_config',
       'update_config',
     ])
     expect(new Set(names).size).toBe(names.length)
+  })
+
+  test('every toolbox name is one the clients know', () => {
+    // WHY: a client decides from the name alone whether a tool call is Solus's
+    // own — which card to draw, which label to print. The renderer used to keep
+    // its own copy of this list; it drifted, and calls to real tools rendered as
+    // raw provider names. Adding a tool without naming it in the contract puts
+    // that bug back, so this fails instead.
+    const names = Object.values(solusToolbox).flatMap((group) => Object.values(group)).map((tool) => tool.name)
+    const declared = new Set<string>(SOLUS_AGENT_TOOL_NAMES)
+
+    expect(names.filter((name) => !declared.has(name))).toEqual([])
+  })
+
+  test('the contract names no tool that has ceased to exist', () => {
+    // The other direction of the same drift: three goal tools outlived their
+    // implementation in the renderer's copy for as long as nothing checked.
+    const inToolbox = new Set(
+      Object.values(solusToolbox).flatMap((group) => Object.values(group)).map((tool) => tool.name),
+    )
+    // Given to one purpose-built run rather than the toolbox, and legitimately
+    // absent from it.
+    const runScoped = new Set(['submit_review_guide', 'claude_subagent', 'codex_subagent'])
+
+    expect(SOLUS_AGENT_TOOL_NAMES.filter((name) => !inToolbox.has(name) && !runScoped.has(name))).toEqual([])
   })
 
   test('keeps approval policy on the neutral definition', () => {

@@ -74,7 +74,7 @@ describe('the record page head', () => {
   })
 
   it('gives the page name the title rung instead of a crumb segment', () => {
-    expect(source('PageCrumbMenu.svelte')).toContain(`${RECORD}:text-[17px]`)
+    expect(crumbLine).toContain(`${RECORD}:text-[17px]`)
   })
 })
 

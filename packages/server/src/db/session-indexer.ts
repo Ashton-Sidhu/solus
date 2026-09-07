@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, relative } from 'node:path'
 import { z } from 'zod'
 import type { SessionLoadMessage, SessionMessageWindow } from '@solus/contracts/session-history'
+import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import type { AgentId, ReasoningEffort, SessionMeta, SessionSearchResult } from '@solus/contracts/types'
 import {
   encodePathAsFolder,
@@ -88,6 +89,7 @@ const searchResultRowSchema = sessionRowSchema.extend({
   snippet: z.string(),
   hit_ts: z.number().nullable(),
   message_id: z.number(),
+  rank: z.number(),
 })
 const indexedMessageRowSchema = z.object({
   id: z.number(),
@@ -996,7 +998,10 @@ export function searchIndexedSessions(
   const roleFilter = filters.role ? 'AND session_messages.role = ?' : ''
   const sinceFilter = filters.sinceTs !== undefined ? 'AND session_messages.ts >= ?' : ''
   const untilFilter = filters.untilTs !== undefined ? 'AND session_messages.ts <= ?' : ''
-  const params: Array<string | number> = [ftsQuery]
+  // The snippet marks each matched token so a client can show the hit without
+  // re-matching stemmed words by spelling. The markers bind before MATCH: the
+  // select list is evaluated first, so they are the first two placeholders.
+  const params: Array<string | number> = [SNIPPET_HIT_OPEN, SNIPPET_HIT_CLOSE, ftsQuery]
   if (filters.projectRoot) params.push(filters.projectRoot)
   if (providers?.length) params.push(...providers)
   if (filters.role) params.push(filters.role)
@@ -1025,7 +1030,7 @@ export function searchIndexedSessions(
         s.delegation_depth,
         s.delegation_intent,
         s.delegation_created_at,
-        snippet(session_fts, 0, '', '', '…', 64) AS snippet,
+        snippet(session_fts, 0, ?, ?, '…', 64) AS snippet,
         session_messages.id AS message_id,
         session_messages.ts AS hit_ts,
         bm25(session_fts) AS rank
@@ -1057,6 +1062,7 @@ export function searchIndexedSessions(
     snippet: row.snippet,
     ts: row.hit_ts ?? 0,
     messageId: row.message_id,
+    rank: row.rank,
   }))
 }
 

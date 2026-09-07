@@ -175,9 +175,6 @@ export interface SnapshotOpts {
    *  instead of the full working tree — prevents cross-session leakage when
    *  multiple sessions share the same branch. */
   sessionChangedFiles?: string[]
-  /** Files modified during this turn. This keeps the turn range narrower than
-   *  the cumulative session path set. */
-  turnChangedFiles?: string[]
 }
 
 export interface SnapshotTurnResult {
@@ -196,16 +193,22 @@ export async function prepareTurnSnapshot(
   return inSnapshotQueue(repoRoot, async () => {
     const sidecar = readSidecar(repoRoot, sessionId)
     if (!sidecar) return
-    const headSha = await runAsync('git', ['rev-parse', 'HEAD'], workTree)
-    const dirtyPaths = await listLiveChangedPaths(workTree)
-    sidecar.pendingTurnTreeSha = await writeTreeForPaths(
-      workTree,
-      repoRoot,
-      headSha,
-      dirtyPaths,
-    )
+    sidecar.pendingTurnTreeSha = await snapshotLiveTree(workTree, repoRoot)
     writeSidecar(repoRoot, sessionId, sidecar)
   })
+}
+
+/**
+ * The whole live worktree as a Git tree: `HEAD` plus every dirty and untracked
+ * path. Both ends of a turn range are built this way, and that symmetry is the
+ * point — a tree built from a narrower path list can only report the changes
+ * that list already knew about, so a deletion through the shell, a subagent's
+ * write, or a revert back to `HEAD` diffs to nothing against its own start.
+ */
+async function snapshotLiveTree(workTree: string, repoRoot: string): Promise<string> {
+  const headSha = await runAsync('git', ['rev-parse', 'HEAD'], workTree)
+  const dirtyPaths = await listLiveChangedPaths(workTree)
+  return writeTreeForPaths(workTree, repoRoot, headSha, dirtyPaths)
 }
 
 export async function snapshotTurn(
@@ -255,12 +258,7 @@ async function snapshotTurnQueued(
 
     const treeSha = await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
     const turnFrom = sidecar.pendingTurnTreeSha
-    const turnTo = await writeTreeForPaths(
-      workTree,
-      repoRoot,
-      turnFrom,
-      opts.turnChangedFiles ?? opts.sessionChangedFiles ?? [],
-    )
+    const turnTo = await snapshotLiveTree(workTree, repoRoot)
     const turnStats = await diffStats(repoRoot, turnFrom, turnTo)
     await Promise.all([
       runAsync('git', ['update-ref', refForTurnRange(sessionId, turnIndex, 'from'), turnFrom], repoRoot),

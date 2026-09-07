@@ -458,7 +458,7 @@
              so the ladder measures the composer and not the tab strip above it.
              Same ladder as Editor mode: a container query does not care why it
              got narrow. -->
-        <div class="@container/composer px-1.5 pb-1.5 pt-1">
+        <div class="@container/composer px-1.5 pb-1.5 pt-1" data-composer-surface>
           <!-- Addressed by what it composes for: a draft has no session and no
                tab, so both go unset and Send mints them instead. -->
           <InputBar

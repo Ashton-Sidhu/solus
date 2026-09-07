@@ -1,9 +1,15 @@
 <script lang="ts">
   import SvelteMarkdown, { type TextSnippetProps } from "@humanspeak/svelte-markdown";
   import { MessageCircle as ChatCircleIcon, ArrowRight as ArrowRightIcon } from "@lucide/svelte";
-  import type { PreviewExtraction } from "../../lib/sessionPreviewMessages";
+  import {
+    composePreviewParts,
+    type BoundedPreviewMessage,
+    type HitWindow,
+    type HitWindowMessage,
+    type PreviewExtraction,
+  } from "../../lib/sessionPreviewMessages";
   import type { AttentionState } from "../../lib/sessionUtils";
-  import { highlightRuns } from "../../lib/searchHighlight";
+  import { highlightWordRuns } from "../../lib/searchHighlight";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import CodeBlock from "../ui/CodeBlock.svelte";
   import CodeSpan from "../ui/CodeSpan.svelte";
@@ -22,38 +28,56 @@
 
   interface Props {
     preview: PreviewExtraction | null;
+    /** A search hit and its neighbours. The hit is shown between the
+     *  transcript's ends when the row was found by its words: the reader
+     *  searched for a passage, so the pane reads the opening prompt, the
+     *  passage, and the last reply. */
+    hitWindow?: HitWindow | null;
     loading: boolean;
     title?: string;
     byline?: string;
     timeAgo?: string | null;
-    hiddenCount?: number;
     /** The picker's live search term. The row only shows a truncated title, so
      *  a query can match deep in the first message with nothing marked in the
-     *  list — the preview is where that match becomes visible. */
+     *  list — the preview is where that match becomes visible. Every word is
+     *  marked on its own, the rule the list matched by. */
     query?: string;
     onContinue?: () => void;
     attention?: AttentionState;
   }
   let {
     preview,
+    hitWindow = null,
     loading,
     title = "",
     byline = "",
     timeAgo = null,
-    hiddenCount = 0,
     query = "",
     onContinue,
     attention,
   }: Props = $props();
 
-  const hasSession = $derived(!!preview || loading);
+  const hasSession = $derived(!!preview || !!hitWindow || loading);
 
-  const titleRuns = $derived(highlightRuns(title, query));
-  const bylineRuns = $derived(highlightRuns(byline, query));
+  const titleRuns = $derived(highlightWordRuns(title, query));
+  const bylineRuns = $derived(highlightWordRuns(byline, query));
+  const parts = $derived(composePreviewParts(preview, hitWindow));
+  const isEmpty = $derived(!parts.opening && !parts.hit && !parts.closing);
 </script>
 
+{#snippet wordMarked(text: string)}
+  {#each highlightWordRuns(text, query) as run, i (i)}{#if run.hit}<mark
+        class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
+        >{run.text}</mark
+      >{:else}{run.text}{/if}{/each}
+{/snippet}
+
+{#snippet divider()}
+  <div class="my-2 h-px w-full bg-[var(--solus-tx-rule)]" aria-hidden="true"></div>
+{/snippet}
+
 {#snippet highlightedMarkdownText({ text = "" }: TextSnippetProps)}
-  {#each highlightRuns(text, query) as run, i (i)}
+  {#each highlightWordRuns(text, query) as run, i (i)}
     {#if run.hit}
       <mark
         class="rounded-[0.1875rem] bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] px-px text-inherit"
@@ -63,6 +87,52 @@
       {run.text}
     {/if}
   {/each}
+{/snippet}
+
+<!-- The opening prompt, as the reader typed it. -->
+{#snippet openingPrompt(message: BoundedPreviewMessage)}
+  <div class="flex justify-end pb-1.5 pt-3">
+    <div
+      class="prose-transcript-user max-w-[88%] overflow-hidden break-words rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 py-2.5 text-(--solus-text-primary)"
+    >
+      <SvelteMarkdown
+        source={message.snippet}
+        renderers={markdownRenderers}
+        sanitizeUrl={markdownSanitizeUrl}
+        text={highlightedMarkdownText}
+      />
+    </div>
+  </div>
+{/snippet}
+
+<!-- The passage the words were found in, marked, in the voice that said it. -->
+{#snippet hitPassage(message: HitWindowMessage)}
+  {#if message.role === "user"}
+    <div class="flex justify-end pb-1.5 pt-1.5">
+      <div
+        class="max-w-[88%] overflow-hidden break-words rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 py-2.5 text-(--solus-text-primary) shadow-[inset_0_0_0_1px_color-mix(in_oklch,var(--primary)_35%,transparent)]"
+      >{@render wordMarked(message.passage)}</div>
+    </div>
+  {:else}
+    <div
+      class="w-full overflow-hidden break-words border-l-2 border-[color-mix(in_oklch,var(--primary)_45%,transparent)] py-2 pl-3 text-(--solus-text-primary)"
+    >{@render wordMarked(message.passage)}</div>
+  {/if}
+{/snippet}
+
+<!-- The last reply. -->
+{#snippet lastReply(message: BoundedPreviewMessage)}
+  <div class="w-full overflow-hidden whitespace-pre-wrap break-words py-2">
+    <div class="prose-cloud prose-reading prose-transcript min-w-0">
+      <SvelteMarkdown
+        source={message.snippet}
+        options={assistantMarkdownOptions}
+        renderers={markdownRenderers}
+        sanitizeUrl={markdownSanitizeUrl}
+        text={highlightedMarkdownText}
+      />
+    </div>
+  </div>
 {/snippet}
 
 <div class="text-workspace-chrome flex h-full min-w-0 flex-col">
@@ -107,7 +177,7 @@
     </div>
   {/if}
 
-  {#if !preview && !loading}
+  {#if !preview && !hitWindow && !loading}
     <div class="flex h-full flex-col items-center justify-center gap-2.5">
       <ChatCircleIcon size={26} class="text-(--solus-text-muted) opacity-35" />
       <span class="text-[var(--solus-text-tertiary)]"
@@ -124,45 +194,27 @@
       <Skeleton class="ml-auto h-8 w-[48%] rounded-2xl" />
     </div>
   {:else}
+    <!-- The opening prompt, then the passage the words were found in when the
+         row was found by them, then the last reply, each part under a rule.
+         The words are marked, so the eye lands on the reason this session is
+         listed. -->
     <div class="flex flex-1 flex-col overflow-y-auto px-[1.125rem] pb-4 pt-0.5">
-      {#if preview?.firstUserMessage}
-        <div class="flex justify-end pb-1.5 pt-3">
-          <div
-            class="prose-transcript-user max-w-[88%] overflow-hidden break-words rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 py-2.5 text-(--solus-text-primary)"
-          >
-            <SvelteMarkdown
-              source={preview.firstUserMessage.snippet}
-              renderers={markdownRenderers}
-              sanitizeUrl={markdownSanitizeUrl}
-              text={highlightedMarkdownText}
-            />
-          </div>
-        </div>
+      {#if parts.opening}
+        {@render openingPrompt(parts.opening)}
       {/if}
-
-      {#if preview?.lastAssistantMessage}
-        <div
-          class="my-2 flex items-center gap-2.5 before:h-px before:flex-1 before:bg-[var(--solus-tx-rule)] before:content-[''] after:h-px after:flex-1 after:bg-[var(--solus-tx-rule)] after:content-['']"
-        >
-          <span
-            class="whitespace-nowrap uppercase text-(--solus-text-tertiary)"
-            >{hiddenCount > 0
-              ? `+${hiddenCount} more · last reply`
-              : "last reply"}{timeAgo ? ` ${timeAgo}` : ""}</span
-          >
-        </div>
-        <div class="w-full overflow-hidden whitespace-pre-wrap break-words py-2">
-          <div class="prose-cloud prose-reading prose-transcript min-w-0">
-            <SvelteMarkdown
-              source={preview.lastAssistantMessage.snippet}
-              options={assistantMarkdownOptions}
-              renderers={markdownRenderers}
-              sanitizeUrl={markdownSanitizeUrl}
-              text={highlightedMarkdownText}
-            />
-          </div>
-        </div>
-      {:else if !preview?.firstUserMessage}
+      {#if parts.hit}
+        {#if parts.opening}
+          {@render divider()}
+        {/if}
+        {@render hitPassage(parts.hit)}
+      {/if}
+      {#if parts.closing}
+        {#if parts.opening || parts.hit}
+          {@render divider()}
+        {/if}
+        {@render lastReply(parts.closing)}
+      {/if}
+      {#if isEmpty}
         <div class="flex h-full flex-col items-center justify-center gap-2.5 pt-10">
           <span class="text-[var(--solus-text-tertiary)]"
             >No messages</span

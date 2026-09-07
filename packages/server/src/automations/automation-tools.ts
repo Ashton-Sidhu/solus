@@ -89,11 +89,6 @@ const updateAutomationFields = {
   trigger: triggerSchema.optional(),
 }
 
-const setEnabledFields = {
-  automation_id: z.string().describe('The id of the automation.'),
-  enabled: z.boolean().describe('true to resume, false to pause.'),
-}
-
 const readRunFields = {
   automation_id: z.string().describe('The id of the automation.'),
   run_id: z.string().describe('The id of the run (from list_automation_runs).'),
@@ -121,9 +116,8 @@ const CREATE_DESC =
 const LIST_DESC =
   'List all automations with their id, name, enabled state, and last run status. Call this to discover an automation_id.'
 const READ_DESC = 'Read the full definition of one automation by id.'
-const UPDATE_DESC = 'Update fields of an existing automation (any subset). Unspecified fields are left unchanged.'
+const UPDATE_DESC = 'Update fields of an existing automation (any subset). Unspecified fields are left unchanged. This is also how an automation is paused or resumed: pass `enabled` alone and nothing else changes.'
 const DELETE_DESC = 'Permanently delete an automation and its run history.'
-const SET_ENABLED_DESC = 'Pause or resume an automation without changing its other settings.'
 const RUN_DESC =
   'Trigger an automation to run now. Returns a run_id immediately; the run executes in the background. Poll read_automation_run with the run_id to get the result.'
 const LIST_RUNS_DESC = 'List the run history of an automation (newest first), with status and timing.'
@@ -392,20 +386,6 @@ export async function executeAutomationTool(
         : { ok: false, text: `No automation found with id "${id}".` }
     }
 
-    if (name === 'set_automation_enabled') {
-      const id = String(args.automation_id ?? '')
-      if (!id) return { ok: false, text: 'set_automation_enabled requires an automation_id.' }
-      if (args.enabled === undefined) return { ok: false, text: 'set_automation_enabled requires a boolean "enabled".' }
-      const updated = await updateAutomation(id, { enabled: args.enabled })
-      if (!updated) {
-        if (foreignAutomationLink(deps.ctx?.solusSessionId, id)) {
-          return { ok: false, text: foreignAutomationError('set_automation_enabled', id) }
-        }
-        return { ok: false, text: `No automation found with id "${id}".` }
-      }
-      return { ok: true, text: `Automation "${updated.name}" is now ${updated.enabled ? 'enabled' : 'paused'}.` }
-    }
-
     if (name === 'run_automation') {
       const id = String(args.automation_id ?? '')
       if (!id) return { ok: false, text: 'run_automation requires an automation_id.' }
@@ -483,7 +463,6 @@ export const listAutomationsAgentTool = automationAgentTool('list_automations', 
 export const readAutomationAgentTool = automationAgentTool('read_automation', READ_DESC, automationIdFields, false)
 export const updateAutomationAgentTool = automationAgentTool('update_automation', UPDATE_DESC, updateAutomationFields, true)
 export const deleteAutomationAgentTool = automationAgentTool('delete_automation', DELETE_DESC, automationIdFields, true)
-export const setAutomationEnabledAgentTool = automationAgentTool('set_automation_enabled', SET_ENABLED_DESC, setEnabledFields, true)
 export const runAutomationAgentTool = automationAgentTool('run_automation', RUN_DESC, automationIdFields, true)
 export const listAutomationRunsAgentTool = automationAgentTool('list_automation_runs', LIST_RUNS_DESC, automationIdFields, false)
 export const readAutomationRunAgentTool = automationAgentTool('read_automation_run', READ_RUN_DESC, readRunFields, false)
@@ -494,7 +473,6 @@ export const automationAgentTools: AgentTool[] = [
   readAutomationAgentTool,
   updateAutomationAgentTool,
   deleteAutomationAgentTool,
-  setAutomationEnabledAgentTool,
   runAutomationAgentTool,
   listAutomationRunsAgentTool,
   readAutomationRunAgentTool,

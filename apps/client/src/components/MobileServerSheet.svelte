@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import {
     Check as CheckIcon,
     Settings as GearIcon,
@@ -10,6 +11,7 @@
     discoveredServerUrl,
     getWorkspaceContext,
     hostStatusLabel,
+    hostStatusDotClass,
     serversStore,
   } from "@solus/workspace-ui/contexts";
   import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
@@ -26,14 +28,13 @@
   const session = getWorkspaceContext();
 
   $effect(() => {
-    if (open) void serversStore.probeHosts();
+    if (open) untrack(() => void serversStore.probeHosts());
   });
 
   const activeId = $derived(serversStore.activeServer?.id ?? null);
 
   function connect(serverId: string) {
     onClose();
-    // Same-server taps no-op inside switchTo; a real switch reloads into it.
     serversStore.switchTo(serverId);
   }
 
@@ -58,13 +59,7 @@
 
 {#snippet statusDot(status: "online" | "connecting" | "offline" | "saved" | "different-server")}
   <span
-    class="shrink-0 w-2 h-2 rounded-full {status === 'online'
-      ? 'bg-(--solus-status-complete)'
-      : status === 'connecting'
-        ? 'bg-(--solus-accent) animate-pulse'
-        : status === 'different-server'
-          ? 'bg-(--solus-status-error)'
-        : 'bg-(--solus-text-quaternary) opacity-60'}"
+    class="shrink-0 w-2 h-2 rounded-full {hostStatusDotClass(status)}"
     aria-label={hostStatusLabel(status)}
   ></span>
 {/snippet}

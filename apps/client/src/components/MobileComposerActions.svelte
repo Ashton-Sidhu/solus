@@ -14,13 +14,6 @@
   let { sourceId, changedFilesCount = 0 }: Props = $props();
 </script>
 
-<!--
-  The phone's composer controls, in the one arrangement they have anywhere on
-  the surface: a `+` that opens the Add-to-chat sheet, then the model — which
-  names the model and opens everything the next turn runs on. A draft composer
-  and a started session's dock render this same pair, so `+` means the sheet
-  everywhere and never the OS file picker.
--->
 <!-- The tap target grows the hit area to the 44px a thumb needs; the circle
      stays 36px so the pill does not turn into a row of buttons. -->
 <button

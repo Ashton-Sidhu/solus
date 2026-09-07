@@ -61,10 +61,6 @@ class BackStack {
 
 export const backStack = new BackStack()
 
-/**
- * Register an overlay with the back-stack. Call at the top level of a
- * component's <script>; while `isOpen()` is true, browser/OS back closes it.
- */
 export function registerBackOverlay(id: string, isOpen: () => boolean, close: () => void) {
   $effect(() => {
     if (!isOpen()) return

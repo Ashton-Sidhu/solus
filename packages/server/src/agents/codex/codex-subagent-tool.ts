@@ -65,7 +65,6 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
           ...Object.values(solusToolbox.browser),
           ...Object.values(solusToolbox.sessions),
           ...Object.values(solusToolbox.tasks),
-          ...Object.values(solusToolbox.prs),
         ],
         model,
         reasoningEffort: args.reasoning_effort,

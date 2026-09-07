@@ -1,6 +1,6 @@
 import { arg, optionalArg, textArg } from './args'
+import { DEFAULT_HOST_CONFIG, hostConfigPatchSchema, mergeHostConfig } from '@solus/contracts/host-config'
 import type {
-  AgentTaskLifecyclePolicy,
   HostCapabilities,
   RuntimeSessionInfo,
   ServerCapabilities,
@@ -11,7 +11,8 @@ import type { DemoStore } from '../store'
 
 export function registerBootHandlers(backend: DemoBackend, store: DemoStore): void {
   let sessionCounter = 0
-  let agentTaskLifecyclePolicy: AgentTaskLifecyclePolicy = 'moderate'
+  let config = structuredClone(DEFAULT_HOST_CONFIG)
+  let seeded = false
   backend.register('start', () => store.startInfo())
   backend.register('serverGetCapabilities', (): HostCapabilities => ({
     attachUpload: true,
@@ -34,14 +35,13 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     projectCount: 1,
     agentAuth: { claude: true },
     gitAuth: { github: false },
-    agentTaskLifecyclePolicy,
+    agentTaskLifecyclePolicy: config.agentTaskLifecyclePolicy,
   }))
-  backend.register('setAgentTaskLifecyclePolicy', (args) => {
-    const [policy] = args
-    if (policy === 'none' || policy === 'moderate' || policy === 'autonomous') {
-      agentTaskLifecyclePolicy = policy
-    }
-    return { agentTaskLifecyclePolicy }
+  backend.register('configGet', () => ({ config, seeded }))
+  backend.register('configUpdate', (args) => {
+    config = mergeHostConfig(config, hostConfigPatchSchema.parse(args[0]))
+    seeded = true
+    return { config, seeded }
   })
   backend.register('voiceModelStatus', (): VoiceModelStatus => ({
     state: 'error',
@@ -55,27 +55,29 @@ export function registerBootHandlers(backend: DemoBackend, store: DemoStore): vo
     remoteAccess: false,
     requireAuth: false,
   }))
+  const runtimeInfo = (preferredModel?: string | null): RuntimeSessionInfo => ({
+    modelConfig: {
+      modelId: preferredModel ?? store.startInfo().agents[0]?.defaultModel ?? null,
+      reasoningEffort: 'high',
+      contextWindow: 1_000_000,
+      fastMode: false,
+    },
+    permissionMode: 'auto',
+    status: 'idle',
+    rateLimitInfo: null,
+    queuedPrompts: [],
+  })
   backend.register('watchSession', (args) => {
-    const input = arg<{ sessionId?: string }>(args, 0)
-    return { sessionId: input?.sessionId ?? `demo-runtime-session-${++sessionCounter}` }
+    const input = arg<{ sessionId?: string; agentSessionId?: string; attachRuntime?: boolean }>(args, 0)
+    const sessionId = input?.sessionId ?? `demo-runtime-session-${++sessionCounter}`
+    if (!input?.attachRuntime || !input.agentSessionId) return { sessionId }
+    return { sessionId, runtime: runtimeInfo() }
   })
   backend.register('unwatchSession', () => undefined)
   backend.register('bindRuntimeSession', (args): RuntimeSessionInfo | null => {
     const ctx = optionalArg<{ session?: { agentSessionId?: string | null; preferredModel?: string | null } }>(args, 0)
     if (!ctx?.session?.agentSessionId) return null
-    const agent = store.startInfo().agents[0]
-    return {
-      modelConfig: {
-        modelId: ctx.session.preferredModel ?? agent?.defaultModel ?? null,
-        reasoningEffort: 'high',
-        contextWindow: 1_000_000,
-        fastMode: false,
-      },
-      permissionMode: 'auto',
-      status: 'idle',
-      rateLimitInfo: null,
-      queuedPrompts: [],
-    }
+    return runtimeInfo(ctx.session.preferredModel)
   })
   backend.register('listRecentProjects', () => [])
   backend.register('listProjects', () => [])

@@ -1,8 +1,7 @@
 import {
   createWorkAgentTool,
-  listWorksAgentTool,
+  findWorksAgentTool,
   readWorkAgentTool,
-  searchWorksAgentTool,
   updateWorkAgentTool,
 } from '../../folio/work-tools'
 import { renderArtifactAgentTool } from '../../folio/artifact-tools'
@@ -14,16 +13,14 @@ import {
   readAutomationAgentTool,
   readAutomationRunAgentTool,
   runAutomationAgentTool,
-  setAutomationEnabledAgentTool,
   updateAutomationAgentTool,
 } from '../../automations/automation-tools'
 import {
   createSessionAgentTool,
+  findSessionsAgentTool,
   listAgentTargetsAgentTool,
-  listSessionsAgentTool,
   promptSessionAgentTool,
   readSessionAgentTool,
-  searchSessionsAgentTool,
   stopSessionAgentTool,
   waitForSessionAgentTool,
 } from '../../sessions/session-tools'
@@ -38,27 +35,18 @@ import {
   commentTaskAgentTool,
   createTaskAgentTool,
   linkTaskAgentTool,
-  linkTaskSessionAgentTool,
   listTasksAgentTool,
   readTaskAgentTool,
   updateTaskStatusAgentTool,
 } from '../../tasks/task-tools'
 import {
-  listPrThreadsAgentTool,
-  listPrsAgentTool,
-  readPrAgentTool,
-  replyPrThreadAgentTool,
-  resolvePrThreadAgentTool,
-  submitPrReviewAgentTool,
-} from '../../providers/pr-tools'
-import {
-  createDocAgentTool,
-  importDocAgentTool,
+  createExternalDocAgentTool,
+  importExternalDocAgentTool,
   publishWorkAgentTool,
   pullWorkUpstreamAgentTool,
-  readDocAgentTool,
-  searchDocsAgentTool,
-  updateDocAgentTool,
+  readExternalDocAgentTool,
+  searchExternalDocAgentTool,
+  updateExternalDocAgentTool,
 } from '../../docs/doc-tools'
 import { connectionStatusAgentTool } from '../../connections/connection-tools'
 import { queryInsightsAgentTool } from '../../observability/insights-tools'
@@ -81,8 +69,7 @@ import { readConfigAgentTool, updateConfigAgentTool } from '../../server/config-
 
 export const solusToolbox = {
   works: {
-    list: listWorksAgentTool,
-    search: searchWorksAgentTool,
+    find: findWorksAgentTool,
     read: readWorkAgentTool,
     create: createWorkAgentTool,
     update: updateWorkAgentTool,
@@ -94,11 +81,11 @@ export const solusToolbox = {
     pullUpstream: pullWorkUpstreamAgentTool,
   },
   docs: {
-    search: searchDocsAgentTool,
-    read: readDocAgentTool,
-    create: createDocAgentTool,
-    update: updateDocAgentTool,
-    import: importDocAgentTool,
+    search: searchExternalDocAgentTool,
+    read: readExternalDocAgentTool,
+    create: createExternalDocAgentTool,
+    update: updateExternalDocAgentTool,
+    import: importExternalDocAgentTool,
   },
   artifact: {
     render: renderArtifactAgentTool,
@@ -109,7 +96,6 @@ export const solusToolbox = {
     read: readAutomationAgentTool,
     update: updateAutomationAgentTool,
     delete: deleteAutomationAgentTool,
-    setEnabled: setAutomationEnabledAgentTool,
     run: runAutomationAgentTool,
     listRuns: listAutomationRunsAgentTool,
     readRun: readAutomationRunAgentTool,
@@ -137,9 +123,8 @@ export const solusToolbox = {
   },
   sessions: {
     targets: listAgentTargetsAgentTool,
-    list: listSessionsAgentTool,
+    find: findSessionsAgentTool,
     read: readSessionAgentTool,
-    search: searchSessionsAgentTool,
     create: createSessionAgentTool,
     prompt: promptSessionAgentTool,
     wait: waitForSessionAgentTool,
@@ -153,16 +138,7 @@ export const solusToolbox = {
     updateStatus: updateTaskStatusAgentTool,
     create: createTaskAgentTool,
     comment: commentTaskAgentTool,
-    linkSession: linkTaskSessionAgentTool,
     link: linkTaskAgentTool,
-  },
-  prs: {
-    list: listPrsAgentTool,
-    read: readPrAgentTool,
-    listThreads: listPrThreadsAgentTool,
-    replyThread: replyPrThreadAgentTool,
-    resolveThread: resolvePrThreadAgentTool,
-    submitReview: submitPrReviewAgentTool,
   },
   config: {
     read: readConfigAgentTool,

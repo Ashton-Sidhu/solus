@@ -17,9 +17,12 @@ import { emptySkips, type CookieRead, type CookieSourceDirectory } from './cooki
  * file, so every read is bounds-checked: this is untrusted binary from disk.
  */
 
-const FULL_DISK_ACCESS_REASON =
-  'macOS is protecting Safari’s cookies. Give Solus Full Disk Access in System Settings → '
-  + 'Privacy & Security → Full Disk Access, then restart it.'
+/** macOS has no prompt for Full Disk Access: the user grants it in System
+ *  Settings, and this URL opens that pane. The sentence is what the row says
+ *  beside the button that opens it. */
+const FULL_DISK_ACCESS_REASON = 'Needs Full Disk Access.'
+export const FULL_DISK_ACCESS_SETTINGS_URL =
+  'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles'
 
 /** Apple's absolute time epoch, 2001-01-01, as a Unix timestamp. */
 const MAC_EPOCH_OFFSET_SECONDS = 978_307_200
@@ -85,7 +88,10 @@ export function safariProfiles(): CookieSourceDirectory[] {
       storePath: found.path,
     }
     if (found.lastUsedAt !== undefined) directory.lastUsedAt = found.lastUsedAt
-    if (found.unavailable) directory.unavailable = found.unavailable
+    if (found.unavailable) {
+      directory.unavailable = found.unavailable
+      directory.accessSettingsUrl = FULL_DISK_ACCESS_SETTINGS_URL
+    }
     // The first candidate that answers wins: a machine with both has the
     // container as the live one.
     return [directory]
@@ -107,7 +113,9 @@ export function readSafariCookies(directory: CookieSourceDirectory): CookieRead 
     // and a permission one has to become the sentence that names the fix rather
     // than a raw `EPERM` nobody can act on.
     const code = (error as NodeJS.ErrnoException).code
-    if (code === 'EPERM' || code === 'EACCES') throw new Error(FULL_DISK_ACCESS_REASON)
+    if (code === 'EPERM' || code === 'EACCES') {
+      throw new Error('macOS refused to open Safari’s cookies. Allow Solus under Full Disk Access, then try again.')
+    }
     throw error
   }
 

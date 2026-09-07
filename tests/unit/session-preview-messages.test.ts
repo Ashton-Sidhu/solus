@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  boundHitWindow,
+  composePreviewParts,
   extractPreviewMessages,
+  passageAround,
   truncateAtWord,
   type PreviewMessage,
 } from '@solus/workspace-ui/lib/sessionPreviewMessages'
@@ -107,6 +110,125 @@ describe('extractPreviewMessages', () => {
     expect(extractPreviewMessages(messages).lastAssistantMessage?.snippet).toBe(
       '## Result\n\n- First item\n- **Second item**\n\n```ts\nconst ready = true\n```',
     )
+  })
+})
+
+describe('passageAround', () => {
+  const lead = 'setting the scene with many words that come first '.repeat(12)
+  const tail = ' and then a great deal of trailing discussion'.repeat(12)
+
+  test('cuts around the first query word, on word boundaries, with ellipses where it cut', () => {
+    // WHY: the hit can sit anywhere in a long reply. A passage cut from the
+    // start would show the reply's opening and none of the words that matched.
+    const passage = passageAround(`${lead}the OAuth token expired${tail}`, 'oauth token', 200)
+    expect(passage).toMatch(/^…[^…]*the OAuth token expired[^…]*…$/)
+    expect(passage.length).toBeLessThanOrEqual(202)
+    expect(passage).not.toMatch(/^… /)
+    expect(passage).not.toMatch(/ …$/)
+    // The hit sits in the first half of the passage so the eye lands on it.
+    expect(passage.indexOf('OAuth')).toBeLessThan(passage.length / 2)
+  })
+
+  test('any word of the query anchors the passage, whichever comes first', () => {
+    const passage = passageAround(`${lead}second word here${tail}`, 'missing second', 120)
+    expect(passage).toContain('second word here')
+  })
+
+  test('falls back to the head when no query word is spelled in the text', () => {
+    // The index matched a stem ("run" for "running"); the pane still shows something readable.
+    const text = `${lead}${tail}`
+    expect(passageAround(text, 'zzz', 100)).toBe(truncateAtWord(text, 100))
+  })
+
+  test('leaves short text whole', () => {
+    expect(passageAround('a  short\nreply', 'reply')).toBe('a short reply')
+  })
+})
+
+describe('boundHitWindow', () => {
+  test('cuts the hit around the words and its neighbours from their start', () => {
+    const long = `${'filler words before the point '.repeat(20)}the RATE LIMIT hit${' more after'.repeat(30)}`
+    const bounded = boundHitWindow(
+      {
+        window: {
+          messages: [
+            { messageId: 1, role: 'user', text: long, ts: 1 },
+            { messageId: 2, role: 'assistant', text: long, ts: 2 },
+            { messageId: 3, role: 'user', text: 'thanks', ts: 3 },
+          ],
+          hiddenBefore: 4,
+          hiddenAfter: 9,
+        },
+        hitMessageId: 2,
+      },
+      'rate limit',
+    )
+    expect(bounded.messages.map((message) => message.isHit)).toEqual([false, true, false])
+    expect(bounded.messages[1].passage).toContain('RATE LIMIT hit')
+    expect(bounded.messages[0].passage).toMatch(/^filler words/)
+    expect(bounded.messages[0].passage).not.toContain('RATE LIMIT')
+    expect(bounded.messages[2]).toEqual({ role: 'user', passage: 'thanks', isHit: false })
+    expect(bounded).toMatchObject({ hiddenBefore: 4, hiddenAfter: 9 })
+  })
+})
+
+describe('composePreviewParts', () => {
+  const ends = {
+    firstUserMessage: { role: 'user' as const, snippet: 'fix login' },
+    lastAssistantMessage: { role: 'assistant' as const, snippet: 'done' },
+  }
+  const hit = { role: 'assistant' as const, passage: 'the token', isHit: true }
+  const neighbour = { role: 'user' as const, passage: 'why', isHit: false }
+  const window = (hiddenBefore: number, hiddenAfter: number) => ({
+    messages: [neighbour, hit],
+    hiddenBefore,
+    hiddenAfter,
+  })
+
+  test('without a hit the pane is the two ends', () => {
+    expect(composePreviewParts(ends, null)).toEqual({
+      opening: ends.firstUserMessage,
+      hit: null,
+      closing: ends.lastAssistantMessage,
+    })
+  })
+
+  test('the opening and the last reply frame the hit, without its neighbours', () => {
+    // WHY: the reader searched for a passage but still needs to know what the
+    // conversation was for and where it ended up. The neighbours the index
+    // returned are not shown: the pane is three parts, not a transcript.
+    expect(composePreviewParts(ends, window(5, 3))).toEqual({
+      opening: ends.firstUserMessage,
+      hit,
+      closing: ends.lastAssistantMessage,
+    })
+  })
+
+  test('a hit that is one of the ends takes that slot, cut around the words', () => {
+    // WHY: a window with nothing hidden after it ends at the last reply. If
+    // the hit is that reply, showing it as the middle part and again as the
+    // closing would show one message twice.
+    expect(composePreviewParts(ends, window(5, 0))).toEqual({
+      opening: ends.firstUserMessage,
+      hit: null,
+      closing: { role: 'assistant', snippet: 'the token' },
+    })
+    const openingHit = { role: 'user' as const, passage: 'fix the token', isHit: true }
+    expect(
+      composePreviewParts(ends, { messages: [openingHit, hit], hiddenBefore: 0, hiddenAfter: 3 }),
+    ).toEqual({
+      opening: { role: 'user', snippet: 'fix the token' },
+      hit: null,
+      closing: ends.lastAssistantMessage,
+    })
+  })
+
+  test('without the ends the hit stands alone', () => {
+    expect(composePreviewParts(null, window(12, 3))).toEqual({
+      opening: null,
+      hit,
+      closing: null,
+    })
   })
 })
 

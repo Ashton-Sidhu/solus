@@ -45,12 +45,46 @@ describe('turn diff stats', () => {
     writeFileSync(join(cwd, 'tracked.txt'), 'first\npre-existing\nthis turn\n')
     const result = await snapshotTurn(cwd, cwd, 'session-1', {
       sessionChangedFiles: ['tracked.txt'],
-      turnChangedFiles: ['tracked.txt'],
     })
 
     expect(result?.snapshot).toMatchObject({ filesChanged: 1, additions: 1, deletions: 0 })
     expect(await getDiffStats(cwd, cwd, { kind: 'turn', index: 0 }, 'session-1', [])).toEqual([
       { path: 'tracked.txt', additions: 1, deletions: 0, status: 'M' },
+    ])
+  })
+
+  // WHY: both ends of the turn range are whole-worktree snapshots, so a change
+  // made outside an Edit/Write tool call — a shell `rm`, a subagent, the user —
+  // still reaches the summary. A turn range narrowed to harvested tool paths
+  // reported this deletion as no change at all.
+  test('report a deletion no tool call announced', async () => {
+    const { cwd, baseSha } = createRepo()
+    await initSessionBase(cwd, 'session-1', baseSha)
+    await prepareTurnSnapshot(cwd, cwd, 'session-1')
+
+    rmSync(join(cwd, 'tracked.txt'))
+    const result = await snapshotTurn(cwd, cwd, 'session-1', { sessionChangedFiles: [] })
+
+    expect(result?.snapshot).toMatchObject({ filesChanged: 1, additions: 0, deletions: 1 })
+    expect(await getDiffStats(cwd, cwd, { kind: 'turn', index: 0 }, 'session-1', [])).toEqual([
+      { path: 'tracked.txt', additions: 0, deletions: 1, status: 'D' },
+    ])
+  })
+
+  // WHY: a snapshot built on the turn-start tree keeps the pre-turn blob for any
+  // path it does not restage, so undoing an edit within the turn diffed to
+  // nothing. Basing the end snapshot on HEAD is what makes the revert visible.
+  test('report an edit reverted during the turn', async () => {
+    const { cwd, baseSha } = createRepo()
+    await initSessionBase(cwd, 'session-1', baseSha)
+    writeFileSync(join(cwd, 'tracked.txt'), 'first\npre-existing\n')
+    await prepareTurnSnapshot(cwd, cwd, 'session-1')
+
+    writeFileSync(join(cwd, 'tracked.txt'), 'first\n')
+    await snapshotTurn(cwd, cwd, 'session-1', { sessionChangedFiles: [] })
+
+    expect(await getDiffStats(cwd, cwd, { kind: 'turn', index: 0 }, 'session-1', [])).toEqual([
+      { path: 'tracked.txt', additions: 0, deletions: 1, status: 'M' },
     ])
   })
 })

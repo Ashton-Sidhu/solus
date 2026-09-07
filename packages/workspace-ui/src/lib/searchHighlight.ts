@@ -25,12 +25,14 @@ export function highlightRuns(text: string, query: string): TextRun[] {
 }
 
 /** Like `highlightRuns`, but every whitespace-separated word of `query` is a
- *  hit on its own. For text a full-text index matched, where the words are
- *  ANDed and need not sit next to each other. */
+ *  hit on its own, and only where it starts a token — the rule a full-text
+ *  index matches by, where the words are ANDed and need not sit next to each
+ *  other. "auth" marks "auth" and "Authentication", not the tail of "oauth". */
 export function highlightWordRuns(text: string, query: string): TextRun[] {
   const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return [{ text, hit: false }];
-  const pattern = new RegExp(words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi");
+  const alternatives = words.map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  const pattern = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alternatives})`, "giu");
   const runs: TextRun[] = [];
   let from = 0;
   for (const match of text.matchAll(pattern)) {

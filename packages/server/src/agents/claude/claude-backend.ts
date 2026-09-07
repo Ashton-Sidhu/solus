@@ -283,7 +283,6 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
           const result = await snapshotTurn(workTree, repoRoot, sid, {
             ...snapOpts,
             sessionChangedFiles: [...new Set([...(sessionState?.changedFiles ?? []), ...snapOpts.editedFiles])],
-            turnChangedFiles: snapOpts.editedFiles,
           })
           return result?.sessionChangedFiles ?? null
         } : undefined,

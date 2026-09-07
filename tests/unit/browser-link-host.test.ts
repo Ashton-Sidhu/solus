@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { BrowserOpenRequest, BrowserPage } from '@solus/contracts/browser-types'
-import { isExternalWebLink } from '@solus/workspace-ui/components/conversation/lib/external-link'
+import { isWebUrl } from '@solus/workspace-ui/components/conversation/lib/external-link'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const serverConnectionsMock = singleHostServerConnections()
@@ -43,26 +43,22 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, '$state')
 })
 
-describe('which links are offered a browser pane', () => {
-  test('an ordinary web address is', () => {
-    expect(isExternalWebLink('https://example.com/docs', false)).toBe(true)
-    expect(isExternalWebLink('http://localhost:5173/', false)).toBe(true)
+describe('which addresses a browser pane can render', () => {
+  test('an ordinary web address', () => {
+    expect(isWebUrl('https://example.com/docs')).toBe(true)
+    expect(isWebUrl('http://localhost:5173/')).toBe(true)
   })
 
-  test('anything Solus already routes is not', () => {
-    // WHY: a plan, a work, a pull request, a session, a file and a stored asset
-    // each have a destination of their own, and a browser pane is the worse one.
-    expect(isExternalWebLink('https://github.com/o/r/pull/7', true)).toBe(false)
-    expect(isExternalWebLink('plan://open?planId=p1', false)).toBe(false)
-    expect(isExternalWebLink('work://open?workId=w1', false)).toBe(false)
-    expect(isExternalWebLink('file:///Users/dev/app/src/main.ts', false)).toBe(false)
-  })
-
-  test('a scheme a browser page cannot render is not', () => {
-    // WHY: an affordance that opens nothing is worse than no affordance.
-    expect(isExternalWebLink('mailto:dev@example.com', false)).toBe(false)
-    expect(isExternalWebLink('not a url', false)).toBe(false)
-    expect(isExternalWebLink('', false)).toBe(false)
+  test('not a scheme a browser page cannot render', () => {
+    // WHY: an affordance that opens nothing is worse than no affordance. Solus's
+    // own schemes are among these; whether a routable https link is offered is
+    // the link component's call, made where it knows the route.
+    expect(isWebUrl('plan://open?planId=p1')).toBe(false)
+    expect(isWebUrl('work://open?workId=w1')).toBe(false)
+    expect(isWebUrl('file:///Users/dev/app/src/main.ts')).toBe(false)
+    expect(isWebUrl('mailto:dev@example.com')).toBe(false)
+    expect(isWebUrl('not a url')).toBe(false)
+    expect(isWebUrl('')).toBe(false)
   })
 })
 
@@ -124,6 +120,12 @@ describe('the affordance in the transcript', () => {
     // the wrong machine.
     expect(source).toContain('sessionLinkContext?.serverId() ?? session.fallbackServerId')
     expect(source).toContain('session.openUrlInBrowser(href, linkServerId)')
+  })
+
+  test('a link Solus routes itself is not offered a browser pane', () => {
+    // WHY: a plan, a work, a pull request, a session, a file and a stored asset
+    // each have a destination of their own, and a browser pane is the worse one.
+    expect(source).toContain('!(assetId || linkRoute || sessionParams || fileRef) && isWebUrl(href)')
   })
 
   test('it is reachable without a pointer', () => {

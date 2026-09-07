@@ -317,7 +317,19 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
 
   server.register('gitRefreshState', async (args) => {
     const [cwd, options] = args
-    return computeGitState(cwd, options)
+    if (!options?.includeRefs) return computeGitState(cwd, options)
+    // Refs ride along with the status scan so a full environment refresh is
+    // one round trip. Same reads as `worktreeListProject` and `worktreeBranches`.
+    const [state, worktrees, branches] = await Promise.all([
+      computeGitState(cwd, options),
+      Promise.resolve().then(() => listProjectWorktrees(cwd)),
+      runAsync('git', ['fetch', '--all', '--prune'], cwd)
+        .catch((err) => {
+          log.warn('branch_fetch_before_list_failed', { error: err instanceof Error ? err.message : String(err) })
+        })
+        .then(() => listBranches(cwd)),
+    ])
+    return state ? { ...state, refs: { worktrees, branches } } : null
   })
 
   server.register('gitIdentity', async ([cwd]) => computeGitIdentity(cwd))

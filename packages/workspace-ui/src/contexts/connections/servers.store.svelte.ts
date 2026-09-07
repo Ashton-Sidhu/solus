@@ -43,6 +43,8 @@ import {
   unannouncedDiscoveredServers,
   type NearbyHost,
 } from './discovery'
+import { hostCapabilitiesStore } from './host-capabilities.store.svelte'
+import { hostRowLabel } from './host-label'
 import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 
 export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved' | 'different-server'
@@ -140,7 +142,7 @@ class ServersStore {
       if (server.installationId === this.local?.installationId) continue
       const row: ServerItem = {
         id: server.id,
-        label: server.label,
+        label: hostRowLabel(server, hostCapabilitiesStore.for(server.id)?.name),
         url: server.url,
         installationId: server.installationId,
         os: server.os,
@@ -157,7 +159,7 @@ class ServersStore {
       if (!target || target.local) continue
       rows.push({
         id: serverId,
-        label: target.label,
+        label: hostRowLabel(target, hostCapabilitiesStore.for(serverId)?.name),
         url: target.url,
         installationId: target.installationId,
         local: false,

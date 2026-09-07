@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import {
     ArrowRight as ArrowRightIcon,
     Check as CheckIcon,
@@ -44,7 +45,7 @@
   // Reachability is the whole question this surface answers, so re-probe every
   // time it opens instead of trusting the verdict from the last time.
   $effect(() => {
-    if (open) void serversStore.scanForServers();
+    if (open) untrack(() => void serversStore.scanForServers());
   });
 
   // Desktop opens with the field ready for a pasted link. A phone would only
@@ -80,12 +81,13 @@
 
   async function submit(event: Event) {
     event.preventDefault();
+    if (busy) return;
     busy = true;
     try {
       const server = await addHostFromInput({
         input: smartInput,
         code: codeInput,
-        serverLabel: labelInput,
+        deviceLabel: labelInput,
       });
       // In place (dispatch-client step 5): the new host joins the catalog,
       // gets its eager supervisor, and becomes the new-work default — the
@@ -93,10 +95,10 @@
       serversStore.savePairedServer(server);
       serverConnections.startCatalogSupervisors();
       serversStore.switchTo(server.id);
-      busy = false;
-      webState.closeServerSetup();
+      close();
     } catch (err) {
       toasts.error(err instanceof Error ? err.message : String(err));
+    } finally {
       busy = false;
     }
   }

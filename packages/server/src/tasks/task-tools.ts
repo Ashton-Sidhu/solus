@@ -31,7 +31,7 @@ const STATUS_VALUES = ['inbox', 'todo', 'in_progress', 'in_review', 'done', 'dro
 const LIST_STATUS_VALUES = [...STATUS_VALUES, 'all'] as const
 const PRIORITY_VALUES = ['urgent', 'high', 'medium', 'low'] as const
 const KIND_VALUES = ['task', 'epic'] as const
-const LINK_KIND_VALUES = ['work', 'plan', 'pr', 'automation'] as const
+const LINK_KIND_VALUES = ['work', 'plan', 'pr', 'automation', 'session'] as const
 
 // ─── Schemas ───
 
@@ -76,24 +76,23 @@ const commentTaskFields = {
   body: z.string().describe('Comment body in markdown.'),
 }
 
-const linkTaskSessionFields = {
-  task_id: z.string().describe('The id of the task to link.'),
-  session_id: z.string().optional().describe('The Solus agent session id to link. Defaults to the calling session.'),
-  role: z.enum(['working', 'referenced']).optional().describe("Link role. Defaults to 'working'."),
-}
-
 const linkTaskFields = {
   task_id: z.string().describe('The id of the task to link.'),
   kind: z
     .enum(LINK_KIND_VALUES)
-    .describe("What is being linked: 'work' (a Solus doc, slides or diagram), 'plan', 'pr', or 'automation'."),
+    .describe("What is being linked: 'work' (a Solus doc, slides or diagram), 'plan', 'pr', 'automation', or 'session' (a Solus agent session)."),
   target_id: z
     .string()
-    .describe("The target's id: a work id, an automation id, a plan tool-use id, a PR number, or a GitHub PR URL."),
+    .optional()
+    .describe("The target's id: a work id, an automation id, a plan tool-use id, a PR number, or a GitHub PR URL. For kind=session, omit it to link the calling session. Required for every other kind."),
   session_id: z
     .string()
     .optional()
-    .describe('Required for kind=plan: the session the plan belongs to. Defaults to the calling session.'),
+    .describe('For kind=plan only: the session the plan belongs to. Defaults to the calling session. A session being linked is named by target_id, not here.'),
+  role: z
+    .enum(['working', 'referenced'])
+    .optional()
+    .describe("For kind=session only: 'working' (the session doing the work, the default) or 'referenced'."),
   title: z.string().optional().describe('Optional label; resolved from the target when omitted.'),
 }
 
@@ -102,7 +101,6 @@ const readTaskInputSchema = z.object(readTaskFields)
 const updateStatusInputSchema = z.object(updateStatusFields)
 const createTaskInputSchema = z.object(createTaskFields)
 const commentTaskInputSchema = z.object(commentTaskFields)
-const linkTaskSessionInputSchema = z.object(linkTaskSessionFields)
 const linkTaskInputSchema = z.object(linkTaskFields)
 
 // ─── Descriptions ───
@@ -117,10 +115,8 @@ const CREATE_TASK_DESC =
   "Create a local Solus task in the calling project. This never creates an external ticket."
 const COMMENT_TASK_DESC =
   "Add a local comment to a Solus task for durable findings, status, or handoff notes."
-const LINK_TASK_SESSION_DESC =
-  "Link a task to a Solus agent session in the local Solus task/session map. Defaults to the calling session when session_id is omitted."
 const LINK_TASK_DESC =
-  "Attach a doc, plan, pull request, or automation to a Solus task so it shows in the task's Linked list."
+  "Attach a doc, plan, pull request, or automation to a Solus task so it shows in the task's Linked list. Pass kind='session' to bind an agent session to the task instead — that one goes on the local task/session map, and defaults to the calling session."
 
 // ─── Executor (one implementation behind every agent backend's tool surface) ───
 
@@ -289,20 +285,6 @@ async function executeTaskTool(
       return { ok: true, text: `Comment added to task ${id}.` }
     }
 
-    if (name === 'link_task_session') {
-      const input = linkTaskSessionInputSchema.parse(args)
-      const taskId = input.task_id.trim()
-      if (!taskId) return { ok: false, text: 'link_task_session requires a task_id.' }
-      if (foreignTaskFor(deps.ctx.solusSessionId, taskId)) {
-        return { ok: false, text: foreignWriteUnsupported('link_task_session', taskId) }
-      }
-      const sessionId = input.session_id?.trim() || deps.ctx.sessionId
-      if (!sessionId) return { ok: false, text: 'link_task_session requires session_id when no calling session id is available.' }
-      const role = input.role ?? 'working'
-      await (await Task.byId(taskId)).linkSession(sessionId, role)
-      return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
-    }
-
     if (name === 'link_task') {
       const input = linkTaskInputSchema.parse(args)
       const taskId = input.task_id.trim()
@@ -311,8 +293,19 @@ async function executeTaskTool(
         return { ok: false, text: foreignWriteUnsupported('link_task', taskId) }
       }
       const kind = input.kind
-      let targetKey = input.target_id.trim()
-      if (!targetKey) return { ok: false, text: 'link_task requires a target_id.' }
+
+      // A session is not a linked *item*: it owns a role on the task/session
+      // map rather than a row in the task's Linked list, and it is the one kind
+      // whose target defaults to the caller.
+      if (kind === 'session') {
+        const sessionId = input.target_id?.trim() || deps.ctx.sessionId
+        if (!sessionId) return { ok: false, text: 'link_task with kind=session requires target_id when no calling session id is available.' }
+        await (await Task.byId(taskId)).linkSession(sessionId, input.role ?? 'working')
+        return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
+      }
+
+      let targetKey = input.target_id?.trim() ?? ''
+      if (!targetKey) return { ok: false, text: `link_task requires a target_id for kind=${kind}.` }
 
       // Only plans and PRs need a qualifier: a plan is identified by the session
       // it belongs to, and a PR number is only unique within a repo.
@@ -414,5 +407,4 @@ export const readTaskAgentTool = taskAgentTool('read_task', READ_TASK_DESC, read
 export const updateTaskStatusAgentTool = taskAgentTool('update_task_status', UPDATE_DESC, updateStatusFields, true)
 export const createTaskAgentTool = taskAgentTool('create_task', CREATE_TASK_DESC, createTaskFields, true)
 export const commentTaskAgentTool = taskAgentTool('comment_task', COMMENT_TASK_DESC, commentTaskFields, true)
-export const linkTaskSessionAgentTool = taskAgentTool('link_task_session', LINK_TASK_SESSION_DESC, linkTaskSessionFields, true)
 export const linkTaskAgentTool = taskAgentTool('link_task', LINK_TASK_DESC, linkTaskFields, true)

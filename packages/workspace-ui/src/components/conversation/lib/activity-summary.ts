@@ -1,7 +1,8 @@
 import { z } from 'zod'
 
 import type { Message, TurnStartKind } from '@solus/contracts/types'
-import { prettyToolName, solusToolKey } from '../../../contexts/workspace/session.utils'
+import { prettyToolName } from '../../../contexts/workspace/session.utils'
+import { solusAgentToolName } from '@solus/contracts/agent-tools'
 import type { GroupedItem } from './turns'
 
 /** The four things an activity block can report having done. Thinking is a kind
@@ -285,7 +286,7 @@ export function getToolDescriptionFromParsed(
   options: { truncate?: boolean } = {},
 ): string {
   const truncate = options.truncate ?? true
-  if (solusToolKey(name)) return describeSolusTool(name, parsed, truncate)
+  if (solusAgentToolName(name)) return describeSolusTool(name, parsed, truncate)
   if (name.startsWith('mcp__')) return describeMcpTool(name, parsed, truncate)
   switch (name) {
     case 'Read':

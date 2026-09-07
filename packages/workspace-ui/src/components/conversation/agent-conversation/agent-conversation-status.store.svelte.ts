@@ -3,7 +3,7 @@ import type { SessionMeta, SessionStatus } from '@solus/contracts/types'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 import type { HostApi } from '@solus/client-core/host-api'
-import { stampSessionMeta } from '@solus/client-core/session-meta'
+import { readSessionMeta } from '@solus/client-core/session-meta'
 
 type SolusApi = HostApi
 
@@ -11,20 +11,32 @@ type SolusApi = HostApi
  * Live status + indexed metadata for agents shown in conversation cards.
  *
  * These agents have no bound tab, so their state can't come from the tab registry —
- * it rides the host's `session.statusChanged` event, with `getSessionInfo`
+ * it rides the host's `session.statusChanged` event, with indexed-metadata
  * hydration for the slower facts (slug title, model, cwd) and re-hydration when
  * the session index names a tracked agent. An agent lives on whichever server its
  * caller's tab is bound to, so each agent is tracked against that tab's api and
  * the topic subscription is made once per distinct host.
+ *
+ * A transcript mounts every one of its cards in the same frame, so hydration
+ * reads go through the batching meta reader: one `getSessionInfos` per host per
+ * frame rather than one `getSessionInfo` per card.
  */
 class AgentConversationStatusStore {
   private statuses = new SvelteMap<string, SessionStatus>()
   private metas = new SvelteMap<string, SessionMeta>()
   private apiByAgent = new Map<string, SolusApi>()
   private serverIdByAgent = new Map<string, string>()
+  private apiByServerId = new Map<string, SolusApi>()
   private consumers = new Map<string, number>()
   private hydrationGeneration = new Map<string, number>()
   private subscribedServerIds = new Set<string>()
+  /** One stable hosts view per store, so the meta reader keeps one batch queue
+   *  for it. Answers with the api a card handed us for that host. */
+  private readonly hosts = {
+    resolveId: (serverId: string) => serverConnections.resolveId(serverId),
+    apiFor: (serverId: string): Pick<HostApi, 'getSessionInfos'> =>
+      this.apiByServerId.get(serverId) ?? serverConnections.apiFor(serverId),
+  }
 
   constructor(
     private readonly eventsFor: (serverId: string) => HostEventSubscriber = (serverId) => serverConnections.eventsFor(serverId),
@@ -49,7 +61,11 @@ class AgentConversationStatusStore {
   retain(agentSessionId: string, api: SolusApi, serverId: string | undefined): () => void {
     // An agent with no named host cannot be hydrated (see `hydrate`), so there
     // is nothing for a subscription to feed either.
-    if (serverId) this.subscribe(serverConnections.resolveId(serverId))
+    if (serverId) {
+      const resolvedServerId = serverConnections.resolveId(serverId)
+      this.subscribe(resolvedServerId)
+      this.apiByServerId.set(resolvedServerId, api)
+    }
     const count = this.consumers.get(agentSessionId) ?? 0
     this.consumers.set(agentSessionId, count + 1)
     if (count === 0) {
@@ -81,10 +97,7 @@ class AgentConversationStatusStore {
     const serverId = this.serverIdByAgent.get(agentSessionId)
     if (!api || !serverId) return
     const generation = this.hydrationGeneration.get(agentSessionId) ?? 0
-    const meta = stampSessionMeta(
-      await api.getSessionInfo(agentSessionId).catch(() => null),
-      serverConnections.resolveId(serverId),
-    )
+    const meta = await readSessionMeta(serverId, agentSessionId, this.hosts)
     if (
       !meta ||
       !this.consumers.has(agentSessionId) ||

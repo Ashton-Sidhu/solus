@@ -16,7 +16,6 @@ let taskTools: typeof import('@solus/server/tasks/task-tools')
 let workTools: typeof import('@solus/server/folio/work-tools')
 let works: typeof import('@solus/server/folio/works')
 let commentTools: typeof import('@solus/server/annotations/comment-tools')
-let prTools: typeof import('@solus/server/providers/pr-tools')
 let automationTools: typeof import('@solus/server/automations/automation-tools')
 let linkedContent: typeof import('@solus/server/tasks/linked-content')
 let workApplier: typeof import('@solus/server/folio/work-applier')
@@ -38,7 +37,6 @@ beforeAll(async () => {
   workTools = await import('@solus/server/folio/work-tools')
   works = await import('@solus/server/folio/works')
   commentTools = await import('@solus/server/annotations/comment-tools')
-  prTools = await import('@solus/server/providers/pr-tools')
   automationTools = await import('@solus/server/automations/automation-tools')
   linkedContent = await import('@solus/server/tasks/linked-content')
   workApplier = await import('@solus/server/folio/work-applier')
@@ -283,8 +281,8 @@ describe('task tools on a dispatched session (foreign task)', () => {
   test('unsupported foreign writes fail honestly, never with "not found"', async () => {
     // WHY: "Task not found" is a lie about a task that exists on another host,
     // and it teaches the agent to re-create work that is already tracked.
-    const linked = await taskTools.linkTaskSessionAgentTool.execute(
-      { task_id: foreignTaskId },
+    const linked = await taskTools.linkTaskAgentTool.execute(
+      { task_id: foreignTaskId, kind: 'session' },
       toolContext(sessionId),
     )
     expect(linked.ok).toBe(false)
@@ -393,8 +391,8 @@ describe('linked-item tools on a dispatched session', () => {
     expect(result.text).toContain('read-only')
   })
 
-  test('list_works surfaces the shipped works beside local ones', async () => {
-    const result = await workTools.listWorksAgentTool.execute({}, toolContext(sessionId))
+  test('find_works with no query surfaces the shipped works beside local ones', async () => {
+    const result = await workTools.findWorksAgentTool.execute({}, toolContext(sessionId))
     expect(result.ok).toBe(true)
     expect(result.text).toContain(shippedWork.key)
     expect(result.text).toContain('Host-backed PR Reading')
@@ -437,19 +435,6 @@ describe('linked-item tools on a dispatched session', () => {
     expect(result.ok).toBe(true)
     expect(result.text).toContain('Ship in two slices.')
     expect(result.text).toContain('read-only')
-  })
-
-  test('read_pr answers from the linked facts when no provider is reachable', async () => {
-    // WHY: the PR's truth is on GitHub, but a borrowed host without a remote or
-    // auth used to answer with a bare provider error naming nothing.
-    const result = await prTools.executePrTool(
-      'read_pr',
-      { number: 42 },
-      { ctx: { cwd: dataDir, solusSessionId: sessionId } },
-    )
-    expect(result.ok).toBe(true)
-    expect(result.text).toContain('#42 Fix the scroll bug')
-    expect(result.text).toContain('https://github.com/acme/solus/pull/42')
   })
 
   test('read_automation serves linked facts and writes fail honestly', async () => {

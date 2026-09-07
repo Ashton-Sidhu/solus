@@ -18,21 +18,6 @@
   let { glyph, size = 15 }: Props = $props();
 </script>
 
-<!--
-  One mark per state, in the caller's ink. The four the desktop sidebar draws
-  keep their silhouettes exactly — a speech bubble asks, a page waits to be
-  read, a crossed circle reports a run that died, a clock is the provider's
-  problem — and the phone adds the three the sidebar spends elsewhere: a moon
-  for snoozed, a check for finished with, and the sidebar's own unread disc.
-
-  Idle draws a resting disc rather than nothing. The mark sits in a fixed slot
-  the rows align on, and an empty slot on a phone reads as a mark that failed to
-  load. It is the one glyph with no interior detail *and* no colour, which is
-  what "nothing to report" should look like next to eight states that do.
-
-  The rows that use this name their state in words on the control itself, so
-  every glyph here is decoration to a screen reader.
--->
 {#if glyph === "running"}
   <SpinnerIcon {size} class="animate-spin motion-reduce:animate-none" />
 {:else if glyph === "question"}

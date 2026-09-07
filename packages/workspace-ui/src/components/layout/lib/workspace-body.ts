@@ -1,5 +1,5 @@
 import { isArtifactRoute, isPageRoute, type RouteRef } from '../../../contexts/workspace/routing/route-registry'
-import type { PaneId } from '../../../contexts/workspace/routing/location'
+import type { PaneEntry, PaneId } from '../../../contexts/workspace/routing/location'
 import type { Tab } from '@solus/contracts/types'
 
 export const MIN_PRIMARY_PANE_WIDTH = 400
@@ -146,6 +146,26 @@ export function maximizeTargetPaneId(
   if (maximizedPaneId && companionPaneIds.includes(maximizedPaneId)) return maximizedPaneId
   if (companionPaneIds.includes(focusedPaneId)) return focusedPaneId
   return companionPaneIds.at(-1) ?? null
+}
+
+/**
+ * Which pane Escape closes: the companion the user is working in, or none.
+ *
+ * Unlike the maximize key it never reaches across from the leading pane — an
+ * Escape pressed in the composer belongs to the composer and whatever it has
+ * open. A conversation is never the target either: a split chat spends Escape
+ * on its own menus, and a chat that vanished under a slash-menu dismissal would
+ * be the worst version of the same bug.
+ */
+export function closeTargetPaneId(
+  companionPanes: readonly Pick<PaneEntry, 'id' | 'base'>[],
+  focusedPaneId: PaneId,
+): PaneId | null {
+  const focused = companionPanes.find((pane) => pane.id === focusedPaneId)
+  if (!focused) return null
+  const name = focused.base?.name
+  if (name === 'chat' || name === 'draft') return null
+  return focused.id
 }
 
 /**

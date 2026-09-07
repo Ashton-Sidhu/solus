@@ -23,7 +23,10 @@
   class="absolute inset-0 z-20 flex items-center justify-center bg-[color-mix(in_oklch,var(--solus-container-bg)_72%,transparent)] p-4"
   role="presentation"
   onkeydown={(event) => {
-    if (event.key === "Escape") onCancel();
+    if (event.key !== "Escape") return;
+    // Spent here: the same press would otherwise close the pane too.
+    event.stopPropagation();
+    onCancel();
   }}
 >
   <div

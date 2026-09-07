@@ -17,7 +17,6 @@ import {
   groupTasks,
   hasDisclosure,
   maxTaskAttention,
-  sidebarChildLabel,
   hasGlyph,
   shouldEmphasizeTitle,
   shouldLeadTitle,
@@ -825,22 +824,6 @@ describe('taskRowBranchName', () => {
   it('keeps a loose row on its own branch when no session names one', () => {
     expect(taskRowBranchName('main', [{ branchName: null }])).toBe('main')
     expect(taskRowBranchName('main', [])).toBe('main')
-  })
-})
-
-describe('sidebarChildLabel', () => {
-  it('names a subtask row after the subtask instead of its provider session', () => {
-    expect(sidebarChildLabel(
-      durableTask('in_progress', { title: 'Verify the release', parentId: 'parent' }),
-      'Session Task Sidebar',
-    )).toBe('Verify the release')
-  })
-
-  it('keeps root-task attempts distinguishable by session name', () => {
-    expect(sidebarChildLabel(
-      durableTask('in_progress', { title: 'Ship the release' }),
-      'Second attempt',
-    )).toBe('Second attempt')
   })
 })
 

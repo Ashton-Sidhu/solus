@@ -53,7 +53,7 @@ export function loadCompletedHints(): DemoHintId[] {
     if (!Array.isArray(stored)) return []
     const validIds = new Set<string>(DEMO_HINTS.map(({ id }) => id))
     return stored.filter((id): id is DemoHintId =>
-      Object.prototype.toString.call(id) === '[object String]' && validIds.has(id))
+      typeof id === 'string' && validIds.has(id))
   } catch {
     return []
   }
@@ -79,6 +79,7 @@ function resolveHintTarget(id: DemoHintId): HTMLElement | undefined {
 /** Pulses the hint target a fixed number of times, e.g. after a click confirmation. */
 export function pulseHintTarget(id: DemoHintId): boolean {
   try {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false
     const target = resolveHintTarget(id)
     if (!target) return false
     target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
@@ -92,10 +93,11 @@ export function pulseHintTarget(id: DemoHintId): boolean {
 /** Pulses the hint target indefinitely — cancel the returned animation (e.g. on mouseleave) to stop it. */
 export function startHintPulse(id: DemoHintId): Animation | undefined {
   try {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined
     const target = resolveHintTarget(id)
     if (!target) return undefined
     target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' })
-    return target.animate(PULSE_KEYFRAMES, { duration: 1100, easing: 'cubic-bezier(0.2, 0, 0, 1)', iterations: Infinity })
+    return target.animate(PULSE_KEYFRAMES, { duration: 1100, easing: 'cubic-bezier(0.2, 0, 0, 1)', iterations: 3 })
   } catch {
     return undefined
   }

@@ -1,15 +1,10 @@
 import { createAppContext } from '../app/create-app-context'
-import { gitCheckoutFromState, sameGitCheckout, worktreeProjectRoot, type GitCheckout, type GitState, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
+import { gitCheckoutFromState, sameGitCheckout, worktreeProjectRoot, type GitCheckout, type GitProjectRefs, type GitState, type GitStateOptions, type IpcContext, type RunConfig, type Session, type WorktreeEntry } from '@solus/contracts/types'
 import { formatBranchDisplayName } from '../../lib/git-context'
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
-
-export interface GitProjectRefs {
-  branches: string[]
-  worktrees: WorktreeEntry[]
-}
 
 export type GitRefreshLevel = 'status' | 'details' | 'full'
 
@@ -28,6 +23,11 @@ interface GitFacetOutcome {
   error?: string
 }
 
+interface GitStatusOutcome extends GitFacetOutcome {
+  /** The status answer carried the project's refs too, so no refs scan is owed. */
+  refsApplied?: boolean
+}
+
 /** What the host was last told a session's checkout is, and on which
  *  connection, so an unchanged checkout is not registered again. */
 interface RegisteredGitEnvironment {
@@ -35,6 +35,10 @@ interface RegisteredGitEnvironment {
   generation: number
   cwd: string
   gitContext: GitCheckout | null
+}
+
+function withoutRefs({ refs: _refs, ...status }: GitState): GitState {
+  return status
 }
 
 function gitErrorText(error: Parameters<typeof String>[0]): string {
@@ -128,6 +132,9 @@ export class SessionEnvironmentStore {
   private dispatchBranchesLoading = new SvelteSet<string>()
   private dispatchRefsInflight = new Map<string, Promise<boolean>>()
   private registrations = new WeakMap<Session, RegisteredGitEnvironment>()
+  /** A registration still on the wire. Boot runs several refreshes for one
+   *  session at once; the later ones join this rather than asking again. */
+  private registrationsInflight = new WeakMap<Session, { fingerprint: string; promise: Promise<string | undefined> }>()
   private readonly registrationGenerationByServerId = new Map<string, number>()
 
   bindWorkspace(workspace: SessionEnvironmentWorkspace): void {
@@ -314,33 +321,7 @@ export class SessionEnvironmentStore {
       // nothing is running in it yet — registration waits until Send makes one.
       const session = workspace.sessionFor(sourceId)
       if (session) {
-        let registrationError: string | undefined
-        const effectiveCwd = gitContext?.worktreePath ?? cwd
-        const generation = this.registrationGenerationByServerId.get(serverId) ?? 0
-        const previous = this.registrations.get(session)
-        const unchanged = previous?.serverId === serverId
-          && previous.generation === generation
-          && previous.cwd === effectiveCwd
-          && sameGitCheckout(previous.gitContext, gitContext)
-        if (!unchanged) {
-          try {
-            await api.gitRegisterEnvironment(
-              $state.snapshot(workspace.ctxFor(sourceId)),
-              cwd,
-              $state.snapshot(gitContext),
-            )
-            // A copy: the same object becomes the run's reactive checkout below,
-            // and a later in-place branch update must not rewrite this record.
-            this.registrations.set(session, {
-              serverId,
-              generation,
-              cwd: effectiveCwd,
-              gitContext: gitContext ? { ...gitContext } : null,
-            })
-          } catch (error) {
-            registrationError = gitErrorText(error)
-          }
-        }
+        const registrationError = await this.registerCheckout(api, serverId, session, workspace.ctxFor(sourceId), cwd, gitContext)
         if (registrationError !== undefined) {
           return { status: true, details: false, refs: false, registration: false, ok: false, error: gitFailure('Couldn’t register the Git environment', registrationError) }
         }
@@ -352,13 +333,15 @@ export class SessionEnvironmentStore {
       workspace.config.applyGlobalStartTarget({ gitContext })
     }
 
-    const detailsOutcome: GitFacetOutcome = level === 'status'
+    // A full refresh asks for refs on the same round trip as the details.
+    const detailsOutcome: GitStatusOutcome = level === 'status'
       ? { ok: true }
-      : await this.refreshStatusForHost(serverId, cwd, { force: true, details: true, bypassCache: true })
+      : await this.refreshStatusForHost(serverId, cwd, { force: true, details: true, bypassCache: true, refs: level === 'full' })
     const currentStatus = this.statusForHost(serverId, cwd)
     const projectRoot = currentStatus?.repoRoot ?? gitContext?.repoRoot
     if (projectRoot) this.bindCwd(serverId, projectRoot, api)
-    const refsOutcome: GitFacetOutcome = level !== 'full' || !projectRoot
+    // A host that predates refs-with-status answers without them; scan separately.
+    const refsOutcome: GitFacetOutcome = level !== 'full' || !projectRoot || detailsOutcome.refsApplied
       ? { ok: true }
       : await this.refreshRefsOutcomeForHost(serverId, projectRoot, workspace.ctxFor(sourceId), { force: true })
     const error = !detailsOutcome.ok
@@ -374,6 +357,64 @@ export class SessionEnvironmentStore {
       ok: detailsOutcome.ok && refsOutcome.ok,
       error,
     }
+  }
+
+  /** Tell the host which checkout a session runs in, once per distinct answer
+   *  per connection. Resolves to the failure text, or undefined when the host
+   *  now knows — including when it already did. */
+  private async registerCheckout(
+    api: HostApi,
+    serverId: string,
+    session: Session,
+    ctx: IpcContext,
+    cwd: string,
+    gitContext: GitCheckout | null,
+  ): Promise<string | undefined> {
+    const effectiveCwd = gitContext?.worktreePath ?? cwd
+    const generation = this.registrationGenerationByServerId.get(serverId) ?? 0
+    const previous = this.registrations.get(session)
+    const unchanged = previous?.serverId === serverId
+      && previous.generation === generation
+      && previous.cwd === effectiveCwd
+      && sameGitCheckout(previous.gitContext, gitContext)
+    if (unchanged) return undefined
+    const fingerprint = JSON.stringify([serverId, generation, effectiveCwd, gitContext])
+    const inflight = this.registrationsInflight.get(session)
+    if (inflight?.fingerprint === fingerprint) return inflight.promise
+    const promise = api.gitRegisterEnvironment($state.snapshot(ctx), cwd, $state.snapshot(gitContext))
+      .then((): undefined => {
+        // A copy: the same object becomes the run's reactive checkout, and a
+        // later in-place branch update must not rewrite this record.
+        this.registrations.set(session, {
+          serverId,
+          generation,
+          cwd: effectiveCwd,
+          gitContext: gitContext ? { ...gitContext } : null,
+        })
+        return undefined
+      }, gitErrorText)
+      .finally(() => {
+        if (this.registrationsInflight.get(session)?.promise === promise) this.registrationsInflight.delete(session)
+      })
+    this.registrationsInflight.set(session, { fingerprint, promise })
+    return promise
+  }
+
+  /** Register a checkout the caller resolved itself — a resume reads identity on
+   *  its critical path — so the refresh that follows finds it already known and
+   *  does not register it a second time. Failure is left to that refresh. */
+  async registerEnvironment(
+    workspace: SessionEnvironmentWorkspace,
+    sourceId: string,
+    cwd: string,
+    gitContext: GitCheckout | null,
+  ): Promise<void> {
+    const session = workspace.sessionFor(sourceId)
+    const api = workspace.apiFor?.(sourceId)
+    const serverId = workspace.serverIdFor?.(sourceId)
+    if (!session || !api || !serverId) return
+    this.bindCwd(serverId, cwd, api)
+    await this.registerCheckout(api, serverId, session, workspace.ctxFor(sourceId), cwd, gitContext)
   }
 
   /** Resolve where a session will start. Callers apply this snapshot as one unit
@@ -432,14 +473,21 @@ export class SessionEnvironmentStore {
 
   /** Status/details scan that also carries the failure reason, for callers that
    *  report it (e.g. the Environment panel's refresh button). */
-  private async refreshStatusForHost(serverId: string, cwd: string, opts: { force?: boolean; details?: boolean; bypassCache?: boolean } = {}): Promise<GitFacetOutcome> {
+  private async refreshStatusForHost(
+    serverId: string,
+    cwd: string,
+    opts: { force?: boolean; details?: boolean; bypassCache?: boolean; refs?: boolean } = {},
+  ): Promise<GitStatusOutcome> {
     const key = hostKey(serverId, cwd)
     const includeDetails = opts.details === true
+    // Refs only ride along with a details scan; a summary stays the cheap read
+    // the watcher and every completed edit can afford.
+    const includeRefs = includeDetails && opts.refs === true
     const now = Date.now()
     const refreshTimes = includeDetails ? this.detailsLastRefresh : this.lastRefresh
     const last = refreshTimes.get(key) ?? 0
     if (!opts.force && now - last < 2_000) return { ok: true }
-    const inflightKey = `${key}\0${includeDetails ? 'details' : 'summary'}`
+    const inflightKey = `${key}\0${includeRefs ? 'details+refs' : includeDetails ? 'details' : 'summary'}`
     const existing = this.inflight.get(inflightKey)
     // A forced lifecycle refresh must observe state after the existing scan,
     // rather than silently joining a request that may predate a Git mutation.
@@ -451,19 +499,36 @@ export class SessionEnvironmentStore {
     const version = this.versions.get(key) ?? 0
     const api = this.apiForCwd(serverId, cwd)
     if (!api) return { ok: false }
-    const promise = api.gitRefreshState(cwd, includeDetails
-      ? { includeDetails: true, bypassCache: opts.bypassCache === true }
-      : undefined)
-      .then((status): GitFacetOutcome => {
+    if (includeRefs) this.refsLoading.add(key)
+    let requestOptions: GitStateOptions | undefined
+    if (includeDetails) {
+      requestOptions = { includeDetails: true, bypassCache: opts.bypassCache === true }
+      if (includeRefs) requestOptions.includeRefs = true
+    }
+    const promise = api.gitRefreshState(cwd, requestOptions)
+      .then((answer): GitStatusOutcome => {
+        // Refs are not status: they are keyed by project, not checkout, and a
+        // watcher push never supersedes them.
+        const refs = answer?.refs
+        const plainStatus = answer ? withoutRefs(answer) : null
         // A watcher push that landed while this request ran is newer.
-        if ((this.versions.get(key) ?? 0) === version) this.applyStatus(serverId, cwd, status, includeDetails)
+        if ((this.versions.get(key) ?? 0) === version) this.applyStatus(serverId, cwd, plainStatus, includeDetails)
         this.lastRefresh.set(key, Date.now())
         if (includeDetails) this.detailsLastRefresh.set(key, Date.now())
         else this.scheduleDetailsRefresh(serverId, cwd)
+        if (plainStatus && refs) {
+          const refsKey = hostKey(serverId, plainStatus.repoRoot)
+          this.refsByRoot[refsKey] = refs
+          this.refsLastRefresh.set(refsKey, Date.now())
+          return { ok: true, refsApplied: true }
+        }
         return { ok: true }
       })
-      .catch((error): GitFacetOutcome => ({ ok: false, error: gitErrorText(error) }))
-      .finally(() => this.inflight.delete(inflightKey))
+      .catch((error): GitStatusOutcome => ({ ok: false, error: gitErrorText(error) }))
+      .finally(() => {
+        this.inflight.delete(inflightKey)
+        if (includeRefs) this.refsLoading.delete(key)
+      })
     this.inflight.set(inflightKey, promise)
     return promise
   }

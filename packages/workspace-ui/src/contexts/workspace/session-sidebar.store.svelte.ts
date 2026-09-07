@@ -17,7 +17,6 @@ import {
   resolveTaskSidebarLifecycle,
   snoozedRowKeyForTab,
   shouldCompleteTaskForPr,
-  sidebarChildLabel,
   shouldShelveCompletedTask,
   shouldShowDurableSidebarTask,
   shouldShowSidebarChild,
@@ -1436,10 +1435,13 @@ export class SessionSidebarStore {
         const child = this.childForTab(tabId)
         children.push({
           ...child,
-          label: sidebarChildLabel(
-            record,
-            sessionDisplayName({ link, liveTitle: child.label, taskTitle: record.title }),
-          ),
+          // A row stands for one session, so it is named by that session — a
+          // subtask included. Naming every attempt under a subtask after the
+          // subtask drew four identical rows for four conversations, and made
+          // renaming one of them impossible: the typed name landed on the
+          // session while the row went on reading its task. The task title is
+          // still the fallback for a session that has no name of its own.
+          label: sessionDisplayName({ link, liveTitle: child.label, taskTitle: record.title }),
           taskId: record.id,
           sessionId: link.sessionId,
           projectKey,
@@ -1462,7 +1464,7 @@ export class SessionSidebarStore {
         sessionId: link.sessionId,
         projectKey,
         branchName: link.branch ?? null,
-        label: sidebarChildLabel(record, sessionDisplayName({ link, taskTitle: record.title })),
+        label: sessionDisplayName({ link, taskTitle: record.title }),
         attention: liveState?.attention ?? null,
         unread: liveState?.attention === 'error',
         serverId: linkServerId,
@@ -1488,7 +1490,7 @@ export class SessionSidebarStore {
       const child = this.childForTab(tabId)
       children.push({
         ...child,
-        label: pendingTask ? sidebarChildLabel(pendingTask, child.label) : child.label,
+        label: child.label,
         taskId: pendingTask?.id ?? root.id,
         projectKey: pendingTask?.projectKey ?? root.projectKey ?? undefined,
         dismissalKey,

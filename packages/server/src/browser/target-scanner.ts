@@ -38,12 +38,12 @@ export function forgetDiscoveredTargets(): void {
   cache = null
 }
 
-export async function discoverBrowserTargets(options: { excludePorts?: number[] } = {}): Promise<BrowserDiscoveredTarget[]> {
+export async function discoverBrowserTargets(): Promise<BrowserDiscoveredTarget[]> {
   const now = Date.now()
   if (cache && now - cache.at < CACHE_TTL_MS) return cache.targets
   if (inFlight) return inFlight
 
-  inFlight = scan(new Set(options.excludePorts ?? []))
+  inFlight = scan()
     .then((targets) => {
       cache = { at: Date.now(), targets }
       return targets
@@ -58,10 +58,10 @@ export async function discoverBrowserTargets(options: { excludePorts?: number[] 
   return inFlight
 }
 
-async function scan(excluded: Set<number>): Promise<BrowserDiscoveredTarget[]> {
-  const listeners = (await listListeningSockets()).filter(
-    (listener) => listener.port >= MIN_PORT && !excluded.has(listener.port) && listener.pid !== process.pid,
-  )
+/** Every HTML-serving port above the system range, Solus's own included: a
+ *  user who wants to look at the Solus client in a Solus pane is allowed to. */
+async function scan(): Promise<BrowserDiscoveredTarget[]> {
+  const listeners = (await listListeningSockets()).filter((listener) => listener.port >= MIN_PORT)
   if (listeners.length === 0) return []
 
   const cwdByPid = await workingDirectories([...new Set(listeners.map((listener) => listener.pid))])

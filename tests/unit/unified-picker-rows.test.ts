@@ -1,12 +1,15 @@
 import { describe, expect, test } from 'bun:test'
+import { plainSnippet, SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
 import type { Task } from '@solus/contracts/task-types'
 import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
+import type { PickerSort } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-search'
 import type { SidebarSessionChild } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 import {
   buildPickerRows,
   collapseTarget,
   expandTarget,
   pickerRowHeight,
+  previewHitTarget,
   selectedRowIndex,
 } from '@solus/workspace-ui/components/session/unified-picker/lib/picker-rows'
 
@@ -115,14 +118,15 @@ describe('unified picker rows', () => {
     }
     const { rows, entries, sessionCount } = build(tasks, sessionsWithSibling, 'beta run')
     expect(rows.map((row) => row.kind)).toEqual(['header', 'session'])
-    expect(rows[0]).toMatchObject({ label: 'Sessions', count: 1, hint: 'newest first' })
+    expect(rows[0]).toMatchObject({ label: 'Sessions', count: 1, hint: 'best match first' })
     expect(rows[1]).toMatchObject({ session: { sessionId: 'b1' }, task: { id: 'b' }, nested: false })
     expect(sessionCount).toBe(1)
     // A flat session has no parent row to return to.
     expect(collapseTarget(entries, 0)).toBeNull()
   })
 
-  test('sessions the query names are ordered newest first', () => {
+  test('sessions the query names are ordered newest first among themselves', () => {
+    // Name hits tie on relevance, so the date breaks the tie under either order.
     const dated = {
       a: [{ ...child('a1', 'first pass'), lastActivityAt: 10 }, { ...child('a2', 'second pass'), lastActivityAt: 30 }],
       b: [{ ...child('b1', 'beta pass'), lastActivityAt: 20 }],
@@ -150,9 +154,11 @@ describe('unified picker rows', () => {
     expect(opened.rows.map((row) => row.kind)).toEqual(['header', 'task', 'session', 'session'])
   })
 
-  test('tasks rank by where they matched: title, then body, then id or status', () => {
+  test('tasks rank by where they matched: title, then body, then id', () => {
     // WHY: "best match first" is the header's promise. Newest-first within a
-    // tier is the tiebreak, so the input order (newest first) is kept.
+    // tier is the tiebreak, so the input order (newest first) is kept. A status
+    // or a project path is not a field: matching it listed every task that
+    // shared it, which is noise, not a hit.
     const ranked = [
       { ...task('body-new', 'Rollout'), body: 'needs the auth token' },
       task('title-old', 'Auth flow'),
@@ -163,6 +169,45 @@ describe('unified picker rows', () => {
     const taskRows = rows.filter((row) => row.kind === 'task')
     expect(taskRows.map((row) => row.task.id)).toEqual(['title-old', 'body-new', 'body-old'])
     expect(taskRows.map((row) => row.matchedIn)).toEqual(['title', 'body', 'body'])
+    expect(build(ranked, {}, 'in_progress').entries).toEqual([])
+    expect(build(ranked, {}, 'solus').entries).toEqual([])
+  })
+
+  test('under the recency order tasks keep their date order whatever field matched', () => {
+    // WHY: the reader asked for newest first, and the header says so. Lifting
+    // a stale title hit over a fresh body hit would contradict the header.
+    const dated = [
+      { ...task('body-new', 'Rollout'), body: 'needs the auth token', updatedAt: 30 },
+      { ...task('title-old', 'Auth flow'), updatedAt: 10 },
+    ]
+    const relevance = buildPickerRows({ tasks: dated, query: 'auth', sessionsFor: () => [], expandedTaskIds: new Set() })
+    const recency = buildPickerRows({ tasks: dated, query: 'auth', sort: 'recency', sessionsFor: () => [], expandedTaskIds: new Set() })
+    expect(relevance.entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['title-old', 'body-new'])
+    expect(recency.entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['body-new', 'title-old'])
+    expect(relevance.rows[0]).toMatchObject({ kind: 'header', hint: 'best match first' })
+    expect(recency.rows[0]).toMatchObject({ kind: 'header', hint: 'newest first' })
+  })
+
+  test('a query is words, each starting a token, in any order — the rule the index applies', () => {
+    // WHY: the hosts match "auth flow" to a message that says "the flow for
+    // auth". A title pass that needed the phrase in order found half of what
+    // the Sessions section found for the same query, and "auth" marked the
+    // tail of "oauth" in one section and not the other.
+    const titled = [task('a', 'Flow for auth'), task('b', 'OAuth redesign'), task('c', 'Authentication')]
+    expect(build(titled, {}, 'auth flow').entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['a'])
+    expect(build(titled, {}, 'auth').entries.map((entry) => entry.kind === 'task' && entry.task.id)).toEqual(['a', 'c'])
+    // A session name follows the same rule.
+    const named = { a: [child('a1', 'Retry the oauth dance'), child('a2', 'Auth retry')] }
+    expect(build([task('a', 'Alpha')], named, 'retry auth').entries.map((entry) => entry.kind === 'session' && entry.session.sessionId)).toEqual(['a2'])
+  })
+
+  test('a task found by its id says so with the id, not a note', () => {
+    const numbered = { ...task('t', 'Rollout'), shortId: 42 } as Task
+    const [row] = build([numbered], {}, 'T-42').rows.filter((row) => row.kind === 'task')
+    expect(row.matchedIn).toBe('id')
+    expect(build([numbered], {}, '42').taskCount).toBe(1)
+    // The uuid is not an id anyone types.
+    expect(build([{ ...numbered, id: 'uuid-9f' } as Task], {}, '9f').taskCount).toBe(0)
   })
 
   test('a body hit shows the passage it hit as the row\'s second line', () => {
@@ -188,64 +233,189 @@ describe('unified picker rows', () => {
   })
 
   describe('conversation hits', () => {
-    function hit(sessionId: string, snippet: string, serverId = 'local'): SessionSearchResult {
+    function hit(sessionId: string, snippet: string, ts = 0, serverId = 'local', rank = -1): SessionSearchResult {
       return {
         session: { sessionId, serverId, firstMessage: `opening of ${sessionId}` } as SessionMeta,
         snippet,
-        ts: 0,
+        ts,
+        messageId: 7,
+        rank,
       }
     }
-    function buildWithHits(query: string, hits: SessionSearchResult[], expanded: string[] = []) {
+    function buildWithHits(
+      query: string,
+      hits: SessionSearchResult[],
+      expanded: string[] = [],
+      projectKey: string | null = null,
+      sort: PickerSort = 'relevance',
+      capped = false,
+    ) {
       return buildPickerRows({
         tasks,
         query,
+        projectKey,
+        sort,
         sessionsFor: (item) => sessions[item.id] ?? [],
         expandedTaskIds: new Set(expanded),
         conversations: hits,
+        conversationsCapped: capped,
       })
     }
 
-    test('sessions found by their words follow the tasks as their own section', () => {
+    test('under relevance, name hits lead and content hits follow the index score', () => {
+      // WHY: a session's name is its title, the strongest claim a query has
+      // on it; among passages the index already knows which is the better
+      // match, and throwing that away for the date made the section a timeline
+      // whatever the header promised.
+      const dated = {
+        a: [{ ...child('a1', 'pass by name'), lastActivityAt: 1 }],
+        b: [],
+      }
+      const listed = (sort: PickerSort) => buildPickerRows({
+        tasks,
+        query: 'pass',
+        sort,
+        sessionsFor: (item) => dated[item.id as 'a' | 'b'] ?? [],
+        expandedTaskIds: new Set(),
+        conversations: [
+          hit('weak-new', 'pass here', 900, 'local', -1),
+          hit('strong-old', 'pass pass pass', 100, 'local', -9),
+        ],
+      }).entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.kind === 'conversation' ? entry.meta.sessionId : null)
+      expect(listed('relevance')).toEqual(['a1', 'strong-old', 'weak-new'])
+      expect(listed('recency')).toEqual(['weak-new', 'strong-old', 'a1'])
+    })
+
+    test('a session whose name and words both matched ranks as a name hit and shows its words', () => {
+      const named = { a: [child('a1', 'pass one')], b: [] }
+      const { entries } = buildPickerRows({
+        tasks,
+        query: 'pass',
+        sessionsFor: (item) => named[item.id as 'a' | 'b'] ?? [],
+        expandedTaskIds: new Set(),
+        conversations: [hit('orphan', 'a pass', 5, 'local', -20), hit('a1', 'pass said', 1, 'local', -1)],
+      })
+      expect(entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.meta.sessionId)).toEqual(['a1', 'orphan'])
+      expect(entries[0]).toMatchObject({ kind: 'session', hit: { snippet: 'pass said' } })
+    })
+
+    test('a passage is cut around its first marked hit and keeps the marks', () => {
+      // WHY: the index returns a window of tokens the hit can sit anywhere in,
+      // and the row shows one line of it. Cut from the start, a hit in the back
+      // half fell off the line and the row showed no evidence at all.
+      const marked = `${'lead words '.repeat(12)}the ${SNIPPET_HIT_OPEN}pelican${SNIPPET_HIT_CLOSE} lands${' and more'.repeat(20)}`
+      const { entries } = buildWithHits('pelican', [hit('orphan', marked)])
+      const snippet = entries[0].kind === 'conversation' ? entries[0].hit.snippet : ''
+      expect(plainSnippet(snippet)).toMatch(/^…[^…]*the pelican lands[^…]*…$/)
+      expect(snippet).toContain(`${SNIPPET_HIT_OPEN}pelican${SNIPPET_HIT_CLOSE}`)
+      expect(snippet.indexOf(SNIPPET_HIT_OPEN)).toBeLessThan(40)
+    })
+
+    test('the Sessions header says when the hosts stopped at their cap', () => {
+      // WHY: twenty rows under "Sessions 20" read as twenty hits. The number is
+      // where a host stopped, and the reader should narrow rather than scroll.
+      const capped = buildWithHits('alpha', [hit('orphan', 'alpha')], [], null, 'relevance', true)
+      expect(capped.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 1, capped: true })
+      expect(capped.sessionsCapped).toBe(true)
+      const open = buildWithHits('alpha', [hit('orphan', 'alpha')])
+      expect(open.rows.find((row) => row.kind === 'header' && row.label === 'Sessions')).toMatchObject({ count: 1, capped: false })
+    })
+
+    test('a session no task claims, found by its words, is listed under Sessions', () => {
       // WHY: the reader searched for what was said, not for a title, so a
-      // session no task claims must still be reachable.
-      const { rows, entries, conversationCount } = buildWithHits('alpha', [
+      // session no task claims must still be reachable — in the one section
+      // every session hit shares, not a section of its own.
+      const { rows, entries, sessionCount } = buildWithHits('alpha', [
         hit('orphan', '…the alpha rollout…'),
       ])
       expect(rows.map((row) => row.kind)).toEqual(['header', 'task', 'header', 'conversation'])
-      expect(rows[2]).toMatchObject({ kind: 'header', label: 'In conversations', count: 1 })
+      expect(rows[2]).toMatchObject({ kind: 'header', label: 'Sessions', count: 1, hint: 'best match first' })
       expect(entries.at(-1)).toMatchObject({
         kind: 'conversation',
         entryIndex: 1,
-        snippet: '…the alpha rollout…',
-        task: null,
+        hit: { snippet: '…the alpha rollout…', messageId: 7 },
       })
-      expect(conversationCount).toBe(1)
+      expect(sessionCount).toBe(1)
     })
 
-    test('a hit already on screen under its task is not listed twice', () => {
+    test("a hit in a task's session is that session's row, carrying the passage", () => {
+      // WHY: the same session must not appear once by name and once by words.
+      // The words are the better evidence, so the row keeps them and its date
+      // is when they were said; the task rides along as the byline.
+      const { rows } = buildWithHits('said', [hit('b1', 'it was said here', 500)])
+      const listed = rows.filter((row) => row.kind !== 'header')
+      expect(listed).toHaveLength(1)
+      expect(listed[0]).toMatchObject({
+        kind: 'session',
+        session: { sessionId: 'b1' },
+        task: { id: 'b' },
+        nested: false,
+        hit: { snippet: 'it was said here', ts: 500, messageId: 7 },
+      })
+    })
+
+    test("a listed task's sessions are not repeated below it, by name or by words", () => {
+      // WHY: the task row folds its sessions and is the way in. Listing them
+      // again under Sessions showed the same work twice with two dates.
       const hits = [hit('a1', 'alpha again'), hit('b1', 'alpha in beta')]
+      const { rows } = buildWithHits('alpha', hits)
+      expect(rows.map((row) => row.kind)).toEqual(['header', 'task', 'header', 'session'])
+      expect(rows[3]).toMatchObject({ kind: 'session', session: { sessionId: 'b1' } })
+      // Opening the task changes what is on screen, not what is listed twice.
       const opened = buildWithHits('alpha', hits, ['a'])
-      const conversations = opened.rows.filter((row) => row.kind === 'conversation')
-      expect(conversations.map((row) => row.meta.sessionId)).toEqual(['b1'])
-      // The hit names the task it belongs to, so the row can say so.
-      expect(conversations[0]).toMatchObject({ task: { id: 'b' } })
-      // Folded away, the same session is off screen, so its hit is listed.
-      const folded = buildWithHits('alpha', hits)
-      expect(
-        folded.rows.filter((row) => row.kind === 'conversation').map((row) => row.meta.sessionId),
-      ).toEqual(['a1', 'b1'])
+      expect(opened.rows.map((row) => row.kind)).toEqual([
+        'header', 'task', 'session', 'session', 'header', 'session',
+      ])
+    })
+
+    test('under recency, name hits and word hits share one order: newest first by the date each row shows', () => {
+      const dated = {
+        a: [{ ...child('a1', 'first pass'), lastActivityAt: 300 }],
+        b: [{ ...child('b1', 'beta run'), lastActivityAt: 100 }],
+      }
+      const { entries } = buildPickerRows({
+        tasks,
+        query: 'pass',
+        sort: 'recency',
+        sessionsFor: (item) => dated[item.id as 'a' | 'b'] ?? [],
+        expandedTaskIds: new Set(),
+        conversations: [hit('orphan', 'a pass elsewhere', 200), hit('b1', 'pass in beta', 400)],
+      })
+      expect(entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.meta.sessionId))
+        .toEqual(['b1', 'a1', 'orphan'])
+    })
+
+    test("a hit in a session of a task the scope removed stays out, whatever the host said", () => {
+      // WHY: the scope promised only this project's work; a session row for
+      // a task the scope hid would contradict the hidden count beside it.
+      const { rows, hiddenTaskCount } = buildWithHits('beta', [hit('b1', 'beta said')], [], 'elsewhere')
+      expect(rows).toEqual([])
+      expect(hiddenTaskCount).toBe(1)
     })
 
     test('a stale hit list is ignored once the query is cleared', () => {
-      const { rows, conversationCount } = buildWithHits('', [hit('orphan', 'left over')])
+      const { rows, sessionCount } = buildWithHits('', [hit('orphan', 'left over')])
       expect(rows.some((row) => row.kind === 'conversation')).toBe(false)
-      expect(conversationCount).toBe(0)
+      expect(sessionCount).toBe(3)
     })
 
     test('a conversation row has no parent to collapse into', () => {
       const { entries } = buildWithHits('alpha', [hit('orphan', 'alpha')])
       expect(collapseTarget(entries, entries.length - 1)).toBeNull()
       expect(expandTarget(entries.at(-1))).toBeNull()
+    })
+
+    test('the preview opens on the hit only for rows found by their words, on a known host', () => {
+      const { entries } = buildWithHits('said', [hit('orphan', 'said', 1), hit('b1', 'said', 5)])
+      expect(entries.map((entry) => previewHitTarget(entry))).toEqual([
+        { serverId: 'local', sessionId: 'b1', messageId: 7 },
+        { serverId: 'local', sessionId: 'orphan', messageId: 7 },
+      ])
+      // A name hit has no passage to open on, and a hit with no host has nowhere to ask.
+      const [byName] = build(tasks, sessions, 'first pass').entries
+      expect(previewHitTarget(byName)).toBeNull()
+      const unstamped = buildWithHits('alpha', [hit('orphan', 'alpha', 0, '')]).entries.at(-1)!
+      expect(previewHitTarget(unstamped)).toBeNull()
     })
   })
 

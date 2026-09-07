@@ -26,7 +26,9 @@
    * ("Resume") without knowing which it is under.
    */
   interface Props {
-    task: Task;
+    /** Null for a session no task claims: the bar then has only its leaving
+     *  actions, and nothing to edit. */
+    task: Task | null;
     /** Where the dropdowns portal, so they paint above the picker's scrim. */
     portalTarget: HTMLElement | null;
     /** What ⏎ does. */
@@ -53,11 +55,10 @@
   const session = getWorkspaceContext();
   const sidebarStore = getSessionSidebarStore();
 
-  const status = $derived(STATUS_META[task.status]);
-  const isSnoozed = $derived(sidebarStore.snoozedTasks.some((row) => row.taskId === task.id));
+  const isSnoozed = $derived(!!task && sidebarStore.snoozedTasks.some((row) => row.taskId === task.id));
   const menuPortalProps = $derived({ to: portalTarget ?? undefined });
 
-  async function setStatus(next: TaskStatus): Promise<void> {
+  async function setStatus(task: Task, next: TaskStatus): Promise<void> {
     try {
       await session.tasksStore.get(task.id, task.projectKey ?? undefined).setStatus(next);
     } catch (error) {
@@ -71,7 +72,8 @@
 <!-- Desktop reads left to right: edit the row, then leave it. A thumb gets the
      leaving buttons first at 50px, and the edits as chips on a second line. -->
 <div class="flex flex-wrap items-center gap-1.5 max-md:gap-[9px]">
-  {#if showTaskControls}
+  {#if showTaskControls && task}
+    {@const status = STATUS_META[task.status]}
     <DropdownMenu.Root>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
@@ -89,7 +91,7 @@
     </DropdownMenu.Trigger>
     <DropdownMenu.Content side="top" align="start" sideOffset={6} class="min-w-40" portalProps={menuPortalProps}>
       {#each TASK_STATUSES as option (option)}
-        <DropdownMenu.Item onSelect={() => void setStatus(option)}>
+        <DropdownMenu.Item onSelect={() => void setStatus(task, option)}>
           <TaskStatusGlyph status={option} size={13} />
           {STATUS_META[option].label}
         </DropdownMenu.Item>

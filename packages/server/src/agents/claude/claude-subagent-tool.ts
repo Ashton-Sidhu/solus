@@ -78,7 +78,6 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
           ...Object.values(solusToolbox.browser),
           ...Object.values(solusToolbox.sessions),
           ...Object.values(solusToolbox.tasks),
-          ...Object.values(solusToolbox.prs),
         ],
         model,
         reasoningEffort,

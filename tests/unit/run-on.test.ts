@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Session } from '@solus/contracts/types'
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import {
+  hostsToRunOn,
   isRunOnHostLocked,
   isNewWorktreeStartSelected,
   projectHostId,
@@ -95,6 +96,31 @@ describe('run-on picker visibility', () => {
     expect(
       shouldShowRunOnPicker(visibility({ variant: 'chip', onRemoteHost: false, selectedHostId: 'studio-forgotten' })),
     ).toBe(true)
+  })
+})
+
+describe('the hosts offered as "another host"', () => {
+  const local = { id: LOCAL_SERVER_ID, local: true }
+  const studio = { id: 'studio', local: false }
+  const mini = { id: 'mini', local: false }
+
+  test('a web client never offers the host it is already connected to', () => {
+    // WHY: the bug. On web nothing is flagged local — the connected host is an
+    // ordinary remote row — so "Start in" named it and this group listed it
+    // again, showing one machine twice with the check on the duplicate.
+    expect(hostsToRunOn([mini, studio], 'mini')).toEqual([studio])
+  })
+
+  test('desktop still drops its local host and keeps every remote', () => {
+    // WHY: the run sits on LOCAL_SERVER_ID there, so excluding the run's host
+    // must not start dropping the remotes that are the point of the group.
+    expect(hostsToRunOn([local, studio, mini], LOCAL_SERVER_ID)).toEqual([studio, mini])
+  })
+
+  test('a run dispatched to a remote offers the hosts it is not on', () => {
+    // WHY: a dispatched run's own host is the checked "Start in" row, so it is
+    // the duplicate — but its home host is a real destination to return to.
+    expect(hostsToRunOn([local, studio, mini], 'studio')).toEqual([mini])
   })
 })
 

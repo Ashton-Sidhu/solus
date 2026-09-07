@@ -48,7 +48,11 @@ runs in is `browserProfilePartition(projectRoot, profileId)`.
   created; swapping it under a live `<webview>` means destroying the element and
   reloading. The way to another identity is to open the same address again as
   that profile — which is also the only way to have both signed in at once, and
-  is the case named profiles exist for.
+  is the case named profiles exist for. Before a page exists, the picker shows
+  the same chip for the session's project and a chosen row names the identity
+  the next page takes. The choice is sent only for a target in that project:
+  ids are minted per project, so a foreign one is exactly what `profileForOpen`
+  refuses, and any other target takes its own project's default.
 - **Deleting a profile is refused while a page is open on it.** A profile is a
   login obtained by hand; losing one to a mis-click on a list, with the page
   still showing the signed-in app, is the accident this prevents. The jar is

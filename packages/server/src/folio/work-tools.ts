@@ -65,20 +65,18 @@ export interface WorkToolDeps {
 
 // ─── Schemas (raw zod shapes, reused by every shape we export) ───
 
-const listWorksFields = {} as const
-
 const readWorkFields = {
-  work_id: z.string().describe('The id of the work to read (from list_works).'),
+  work_id: z.string().describe('The id of the work to read (from find_works).'),
 }
 
-const searchWorksFields = {
-  query: z.string().describe('Full-text query to match against work titles and content.'),
-  type: z.enum(['doc', 'slides', 'diagram', 'artifact', 'any']).default('any').describe("Restrict to one kind of work. Defaults to 'any'."),
-  limit: z.number().int().min(1).max(20).default(10).describe('Maximum results to return. Defaults to 10.'),
+const findWorksFields = {
+  query: z.string().optional().describe('Full-text query to match against work titles and content. Omit it to list every open work.'),
+  type: z.enum(['doc', 'slides', 'diagram', 'artifact', 'any']).default('any').describe("Restrict a search to one kind of work. Defaults to 'any'; ignored when listing."),
+  limit: z.number().int().min(1).max(20).default(10).describe('Maximum search results to return. Defaults to 10; ignored when listing.'),
 }
 
 const updateWorkFields = {
-  work_id: z.string().describe('The id of the work to update (from list_works).'),
+  work_id: z.string().describe('The id of the work to update (from find_works).'),
   content: z.string().describe('The full new content of the work. Replaces the existing content entirely.'),
   title: z.string().optional().describe('Optional new title for the work.'),
 }
@@ -98,10 +96,8 @@ const DIAGRAM_GUIDANCE = [
   'Before authoring or editing a diagram, load the `diagrams` skill — it owns the full node/edge contract, icons, data-model entities (typed fields + keys), relationship cardinality, groups, drill-down details, embedding workflow, and worked examples.',
 ].join('\n')
 
-const LIST_DESC =
-  'List the works (documents, slide decks, architecture diagrams, HTML artifacts) the user has open in Solus, with their id, title, type and last-updated time. Call this first to discover a work_id before reading or updating.'
-const SEARCH_DESC =
-  "Full-text search over the user's works (documents, slide decks, diagrams, HTML artifacts) by title AND content. Reach for this WHENEVER the user refers to an artifact that already exists — 'that doc', 'the deck about X', 'the diagram we drew', 'update the spec' — instead of guessing from list_works titles, which carry no content. Put the topic in `query`. Each result carries the work's id; take that id and call read_work to load the full content before you revise it with update_work."
+const FIND_DESC =
+  "Find the user's works — documents, slide decks, architecture diagrams, HTML artifacts. Pass `query` to search titles AND content: reach for this WHENEVER the user refers to an artifact that already exists — 'that doc', 'the deck about X', 'the diagram we drew', 'update the spec' — rather than answering from memory. Omit `query` to list every work open in Solus with its id, title, type and last-updated time. Either way each result carries the work's id; take that id and call read_work to load the full content before you revise it with update_work."
 const READ_DESC =
   'Read the full current content of a work by id, including any edits the user made manually. Always call this before update_work so you revise the latest version.'
 const CREATE_DESC = [
@@ -111,7 +107,7 @@ const CREATE_DESC = [
   'Reach for this only for durable artifacts worth keeping — NOT for routine answers, reviews, analyses, comparisons, or plans, which belong inline in the conversation. When in doubt, answer inline. A work is never authored as a fenced code block in your reply; the content arg is the deliverable.',
   '',
   'When a durable document or plan needs an architecture, system, data-flow, or ER view, create the diagram work FIRST and embed the token this tool returns on its own line in the document. Do that only when relationships are central to understanding the content; prose is enough for routine plans.',
-  'To embed an existing diagram or artifact, put this exact markdown link on a line of its own: [<title>](work://embed?workId=<work_id>&type=<diagram|artifact>). list_works and read_work print the ready-made token for each embeddable work; paste it rather than writing the URL by hand. A standalone work://embed link in existing content is a live embed — preserve it unless the user asks to remove or replace it. A fenced ```html block in a document is a live render too, and is likewise not stale text.',
+  'To embed an existing diagram or artifact, put this exact markdown link on a line of its own: [<title>](work://embed?workId=<work_id>&type=<diagram|artifact>). find_works and read_work print the ready-made token for each embeddable work; paste it rather than writing the URL by hand. A standalone work://embed link in existing content is a live embed — preserve it unless the user asks to remove or replace it. A fenced ```html block in a document is a live render too, and is likewise not stale text.',
   '',
   DIAGRAM_GUIDANCE,
 ].join('\n')
@@ -222,28 +218,29 @@ export async function executeWorkTool(
   deps: WorkToolDeps = {},
 ): Promise<WorkToolResult> {
   try {
-    if (name === 'list_works') {
-      const works = await listWorks(deps.ctx?.cwd)
-      // A dispatched session's linked works live on the task's host; the
-      // shipped copies are the only view of them this host has.
-      const foreignWorks = foreignLinkedItemsFor(deps.ctx?.solusSessionId).filter((item) => item.kind === 'work')
-      if (works.length === 0 && foreignWorks.length === 0) {
-        return { ok: true, text: 'No works are currently open.' }
-      }
-      const lines = [
-        ...works.map(
-          (w) => `- ${w.id} — "${w.title}" (${w.type}, ${w.storage?.kind ?? 'local'}), updated ${w.updatedAt}${embedTokenNote(w.id, w.title, w.type)}`,
-        ),
-        ...foreignWorks.map(
-          (w) => `- ${w.key} — "${w.title}" (${w.workType ?? 'doc'}, shipped from the task's host, read-only), updated ${w.updatedAt ?? 'unknown'}`,
-        ),
-      ]
-      return { ok: true, text: `Open works:\n${lines.join('\n')}` }
-    }
-
-    if (name === 'search_works') {
+    if (name === 'find_works') {
       const query = args.query?.trim() ?? ''
-      if (!query) return { ok: false, text: 'search_works requires a non-empty query.' }
+      // No query is the list: every open work, titles only. A query searches
+      // content too, which is the only way to answer "that doc about X".
+      if (!query) {
+        const works = await listWorks(deps.ctx?.cwd)
+        // A dispatched session's linked works live on the task's host; the
+        // shipped copies are the only view of them this host has.
+        const foreignWorks = foreignLinkedItemsFor(deps.ctx?.solusSessionId).filter((item) => item.kind === 'work')
+        if (works.length === 0 && foreignWorks.length === 0) {
+          return { ok: true, text: 'No works are currently open.' }
+        }
+        const lines = [
+          ...works.map(
+            (w) => `- ${w.id} — "${w.title}" (${w.type}, ${w.storage?.kind ?? 'local'}), updated ${w.updatedAt}${embedTokenNote(w.id, w.title, w.type)}`,
+          ),
+          ...foreignWorks.map(
+            (w) => `- ${w.key} — "${w.title}" (${w.workType ?? 'doc'}, shipped from the task's host, read-only), updated ${w.updatedAt ?? 'unknown'}`,
+          ),
+        ]
+        return { ok: true, text: `Open works:\n${lines.join('\n')}` }
+      }
+
       const rawType = args.type ?? 'any'
       const type = rawType === 'any' ? undefined : rawType
       const limit = args.limit === undefined ? 10 : Math.min(20, Math.max(1, Math.floor(args.limit)))
@@ -445,8 +442,7 @@ function workAgentTool(
   }
 }
 
-export const listWorksAgentTool = workAgentTool('list_works', LIST_DESC, listWorksFields, false)
-export const searchWorksAgentTool = workAgentTool('search_works', SEARCH_DESC, searchWorksFields, false)
+export const findWorksAgentTool = workAgentTool('find_works', FIND_DESC, findWorksFields, false)
 export const readWorkAgentTool = workAgentTool('read_work', READ_DESC, readWorkFields, false)
 // Both descriptions carry rules the agent needs before it decides to call
 // anything: when a work is the wrong shape, and that an embed line or an html
@@ -455,8 +451,7 @@ export const createWorkAgentTool = workAgentTool('create_work', CREATE_DESC, cre
 export const updateWorkAgentTool = workAgentTool('update_work', UPDATE_DESC, updateWorkFields, true, true)
 
 export const workAgentTools: AgentTool[] = [
-  listWorksAgentTool,
-  searchWorksAgentTool,
+  findWorksAgentTool,
   readWorkAgentTool,
   createWorkAgentTool,
   updateWorkAgentTool,

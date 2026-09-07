@@ -29,8 +29,8 @@ export function buildPrCommentsFixPrompt(
 
   return `Address all actionable review feedback for PR #${pr.number}: ${pr.title} in this worktree.
 
-1. Call read_pr for PR #${pr.number} and review its top-level conversation for actionable feedback.
-2. Call list_pr_threads for PR #${pr.number} and inspect every unresolved inline thread.
+1. Run \`gh pr view ${pr.number} --comments\` and review the top-level conversation for actionable feedback.
+2. Run \`gh api repos/{owner}/{repo}/pulls/${pr.number}/comments\` and inspect every unresolved inline thread.
 3. Verify each request against the current code. Implement the appropriate fixes, including related edge cases.
 4. Run the relevant tests and checks.
 5. Commit the completed changes.
@@ -67,7 +67,7 @@ export function buildPrChecksFixPrompt(
     : `Fix the failing checks for ${title} in this worktree.`
   const report = reported.length > 0
     ? `Reported results:\n${reported.join('\n')}`
-    : `The code host reports failing status checks on the current head. Call read_pr for PR #${pr.number} to find them.`
+    : `The code host reports failing status checks on the current head. Run \`gh pr checks ${pr.number}\` to find them.`
 
   return `${heading}
 

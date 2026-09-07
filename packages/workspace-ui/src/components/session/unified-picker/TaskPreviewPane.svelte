@@ -19,7 +19,7 @@
     TaskPreviewDetails,
   } from "../lib/task-preview.svelte";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
-  import { highlightRuns, type TextRun } from "../../../lib/searchHighlight";
+  import { highlightWordRuns, type TextRun } from "../../../lib/searchHighlight";
   import { projectLabel } from "./lib/picker-rows";
 
   /**
@@ -134,9 +134,9 @@
       <span>opened {openedAt}</span>
     {/if}
   </div>
-  <h3 class="mb-2.5 text-[1.1875rem] leading-[1.3] font-semibold tracking-[-0.014em] text-pretty text-foreground max-md:mb-2">{@render marked(highlightRuns(task.title, query))}</h3>
+  <h3 class="mb-2.5 text-[1.1875rem] leading-[1.3] font-semibold tracking-[-0.014em] text-pretty text-foreground max-md:mb-2">{@render marked(highlightWordRuns(task.title, query))}</h3>
   {#if task.body}
-    <p class="mb-5 whitespace-pre-wrap text-workspace-chrome leading-[1.7] text-pretty text-muted-foreground max-md:mb-[18px]">{@render marked(highlightRuns(task.body, query))}</p>
+    <p class="mb-5 whitespace-pre-wrap text-workspace-chrome leading-[1.7] text-pretty text-muted-foreground max-md:mb-[18px]">{@render marked(highlightWordRuns(task.body, query))}</p>
   {:else}
     <p class="mb-5 text-workspace-chrome leading-[1.7] text-muted-foreground opacity-70 max-md:mb-[18px]">No task description.</p>
   {/if}

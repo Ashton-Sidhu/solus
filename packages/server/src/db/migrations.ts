@@ -287,7 +287,7 @@ ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT;
 ALTER TABLE sessions ADD COLUMN project_root TEXT;
 CREATE INDEX sessions_by_project_root ON sessions(project_root, last_timestamp DESC);
 `,
-  // Full-text index over locally-stored works, for search_works. Standalone
+  // Full-text index over locally-stored works, for find_works. Standalone
   // (not content='works') on purpose: works.id is a TEXT primary key, so the
   // works rowid is implicit and not guaranteed stable — keying on work_id avoids
   // that coupling. Works are few and small, so the duplicated text costs little.

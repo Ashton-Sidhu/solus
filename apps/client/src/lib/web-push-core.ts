@@ -57,3 +57,25 @@ export async function fanOutPushHosts<T>(
   }
   return { fulfilled, rejected }
 }
+
+/** Serializes browser subscription changes and folds event bursts into one pass. */
+export class PushReconciler {
+  private pending: Promise<void> | null = null
+  private requested = false
+
+  constructor(private readonly reconcile: () => Promise<void>) {}
+
+  request(): Promise<void> {
+    this.requested = true
+    if (this.pending) return this.pending
+    this.pending = Promise.resolve().then(async () => {
+      do {
+        this.requested = false
+        await this.reconcile()
+      } while (this.requested)
+    }).finally(() => {
+      this.pending = null
+    })
+    return this.pending
+  }
+}

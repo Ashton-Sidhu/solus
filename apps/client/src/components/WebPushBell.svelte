@@ -27,7 +27,7 @@
     } catch (error) {
       toasts.error(error instanceof Error ? error.message : "Notifications could not be updated");
     }
-    if (webPushState.permission === "denied") {
+    if (Notification.permission === "denied") {
       toasts.error("Notifications are blocked in your browser settings");
     }
   }
@@ -46,7 +46,7 @@
         {#if webPushState.busy}
           <SpinnerIcon size={14} class="animate-spin" />
         {:else if webPushState.subscribed}
-          <BellIcon size={14} weight="fill" />
+          <BellIcon size={14} fill="currentColor" />
         {:else}
           <BellSlashIcon size={14} />
         {/if}
@@ -74,7 +74,7 @@
       {#if webPushState.busy}
         <SpinnerIcon size={14} class="animate-spin" />
       {:else if webPushState.subscribed}
-        <BellIcon size={14} weight="fill" />
+        <BellIcon size={14} fill="currentColor" />
       {:else}
         <BellSlashIcon size={14} />
       {/if}

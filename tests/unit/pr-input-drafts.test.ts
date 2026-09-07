@@ -33,8 +33,8 @@ describe('PR input drafts', () => {
     expect(prompt).toContain('The retry loop needs a terminal condition.')
     expect(prompt).toContain('src/retry.ts:10-14 (RIGHT)')
     expect(prompt).toContain('Return the last error once the budget is exhausted.')
-    expect(prompt).toContain('Call read_pr for PR #42')
-    expect(prompt).toContain('Call list_pr_threads for PR #42')
+    expect(prompt).toContain('gh pr view 42 --comments')
+    expect(prompt).toContain('gh api repos/{owner}/{repo}/pulls/42/comments')
     expect(prompt).toContain('Commit the completed changes.')
     expect(prompt).toContain('Do NOT push, reply to, or resolve PR threads')
   })
@@ -43,8 +43,8 @@ describe('PR input drafts', () => {
     const prompt = buildPrCommentsFixPrompt({ number: 7, title: 'Tighten validation' })
 
     expect(prompt).toContain('Address all actionable review feedback for PR #7')
-    expect(prompt).toContain('Call read_pr for PR #7')
-    expect(prompt).toContain('Call list_pr_threads for PR #7')
+    expect(prompt).toContain('gh pr view 7 --comments')
+    expect(prompt).toContain('gh api repos/{owner}/{repo}/pulls/7/comments')
     expect(prompt).not.toContain('Feedback that triggered this run')
   })
 
@@ -80,7 +80,7 @@ describe('PR input drafts', () => {
     expect(many).toContain('- `unit`: timed_out')
 
     const unknown = buildPrChecksFixPrompt({ number: 19, title: 'Keep CI focused' }, [])
-    expect(unknown).toContain('Call read_pr for PR #19 to find them')
+    expect(unknown).toContain('gh pr checks 19')
   })
 
   test('builds a local branch update that leaves publishing to the reviewer', () => {

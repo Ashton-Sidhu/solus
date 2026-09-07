@@ -109,7 +109,7 @@ ownership: the previous owner's attempt row is removed and recorded as an
 unlink, and a session-born placeholder left with nothing in it — no other
 session, no subtask, no comment, no link — is deleted. The rule lives in the
 link write, so it holds for the client's first-dispatch bind, the agent's
-`link_task_session`, an automation, and an older build alike. A `referenced`
+`link_task` with kind=session, an automation, and an older build alike. A `referenced`
 link is a relationship, not ownership: it appears on the task page and projects
 a sidebar row only where the user opened that task.
 

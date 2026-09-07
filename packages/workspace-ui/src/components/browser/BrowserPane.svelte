@@ -9,7 +9,10 @@
     BrowserTarget,
     BrowserViewportRequest,
   } from "@solus/contracts/browser-types";
-  import { browserProfilePartition } from "@solus/contracts/browser-types";
+  import {
+    BROWSER_DEFAULT_PROFILE_ID,
+    browserProfilePartition,
+  } from "@solus/contracts/browser-types";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { getWorkspaceContext } from "../../contexts";
@@ -23,7 +26,7 @@
   import BrowserCommentPopup from "./BrowserCommentPopup.svelte";
   import BrowserCaptureButton from "./BrowserCaptureButton.svelte";
   import BrowserProfileChip from "./BrowserProfileChip.svelte";
-  import { projectRootOf } from "./lib/profiles";
+  import { openRequestFor, projectRootOf } from "./lib/profiles";
   import {
     createAnnotationAttachment,
     mergeAnnotationAttachment,
@@ -80,17 +83,24 @@
   const pageGroups = $derived(groupPagesByBranch(pages));
   const targets = $derived(browserStore.targetsFor(serverId));
 
-  /** The identities this page's project has, mirrored from the page's own host. */
-  const projectRoot = $derived(entry ? projectRootOf(entry.page) : undefined);
-  const profileSet = $derived(
-    entry ? browserStore.profilesFor(entry.serverId, projectRoot) : null,
+  /**
+   * The project whose identities the pane offers: the open page's, or — before
+   * any page exists — the session's own, which is where a typed address lands.
+   */
+  const projectRoot = $derived(
+    entry ? projectRootOf(entry.page) : session.activeRun?.gitContext?.repoRoot,
   );
+  const profileHostId = $derived(entry?.serverId ?? serverId);
+  const profileSet = $derived(
+    browserStore.profilesFor(profileHostId, projectRoot),
+  );
+  /** The identity the next page from the picker opens as; `null` is the
+   *  project's default. Ephemeral and only this pane's business. */
+  let nextProfileId = $state<string | null>(null);
 
   $effect(() => {
-    const current = entry;
-    if (!current) return;
     void browserStore
-      .loadProfiles(current.serverId, projectRootOf(current.page))
+      .loadProfiles(profileHostId, projectRoot)
       .catch(failed("Couldn't load the browser profiles"));
   });
 
@@ -249,7 +259,7 @@
     isOpeningTarget = true;
     openingUrl = target.kind === "url" ? target.url : null;
     void browserStore
-      .open(serverId, { target })
+      .open(serverId, openRequestFor(target, projectRoot, nextProfileId))
       .then((key) => {
         // The page and active key now exist, but the native guest has not painted
         // yet. The effect above mounts it offscreen and owns the final handoff.
@@ -271,8 +281,12 @@
     openBrowser(target);
   }
 
+  /** A typed address belongs to the session's project: that is the jar the
+   *  picker's profile chip described, so it is the jar the page must land in. */
   function openUrl(url: string) {
-    openBrowser({ kind: "url", url });
+    const target: BrowserTarget = { kind: "url", url };
+    if (projectRoot) target.projectRoot = projectRoot;
+    openBrowser(target);
   }
 
   /** One route for every size: the picker, the numbers, a dragged edge, and a
@@ -836,7 +850,8 @@
         <BrowserProfileChip
           set={profileSet}
           selectedId={entry.page.profileId}
-          onOpenAs={openAsProfile}
+          selection="page"
+          onSelect={openAsProfile}
           serverId={entry.serverId}
           {projectRoot}
         />
@@ -928,7 +943,20 @@
       onCancel={entry && (!isOpeningTarget || hadPageBeforeOpen)
         ? () => (choosingTarget = false)
         : undefined}
-    />
+    >
+      {#snippet profile()}
+        <BrowserProfileChip
+          set={profileSet}
+          selectedId={nextProfileId ??
+            profileSet?.defaultProfileId ??
+            BROWSER_DEFAULT_PROFILE_ID}
+          selection="next"
+          onSelect={(profileId) => (nextProfileId = profileId)}
+          serverId={profileHostId}
+          {projectRoot}
+        />
+      {/snippet}
+    </BrowserTargetPicker>
   {/if}
 
   <!-- Over the whole pane rather than anchored to the chip that raised it: the

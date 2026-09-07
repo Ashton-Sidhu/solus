@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   let open = $state(false)
 
   function close(): void {
@@ -14,7 +15,7 @@
     if (event.key === 'Escape') close()
   }
 
-  $effect(() => {
+  onMount(() => {
     const show = () => { open = true }
     window.addEventListener('demo:show-cta', show)
     return () => window.removeEventListener('demo:show-cta', show)

@@ -103,7 +103,8 @@ export function formatTaskLink(link: TaskLink): string {
     case 'plan':
       return `plan ${link.targetScope}__${link.targetKey} — "${title}"${status} (read_plan with session_id "${link.targetScope}")`
     case 'pr':
-      return `PR #${link.targetKey} — "${title}"${link.url ? ` — ${link.url}` : ''} (read_pr)`
+      // No Solus tool reads a pull request; the code host's own CLI does.
+      return `PR #${link.targetKey} — "${title}"${link.url ? ` — ${link.url}` : ''} (gh pr view ${link.targetKey})`
     case 'automation':
       return `automation ${link.targetKey} — "${title}"${status} (read_automation)`
   }

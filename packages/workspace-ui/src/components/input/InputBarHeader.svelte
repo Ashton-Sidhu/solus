@@ -1,5 +1,8 @@
 <script lang="ts">
-  import { GitBranch as GitBranchIcon, GitFork as GitForkIcon } from "@lucide/svelte";
+  import {
+    GitBranch as GitBranchIcon,
+    GitFork as GitForkIcon,
+  } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
   import {
     getWorkspaceContext,
@@ -76,9 +79,7 @@
   const focusTarget = $derived(sess ? { tabId: source } : undefined);
 
   const projectDir = $derived(
-    run?.workingDirectory ??
-      session.globalDefaults.workingDirectory ??
-      "~",
+    run?.workingDirectory ?? session.globalDefaults.workingDirectory ?? "~",
   );
   // Tasks belong to a project. The directory picker updates a draft outside
   // this component, so observe the run rather than only the project-chip click.
@@ -119,12 +120,16 @@
       : null,
   );
   const selectedDispatchWorktree = $derived(pendingDispatch?.worktree ?? null);
-  const selectedDispatchBaseBranch = $derived(pendingDispatch?.baseBranch ?? null);
+  const selectedDispatchBaseBranch = $derived(
+    pendingDispatch?.baseBranch ?? null,
+  );
   const displayBranch = $derived(
-    selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? "New worktree" : env.branch ?? env.name),
+    selectedDispatchWorktree?.branch ??
+      selectedDispatchBaseBranch ??
+      (pendingDispatch ? "New worktree" : (env.branch ?? env.name)),
   );
   const branchLabel = $derived(
-    pendingDispatch ? displayBranch : (env.pending ? env.name : displayBranch),
+    pendingDispatch ? displayBranch : env.pending ? env.name : displayBranch,
   );
   const displayBranchLabel = $derived(
     selectedDispatchWorktree || env.isolated
@@ -135,18 +140,16 @@
     selectedDispatchWorktree
       ? `Works in ${worktreeDisplayName(selectedDispatchWorktree.branch)} on the selected host`
       : selectedDispatchBaseBranch
-      ? `Creates a new worktree from ${selectedDispatchBaseBranch} on the selected host`
-      : pendingDispatch
-      ? "Creates a new worktree on the selected host"
-      : startsNewWorktree
-      ? `Branches into its own worktree from ${gitHome.baseBranch}`
-      : `Working in ${displayBranch} directly`,
+        ? `Creates a new worktree from ${selectedDispatchBaseBranch} on the selected host`
+        : pendingDispatch
+          ? "Creates a new worktree on the selected host"
+          : startsNewWorktree
+            ? `Branches into its own worktree from ${gitHome.baseBranch}`
+            : `Working in ${displayBranch} directly`,
   );
 
   const worktreePath = $derived(
-    run?.gitContext?.worktreePath ??
-      defaultGitContext?.worktreePath ??
-      null,
+    run?.gitContext?.worktreePath ?? defaultGitContext?.worktreePath ?? null,
   );
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
   const git = $derived(environmentStore.statusFor(gitStatusCwd));
@@ -237,7 +240,9 @@
       // this composer's destination. Keep the stable project root and record
       // the selected checkout locally so the picker can change its mind again
       // without restoring or resetting a provider session between choices.
-      applyRun(withSelectedWorktree(run, projectRoot, worktree, env.targetBranch));
+      applyRun(
+        withSelectedWorktree(run, projectRoot, worktree, env.targetBranch),
+      );
     } else {
       // Retain the controller fallback for an incomplete restored run. Honour
       // this header's source so a split pane cannot move the primary chat.
@@ -267,7 +272,10 @@
     if (draft && !projectHostIsLocal) {
       applyRun(
         withCheckout(
-          withPendingHost(draft.run, { serverId: projectHost, intent: "open-project" }),
+          withPendingHost(draft.run, {
+            serverId: projectHost,
+            intent: "open-project",
+          }),
           path,
           null,
         ),
@@ -389,23 +397,23 @@
             aria-haspopup="menu"
             aria-expanded={gitOpen}
             class="group relative h-auto min-w-0 shrink gap-1.5 rounded-lg px-2 py-1 text-workspace-chrome font-normal transition-[background-color,color,scale] duration-[var(--duration-quick)] ease-(--ease-premium) active:scale-[0.96] focus-visible:outline-none focus-visible:ring-0 after:absolute after:left-0 after:top-1/2 after:h-10 after:w-full after:-translate-y-1/2 after:content-[''] {gitOpen
- ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
- : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
+              ? 'bg-(--solus-surface-hover) text-(--solus-text-primary)'
+              : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
             style="max-width:12rem"
           >
             {#if pendingDispatch}
               <GitForkIcon
                 size={14}
                 class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {gitOpen
- ? 'opacity-100'
- : 'opacity-70'}"
+                  ? 'opacity-100'
+                  : 'opacity-70'}"
               />
             {:else}
               <GitBranchIcon
                 size={14}
                 class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {gitOpen
- ? 'opacity-100'
- : 'opacity-70'}"
+                  ? 'opacity-100'
+                  : 'opacity-70'}"
               />
             {/if}
             <span class="truncate">{displayBranchLabel}</span>
@@ -432,7 +440,10 @@
     initialView={gitInitialView}
     triggerEl={gitTriggerEl}
     {displayBranch}
-    selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? worktreeBaseBranch ?? displayBranch}
+    selectedBranch={selectedDispatchWorktree?.branch ??
+      selectedDispatchBaseBranch ??
+      worktreeBaseBranch ??
+      displayBranch}
     workingDirectory={gitStatusCwd}
     {run}
     onSelectBranch={selectBranch}

@@ -16,7 +16,10 @@ type EvidenceIcon = typeof Camera
 
 export interface EvidenceChoice {
   id: string
+  /** What the row says. The kind of destination is the glyph's job, so the
+   *  label is the thing itself — the branch's pull request, the task's title. */
   label: string
+  /** Trailing, in the tertiary tone: the fact that tells two rows apart. */
   detail?: string
   /** The glyph that says at a glance what kind of destination this is. */
   icon: EvidenceIcon
@@ -44,13 +47,13 @@ export function evidenceChoices(
   // stale, so it is the reliable default the eye lands on first. The filing
   // destinations follow it.
   const choices: EvidenceChoice[] = [
-    { id: 'store', label: 'Capture only', detail: 'Keeps the image without filing it', icon: Camera },
+    { id: 'store', label: 'Capture only', icon: Camera },
   ]
   const checkout = options.worktreePath ?? cwd
   if (options.pullRequest && checkout) {
     choices.push({
       id: `pr-${options.pullRequest.number}`,
-      label: `Attach to pull request #${options.pullRequest.number}`,
+      label: `Pull request #${options.pullRequest.number}`,
       detail: options.branch,
       icon: GitPullRequest,
       target: { kind: 'pr', number: options.pullRequest.number, cwd: checkout },
@@ -59,7 +62,7 @@ export function evidenceChoices(
   for (const task of attachableTasks(tasks, options.worktreePath)) {
     choices.push({
       id: `task-${task.id}`,
-      label: `Attach to ${task.title}`,
+      label: task.title,
       detail: task.status.replace('_', ' '),
       icon: ListChecks,
       target: { kind: 'task', taskId: task.id },

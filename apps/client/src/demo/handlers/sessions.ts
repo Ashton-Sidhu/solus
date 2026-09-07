@@ -44,6 +44,7 @@ export function registerSessionsHandlers(backend: DemoServer, store: DemoStore):
   backend.register('loadSessionMessageWindow', (args) =>
     store.loadSessionMessageWindow(arg<SessionMessageWindowRequest>(args, 0)))
   backend.register('getSessionInfo', (args) => store.getSessionInfo(arg<string>(args, 0)))
+  backend.register('describeSession', (args) => ({ lineage: null, meta: store.getSessionInfo(arg<string>(args, 1)) }))
   backend.register('getSessionInfos', (args) => arg<string[]>(args, 0).map((sessionId) => store.getSessionInfo(sessionId)))
   backend.register('pinnedSessionsList', () => store.listPinnedSessions())
   backend.register('togglePinnedSession', (args) => store.togglePinnedSession(arg<PinnedSession>(args, 0)))

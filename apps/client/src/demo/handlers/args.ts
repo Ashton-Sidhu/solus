@@ -20,5 +20,5 @@ export function optionalArg<T>(args: unknown[], index: number): T | undefined {
 /** Read the argument at `index` only when the caller passed a string. */
 export function textArg(args: unknown[], index: number): string | null {
   const value = args[index]
-  return Object.prototype.toString.call(value) === '[object String]' ? String(value) : null
+  return typeof value === 'string' ? value : null
 }

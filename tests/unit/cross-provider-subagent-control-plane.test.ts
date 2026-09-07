@@ -65,8 +65,8 @@ describe('cross-provider subagent control-plane dispatch', () => {
     expect(names).not.toContain('run_automation')
     expect(names).not.toContain('claude_subagent')
     expect(names).not.toContain('codex_subagent')
-    expect(names).toContain('list_works')
-    expect(names).toContain('list_sessions')
+    expect(names).toContain('find_works')
+    expect(names).toContain('find_sessions')
   })
 
   test.each([

@@ -201,6 +201,16 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
+  server.register('describeSession', async (args) => {
+    const [provider, providerSessionId] = args
+    try {
+      return await controlPlane.describeSession(provider, providerSessionId)
+    } catch (err) {
+      log.error('describe_session_failed', { error: String(err), provider, providerSessionId })
+      return { lineage: null, meta: null }
+    }
+  })
+
   server.register('generateSessionMetadata', (args) => {
     const [promptText, cwd, context] = args
     return generateSessionMetadata(controlPlane, promptText, cwd, context)

@@ -65,10 +65,6 @@
   const settings = getSettingsContext();
   const pullRequests = getPullRequestsContext();
 
-  // ── The section row ──
-  // Five destinations, the same two signals the home cards carry, and a mark on
-  // the one you are standing in — so opening the drawer from the PR list tells
-  // you where you are rather than only where you could go.
   const sectionSignals: MobileSectionSignals = $derived({
     runningTasks: store.allTasks.filter((task) => task.status === "running").length,
     prsNeedingReview: pullRequests.needsReview.countFor(
@@ -80,19 +76,17 @@
     currentMobileSection(visibleRef(session.router.leadingPane)?.name),
   );
 
-  // The same three shelves the desktop sidebar keeps — active work, deferred
-  // work, finished work — so a task means the same thing on both surfaces. What
-  // changes on a phone is the row: 62px, its state in the sidebar's own glyph on
-  // a tile, and its actions on a swipe rather than in a hover cluster.
   let taskQuery = $state("");
   let taskSearchEl = $state<HTMLInputElement | null>(null);
   const activeTasks = $derived(filterSidebarTasks(store.activeTasks, taskQuery));
   const snoozedTasks = $derived(filterSidebarTasks(store.snoozedTasks, taskQuery));
+  let now = $state(Date.now());
   const completedTasks = $derived(
     filterSidebarTasks(
       completedTasksWithinRetention(
         store.completedTasks,
         settings.sidebarCompletedRetentionDays,
+        now,
       ),
       taskQuery,
     ),
@@ -116,7 +110,6 @@
   );
 
   // One clock for the whole list, so forty rows do not each own a timer.
-  let now = $state(Date.now());
   $effect(() => {
     if (!active) return;
     return liveActivityClock.subscribe((value) => {
@@ -244,11 +237,6 @@
 
 </script>
 
-<!--
-  One task per row, three shelves, and a swipe that reveals the same three
-  actions the desktop row keeps behind hover. Grouping is the sidebar's, not the
-  calendar's: what is being worked on, what was put off, what is finished.
--->
 {#snippet taskRow(task: SidebarTask, shelf: "active" | "snoozed" | "completed")}
   {@const sessions = task.taskId ? store.sessionsFor(task) : []}
   {@const leadTabId = task.tabIds[0]}
@@ -544,13 +532,6 @@
     {/if}
   </div>
 
-  <!--
-    The only navigation surface besides the two home cards, so it carries all
-    five destinations rather than the three it started with. Labels are short
-    because the slot is 62px and a cut label is worse than an abbreviated one;
-    the glyphs are the ones the desktop rail uses, so a destination looks the
-    same on both surfaces.
-  -->
   <footer
     class="flex shrink-0 border-t border-(--hairline) px-1.5 pt-1.5 pb-[max(0.25rem,env(safe-area-inset-bottom,0px))]"
   >
