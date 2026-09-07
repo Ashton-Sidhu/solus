@@ -128,7 +128,7 @@
     "@humanspeak/svelte-markdown@1.8.6": "patches/@humanspeak%2Fsvelte-markdown@1.8.6.patch"
   },
   "overrides": {
-    "fast-uri": "3.1.5",
+    "fast-uri": "3.1.7",
     "prosemirror-model": "1.25.11",
     "qs": "6.15.2",
     "socket.io-parser": "4.2.7"
