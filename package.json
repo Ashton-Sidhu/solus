@@ -107,7 +107,7 @@
     "hast-util-to-html": "^9.0.5",
     "hono": "^4.13.2",
     "html-to-image": "1.11.11",
-    "layerchart": "^2.2.0",
+    "layerchart": "^2.4.0",
     "lowlight": "^3.3.0",
     "marked": "^18.0.9",
     "onnxruntime-node": "^1.27.0",
