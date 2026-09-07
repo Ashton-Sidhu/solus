@@ -120,7 +120,7 @@
     "sql-formatter": "^15.8.2",
     "svelte-tiny-virtual-list": "^3.0.1",
     "web-push": "^3.6.7",
-    "yjs": "^13.6.31",
+    "yjs": "^13.6.32",
     "zod": "^4.4.3"
   },
   "patchedDependencies": {
