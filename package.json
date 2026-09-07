@@ -112,7 +112,7 @@
     "marked": "^18.0.9",
     "onnxruntime-node": "^1.27.0",
     "posthog-js": "^1.417.2",
-    "posthog-node": "^5.49.1",
+    "posthog-node": "^5.51.7",
     "prosemirror-model": "^1.25.11",
     "shiki": "^4.4.3",
     "socket.io": "^4.8.3",
