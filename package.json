@@ -121,7 +121,7 @@
     "svelte-tiny-virtual-list": "^3.0.1",
     "web-push": "^3.6.7",
     "yjs": "^13.6.31",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "patchedDependencies": {
     "@ff-labs/fff-node@0.9.6": "patches/@ff-labs%2Ffff-node@0.9.6.patch",
