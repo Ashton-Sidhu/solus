@@ -11,7 +11,7 @@
   import { cn } from "../../lib/utils";
   import { isStackedPane } from "../../lib/pane-width";
   import { startsWorktree } from "../../contexts/workspace/run-config";
-  import type { Snippet } from "svelte";
+  import { tick, type Snippet } from "svelte";
   import type { PluginCommandsResult } from "@solus/contracts/types";
   import type { SessionDraft } from "../../contexts/workspace/session-draft.svelte";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
@@ -23,6 +23,7 @@
   import InputToolbar from "../input/InputToolbar.svelte";
   import { draftPluginCommandScope } from "./lib/plugin-command-scope";
   import { draftModelSelection } from "./lib/draft-selection";
+  import { focusStartedDraft } from "./lib/focus-started-draft";
 
   let {
     params,
@@ -61,7 +62,7 @@
   // the session's object by then, so those last writes land where they should —
   // holding the draft here only keeps it reachable until this surface unmounts.
   let sent = $state<SessionDraft | null>(null);
-  const draft = $derived(session.sessionDrafts.get(params.draftId) ?? sent);
+  const draft = $derived(sent ?? session.sessionDrafts.get(params.draftId) ?? null);
   // Beside another pane the composer needs the same seam a split chat draws;
   // in the leading pane it is the leftmost surface and draws none.
   const isAside = $derived(paneId !== session.router.leadingPane.id);
@@ -72,6 +73,7 @@
   // a workspace focus request. The picker is the one valid temporary owner;
   // once it closes, the draft takes the caret.
   $effect(() => {
+    if (sent) return;
     const draftId = params.draftId;
     if (
       !surfaceVisible ||
@@ -82,6 +84,7 @@
       return;
     const focusFrame = requestAnimationFrame(() => {
       if (
+        !sent &&
         surfaceVisible &&
         !session.unifiedPickerOpen &&
         params.draftId === draftId &&
@@ -201,7 +204,12 @@
       { name: "chat", params: started ? { sessionId: started.id } : {} },
       { target: paneId },
     );
-    if (isAside) requestInputFocus({ tabId });
+    void focusStartedDraft(
+      tabId,
+      tick(),
+      () => session.focusedChatTabId,
+      requestInputFocus,
+    );
     return session.sendMessage(text, undefined, tabId);
   }
 

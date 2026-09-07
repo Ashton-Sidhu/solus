@@ -8,6 +8,7 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from '
 import { join } from 'path'
 import { z } from 'zod'
 import { createServer as createNodeHttpServer, type IncomingMessage, type Server as HttpServer } from 'http'
+import type { AddressInfo } from 'node:net'
 import { SolusServer } from './server'
 import { buildHttpServer } from './http'
 import { HostGrantVerifier } from './host-grants'
@@ -135,7 +136,9 @@ export const WEB_UI_PORT = parseInt(process.env.SOLUS_PORT ?? '') || DEFAULT_SER
  * A second listener on the same routes, tagged so nothing arriving through it is ever
  * a trusted requester. Override with SOLUS_TUNNEL_PORT.
  */
-export const DEFAULT_TUNNEL_LISTENER_PORT = parseInt(process.env.SOLUS_TUNNEL_PORT ?? '') || 34118
+export const DEFAULT_TUNNEL_LISTENER_PORT = process.env.SOLUS_TEST_MODE === '1'
+  ? 0
+  : parseInt(process.env.SOLUS_TUNNEL_PORT ?? '') || 34118
 const SESSION_INDEX_POLL_MS = 60_000
 const SESSION_INDEX_POLL_JITTER_MS = 5_000
 const SESSION_INDEX_POLL_MAX_BACKOFF_MS = 5 * 60_000
@@ -631,7 +634,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       tunnelHttp.once('listening', onListening)
       tunnelHttp.listen(tunnelListenerPort, '127.0.0.1')
     })
-    tunnelPort = tunnelListenerPort
+    // SAFETY: the listening event above confirms a TCP listener, so address is AddressInfo.
+    tunnelPort = (tunnelHttp.address() as AddressInfo).port
     log.info('tunnel_listener_bound', { port: tunnelPort })
   } catch (err) {
     log.error('tunnel_listener_failed', { port: tunnelListenerPort, error: err instanceof Error ? err.message : String(err) })

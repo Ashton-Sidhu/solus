@@ -31,6 +31,7 @@ import { handleArtifactRequest } from '@solus/desktop-main/artifact-protocol'
 import { LOCAL_DEVICE_LABEL } from '@solus/server/server/server'
 import { MAX_ATTACHMENT_UPLOAD_BYTES } from '@solus/contracts/rpc'
 import { consumeClientAttachmentRead } from '@solus/desktop-main/client-attachment-read'
+import { bundledResourcesDir } from '@solus/server/platform/paths'
 import { configurePlatformServices } from '@solus/server/platform/services'
 import { registerAccountIpc } from '@solus/desktop-main/account/ipc'
 import type { AccountSession } from '@solus/desktop-main/account/account-session'
@@ -52,7 +53,9 @@ const bootStartedAt = Date.now()
 
 configurePlatformServices({
   appInfo: {
-    appPath: app.getAppPath(),
+    appPath: process.env.SOLUS_TEST_MODE === '1' && process.env.SOLUS_QA_WORKTREE
+      ? process.env.SOLUS_QA_WORKTREE
+      : app.getAppPath(),
     isPackaged: app.isPackaged,
     logsPath: app.getPath('logs'),
     userDataPath: app.getPath('userData'),
@@ -454,7 +457,7 @@ function createPillWindow(options: { showWhenReady?: boolean; source?: string } 
     roundedCorners: false,
     backgroundColor: '#00000000',
     show: false,
-    icon: join(__dirname, '../../resources/icon.icns'),
+    icon: join(bundledResourcesDir(), 'icon.icns'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -541,7 +544,7 @@ function createEditorWindow(): BrowserWindow {
     minHeight: 480,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#fafafa',
     show: false,
-    icon: join(__dirname, '../../resources/icon.icns'),
+    icon: join(bundledResourcesDir(), 'icon.icns'),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -1250,7 +1253,7 @@ if (isPairUrl) {
       .catch((err) => log.warn('cli_path_warmup_failed', { error: err instanceof Error ? err.message : String(err) }))
 
     if (process.platform === 'darwin' && app.dock) {
-      app.dock.setIcon(join(__dirname, '../../resources/icon.png'))
+      app.dock.setIcon(join(bundledResourcesDir(), 'icon.png'))
     }
 
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
@@ -1402,7 +1405,7 @@ if (isPairUrl) {
         currentAppShortcuts = loadAppShortcuts()
         applyAppGlobalShortcuts(currentAppShortcuts)
 
-        const trayIconPath = join(__dirname, '../../resources/trayTemplate.png')
+        const trayIconPath = join(bundledResourcesDir(), 'trayTemplate.png')
         const trayIcon = nativeImage.createFromPath(trayIconPath)
         trayIcon.setTemplateImage(true)
         tray = new Tray(trayIcon)

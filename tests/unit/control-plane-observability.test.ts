@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
-import type { AgentMetadata, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
+import type { AgentMetadata, BackendSession, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
 import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -177,6 +177,43 @@ describe.serial('ControlPlane observability hooks', () => {
       expect(confirmations[0].to?.only).toBeUndefined()
       backend.complete('thread-1', 0)
       await lifecycle.done
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test.each([false, true])('stop interrupts a resumed session (active handle: %s)', (hasActiveHandle) => {
+    // A resumed turn carries its old provider ID before session_init puts the
+    // next handle into the backend's active map. Stop must cover that interval.
+    const backend = new Backend()
+    const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
+    const session: BackendSession = {
+      sessionId: 'solus-resuming', agentSessionId: 'thread-existing', backendId: 'codex',
+      status: 'connecting', pendingInputEvents: [], lastActivityAt: Date.now(), promptCount: 1,
+    }
+    const pending: RunHandle = {
+      sessionId: session.sessionId, agentSessionId: session.agentSessionId,
+      persistence: 'session', startedAt: Date.now(), toolCallCount: 0,
+      sawPermissionRequest: false, permissionDenials: [], abortController: new AbortController(),
+      runPromise: Promise.resolve(), _resolveRun: () => {}, _rejectRun: () => {},
+    }
+    // The lifecycle entry has already retained the session's provider identity.
+    const internals = plane as unknown as { activeSessions: Map<string, BackendSession> }
+    internals.activeSessions.set(session.sessionId, session)
+    backend.pending.add(pending)
+    const activeAbort = new AbortController()
+    const cancelledIds: string[] = []
+    backend.cancelSession = (providerSessionId) => {
+      cancelledIds.push(providerSessionId)
+      if (hasActiveHandle) activeAbort.abort()
+      return hasActiveHandle
+    }
+    try {
+      expect(plane.stopSession(session.sessionId)).toBe(true)
+      expect(cancelledIds).toEqual(['thread-existing'])
+      expect(session.status).toBe('interrupted')
+      expect(activeAbort.signal.aborted).toBe(hasActiveHandle)
+      expect(pending.abortController.signal.aborted).toBe(!hasActiveHandle)
     } finally {
       plane.shutdown()
     }

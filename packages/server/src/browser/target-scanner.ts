@@ -8,8 +8,8 @@ const log = createLogger('browser', 'target-scanner.ts')
 /**
  * Read-only discovery of running dev servers, offered as browser targets.
  *
- * Solus does not own these processes — the boot layer waits for the integrated
- * terminal (see `docs/plans/cross-platform-visual-qa.md` §5). So this never
+ * This scanner does not own these processes. The repository QA runner owns
+ * explicitly started QA processes (see `docs/operations/qa.md`). This never
  * spawns anything: it reads the listening sockets the OS already has, asks each
  * owner where it is working, and probes the port to confirm it serves HTML
  * before offering it. A port that answers with JSON is an API, not a browser.

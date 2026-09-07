@@ -115,6 +115,7 @@
         "socket.io-client": "^4.8.3",
         "sql-formatter": "^15.8.2",
         "svelte": "^5.57.0",
+        "svelte-check": "^4.7.6",
         "svelte-sonner": "^1.1.1",
         "svelte-tiny-virtual-list": "^4.0.0",
         "tailwind-merge": "^3.6.0",
