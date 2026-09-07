@@ -111,7 +111,7 @@
     "lowlight": "^3.3.0",
     "marked": "^18.0.9",
     "onnxruntime-node": "^1.27.0",
-    "posthog-js": "^1.417.2",
+    "posthog-js": "^1.427.3",
     "posthog-node": "^5.49.1",
     "prosemirror-model": "^1.25.11",
     "shiki": "^4.4.3",
