@@ -95,7 +95,7 @@
         "@electron/fuses": "^1.8.0",
         "@electron/osx-sign": "2.7.0",
         "@iconify-json/logos": "^1.2.13",
-        "@iconify-json/simple-icons": "^1.2.93",
+        "@iconify-json/simple-icons": "^1.2.94",
         "@internationalized/date": "^3.12.3",
         "@lucide/svelte": "^1.34.0",
         "@oxlint/plugins": "1.78.0",
@@ -524,7 +524,7 @@
 
     "@iconify-json/logos": ["@iconify-json/logos@1.2.13", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-Up54ZnIuiuBgGAsuzhR1nvKqwq8VE6YM3XLwVB6IgY+7NAasz6WKu9Ay5hGfAkfuOKowodfwDC8ozReEBYrWRg=="],
 
-    "@iconify-json/simple-icons": ["@iconify-json/simple-icons@1.2.93", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-/XhANjfGYOuqvSR3TmUnkQkINvQ4GVjVuukvymRbxtVFBvIq/yiXJqCDycKcQPT401OYT9H2vIY6ihAlz1QIAw=="],
+    "@iconify-json/simple-icons": ["@iconify-json/simple-icons@1.2.94", "", { "dependencies": { "@iconify/types": "*" } }, "sha512-l8UWzVxKaqZd9ABsE/M/9p6NyGkQnmCnOoZyhQmjlXCtY5PuL2rcWxOFk2l9pk7ux3ERMPkTLE4jl6kQpTkwxA=="],
 
     "@iconify/svelte": ["@iconify/svelte@5.2.2", "", { "dependencies": { "@iconify/types": "^2.0.0" }, "peerDependencies": { "svelte": ">5.0.0" } }, "sha512-XMXxD3nzH7yB68C3K4sNwzrJ1TBscODR0ZqCeNf0KGuEMCTSuCo0jHNDZ0o0iRXTylO41NSz/DWam/4atLG1yw=="],
 
