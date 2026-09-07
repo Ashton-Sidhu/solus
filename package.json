@@ -210,7 +210,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/formidable": "^3.5.1",
     "@types/web-push": "^3.6.4",
-    "bits-ui": "^2.18.1",
+    "bits-ui": "^2.19.0",
     "bun-types": "^1.3.14",
     "clsx": "^2.1.1",
     "dotenv-cli": "^11.0.0",
