@@ -35,7 +35,7 @@
   const settings = getSettingsContext();
   let rootEl: HTMLDivElement | null = $state(null);
   let fileInstance: PierreFile<never> | null = null;
-  let editor: Editor<never> | null = null;
+  let editor: Editor<"file", never> | null = null;
   let detachEditor: (() => void) | null = null;
   let currentValue = untrack(() => value);
 
@@ -91,8 +91,8 @@
     fileInstance = new PierreFile<never>(buildOptions());
     fileInstance.render({ file: buildFile(value), containerWrapper: rootEl });
     if (!readOnly) {
-      editor = new Editor<never>({
-        onChange: (file) => {
+      editor = new Editor<"file", never>("file", {
+        onChange: ({ file }) => {
           currentValue = file.contents;
           onInput?.();
           onValueChange(file.contents);

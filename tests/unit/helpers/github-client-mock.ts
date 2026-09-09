@@ -1,5 +1,5 @@
 import { mock } from 'bun:test'
-import type { GitHubClient } from '@solus/server/providers/github/octokit'
+import { isGithubCredentialAccessFailure, type GitHubClient } from '@solus/server/providers/github/octokit'
 
 /**
  * Bun registers a module mock for the whole test run, not per file. Two files
@@ -57,6 +57,7 @@ export function installGithubClientMock(): void {
 
   mock.module('@solus/server/providers/github/octokit', () => ({
     GitHubReauthRequiredError: class extends Error {},
+    isGithubCredentialAccessFailure,
     buildClient: async () => mockedGithubClient(),
     clientFor: () => mockedGithubClient(),
   }))

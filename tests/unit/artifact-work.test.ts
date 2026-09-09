@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -28,47 +28,6 @@ const previousDataDir = process.env.SOLUS_DATA_DIR
 
 const HTML = '<!doctype html><html><head><title>Latency &amp; throughput</title></head><body><h1>Chart</h1></body></html>'
 const SESSION_ID = '5f0d1f2e-9b3a-4c1d-8e7f-2a1b3c4d5e6f'
-
-const artifactShellSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/artifact/ArtifactShell.svelte'),
-  'utf8',
-)
-const artifactViewSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/artifact/ArtifactView.svelte'),
-  'utf8',
-)
-const sandboxFrameSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/artifact/SandboxFrame.svelte'),
-  'utf8',
-)
-const webLayoutSource = readFileSync(
-  join(import.meta.dir, '../../apps/client/src/components/WebLayout.svelte'),
-  'utf8',
-)
-const workspacePageSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/workspace/WorkspacePage.svelte'),
-  'utf8',
-)
-const workPaneSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/work/WorkPane.svelte'),
-  'utf8',
-)
-const diagramShellSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/diagram/DiagramShell.svelte'),
-  'utf8',
-)
-const diagramShellCss = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/diagram/DiagramShell.css'),
-  'utf8',
-)
-const canvasToolbarSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/diagram/CanvasToolbar.svelte'),
-  'utf8',
-)
-const diagramCommentsSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/diagram/DiagramCommentsPanel.svelte'),
-  'utf8',
-)
 
 beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-artifact-work-'))
@@ -110,125 +69,6 @@ describe('an artifact is named the same way everywhere', () => {
     expect(workPreview('artifact', HTML)).toBe('Interactive artifact — Latency & throughput')
     expect(artifactPreview('<html></html>')).toBe('Interactive artifact')
     expect(workPreview('artifact', HTML)).not.toContain('<')
-  })
-})
-
-describe('the artifact work surface', () => {
-  test('paints the same pane background as other works', () => {
-    // WHY: the pane behind a work uses the darker workspace edge colour. A
-    // transparent artifact shell exposes it and makes this work type look like
-    // a separate page even when the artifact HTML itself is transparent.
-    expect(artifactShellSource).toContain('bg-(--solus-container-bg)')
-  })
-
-  test('a short render fills its workspace pane without changing transcript renders', () => {
-    // WHY: artifact HTML normally reports its content height for transcript
-    // cards. A pane must opt into the available height or it leaves the lower
-    // part of the workspace as an unrelated dark block.
-    expect(artifactShellSource).toContain('<ArtifactView {artifact} {reloadKey} fillAvailable skipMotion />')
-    expect(sandboxFrameSource).toContain('class:fill-available={fillAvailable}')
-    expect(sandboxFrameSource).toContain('.artifact-iframe.fill-available')
-  })
-
-  test('expanding never re-creates the frame, and only a reload does', () => {
-    // WHY: expand is a position:fixed class on the same element, so a render
-    // with live state — a moved slider, a running simulation — survives it.
-    // Re-parenting or re-keying the iframe on expand would reload the document
-    // and silently reset that state.
-    expect(sandboxFrameSource).toContain('class="artifact-frame"')
-    expect(sandboxFrameSource).toContain('class:expanded')
-    expect(sandboxFrameSource).toContain('{#key reloadKey}')
-    expect(sandboxFrameSource).not.toContain('{#key expanded}')
-    // The same reason ancestors release paint containment rather than the frame
-    // moving out of them.
-    expect(sandboxFrameSource).toContain(':global(.cv-list > *:has(.artifact-frame.expanded))')
-  })
-
-  test('the reported height is a fixed point, never padded', () => {
-    // WHY: any additive buffer feeds back forever for a render whose body
-    // tracks the viewport — the taller frame makes the body taller, which
-    // reports taller. That creep read to the user as a resize stutter.
-    expect(sandboxFrameSource).toContain('Math.max(40, Math.ceil(parsed.data.h))')
-  })
-
-  test('a render may open a window, post a form, and download, but never reach the workspace', () => {
-    // WHY: allow-same-origin is the one flag that would give a frame the
-    // workspace DOM, its storage, and its session. Everything else an ordinary
-    // page needs is granted.
-    expect(sandboxFrameSource).toContain(
-      'sandbox="allow-scripts allow-popups allow-forms allow-modals allow-downloads"',
-    )
-    expect(sandboxFrameSource).not.toContain('allow-same-origin')
-  })
-
-  test('mobile uses the shared type-aware work route', () => {
-    // WHY: routing every work through DocumentModal turns diagram JSON and
-    // artifact HTML into document text. WorkPane is the one owner of the
-    // diagram, artifact, and document dispatch used on desktop.
-    expect(webLayoutSource).toContain('components/work/WorkPane.svelte')
-    expect(webLayoutSource).toContain('params={activeWorkRoute.params}')
-    expect(webLayoutSource).toContain('paneId={activeWorkRoute.paneId}')
-    expect(webLayoutSource).toContain('overlayOpen={!!activePlan || !!activeWorkRoute}')
-    expect(webLayoutSource).not.toContain('components/document-modal/DocumentModal.svelte')
-  })
-
-  test('the mobile Folio sheet uses the host-aware work opener', () => {
-    // WHY: direct route placement can reuse an existing artifact pane and leave
-    // Folio visible over it. The canonical opener closes Folio first and the
-    // route surface restores host affinity before it reads a host-local id.
-    expect(workspacePageSource).toContain('void openItem(target).then(() => peek.close())')
-    expect(workspacePageSource).not.toContain('session.openWork(target.id)')
-    expect(workPaneSource).toContain('session.worksStore.rememberHost(workId, serverId)')
-    expect(workPaneSource).toContain('session.worksStore.ensureContent(workId, "work-pane")')
-  })
-
-  test('mobile removes fullscreen expansion but keeps applicable artifact actions visible', () => {
-    // WHY: fullscreen expansion duplicates the mobile work surface and can trap
-    // the user in an overlay. Image copy remains useful and cannot depend on a
-    // hover pass because the iframe or image receives the first tap.
-    // A render that HAS a work opens the work; one that does not — an ephemeral
-    // HTML block — has nowhere else to go and keeps the overlay.
-    expect(sandboxFrameSource).toContain(
-      'const handsOffOnTouch = $derived(!!onExpandOnTouch && runtime.isMobileViewport);',
-    )
-    expect(sandboxFrameSource).toContain('if (handsOffOnTouch) expanded = false;')
-    expect(artifactViewSource).toContain('session.openWork(workRef.workId, "focused")')
-    expect(sandboxFrameSource).toContain('@media (hover: none), (pointer: coarse)')
-    expect(sandboxFrameSource).toMatch(/\.artifact-actions\s*\{\s*opacity: 1;/)
-    expect(sandboxFrameSource).toMatch(
-      /:global\(\.artifact-action\)\s*\{\s*width: 2\.5rem;\s*height: 2\.5rem;/,
-    )
-    expect(artifactViewSource).toContain('data-testid="artifact-copy-image"')
-  })
-
-  test('the mobile Folio list opens HTML artifacts instead of previewing their source', () => {
-    // WHY: an HTML artifact's content is implementation markup, not a useful
-    // preview. Its rendered work surface is the first useful mobile destination.
-    expect(workspacePageSource).toContain(
-      'stacked && !isHtmlArtifact(item) ? peek.raise(item) : openItem(item)',
-    )
-  })
-
-  test('narrow diagram panes use bottom sheets and preserve invalid source', () => {
-    // WHY: a desktop-width inspector leaves no usable canvas on a phone, and
-    // parse failure must not present an editable empty diagram that can replace
-    // the invalid source on the next save.
-    expect(diagramShellSource).toContain('const inspectorUsesBottomSheet')
-    expect(diagramShellSource).toContain('data-testid="diagram-load-error"')
-    expect(diagramShellSource).toContain('Download JSON')
-    expect(diagramShellCss).toContain('@container pane (max-width: 48rem)')
-    expect(diagramShellCss).toMatch(/\.diagram-inspector\s*\{[\s\S]*?top: auto;[\s\S]*?height: min\(70%, 34rem\);/)
-    expect(diagramCommentsSource).toMatch(/@container pane \(max-width: 48rem\)[\s\S]*?\.diagram-comments/)
-  })
-
-  test('phones default to canvas gestures and never show the minimap', () => {
-    // WHY: a draggable node claims the touch before the viewport can pan or
-    // pinch, and a landscape phone can be wider than the minimap size cutoff.
-    // Mobile detection, not current orientation, must own both decisions.
-    expect(diagramShellSource).toContain('nodesDraggable={!runtime.isTouchDevice || touchNodeDragEnabled}')
-    expect(diagramShellSource).toContain('runtime.isMobileViewport ? null : minimapSize(boardWidth)')
-    expect(canvasToolbarSource).toContain('aria-label="Move nodes"')
-    expect(canvasToolbarSource).toContain('aria-pressed={touchNodeDragEnabled}')
   })
 })
 

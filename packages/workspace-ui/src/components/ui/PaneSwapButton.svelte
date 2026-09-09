@@ -1,7 +1,7 @@
 <script lang="ts">
   import {
-    PanelLeftOpen as OpenPrimaryPaneIcon,
-    PanelRightOpen as OpenCompanionPaneIcon,
+    PanelLeftClose as MoveLeftIcon,
+    PanelRightClose as MoveRightIcon,
   } from "@lucide/svelte";
   import { PAGE_ICON_BTN } from "../../lib/page-chrome";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
@@ -56,9 +56,9 @@
         aria-label={label}
       >
         {#if isLeading}
-          <OpenCompanionPaneIcon size={iconSize} />
+          <MoveRightIcon size={iconSize} />
         {:else}
-          <OpenPrimaryPaneIcon size={iconSize} />
+          <MoveLeftIcon size={iconSize} />
         {/if}
       </button>
     {/snippet}

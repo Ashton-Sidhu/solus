@@ -22,6 +22,11 @@ export function snapshotPersistedTabs(session: WorkspaceContext): PersistedTab[]
           (server) => server.id === restoredSession?.run.serverId,
         )?.installationId,
         agentSessionId: restoredSession?.agentSessionId ?? null,
+        pendingFork: restoredSession?.forked ? {
+          messages: restoredSession.messages,
+          excludeLatestTurn: restoredSession.forkExcludeLatestTurn ?? false,
+        } : undefined,
+        forkedFromSessionId: restoredSession?.forkedFromSessionId ?? null,
         provider: restoredSession?.run.provider ?? null,
         handoffFrom: restoredSession?.handoffFrom ? { ...restoredSession.handoffFrom } : undefined,
         workingDirectory:

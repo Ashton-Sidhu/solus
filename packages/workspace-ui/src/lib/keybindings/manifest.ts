@@ -249,6 +249,7 @@ export const KEYBINDINGS = {
 
   // ── Task picker ────────────────────────────────────────────────────────────
   'task-picker.choose-project':   { combo: { alt: true, code: 'KeyA' },                    scope: 'task-picker',        label: 'Choose project scope',     group: 'Palette' },
+  'task-picker.result-type':     { combo: { alt: true, code: 'KeyT' }, scope: 'task-picker', label: 'Picker result type', group: 'Palette' },
   'task-picker.search-options':   { combo: { alt: true, code: 'KeyS' },                    scope: 'task-picker',        label: 'Sort and search options',  group: 'Palette' },
 
   // ── Project search ─────────────────────────────────────────────────────────
@@ -290,6 +291,9 @@ export const KEYBINDINGS = {
   'global.add-server':            { combo: null,                                           scope: 'global',             label: 'Add server',               group: 'General' },
   'global.switch-server':         { combo: null,                                           scope: 'global',             label: 'Switch server…',           group: 'General' },
   'global.find-hosts':            { combo: null,                                           scope: 'global',             label: 'Find hosts nearby',        group: 'General' },
+  'global.check-for-updates':     { combo: null,                                           scope: 'global',             label: 'Check for updates',        group: 'General' },
+  // Desktop only: the shell that can replace its own binary.
+  'global.restart-to-update':     { combo: null,                                           scope: 'global',             label: 'Restart to update',        group: 'General' },
 } as const satisfies Record<string, BindingDef>
 
 export type BindingId = keyof typeof KEYBINDINGS

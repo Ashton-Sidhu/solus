@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import DiffLoadingSkeleton from "../diff/DiffLoadingSkeleton.svelte";
   import { Skeleton } from "../ui/skeleton";
@@ -36,6 +37,8 @@
   <div class="flex min-h-0 flex-1 flex-col">
     {#if view !== "guide"}
       <DiffLoadingSkeleton variant={view === "map" ? "map" : "diff"} />
+    {:else}
+      <ContentSkeleton label="Loading review guide" />
     {/if}
   </div>
 </div>

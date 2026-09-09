@@ -14,7 +14,7 @@ export type { Location, PaneEntry, PaneId } from './workspace/routing/location'
 
 /** App-wide settings, window, agent, status, voice, runtime, and tool state. */
 export { getSettingsContext } from './app/settings.context.svelte'
-export { getWindowContext } from './app/window.context.svelte'
+export { getClientShellContext } from './app/client-shell.svelte'
 export { getAgentContext } from './app/agent.context.svelte'
 export { getStatusBarContext } from './app/status-bar.context.svelte'
 export { getVoiceModelStore } from './app/voice-model.store.svelte'
@@ -85,6 +85,8 @@ export {
 
 /** The Solus account this client shell is signed in to (desktop only today). */
 export { accountStore } from './account/account.store.svelte'
+/** The desktop app's own update status (desktop only; web and mobile see no updates). */
+export { updatesStore } from './updates/updates.store.svelte'
 
 /** Atlassian site connection shared by Confluence docs and Jira tasks. */
 export { atlassianStore, ATLASSIAN_SIGNUP_URL } from './atlassian/atlassian.store.svelte'
@@ -102,7 +104,7 @@ export type {
   SettingsContext,
   TabGroupMode,
 } from './app/settings.context.svelte'
-export type { WindowContext } from './app/window.context.svelte'
+export type { ClientShellContext } from './app/client-shell.svelte'
 export type { AgentContext } from './app/agent.context.svelte'
 export type { SessionEnvironmentStore } from './git/session-environment.store.svelte'
 export type { PlanStore } from './plans/plan.store.svelte'

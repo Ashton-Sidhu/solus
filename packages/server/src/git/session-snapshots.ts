@@ -200,15 +200,43 @@ export async function prepareTurnSnapshot(
 
 /**
  * The whole live worktree as a Git tree: `HEAD` plus every dirty and untracked
- * path. Both ends of a turn range are built this way, and that symmetry is the
- * point — a tree built from a narrower path list can only report the changes
- * that list already knew about, so a deletion through the shell, a subagent's
- * write, or a revert back to `HEAD` diffs to nothing against its own start.
+ * path. The turn range always starts here, and in the session's own worktree it
+ * ends here too. That symmetry is the point — a tree built from a narrower path
+ * list can only report the changes that list already knew about, so a deletion
+ * through the shell, a subagent's write, or a revert back to `HEAD` diffs to
+ * nothing against its own start.
  */
 async function snapshotLiveTree(workTree: string, repoRoot: string): Promise<string> {
   const headSha = await runAsync('git', ['rev-parse', 'HEAD'], workTree)
   const dirtyPaths = await listLiveChangedPaths(workTree)
   return writeTreeForPaths(workTree, repoRoot, headSha, dirtyPaths)
+}
+
+/**
+ * Close the turn range. In the session's own worktree the session owns every
+ * change, so the end is another whole-worktree snapshot and nothing it did can
+ * be missed. A shared checkout has other authors: the developer and any
+ * concurrent session edit the same tree while this turn runs, and a
+ * whole-worktree end reports their work as this turn's. So the end is built on
+ * the turn-start tree and restages only the paths this session touched — every
+ * other path keeps its turn-start blob and diffs to nothing.
+ *
+ * The cost is the mirror of the session scope's: a path the session never
+ * announced through a tool call is not restaged, so an unannounced deletion or
+ * revert to a *never-touched* file is invisible in a shared checkout. Paths the
+ * session named earlier in the session stay covered, because the list is
+ * cumulative.
+ */
+async function captureTurnEnd(
+  workTree: string,
+  repoRoot: string,
+  turnFrom: string,
+  sessionChangedFiles: string[] | undefined,
+): Promise<string> {
+  if (ownsWorkTree(workTree, repoRoot) || !sessionChangedFiles) {
+    return snapshotLiveTree(workTree, repoRoot)
+  }
+  return writeTreeForPaths(workTree, repoRoot, turnFrom, sessionChangedFiles)
 }
 
 export async function snapshotTurn(
@@ -258,7 +286,7 @@ async function snapshotTurnQueued(
 
     const treeSha = await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
     const turnFrom = sidecar.pendingTurnTreeSha
-    const turnTo = await snapshotLiveTree(workTree, repoRoot)
+    const turnTo = await captureTurnEnd(workTree, repoRoot, turnFrom, opts.sessionChangedFiles)
     const turnStats = await diffStats(repoRoot, turnFrom, turnTo)
     await Promise.all([
       runAsync('git', ['update-ref', refForTurnRange(sessionId, turnIndex, 'from'), turnFrom], repoRoot),

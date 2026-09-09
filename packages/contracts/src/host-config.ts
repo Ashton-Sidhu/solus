@@ -87,6 +87,7 @@ export interface HostConfig {
   modelInstructions: Record<string, string>
   analyticsEnabled: boolean
   tabGroupMode: TabGroupMode
+  archivedAutomationRetentionDays: number
   sidebarCompletedRetentionDays: number
 
   // ─── Operator settings ───
@@ -219,6 +220,7 @@ export const hostConfigPatchSchema = z.object({
   modelInstructions: z.record(z.string(), z.string().max(20_000)).catch({}),
   analyticsEnabled: z.boolean().catch(true),
   tabGroupMode: z.enum(TAB_GROUP_MODES).catch('flat'),
+  archivedAutomationRetentionDays: z.number().int().min(1).max(3650),
   sidebarCompletedRetentionDays: z.number().int().min(1).max(365).catch(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS),
   agentTaskLifecyclePolicy: z.enum(['none', 'moderate', 'autonomous']).catch('moderate'),
   otel: otelPatchSchema.catch({}),
@@ -267,6 +269,7 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
   modelInstructions: {},
   analyticsEnabled: true,
   tabGroupMode: 'flat',
+  archivedAutomationRetentionDays: 30,
   sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
   agentTaskLifecyclePolicy: 'moderate',
   otel: DEFAULT_OTEL_SETTINGS,
@@ -321,6 +324,7 @@ export const HOST_CONFIG_AGENT_WRITABLE = {
   modelInstructions: false,
   analyticsEnabled: false,
   tabGroupMode: true,
+  archivedAutomationRetentionDays: false,
   sidebarCompletedRetentionDays: true,
   // Operator settings. These configure the machine, not the workspace, and two
   // of them can stop the host talking to anything: a wrong text-generation

@@ -6,7 +6,10 @@
 class ConnectionsNav {
   hostId = $state<string | null>(null)
 
-  open(hostId: string): void {
+  tab = $state("overview")
+
+  open(hostId: string, tab = "overview"): void {
+    this.tab = tab
     this.hostId = hostId
   }
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { untrack } from "svelte";
   import { Pin as PushPinIcon, Trash2 as TrashIcon } from "@lucide/svelte";
   import type { WorkspaceItem } from "./lib/workspace-items";
@@ -175,10 +176,14 @@
          holds an empty wash, never a spinner. -->
     <div class="h-[240px] overflow-hidden rounded-lg bg-[var(--wash-1)]">
       {#if content}
-        {#await import("../diagram/DiagramThumbnail.svelte") then thumbModule}
+        {#await import("../diagram/DiagramThumbnail.svelte")}
+          <ContentSkeleton label="Loading diagram" preview />
+        {:then thumbModule}
           {@const DiagramThumbnail = thumbModule.default}
           <DiagramThumbnail {content} />
         {/await}
+      {:else}
+        <ContentSkeleton label="Loading diagram" preview />
       {/if}
     </div>
   {:else if body}

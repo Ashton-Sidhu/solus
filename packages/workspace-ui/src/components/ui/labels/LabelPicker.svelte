@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ContentSkeleton.svelte";
   import { Check as CheckIcon, Plus as PlusIcon } from "@lucide/svelte";
   import * as Command from "../command";
   import { MenuSearch } from "../menu";
@@ -128,7 +129,7 @@
             class="max-h-[min(17.5rem,calc(var(--bits-popover-content-available-height,20rem)-3rem))] overflow-y-auto p-1.5"
           >
             {#if loading}
-              <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">Loading labels…</p>
+              <ContentSkeleton label="Loading labels" />
             {:else if loadFailed}
               <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">
                 Couldn’t load labels

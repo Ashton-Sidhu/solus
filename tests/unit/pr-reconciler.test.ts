@@ -22,6 +22,11 @@ import type { Provider } from '@solus/server/providers/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
+const providers = new Map<string, Provider>()
+mock.module('@solus/server/providers/registry', () => ({
+  providerForRepo: (repo: RepoRef) => providers.get(repo.repo) ?? null,
+}))
+
 let dataDir: string
 let taskStore: typeof import('@solus/server/tasks/task-store')
 let tasks: typeof import('@solus/server/tasks/task')
@@ -51,9 +56,8 @@ interface Announcement {
  *  with whatever the test last said — counting what it was asked, because the
  *  poll's cost is part of what these tests pin. */
 async function project(name: string, status: 'in_review' | 'todo' = 'in_review') {
-  const projectScope = join(dataDir, name)
-  const repo: RepoRef = { host: 'github.com', owner: 'owner', repo: name }
-  const created = await taskStore.createTask({ title: 'Work on #1', status: 'todo', projectKey: projectScope })
+  const projectScope = `github.com/owner/${name}`
+  const created = await taskStore.createTask({ title: 'Work on #1', status: 'todo', projectKey: join(dataDir, name) })
   const task = await tasks.Task.byId(created.id)
   await task.update({ status })
   // With the URL supplied, linking stays local: resolving one is a code-host
@@ -61,7 +65,7 @@ async function project(name: string, status: 'in_review' | 'todo' = 'in_review')
   await task.linkPullRequest({
     number: 1,
     targetScope: projectScope,
-    url: 'https://github.com/owner/repo/pull/1',
+    url: `https://github.com/owner/${name}/pull/1`,
   })
 
   const announced: Announcement[] = []
@@ -77,6 +81,7 @@ async function project(name: string, status: 'in_review' | 'todo' = 'in_review')
     },
   } as unknown as Provider
 
+  providers.set(name, provider)
   return {
     projectScope,
     task,
@@ -84,13 +89,31 @@ async function project(name: string, status: 'in_review' | 'todo' = 'in_review')
     host,
     reconciler: new PrReconciler({
       announce: (projectRoot, detail) => { announced.push({ projectRoot, detail }) },
-      codeHost: async () => ({ repo, provider }),
       watchList: () => [{ projectScope, number: 1 }],
     }),
   }
 }
 
 describe('reconciling pull requests changed outside Solus', () => {
+  test('waits for linked pull requests in both repositories through the normal host lookup', async () => {
+    const first = await project('first-repository')
+    const second = await project('second-repository')
+    await first.task.linkPullRequest({
+      number: 1,
+      targetScope: second.projectScope,
+      url: 'https://github.com/owner/second-repository/pull/1',
+    })
+
+    first.host.state = 'merged'
+    await first.reconciler.poll()
+    expect((await tasks.Task.byId(first.task.id)).status).toBe('in_review')
+
+    second.host.state = 'merged'
+    await second.reconciler.poll()
+    expect((await tasks.Task.byId(first.task.id)).status).toBe('done')
+    expect((await tasks.Task.byId(second.task.id)).status).toBe('done')
+  })
+
   test('announces a merge made on the code host and completes the task waiting on it', async () => {
     const { projectScope, task, announced, host, reconciler } = await project('merged-elsewhere')
 

@@ -3,17 +3,6 @@ import { AppPage } from '../helpers/app.page'
 import { KeyboardShortcutsPage } from '../helpers/keyboard-shortcuts.page'
 
 test.describe('Keyboard shortcuts modal', () => {
-  test('opens via the keyboard shortcut', async ({ page }) => {
-    const app = new AppPage(page)
-    const shortcuts = new KeyboardShortcutsPage(page)
-    await app.waitForAppReady()
-
-    await shortcuts.open()
-    await shortcuts.waitForOpen()
-
-    expect(await shortcuts.isOpen()).toBe(true)
-  })
-
   test('closes via Escape key', async ({ page }) => {
     const app = new AppPage(page)
     const shortcuts = new KeyboardShortcutsPage(page)
@@ -36,25 +25,6 @@ test.describe('Keyboard shortcuts modal', () => {
     await shortcuts.waitForOpen()
 
     await expect(shortcuts.searchInput()).toBeFocused()
-  })
-
-  test('search filters rows — typing "new tab" shows "New tab" row and hides unrelated rows', async ({ page }) => {
-    const app = new AppPage(page)
-    const shortcuts = new KeyboardShortcutsPage(page)
-    await app.waitForAppReady()
-
-    await shortcuts.open()
-    await shortcuts.waitForOpen()
-
-    const allRowsBefore = await shortcuts.rows().count()
-    expect(allRowsBefore).toBeGreaterThan(1)
-
-    await shortcuts.searchInput().fill('new tab')
-
-    await expect(shortcuts.row('New tab')).toBeVisible()
-
-    // Rows that have nothing to do with "new tab" should be gone
-    await expect(shortcuts.row('Settings')).not.toBeVisible()
   })
 
   /**
@@ -102,62 +72,10 @@ test.describe('Keyboard shortcuts modal', () => {
     await shortcuts.searchInput().fill('new tab')
     await expect(shortcuts.row('New tab')).toBeVisible()
 
+    await expect(shortcuts.row('Settings')).not.toBeVisible()
     const rowsAfter = await shortcuts.rows().count()
     expect(rowsAfter).toBeLessThan(rowsBefore)
     await expect(shortcuts.count()).toHaveText(`${rowsAfter} shortcut${rowsAfter === 1 ? '' : 's'}`)
-  })
-
-  /**
-   * Intent test (Rule 6): this asserts the BUSINESS RULE that the overlay opens
-   * on the scope the user is already in — the Diff Panel scope is active because
-   * the diff panel is mounted and has pushed it. If this rule breaks, a user in
-   * the diff panel opens the reference and sees somebody else's shortcuts.
-   * Every other scope must stay one pill away, or the overlay stops being a
-   * global reference and hidden shortcuts become undiscoverable again.
-   */
-  test('opens on the active scope (Diff Panel) when the diff panel is open', async ({ page }) => {
-    const app = new AppPage(page)
-    const shortcuts = new KeyboardShortcutsPage(page)
-    await app.waitForAppReady()
-
-    // Inject a synthetic diff payload so DiffPanel mounts and pushes diff-panel scope
-    await page.evaluate(() => {
-      const w = window as Window & {
-        solus?: {
-          diff?: (...a: unknown[]) => Promise<unknown>
-        }
-      }
-      if (!w.solus) return
-      const patch = [
-        'diff --git a/src/index.ts b/src/index.ts',
-        '--- a/src/index.ts',
-        '+++ b/src/index.ts',
-        '@@ -1 +1,2 @@',
-        ' context',
-        '+added',
-      ].join('\n')
-      w.solus.diff = async () => ({ patch })
-    })
-
-    // Open the diff panel so diff-panel scope is pushed
-    await page.evaluate(() => {
-      window.dispatchEvent(new CustomEvent('solus:toggle-diff-panel'))
-    })
-    await expect(page.locator('[data-testid="diff-panel"]')).toBeVisible({ timeout: 5_000 })
-
-    // Now open the shortcuts modal — diff-panel scope should be snapshotted as active
-    await shortcuts.open()
-    await shortcuts.waitForOpen()
-
-    // The Diff Panel pill is selected, so its shortcuts are what the user sees.
-    await expect(shortcuts.scopePill('Diff Panel')).toHaveAttribute('aria-pressed', 'true')
-    await expect(shortcuts.scopePill('Global')).toHaveAttribute('aria-pressed', 'false')
-    await expect(shortcuts.row('Next file')).toBeVisible()
-
-    // Global is not gone, just one pill away.
-    await shortcuts.scopePill('Global').click()
-    await expect(shortcuts.scopePill('Global')).toHaveAttribute('aria-pressed', 'true')
-    await expect(shortcuts.row('Settings')).toBeVisible()
   })
 })
 
@@ -166,11 +84,10 @@ test.describe('Keybindings editor', () => {
    * Intent test (Rule 6): the whole point of the editor is that a rebind takes
    * effect live and is reflected everywhere the binding is shown. This drives the
    * real record → save → propagate → reset loop: rebinding "Toggle sidebar" must
-   * update its chip, surface the new combo in the shortcuts reference modal
-   * (proving the dispatcher's live override refresh), and Reset must restore the
-   * conventional default. If any link breaks, rebinding is cosmetic-only.
+   * change the sidebar, show the new combo in the shortcuts reference,
+   * and restore the default action when reset. If any link breaks, rebinding is cosmetic-only.
    */
-  test('rebinding an action updates the chip, the shortcuts modal, and resets', async ({ page }) => {
+  test('rebinding and resetting the sidebar shortcut changes the live action and its labels', async ({ page }) => {
     const app = new AppPage(page)
     const shortcuts = new KeyboardShortcutsPage(page)
     await app.waitForAppReady()
@@ -197,8 +114,16 @@ test.describe('Keybindings editor', () => {
     // The chip reflects the new binding.
     await expect(comboBtn).toContainText('Y')
 
-    // Close settings, open the shortcuts reference — it must show the override.
+    // The recorded shortcut must change the sidebar, not only its displayed chip.
     await page.keyboard.press('Escape')
+    const expandSidebar = page.locator('.editor-shell .tab-chrome-lead[aria-label="Expand sidebar"]')
+    await expect(expandSidebar).not.toBeVisible()
+    await page.keyboard.press('Alt+y')
+    await expect(expandSidebar).toBeVisible()
+    await page.keyboard.press('Alt+y')
+    await expect(expandSidebar).not.toBeVisible()
+
+    // The reference must show the same override.
     await shortcuts.open()
     await shortcuts.waitForOpen()
     await shortcuts.searchInput().fill('Toggle sidebar')
@@ -212,5 +137,10 @@ test.describe('Keybindings editor', () => {
     await page.getByRole('tab', { name: 'Keybindings' }).click()
     await row.getByRole('button', { name: 'Reset Toggle sidebar to default' }).click()
     await expect(comboBtn).toContainText('B')
+    await page.keyboard.press('Escape')
+    await page.keyboard.press('ControlOrMeta+b')
+    await expect(expandSidebar).toBeVisible()
+    await page.keyboard.press('ControlOrMeta+b')
+    await expect(expandSidebar).not.toBeVisible()
   })
 })

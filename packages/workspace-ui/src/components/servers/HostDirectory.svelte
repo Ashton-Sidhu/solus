@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import { onMount } from "svelte";
   import {
     RefreshCw as ArrowsClockwiseIcon,
@@ -85,6 +86,7 @@
             class="flex min-w-0 items-center gap-2 text-workspace-chrome font-medium text-(--solus-text-primary)"
           >
             <span class="truncate">{server.label}</span>
+            {#if hostUpdatesStore.pendingCountFor(server.id)}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
           </span>
           <span
             class="mt-0.5 block truncate text-[0.875em] text-(--solus-text-tertiary)"

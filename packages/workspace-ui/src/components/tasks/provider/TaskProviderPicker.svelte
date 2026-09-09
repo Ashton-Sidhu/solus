@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import { Check as CheckIcon, ChevronDown as CaretDownIcon } from "@lucide/svelte";
   import type { TaskProviderId } from "@solus/contracts/task-types";
   import { atlassianStore } from "../../../contexts";
@@ -199,9 +200,7 @@
               {jiraBlocked}
             </p>
           {:else if atlassianStore.jiraProjectsLoading(serverId) && !projects.length}
-            <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">
-              Loading projects…
-            </p>
+            <ContentSkeleton label="Loading projects" />
           {:else}
             {#each visibleProjects as project (project.key)}
               {@const current = provider === "jira" && scopeLabel === project.key}

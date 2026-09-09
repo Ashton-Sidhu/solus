@@ -156,6 +156,26 @@ describe('markdown → Docs blocks', () => {
     expect(() => compileDocsBlocks(serializeDiagramEmbed({ workId: 'missing', title: 'Missing' }), [])).toThrow('was not prepared')
   })
 
+  test.each(['', '\n\nAfter', '\n\n## Heading', '\n\n| Next |\n|---|\n| Value |'])(
+    'each table leaves a blank line before following content: %s',
+    (suffix) => {
+      const blocks = compileDocsBlocks(`| Name |\n|---|\n| Value |${suffix}`, [])
+      for (let index = 0; index < blocks.length; index += 1) {
+        if (blocks[index].kind !== 'table') continue
+        const spacer = blocks[index + 1]
+        expect(spacer).toMatchObject({ kind: 'paragraph', text: { text: '', runs: [] }, style: { namedStyleType: 'NORMAL_TEXT' } })
+        if (spacer.kind !== 'paragraph') throw new Error('expected a blank paragraph')
+        const following = blocks[index + 2]
+        const run = following?.kind === 'paragraph' ? [spacer, following] : [spacer]
+        // The next block must start after the blank line, outside the filled table.
+        const plan = blockRequests(run, 40)
+        expect(inserts(plan.requests)[0]).toEqual({ index: 40, text: '\n' })
+        if (run.length > 1) expect(inserts(plan.requests)[1].index).toBe(41)
+        else expect(plan.endIndex).toBe(41)
+      }
+    },
+  )
+
   test('a table header is never bold, even when the markdown asks for it', () => {
     // WHY: the header's treatment is the mono face in tertiary ink. A doc a
     // previous publish bolded reads back as `| **Term** |`, and honouring

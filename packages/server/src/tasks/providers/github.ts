@@ -5,8 +5,7 @@ import type { Task, TaskAssigneeCandidate, TaskCommentData, TaskKind, TaskList, 
 import { z } from 'zod'
 
 // GitHub Issues are open/closed + labels only — there's no native "In Progress".
-// We map it to a conventional label so write-back works on every repo (Projects
-// v2 status fields are a later enhancement). See the Task System Design work.
+// We map it to a conventional label so write-back works on every repo.
 const IN_PROGRESS_LABEL = 'in-progress'
 
 // Bound the list so a huge backlog can't make the panel hang or balloon memory;

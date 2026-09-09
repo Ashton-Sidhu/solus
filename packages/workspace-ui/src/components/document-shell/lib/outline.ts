@@ -117,3 +117,12 @@ export function sectionJumpIndex(code: string, sectionCount: number): number | n
   const index = Number(match[1]) - 1
   return index < sectionCount ? index : null
 }
+
+/** Group the whole document into at most twelve marks; never crop its end. */
+export function outlineTickRanges(headingCount: number): { start: number; end: number }[] {
+  const count = Math.min(12, headingCount)
+  return Array.from({ length: count }, (_, index) => ({
+    start: Math.floor(index * headingCount / count),
+    end: Math.floor((index + 1) * headingCount / count),
+  }))
+}

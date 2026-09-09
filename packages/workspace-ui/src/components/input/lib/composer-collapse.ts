@@ -4,26 +4,43 @@
  * With the keyboard elsewhere the input bar tucks its toolbar row away and
  * drops to a single line, so the transcript gets the room back. Two things
  * decide that here: whether the bar should collapse at all given what it is
- * doing, and whether a `focusout` on the bar really means the user has left it.
+ * doing, and whether the keyboard has really left it once a leave settles.
  */
 
 export interface ComposerCollapseState {
   /** The user's setting, already gated on the surface it applies to. */
   enabled: boolean
-  /** The keyboard is in the bar, or in a menu the bar opened. */
+  /** The keyboard is in the bar, or in a menu the bar opened, or left it less
+   *  than a grace ago. */
   focused: boolean
   /** The mic is live. The waveform replaces the text well, and its cancel and
    *  confirm controls must stay exactly where the hand left them. */
   recording: boolean
-  /** The recorder has just settled and the keyboard is on its way back to the
-   *  editor. The hand-back lands a frame or two later; folding in between
-   *  painted a collapsed bar that unfolded again the moment focus arrived. */
-  refocusPending: boolean
 }
 
 export function shouldCollapseComposer(state: ComposerCollapseState): boolean {
-  return state.enabled && !state.focused && !state.recording && !state.refocusPending
+  return state.enabled && !state.focused && !state.recording
 }
+
+/**
+ * How long the keyboard must be elsewhere before the bar folds.
+ *
+ * A leave is never decided from the focusout that starts it, because most
+ * leaves are not leaves: a closing picker blurs its content a frame before it
+ * hands focus back, a sidebar row takes focus on mousedown and gives it back
+ * two frames after the click, and a settled recorder hands the keyboard back
+ * a frame or two after the mic lets go. Each of those used to be predicted
+ * with a hold of its own, and every hold that was not released on time left
+ * the bar stuck open or folding under a hand-back. Now nothing is predicted:
+ * the bar reads where the keyboard is once the grace is up, and any return
+ * inside it is not a leave at all.
+ *
+ * Long enough for a refocus that waits three frames on a slow one; short
+ * enough that a click on the transcript still folds the bar before the eye
+ * has settled there. The pointer's release restarts it, so the clock runs
+ * from the end of a click, not its start.
+ */
+export const COMPOSER_FOLD_GRACE_MS = 150
 
 /**
  * The portalled surfaces a bar's own controls open: bits-ui floating content
@@ -34,18 +51,32 @@ export function shouldCollapseComposer(state: ComposerCollapseState): boolean {
 export const FLOATING_LAYER_SELECTOR =
   '[data-bits-floating-content-wrapper], [role="dialog"]'
 
-/** Duck-typed rather than `instanceof Node`: a focus target from another
- *  realm — a test DOM, a webview — is still a node. */
-function isNode(target: EventTarget | null): target is Node {
-  // An EventTarget is always an object, so `in` is safe on it.
-  return target !== null && 'nodeType' in target
-}
-
 export function floatingLayerOf(node: Node): Element | null {
   // SAFETY: nodeType 1 is ELEMENT_NODE, so the node is an Element; any other
   // node (a text node the caret sits in) is answered by its parent element.
   const element = node.nodeType === 1 ? (node as Element) : node.parentElement
   return element?.closest(FLOATING_LAYER_SELECTOR) ?? null
+}
+
+/**
+ * Whether the keyboard, read where it actually is, still belongs to the bar.
+ * Answered once a leave has settled rather than from a focusout's
+ * `relatedTarget`, which a browser that does not focus a clicked button
+ * (Safari) reports as nowhere, and which says nothing about focus handed
+ * back a frame later.
+ */
+export function keyboardHoldsComposerOpen(args: {
+  root: Element
+  activeElement: Element | null
+  documentHasFocus: boolean
+}): boolean {
+  // Nowhere: the window itself lost focus. The bar keeps its shape so
+  // restoring the app does not paint one collapsed frame before Chromium
+  // hands focus back to the editor.
+  if (!args.documentHasFocus) return true
+  const active = args.activeElement
+  if (!active) return false
+  return args.root.contains(active) || floatingLayerOf(active) !== null
 }
 
 /**
@@ -59,30 +90,4 @@ export function selectionHoldsComposerOpen(
 ): boolean {
   if (!transcript || !selection || selection.isCollapsed || selection.rangeCount === 0) return false
   return transcript.contains(selection.getRangeAt(0).commonAncestorContainer)
-}
-
-export type FocusDestination =
-  /** Still somewhere in the bar. */
-  | 'inside'
-  /** In a menu or dialog opened from the bar. */
-  | 'menu'
-  /** Nowhere: the window itself lost focus. The bar keeps its shape so
-   *  restoring the app does not paint one collapsed frame before Chromium
-   *  hands focus back to the editor. */
-  | 'window'
-  /** Genuinely elsewhere in the page. */
-  | 'left'
-
-export function focusDestinationAfterFocusOut(args: {
-  root: Element
-  relatedTarget: EventTarget | null
-  documentHasFocus: boolean
-}): FocusDestination {
-  const next = args.relatedTarget
-  if (isNode(next)) {
-    if (args.root.contains(next)) return 'inside'
-    if (floatingLayerOf(next)) return 'menu'
-    return 'left'
-  }
-  return args.documentHasFocus ? 'left' : 'window'
 }

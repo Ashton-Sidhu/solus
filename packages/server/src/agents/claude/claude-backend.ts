@@ -200,9 +200,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
     const providerPrompt = request.prompt
     const abortController = new AbortController()
-    const sessionId = request.sessionId ?? null
+    const conversation = request.conversation ?? { kind: 'start' }
+    const sessionId = conversation.kind === 'fork' ? conversation.sourceThreadId : conversation.kind === 'resume' ? conversation.threadId : null
     const uiMode = request.permissionMode
-    const sessionRef = { current: sessionId }
+    const sessionRef = { current: conversation.kind === 'resume' ? sessionId : null }
     const canUseTool = this.permissions.createCanUseTool(sessionRef, uiMode, request.unattended)
 
     let _resolveRun!: () => void
@@ -210,7 +211,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
     const handle: ClaudeRunHandle = {
-      agentSessionId: sessionId,
+      // The source is only a branch input; the fork has no provider id yet.
+      agentSessionId: conversation.kind === 'resume' ? sessionId : null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -227,7 +229,10 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     }
 
     const workTree = request.cwd
-    const model = claudeModelId(request.model ?? this.metadata.defaultModel, request.contextWindow)
+    // `||`, not `??`: an unset model reaches a backend as the empty string as
+    // readily as null, and an empty id is never a model — it leaves the SDK to
+    // pick the CLI's own default instead of ours.
+    const model = claudeModelId(request.model || this.metadata.defaultModel, request.contextWindow)
     const adaptedTools = adaptClaudeTools(request.tools, {
       provider: 'claude-code',
       cwd: resolveHomePath(request.cwd),
@@ -248,17 +253,17 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         await initSessionBase(repoRoot, providerSessionId, head)
         await prepareTurnSnapshot(workTree, repoRoot, providerSessionId)
       }
-      const resumeSessionAt = request.forkSession && request.forkExcludeLatestTurn && sessionId
+      const resumeSessionAt = conversation.kind === 'fork' && conversation.excludeLatestTurn && sessionId
         ? await this.forkResumeId(sessionId, request.cwd)
         : null
-      if (request.persistence === 'session' && sessionId && !request.forkSession) {
+      if (request.persistence === 'session' && sessionId && conversation.kind === 'resume') {
         await prepareSnapshots(sessionId)
       }
       const { events, result } = this.agent.run({
         prompt: handle.input,
         cwd: resolveHomePath(request.cwd),
         sessionId,
-        forkSession: request.forkSession,
+        forkSession: conversation.kind === 'fork',
         resumeSessionAt: resumeSessionAt ?? undefined,
         model,
         reasoningEffort: request.reasoningEffort,

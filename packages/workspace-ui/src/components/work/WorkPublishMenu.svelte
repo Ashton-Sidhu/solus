@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Skeleton } from "../ui/skeleton";
   import {
     ExternalLink as ArrowSquareOutIcon,
     Download as DownloadSimpleIcon,
@@ -13,7 +14,7 @@
   import type { DocDestination, DocProviderId, DocProviderStatus } from "@solus/contracts/docs";
   import DocDestinationIcon from "./DocDestinationIcon.svelte";
   import DocProviderLogo from "./DocProviderLogo.svelte";
-  import { docProviderLabel, docSyncChip, destinationNoun } from "./lib/work-publish";
+  import { docProviderLabel, docSyncChip, docSyncTooltip, destinationNoun } from "./lib/work-publish";
   import { toasts } from "../../lib/toasts";
   import { buildDiagramAssets } from "../document-shell/lib/diagram-assets";
   import { renderDiagramAsAuthored, renderDiagramForPage } from "../diagram/lib/offscreen-export";
@@ -52,6 +53,8 @@
     workId ? store.hostFor(workId) ?? undefined : planId ? planStore.hostFor(planId) ?? undefined : undefined,
   );
   const chip = $derived(docSyncChip(link));
+  const checkTiming = $derived(workId ? store.upstreamCheckTimes.get(workId) : planId ? planStore.upstreamCheckTimes.get(planId) : undefined);
+  const syncTooltip = $derived(docSyncTooltip(chip.title, link ? checkTiming : undefined));
 
   // Which providers exist is a host fact that can change while this stays
   // mounted (the user connects one in Settings), so it is re-read when the menu
@@ -224,23 +227,29 @@
   <!-- Escape and click-away are closes too: without this, reopening lands back
        inside a stale folder list instead of at "Publish to". -->
   <DropdownMenu.Root bind:open onOpenChange={(next) => { if (!next) pickingProvider = null; }}>
-    <DropdownMenu.Trigger>
-      {#snippet child({ props })}
-        <button
-          {...props}
-          type="button"
-          class="wpm-verb"
-          class:wpm-verb--pending={chip.tone === "pending"}
-          class:wpm-verb--warning={chip.tone === "warning"}
-          class:wpm-verb--error={chip.tone === "error"}
-          data-testid="work-publish-menu"
-          title={chip.title}
-        >
-          {#if link}<DocProviderLogo provider={link.provider} size={12} />{/if}
-          {busy ? "Working…" : chip.label}
-        </button>
-      {/snippet}
-    </DropdownMenu.Trigger>
+    <TooltipUI.Root>
+      <TooltipUI.Trigger>
+        {#snippet child({ props: tooltipProps })}
+          <DropdownMenu.Trigger {...tooltipProps}>
+            {#snippet child({ props })}
+              <button
+                {...props}
+                type="button"
+                class="wpm-verb"
+                class:wpm-verb--pending={chip.tone === "pending"}
+                class:wpm-verb--warning={chip.tone === "warning"}
+                class:wpm-verb--error={chip.tone === "error"}
+                data-testid="work-publish-menu"
+              >
+                {#if link}<DocProviderLogo provider={link.provider} size={12} />{/if}
+                {busy ? "Working…" : chip.label}
+              </button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+        {/snippet}
+      </TooltipUI.Trigger>
+      <TooltipUI.Content side="bottom" class="whitespace-pre-line">{syncTooltip}</TooltipUI.Content>
+    </TooltipUI.Root>
     <!-- Width is declared here, not by the longest folder name: a Drive can hold
          a "_ARCBEAM Brand Guidelines & Assets – November 2025", and `w-auto`
          let one such name stretch the menu past the window. The 22rem ceiling
@@ -262,7 +271,7 @@
           {destinationNoun(pickingProvider)}
         </DropdownMenu.Label>
         {#if destinationsLoading}
-          <DropdownMenu.Item disabled class="text-workspace-chrome">Loading…</DropdownMenu.Item>
+          <DropdownMenu.Item disabled class="text-workspace-chrome" aria-label="Loading destinations"><Skeleton class="h-3 w-32" /></DropdownMenu.Item>
         {:else if destinations.length === 0}
           <DropdownMenu.Item disabled class="text-workspace-chrome">
             No {destinationNoun(pickingProvider)} is reachable with this connection

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { GitCheckout, GitIdentity } from '@solus/contracts/types'
+import { gitCheckoutFromState } from '@solus/contracts/types'
 import { checkoutWithLiveIdentity } from '@solus/server/git/git-context'
 import { prReviewGitCheckout } from '@solus/workspace-ui/contexts/workspace/pr-review-checkout'
 import { inheritRunConfig } from '@solus/workspace-ui/contexts/workspace/run-config'
@@ -12,6 +13,14 @@ const liveIdentity: GitIdentity = {
 }
 
 describe('live Git identity', () => {
+  test('retains the project when an external worktree is selected or refreshed', () => {
+    const externalIdentity = { ...liveIdentity, repoRoot: '/tmp/external-feature' }
+    const checkout = gitCheckoutFromState(externalIdentity, '/tmp/external-feature', '/projects/solus')
+    expect(checkout?.repoRoot).toBe('/projects/solus')
+    expect(checkout?.worktreePath).toBe('/tmp/external-feature')
+    expect(gitCheckoutFromState(externalIdentity, checkout?.worktreePath, checkout?.repoRoot)).toEqual(checkout)
+  })
+
   test('keeps the owning project root in a worktree context', () => {
     // WHY: Cmd+T inherits this complete Git context. Replacing repoRoot with
     // the linked checkout path makes the next session mistake it for a project.

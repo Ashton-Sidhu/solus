@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
+  import { tick, untrack } from "svelte";
   import { modelLabelFor } from "@solus/contracts/types";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
@@ -18,7 +19,7 @@
     getPlanStore,
     createSessionHistoryStore,
     getSettingsContext,
-    getWindowContext,
+    getClientShellContext,
     runtime,
     connectRequestStore,
   } from "../../contexts";
@@ -35,6 +36,8 @@
   import OpenAIBlossom from "../pickers/OpenAIBlossom.svelte";
   import TranscriptStatusRow from "./TranscriptStatusRow.svelte";
   import TurnActivityRow from "./TurnActivityRow.svelte";
+  import TurnBody from "./TurnBody.svelte";
+  import ToolInputStatus from "./ToolInputStatus.svelte";
   import TurnEndDivider from "./TurnEndDivider.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
 
@@ -123,11 +126,11 @@
   const outerScrollbar = getOuterScrollbarContext();
   const planStore = getPlanStore();
   const settings = getSettingsContext();
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   const sourceSessionHistory = createSessionHistoryStore();
   $effect(() => () => sourceSessionHistory.cancel());
-  const isEditorMode = $derived(
-    windowCtx.viewMode === "editor" || windowCtx.isWeb,
+  const fillsPane = $derived(
+    !shell.isOverlayWindow,
   );
   let {
     tabId,
@@ -135,12 +138,14 @@
     surfaceVisible = true,
     retainTranscriptRows = true,
     bandAbove = true,
+    showActions = true,
   }: {
     tabId: string;
     forceVisible?: boolean;
     surfaceVisible?: boolean;
     retainTranscriptRows?: boolean;
     bandAbove?: boolean;
+    showActions?: boolean;
   } = $props();
 
   // The pool instance is on screen only while its tab is active; the split-pane
@@ -168,7 +173,7 @@
     cwd: () => sess?.run.workingDirectory,
     serverId: () => sess?.run.serverId,
     ctx: () => (sess ? session.ctxFor(tabId) : undefined),
-    isWeb: () => windowCtx.isWeb,
+    isWeb: () => !shell.supportsLocalAttachments,
     api: () =>
       sess?.run.serverId
         ? serverConnections.apiFor(sess.run.serverId)
@@ -216,7 +221,7 @@
   // message. Only the shell knows, so it tells us rather than us guessing from a
   // viewport width that is equally narrow in a desktop split.
   const reservesBandRoom = $derived(
-    bandAbove && isEditorMode && isVisible && !forceVisible,
+    bandAbove && fillsPane && isVisible && !forceVisible,
   );
   // 46px of band plus the gap under it.
   const CRUMB_OFFSET = CONVERSATION_BREADCRUMB_OFFSET;
@@ -278,7 +283,8 @@
   // mounted, and a hidden one would otherwise claim the shared indicator.
   $effect(() => {
     if (!outerScrollbar || !scrollEl || !isVisible) return;
-    return outerScrollbar.register(scrollEl);
+    // Track visibility and the element, not the target list changed by registration.
+    return untrack(() => outerScrollbar.register(scrollEl));
   });
   let renderOffset = $state(0);
   let expandingHistory = $state(false);
@@ -444,7 +450,7 @@
 
   let prevEditorMode: boolean | undefined;
   $effect(() => {
-    const mode = isEditorMode;
+    const mode = fillsPane;
     if (prevEditorMode !== undefined && prevEditorMode !== mode) {
       if (isVisible && scrollEl) {
         requestAnimationFrame(() => {
@@ -477,11 +483,11 @@
 
   // Message navigator (right-gutter rail) is editor-shell only — not the pill or
   // web layouts. The rail itself hides when the gutter is too narrow.
-  const isEditorShell = $derived(windowCtx.viewMode === "editor");
-  // Gate on isEditorShell: without this the derived rebuilds for every mounted
+  const showMessageNavigation = $derived(shell.hasProjectPanel);
+  // Gate on showMessageNavigation: without this the derived rebuilds for every mounted
   // tab on every message change even in pill/web mode where it's never rendered.
   const navItems = $derived(
-    isEditorShell && retainTranscriptRows
+    showMessageNavigation && retainTranscriptRows
       ? (sess?.messages ?? [])
           .filter((m) => m.role === "user")
           .map((m) => ({ id: m.id, preview: previewText(m.content) }))
@@ -550,7 +556,7 @@
   // Running, stopped and failed are all reported by the turn's own activity row
   // (§16, §17) — the strip only carries what no turn can express.
   const showActivityStrip = $derived(!!sess && isAwaitingPlan);
-  const showActionOrb = $derived(!!tab && !runtime.isMobileViewport);
+  const showActionOrb = $derived(!!tab && showActions);
   let activityReservedWidth = $state(0);
 
   // §16 — a turn collapses to one row when it ends. Until then it renders the
@@ -576,6 +582,7 @@
   function toggleTurn(id: string, expanded: boolean) {
     holdAutomaticScroll();
     turnExpansion.set(id, !expanded);
+    if (!expanded) void session.toolHistory.load(turns.find((turn) => turn.id === id)?.tools ?? []);
   }
 
   function turnContainsMessage(
@@ -908,9 +915,9 @@
   <div
     onmouseenter={() => (hovered = true)}
     onmouseleave={() => (hovered = false)}
-    class={isEditorMode ? "flex flex-col h-full min-h-0" : ""}
+    class={fillsPane ? "flex flex-col h-full min-h-0" : ""}
   >
-    <div class="cv-root relative {isEditorMode ? 'flex-1 min-h-0' : ''}">
+    <div class="cv-root relative {fillsPane ? 'flex-1 min-h-0' : ''}">
       {#if findOpen}
         <div
           class="absolute right-3 z-20"
@@ -935,10 +942,10 @@
         bind:this={scrollEl}
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
-        class="overflow-y-auto overflow-x-hidden px-4 pt-1 conversation-selectable {isEditorMode
+        class="overflow-y-auto overflow-x-hidden px-4 pt-1 conversation-selectable {fillsPane
           ? 'h-full'
           : ''}"
-        style="overscroll-behavior-y:contain; {isEditorMode
+        style="overscroll-behavior-y:contain; {fillsPane
           ? ''
           : 'max-height:var(--pill-body-max)'}"
         onscroll={handleScroll}
@@ -949,24 +956,17 @@
              narrow pill window. -->
         <div
           class="w-full"
-          style="{isEditorMode
+          style="{fillsPane
             ? 'max-width:var(--solus-reading-max);margin-inline:auto'
             : 'padding-inline:var(--cv-pill-gutter)'}{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"
         >
           {#if expandingHistory}
-            <div
-              class="flex justify-center py-2 text-xs text-(--solus-text-tertiary)"
-            >
-              Loading earlier messages…
-            </div>
+            <ContentSkeleton label="Loading earlier messages" />
           {:else if runtime.isTouchDevice && hasOlderTurnsToLoad}
-            <!-- Scrolling to the top already pages older turns in, on every
-                 client. A phone needs the button as well: it is a hundred rows
-                 of flicking to reach the trigger, there is no ⌘↑ to jump to the
-                 first message, and in a browser tab a pull at the top reads as
-                 the reload gesture rather than as a request for history. -->
+            <!-- Touch clients can request earlier turns with a button as well
+                 as the automatic paging available when scrolling up. -->
             <div class="flex justify-center pt-1 pb-2">
               <button
                 type="button"
@@ -1027,38 +1027,41 @@
                       : undefined}
                   />
                 {/if}
-                <!-- Folding hides this block, it never unmounts it — so ending a
-                   turn costs one reflow instead of rebuilding every subtree in
-                   it, and expanding hands the same view straight back. -->
+                <!-- Folded history mounts on first expansion. Once shown, the
+                   body stays mounted so folding retains its local state. -->
                 {#if turn.body.length > 0}
                   <div
                     class="turn-body space-y-2 @max-[30rem]/pane:space-y-3"
                     class:is-folded={!live && !expanded}
                     class:is-open={!live && expanded}
                   >
-                    {#each turn.body as item, itemIdx (itemKey(item))}
-                      {#if item.kind === "tool-group"}
-                        <!-- §16 — the transcript keeps its order, but the row at
-                           the tail of a working turn is where the run *is*: it
-                           takes the spinner rather than letting a second row
-                           saying "Thinking" stack underneath it. -->
-                        <ToolGroupItem
-                          tools={item.messages}
-                          {skipMotion}
-                          working={working && itemIdx === turn.body.length - 1}
-                          {activityLabel}
-                          turnStart={working ? sess.currentTurnStart : null}
-                          waitingOn={working
-                            ? agentsAwaitingReply(turn.body)
-                            : []}
-                          backgroundWait={working
-                            ? describeBackgroundWait(turn.body)
-                            : null}
-                        />
-                      {:else}
-                        {@render transcriptItem(item, skipMotion)}
-                      {/if}
-                    {/each}
+                    <TurnBody visible={live || expanded}>
+                      {#if expanded}<ToolInputStatus tools={turn.tools} history={session.toolHistory} />{/if}
+                      {#each turn.body as item, itemIdx (itemKey(item))}
+                        {#if item.kind === "tool-group"}
+                          <!-- §16 — the transcript keeps its order, but the row at
+                             the tail of a working turn is where the run *is*: it
+                             takes the spinner rather than letting a second row
+                             saying "Thinking" stack underneath it. -->
+                          <ToolGroupItem
+                            history={session.toolHistory}
+                            tools={item.messages}
+                            {skipMotion}
+                            working={working && itemIdx === turn.body.length - 1}
+                            {activityLabel}
+                            turnStart={working ? sess.currentTurnStart : null}
+                            waitingOn={working
+                              ? agentsAwaitingReply(turn.body)
+                              : []}
+                            backgroundWait={working
+                              ? describeBackgroundWait(turn.body)
+                              : null}
+                          />
+                        {:else}
+                          {@render transcriptItem(item, skipMotion)}
+                        {/if}
+                      {/each}
+                    </TurnBody>
                   </div>
                 {/if}
                 {#if !live && !expanded && turn.visibleWhenCollapsed.length > 0}
@@ -1136,7 +1139,7 @@
                 </div>
               {/if}
             {:else if item.kind === "tool-group"}
-              <ToolGroupItem tools={item.messages} {skipMotion} />
+              <ToolGroupItem tools={item.messages} history={session.toolHistory} {skipMotion} />
             {:else if item.kind === "subagent-group"}
               <SubagentGroup messages={item.messages} {tabId} {skipMotion} />
             {:else if item.kind === "system"}
@@ -1350,6 +1353,7 @@
             {/if}
           {/snippet}
 
+
           {#if sess.statusCard}
             <StatusCard card={sess.statusCard} />
           {/if}
@@ -1405,9 +1409,10 @@
         </div>
       </div>
 
-      {#if isEditorShell && retainTranscriptRows}
+      {#if showMessageNavigation && retainTranscriptRows}
         <ConversationMinimap
           items={navItems}
+          windowStart={startIndex}
           {scrollEl}
           isActive={isVisible}
           prepareNavigate={prepareMinimapNavigate}
@@ -1425,15 +1430,15 @@
       {#if showActivityStrip}
         <div
           class="activity-strip flex items-end gap-1.5 absolute pointer-events-none"
-          class:activity-strip-editor={isEditorMode}
-          class:activity-strip-pill={!isEditorMode}
-          style="bottom:{isEditorMode ? 3 : 16}px;height:2rem;z-index:7"
+          class:activity-strip-editor={fillsPane}
+          class:activity-strip-pill={!fillsPane}
+          style="bottom:{fillsPane ? 3 : 16}px;height:2rem;z-index:7"
         >
           <div
             bind:clientWidth={activityReservedWidth}
             class="flex items-center gap-1.5 text-xs pointer-events-auto"
-            class:pl-4={isEditorMode}
-            class:pr-2={isEditorMode}
+            class:pl-4={fillsPane}
+            class:pr-2={fillsPane}
           >
             <!-- Running, stopped and failed are all reported by the turn's own
                  row (§16, §17), not up here: the state belongs to the turn, not

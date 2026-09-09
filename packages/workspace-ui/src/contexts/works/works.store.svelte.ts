@@ -47,6 +47,7 @@ export class WorksStore {
   /** Live upstream polls, keyed by work. Reference-counted, because the same
    *  work can be open in more than one pane. */
   private upstreamWatches = new PresenceWatch()
+  readonly upstreamCheckTimes = this.upstreamWatches.timings
 
   /** Register a provisional work while a create_work tool call is in flight. The
    *  card shows a generating skeleton (content is not streamed in); on

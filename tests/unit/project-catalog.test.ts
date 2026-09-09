@@ -117,13 +117,37 @@ describe('ProjectsStore', () => {
     expect(catalog.entries.map((entry) => entry.projectRoot)).toEqual(['/repos/tools'])
   })
 
-  test('removal never touches unrelated entries and is a no-op for an unknown project', () => {
+  test('removal of an uncatalogued project leaves unrelated entries intact', () => {
     const catalog = new ProjectsStore()
     catalog.record({ serverId: 'host-a', projectRoot: '/repos/solus' }, 'Solus')
 
     catalog.remove({ serverId: 'host-a', projectRoot: '/repos/unknown' })
 
     expect(catalog.entries).toHaveLength(1)
+  })
+
+  test('removing a current checkout before discovery persists and does not hide another host', () => {
+    const project = { serverId: 'host-a', projectRoot: '/repos/current' }
+    const catalog = new ProjectsStore()
+    catalog.remove({ ...project, projectRoot: '/repos/current/' })
+    catalog.flush()
+
+    const restarted = new ProjectsStore()
+    expect(restarted.isRemoved(project)).toBe(true)
+    expect(restarted.isRemoved({ ...project, serverId: 'host-b' })).toBe(false)
+    restarted.recordDiscovered(project, 'Current')
+    expect(restarted.entries).toHaveLength(0)
+
+    restarted.record(project, 'Current')
+    expect(restarted.isRemoved(project)).toBe(false)
+    expect(restarted.entries).toHaveLength(1)
+  })
+
+  test('removal cannot hide the unset workspace placeholder', () => {
+    const catalog = new ProjectsStore()
+    const project = { serverId: 'host-a', projectRoot: '~' }
+    catalog.remove(project)
+    expect(catalog.isRemoved(project)).toBe(false)
   })
 
   test('persists across store instances — a project opened once is still known after a restart', () => {

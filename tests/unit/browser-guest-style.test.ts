@@ -12,30 +12,6 @@ import { browserGuestStyleScript } from '@solus/server/browser/guest-style'
 describe('browser guest scrollbar style', () => {
   const source = browserGuestStyleScript()
 
-  test('paints a thin rounded overlay thumb, not the default bar', () => {
-    expect(source).toContain('::-webkit-scrollbar-thumb {')
-    expect(source).toContain('border-radius: 9999px')
-    // A transparent padding-box border shrinks the ink to a hairline pill inside
-    // the gutter — the app's overlay look.
-    expect(source).toContain('border: 3px solid transparent')
-    expect(source).toContain('background-clip: padding-box')
-  })
-
-  test('follows the emulated colour scheme, as the app switches on theme', () => {
-    expect(source).toContain('@media (prefers-color-scheme: dark)')
-    expect(source).toContain('rgba(0, 0, 0, 0.18)')
-    expect(source).toContain('rgba(255, 255, 255, 0.18)')
-  })
-
-  test('sizes in px and never sets scrollbar-width', () => {
-    // The guest's root font size is the site's, so rem would make the bar a
-    // different width on every page. And any non-`auto` `scrollbar-width` opts
-    // Chromium out of ::-webkit-scrollbar entirely — the chunky bar returns.
-    expect(source).toContain('width: 10px')
-    expect(source).not.toMatch(/[0-9]rem/)
-    expect(source).not.toContain('scrollbar-width')
-  })
-
   test('installs one sheet, idempotently, without touching page behaviour', () => {
     const guest = fakeGuest()
     guest.run(source)

@@ -1,5 +1,6 @@
+import type { PickerResultType } from './picker-preferences'
 import type { Task } from '@solus/contracts/task-types'
-import type { SessionMeta, SessionSearchResult } from '@solus/contracts/types'
+import type { SessionMeta, SessionSearchResult, SessionSearchHit } from '@solus/contracts/types'
 import { snippetWindow } from '@solus/contracts/search-snippet'
 import type { SidebarSessionChild } from '../../../../contexts/workspace/session-sidebar.store.svelte'
 import type { PreviewHitTarget } from '../../../../lib/preview.svelte'
@@ -76,6 +77,8 @@ export type PickerRow =
       /** Under a query, the words found in the session's messages. Absent when
        *  only its name matched. */
       hit?: ConversationHit
+      additionalMatches?: ConversationHit[]
+      hitServerId?: string
     }
   | {
       kind: 'conversation'
@@ -83,10 +86,22 @@ export type PickerRow =
       entryIndex: number
       meta: SessionMeta
       hit: ConversationHit
+      additionalMatches?: ConversationHit[]
+      hitServerId?: string
     }
 
 /** A row the keyboard can land on: everything except a section header. */
 export type PickerEntry = Exclude<PickerRow, { kind: 'header' }>
+
+/**
+ * Whether a task row is a group the reader opens. On a phone a task with one
+ * session is that session: opening it revealed one child named after the
+ * task, a row that said nothing and cost a tap. Desktop keeps the group at
+ * any count, because its preview column reads the two rows differently.
+ */
+export function isTaskGroup(row: Extract<PickerRow, { kind: 'task' }>, touch: boolean): boolean {
+  return !row.matchedIn && row.sessions.length > (touch ? 1 : 0)
+}
 
 /** The last path segment of the task's project, or "Inbox" when it has none. */
 export function projectLabel(task: Task): string {
@@ -178,6 +193,8 @@ export function matchWindow(text: string, words: readonly string[]): string {
 export interface PickerRowsInput {
   tasks: Task[]
   query: string
+  /** Which kinds of result the picker lists. */
+  resultType?: PickerResultType
   /** Scope the list to one project, or null to list every project. Every task
    *  has a project, so a scope is a plain equality test with no exception. */
   projectKey?: string | null
@@ -203,10 +220,10 @@ export interface PickerRowsInput {
  * a task shows its sessions only when the reader opened it.
  *
  * A query replaces that with two sections in a fixed order, each stating its
- * own rule: tasks the query hit, folded; then sessions it hit by name or by
+ * own rule: tasks the query hit; then sessions it hit by name or by
  * what was said in them, flat, one row per session with its best evidence. A
- * session of a listed task is not repeated below it — the task row is its way
- * in. Both sections take the reader's order: best match first, or newest.
+ * matching session remains visible even if its task matches. Tasks do not
+ * expand under a query. Both sections take the reader's order: best match first, or newest.
  */
 export interface PickerList {
   rows: PickerRow[]
@@ -268,15 +285,18 @@ function keepMatches(input: PickerRowsInput, words: readonly string[]) {
   const ownerBySessionId = new Map<string, SessionOwner>()
   let hiddenTaskCount = 0
   for (const task of input.tasks) {
-    const sessions = input.sessionsFor(task)
+    const sessions = input.sessionsFor(task).filter((session) => session.sessionId || session.tabId)
     const inScope = !scope || task.projectKey === scope
     for (const session of sessions) {
-      if (session.sessionId && !ownerBySessionId.has(session.sessionId)) {
-        ownerBySessionId.set(session.sessionId, { task, session, inScope })
+      if (session.sessionId) {
+        const key = sessionIdentity(session)
+        if (!ownerBySessionId.has(key) || (!ownerBySessionId.get(key)!.inScope && inScope)) {
+          ownerBySessionId.set(key, { task, session, inScope })
+        }
       }
     }
-    const matchedIn = taskMatchField(task, words)
-    const matchingSessions = words.length
+    const matchedIn = input.resultType === 'sessions' ? null : taskMatchField(task, words)
+    const matchingSessions = input.resultType !== 'tasks' && (words.length || input.resultType === 'sessions')
       ? sessions.filter((session) => sessionMatches(session, words))
       : []
     if (!matchedIn && matchingSessions.length === 0) continue
@@ -299,12 +319,14 @@ type SessionListing =
       task: Task
       session: SidebarSessionChild
       hit?: ConversationHit
+      additionalMatches?: ConversationHit[]
+      hitServerId?: string
       ts: number
       nameMatched: boolean
     }
-  | { kind: 'conversation'; meta: SessionMeta; hit: ConversationHit; ts: number; nameMatched: false }
+  | { kind: 'conversation'; meta: SessionMeta; hit: ConversationHit; additionalMatches?: ConversationHit[]; hitServerId?: string; ts: number; nameMatched: false }
 
-function conversationHit(result: SessionSearchResult): ConversationHit {
+function conversationHit(result: SessionSearchHit): ConversationHit {
   return {
     messageId: result.messageId,
     snippet: snippetWindow(result.snippet),
@@ -326,50 +348,65 @@ function compareListings(sort: PickerSort) {
   }
 }
 
-/**
- * The sessions the query hit, one listing each.
- *
- * A name hit and a content hit on the same session are one listing carrying
- * the content hit: the passage is the better evidence, and its date is when
- * the words were said. A session of a task already listed above is left out —
- * the task row folds it — as is one of a task the scope removed, which the
- * host's own scope may not have caught.
- */
+/** Provider session IDs survive host copies; a draft is local to its host. */
+export function sessionIdentity(session: { serverId?: string | null; sessionId?: string | null; tabId?: string | null }): string {
+  return session.sessionId ? `session:${session.sessionId}` : JSON.stringify([session.serverId ?? '', `tab:${session.tabId}`])
+}
+
+/** Merge all evidence without changing the session's title or listing it twice. */
 function matchedSessions(
   nameHits: readonly TaskSession[],
   conversations: readonly SessionSearchResult[],
   ownerBySessionId: ReadonlyMap<string, SessionOwner>,
-  listedTaskIds: ReadonlySet<string>,
   sort: PickerSort,
 ): SessionListing[] {
   const byKey = new Map<string, SessionListing>()
   for (const { task, session } of nameHits) {
-    if (listedTaskIds.has(task.id)) continue
-    const key = session.sessionId ?? `tab:${session.tabId}`
-    byKey.set(key, { kind: 'session', task, session, ts: session.lastActivityAt, nameMatched: true })
+    const key = sessionIdentity(session)
+    if (!byKey.has(key)) byKey.set(key, { kind: 'session', task, session, ts: session.lastActivityAt, nameMatched: true })
   }
   for (const result of conversations) {
-    const sessionId = result.session.sessionId
-    const hit = conversationHit(result)
-    const owner = ownerBySessionId.get(sessionId)
-    if (owner) {
-      if (!owner.inScope || listedTaskIds.has(owner.task.id)) continue
-      const nameMatched = byKey.get(sessionId)?.nameMatched ?? false
-      byKey.set(sessionId, {
-        kind: 'session', task: owner.task, session: owner.session, hit, ts: result.ts, nameMatched,
-      })
-    } else if (!byKey.has(sessionId)) {
-      byKey.set(sessionId, { kind: 'conversation', meta: result.session, hit, ts: result.ts, nameMatched: false })
+    const key = sessionIdentity(result.session)
+    const owner = ownerBySessionId.get(key)
+    if (owner && !owner.inScope) continue
+    let listing = byKey.get(key)
+    if (!listing) {
+      listing = owner
+        ? { kind: 'session', task: owner.task, session: owner.session, ts: owner.session.lastActivityAt, nameMatched: false }
+        : { kind: 'conversation', meta: result.session, hit: conversationHit(result), ts: Date.parse(result.session.lastTimestamp) || result.ts, nameMatched: false }
+      byKey.set(key, listing)
     }
+    mergeSessionPassages(listing, result, owner?.session.serverId ?? '')
   }
   return [...byKey.values()].sort(compareListings(sort))
+}
+
+/** Keep only one host's message IDs, and choose the best bounded passages. */
+function mergeSessionPassages(listing: SessionListing, result: SessionSearchResult, preferredHost: string): void {
+  const hitServerId = result.session.serverId ?? ''
+  // Message row IDs belong to one host's index. Prefer the linked host;
+  // otherwise choose a stable source and never mix copied message IDs.
+  const changesSource = listing.hitServerId !== undefined && listing.hitServerId !== hitServerId
+  if (changesSource) {
+    if (listing.hitServerId === preferredHost) return
+    if (hitServerId !== preferredHost && listing.hitServerId! < hitServerId) return
+  }
+  const hits = new Map<number, ConversationHit>()
+  for (const hit of [...(changesSource ? [] : [listing.hit, ...(listing.additionalMatches ?? [])]), conversationHit(result), ...(result.additionalMatches ?? []).map(conversationHit)]) {
+    if (hit) hits.set(hit.messageId, hit)
+  }
+  const ordered = [...hits.values()].sort((a, b) => a.rank - b.rank || b.ts - a.ts || a.messageId - b.messageId)
+  listing.hitServerId = hitServerId
+  if (listing.kind === 'conversation') listing.meta = result.session
+  listing.hit = ordered[0]
+  listing.additionalMatches = ordered.slice(1, 3)
 }
 
 const MATCH_RANK = { title: 0, body: 1, id: 2 } satisfies Record<TaskMatchField, number>
 
 export function buildPickerRows(input: PickerRowsInput): PickerList {
   const words = queryWords(input.query)
-  const sort = input.sort ?? 'relevance'
+  const sort = words.length ? input.sort ?? 'relevance' : 'recency'
   const { kept, nameHits, ownerBySessionId, hiddenTaskCount } = keepMatches(input, words)
 
   const rows: PickerRow[] = []
@@ -386,13 +423,13 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       key: `task:${task.id}`,
       entryIndex: entries.length,
       task,
-      sessions: item.sessions,
-      expanded,
+      sessions: input.resultType === 'tasks' ? [] : item.sessions,
+      expanded: !words.length && input.resultType !== 'tasks' && expanded,
     }
     if (words.length) row.matchedIn = item.matchedIn
     if (words.length && item.matchedIn === 'body') row.bodySnippet = matchWindow(task.body ?? '', words)
     push(row)
-    if (!expanded) return
+    if (!expanded || words.length || input.resultType === 'tasks') return
     item.sessions.forEach((session, index) => {
       push({
         kind: 'session',
@@ -406,7 +443,7 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
     })
   }
 
-  if (!words.length) {
+  if (!words.length && input.resultType !== 'sessions') {
     for (const section of lifecycleSections(kept, input)) {
       rows.push({
         kind: 'header',
@@ -424,7 +461,7 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       rows,
       entries,
       taskCount: kept.length,
-      sessionCount: kept.reduce((sum, item) => sum + item.sessions.length, 0),
+      sessionCount: input.resultType === 'tasks' ? 0 : kept.reduce((sum, item) => sum + item.sessions.length, 0),
       sessionsCapped: false,
       hiddenTaskCount,
     }
@@ -443,19 +480,17 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       count: rankedTasks.length,
       hint: PICKER_SORT_HINTS[sort],
     })
-    // Folded unless the reader opened it: the row is the evidence, and opening
-    // every hit pushed the other sections below the fold.
+    // Matching sessions have their own rows; expanding a task here would repeat them.
     for (const item of rankedTasks) pushTask(item, input.expandedTaskIds.has(item.task.id), words)
   }
 
-  const listings = matchedSessions(
+  const listings = input.resultType === 'tasks' ? [] : matchedSessions(
     nameHits,
-    input.conversations ?? [],
+    words.length ? input.conversations ?? [] : [],
     ownerBySessionId,
-    new Set(rankedTasks.map((item) => item.task.id)),
     sort,
   )
-  const sessionsCapped = !!input.conversationsCapped
+  const sessionsCapped = input.resultType !== 'tasks' && words.length > 0 && !!input.conversationsCapped
   if (listings.length) {
     rows.push({
       kind: 'header',
@@ -465,21 +500,23 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
       capped: sessionsCapped,
       hint: PICKER_SORT_HINTS[sort],
     })
-    listings.forEach((listing, index) => {
+    listings.forEach((listing) => {
       if (listing.kind === 'conversation') {
         push({
           kind: 'conversation',
-          key: `conversation:${listing.meta.serverId ?? ''}:${listing.meta.sessionId}`,
+          key: `session:${sessionIdentity(listing.meta)}`,
           entryIndex: entries.length,
           meta: listing.meta,
           hit: listing.hit,
+          additionalMatches: listing.additionalMatches,
+          hitServerId: listing.hitServerId,
         })
         return
       }
       const { task, session } = listing
       const row: PickerEntry = {
         kind: 'session',
-        key: `session-hit:${task.id}:${session.sessionId ?? session.tabId ?? index}`,
+        key: `session:${sessionIdentity(session)}`,
         entryIndex: entries.length,
         task,
         session,
@@ -487,6 +524,8 @@ export function buildPickerRows(input: PickerRowsInput): PickerList {
         isLast: false,
       }
       if (listing.hit) row.hit = listing.hit
+      row.additionalMatches = listing.additionalMatches
+      row.hitServerId = listing.hitServerId
       push(row)
     })
   }
@@ -549,7 +588,8 @@ export function previewHitTarget(entry: PickerEntry | null): PreviewHitTarget | 
       ? { serverId, sessionId: entry.meta.sessionId, messageId: entry.hit.messageId }
       : null
   }
-  const { serverId, sessionId } = entry.session
+  const { sessionId } = entry.session
+  const serverId = entry.hitServerId ?? entry.session.serverId
   return entry.hit && serverId && sessionId
     ? { serverId, sessionId, messageId: entry.hit.messageId }
     : null
@@ -567,7 +607,7 @@ export function selectedRowIndex(rows: readonly PickerRow[], selectedIndex: numb
 export function expandTarget(
   entry: PickerEntry | undefined,
 ): { action: 'expand'; taskId: string } | { action: 'step' } | null {
-  if (entry?.kind !== 'task' || entry.sessions.length === 0) return null
+  if (entry?.kind !== 'task' || !isTaskGroup(entry, false)) return null
   return entry.expanded ? { action: 'step' } : { action: 'expand', taskId: entry.task.id }
 }
 
@@ -591,4 +631,19 @@ export function collapseTarget(
   }
   if (entry.kind === 'conversation') return null
   return entry.expanded ? { action: 'collapse', taskId: entry.task.id } : null
+}
+
+
+export function pickerSessionTitle(row: Exclude<PickerEntry, { kind: 'task' }>): string {
+  return row.kind === 'session' ? row.session.label : conversationTitle(row.meta)
+}
+
+export function pickerSessionProject(row: Exclude<PickerEntry, { kind: 'task' }>): string {
+  return row.kind === 'session' ? projectLabel(row.task) : conversationProjectLabel(row.meta)
+}
+
+export function pickerSessionActivity(row: Exclude<PickerEntry, { kind: 'task' }>): number {
+  return row.kind === 'session'
+    ? row.session.lastActivityAt || row.task.updatedAt
+    : Date.parse(row.meta.lastTimestamp) || row.hit.ts
 }

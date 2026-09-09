@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { connectionsNav } from "./connections-nav.svelte";
   /** One host, in full. The onboarding rail is for arrival and asks one thing
    *  at a time; this is where a host set up last week can be looked at, and
    *  every part of it changed, in whatever order the user wants. */
@@ -16,7 +17,7 @@
   }
 
   let { host }: Props = $props();
-  let tab = $state("overview");
+
 
   const setup = $derived(hostSetupStore.sessionFor(host.id));
   const isActive = $derived(serversStore.activeServer?.id === host.id);
@@ -51,7 +52,7 @@
     </p>
   </div>
 
-  <Tabs.Root bind:value={tab}>
+  <Tabs.Root bind:value={connectionsNav.tab}>
     <Tabs.List variant="line" class="w-full justify-start gap-4 border-b border-border pb-1 [.is-laptop-display_&]:gap-3">
       <Tabs.Trigger value="overview" class="flex-none px-0">Overview</Tabs.Trigger>
       <Tabs.Trigger value="git" class="flex-none px-0">Git</Tabs.Trigger>
@@ -66,7 +67,7 @@
     </Tabs.List>
 
     <Tabs.Content value="overview" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
-      <HostDetailOverview {host} {setup} onOpenTab={(next) => (tab = next)} />
+      <HostDetailOverview {host} {setup} onOpenTab={(next) => (connectionsNav.tab = next)} />
     </Tabs.Content>
     <Tabs.Content value="git" class="mt-5 flex flex-col gap-7 [.is-laptop-display_&]:mt-4 [.is-laptop-display_&]:gap-5">
       <HostDetailGit {setup} />

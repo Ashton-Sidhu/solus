@@ -65,7 +65,6 @@
     syncFromCache?: boolean;
     /** The page's one creating action. */
     primaryAction?: { label: string; shortcut?: string; run: () => void };
-    compactPrimaryActionText?: boolean;
     /** Move the page between the leading pane and the companion beside it.
      *  Absent where there is no pane to move to — pill mode renders these pages
      *  inline. */
@@ -119,7 +118,6 @@
     syncedAt = null,
     syncFromCache = false,
     primaryAction,
-    compactPrimaryActionText = false,
     onMoveAcross,
     isLeading = true,
     onClose,
@@ -273,12 +271,10 @@
                it adds to rather than up in the crumb line. -->
           <button
             type="button"
-            class="flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:px-2.5 @max-[30rem]/pane:order-2 @max-[30rem]/pane:ml-auto @max-[30rem]/pane:h-9! @max-[30rem]/pane:rounded-full {compactPrimaryActionText
-              ? 'text-xs'
-              : ''}"
+            class="flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] text-workspace-chrome font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] [.is-laptop-display_&]:px-2.5 @max-[30rem]/pane:order-2 @max-[30rem]/pane:ml-auto @max-[30rem]/pane:h-10 @max-[30rem]/pane:rounded-full"
             onclick={primaryAction.run}
           >
-            <PlusIcon size={12} weight="bold" class="shrink-0" />
+            <PlusIcon size={16} weight="bold" class="shrink-0" />
             {primaryAction.label}
             {#if primaryAction.shortcut}
               <span class="text-xs opacity-80 @max-[30rem]/pane:hidden"

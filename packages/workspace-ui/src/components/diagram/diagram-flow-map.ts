@@ -12,14 +12,14 @@ import type { DiagramEdge, DiagramNode } from '@solus/contracts/diagram-types'
 
 export function flowNodeToDiagram(n: FlowNode): DiagramNode {
   // SAFETY: DiagramShell creates each xyflow node from a DiagramNode and xyflow preserves its data payload.
-  const d = n.data as DiagramNode
+  const d = n.data as Partial<DiagramNode>
   // A collapsed group renders at a shrunken header height (n.height), but its
   // real (expanded) height is preserved on data.height — persist that so the box
   // restores to size on expand.
   const collapsedGroup = !!d.group && !!d.collapsed
   return {
     id: n.id,
-    label: d.label,
+    label: d.label ?? '',
     meta: d.meta,
     position: n.position,
     width: n.width,
@@ -60,6 +60,8 @@ export function flowEdgeToDiagram(e: FlowEdge): DiagramEdge {
     route: d.route,
     cardinality: d.cardinality,
     bendOffset: d.bendOffset,
+    bendAxis: d.bendAxis,
+    labelOffset: d.labelOffset,
     animated: e.animated,
     sourceHandle: e.sourceHandle ?? undefined,
     targetHandle: e.targetHandle ?? undefined,

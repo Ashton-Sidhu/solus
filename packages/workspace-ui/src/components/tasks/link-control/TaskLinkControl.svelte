@@ -277,7 +277,7 @@
     border: none;
     background: transparent;
     color: var(--muted-foreground);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     font-weight: 500;
     transition:
       background var(--duration-quick) var(--ease-premium),

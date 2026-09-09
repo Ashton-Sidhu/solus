@@ -8,6 +8,7 @@ import {
   buildPickerRows,
   collapseTarget,
   expandTarget,
+  isTaskGroup,
   pickerRowHeight,
   previewHitTarget,
   selectedRowIndex,
@@ -65,6 +66,18 @@ describe('unified picker rows', () => {
     a: [child('a1', 'first pass'), child('a2', 'second pass')],
     b: [child('b1', 'beta run')],
   }
+
+  test('a phone task with one session is not a group', () => {
+    // WHY: opening a group of one showed a child named after the task, a row
+    // that said nothing and cost a tap. Desktop keeps the group at any count.
+    const { entries } = build(tasks, sessions)
+    const alpha = entries[0]
+    const beta = entries[1]
+    if (alpha.kind !== 'task' || beta.kind !== 'task') throw new Error('expected task rows')
+    expect(isTaskGroup(alpha, true)).toBe(true)
+    expect(isTaskGroup(beta, true)).toBe(false)
+    expect(isTaskGroup(beta, false)).toBe(true)
+  })
 
   test('tasks and their expanded sessions form one keyboard sequence', () => {
     const { rows, entries } = build(tasks, sessions, '', ['a'])
@@ -137,7 +150,7 @@ describe('unified picker rows', () => {
     ])
   })
 
-  test('a task matching on its own name keeps all of its sessions behind its fold', () => {
+  test('a task title match stays a task result without nested search duplicates', () => {
     // WHY: the task row is the evidence. Opening every title match filled the
     // list with sessions and pushed the other sections below the fold.
     const { rows } = build(tasks, sessions, 'alpha')
@@ -149,9 +162,8 @@ describe('unified picker rows', () => {
       matchedIn: 'title',
       sessions: [{ sessionId: 'a1' }, { sessionId: 'a2' }],
     })
-    // → still opens it, and the reader's own opening survives the query.
     const opened = build(tasks, sessions, 'alpha', ['a'])
-    expect(opened.rows.map((row) => row.kind)).toEqual(['header', 'task', 'session', 'session'])
+    expect(opened.rows.map((row) => row.kind)).toEqual(['header', 'task'])
   })
 
   test('tasks rank by where they matched: title, then body, then id', () => {
@@ -249,6 +261,7 @@ describe('unified picker rows', () => {
       projectKey: string | null = null,
       sort: PickerSort = 'relevance',
       capped = false,
+      sessionsOnly = false,
     ) {
       return buildPickerRows({
         tasks,
@@ -259,8 +272,16 @@ describe('unified picker rows', () => {
         expandedTaskIds: new Set(expanded),
         conversations: hits,
         conversationsCapped: capped,
+        resultType: sessionsOnly ? 'sessions' : 'all',
       })
     }
+
+    test('sessions only keeps passage hits when their parent task matches', () => {
+      const result = buildWithHits('Alpha', [hit('a1', 'Alpha passage')], [], null, 'relevance', false, true)
+      expect(result.taskCount).toBe(0)
+      expect(result.entries).toHaveLength(1)
+      expect(result.entries[0]).toMatchObject({ kind: 'session', session: { sessionId: 'a1' }, hit: { messageId: 7 } })
+    })
 
     test('under relevance, name hits lead and content hits follow the index score', () => {
       // WHY: a session's name is its title, the strongest claim a query has
@@ -354,18 +375,12 @@ describe('unified picker rows', () => {
       })
     })
 
-    test("a listed task's sessions are not repeated below it, by name or by words", () => {
-      // WHY: the task row folds its sessions and is the way in. Listing them
-      // again under Sessions showed the same work twice with two dates.
+    test('a matching task does not hide matching sessions or duplicate them when expanded', () => {
       const hits = [hit('a1', 'alpha again'), hit('b1', 'alpha in beta')]
       const { rows } = buildWithHits('alpha', hits)
-      expect(rows.map((row) => row.kind)).toEqual(['header', 'task', 'header', 'session'])
-      expect(rows[3]).toMatchObject({ kind: 'session', session: { sessionId: 'b1' } })
-      // Opening the task changes what is on screen, not what is listed twice.
+      expect(rows.map((row) => row.kind)).toEqual(['header', 'task', 'header', 'session', 'session'])
       const opened = buildWithHits('alpha', hits, ['a'])
-      expect(opened.rows.map((row) => row.kind)).toEqual([
-        'header', 'task', 'session', 'session', 'header', 'session',
-      ])
+      expect(opened.entries.map((entry) => entry.key)).toEqual(rows.filter((row) => row.kind !== 'header').map((row) => row.key))
     })
 
     test('under recency, name hits and word hits share one order: newest first by the date each row shows', () => {
@@ -382,7 +397,7 @@ describe('unified picker rows', () => {
         conversations: [hit('orphan', 'a pass elsewhere', 200), hit('b1', 'pass in beta', 400)],
       })
       expect(entries.map((entry) => entry.kind === 'session' ? entry.session.sessionId : entry.meta.sessionId))
-        .toEqual(['b1', 'a1', 'orphan'])
+        .toEqual(['a1', 'orphan', 'b1'])
     })
 
     test("a hit in a session of a task the scope removed stays out, whatever the host said", () => {
@@ -408,8 +423,8 @@ describe('unified picker rows', () => {
     test('the preview opens on the hit only for rows found by their words, on a known host', () => {
       const { entries } = buildWithHits('said', [hit('orphan', 'said', 1), hit('b1', 'said', 5)])
       expect(entries.map((entry) => previewHitTarget(entry))).toEqual([
-        { serverId: 'local', sessionId: 'b1', messageId: 7 },
         { serverId: 'local', sessionId: 'orphan', messageId: 7 },
+        { serverId: 'local', sessionId: 'b1', messageId: 7 },
       ])
       // A name hit has no passage to open on, and a hit with no host has nowhere to ask.
       const [byName] = build(tasks, sessions, 'first pass').entries
@@ -518,4 +533,88 @@ describe('unified picker project scope', () => {
     expect(list.taskCount).toBe(0)
     expect(list.hiddenTaskCount).toBe(1)
   })
+})
+
+
+describe('sessions-only picker', () => {
+  const tasks = [task('a', 'Auth task'), task('b', 'Other task')]
+  const sessions = [child('a1', 'Auth session'), child('a2', 'Unrelated session')]
+
+  test('a matching parent task cannot hide a matching session or add unrelated sessions', () => {
+    const result = buildPickerRows({
+      tasks, query: 'auth', resultType: 'sessions' as const,
+      sessionsFor: (item) => item.id === 'a' ? sessions : [],
+      expandedTaskIds: new Set(['a']),
+    })
+    expect(result.taskCount).toBe(0)
+    expect(result.entries).toHaveLength(1)
+    expect(result.entries[0]).toMatchObject({ kind: 'session', nested: false, session: { sessionId: 'a1' } })
+  })
+
+  test('an empty query lists sessions directly and keeps project scope', () => {
+    const input = {
+      tasks, query: '', resultType: 'sessions' as const,
+      sessionsFor: (item: Task) => item.id === 'a' ? sessions : [],
+      expandedTaskIds: new Set<string>(),
+    }
+    const result = buildPickerRows(input)
+    expect(result.entries.map((entry) => entry.kind)).toEqual(['session', 'session'])
+    expect(result.taskCount).toBe(0)
+    expect(buildPickerRows({ ...input, projectKey: 'another-project' }).entries).toEqual([])
+    expect(buildPickerRows({ ...input, resultType: 'all' }).taskCount).toBe(2)
+  })
+})
+
+
+test('tasks result type excludes session matches and expanded session rows', () => {
+  const tasks = [task('a', 'Auth task'), task('b', 'Other task')]
+  const input = {
+    tasks, query: 'auth', resultType: 'tasks' as const,
+    sessionsFor: () => [child('s1', 'Auth session')],
+    expandedTaskIds: new Set(['a', 'b']),
+  }
+  const result = buildPickerRows(input)
+  expect(result.entries.map((entry) => entry.kind)).toEqual(['task'])
+  expect(result.entries[0]).toMatchObject({ task: { id: 'a' }, expanded: false })
+  expect(result.sessionCount).toBe(0)
+  const emptyQuery = buildPickerRows({ ...input, query: '' })
+  expect(emptyQuery.entries.map((entry) => entry.kind)).toEqual(['task', 'task'])
+  expect(emptyQuery.sessionCount).toBe(0)
+})
+
+
+test('session identity merges task links, host copies, and passage hits', () => {
+  const first = child('same-id', 'Stable name')
+  const remote = { ...first, serverId: 'remote' }
+  const input = {
+    tasks: [task('a', 'Stable task'), task('b', 'Stable task two')],
+    query: 'stable', resultType: 'sessions' as const,
+    sessionsFor: () => [first, remote, { ...child('', 'Stable placeholder'), sessionId: undefined }],
+    expandedTaskIds: new Set<string>(),
+  }
+  const before = buildPickerRows(input)
+  expect(before.entries).toHaveLength(1)
+  const result = buildPickerRows({ ...input, conversations: [
+    { session: { sessionId: 'same-id', serverId: 'local' } as SessionMeta, snippet: 'stable passage', messageId: 1, rank: -2, ts: 200 },
+    { session: { sessionId: 'same-id', serverId: 'local' } as SessionMeta, snippet: 'another stable passage', messageId: 2, rank: -1, ts: 300 },
+  ] })
+  expect(result.entries).toHaveLength(1)
+  expect(result.entries.map((entry) => entry.key)).toEqual(before.entries.map((entry) => entry.key))
+  expect(result.entries[0]).toMatchObject({ session: { label: 'Stable name' }, hit: { messageId: 1 }, additionalMatches: [{ messageId: 2 }] })
+})
+
+
+test('copied sessions use passages from one host, preferring the linked host', () => {
+  const meta = { sessionId: 'copy', serverId: 'remote', firstMessage: 'Copied session' } as SessionMeta
+  const result = buildPickerRows({
+    tasks: [task('t', 'Task')], query: 'copy', resultType: 'sessions',
+    sessionsFor: () => [child('copy', 'Copied session')], expandedTaskIds: new Set(),
+    conversations: [
+      { session: meta, snippet: 'remote copy', ts: 1, rank: -5, messageId: 77 },
+      { session: { ...meta, serverId: 'local' }, snippet: 'local copy', ts: 1, rank: -1, messageId: 22 },
+    ],
+  })
+  expect(result.entries).toHaveLength(1)
+  expect(previewHitTarget(result.entries[0])).toEqual({ serverId: 'local', sessionId: 'copy', messageId: 22 })
+  expect(result.entries[0]).toMatchObject({ additionalMatches: [] })
 })

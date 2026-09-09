@@ -8,6 +8,7 @@
   } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
+  import { toasts } from "../../lib/toasts";
   import { relativeTime } from "../../lib/relative-time";
   import MarkdownImage from "../conversation/MarkdownImage.svelte";
   import {
@@ -63,16 +64,25 @@
   );
   const pageIsOpen = $derived(pageKey ? browserStore.pages.has(pageKey) : false);
 
-  function openPage() {
-    session.openRoute(
-      {
-        name: "browser",
-        params: serverId
-          ? { browserPageId: snapshot.browserPageId, serverId }
-          : { browserPageId: snapshot.browserPageId },
-      },
-      { via: "click" },
-    );
+  let openingPage = $state(false);
+
+  async function openPage() {
+    if (openingPage) return;
+    openingPage = true;
+    try {
+      const host = serverId ?? session.fallbackServerId;
+      const browserPageId = await browserStore.openSnapshot(host, snapshot);
+      session.openRoute(
+        { name: "browser", params: { browserPageId, serverId: host } },
+        { via: "click" },
+      );
+    } catch (error) {
+      toasts.error("Could not open the captured page", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      openingPage = false;
+    }
   }
 
   /** The same way back, with the note tools already armed — so feedback lands on
@@ -121,10 +131,8 @@
       </span>
     </div>
 
-    <!-- The evidence. Capped and top-anchored while it is a thumbnail — the top
-         of a page is what a reader recognises it by — and released to the
-         capture's own shape once expanded, which the ratio reserves so the
-         transcript does not jump under the reader as the image resolves. -->
+    <!-- Show the whole capture even in the collapsed preview. Expansion
+         increases its available size without cropping the image. -->
     <div
       class="browser-snapshot-card__frame relative overflow-hidden border-t border-[var(--hairline)] bg-[var(--wash-1)]"
       class:browser-snapshot-card__frame--expanded={expanded}
@@ -132,9 +140,7 @@
       style:--snapshot-ratio={facts.aspectRatio}
     >
       <div
-        class="flex h-full w-full justify-center {expanded
-          ? 'items-center [&_img]:h-full [&_img]:w-full [&_img]:object-contain'
-          : 'items-start [&_img]:w-full'}"
+        class="flex h-full w-full items-center justify-center [&_img]:h-full [&_img]:w-full [&_img]:object-contain"
       >
         <MarkdownImage href={`asset://${snapshot.assetId}`} text={title} />
       </div>
@@ -179,8 +185,9 @@
         type="button"
         class="shrink-0 rounded-md bg-[var(--wash-2)] px-2.5 py-1 font-medium text-(--solus-text-primary) shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] transition-colors hover:bg-[var(--wash-3)]"
         onclick={openPage}
+        disabled={openingPage}
       >
-        Open in pane
+        {openingPage ? "Opening…" : "Open in pane"}
       </button>
     </div>
   </div>

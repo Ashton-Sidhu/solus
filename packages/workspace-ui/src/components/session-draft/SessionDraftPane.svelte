@@ -329,6 +329,7 @@
       <!-- The same destination strip a pre-flight tab draws — project, where it
            runs, branch, task — addressed by the draft's id. -->
       <InputBarHeader
+        active={surfaceVisible}
         sourceId={current.id}
         {paneId}
         {projectPickerAnchor}
@@ -353,7 +354,9 @@
              so Send goes through `dispatch`, which is what mints both. -->
         <InputBar
           bind:this={composerInput}
-          mode="editor"
+          active={surfaceVisible}
+          spacious
+          maxHeight={260}
           sessionId={null}
           isPrimary={!isAside}
           {paneId}
@@ -373,7 +376,9 @@
               {@render composerActions(savedPromptsControl)}
             {:else}
               <InputToolbar
-                mode="editor"
+                active={surfaceVisible}
+                spacious
+                showDestination={false}
                 isPrimary={!isAside}
                 run={current.run}
                 onRun={(next) => (current.run = next)}

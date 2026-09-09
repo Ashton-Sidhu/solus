@@ -55,10 +55,10 @@
   const tone = $derived(
     a.lastRunStatus === "running"
       ? "running"
-      : !a.enabled
-        ? "paused"
-        : a.lastRunStatus === "failed"
-          ? "failed"
+      : a.lastRunStatus === "failed" && !a.archivedAt
+        ? "failed"
+        : !a.enabled
+          ? "paused"
           : a.trigger.type === "manual"
             ? "manual"
             : "scheduled",
@@ -81,7 +81,7 @@
       : tone === "failed"
         ? "Last run failed"
         : tone === "paused"
-          ? "Paused"
+          ? a.archivedAt ? "Archived" : "Paused"
           : "Active",
   );
   const age = $derived(compactRelativeTime(a.lastRunAt, now));

@@ -2,7 +2,7 @@ import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, P
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLabel, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
-import type { SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage } from './session-history'
+import type { SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest } from './review'
 import type { StackGraph } from './stack-types'
@@ -19,6 +19,8 @@ import type { HostConfigPatch, HostConfigSnapshot } from './host-config'
 import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 
 import type { AccountState, DeviceSignInEnd } from './account-types'
+import type { DesktopUpdateStatus } from './desktop-update-types'
+import type { HostUpdateStatus } from './host-update-types'
 import type { HostGrantResponse, UplinkDirectory, UplinkEnrollmentTicket, UplinkLinkRequest, UplinkStatus } from './uplink'
 
 export interface LocalConnectionInfo {
@@ -102,7 +104,8 @@ export interface SolusAPI {
   resetSession(ctx: IpcContext): Promise<void>
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
   searchSessions(request: SearchSessionsRequest): Promise<SessionSearchResult[]>
-  loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number): Promise<WireSessionLoadMessage[]>
+  loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number, options?: { deferToolInputs?: boolean }): Promise<WireSessionLoadMessage[]>
+  loadSessionToolInputs(request: SessionToolInputsRequest): Promise<SessionToolInput[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
   /** The passage a search hit sits in: the message and its neighbours, from the index. */
   loadSessionMessageWindow(request: SessionMessageWindowRequest): Promise<SessionMessageWindow>
@@ -205,6 +208,11 @@ export interface SolusAPI {
   setupAuthorizeGhCli(): Promise<{ ok: true }>
   /** Points git at `solus git-credential` so pushes stop prompting. */
   setupInstallGitCredentialHelper(): Promise<{ ok: true }>
+
+  /** This host's Solus release check and its providers' release checks. */
+  hostUpdateStatus(): Promise<HostUpdateStatus>
+  /** Runs every check now; inside the host's rate limit it returns the current status. */
+  hostCheckForUpdates(): Promise<HostUpdateStatus>
 
   /** Active per-session needs-attention entries (server-side, outlive clients). */
   listAttention(): Promise<AttentionEntry[]>
@@ -417,7 +425,7 @@ export interface SolusAPI {
   automationCreate(name: string, action: AutomationAction, createdBy: AutomationCreator, enabled?: boolean, trigger?: AutomationTrigger): Promise<Automation>
   automationList(): Promise<Automation[]>
   automationRead(id: string): Promise<Automation | null>
-  automationUpdate(id: string, patch: { name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger }): Promise<Automation | null>
+  automationUpdate(id: string, patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger }): Promise<Automation | null>
   automationDelete(id: string): Promise<boolean>
   automationSetEnabled(id: string, enabled: boolean): Promise<Automation | null>
   automationRun(id: string): Promise<AutomationRun | null>
@@ -623,4 +631,13 @@ export interface NativeSolusAPI {
   uplinkListDirectoryHosts(): Promise<UplinkDirectory | null>
   uplinkAcquireHostGrant(hostId: string): Promise<HostGrantResponse | null>
   uplinkIssueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
+  /** The desktop update status. Owned by the main process, which runs the
+   *  checks and holds the auto-download setting. `docs/plans/desktop-updates.md`. */
+  updateStatus(): Promise<DesktopUpdateStatus>
+  checkForUpdate(): Promise<void>
+  downloadUpdate(): Promise<void>
+  /** Quit and install a ready update. Runs at once; the caller decides timing. */
+  restartToUpdate(): void
+  setUpdateAutoDownload(enabled: boolean): Promise<void>
+  onUpdateStatusChange(callback: (status: DesktopUpdateStatus) => void): () => void
 }

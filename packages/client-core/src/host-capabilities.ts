@@ -12,6 +12,7 @@ export const HOST_BOOLEAN_CAPABILITY_KEYS = [
   'automations',
   'githubProvider',
   'atlassianProvider',
+  'hostUpdates',
 ] as const
 
 export type HostBooleanCapability = (typeof HOST_BOOLEAN_CAPABILITY_KEYS)[number]
@@ -34,6 +35,7 @@ const hostCapabilitiesSchema = z.object({
   automations: tolerantBoolean,
   githubProvider: tolerantBoolean,
   atlassianProvider: tolerantBoolean,
+  hostUpdates: tolerantBoolean,
   editors: forwardCompatibleArray(editorIdSchema).optional().catch(undefined),
 })
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { snippetRuns } from "@solus/contracts/search-snippet";
+  import type { SessionSearchHit } from "@solus/contracts/types";
   import SvelteMarkdown, { type TextSnippetProps } from "@humanspeak/svelte-markdown";
   import { MessageCircle as ChatCircleIcon, ArrowRight as ArrowRightIcon } from "@lucide/svelte";
   import {
@@ -33,6 +35,7 @@
      *  searched for a passage, so the pane reads the opening prompt, the
      *  passage, and the last reply. */
     hitWindow?: HitWindow | null;
+    additionalMatches?: readonly SessionSearchHit[];
     loading: boolean;
     title?: string;
     byline?: string;
@@ -48,6 +51,7 @@
   let {
     preview,
     hitWindow = null,
+    additionalMatches = [],
     loading,
     title = "",
     byline = "",
@@ -207,6 +211,19 @@
           {@render divider()}
         {/if}
         {@render hitPassage(parts.hit)}
+      {/if}
+      {#if additionalMatches.length}
+        {@render divider()}
+        <div class="space-y-2 py-2">
+          <div class="text-chrome-shelf text-muted-foreground">More matches</div>
+          {#each additionalMatches as match (match.messageId)}
+            <p class="border-l-2 border-[color-mix(in_oklch,var(--primary)_45%,transparent)] pl-3 text-(--solus-text-primary)">
+              {#each snippetRuns(match.snippet) as run}
+                {#if run.hit}<mark class="rounded bg-[color-mix(in_oklch,var(--primary)_22%,transparent)] text-inherit">{run.text}</mark>{:else}{run.text}{/if}
+              {/each}
+            </p>
+          {/each}
+        </div>
       {/if}
       {#if parts.closing}
         {#if parts.opening || parts.hit}

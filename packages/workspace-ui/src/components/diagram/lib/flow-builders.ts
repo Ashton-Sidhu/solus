@@ -76,7 +76,7 @@ export function toFlowEdges<TEdgeHandlers extends object>(
       label: e.label,
       type: "default",
       animated: e.animated ?? false,
-      className: isAsync ? "edge--async" : isData ? "edge--data" : undefined,
+      class: isAsync ? "edge--async" : isData ? "edge--data" : undefined,
       ...edgeRenderProps(e.color, e.width, e.cardinality ? 'none' : e.arrows, e.dash),
       data: {
         kind: e.kind,
@@ -88,6 +88,8 @@ export function toFlowEdges<TEdgeHandlers extends object>(
         arrows: e.arrows,
         route: e.route,
         bendOffset: e.bendOffset,
+        bendAxis: e.bendAxis,
+        labelOffset: e.labelOffset,
         cardinality: e.cardinality,
         floatingSource: !e.sourceHandle,
         floatingTarget: !e.targetHandle,

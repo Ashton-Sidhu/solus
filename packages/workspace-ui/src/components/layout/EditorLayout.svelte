@@ -75,6 +75,7 @@
     >
       {#snippet inputRow()}
         <EditorInputCard
+          {active}
           class="mx-auto max-w-(--solus-reading-max)"
           onAttachFile={() => onAttachFile()}
           onScreenshot={onScreenshot ? () => onScreenshot() : null}

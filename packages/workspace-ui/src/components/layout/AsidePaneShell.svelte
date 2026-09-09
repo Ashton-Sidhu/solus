@@ -3,7 +3,7 @@
   import {
     getWorkspaceContext,
     getSettingsContext,
-    getWindowContext,
+    getClientShellContext,
   } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import ProjectPanel from "../project-panel/ProjectPanel.svelte";
@@ -52,7 +52,7 @@
 
   const session = getWorkspaceContext();
   const settings = getSettingsContext();
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   let paneWidth = $state(0);
   // A conversation can end up in the leading pane — "Ask Solus" beside a review
   // already showing in the companion puts it there, and so does moving a pane
@@ -68,48 +68,46 @@
 </script>
 
 <div
-  class="flex h-full min-h-0 min-w-0 flex-col bg-(--solus-container-bg) {isLeading
+  class="flex h-full min-h-0 min-w-0 bg-(--solus-container-bg) {isLeading
  ? ''
  : 'border-l border-(--solus-container-border)'}"
   onfocusin={() => session.router.focusPane(paneId)}
   bind:clientWidth={paneWidth}
 >
-  <!-- A split tab already lives in the primary tab strip, but this pane still
-       needs the same chrome row. Keeping the row preserves the shared vertical
-       grid after the old titled header was removed: both transcripts begin and
-       both composers end on the same lines. -->
-  <div
-    class="workspace-titlebar split-chat-chrome flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-end gap-1 pr-2.5 pl-[max(0.625rem,var(--solus-chrome-lead-inset,0px))]"
-  >
-    <SessionBreadcrumb
-      tabId={tabId ?? ""}
-      {draft}
-      variant="inline"
-      showNewSessionAction={false}
-      showProjectPanelAction
-      projectPanelOpen={settings.splitProjectPanelOpen}
-      onProjectPanelToggle={toggleRail}
-      {onOpenAsPage}
-      {onClose}
-      {closeLabel}
-    />
-  </div>
+  <!-- The header belongs to the conversation column. The project rail starts
+       at the top of the pane, beside both header and body, like the leading rail. -->
+  <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div
+      class="workspace-titlebar split-chat-chrome flex h-(--solus-chrome-row-h,2.5rem) shrink-0 items-center justify-end gap-1 pr-2.5 pl-[max(0.625rem,var(--solus-chrome-lead-inset,0px))]"
+    >
+      <SessionBreadcrumb
+        tabId={tabId ?? ""}
+        {draft}
+        variant="inline"
+        showNewSessionAction={false}
+        showProjectPanelAction
+        projectPanelOpen={settings.splitProjectPanelOpen}
+        onProjectPanelToggle={toggleRail}
+        {onOpenAsPage}
+        {onClose}
+        {closeLabel}
+      />
+    </div>
 
-  <div class="flex min-h-0 min-w-0 flex-1">
     <div
       class="aside-column flex min-h-0 min-w-0 flex-1 flex-col"
       class:justify-center={centered}
     >
       {@render body()}
     </div>
-
-    <ProjectPanel
-      sourceId={tabId ?? draft?.id ?? ""}
-      isSplit
-      containerWidth={paneWidth}
-      workspaceWidth={windowCtx.workAreaWidth}
-      active={surfaceVisible}
-      onCollapse={toggleRail}
-    />
   </div>
+
+  <ProjectPanel
+    sourceId={tabId ?? draft?.id ?? ""}
+    isSplit
+    containerWidth={paneWidth}
+    workspaceWidth={shell.workAreaWidth}
+    active={surfaceVisible}
+    onCollapse={toggleRail}
+  />
 </div>

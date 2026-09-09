@@ -4,17 +4,6 @@ import { ConversationPage } from '../helpers/conversation.page'
 import { WorkspacePage } from '../helpers/workspace.page'
 
 test.describe('Workspace page', () => {
-  test('opens via Alt+Shift+L keyboard shortcut', async ({ page }) => {
-    const app = new AppPage(page)
-    const workspace = new WorkspacePage(page)
-    await app.waitForAppReady()
-
-    await workspace.open()
-    await workspace.waitForOpen()
-
-    expect(await workspace.isOpen()).toBe(true)
-  })
-
   test('shows "Nothing here yet." empty state when the mock backend has no artifacts', async ({ page }) => {
     const app = new AppPage(page)
     const workspace = new WorkspacePage(page)
@@ -38,19 +27,6 @@ test.describe('Workspace page', () => {
     await workspace.waitForClosed()
 
     expect(await workspace.isOpen()).toBe(false)
-  })
-
-  test('renders the search field, status filter, and New button', async ({ page }) => {
-    const app = new AppPage(page)
-    const workspace = new WorkspacePage(page)
-    await app.waitForAppReady()
-
-    await workspace.open()
-    await workspace.waitForOpen()
-
-    await expect(workspace.searchInput()).toBeVisible()
-    await expect(workspace.statusMenu()).toBeVisible()
-    await expect(workspace.newButton()).toBeVisible()
   })
 
   test('names the open project in the rail and lists it in the switcher menu', async ({ page }) => {

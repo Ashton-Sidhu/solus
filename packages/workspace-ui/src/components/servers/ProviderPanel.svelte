@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
+  import { providerUpdateRows } from "../connections/lib/host-update-rows";
   import DevicePrompt from "./DevicePrompt.svelte";
   import ProviderChoiceCard from "./ProviderChoiceCard.svelte";
   import type { HostSetupSession } from "./host-setup.store.svelte";
@@ -14,11 +16,11 @@
   let { setup }: Props = $props();
 
   const rows = $derived(
-    codingProviderRows({
+    providerUpdateRows(codingProviderRows({
       readiness: setup.readiness,
       stages: setup.providerStages,
       add: (provider, opts) => void setup.addProvider(provider, opts),
-    }),
+    }), hostUpdatesStore.providerUpdatesFor(setup.serverId), (agent) => void setup.updateProvider(agent)),
   );
 
   /** A host CLI can't reach this browser, so signing one in ends with a code coming back by hand. */

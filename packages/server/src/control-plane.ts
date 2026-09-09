@@ -21,7 +21,7 @@ import { createClaudeSubagentAgentTool } from './agents/claude/claude-subagent-t
 import { createCodexSubagentAgentTool } from './agents/codex/codex-subagent-tool'
 import { resolvePromptImages } from './agents/prompt-image-refs'
 import { isRawReviewSkill } from './agents/review-command'
-import { hostInstructionsFor, runInputFromContext } from './agents/run-input'
+import { hostInstructionsFor, hostModelInputFor, providerConversationFor, runInputFromContext } from './agents/run-input'
 import { buildHandoff, composeHandoffSeed } from './agents/session-handoff'
 import { buildSystemPrompt } from './agents/system-hint'
 import { RateLimitState } from './rate-limits'
@@ -30,7 +30,7 @@ import type { AttentionKind } from '@solus/contracts/attention-types'
 import { prepareSessionTask, rekeyTaskSessionLinks, tasksForSession } from './tasks/task-sessions'
 import { Task, taskSnapshot } from './tasks/task'
 import { formatTaskContext } from './tasks/task-context'
-import { getHostConfig, getServerSettings } from './server/settings'
+import { getHostConfig } from './server/settings'
 import { clearForeignTaskSnapshot, foreignTaskFor, setForeignTaskSnapshot } from './tasks/foreign-tasks'
 import type { TaskSnapshot } from '@solus/contracts/task-types'
 import { getIndexedSession, persistIndexedSessionStart, setSessionBranch } from './db/session-indexer'
@@ -41,6 +41,7 @@ import {
   registerSessionLineage,
   resolveSessionLineage,
   resolveSessionLineageById,
+  replaceSessionLineageThread,
   stableSessionIdForProviderThread,
 } from './sessions/session-lineage'
 import {
@@ -452,6 +453,15 @@ export class ControlPlane extends EventEmitter {
             proposedSessionId: initSessionId,
             agentSessionId: event.sessionId,
             provider: backend.id,
+          })
+        }
+        const sourceRun = pendingStart?.run ?? this.activeRunRequests.get(initSessionId)
+        if (sourceRun?.input.forked && sourceRun.input.agentSessionId
+          && registered.active.providerSessionId === sourceRun.input.agentSessionId) {
+          replaceSessionLineageThread({
+            sessionId: initSessionId, provider: backend.id,
+            sourceThreadId: sourceRun.input.agentSessionId,
+            providerSessionId: event.sessionId, cwd: sourceRun.input.workingDirectory,
           })
         }
         this.agentSessionToSession.set(event.sessionId, initSessionId)
@@ -1747,9 +1757,6 @@ export class ControlPlane extends EventEmitter {
     if (!proposedSessionId) {
       throw new Error('No sessionId provided — rejecting to prevent misrouting')
     }
-    // The client's outbox drains after a dead transport by re-sending with the
-    // same client-generated id (dispatch-client step 6). A prompt this session
-    // already accepted is acknowledged, never run twice.
     if (options.clientPromptId) {
       const dedupeKey = `${proposedSessionId}:${options.clientPromptId}`
       if (this.acceptedClientPromptIds.has(dedupeKey)) {
@@ -1757,13 +1764,17 @@ export class ControlPlane extends EventEmitter {
         return { disposition: 'duplicate' }
       }
       this.acceptedClientPromptIds.add(dedupeKey)
-      // Bounded: ids only need to outlive a drain's replay window.
       if (this.acceptedClientPromptIds.size > 512) {
         const oldest = this.acceptedClientPromptIds.values().next().value
         if (oldest !== undefined) this.acceptedClientPromptIds.delete(oldest)
       }
     }
     const input = runInputFromContext(ctx)
+    const currentLineage = resolveSessionLineageById(proposedSessionId)?.active
+    if (!input.forked && !input.agentSessionId && currentLineage?.providerSessionId) {
+      input.agentSessionId = currentLineage.providerSessionId
+      input.provider = currentLineage.provider
+    }
     const agentSessionId = this.activeSessions.get(proposedSessionId)?.agentSessionId ?? input.agentSessionId
     // Route by the registered id, never the caller's. A client that resumed this
     // thread from disk without adopting our answer still proposes its own name;
@@ -1818,6 +1829,7 @@ export class ControlPlane extends EventEmitter {
   async dispatchAutomationRun(opts: {
     agentSessionId: string
     prompt: string
+    displayPrompt?: string
     automationId: string
     automationName: string
     fallback?: { provider: AgentId; model: string | null; reasoningEffort: ReasoningEffort; cwd: string }
@@ -1847,14 +1859,11 @@ export class ControlPlane extends EventEmitter {
             gitContext: null,
             worktreeBaseBranch: null,
             sessionChangedFiles: [],
-            contextWindow: defaultContextWindowFor(activeProvider, fallback.model),
-            model: fallback.model ?? '',
-            preferredModel: fallback.model,
             reasoningEffort: fallback.reasoningEffort,
             fastMode: false,
             permissionMode: 'auto',
             rateLimitBehavior: 'queue',
-            ...hostInstructionsFor(fallback.model),
+            ...hostModelInputFor(activeProvider, fallback.model),
           }
         : undefined
     if (!input) {
@@ -1879,7 +1888,7 @@ export class ControlPlane extends EventEmitter {
       options: {
         prompt,
         promptSource: 'automation',
-        displayPrompt: prompt,
+        displayPrompt: opts.displayPrompt ?? prompt,
         skipTaskCreation: true,
         delivery: 'queue',
         via: 'automation',
@@ -2088,14 +2097,11 @@ export class ControlPlane extends EventEmitter {
       gitContext: req.gitContext ?? null,
       worktreeBaseBranch: null,
       sessionChangedFiles: [],
-      contextWindow: defaultContextWindowFor(req.provider, req.modelId),
-      model: req.modelId ?? '',
-      preferredModel: req.modelId,
       reasoningEffort: req.reasoningEffort,
       fastMode: false,
       permissionMode: 'auto',
       rateLimitBehavior: 'queue',
-      ...hostInstructionsFor(req.modelId),
+      ...hostModelInputFor(req.provider, req.modelId),
     }
     const lifecycle = await this.runTurn({
       input,
@@ -2212,7 +2218,7 @@ export class ControlPlane extends EventEmitter {
     if (request.servedEnqueuedAt !== undefined) {
       this.sessionEmitter.recordQueueWait(request.sessionId, request.servedEnqueuedAt, runStartedAt)
     }
-    if (handle.agentSessionId && !run.input.agentSessionId && run.options.taskId) {
+    if (handle.agentSessionId && (!run.input.agentSessionId || run.input.forked) && run.options.taskId) {
       await this._linkPreparedTask(run, request.sessionId)
     }
     const agentSessionId = handle.agentSessionId
@@ -2538,11 +2544,18 @@ export class ControlPlane extends EventEmitter {
         throw new Error(`Session ${sessionId} has a provisional handoff to ${activeMember?.provider ?? 'another provider'}`)
       }
     }
-    const isContinuation = target.kind === 'session'
+    const activeLineage = resolveSessionLineageById(sessionId)?.active
+    if (input.forked && activeLineage?.providerSessionId
+      && (activeLineage.provider !== input.provider || activeLineage.providerSessionId !== input.agentSessionId)) {
+      throw new Error('The fork source is no longer the active session thread.')
+    }
+    const isContinuation = target.kind === 'session' || (!input.forked && !!activeLineage?.providerSessionId)
     const existingSession = isContinuation ? this.activeSessions.get(sessionId) : undefined
     // What `--resume` gets. Never the Solus id: the provider has never heard of it.
     const resumeAgentSessionId = isContinuation
-      ? existingSession?.agentSessionId ?? input.agentSessionId
+      ? existingSession?.agentSessionId
+        ?? (activeLineage?.provider === input.provider ? activeLineage.providerSessionId : null)
+        ?? input.agentSessionId
       : null
     const provider = pendingHandoff ? existingSession?.backendId ?? input.provider : input.provider
     const backend = this._backendFor(provider)
@@ -2899,9 +2912,7 @@ export class ControlPlane extends EventEmitter {
         permissionMode: effectiveInput.permissionMode,
         persistence: 'session',
         service: SPAN_SERVICES.sessions,
-        sessionId: effectiveInput.agentSessionId,
-        forkSession: effectiveInput.forked,
-        forkExcludeLatestTurn: effectiveInput.forkExcludeLatestTurn,
+        conversation: providerConversationFor(effectiveInput),
         additionalDirectories: effectiveAdditionalDirs,
         imageAttachments: promptImages,
         contextWindow: effectiveInput.contextWindow,

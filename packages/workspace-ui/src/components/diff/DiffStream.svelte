@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { getAllContexts, mount, unmount, onMount, untrack } from "svelte";
+  import { getAllContexts, onMount, untrack } from "svelte";
   import {
     CodeView,
     type CodeViewDiffItem,
-    type DiffLineAnnotation,
     type FileDiffContentsLoader,
     type FileDiffMetadata,
     type SelectedLineRange,
@@ -33,8 +32,7 @@
   import { fileTypeIcon } from "../../lib/fileTypeIcon";
   import { ensureIconCollections } from "../diagram/iconify";
   import { CommentComposer } from "../ui/comment-composer";
-  import DiffInlineComment from "./DiffInlineComment.svelte";
-  import DiffThreadComment from "./DiffThreadComment.svelte";
+  import { DiffAnnotations, type AnnotationMeta } from "./lib/diff-annotations.svelte";
   import { getInlineCommentDraft } from "./diff-comment-draft.store.svelte";
   import {
     DiffCollapseState,
@@ -42,12 +40,6 @@
   } from "./lib/diff-ergonomics";
   import type { DiffReviewThread } from "./lib/interdiff-annotations";
 
-  type AnnotationMeta =
-    | { kind: "comment"; comment: DiffComment }
-    | { kind: "thread"; thread: DiffReviewThread }
-    | { kind: "draft" };
-
-  const DRAFT_META: AnnotationMeta = { kind: "draft" };
   // @pierre/diffs asks us to mount annotations as separate Svelte roots. Carry
   // this component's contexts into those roots so nested renderers such as
   // CodeSpan can still reach the workspace.
@@ -177,27 +169,13 @@
   let iconsReady = $state(false);
 
   const collapseState = new DiffCollapseState();
-  let mountedComments: ReturnType<typeof mount>[] = [];
-
   const moveAnalysis = $derived(detectMovedBlocks(fileDiffs));
-  // Review threads collapse to a "Marked as resolved" bar once resolved. A
-  // resolved thread is collapsed by default; this set tracks the ones the user
-  // explicitly expanded again ("Show thread"). Bumping the nonce drives Effect B
-  // to re-run syncAllAnnotations so the virtualizer re-measures the shrunk/grown
-  // annotation and the diff reflows — with overflow:"wrap" the library skips its
-  // annotation ResizeObserver, so a bare height change never reclaims the space.
-  const expandedThreads = new Set<string>();
   let threadLayoutNonce = $state(0);
-
-  function isThreadCollapsed(thread: ReviewThread): boolean {
-    return thread.isResolved && !expandedThreads.has(thread.id);
-  }
-
-  function setThreadCollapsed(threadId: string, collapsed: boolean) {
-    if (collapsed) expandedThreads.delete(threadId);
-    else expandedThreads.add(threadId);
-    threadLayoutNonce++;
-  }
+  const annotations = new DiffAnnotations(
+    annotationContexts,
+    () => ({ onThreadReply, onThreadResolve, onEditComment, onDeleteComment }),
+    () => { threadLayoutNonce++; },
+  );
 
   // Find-in-diff: character-span highlighting via the CSS Custom Highlight API.
   // Ranges are (re)built only for currently rendered hosts, so the repaint is
@@ -229,62 +207,8 @@
     });
   }
 
-  const commentsByPath = $derived.by(() => {
-    const m = new Map<string, DiffComment[]>();
-    for (const c of comments) {
-      const arr = m.get(c.filePath) ?? [];
-      arr.push(c);
-      m.set(c.filePath, arr);
-    }
-    return m;
-  });
-
-  // Only line-anchored threads can render in the diff; outdated threads (line ===
-  // null) have no anchor in the current diff and stay in the Activity timeline.
-  const threadsByPath = $derived.by(() => {
-    const m = new Map<string, DiffReviewThread[]>();
-    for (const t of reviewThreads) {
-      if (t.line == null) continue;
-      const arr = m.get(t.filePath) ?? [];
-      arr.push(t);
-      m.set(t.filePath, arr);
-    }
-    return m;
-  });
-
   function hasTextHunks(fileDiff: FileDiffMetadata): boolean {
     return fileDiff.hunks.length > 0;
-  }
-
-  function buildAnnotations(
-    filePath: string,
-  ): DiffLineAnnotation<AnnotationMeta>[] {
-    const fileComments = (commentsByPath.get(filePath) ?? []).filter(
-      (c) => c.id !== draft.editingCommentId,
-    );
-    const out: DiffLineAnnotation<AnnotationMeta>[] = fileComments.map(
-      (comment): DiffLineAnnotation<AnnotationMeta> => ({
-        side: selectionSide(comment.side),
-        lineNumber: comment.endLine,
-        metadata: { kind: "comment", comment },
-      }),
-    );
-    for (const thread of threadsByPath.get(filePath) ?? []) {
-      if (thread.line == null) continue;
-      out.push({
-        side: selectionSide(thread.side),
-        lineNumber: thread.line,
-        metadata: { kind: "thread", thread },
-      });
-    }
-    if (draft.filePath === filePath && draft.range) {
-      out.push({
-        side: selectionSide(draft.range.side),
-        lineNumber: draft.range.endLine,
-        metadata: DRAFT_META,
-      });
-    }
-    return out;
   }
 
   function nextVersion(item: CodeViewDiffItem<AnnotationMeta>): number {
@@ -316,20 +240,6 @@
         collapsed: untrack(() => collapsed),
       };
     });
-  }
-
-  // Push the current annotation state into every item imperatively.
-  function syncAllAnnotations() {
-    if (!codeView) return;
-    mountedComments.forEach((i) => unmount(i));
-    mountedComments = [];
-    for (const fileDiff of fileDiffs) {
-      const item = codeView.getItem(fileDiff.name);
-      if (!item || item.type !== "diff") continue;
-      item.annotations = buildAnnotations(fileDiff.name);
-      item.version = nextVersion(item);
-      codeView.updateItem(item);
-    }
   }
 
   function toggleCollapse(filePath: string) {
@@ -615,33 +525,7 @@
         if (annotation.metadata.kind === "draft") {
           return draftFormWrapper ?? document.createElement("div");
         }
-        if (annotation.metadata.kind === "thread") {
-          const target = document.createElement("div");
-          const instance = mount(DiffThreadComment, {
-            target,
-            context: annotationContexts,
-            props: {
-              thread: annotation.metadata.thread,
-              collapsed: isThreadCollapsed(annotation.metadata.thread),
-              onReply: onThreadReply,
-              onToggleResolve: onThreadResolve,
-              onSetCollapsed: setThreadCollapsed,
-            },
-          });
-          mountedComments.push(instance);
-          return target;
-        }
-        const target = document.createElement("div");
-        const instance = mount(DiffInlineComment, {
-          target,
-          props: {
-            comment: annotation.metadata.comment,
-            onEdit: onEditComment,
-            onDelete: onDeleteComment,
-          },
-        });
-        mountedComments.push(instance);
-        return target;
+        return annotations.render(annotation.metadata);
       },
       onGutterUtilityClick: (
         range: SelectedLineRange,
@@ -734,8 +618,7 @@
       unsubscribeFindScroll?.();
       unsubscribeFindScroll = null;
       findHighlighter.destroy();
-      mountedComments.forEach((i) => unmount(i));
-      mountedComments = [];
+      annotations.destroy();
       codeView?.cleanUp();
       codeView = null;
     };
@@ -766,21 +649,31 @@
     if (!codeView) return;
     void moveAnalysis;
     codeView.setItems(buildStructuralItems());
-    untrack(() => syncAllAnnotations());
+    untrack(() => {
+      annotations.resetFiles();
+      void annotations.sync(codeView!, fileDiffs.map((file) => file.name), comments, reviewThreads, draft);
+    });
     untrack(() => syncStickyContainerBackground());
   });
 
   // Effect B — runs when annotation state changes (comments, draft, selection).
   // Applies targeted updateItem calls instead of rebuilding the full list.
   $effect(() => {
-    void comments;
-    void reviewThreads;
+    for (const comment of comments) { void comment.filePath; void comment.endLine; void comment.side; }
+    for (const thread of reviewThreads) { void thread.filePath; void thread.line; void thread.side; void thread.isResolved; }
     void draft.filePath;
-    void draft.range;
+    void draft.range?.endLine;
+    void draft.range?.side;
     void draft.editingCommentId;
     void threadLayoutNonce;
+    void onThreadReply;
+    void onThreadResolve;
+    void onEditComment;
+    void onDeleteComment;
     if (!codeView) return;
-    untrack(() => syncAllAnnotations());
+    untrack(() => {
+      void annotations.sync(codeView!, fileDiffs.map((file) => file.name), comments, reviewThreads, draft);
+    });
     untrack(() => syncStickyContainerBackground());
   });
 

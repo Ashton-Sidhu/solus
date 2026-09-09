@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import type { PrReviewer, PrReviewerCandidate } from "@solus/contracts/providers";
   import PrAvatar from "../prs/PrAvatar.svelte";
   import * as Command from "../ui/command";
@@ -78,7 +79,7 @@
         class="max-h-[min(17.5rem,calc(var(--bits-popover-content-available-height,20rem)-3rem))] overflow-y-auto p-1.5"
       >
         {#if loading}
-          <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">Loading reviewers…</p>
+          <ContentSkeleton label="Loading reviewers" />
         {:else if loadFailed}
           <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">
             Couldn’t load reviewers

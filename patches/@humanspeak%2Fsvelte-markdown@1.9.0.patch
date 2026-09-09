@@ -1,0 +1,16 @@
+diff --git a/dist/Parser.svelte b/dist/Parser.svelte
+index da63bc9..c5eb7f2 100644
+--- a/dist/Parser.svelte
++++ b/dist/Parser.svelte
+@@ -465,6 +465,11 @@
+                     {@render htmlChildren()}
+                 </HtmlComponent>
+             {/if}
++        {:else if !htmlTag && !String(sanitizedRest.raw).trimStart().startsWith('<!--')}
++            <!-- Marked emits both HTML comments and unpaired HTML-looking tags
++                 without a structured tag name. Comments stay hidden; keep only
++                 the incomplete tag visible as escaped text while streaming. -->
++            <renderers.rawtext text={sanitizedRest.raw} {...sanitizedRest} />
+         {:else}
+             {@const fallbackRest = Object.fromEntries(
+                 Object.entries(localRest).filter(([key]) => key !== 'tokens')

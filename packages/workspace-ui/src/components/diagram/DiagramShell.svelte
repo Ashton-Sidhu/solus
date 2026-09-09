@@ -9,6 +9,7 @@
     Panel,
     MarkerType,
     type Connection,
+    type useSvelteFlow,
     type Edge,
     type Node,
   } from "@xyflow/svelte";
@@ -21,7 +22,7 @@
   import { downloadPayload } from "../work/lib/work-export";
   import { dataUrlToPayload, renderDiagramPng, renderDiagramSvg } from "./lib/diagram-export";
   import type { PlanComment, SessionMeta, WorkStorage } from "@solus/contracts/types";
-  import { getWindowContext, getWorkspaceContext, getSettingsContext, runtime } from "../../contexts";
+  import { getClientShellContext, getWorkspaceContext, getSettingsContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { toasts } from "../../lib/toasts";
@@ -29,6 +30,7 @@
   import { uuid } from "@solus/contracts/uuid";
   import { formatSavedAgo } from "../document-shell/saveStatus";
   import DiagramCanvasBackground from "./DiagramCanvasBackground.svelte";
+  import DiagramAlignmentGuides from "./DiagramAlignmentGuides.svelte";
   import DiagramDrillCrumbs from "./DiagramDrillCrumbs.svelte";
   import DiagramNodeInspector from "./inspector/DiagramNodeInspector.svelte";
   import DiagramNodeRail from "./inspector/DiagramNodeRail.svelte";
@@ -38,6 +40,8 @@
   import DiagramThreadCard from "./DiagramThreadCard.svelte";
   import DiagramThreadComposer from "./DiagramThreadComposer.svelte";
   import DiagramSearch from "./DiagramSearch.svelte";
+  import { DiagramHistory } from "./lib/diagram-history.svelte";
+  import { arrangeNodes, arrangementSelection, type Arrangement } from "./lib/selection-arrangement";
   import CanvasToolbar from "./CanvasToolbar.svelte";
   import ContextMenu from "./ContextMenu.svelte";
   import PaneContextMenu from "./PaneContextMenu.svelte";
@@ -219,12 +223,12 @@
   const theme = getSettingsContext();
   const keybindings = getKeybindingsContext();
   const session = getWorkspaceContext();
-  const windowContext = getWindowContext();
+  const shell = getClientShellContext();
   setMarkdownImageContext({
     cwd: () => undefined,
     serverId: () => workId ? session.worksStore.hostFor(workId) ?? undefined : undefined,
     ctx: () => undefined,
-    isWeb: () => windowContext.isWeb,
+    isWeb: () => !shell.supportsLocalAttachments,
     api: () => {
       const serverId = workId ? session.worksStore.hostFor(workId) : null;
       return serverId ? serverConnections.apiFor(serverId) : undefined;
@@ -439,32 +443,7 @@
     persistComments();
     applyTransientState();
   }
-  let flowControls:
-    | {
-        /** The graph's live nodes — what an image export is framed around. */
-        getNodes: () => Node[];
-        getViewport: () => { x: number; y: number; zoom: number };
-        setViewport: (
-          viewport: { x: number; y: number; zoom: number },
-          options?: { duration?: number },
-        ) => Promise<boolean>;
-        zoomIn: (options?: { duration?: number }) => Promise<boolean>;
-        zoomOut: (options?: { duration?: number }) => Promise<boolean>;
-        fitView: (options?: {
-          duration?: number;
-          padding?: number;
-        }) => Promise<boolean>;
-        setCenter: (
-          x: number,
-          y: number,
-          options?: { zoom?: number; duration?: number },
-        ) => Promise<boolean>;
-        screenToFlowPosition: (pos: {
-          x: number;
-          y: number;
-        }) => { x: number; y: number };
-      }
-    | null = null;
+  let flowControls: ReturnType<typeof useSvelteFlow> | null = null;
 
   const NEW_NODE_ZOOM_STEP = 0.3;
   const NEW_NODE_ZOOM_CAP = 1.5;
@@ -649,7 +628,11 @@
   // *visible* canvas rather than on the pane.
   // Node and edge inspectors are mutually exclusive, so one selection produces
   // one footprint whichever kind is up.
-  const inspectorUsesBottomSheet = $derived(shellWidth > 0 && shellWidth <= 768);
+  // A desktop split pane keeps the full-height side inspector. Only touch
+  // clients use a bottom sheet when the pane is narrow.
+  const inspectorUsesBottomSheet = $derived(
+    runtime.isTouchDevice && shellWidth > 0 && shellWidth <= 768,
+  );
   const inspectorFootprint = $derived(
     inspectorUsesBottomSheet ||
       (activeDrawerNode === null && activeDrawerEdge === null)
@@ -733,10 +716,13 @@
     arrows: handleEdgeArrowsChange,
     route: handleEdgeRouteChange,
     cardinality: handleEdgeCardinalityChange,
+    labelOffset: (edgeId: string, offset: DiagramEdge["labelOffset"]) => { handleEdgeLabelOffsetChange(edgeId, offset); scheduleSave(); },
   };
 
   const EDGE_HANDLERS = {
     onLabelChange: handleEdgeLabelChange,
+    onLabelOffsetChange: handleEdgeLabelOffsetChange,
+    onLabelOffsetCommit: () => scheduleSave(),
     onBendOffsetChange: handleEdgeBendOffsetChange,
     onBendOffsetCommit: handleEdgeBendOffsetCommit,
     onContextMenu: handleContextMenuOpen,
@@ -848,7 +834,6 @@
   ];
 
   async function prepareImageExport(): Promise<() => void> {
-    if (nodes.length + edges.length <= 150) return () => {};
     fullDiagramExports += 1;
     await tick();
     await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
@@ -888,16 +873,9 @@
   // (node-level hidden is already set by toFlowNodes).
   recomputeHidden();
 
-  // Undo/redo history for the CURRENT view. Each entry is a plain DiagramDoc
-  // snapshot (the shape currentDoc() returns); restoring rebuilds the live flow
-  // arrays. History is per-view — drilling in/out resets it (loadView).
-  let undoStack = $state<DiagramDoc[]>([]);
-  let redoStack = $state<DiagramDoc[]>([]);
-  // The last snapshot we committed to history — the state an undo returns to.
-  let committed: DiagramDoc = currentDoc();
-  // True while undo/redo is reapplying a snapshot, so the resulting save isn't
-  // recorded as a fresh history step.
+  const history = new DiagramHistory(rootDoc);
   let isRestoring = false;
+  const arrangementCount = $derived(arrangementSelection(nodes).length);
 
   $effect(() => {
     const indexById = new Map(nodes.map((n, i) => [n.id, i]));
@@ -1054,37 +1032,20 @@
     };
   }
 
-  function resetHistory() {
-    undoStack = [];
-    redoStack = [];
-    committed = currentDoc();
-  }
-
-  function restoreSnapshot(doc: DiagramDoc) {
+  function restoreHistory(snapshot: ReturnType<DiagramHistory["undo"]>) {
+    if (!snapshot) return;
     isRestoring = true;
-    nodes = buildFlowNodes(doc.nodes);
-    edges = buildFlowEdges(doc.edges);
-    recomputeHidden();
-    committed = currentDoc();
+    rootDoc = snapshot.doc;
+    const owner = snapshot.viewId ? rootDoc.nodes.find(n => n.id === snapshot.viewId) : undefined;
+    drillPath = owner?.detail ? [{ id: owner.id, label: owner.label }] : [];
+    loadView(owner?.detail ?? rootDoc);
     scheduleSave();
     isRestoring = false;
+    shellEl?.focus({ preventScroll: true });
   }
 
-  function undo() {
-    if (undoStack.length === 0) return;
-    redoStack = [...redoStack, committed];
-    const prev = undoStack[undoStack.length - 1];
-    undoStack = undoStack.slice(0, -1);
-    restoreSnapshot(prev);
-  }
-
-  function redo() {
-    if (redoStack.length === 0) return;
-    undoStack = [...undoStack, committed];
-    const next = redoStack[redoStack.length - 1];
-    redoStack = redoStack.slice(0, -1);
-    restoreSnapshot(next);
-  }
+  function undo() { restoreHistory(history.undo()); }
+  function redo() { restoreHistory(history.redo()); }
 
   // Write the current view (live nodes/edges) back into rootDoc at drillPath, so
   // a save/copy/export captures edits made at any depth.
@@ -1130,7 +1091,6 @@
       );
       openNodeDrawer(selectId, false);
     }
-    resetHistory();
     requestAnimationFrame(
       () => void flowControls?.fitView({ duration: 300, padding: 0.2 }),
     );
@@ -1180,10 +1140,7 @@
     // Record the pre-change snapshot before persisting this edit, unless we're
     // mid undo/redo (the snapshot is already the one we just reapplied).
     if (!isRestoring) {
-      undoStack = [...undoStack, committed];
-      if (undoStack.length > 100) undoStack = undoStack.slice(-100);
-      redoStack = [];
-      committed = currentDoc();
+      history.record(fullDoc(), drillPath[0]?.id);
     }
     clearTimeout(saveTimeout);
     hasPendingSave = true;
@@ -1191,22 +1148,26 @@
     saveTimeout = setTimeout(() => void performSave(), 600);
   }
 
+  let saveRevision = 0;
   async function performSave() {
+    const revision = ++saveRevision;
+    const contentToSave = serializeDiagram(fullDoc());
     hasPendingSave = false;
     isSaving = true;
     try {
-      await onSave(serializeDiagram(fullDoc()));
+      await onSave(contentToSave);
+      if (revision !== saveRevision) return;
       saveFailed = false;
       lastSavedAt = Date.now();
       savedStatusNow = lastSavedAt;
-      onDirtyChange?.(false);
+      if (!hasPendingSave) onDirtyChange?.(false);
     } catch {
       // Keep the dirty flag on failure — clearing it would let the host treat
       // unsaved edits as clean (and an agent refresh clobber them). The header
       // shows a retry affordance and any further edit re-arms the save.
-      saveFailed = true;
+      if (revision === saveRevision) saveFailed = true;
     } finally {
-      isSaving = false;
+      if (revision === saveRevision) isSaving = false;
     }
   }
 
@@ -1253,6 +1214,8 @@
         floatingSource: !connection.sourceHandle,
         floatingTarget: !connection.targetHandle,
         onLabelChange: handleEdgeLabelChange,
+    onLabelOffsetChange: handleEdgeLabelOffsetChange,
+    onLabelOffsetCommit: () => scheduleSave(),
         onBendOffsetChange: handleEdgeBendOffsetChange,
         onBendOffsetCommit: handleEdgeBendOffsetCommit,
         onContextMenu: handleContextMenuOpen,
@@ -1568,10 +1531,14 @@
   // an undo entry) here would spam the undo stack with dozens of frames per drag
   // and re-serialize every node/edge each frame. One commit on pointer-up records
   // the single undo step and schedules the save (see handleEdgeBendOffsetCommit).
-  function handleEdgeBendOffsetChange(edgeId: string, bendOffset: number) {
+  function handleEdgeBendOffsetChange(edgeId: string, bendOffset: number, bendAxis?: 'x' | 'y') {
     edges = edges.map((e) =>
-      e.id === edgeId ? { ...e, data: { ...e.data, bendOffset } } : e,
+      e.id === edgeId ? { ...e, data: { ...e.data, bendOffset, bendAxis } } : e,
     );
+  }
+
+  function handleEdgeLabelOffsetChange(edgeId: string, labelOffset: DiagramEdge["labelOffset"]) {
+    edges = edges.map(e => e.id === edgeId ? { ...e, data: { ...e.data, labelOffset } } : e);
   }
 
   function handleEdgeBendOffsetCommit() {
@@ -2324,6 +2291,28 @@
     scheduleSave();
   }
 
+  function arrangeSelection(action: Arrangement) {
+    const arranged = arrangeNodes(nodes, action);
+    if (arranged === nodes) return;
+    nodes = arranged;
+    layoutPristine = false;
+    nodes = autoGrowGroups(nodes, new Set(nodes.filter(n => n.data.group).reverse().map(n => n.id)));
+    scheduleSave();
+    shellEl?.focus({ preventScroll: true });
+  }
+
+  async function revealSearchNodes(nodeIds: string[]) {
+    const byId = new Map(nodes.map(n => [n.id, n]));
+    const parents = new Set<string>();
+    for (const id of nodeIds) {
+      let parent = byId.get(id)?.parentId;
+      while (parent) { parents.add(parent); parent = byId.get(parent)?.parentId; }
+    }
+    for (const id of parents) if (byId.get(id)?.data.collapsed) handleToggleCollapse(id);
+    await tick();
+    await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+  }
+
   function onSearchMatched(ids: Set<string> | null) {
     matchedNodeIds = ids;
     applyTransientState();
@@ -2333,6 +2322,7 @@
     searchOpen = false;
     matchedNodeIds = null;
     applyTransientState();
+    shellEl?.focus({ preventScroll: true });
   }
 
   // Null until a layout is actually applied: a diagram loaded with author-placed
@@ -2347,8 +2337,13 @@
   function relayout(direction: LayoutDirection = layoutDirection ?? "LR") {
     layoutDirection = direction;
     layoutPristine = true;
-    const laid = reapplyLayout(currentDoc(), direction);
+    const measured = new Map(nodes.filter(n => !n.data.group && n.measured?.width && n.measured?.height).map(n => [n.id, { w: n.measured!.width!, h: n.measured!.height! }]));
+    const doc = currentDoc();
+    doc.edges = doc.edges.map(({ bendOffset, bendAxis, sourceHandle, targetHandle, ...edge }) => edge);
+    const laid = reapplyLayout(doc, direction, { measured });
     nodes = buildFlowNodes(laid.nodes);
+    edges = buildFlowEdges(laid.edges);
+    recomputeHidden();
     applyTransientState();
     scheduleSave();
   }
@@ -2422,7 +2417,8 @@
   // their own keys (matches the old focus-scoped onkeydown behaviour).
   function canvasActive(): boolean {
     return (
-      !!shellEl?.contains(document.activeElement) && !isTextEntryFocused()
+      !!shellEl?.contains(document.activeElement) && !isTextEntryFocused() &&
+      !(document.activeElement instanceof Element && document.activeElement.closest(".edge-label-display"))
     );
   }
 
@@ -2455,7 +2451,7 @@
   useKeybinding("diagram.add-group", () => addGroup(), guard);
   useKeybinding("diagram.send-to-back", () => sendSelectionToBack(true), guard);
   useKeybinding("diagram.bring-to-front", () => sendSelectionToBack(false), guard);
-  useKeybinding("diagram.search", () => (searchOpen = true), guard);
+  useKeybinding("diagram.search", () => { searchOpen = true; }, guard);
   useKeybinding("diagram.comments", toggleComments, guard);
   useKeybinding("diagram.toggle-inspector", toggleInspector, guard);
   useKeybinding("diagram.dismiss", dismiss, guard);
@@ -2488,6 +2484,7 @@
   bind:this={shellEl}
   bind:clientWidth={shellWidth}
   class="diagram-shell"
+  class:diagram-shell--bottom-inspector={inspectorUsesBottomSheet}
   tabindex="-1"
   onkeydowncapture={handleShellKeydownCapture}
 >
@@ -2632,10 +2629,20 @@
         onpaneclick={handlePaneClick}
       >
         <DiagramCanvasBackground />
+        <DiagramAlignmentGuides />
         <CanvasToolbar
           onAddNode={() => addNode()}
           onAddGroup={addGroup}
           onRelayout={relayout}
+          canUndo={history.canUndo}
+          canRedo={history.canRedo}
+          onUndo={undo}
+          onRedo={redo}
+          onDuplicate={duplicateSelected}
+          onSearch={() => (searchOpen = true)}
+          onArrange={arrangeSelection}
+          onSelectAll={selectAll}
+          {arrangementCount}
           {layoutDirection}
           onDeleteSelected={deleteSelected}
           {hasSelection}
@@ -2658,6 +2665,7 @@
         {#if searchOpen}
           <DiagramSearch
             onMatchedChange={onSearchMatched}
+            onReveal={revealSearchNodes}
             onClose={closeSearch}
           />
         {/if}
@@ -2852,6 +2860,7 @@
           hasDetail={contextTargetHasDetail}
           onOpenDetail={handleContextMenuOpenDetail}
           onDelete={handleContextMenuDelete}
+          onDuplicate={duplicateSelected}
           onEditDetails={handleContextMenuEditDetails}
           onClose={() => {
             contextMenu = null;

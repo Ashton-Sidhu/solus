@@ -40,6 +40,21 @@ function activeRun(backend: unknown, sessionId: string) {
 }
 
 describe('ClaudeBackend steering', () => {
+  test('a pending fork cannot report its source as its own session', async () => {
+    scriptedMessages = []
+    const backend = new ClaudeBackend()
+    backend.on('error', () => {})
+    const handle = backend.startRun({
+      provider: 'claude-code', prompt: 'fork', cwd: '/tmp', tools: [],
+      permissionMode: 'ask', persistence: 'ephemeral', service: 'sessions',
+      conversation: { kind: 'fork', sourceThreadId: 'source-thread' },
+    })
+    expect(handle.agentSessionId).toBeNull()
+    await handle.runPromise
+    expect(capturedOptions?.resume).toBe('source-thread')
+    expect(capturedOptions?.forkSession).toBe(true)
+  })
+
   test('delivers into the turn that is already running, not the next one', async () => {
     const backend = new ClaudeBackend()
     const input = activeRun(backend, 'session-1')

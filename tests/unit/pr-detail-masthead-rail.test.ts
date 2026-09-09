@@ -24,8 +24,12 @@ describe('pull request change blocks', () => {
   })
 
   test('a one-sided change is one colour, and no change draws nothing', () => {
-    expect(changeBlocks(22, 0).every((block) => block === 'added')).toBe(true)
-    expect(changeBlocks(0, 9).every((block) => block === 'removed')).toBe(true)
+    const added = changeBlocks(22, 0)
+    const removed = changeBlocks(0, 9)
+    expect(added.length).toBeGreaterThan(0)
+    expect(removed.length).toBeGreaterThan(0)
+    expect(added.every((block) => block === 'added')).toBe(true)
+    expect(removed.every((block) => block === 'removed')).toBe(true)
     expect(changeBlocks(0, 0)).toEqual([])
   })
 })

@@ -16,6 +16,7 @@ const previousEffect = (globalThis as unknown as { $effect?: unknown }).$effect
 const previousLocalStorage = globalThis.localStorage
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 const previousWindow = globalThis.window
+const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
 let continueInWorktree: (this: ContinueInWorktreeContext, tabId: string) => Promise<void>
 
 interface ContinueInWorktreeContext {
@@ -84,11 +85,23 @@ beforeAll(async () => {
       removeEventListener: () => {},
     },
   })
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      visibilityState: 'visible',
+      hasFocus: () => true,
+      documentElement: { classList: { contains: () => false } },
+      addEventListener() {},
+      removeEventListener() {},
+    },
+  })
   const { WorkspaceContext } = await import('@solus/workspace-ui/contexts/workspace/workspace.context.svelte')
   continueInWorktree = WorkspaceContext.prototype.continueInWorktree
 })
 
 afterAll(() => {
+  if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument)
+  else Reflect.deleteProperty(globalThis, 'document')
   for (const [name, previous] of [
     ['Audio', previousAudio],
     ['CustomEvent', previousCustomEvent],

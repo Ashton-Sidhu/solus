@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Skeleton } from "../ui/skeleton";
   import type { ReferenceListItem } from "./lib/symbol-card";
   import { previewSegments } from "./lib/symbol-card";
   import { runtime } from "../../contexts";
@@ -72,7 +73,7 @@
         onclick={onLoadMore}
       >
         {#if item.isLoading}
-          <span class="truncate">Loading…</span>
+          <Skeleton class="h-3 w-24" aria-label="Loading references" />
         {:else if item.hasError}
           <span class="truncate">Try loading again</span>
         {:else}

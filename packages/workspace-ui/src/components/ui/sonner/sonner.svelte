@@ -102,38 +102,51 @@
     }
   }
 
-  /* Sonner parks the close button on the leading edge, which collides with the
-     status icon. Move it to the trailing corner and use Solus surface tokens.
-     It overhangs the corner, so nothing above it may clip overflow. */
+  /* Keep the full hit area on the button itself, including the part outside
+     the card. */
   :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]) {
+    --close-size: 20px;
+    --close-padding: 8px;
     left: unset;
-    right: 0;
-    transform: translate(35%, -35%);
-    background: var(--color-popover);
-    border-color: var(--color-border);
+    top: calc(-0.35 * var(--close-size) - var(--close-padding));
+    right: calc(-0.35 * var(--close-size) - var(--close-padding));
+    width: calc(var(--close-size) + 2 * var(--close-padding));
+    height: calc(var(--close-size) + 2 * var(--close-padding));
+    transform: none;
+    background: transparent;
+    border: 0;
     color: var(--color-muted-foreground);
   }
 
-  /* The mark itself stays small, but a dismiss should not need a precise aim.
-     Grow only the hit target, past the corner the badge already overhangs. */
-  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]::after) {
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]::before) {
     content: "";
     position: absolute;
-    inset: -8px;
+    inset: var(--close-padding);
+    background: var(--color-popover);
+    border: 1px solid var(--color-border);
     border-radius: 9999px;
+    pointer-events: none;
+    z-index: -1;
   }
 
-  /* A thumb needs the full 44px target. */
+  /* Keep pointer capture on the button, including clicks on the SVG strokes. */
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button] svg) {
+    pointer-events: none;
+  }
+
   @media (pointer: coarse) {
-    :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]::after) {
-      inset: -12px;
+    :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]) {
+      --close-padding: 12px;
     }
   }
 
   :global(.toaster [data-sonner-toast][data-styled="true"]:hover [data-close-button]:hover) {
-    background: var(--color-accent);
-    border-color: var(--color-border);
+    background: transparent;
     color: var(--color-popover-foreground);
+  }
+
+  :global(.toaster [data-sonner-toast][data-styled="true"] [data-close-button]:hover::before) {
+    background: var(--color-accent);
   }
 
   /* ─── Laptop geometry ───
@@ -164,8 +177,7 @@
     }
 
     :global(html.is-laptop-display .toaster [data-sonner-toast][data-styled="true"] [data-close-button]) {
-      height: 18px;
-      width: 18px;
+      --close-size: 18px;
     }
 
     :global(html.is-laptop-display .toaster [data-sonner-toast].solus-toast-progress) {

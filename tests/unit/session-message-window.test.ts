@@ -108,3 +108,16 @@ describe('getSessionMessageWindow', () => {
     expect(indexer.getSessionMessageWindow('s-5', hit.messageId).messages).toEqual([])
   })
 })
+
+
+test('search returns a saved session title and bounded additional matches in one result', () => {
+  seed('named', ['pelican one', 'pelican two', 'pelican three', 'pelican four'])
+  indexer.setSessionCustomTitle('named', 'Saved session title')
+  const hits = indexer.searchIndexedSessions('pelican')
+  expect(hits).toHaveLength(1)
+  expect(hits[0].session.customTitle).toBe('Saved session title')
+  expect(hits[0].additionalMatches).toHaveLength(2)
+  expect(new Set([hits[0].messageId, ...hits[0].additionalMatches!.map((hit) => hit.messageId)]).size).toBe(3)
+  seed('other', ['pelican other'])
+  expect(indexer.searchIndexedSessions('pelican', {}, 1)).toHaveLength(1)
+})

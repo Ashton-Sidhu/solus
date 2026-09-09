@@ -17,8 +17,10 @@
   import { isDone } from "../../tasks/lib/tasks-list-view";
   import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
   import {
-    conversationProjectLabel,
-    conversationTitle,
+    pickerSessionTitle,
+    pickerSessionProject,
+    pickerSessionActivity,
+    isTaskGroup,
     projectLabel,
     taskShortIdLabel,
     type PickerEntry,
@@ -105,6 +107,7 @@
   {@const taskStatus = STATUS_META[task.status]}
   {@const isSelected = row.entryIndex === selectedIndex}
   {@const isRunning = row.sessions.some((child) => child.attention === "running")}
+  {@const isGroup = isTaskGroup(row, mobile)}
   <div
     class="relative h-11 overflow-hidden rounded-lg max-md:h-[58px]"
     {style}
@@ -121,9 +124,11 @@
     <!-- The command palette's row: `menu-row` paints the hover ink, and the
          cursor sits in the same neutral wash every hover surface uses, with the
          title stepping to full ink. The row keeps an opaque background so
-         the swipe controls under it on a phone stay hidden until revealed. -->
+         the swipe controls under it on a phone stay hidden until revealed —
+         which is why a done task dims its contents and never this box: an
+         opacity here thinned the background and the tray showed through. -->
     <div
-      class="menu-row group/row relative flex h-full items-center rounded-lg bg-background pr-3 data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! {isDone(task) ? 'opacity-60' : ''}"
+      class="menu-row group/row relative flex h-full items-center rounded-lg bg-background pr-3 data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! {isDone(task) ? '*:opacity-60' : ''}"
       data-selected={isSelected ? '' : undefined}
       use:swipeActions={{
         revealWidth: TASK_STATUS_SWIPE_REVEAL_WIDTH,
@@ -133,14 +138,14 @@
       }}
     >
     <!-- The disclosure can also collapse a task after the full row opens it.
-         It keeps its width when a task has no sessions, because a ragged left
+         It keeps its width when a task is not a group, because a ragged left
          edge is harder to scan than an empty gutter. -->
     <button
       type="button"
       class="flex h-full w-6 shrink-0 cursor-pointer items-center justify-center text-(--solus-text-tertiary) max-md:w-11"
       aria-label={row.expanded ? `Collapse ${task.title}` : `Expand ${task.title}`}
       aria-expanded={row.expanded}
-      disabled={row.sessions.length === 0}
+      disabled={!isGroup}
       onclick={(event) => {
         event.stopPropagation();
         onToggle(task.id);
@@ -148,14 +153,14 @@
     >
       <ChevronRightIcon
         size={10}
-        class="shrink-0 transition-[transform,opacity] duration-150 max-md:size-3 max-md:opacity-50 {row.expanded ? 'rotate-90' : ''} {row.sessions.length ? '' : 'opacity-0'}"
+        class="shrink-0 transition-[transform,opacity] duration-150 max-md:size-3 max-md:opacity-50 {row.expanded ? 'rotate-90' : ''} {isGroup ? '' : 'opacity-0'}"
       />
     </button>
     <button
       type="button"
       role="option"
       aria-selected={isSelected}
-      aria-expanded={row.sessions.length ? row.expanded : undefined}
+      aria-expanded={isGroup ? row.expanded : undefined}
       class="flex h-full min-w-0 flex-1 cursor-pointer items-center gap-3 overflow-hidden text-left"
       onclick={() => revealedTaskId === task.id ? onRevealChange(null) : onActivate(row)}
       onpointermove={(event) => onHover(event, row)}
@@ -200,7 +205,7 @@
       </button>
     </div>
   </div>
-{:else if row.kind === "conversation"}
+{:else if row.kind === "conversation" || !row.nested}
   {@const isSelected = row.entryIndex === selectedIndex}
   <!-- The same geometry as a task row: a name, and under it the passage the
        words were found in — the evidence, so the reader can tell the hits
@@ -224,53 +229,13 @@
       </span>
       <span class="min-w-0 flex-1">
         <span class="block truncate {isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
-          >{@render marked(highlightWordRuns(conversationTitle(row.meta), query))}</span
+          >{@render marked(highlightWordRuns(pickerSessionTitle(row), query))}</span
         >
         <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
-          >{@render marked(snippetRuns(row.hit.snippet))}</span
+          >{#if row.hit}{@render marked(snippetRuns(row.hit.snippet))}{:else}{pickerSessionProject(row)}{/if}</span
         >
       </span>
-      {@render byline(conversationProjectLabel(row.meta), relativeTime(row.hit.ts))}
-      <ChevronRightIcon size={12} class="hidden shrink-0 text-(--solus-text-tertiary) opacity-50 max-md:block" />
-    </button>
-  </div>
-{:else if !row.nested}
-  {@const child = row.session}
-  {@const isSelected = row.entryIndex === selectedIndex}
-  <!-- A session the query hit, listed on its own. Its second line is the best
-       evidence: the passage the words were found in when they were found in
-       one, else the task it belongs to. The task moves to the trailing byline
-       when the passage takes its line, so the row never loses its task. -->
-  <div class="relative h-11 overflow-hidden rounded-lg max-md:h-[58px]" {style}>
-    <button
-      type="button"
-      role="option"
-      aria-selected={isSelected}
-      data-selected={isSelected ? '' : undefined}
-      class="menu-row group/row flex h-full w-full cursor-pointer items-center gap-3 overflow-hidden rounded-lg pr-3 pl-6 text-left data-[selected]:shadow-[shadow:inset_0_0_0_62rem_var(--solus-surface-hover)]! max-md:pl-11"
-      onclick={() => onActivate(row)}
-      onpointermove={(event) => onHover(event, row)}
-      oncontextmenu={(event) => onContextMenu(event, row)}
-      onpointerdown={(event) => onPressStart(event, row)}
-      onpointerup={onPressEnd}
-      onpointercancel={onPressEnd}
-    >
-      <span class="flex size-[1.625rem] shrink-0 items-center justify-center rounded-lg bg-(--solus-surface-hover)">
-        <SessionStatusGlyph attention={child.attention} />
-      </span>
-      <span class="min-w-0 flex-1">
-        <span class="block truncate {isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) group-hover/row:text-(--solus-text-primary)'}"
-          >{@render marked(highlightWordRuns(child.label, query))}</span
-        >
-        <span class="mt-px block truncate text-micro text-(--solus-text-tertiary)"
-          >{#if row.hit}{@render marked(snippetRuns(row.hit.snippet))}{:else}{row.task.title}{/if}</span
-        >
-      </span>
-      {#if row.hit}
-        {@render byline(row.task.title, relativeTime(row.hit.ts))}
-      {:else}
-        {@render byline(null, relativeTime(child.lastActivityAt || row.task.updatedAt))}
-      {/if}
+      {@render byline(null, relativeTime(pickerSessionActivity(row)))}
       <ChevronRightIcon size={12} class="hidden shrink-0 text-(--solus-text-tertiary) opacity-50 max-md:block" />
     </button>
   </div>

@@ -311,6 +311,14 @@ export class ProjectPrs {
     return result
   }
 
+  /** Git discovery names a possible pull request, including closed ones. Read
+   *  the open branch match without changing the list page. The project mirror
+   *  shares requests across surfaces and lets the next call retry a failed read. */
+  async loadBranch(headRef: string | null | undefined, prUrl: string | null | undefined): Promise<void> {
+    if (!headRef || !prUrl) return
+    await this.query({ state: 'open', head: headRef })
+  }
+
   /**
    * Make sure these pull requests are known, then stop asking.
    *

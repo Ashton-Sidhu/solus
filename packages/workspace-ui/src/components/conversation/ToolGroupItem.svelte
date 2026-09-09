@@ -2,6 +2,8 @@
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
   import ActivityRow from "./ActivityRow.svelte";
+  import ToolInputStatus from "./ToolInputStatus.svelte";
+  import type { ToolHistoryStore } from "../../contexts/workspace/tool-history.store";
   import { KIND_ICONS } from "./lib/activity-icons";
   import {
     activityDurationMs,
@@ -22,6 +24,7 @@
   import type { Message, TurnStartKind } from "@solus/contracts/types";
 
   interface Props {
+    history?: ToolHistoryStore;
     tools: Message[];
     skipMotion?: boolean;
     /** This group is the tail of a turn the session is still working on, so the
@@ -39,6 +42,7 @@
     backgroundWait?: BackgroundWait | null;
   }
   let {
+    history,
     tools,
     skipMotion = false,
     working = false,
@@ -123,6 +127,7 @@
   // stealing focus back to the composer scrolls the transcript away.
   function toggleExpanded(): void {
     expanded = !expanded;
+    if (expanded) void history?.load(tools);
   }
 
   function toggleToolExpanded(toolId: string): void {
@@ -199,6 +204,7 @@
          error is diagnostic detail, not transcript content, and a failure is not
          more important than the answer above it. -->
     {#snippet detail()}
+      {#if history}<ToolInputStatus {tools} {history} />{/if}
       {#if failureLine}
         <div class="tool-stderr font-mono">{failureLine}</div>
       {/if}

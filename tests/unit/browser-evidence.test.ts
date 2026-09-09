@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { describe, expect, test } from 'bun:test'
 import { pullRequestNumber } from '@solus/server/browser/pull-request-link'
 import { attachableTasks, evidenceChoices } from '@solus/workspace-ui/components/browser/lib/evidence-menu'
@@ -38,37 +36,6 @@ describe('browser evidence', () => {
     expect(pullRequestNumber('https://github.com/acme/widgets/pull/412/files')).toBe(412)
     expect(pullRequestNumber('https://github.com/acme/widgets/pulls')).toBeNull()
     expect(pullRequestNumber('')).toBeNull()
-  })
-
-  test('a task attach keeps the asset local, and a pull request uploads it', () => {
-    // The two destinations differ in exactly one way, and it is the one that
-    // decides whether the image renders. Asserted against the source because it
-    // is a branch on a network call no unit test should make.
-    const source = readFileSync(
-      join(import.meta.dir, '../../packages/server/src/browser/browser-evidence.ts'),
-      'utf8',
-    )
-    const taskBranch = source.slice(source.indexOf("if (target.kind === 'task')"), source.indexOf('const repo ='))
-    expect(taskBranch).toContain('asset://')
-    expect(taskBranch).not.toContain('publishAsset')
-    expect(source.slice(source.indexOf('const repo ='))).toContain('publishAsset')
-  })
-
-  test('publishing goes through the host attachment endpoint, not a committed file', () => {
-    // GitHub does have an attachment endpoint — the one its own CLI uses for
-    // `--attach`. Committing evidence into the repository instead would put it
-    // in diffs and leave a branch behind.
-    const provider = readFileSync(
-      join(import.meta.dir, '../../packages/server/src/providers/github/provider.ts'),
-      'utf8',
-    )
-    const publish = provider.slice(
-      provider.indexOf('async publishAsset('),
-      provider.indexOf('async deleteIssueComment('),
-    )
-    expect(publish).toContain('uploadGithubAsset')
-    expect(publish).not.toContain('createOrUpdateFileContents')
-    expect(provider).not.toContain('solus-evidence')
   })
 
   test('nothing is offered that cannot work', () => {

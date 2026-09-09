@@ -67,12 +67,13 @@ const createAutomationFields = {
     .boolean()
     .optional()
     .describe(
-      'When true, the automation runs *inside the current chat thread* — each run resumes this conversation with full context and posts its prompt as an in-thread message badged "Sent via automation", rather than as an isolated background task. Use this when the user wants a recurring check "in this chat" (e.g. "check every minute for new github issues"). Requires a scheduled trigger.',
+      'When true, the automation runs *inside the current chat thread* — each run resumes this conversation with full context and posts its prompt as an in-thread message badged "Sent via automation", rather than as an isolated background task. Use true for conversational follow-ups such as "check again", "check in 30 minutes", or "check every 30 minutes", even when the user does not say "in this chat". Use false only when the user wants a separate background session. Requires a scheduled trigger.',
     ),
   trigger: triggerSchema.optional(),
 }
 
 const updateAutomationFields = {
+  archived: z.boolean().optional().describe("Archive to stop future checks and keep history until the host retention period expires. False restores it as paused."),
   automation_id: z.string().describe('The id of the automation to update.'),
   name: z.string().optional(),
   prompt: z.string().optional(),
@@ -95,6 +96,7 @@ const readRunFields = {
 }
 
 interface AutomationToolArgs {
+  archived?: boolean
   automation_id?: string
   run_id?: string
   name?: string
@@ -112,11 +114,11 @@ interface AutomationToolArgs {
 // ─── Descriptions ───
 
 const CREATE_DESC =
-  'Create a new automation — the way recurring, scheduled, and "remind me to…" work is set up in Solus. A saved prompt run against an agent with a frozen agent, model, and reasoning level. Runs execute unattended with auto-approved permissions. An explicit `cwd` is used unchanged; when omitted, it defaults to the active project root. Set `use_worktree: true` only when each run must create an isolated worktree from that cwd. Provide a `trigger` to schedule it (one-time, interval, or cron) — scheduled runs fire only while Solus is open and catch up a missed fire on the next launch. Omit `trigger` for a manual automation you start with run_automation. Set `run_in_session: true` to run it inside the current chat thread with full conversation context (each run posts its prompt in-thread, badged "Sent via automation"); omit it for an isolated background run. Returns the new automation id.'
+  'For a scheduled follow-up to this conversation, set run_in_session: true. Interpret “in 30 minutes” as a once trigger and “every 30 minutes” as an interval trigger. Put any user-requested stop condition in the prompt. Creating a scheduled automation is sufficient: do not call run_automation as well unless the user asked for an immediate check. Create a new automation — the way recurring, scheduled, and "remind me to…" work is set up in Solus. A saved prompt run against an agent with a frozen agent, model, and reasoning level. Runs execute unattended with auto-approved permissions. An explicit `cwd` is used unchanged; when omitted, it defaults to the active project root. Set `use_worktree: true` only when each run must create an isolated worktree from that cwd. Provide a `trigger` to schedule it (one-time, interval, or cron) — scheduled runs fire only while Solus is open and catch up a missed fire on the next launch. Omit `trigger` for a manual automation you start with run_automation. Set `run_in_session: true` to run it inside the current chat thread with full conversation context (each run posts its prompt in-thread, badged "Sent via automation"); omit it for an isolated background run. Returns the new automation id.'
 const LIST_DESC =
   'List all automations with their id, name, enabled state, and last run status. Call this to discover an automation_id.'
 const READ_DESC = 'Read the full definition of one automation by id.'
-const UPDATE_DESC = 'Update fields of an existing automation (any subset). Unspecified fields are left unchanged. This is also how an automation is paused or resumed: pass `enabled` alone and nothing else changes.'
+const UPDATE_DESC = 'Update fields of an existing automation (any subset). Unspecified fields are left unchanged. Pause or resume with enabled alone. To stop future checks and archive, set archived: true. Cadence and history are kept until the host retention period expires. A check already queued or running can still finish.'
 const DELETE_DESC = 'Permanently delete an automation and its run history.'
 const RUN_DESC =
   'Trigger an automation to run now. Returns a run_id immediately; the run executes in the background. Poll read_automation_run with the run_id to get the result.'
@@ -235,7 +237,7 @@ export async function executeAutomationTool(
       const automations = await listAutomations()
       if (automations.length === 0) return { ok: true, text: 'No automations exist yet.' }
       const lines = automations.map(
-        (a) => `- ${a.id} — "${a.name}" (${a.enabled ? 'enabled' : 'paused'})${a.lastRunStatus ? `, last run: ${a.lastRunStatus}` : ''}`,
+        (a) => `- ${a.id} — "${a.name}" (${a.archivedAt ? 'archived' : a.enabled ? 'enabled' : 'paused'})${a.lastRunStatus ? `, last run: ${a.lastRunStatus}` : ''}`,
       )
       return { ok: true, text: `Automations:\n${lines.join('\n')}` }
     }
@@ -352,6 +354,7 @@ export async function executeAutomationTool(
       }
 
       const automationPatch: Parameters<typeof updateAutomation>[1] = {}
+      if (args.archived !== undefined) automationPatch.archived = args.archived
       if (args.name !== undefined) automationPatch.name = args.name
       if (args.enabled !== undefined) automationPatch.enabled = args.enabled
       if (Object.keys(actionPatch).length) automationPatch.action = actionPatch

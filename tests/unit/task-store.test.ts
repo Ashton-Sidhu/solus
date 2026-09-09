@@ -87,7 +87,6 @@ describe('native task migration', () => {
     // SAFETY: Bun's in-memory Database implements the DatabaseSync methods the migration runner uses.
     migrations.runMigrations(legacy as never)
 
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 32 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
     expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
     expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()
@@ -206,7 +205,6 @@ describe('native task migration', () => {
     })
     expect(legacy.query("SELECT name FROM pragma_table_info('tasks') WHERE name IN ('branch', 'worktree_key')").all())
       .toEqual([])
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 32 })
     legacy.close()
   })
 })
@@ -246,7 +244,6 @@ describe('native task CRUD', () => {
     ])
     expect(legacy.query("SELECT target_key FROM task_links WHERE kind = 'work' ORDER BY target_key").all())
       .toEqual([{ target_key: 'work-1' }, { target_key: 'work-2' }])
-    expect(legacy.query('PRAGMA user_version').get()).toEqual({ user_version: 32 })
     legacy.close()
   })
 

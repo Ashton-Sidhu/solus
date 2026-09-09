@@ -38,6 +38,8 @@ export interface AgentConversationResultProjection {
 
 /** History row shape allowed across the host-to-client boundary. */
 export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolResultIsError'> {
+  /** Content key for a tool input left on the host until its summary is opened. */
+  toolInputKey?: string
   /** A subagent's answer, separated from ordinary tool output. */
   report?: string
   status?: 'ok' | 'error'
@@ -45,6 +47,31 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
   contentBytes?: number
   /** Structured correlation facts extracted before tool output is discarded. */
   agentConversationResult?: AgentConversationResultProjection
+}
+
+export const MAX_SESSION_TOOL_INPUTS = 200
+
+export interface SessionToolInputsRequest {
+  sessionId: string
+  projectPath?: string
+  provider: AgentId
+  keys: string[]
+}
+
+export interface SessionToolInput {
+  key: string
+  toolInput: string
+}
+
+/** Client-side origin and fetch state retained with a historical tool row. */
+export interface DeferredToolInput {
+  serverId: string
+  sessionId: string
+  projectPath?: string
+  provider: AgentId
+  key: string
+  loading?: boolean
+  error?: string
 }
 
 export interface SessionPreviewResult {

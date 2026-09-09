@@ -22,6 +22,13 @@ than 300 changed files no longer lose the feature. `@pierre/diffs` owns partial
 metadata hydration, scroll anchoring, virtual-height reconciliation, and
 highlight-cache reuse.
 
+Inline annotations follow the same per-file update boundary. `DiffAnnotations`
+keeps each comment's Svelte root while that annotation exists, including when
+CodeView recycles its file. A thread toggle or draft selection updates only the
+affected files. Existing roots apply their props before the library remeasures
+them, so changing another thread does not erase an unsent reply. Removing an
+annotation or closing the stream releases its root.
+
 ## Comparison endpoints
 
 The loader must describe the exact patch on screen:

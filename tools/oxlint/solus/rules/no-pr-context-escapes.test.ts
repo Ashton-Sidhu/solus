@@ -8,8 +8,8 @@ const componentFile = 'packages/workspace-ui/src/components/pr-review/PrActions.
 const contextFile = 'packages/workspace-ui/src/contexts/prs/pull-request.svelte.ts'
 const demoFile = 'apps/client/src/demo/handlers/pr.ts'
 const serverFile = 'packages/server/src/server/handlers/provider-handlers.ts'
-// One of the two allowlisted holders of search results. `App.svelte` is the
-// other; the tester parses TypeScript, so the exemption is asserted here.
+// One of the two allowlisted holders of search results. The desktop palette
+// is the other; both own transient search candidates.
 const searchIndexFile = 'packages/workspace-ui/src/components/editor/unified-autocomplete/reference-index.svelte.ts'
 
 tester.run('solus/no-pr-context-escapes', noPrContextEscapesRule, {

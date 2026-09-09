@@ -8,7 +8,7 @@
   } from "@solus/contracts/task-types";
   import {
     getProjectConfigStore,
-    getWindowContext,
+    getClientShellContext,
     getWorkspaceContext,
     getPullRequestsContext,
   } from "../../../contexts";
@@ -88,7 +88,7 @@
 
   const session = getWorkspaceContext();
   const pullRequests = getPullRequestsContext();
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
   const outbox = session.outboxStore;
@@ -133,7 +133,7 @@
     cwd: () => projectCwd,
     serverId: () => store.get(taskId).serverId ?? LOCAL_SERVER_ID,
     ctx: () => projectCwd ? session.ctxForDirectory(projectCwd) : undefined,
-    isWeb: () => windowCtx.isWeb,
+    isWeb: () => !shell.supportsLocalAttachments,
     api: () => {
       const serverId = store.get(taskId).serverId;
       return serverId ? serverConnections.apiFor(serverId) : undefined;
@@ -1002,11 +1002,11 @@
         {@render bottomBar(task)}
       </div>
     {/if}
+  {:else if !store.loaded}
+    <TaskPageSkeleton />
   {:else}
-    <div
-      class="flex flex-1 items-center justify-center text-muted-foreground"
-    >
-      {store.loaded ? "That task no longer exists." : "Loading…"}
+    <div class="flex flex-1 items-center justify-center text-muted-foreground">
+      That task no longer exists.
     </div>
   {/if}
 </div>

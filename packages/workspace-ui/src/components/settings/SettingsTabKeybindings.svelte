@@ -19,7 +19,7 @@
   import { bindingCapture } from "../../lib/keybindings/capture.svelte";
   import type { BindingDef } from "../../lib/keybindings/types";
   import type { AppGlobalShortcuts, AppShortcutCombo } from "@solus/contracts/types";
-  import { getSettingsContext, getWindowContext } from "../../contexts";
+  import { getSettingsContext, getClientShellContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -32,7 +32,7 @@
   let { searchQuery = "" }: Props = $props();
 
   const settings = getSettingsContext();
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
 
   // ─── In-app bindings ───
 
@@ -82,7 +82,7 @@
   ];
 
   $effect(() => {
-    if (windowCtx.isWeb) return;
+    if (!shell.supportsNativeSettings) return;
     // OS summon shortcuts belong to this machine's own app instance.
     let alive = true;
     serverConnections.localHostApi()
@@ -149,7 +149,7 @@
         : all.length;
       return { key, label, total: all.length, matchCount };
     });
-    if (!windowCtx.isWeb) {
+    if (shell.supportsNativeSettings) {
       items.push({ key: "system", label: "System", total: APP_ROWS.length, matchCount: APP_ROWS.length });
     }
     return items;
@@ -325,7 +325,7 @@
     {/if}
   </div>
 
-  {#if windowCtx.isWeb}
+  {#if !shell.supportsNativeSettings}
     <p class="flex flex-wrap items-center gap-1.5 pb-3 text-(--solus-text-tertiary)">
       Some <Kbd variant="keycap">⌘</Kbd> combinations are reserved by your browser and can't be rebound to those keys.
     </p>

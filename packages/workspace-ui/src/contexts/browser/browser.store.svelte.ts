@@ -22,6 +22,7 @@ import type {
   BrowserOpenRequest,
   BrowserPage,
   BrowserProfileSet,
+  BrowserSnapshotRef,
   BrowserSurfaceReport,
   BrowserViewport,
   BrowserViewportRequest,
@@ -171,6 +172,25 @@ export class BrowserStore {
     this.pages.set(key, { serverId, page })
     this.activeKey = key
     return key
+  }
+
+  private readonly snapshotPages = new Map<string, string>()
+
+  /** Captures survive page closure. Refresh the host before reusing the id. */
+  async openSnapshot(serverId: string, snapshot: BrowserSnapshotRef): Promise<string> {
+    await this.loadPages(serverId)
+    const key = hostKey(serverId, snapshot.browserPageId)
+    const currentKey = this.snapshotPages.get(key) ?? key
+    if (this.pages.has(currentKey)) {
+      this.activeKey = currentKey
+      return splitHostKey(currentKey).path
+    }
+    const openedKey = await this.open(serverId, {
+      target: { kind: 'url', url: snapshot.url },
+      appearance: snapshot.appearance,
+    })
+    this.snapshotPages.set(key, openedKey)
+    return splitHostKey(openedKey).path
   }
 
   /** Ask the host to close a page. The host may refuse (ADR 0024); nothing is

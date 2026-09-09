@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import MarkdownLink from "../conversation/MarkdownLink.svelte";
@@ -135,13 +136,7 @@
     {#if ref.content}
       <div class="diagram-ref-preview">
         {#await import("../diagram/DiagramThumbnail.svelte")}
-          <div
-            class="diagram-loading flex h-full min-h-36 items-end"
-            role="status"
-            aria-label="Loading diagram preview"
-          >
-            <span class="diagram-loading__status">rendering preview</span>
-          </div>
+          <ContentSkeleton label="Loading diagram preview" preview />
         {:then diagramThumbnailModule}
           {@const DiagramThumbnail = diagramThumbnailModule.default}
           <DiagramThumbnail content={ref.content} />
@@ -246,14 +241,16 @@
 {/snippet}
 
 <style>
-  /* Ghost buttons at 11.5px, mono id at 60% pushed right. */
+  /* Ghost buttons on the card's meta rung, mono id at 60% pushed right. The
+     rail annotates the card, so it follows the display exactly as the meta
+     line above it does rather than pinning a size the laptop cannot step. */
   .ref-card-rail-action {
     border: none;
     border-radius: 0.375rem;
     background: transparent;
     padding: 0.3125rem 0.5rem;
     color: var(--muted-foreground);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     cursor: pointer;
     transition: background var(--duration-quick) var(--ease-premium);
   }
@@ -266,7 +263,7 @@
     padding-right: 0.25rem;
     color: var(--muted-foreground);
     font-family: var(--solus-code-font-family);
-    font-size: var(--text-xs);
+    font-size: var(--text-transcript-meta);
     opacity: 0.6;
   }
 
@@ -275,62 +272,4 @@
     overflow: hidden;
   }
 
-  /* Lazy-import gap before the thumbnail paints — a quiet canvas wash with the
-     accent only in the travelling highlight, labelled like the skeleton's
-     canvas block. Ink mixes in srgb, never oklch (transparent's oklch hue is 0;
-     a polar mix turns warm brown pink). */
-  .diagram-loading {
-    padding: 0.5625rem 0.6875rem;
-    background-image: linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--solus-text-primary) 4%, transparent) 0%,
-      color-mix(in srgb, var(--solus-accent) 10%, transparent) 45%,
-      color-mix(in srgb, var(--solus-text-primary) 4%, transparent) 90%
-    );
-    background-size: 260% 100%;
-    animation: diagram-sk-shim 2.4s linear infinite;
-  }
-
-  .diagram-loading__status {
-    font-size: var(--text-xs);
-
-    text-transform: uppercase;
-    color: var(--solus-text-tertiary);
-    animation: diagram-sk-breathe 2.6s ease-in-out infinite;
-  }
-
-  @keyframes diagram-sk-shim {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -100% 0;
-    }
-  }
-
-  @keyframes diagram-sk-breathe {
-    0%,
-    100% {
-      opacity: 0.35;
-    }
-    50% {
-      opacity: 0.85;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .diagram-loading {
-      animation: none;
-      background-image: none;
-      background-color: color-mix(
-        in srgb,
-        var(--solus-text-primary) 4%,
-        transparent
-      );
-    }
-    .diagram-loading__status {
-      animation: none;
-      opacity: 0.5;
-    }
-  }
 </style>

@@ -136,9 +136,8 @@ describe('task label activity', () => {
 })
 
 describe('task page capabilities', () => {
-  test('allows GitHub issue content edits and comments', () => {
-    // WHY: the GitHub adapter already implements issue updates and comments;
-    // the detail page must not hide those actions merely because it is upstream.
+  test('allows comments but keeps edits unavailable until provider capabilities arrive', () => {
+    // An upstream task alone does not establish which fields the provider can write.
     expect(taskPageCapabilities({ providerId: 'github' } as Task)).toEqual({
       canEditContent: false,
       canEditPlanningFields: false,

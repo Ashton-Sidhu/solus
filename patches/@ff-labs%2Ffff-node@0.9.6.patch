@@ -1,5 +1,5 @@
 diff --git a/dist/src/binary.js b/dist/src/binary.js
-index 5812e8b..327e2c5 100644
+index ee181ae..46189e8 100644
 --- a/dist/src/binary.js
 +++ b/dist/src/binary.js
 @@ -7,7 +7,7 @@

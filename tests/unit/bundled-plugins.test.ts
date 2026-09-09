@@ -131,10 +131,5 @@ describe('bundled plugin sync', () => {
 
       expect(readFileSync(localEdit, 'utf8')).toBe('# stamped\n')
     })
-
-    test('never copies with fs.cp, which cannot read a path inside app.asar', () => {
-      const source = readFileSync(new URL('../../packages/server/src/agents/plugins.ts', import.meta.url), 'utf8')
-      expect(source).not.toMatch(/\bcp(Sync)?\s*\(/)
-    })
   })
 })

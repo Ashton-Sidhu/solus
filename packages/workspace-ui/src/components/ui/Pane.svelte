@@ -80,7 +80,7 @@
       {#if ref.name === "settings"}
         <SettingsPageSkeleton />
       {:else if ref.name === "prReview"}
-        <PrReviewSkeleton />
+        <PrReviewSkeleton embedded={!isLeading} />
       {:else if ref.name === "tasks"}
         <TasksPageSkeleton />
       {:else if ref.name === "task"}

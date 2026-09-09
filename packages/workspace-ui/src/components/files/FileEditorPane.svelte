@@ -1,6 +1,13 @@
 <script lang="ts">
   import { untrack } from "svelte";
-  import { Save as FloppyDiskIcon, LockKeyhole as LockSimpleIcon, CircleAlert as WarningCircleIcon } from "@lucide/svelte";
+  import {
+    CaseSensitive as TextAaIcon,
+    ChevronLeft as CaretLeftIcon,
+    FileType2 as MarkdownLogoIcon,
+    Save as FloppyDiskIcon,
+    LockKeyhole as LockSimpleIcon,
+    CircleAlert as WarningCircleIcon,
+  } from "@lucide/svelte";
   import Icon from "@iconify/svelte";
   import type { IpcContext } from "@solus/contracts/types";
   import type { PaneId } from "../../contexts/workspace/routing/location";
@@ -246,10 +253,30 @@
 >
   <!-- In-content path line on the shared chrome centreline. The pane's close
        lives in the floating PaneChrome cluster, which the right gutter reserves
-       room for. -->
+       room for.
+
+       The band measures its own width, as the review panel's does: a phone
+       renders this editor full screen over the conversation with no pane
+       chrome at all, and a desktop pane is legally ~356px beside a companion.
+
+       ── The record rung (`@max-[30rem]/band`) ──
+       The row leads with the platform's back chevron, because on a phone the
+       navbar stands down under this surface and the ✕ was never here. The
+       directory gives way to the file name, and the markdown view switch
+       becomes the one quiet icon button the document toolbar uses at the
+       same rung. -->
+  <div class="@container/band shrink-0">
   <div
-    class="workspace-titlebar flex h-(--solus-chrome-row-h) shrink-0 items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))]"
+    class="workspace-titlebar flex h-(--solus-chrome-row-h) items-center gap-2 pr-[max(0.75rem,var(--solus-pane-chrome-inset,0px))] pl-[max(0.75rem,var(--solus-chrome-lead-inset,0px))] @max-[30rem]/band:h-14 @max-[30rem]/band:gap-1 @max-[30rem]/band:pl-2"
   >
+    <button
+      type="button"
+      class="no-drag hidden size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground active:bg-[var(--wash-2)] active:text-foreground @max-[30rem]/band:flex [-webkit-tap-highlight-color:transparent]"
+      aria-label="Back to conversation"
+      onclick={closeEditor}
+    >
+      <CaretLeftIcon size={19} />
+    </button>
     {#if headerIcon}
       <Icon icon={headerIcon} width="14" height="14" class="shrink-0" />
     {:else}
@@ -263,18 +290,28 @@
       class="min-w-0 flex-1 truncate text-sm"
       title={headerPath}
     >
-      <span class="text-(--solus-text-tertiary)">{dirName(headerPath)}</span>
+      <span class="text-(--solus-text-tertiary) @max-[30rem]/band:hidden">{dirName(headerPath)}</span>
       <span class="text-(--solus-text-primary)">{fileName(headerPath)}</span>
     </div>
     {#if isMarkdown}
-      <SegmentedControl
-        options={MARKDOWN_FILE_VIEW_OPTIONS}
-        isActive={(mode) => markdownViewMode === mode}
-        onSelect={selectMarkdownView}
-        ariaLabel="Markdown file view"
-        variant="bar"
-        compact
-      />
+      <span class="contents @max-[30rem]/band:hidden">
+        <SegmentedControl
+          options={MARKDOWN_FILE_VIEW_OPTIONS}
+          isActive={(mode) => markdownViewMode === mode}
+          onSelect={selectMarkdownView}
+          ariaLabel="Markdown file view"
+          variant="bar"
+          compact
+        />
+      </span>
+      <button
+        type="button"
+        class="no-drag hidden size-11 shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground active:bg-[var(--wash-2)] active:text-foreground @max-[30rem]/band:flex [-webkit-tap-highlight-color:transparent]"
+        aria-label={markdownViewMode === "rendered" ? "View raw markdown" : "View rendered editor"}
+        onclick={toggleMarkdownView}
+      >
+        {#if markdownViewMode === "rendered"}<MarkdownLogoIcon size={16} />{:else}<TextAaIcon size={16} />{/if}
+      </button>
     {:else if isHtml && !isTruncated}
       <SegmentedControl
         options={HTML_FILE_VIEW_OPTIONS}
@@ -304,6 +341,7 @@
         Reload
       </button>
     {/if}
+  </div>
   </div>
 
   {#if loading}

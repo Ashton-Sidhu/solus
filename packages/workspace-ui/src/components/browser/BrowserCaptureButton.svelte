@@ -73,7 +73,6 @@
     {/snippet}
   </TooltipUI.Trigger>
   <TooltipUI.Content
-    class="z-[10050]"
     side="bottom"
     value="Capture this page — attach it to a task or pull request"
   />

@@ -1415,6 +1415,10 @@
      load-bearing: the variant rules below must stay after the base button. */
   .diagram-shell__board .canvas-toolbar {
     display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    width: max-content;
+    max-width: calc(100cqi - 2rem);
     align-items: center;
     gap: 0.1875rem;
     padding: 0.3125rem;
@@ -1546,9 +1550,7 @@
     color: var(--solus-status-error);
   }
 
-  /* A narrow pane is a touch canvas first. The canvas reaches the safe work
-     surface edges, controls can scroll instead of shrinking, and the inspector
-     becomes a bottom sheet so it never leaves a token-width strip of graph. */
+  /* Narrow panes let the canvas reach the edges and wrap its controls. */
   @container pane (max-width: 48rem) {
     .diagram-shell__canvas {
       padding: 0;
@@ -1561,26 +1563,23 @@
       border-radius: 0;
     }
 
-    .diagram-inspector {
-      top: auto;
-      right: 0.5rem;
-      bottom: max(0.5rem, env(safe-area-inset-bottom, 0));
-      left: 0.5rem;
-      width: auto;
-      height: min(70%, 34rem);
-      max-width: none;
-    }
-
     .diagram-shell__board .canvas-toolbar {
       max-width: calc(100cqi - 1rem);
-      overflow-x: auto;
-      overscroll-behavior-inline: contain;
-      scrollbar-width: none;
     }
+    .diagram-shell__board .canvas-toolbar__group { display: contents; }
+    .diagram-shell__board .canvas-toolbar__divider { display: none; }
+  }
 
-    .diagram-shell__board .canvas-toolbar::-webkit-scrollbar {
-      display: none;
-    }
+  /* Use the same layout decision as the canvas control offsets. A narrow
+     desktop pane must not inherit the touch inspector's height limit. */
+  .diagram-shell--bottom-inspector .diagram-inspector {
+    top: auto;
+    right: 0.5rem;
+    bottom: max(0.5rem, env(safe-area-inset-bottom, 0));
+    left: 0.5rem;
+    width: auto;
+    height: min(70%, 34rem);
+    max-width: none;
   }
 
   @media (pointer: coarse) {
@@ -1606,3 +1605,47 @@
       opacity: 1;
     }
   }
+
+/* Capture presentation changes no selection, focus or saved diagram state. */
+[data-diagram-exporting] [data-diagram-editor-only],
+[data-diagram-exporting] .edge-reconnect-anchor,
+[data-diagram-exporting] .svelte-flow__resize-control,
+[data-diagram-exporting] .svelte-flow__handle {
+  display: none !important;
+}
+[data-diagram-exporting] .svelte-flow__edge.selected .svelte-flow__edge-path {
+  stroke: var(--edge-ink) !important;
+  stroke-width: var(--edge-weight, 1.3) !important;
+  filter: none !important;
+}
+[data-diagram-exporting] .edge-label-display {
+  color: var(--diagram-edge-label) !important;
+}
+[data-diagram-exporting] .diagram-cardinality line {
+  stroke: var(--edge-marker-ink) !important;
+}
+[data-diagram-exporting] .diagram-node--selected {
+  --node-ring: 0 0 #0000 !important;
+}
+[data-diagram-exporting] .diagram-node--dimmed,
+[data-diagram-exporting] .diagram-group--dimmed {
+  opacity: 1 !important;
+  filter: none !important;
+}
+[data-diagram-exporting] .diagram-group {
+  border-color: color-mix(in srgb, var(--group-accent) 28%, transparent) !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+[data-diagram-exporting] .diagram-node__shape polygon {
+  stroke: var(--solus-tool-border) !important;
+  stroke-width: 1.25px !important;
+}
+.diagram-shell__board .canvas-toolbar__btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+.diagram-shell__board .canvas-toolbar__btn:focus-visible {
+  outline: 2px solid var(--solus-accent);
+  outline-offset: 2px;
+}

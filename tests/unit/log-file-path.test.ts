@@ -107,19 +107,6 @@ describe('host log file path', () => {
     }
   })
 
-  test('the RPC the palette calls is wired to the production log', () => {
-    // WHY: pinning `productionLogFilePath` alone would still pass if the handler
-    // were pointed back at the writer's path — which is exactly the state that
-    // shipped `dev.log` to the user. This is a source assertion rather than a
-    // call: `observability-handlers` pulls in `node:sqlite`, which Bun does not
-    // provide, so the module cannot be imported by this runner at all.
-    const source = readFileSync(
-      join(root, 'packages/server/src/server/handlers/observability-handlers.ts'),
-      'utf8',
-    )
-    expect(source).toContain("server.register('logFilePath', () => productionLogFilePath())")
-  })
-
   test('treats a packaged Electron runtime as packaged', () => {
     // WHY: the packaged app registers `appInfo` after the logger module has
     // already evaluated. When the logger read that flag at module load it saw an

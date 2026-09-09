@@ -19,7 +19,11 @@ export interface CodeHost {
 
 /** Null for a folder with no recognizable remote, or a host Solus cannot read. */
 export async function codeHostFor(projectScope: string): Promise<CodeHost | null> {
-  const repo = await resolveRepoRef(projectScope)
+  // PR links store host/owner/repo; older links can still name a local path.
+  const scope = /^([^/.][^/]*)\/([^/.][^/]*)\/([^/.][^/]*)$/.exec(projectScope)
+  const repo = scope
+    ? { host: scope[1], owner: scope[2], repo: scope[3] }
+    : await resolveRepoRef(projectScope)
   if (!repo) return null
   const provider = providerForRepo(repo)
   return provider ? { repo, provider } : null

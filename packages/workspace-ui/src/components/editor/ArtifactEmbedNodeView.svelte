@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import {
     LayoutTemplate as ArtifactIcon,
     CircleAlert as WarningCircleIcon,
@@ -103,7 +104,7 @@
 
   {#if !isNearViewport || (!loadFinished && !work?.content)}
     <div class="flex h-52 items-center justify-center bg-(--solus-container-bg)" role="status">
-      <span class="text-xs text-(--solus-text-tertiary)">Loading artifact…</span>
+      <ContentSkeleton label="Loading artifact" preview />
     </div>
   {:else if isMissing}
     <div class="flex h-40 flex-col items-center justify-center gap-2 px-6 text-center">

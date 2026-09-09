@@ -9,7 +9,7 @@
   import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
   import type { RunConfig } from "@solus/contracts/types";
   import {
-    getWindowContext,
+    getClientShellContext,
     getWorkspaceContext,
     hostAffinityGlyph,
   } from "../../contexts";
@@ -122,7 +122,7 @@
   // browser has no machine of its own — "Local" would claim the phone in your
   // hand — so the connected host is named instead ("This host" only for the
   // beat before /health answers).
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   const currentHostId = $derived(run.serverId ?? LOCAL_SERVER_ID);
   const localHost = $derived(
     serversStore.servers.find((server) => server.local),
@@ -130,7 +130,7 @@
   // Hosts are symmetric rows (dispatch-client step 5): a browser has no
   // machine of its own, so "stay" names the host this run is already on.
   const stayLabel = $derived(
-    windowCtx.isWeb
+    !shell.supportsLocalAttachments
       ? (serversStore.hostFor(currentHostId)?.label ?? "This host")
       : "Local",
   );

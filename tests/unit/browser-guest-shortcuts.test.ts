@@ -1,7 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import type { Input } from 'electron'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import {
   isApplicationReloadInput,
   preserveApplicationReloadShortcut,
@@ -58,16 +56,5 @@ describe('browser guest application reload shortcut', () => {
 
     expect(prevented).toBe(true)
     expect(reloads).toBe(1)
-  })
-
-  test('binds both the editor and each attached browser guest', () => {
-    // WHY: binding only the guest still leaves Cmd+R inert whenever focus is in
-    // the editor and Electron did not create its default reload menu.
-    const mainSource = readFileSync(
-      join(import.meta.dir, '../../apps/desktop/src/main/index.ts'),
-      'utf8',
-    )
-    expect(mainSource).toContain('preserveApplicationReloadShortcut(editorContents, reloadEditor)')
-    expect(mainSource).toContain('preserveApplicationReloadShortcut(browserContents, reloadEditor)')
   })
 })

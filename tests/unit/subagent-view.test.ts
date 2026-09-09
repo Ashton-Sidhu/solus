@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   briefAsks,
   briefMeta,
+  briefSummary,
   formatOffset,
   reportSections,
   reportText,
@@ -283,6 +284,16 @@ describe('brief asks', () => {
 
   test('an unnumbered brief has no asks to count', () => {
     expect(briefAsks('Just go and look at the auth flow.')).toEqual([])
+  })
+
+  test('the Ask block keeps the opening line and the asks, resolved to text', () => {
+    expect(briefSummary('## Find the fields\n1. Read `gitContext`\n2. **Diff** stats')).toEqual({
+      title: 'Find the fields',
+      asks: ['Read gitContext', 'Diff stats'],
+    })
+    // A prompt that opens straight on its first ask has no title — the list
+    // already prints that line.
+    expect(briefSummary('1. Worktree name\n2. Diff stats').title).toBe('')
   })
 
   test('the card counts asks against sections and never claims a per-ask match', () => {

@@ -1,14 +1,13 @@
 <script lang="ts">
   import { MessagesSquare as ChatsIcon } from "@lucide/svelte";
   import type { Task, TaskLink } from "@solus/contracts/task-types";
-  import type { SessionMeta } from "@solus/contracts/types";
+  import type { SessionMeta, SessionSearchHit } from "@solus/contracts/types";
   import type { SidebarSessionChild } from "../../../contexts/workspace/session-sidebar.store.svelte";
   import type { HitWindow, PreviewExtraction } from "../../../lib/sessionPreviewMessages";
   import { BottomSheet } from "../../ui/bottom-sheet";
   import TaskStatusGlyph from "../../tasks/TaskStatusGlyph.svelte";
   import { relativeTime } from "../../tasks/lib/tasks-api";
   import SessionPreview from "../SessionPreview.svelte";
-  import SessionStatusGlyph from "../SessionStatusGlyph.svelte";
   import PickerActionBar from "./PickerActionBar.svelte";
   import TaskPreviewPane from "./TaskPreviewPane.svelte";
   import { conversationTitle, type ConversationHit } from "./lib/picker-rows";
@@ -31,6 +30,7 @@
     sessionPreview: PreviewExtraction | null;
     /** The passage a search hit sits in, when the row was found by its words. */
     sessionHitWindow?: HitWindow | null;
+    additionalMatches?: readonly SessionSearchHit[];
     previewLoading: boolean;
     /** The whole transcript's size, once the preview has read it. */
     messageCount?: number;
@@ -52,6 +52,7 @@
     sessions,
     sessionPreview,
     sessionHitWindow = null,
+    additionalMatches = [],
     previewLoading,
     messageCount,
     query,
@@ -142,7 +143,7 @@
   {#snippet header()}
     <div class="flex items-center gap-2 overflow-hidden text-muted-foreground">
       {#if target.kind === "session"}
-        <SessionStatusGlyph attention={target.session.attention} />
+        <ChatsIcon size={13} class="shrink-0" />
         <span class="shrink-0 text-micro font-medium tracking-[0.12em] uppercase">Session</span>
         <!-- Which task this session belongs to. A session is only legible
              against the work it was started for, and the sheet is the one
@@ -187,6 +188,7 @@
       <SessionPreview
         preview={sessionPreview}
         hitWindow={sessionHitWindow}
+        {additionalMatches}
         loading={previewLoading}
         {timeAgo}
         {query}

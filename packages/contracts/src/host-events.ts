@@ -24,6 +24,7 @@ import type {
 import type { GitActionProgressEvent } from './git-types'
 import type { BrowserPage, BrowserProfileSet } from './browser-types'
 import type { CodeIntelStatus } from './code-intel'
+import type { HostUpdateStatus } from './host-update-types'
 import { z } from 'zod'
 
 /**
@@ -81,6 +82,9 @@ export interface HostEventMap {
   'config.changed': HostConfigSnapshot
   /** A project's code-intelligence indexes changed state on this host. */
   'codeIntel.statusChanged': CodeIntelStatus
+  /** This host's Solus or provider update check changed. The whole status: it
+   *  is a handful of fields, and a diff would be more code than the payload. */
+  'host.updateStatusChanged': HostUpdateStatus
 }
 
 export type HostEventName = keyof HostEventMap
@@ -132,6 +136,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'atlassian.oauthCompleted': { owner: 'atlassian', category: 'delta', recovery: 'reload', description: 'An Atlassian browser sign-in finished on this host.' },
   'config.changed': { owner: 'config', category: 'snapshot', recovery: 'reload', description: 'This host config changed; every mounted client adopts the snapshot.' },
   'codeIntel.statusChanged': { owner: 'code-intel', category: 'snapshot', recovery: 'reload', description: 'A project code-intelligence index started, finished, failed, or went stale.' },
+  'host.updateStatusChanged': { owner: 'updates', category: 'snapshot', recovery: 'reload', description: 'The host Solus release check or a provider release check changed state.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 const hostEventEnvelopeSchema = z.object({

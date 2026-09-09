@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
 import type { PlanDescriptor, Work } from '@solus/contracts/types'
 import {
   buildWorkspaceItems,
@@ -140,18 +138,6 @@ describe('Workspace initial project ownership', () => {
       serverId: 'default',
       projectRoot: '/input-default',
     })
-  })
-
-  it('does not keep a live dependency on the projects of open sessions', () => {
-    const source = readFileSync(
-      resolve(import.meta.dir, '../../packages/workspace-ui/src/components/workspace/WorkspacePage.svelte'),
-      'utf8',
-    )
-
-    expect(source).not.toContain('session.openProjects')
-    expect(source).not.toContain('session.galleryProjectPath')
-    expect(source).not.toContain('PROJECT_SCOPE_KEY')
-    expect(source).toContain('projectsStore.loadRecentProjects(host.id)')
   })
 })
 

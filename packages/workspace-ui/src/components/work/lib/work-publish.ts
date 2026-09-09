@@ -1,5 +1,15 @@
 import type { DocProviderId, WorkExternalLink } from '@solus/contracts/docs'
 import { PROVIDER_LOGOS } from '../../settings/lib/provider-logos'
+import type { UpstreamCheckTiming } from '../../../lib/presence-watch'
+
+export function docSyncTooltip(title: string, timing: UpstreamCheckTiming | undefined): string {
+  if (!timing) return title
+  const format = (time: number) => new Date(time).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit',
+  })
+  const last = timing.lastCheckedAt === null ? 'Not checked yet' : format(timing.lastCheckedAt)
+  return `${title}\nLast sync check: ${last}\n${timing.checking ? 'Checking now…\n' : ''}Next scheduled check: ${format(timing.nextCheckAt)}`
+}
 
 /**
  * One name per provider, used wherever a linked doc is described. The provider

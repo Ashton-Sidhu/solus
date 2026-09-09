@@ -41,7 +41,7 @@ function getOrCreateAnonId(): string {
 export function initAnalytics(opts: {
   enabled: boolean
   platform: 'desktop' | 'web-desktop' | 'web-mobile'
-  viewMode: 'pill' | 'editor'
+  viewMode: 'pill' | 'editor' | 'mobile' | 'wide'
 }): void {
   if (!POSTHOG_KEY || loading) return
   loading = true

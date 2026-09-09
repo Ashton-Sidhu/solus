@@ -405,6 +405,8 @@ class BlockCompiler {
               ...token.rows.map((row) => row.map((cell) => richText(cell.tokens))),
             ],
           })
+          // Keep a blank line between the table and the next block, even at the end of the document.
+          this.blocks.push({ kind: 'paragraph', text: plainText(''), style: NORMAL })
           break
         case 'hr':
           this.blocks.push({ kind: 'paragraph', text: plainText(''), style: RULE_PARAGRAPH })

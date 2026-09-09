@@ -14,6 +14,10 @@ beforeAll(async () => {
 beforeEach(() => {
   db = new Database(':memory:')
   db.exec(`
+    CREATE TABLE session_thread_aliases (
+      provider TEXT NOT NULL, provider_session_id TEXT NOT NULL, session_id TEXT NOT NULL,
+      PRIMARY KEY(provider, provider_session_id)
+    );
     CREATE TABLE session_lineage_members (
       session_id TEXT NOT NULL,
       position INTEGER NOT NULL,
@@ -102,6 +106,22 @@ describe('session lineage', () => {
 
     repository.completeSessionHandoff('solus-1', 'claude-code', 'claude-1', '/project', db, 30)
     expect(repository.resolveSessionLineage('claude-code', 'claude-1', db)?.sessionId).toBe('solus-1')
+  })
+
+  test('a worktree fork replaces copied history while old references remain durable aliases', () => {
+    repository.registerSessionLineage({ sessionId: 'stable', provider: 'codex', providerSessionId: 'source', cwd: '/project' }, db)
+    const fork = repository.replaceSessionLineageThread({
+      sessionId: 'stable', provider: 'codex', sourceThreadId: 'source', providerSessionId: 'fork', cwd: '/worktree',
+    }, db)
+    expect(fork.members.map((member) => member.providerSessionId)).toEqual(['fork'])
+    expect(repository.resolveSessionLineage('codex', 'source', db)?.active.providerSessionId).toBe('fork')
+    expect(repository.stableSessionIdForProviderThread('source', db)).toBe('stable')
+    expect(repository.resolveSessionLineageById('stable', db)?.active.cwd).toBe('/worktree')
+    expect(repository.registerSessionLineage({ sessionId: 'stale-client', provider: 'codex', providerSessionId: 'source', cwd: '/project' }, db).sessionId).toBe('stable')
+    expect(() => repository.replaceSessionLineageThread({
+      sessionId: 'stable', provider: 'codex', sourceThreadId: 'source', providerSessionId: 'stale-fork', cwd: '/other',
+    }, db)).toThrow('no longer the active')
+    expect(repository.resolveSessionLineageById('stable', db)?.active.providerSessionId).toBe('fork')
   })
 
   test('resolves every member to one ordered chain and its latest endpoint', () => {

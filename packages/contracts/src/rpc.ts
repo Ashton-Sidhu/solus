@@ -118,6 +118,7 @@ export const RPC_INVOKE_METHODS = [
   'listSessions',
   'searchSessions',
   'loadSession',
+  'loadSessionToolInputs',
   'loadSessionPreview',
   'loadSessionMessageWindow',
   'getSessionInfo',
@@ -234,6 +235,10 @@ export const RPC_INVOKE_METHODS = [
   'setupCheckSshAccess',
   'setupAuthorizeGhCli',
   'setupInstallGitCredentialHelper',
+
+  // Host and provider updates: the host's own release check and its CLIs'
+  'hostUpdateStatus',
+  'hostCheckForUpdates',
 
   // Attention (server-side per-session needs-attention state; outlives clients)
   'listAttention',

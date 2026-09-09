@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { onMount, untrack } from "svelte";
   import { Download as DownloadSimpleIcon } from "@lucide/svelte";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
@@ -55,11 +56,13 @@
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
   import { createWebProjectPicker } from "./components/projects/lib/project-picker.svelte";
-  import WebLayout from "./components/WebLayout.svelte";
+  import WebLayout from "./shell/WebLayout.svelte";
+  import { WebShell } from "./shell/web-shell.svelte";
+
+  const shell = new WebShell();
 
   const {
     settings,
-    windowCtx,
     projectConfigStore,
     sessionSidebarStore,
     voiceModelStore,
@@ -67,7 +70,7 @@
     session,
     agent,
     keybindings,
-  } = createAppCore();
+  } = createAppCore(shell);
 
   const projectPicker = createWebProjectPicker(session);
   const { attachFile: handleAttachFile, attachFiles: handleAttachFiles } = createWebAttachments(session);
@@ -112,20 +115,20 @@
     untrack(() => void projectConfigStore.load(host, cwd));
   });
 
-  const initialViewMode = windowCtx.viewMode;
+  const initialLayout = shell.layout;
 
   initAnalytics({
     enabled: settings.analyticsEnabled,
-    platform: initialViewMode === "pill" ? "web-mobile" : "web-desktop",
-    viewMode: initialViewMode,
+    platform: initialLayout === "mobile" ? "web-mobile" : "web-desktop",
+    viewMode: initialLayout,
   });
   track("app_opened", {});
 
   $effect(() => {
-    const viewMode = windowCtx.viewMode;
+    const layout = shell.layout;
     registerSuperProps({
-      view_mode: viewMode,
-      platform: viewMode === "pill" ? "web-mobile" : "web-desktop",
+      view_mode: layout,
+      platform: layout === "mobile" ? "web-mobile" : "web-desktop",
     });
   });
 
@@ -512,7 +515,13 @@
   // The web shell owns its application commands just as it owns the keybindings
   // above. Keep this list to actions that have transport-neutral web behavior;
   // desktop-only commands remain in the desktop shell's richer palette.
+  useKeybinding("global.check-for-updates", () => void hostUpdatesStore.checkAll());
   const paletteCommands = $derived.by((): Command[] => [
+    {
+      id: 'check-for-updates', label: 'Check for updates', group: 'General',
+      hint: comboHint('global.check-for-updates'), keywords: ['update', 'version', 'provider'],
+      run: () => void hostUpdatesStore.checkAll(),
+    },
     {
       id: "open-project",
       label: "Open project…",

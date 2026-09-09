@@ -63,7 +63,7 @@ class Backend extends EventEmitter implements AgentBackend {
     const runPromise = new Promise<void>((res, rej) => { resolve = res; reject = rej })
     abortController.signal.addEventListener('abort', () => reject(new Error('Interrupted')), { once: true })
     this.handle = {
-      agentSessionId: request.sessionId ?? null,
+      agentSessionId: (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 2,

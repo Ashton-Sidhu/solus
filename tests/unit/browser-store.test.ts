@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
-import { defaultViewport, type BrowserPage } from '@solus/contracts/browser-types'
+import { defaultViewport, type BrowserPage, type BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const connections = singleHostServerConnections()
@@ -182,5 +182,46 @@ describe('BrowserStore streamed frame cache', () => {
 
     stopFrames()
     stopStore()
+  })
+})
+
+
+describe('opening a saved browser capture', () => {
+  const snapshot: BrowserSnapshotRef = {
+    browserPageId: 'captured', assetId: 'a'.repeat(64) + '.png',
+    url: 'https://www.google.com/', title: 'Google', viewport: 'Desktop — 1280×800',
+    appearance: 'light', elementCount: 5, consoleErrors: 0, capturedAt: 1,
+  }
+
+  test('reuses a page still present on the capture host', async () => {
+    connections.registerPrimary('host-a', {
+      browserListPages: async () => [page('captured', 1)],
+      browserOpen: async () => { throw new Error('must not create a duplicate') },
+    })
+    const store = new BrowserStore()
+    expect(await store.openSnapshot('host-a', snapshot)).toBe('captured')
+    expect(store.activeKey).toBe(store.keyOf('host-a', 'captured'))
+  })
+
+  test('reopens the saved address after the original page was closed', async () => {
+    connections.registerPrimary('host-a', {
+      browserListPages: async () => [],
+      browserOpen: async (request) => {
+        expect(request.target).toEqual({ kind: 'url', url: snapshot.url })
+        expect(request.appearance).toBe('light')
+        return page('replacement', 2)
+      },
+    })
+    const store = new BrowserStore()
+    store.pages.set(store.keyOf('host-a', 'captured'), { serverId: 'host-a', page: page('captured', 1) })
+    expect(await store.openSnapshot('host-a', snapshot)).toBe('replacement')
+    expect(store.pages.has(store.keyOf('host-a', 'captured'))).toBe(false)
+  })
+
+  test('keeps a host error visible to the caller instead of returning a dead id', async () => {
+    connections.registerPrimary('host-a', {
+      browserListPages: async () => { throw new Error('Host disconnected') },
+    })
+    await expect(new BrowserStore().openSnapshot('host-a', snapshot)).rejects.toThrow('Host disconnected')
   })
 })

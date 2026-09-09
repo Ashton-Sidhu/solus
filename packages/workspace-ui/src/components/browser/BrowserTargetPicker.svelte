@@ -168,7 +168,6 @@
             {/snippet}
           </TooltipUI.Trigger>
           <TooltipUI.Content
-            class="z-[10050]"
             side="bottom"
             value="Scan again"
           />

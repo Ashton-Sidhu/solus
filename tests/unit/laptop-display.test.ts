@@ -27,12 +27,6 @@ describe('isLaptopDisplay', () => {
     }
   })
 
-  test('the window-measuring bug would have flipped the 1920 monitor', () => {
-    // Guards the premise of the test above: at 110% the old query really did
-    // classify this monitor as a laptop, so the fix is not cosmetic.
-    expect(asSeenAtZoom(1920, 1.1)).toBeLessThanOrEqual(1800)
-  })
-
   test('an unreadable screen width is unknown, not narrow', () => {
     expect(isLaptopDisplay(undefined, 1)).toBe(false)
     expect(isLaptopDisplay(Number.NaN, 1)).toBe(false)

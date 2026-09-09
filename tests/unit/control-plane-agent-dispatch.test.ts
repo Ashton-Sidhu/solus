@@ -23,7 +23,7 @@ function backend() {
     let resolve!: () => void
     const runPromise = new Promise<void>((res) => { resolve = res })
     handle = {
-      agentSessionId: request.sessionId ?? null,
+      agentSessionId: (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,

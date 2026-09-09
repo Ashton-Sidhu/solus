@@ -109,6 +109,7 @@ export interface SetupHandlerDeps extends AgentAuthProbeDeps {
   loadGithubToken?: typeof loadGithubToken
   registerProject?: (path: string) => Promise<string>
   projectsRoot?: () => string
+  onProviderInstalled?: (agent: SetupAgent) => Promise<void>
 }
 
 export interface AgentAuthProbeDeps {
@@ -306,7 +307,9 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
         if (compatibilityError) throw new Error(compatibilityError)
         const spec = buildAgentInstallCommand(setupAgent, { hasCommand })
         emitLog({ step, line: `Running ${spec.display}` })
-        return await runSetupProcess({ step, spec, spawnProcess, emitStatus, emitLog })
+        const result = await runSetupProcess({ step, spec, spawnProcess, emitStatus, emitLog })
+        await deps.onProviderInstalled?.(setupAgent)
+        return result
       } catch (err) {
         const error = err instanceof Error ? err.message : String(err)
         emitStatus({ step, status: 'failed', error })

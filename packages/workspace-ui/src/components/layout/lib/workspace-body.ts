@@ -49,6 +49,11 @@ export function primaryProjectPanelOpen(
   return hasStartedSession ? persistedOpen : newTabPoppedOut
 }
 
+/** Chats and drafts keep the leading rail when its column has enough room. */
+export function companionMinimizesProjectPanel(ref: RouteRef | null): boolean {
+  return ref !== null && ref.name !== 'chat' && ref.name !== 'draft'
+}
+
 /**
  * Keep heavy transcript rows for the visible chats plus the most recently
  * visited hidden chats. ConversationView itself stays mounted, preserving its

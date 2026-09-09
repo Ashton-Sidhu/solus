@@ -2,11 +2,11 @@ import { defaultContextWindowFor, isSessionBusyStatus, type Message, type ModelC
 import { loadServers } from '@solus/client-core/server-registry'
 import { makePrompt, makeSession, makeTab } from './session.factories'
 import { taskTargetFrom } from './session-draft.svelte'
-import { loadRestoredSessionTranscript } from './session-transcript'
+import { loadRestoredSessionTranscript, RESTORED_TRANSCRIPT_LIMIT } from './session-transcript'
 import { applyRuntimeConfig, nextMsgId } from './session.utils'
 import { initDraftState, loadDrafts, loadPersistedSessionDrafts, loadPersistedTabs, type PersistedTab, type PersistedTabs, type TabDrafts } from './tab-persistence'
 import type { WorkspaceContext } from './workspace.context.svelte'
-import { stampSessionMeta } from '@solus/client-core/session-meta'
+import { readSessionMeta } from '@solus/client-core/session-meta'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { projectDirLabel } from '../../lib/paths'
@@ -207,7 +207,7 @@ export async function resyncRuntime(ctx: WorkspaceContext, serverId?: string): P
     await Promise.all(sessionIds.map(async (sessionId) => {
       const session = ctx.sessions[sessionId]
       const tabId = ctx.tabIdsForSession(sessionId)[0]
-      if (!session || !tabId) return
+      if (!session || !tabId || session.forked) return
 
       // A reset can arrive while this restored tab still has no durable history.
       // Use the same history -> watch -> bind operation as boot and selection;
@@ -323,8 +323,12 @@ function _materializeTabs(
         // Keep the id the snapshot carried: the persisted location names chats
         // by session, so a restored split pane has to find the same one back.
         agentSessionId: snapTab.agentSessionId,
+        forked: !!snapTab.pendingFork,
+        forkExcludeLatestTurn: snapTab.pendingFork?.excludeLatestTurn ?? false,
+        forkedFromSessionId: snapTab.forkedFromSessionId ?? null,
+        messages: snapTab.pendingFork?.messages ?? [],
         handoffFrom: snapTab.handoffFrom ? { ...snapTab.handoffFrom } : undefined,
-        status: snapTab.status ?? 'idle',
+        status: snapTab.pendingFork ? 'idle' : snapTab.status ?? 'idle',
         currentTurnStartedAt: snapTab.currentTurnStartedAt ?? null,
         additionalDirs: [...snapTab.additionalDirs],
         run,
@@ -339,7 +343,7 @@ function _materializeTabs(
         // The active transcript is attached after the first paint. Mark it now
         // so the renderer shows a finite loading state instead of inferring one
         // forever from agentSessionId + an empty transcript.
-        loadingHistory: snapTab.tabId === activeTabId && !!(snapTab.agentSessionId || snapTab.handoffFrom),
+        loadingHistory: !snapTab.pendingFork && snapTab.tabId === activeTabId && !!(snapTab.agentSessionId || snapTab.handoffFrom),
       }
       if (snapTab.sessionId) overrides.id = snapTab.sessionId
       session = makeSession(ctx.settings, overrides)
@@ -387,14 +391,12 @@ function startRestoredMetadataReads(
   // getSessionInfo is side-effect free, unlike bindRuntimeSession, which may
   // replay in-flight events before the persisted transcript has loaded.
   for (const snapTab of persistedTabs) {
-    if (!snapTab.agentSessionId) continue
+    if (!snapTab.agentSessionId || snapTab.pendingFork) continue
     const sourceServerId = ctx.sessionFor(snapTab.tabId)?.run.serverId
       ?? snapTab.serverId
     const serverId = serverConnections.resolveId(sourceServerId)
-    void ctx.apiFor(snapTab.tabId)
-      .getSessionInfo(snapTab.agentSessionId)
-      .then((readMeta) => {
-        const meta = stampSessionMeta(readMeta, serverId)
+    void readSessionMeta(serverId, snapTab.agentSessionId)
+      .then((meta) => {
         const tab = ctx.tabs[snapTab.tabId]
         const session = tab ? ctx.sessions[tab.sessionId] : undefined
         if (session?.agentSessionId !== snapTab.agentSessionId || !meta) return
@@ -413,14 +415,27 @@ function startRestoredMetadataReads(
 async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise<boolean> {
   const tab = ctx.tabs[snapTab.tabId]
   const session = tab ? ctx.sessions[tab.sessionId] : undefined
-  if (!tab || !session) return true
+  if (!tab || !session || session.forked || snapTab.pendingFork) return true
 
   const api = ctx.apiFor(snapTab.tabId)
   const snapshotProvider = snapTab.provider ?? ctx.settings.activeAgent
+  const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~'
+  // Provider ids already resolve to the complete lineage inside loadSession.
+  // Read the bytes alongside identity, but build cards using resolved identity
+  // below. A worktree transcript lives under its checkout, not the repo root.
+  const loadPath = snapTab.gitContext?.worktreePath || displayCwd
+  const history = snapTab.agentSessionId
+    ? api.loadSession(snapTab.agentSessionId, loadPath, ctx.ctxFor(snapTab.tabId), snapshotProvider,
+        RESTORED_TRANSCRIPT_LIMIT, ctx.deferHistoryToolInputs ? { deferToolInputs: true } : undefined)
+    : undefined
+  // Observe an early rejection while lineage is pending; awaiting history below
+  // still propagates it so selection/reconnect can retry the hydration.
+  void history?.catch(() => null)
   const handoff = await api.resolveSessionLineage(
     snapshotProvider,
     snapTab.agentSessionId ?? session.id,
   ).catch(() => null)
+  if (ctx.sessionFor(snapTab.tabId) !== session) return false
   const activeMember = handoff?.active
   if (activeMember) {
     session.handoffId = handoff?.sessionId
@@ -456,12 +471,6 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   if (snapTab.agentSessionId || handoff) {
     const sessionId = handoff?.sessionId ?? snapTab.agentSessionId
     const provider = activeMember?.provider ?? snapshotProvider
-    const displayCwd = snapTab.workingDirectory || ctx.staticInfo?.projectPath || ctx.staticInfo?.workspacePath || '~'
-    // Claude persists transcripts under the dir it actually ran in. Worktree
-    // sessions ran in the worktree, not the project root, so load from there
-    // or the .jsonl folder won't resolve and the transcript comes back empty.
-    // (Codex reads by session id and ignores the path entirely.)
-    const loadPath = snapTab.gitContext?.worktreePath || displayCwd
     const tabId = snapTab.tabId
     session.loadingHistory = true
     try {
@@ -480,6 +489,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
             displayCwd,
             provider,
             ctx: ctx.ctxFor(tabId),
+            history,
             shouldApply,
           })
         : { messages: [], planIds: [], progress: null, truncated: false }
@@ -513,7 +523,7 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     } finally {
       const t = ctx.tabs[tabId]
       const s = t ? ctx.sessions[t.sessionId] : undefined
-      if (s) s.loadingHistory = false
+      if (s === session) s.loadingHistory = false
     }
   }
 

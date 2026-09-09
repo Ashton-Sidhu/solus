@@ -39,12 +39,16 @@ shared them.
 Under a query the list has two sections in a fixed order, each with a header
 that states the order it is in.
 
-- **Tasks** — every task the query hit, folded. A body hit shows the passage of
+- **Tasks** — every task the query hit. A body hit shows the passage of
   the body as the row's second line. An id hit shows the id, marked.
 - **Sessions** — every session the query hit by name or by passage, flat, one
-  row per session. A session of a listed task is not repeated here; the task
-  row is its way in. A session with both a name hit and a passage hit is one
-  row carrying the passage.
+  row per session ID. Task links and host copies do not create extra rows.
+  Matching passages come from one host, preferably the host of the linked
+  session, so preview message IDs always target the correct index. A matching
+  task never hides a matching session, and tasks do not expand during search.
+  A session with both a name hit and a passage hit is one row carrying the
+  best passage. The title and chat icon stay consistent across match sources.
+  Task placeholders without a session or mounted tab are excluded.
 
 The **order** applies to both sections and defaults to **Relevance**:
 
@@ -53,7 +57,8 @@ The **order** applies to both sections and defaults to **Relevance**:
   first among equals.
 
 Under **Recency** both sections are newest first by the date the row shows,
-whatever matched.
+whatever matched. Session dates use last activity, rather than the date of
+the matching passage.
 
 Each host returns at most 20 passage hits. When a host stops at that cap, the
 Sessions count reads `20+` in the header and the footer.
@@ -73,9 +78,31 @@ in transcript order, with a plain rule between each part:
 
 1. the opening prompt,
 2. the passage the words were found in, only when the row was found by them,
-3. the last reply.
+3. up to two additional matching passages, when available,
+4. the last reply.
 
 A hit that is the opening prompt or the last reply takes that slot, cut around
 the words, so no message is shown twice. When the index no longer holds the
 passage, the ends alone are shown. On a phone every row, including a
 passage hit with no task, opens the same sheet, whose one action is Resume.
+
+On a phone a task row with one session is that session: its tap resumes it,
+as a sidebar click does, and the row draws no disclosure. A long press still
+raises the task's sheet. Desktop keeps the group at any count.
+
+## Result type
+
+A separate menu beside the search box has **Sessions** and **Tasks**
+checkboxes. Both are selected by default. At least one must stay selected;
+the last selected checkbox is disabled until the other is selected. The menu
+stays open while changing the selection. `⌥T` opens it.
+
+**Tasks** matches task titles, bodies, and ids. It excludes session rows and
+conversation searches. **Sessions** lists matching sessions directly, even
+when their parent task matches. With an empty query it lists known task
+sessions, newest first. Project scope still applies to each choice.
+
+The choice is saved in client storage across picker closes and app reloads.
+All picker mounts in a workspace share it. Desktop, web, and mobile use the
+same menu; each client saves its own choice. If storage is unavailable,
+the choice lasts for the current workspace visit.

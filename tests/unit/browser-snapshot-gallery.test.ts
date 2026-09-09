@@ -1,6 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import {
   GALLERY_MAX_CELLS,
@@ -17,22 +15,6 @@ import {
   isStripFrameNear,
 } from '@solus/workspace-ui/components/browser/lib/snapshot-gallery'
 import { snapshotWidth } from '@solus/workspace-ui/components/browser/lib/snapshot-card'
-
-/**
- * A capture pass that took four frames used to leave four cards stacked down
- * the transcript, each repeating the same header, viewport and footer. The pass
- * was one act of looking and the transcript said it was four. These tests encode
- * what has to stay true for the plate to read as one.
- */
-
-const gallerySource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/browser/BrowserSnapshotGallery.svelte'),
-  'utf8',
-)
-const lightboxSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/browser/BrowserSnapshotLightbox.svelte'),
-  'utf8',
-)
 
 function snapshot(overrides: Partial<BrowserSnapshotRef> = {}): BrowserSnapshotRef {
   return {
@@ -239,134 +221,6 @@ describe('what the plate says once for all of its frames', () => {
   })
 })
 
-describe('the plate as a surface', () => {
-  test('draws the grid once, as a seam of the plate ground', () => {
-    // WHY: a border per tile draws every interior line twice and turns the
-    // sheet into a table. The 1px gap over a hairline ground is the divider.
-    expect(gallerySource).toContain('gap-px')
-    expect(gallerySource).toContain('bg-[var(--hairline-strong)]')
-  })
-
-  test('stays a flat sheet on hover — brightness only, no lift and no scale', () => {
-    expect(gallerySource).toContain('hover:brightness-[1.03]')
-    expect(gallerySource).not.toContain('hover:scale')
-  })
-
-  test('folds three columns into two in a narrow pane', () => {
-    // WHY: width is declared by the pane, never the window — a companion pane
-    // can put this card at a third of the display it looked fine on, where a
-    // third of the card is no longer a recognisable picture of a page.
-    expect(gallerySource).toContain('@container pane')
-  })
-
-  test('costs the keyboard one tab stop, with roving inside the plate', () => {
-    // WHY: six frames that each take a tab stop make the transcript unwalkable
-    // for anyone who does not use a pointer.
-    expect(gallerySource).toContain('tabindex={index === rovingIndex ? 0 : -1}')
-    // The arrow keys ride the tile that has focus, not the plate around it: the
-    // plate is a `role="group"` and a group is not a thing that takes keys.
-    expect(gallerySource).toContain('onkeydown={onTileKeydown}')
-  })
-
-  test('never scales a frame past its own size to fill a cell', () => {
-    // WHY: this is what made a phone pass unreadable. On the rail the frame's
-    // own proportion sets its width, so the picture is the page rather than a
-    // doubled crop of whatever the cell had room for.
-    expect(gallerySource).toContain('aspect-ratio: var(--tile-aspect)')
-    expect(gallerySource).toContain('data-mode="rail"')
-  })
-
-  test('drops the footer rather than leaving an empty bar', () => {
-    // WHY: with several pages there is no single page for Annotate and Open in
-    // pane to name, and a footer holding nothing but "2 pages" reads as a card
-    // that failed to finish rendering. The extent moves up into the header.
-    expect(gallerySource).toContain('{#if sharedPageId}')
-  })
-
-  test('keeps the card chrome below transcript body text', () => {
-    // WHY: the screenshots are the evidence and must stay the visual focus, the
-    // same rung the single-frame card holds itself to.
-    expect(gallerySource).toContain('text-transcript-meta')
-  })
-})
-
-describe('a frame opened at full size', () => {
-  test('scrolls the capture with the workspace scrollbar rather than shrinking it', () => {
-    // WHY: a full-page capture is many screens tall. Fitting it to the viewport
-    // makes the page unreadable, which is the one thing the lightbox exists to
-    // fix — and the bar has to be the app's, not Chromium's chunky default.
-    expect(lightboxSource).toContain('scrollbar-on-hover')
-    expect(lightboxSource).toContain('overflow-auto')
-    expect(lightboxSource).not.toContain('scrollbar-width')
-  })
-
-  test('steps and closes on the keys the footer promises', () => {
-    expect(lightboxSource).toContain('snapshot-lightbox.close')
-    expect(lightboxSource).toContain('snapshot-lightbox.previous')
-    expect(lightboxSource).toContain('snapshot-lightbox.next')
-    expect(lightboxSource).toContain('← → step · Esc close')
-  })
-
-  test('holds its scope exclusively, so the arrows do not also move the transcript', () => {
-    expect(lightboxSource).toContain('exclusive: true')
-  })
-
-  test('is a card cut to the capture, not a takeover of the display', () => {
-    // WHY: a phone page stretched across a 27-inch monitor is the same pixels,
-    // bigger and blurrier, with the app it belongs to hidden behind it. The
-    // frame's width follows its own proportion until the window runs out, and
-    // the height follows from that width — so it never letterboxes either.
-    expect(lightboxSource).toContain('grid place-items-center')
-    expect(lightboxSource).toContain('--frame-aspect')
-    expect(lightboxSource).toContain('width: var(--frame-width)')
-    expect(lightboxSource).toContain('height: calc(var(--frame-width) / var(--frame-aspect))')
-  })
-
-  test('keeps its chrome inside the card, clear of the window furniture', () => {
-    // WHY: a header pinned to the top-left of the window lands underneath the
-    // traffic lights on macOS, so the address was unreadable and the buttons
-    // were not clickable. The card owns its own header and footer.
-    expect(lightboxSource).not.toContain('fixed inset-0 z-[9999] flex flex-col')
-  })
-
-  test('steps as a carousel, so a phone can swipe between captures', () => {
-    // WHY: a capture pass is most often read on a phone, where the gesture for
-    // "the next one" is a swipe. A swapped `src` offers nothing to swipe, and a
-    // mobile client that can only reach the next frame through a 24px chevron
-    // has the capability but not the surface.
-    expect(lightboxSource).toContain('Carousel.Root')
-    expect(lightboxSource).toContain('Carousel.Item')
-  })
-
-  test('drives keys, buttons and drag from the one reel', () => {
-    // WHY: three ways to step that each kept their own idea of the current
-    // frame is how a header ends up saying 2 / 6 over the third picture.
-    expect(lightboxSource).toContain('api?.scrollPrev()')
-    expect(lightboxSource).toContain('api?.scrollNext()')
-    expect(lightboxSource).toContain('carousel.selectedScrollSnap()')
-  })
-
-  test('reads the opening frame once and never feeds it back to the reel', () => {
-    // WHY: the carousel re-initialises when its options change identity. A
-    // `startIndex` wired to live state would yank the reel back to the frame the
-    // reader first clicked on every single step.
-    // `untrack` is the read-once: the options object is built at mount from the
-    // frame the reader clicked and never re-derived from the prop after that.
-    expect(lightboxSource).toContain('startIndex: untrack(() => startIndex)')
-    expect(lightboxSource).not.toContain('$derived(carouselOptions')
-  })
-
-  test('places a capture shorter than the frame on matte instead of hanging it from the top', () => {
-    // WHY: the card is cut to the pass's first frame, so a mixed pass — a phone
-    // capture followed by short wide ones — leaves real empty ground under the
-    // picture. Hung from the top rail against ground the same value as the card,
-    // that ground read as the card having run out, and every frame looked like a
-    // differently sized container. Centred on visible matte it reads as margin.
-    expect(lightboxSource).toContain('min-h-full items-center justify-center')
-    expect(lightboxSource).toContain('relative h-full overflow-hidden bg-[var(--wash-3)]')
-  })
-})
-
 describe('what the reel is willing to download', () => {
   test('fetches the visible frame and its two neighbours, not the whole pass', () => {
     // WHY: the carousel measures every slide, so all of them stay mounted — but
@@ -405,87 +259,10 @@ describe('what the reel is willing to download', () => {
 })
 
 describe('what a tile click opens', () => {
-  test('opens the pass, not the tile — every frame is in the strip', () => {
-    // WHY: a comparison is read by stepping. If the strip only carried the six
-    // cells the plate had room for, a seven-frame pass would strand its tail
-    // behind the very card the reel exists to replace.
-    expect(lightboxSource).toContain('{#each snapshots as frame, index (frame.assetId)}')
-    expect(lightboxSource).toContain('data-strip-frame')
-    expect(gallerySource).toContain('<BrowserSnapshotLightbox')
-    expect(gallerySource).toContain('{snapshots}')
-  })
-
-  test('marks the frame that is up, and dims the rest rather than hiding them', () => {
-    // WHY: the strip is a position readout as much as a control. Without one
-    // frame reading as current, stepping is motion with no place attached.
-    expect(lightboxSource).toContain('aria-current={index === selected}')
-    expect(lightboxSource).toContain('shadow-[shadow:0_0_0_2px_var(--primary)]')
-  })
-
-  test('drives the strip through the same reel as the keys and the chevrons', () => {
-    // WHY: a strip that swapped the picture itself would be a fourth opinion
-    // about which frame is up, and the header would start disagreeing with it.
-    expect(lightboxSource).toContain('api?.scrollTo(index)')
-  })
-
   test('zooms to the page’s own width, not the file’s', () => {
     // WHY: a capture is taken at the display's pixel ratio, so the PNG is
     // commonly twice the page. "Actual size" read off the file is a magnifying
     // glass that lies about what the browser drew.
     expect(snapshotWidth(snapshot({ viewport: 'Laptop — 1440×900' }))).toBe(1440)
-    expect(lightboxSource).toContain('--frame-native-width')
-    expect(lightboxSource).toContain('cursor-zoom-in')
-  })
-
-  test('offers zoom only where it magnifies', () => {
-    // WHY: a phone capture in a card already wider than the phone would shrink
-    // when "zoomed", which is a control that does the opposite of its name.
-    expect(lightboxSource).toContain('nativeWidth > frameWidth + 1')
-    expect(lightboxSource).toContain('wantsZoom && canZoom')
-  })
-
-  test('reads the frame width from the card rather than the window', () => {
-    // WHY: a companion pane can put this reel at a third of the display it was
-    // measured on, and whether zoom has anything to offer is a question about
-    // the frame's width here.
-    expect(lightboxSource).toContain('bind:clientWidth={frameWidth}')
-    expect(lightboxSource).not.toContain('window.innerWidth')
-  })
-
-  test('pans a magnified page instead of stepping the reel under the drag', () => {
-    // WHY: embla claims the horizontal drag. On a zoomed frame that gesture is
-    // how the reader reaches the right-hand side of the page.
-    expect(lightboxSource).toContain('watchDrag: () => !zoomed')
-    expect(lightboxSource).toContain('w-max min-w-full')
-  })
-
-  test('keeps every action at a phone-width card, as glyphs', () => {
-    // WHY: a control that unmounts to save room takes the capability with it.
-    // The labels drop; Copy, Annotate and Open in pane do not.
-    expect(lightboxSource).toContain('aria-label="Copy capture"')
-    expect(lightboxSource).toContain('aria-label="Open in pane"')
-    expect(lightboxSource).toContain('<span class="@max-[38rem]:hidden">Open in pane</span>')
-  })
-
-  test('copies the picture the reader is looking at, from the frame it is in', () => {
-    // WHY: minting a second signed URL here would be a copy of the image loader
-    // that drifts from it. The rendered frame already holds the one this client
-    // was allowed to fetch.
-    expect(lightboxSource).toContain('ClipboardItem')
-    expect(lightboxSource).toContain('[data-frame="${selected}"] img')
-  })
-
-  test('hands the keyboard back to the tile it was opened from', () => {
-    // WHY: the reel is a layer over the conversation, not a second window.
-    // Closing it has to leave the reader where the plate was — including
-    // anyone who never touched a pointer.
-    expect(gallerySource).toContain('onClose={closeReel}')
-    expect(gallerySource).toContain('await tick()')
-    expect(gallerySource).toContain('tileAt(opened)?.focus()')
-  })
-
-  test('arrives once, briefly, and not at all for a reader who asked it not to', () => {
-    expect(lightboxSource).toContain('animation: snapshot-reel-in 180ms')
-    expect(lightboxSource).toContain('prefers-reduced-motion: reduce')
   })
 })

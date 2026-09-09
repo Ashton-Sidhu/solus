@@ -5,6 +5,24 @@ import { TransportDisconnectedError } from '@solus/client-core/ws-transport'
 const previousLocalStorage = globalThis.localStorage
 const store = new Map<string, string>()
 
+test('cancellation while another queued send waits prevents stale-snapshot delivery', async () => {
+  const outbox = new SendOutbox()
+  outbox.enqueue('host', entry('first'))
+  outbox.enqueue('host', entry('cancelled'))
+  let release!: () => void
+  const blocked = new Promise<void>((resolve) => { release = resolve })
+  const delivered: string[] = []
+  const drain = outbox.drain('host', async (record) => {
+    delivered.push(record.clientPromptId)
+    if (record.clientPromptId === 'first') await blocked
+  })
+  outbox.remove('host', 'cancelled')
+  release()
+  await drain
+  expect(delivered).toEqual(['first'])
+  expect(outbox.entriesFor('host')).toEqual([])
+})
+
 beforeEach(() => {
   store.clear()
   Object.defineProperty(globalThis, 'localStorage', {

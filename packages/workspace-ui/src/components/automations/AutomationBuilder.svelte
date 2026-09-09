@@ -595,7 +595,7 @@
         <span
           class="text-xs font-normal uppercase {enabled
  ? 'text-[color:color-mix(in_oklab,var(--chart-3)_72%,var(--foreground))]'
- : 'text-muted-foreground'}">{enabled ? "Active" : "Paused"}</span
+ : 'text-muted-foreground'}">{current?.archivedAt ? "Archived" : enabled ? "Active" : "Paused"}</span
         >
         {#if scheduleNote}
           <span class="truncate text-xs text-muted-foreground"

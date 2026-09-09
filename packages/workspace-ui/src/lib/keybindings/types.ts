@@ -10,6 +10,7 @@ export type KeyCombo = {
 
 export type Scope =
   | 'global'
+  | 'list-filters'
   | 'diff-panel'
   | 'file-editor'
   | 'files-pane'

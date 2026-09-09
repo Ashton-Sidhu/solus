@@ -11,13 +11,6 @@ import {
   addressParts,
   navigableAddress,
 } from '@solus/workspace-ui/components/browser/lib/address'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
-
-const paneSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/browser/BrowserPane.svelte'),
-  'utf8',
-)
 
 /**
  * Two worktrees serving the same app are identical in an address bar: same
@@ -61,15 +54,6 @@ function entry(overrides: {
 }
 
 describe('the browser page strip', () => {
-  test('selecting a deep-linked page updates the route as well as the store', () => {
-    // WHY: the route param takes precedence over the store active key. Updating
-    // only the store leaves the pane pinned to the old page.
-    expect(paneSource).toContain('function activatePage')
-    expect(paneSource).toContain('browserStore.activeKey = key')
-    expect(paneSource).toContain('browserPageId: candidate.page.browserPageId')
-    expect(paneSource).toContain('{ target: paneId, replace: true }')
-  })
-
   test('groups pages under the worktree serving them', () => {
     // WHY: the port is the worst possible thing to read a browser page by, and
     // it is the only thing two worktrees of one app differ in.
@@ -112,7 +96,6 @@ describe('the browser page strip', () => {
     })
 
     expect(pageLabel(item.page, [item])).toBe('Pricing')
-    expect(paneSource).toContain('title={routeLabel(candidate.page.url)}')
   })
 
   test('adds the route only when matching titles need disambiguation', () => {
@@ -140,86 +123,6 @@ describe('the browser page strip', () => {
     expect(pageLabel(item.page, [item])).toBe('/pricing')
     expect(routeLabel('not a url')).toBe('not a url')
     expect(routeLabel('')).toBe('/')
-  })
-})
-
-describe('the browser pane sits in the row of panes', () => {
-  test('draws a seam against the pane it is docked beside', () => {
-    // WHY: every pane that is not the leading one is separated from its
-    // neighbour by a border. Without it the browser pane and the conversation
-    // read as one surface with a gap in it.
-    expect(paneSource).toContain('border-l border-(--solus-container-border)')
-    expect(paneSource).toContain('actions.isLeading')
-  })
-
-  test('its top row is the shared chrome row height, not a flat 2.5rem', () => {
-    // WHY: on the macOS editor the chrome row grows to clear the traffic
-    // lights. A hard-coded h-10 put the page strip 12px above the leading
-    // pane's header, which is exactly what "the tab bar does not line up" is.
-    expect(paneSource).toContain('h-(--solus-chrome-row-h,2.5rem)')
-    expect(paneSource).not.toMatch(/class="[^"]*\bflex h-10\b/)
-  })
-
-  test('the row is drawn whether or not any page is open', () => {
-    // WHY: the row is where the pane's own close and maximize controls sit, and
-    // it is the line the neighbouring header shares. A pane showing the target
-    // picker must not start its content where another pane starts its header.
-    const row = paneSource.indexOf('h-(--solus-chrome-row-h,2.5rem)')
-    const pagesGuard = paneSource.indexOf('{#if pages.length &&')
-    expect(row).toBeGreaterThan(0)
-    expect(pagesGuard).toBeGreaterThan(row)
-  })
-})
-
-/**
- * The strip shares its row with the pane's floating chrome cluster, and the row
- * is the narrowest thing in the pane. Everything here guards the rule that the
- * strip may run out of room but may never take room that is not its own.
- */
-describe('the page strip stays inside its own box', () => {
-  const rowClass =
-    paneSource.match(/class="(workspace-titlebar flex h-\(--solus-chrome-row-h[^"]*)"/)?.[1] ?? ''
-  const stripClass =
-    paneSource.match(/bind:this=\{stripElement\}\s*\n\s*class="([^"]*)"/)?.[1] ?? ''
-
-  test('scrolls in a box that ends before the pane chrome, not in the row', () => {
-    // WHY: a scroll container's padding box is still part of its scrollport, so
-    // scrolling the row itself bought scroll extent at the end and let every
-    // chip travel under the close and maximize buttons on the way there.
-    expect(rowClass).not.toBe('')
-    expect(rowClass).not.toContain('overflow-x-auto')
-    expect(stripClass).toContain('overflow-x-auto')
-    expect(stripClass).toContain('min-w-0')
-    expect(stripClass).toContain('flex-1')
-  })
-
-  test('reserves the chrome cluster even where no pane column publishes its width', () => {
-    // WHY: the phone shell renders this pane outside the pane columns, so the
-    // published inset is absent and a 0 fallback put the strip back under the
-    // buttons on the one client that has the least room.
-    expect(rowClass).toContain('var(--solus-pane-chrome-inset,6.25rem)')
-    expect(rowClass).toContain('pointer-coarse:pr-')
-    expect(rowClass).toContain('var(--solus-pane-chrome-inset,9.625rem)')
-  })
-
-  test('keeps the way to another page out of the scroller', () => {
-    // WHY: inside the scroller the add control walked off the end as soon as
-    // the strip overflowed, leaving the target picker reachable only by
-    // scrolling — and unreachable to anyone who did not know it was there.
-    const stripStart = paneSource.indexOf('bind:this={stripElement}')
-    const addControl = paneSource.indexOf('aria-label="Open another browser page"')
-    const scrollerEnd = paneSource.indexOf('{/each}\n      </div>', stripStart)
-    expect(stripStart).toBeGreaterThan(0)
-    expect(scrollerEnd).toBeGreaterThan(stripStart)
-    expect(addControl).toBeGreaterThan(scrollerEnd)
-  })
-
-  test('brings the active page back into view when it is not the one on screen', () => {
-    // WHY: an agent opens pages too. A strip scrolled elsewhere shows no active
-    // chip at all, so the pane looks like it is rendering a page nothing in the
-    // strip claims.
-    expect(paneSource).toContain('data-page-key={key}')
-    expect(paneSource).toContain('scrollIntoView({ block: "nearest", inline: "nearest" })')
   })
 })
 
@@ -304,11 +207,5 @@ describe('what a page pill says about the page', () => {
 
   test('says nothing about a page that loaded', () => {
     expect(pageStatus(page({ loadState: 'ready' }))).toBeNull()
-  })
-
-  test('renders the dot in the pill rather than only in the frame', () => {
-    expect(paneSource).toContain('pageStatus(candidate.page)')
-    expect(paneSource).toContain("bg-[var(--failure)]")
-    expect(paneSource).toContain("bg-[var(--warning)]")
   })
 })

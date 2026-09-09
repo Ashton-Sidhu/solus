@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import {
     Send as PaperPlaneTiltIcon,
     LoaderCircle as CircleNotchIcon,
@@ -227,15 +228,7 @@
 
       <div class="min-h-[6rem] flex-1 overflow-y-auto px-3 pb-2">
         {#if composer.loading}
-          <div
-            class="flex items-center gap-2 px-1.5 py-4 text-xs text-(--solus-text-tertiary)"
-          >
-            <CircleNotchIcon
-              size={14}
-              class="animate-spin [animation-duration:0.7s]"
-            />
-            Loading changed files…
-          </div>
+          <ContentSkeleton label="Loading changed files" />
         {:else if composer.loadError}
           <div
             class="flex items-center gap-2 px-1.5 py-4 text-xs text-pretty text-(--solus-status-error)"

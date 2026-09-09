@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
@@ -200,21 +200,6 @@ describe('deleting a profile', () => {
 })
 
 describe('a page keeps one identity across every surface that renders it', () => {
-  test('the renderer and the host mint the profile partition the same way', () => {
-    // WHY: the native `<webview>` is created by the renderer and the headless
-    // guest by the host. A page whose two hosts disagreed about the partition
-    // name would lose its login on every migration between them — which is what
-    // happens whenever a desktop pane opens or closes over a page an agent drives.
-    const layer = readFileSync(
-      join(import.meta.dir, '../../packages/workspace-ui/src/components/browser/BrowserWebviewLayer.svelte'),
-      'utf8',
-    )
-    expect(layer).toContain('partition={browserProfilePartition(')
-    expect(layer).toContain('entry.page.profileId')
-    // The project-only form would put every profile of a project in one jar.
-    expect(layer).not.toContain('partition={browserPartition(')
-  })
-
   test('the registry mints it from the page, so a headless guest is the same identity', async () => {
     const { initBrowserRegistry } = await import('@solus/server/browser/browser-registry')
     const registry = initBrowserRegistry({

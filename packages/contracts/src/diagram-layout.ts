@@ -85,10 +85,9 @@ function layoutSubset(
   sizeOf: (n: DiagramNode) => { w: number; h: number },
   spacing: LayoutSpacing,
 ): Map<string, { x: number; y: number }> {
-  const horizontal = direction === 'LR' || direction === 'RL'
   const ids = new Set(subset.map((n) => n.id))
 
-  const g = new dagre.graphlib.Graph()
+  const g = new dagre.graphlib.Graph({ multigraph: true })
   // acyclicer:'greedy' removes feedback edges with a minimal feedback-arc set
   // so cycles (e.g. service→user response edges) don't randomise which node
   // becomes rank-0.
@@ -118,15 +117,14 @@ function layoutSubset(
     // height when vertical) is what pushes the ranks apart.
     const label = edge.label?.trim()
     if (!label) {
-      g.setEdge(edge.source, edge.target, {})
+      g.setEdge(edge.source, edge.target, {}, edge.id)
       continue
     }
     g.setEdge(
       edge.source,
       edge.target,
-      horizontal
-        ? { width: label.length * 7 + 16, height: 24, labelpos: 'c' }
-        : { width: 24, height: 40, labelpos: 'c' },
+      { width: Math.min(240, label.length * 7 + 16), height: Math.ceil((label.length * 7 + 16) / 240) * 18 + 8, labelpos: 'c' },
+      edge.id,
     )
   }
 

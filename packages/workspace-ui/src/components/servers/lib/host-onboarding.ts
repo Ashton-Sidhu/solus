@@ -166,7 +166,7 @@ export function codingProviderRows(input: CodingProviderRowsInput): ProviderRow[
         // Signed in is the last thing this host was able to report, not a
         // promise the token still works. Someone who suspects a stale sign-in,
         // or wants a different account, has this instead of a dead check mark.
-        secondary: { label: 'Sign in again', run: () => add(id, { force: true }) },
+        secondary: { label: 'Switch account', run: () => add(id, { force: true }) },
       }
     return {
       id,

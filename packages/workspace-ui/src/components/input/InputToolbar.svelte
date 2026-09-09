@@ -16,7 +16,9 @@
   import { serverConnections } from "@solus/client-core/server-connections";
 
   interface Props {
-    mode?: "pill" | "editor";
+    active: boolean;
+    spacious?: boolean;
+    showDestination?: boolean;
     /** The tab whose session these controls edit. Unset by a composer with no
      *  session yet, which supplies `run`/`onRun`/`selection` instead — the
      *  controls then edit that draft rather than borrowing the active tab's. */
@@ -41,7 +43,9 @@
     trailingActions?: Snippet;
   }
   let {
-    mode = "pill",
+    active,
+    spacious = false,
+    showDestination = true,
     tabId,
     draftId,
     isPrimary = false,
@@ -122,7 +126,7 @@
   care why it got narrow.
 -->
 <div
-  class="flex flex-1 min-w-0 items-center gap-2 {mode === 'editor'
+  class="flex flex-1 min-w-0 items-center gap-2 {spacious
     ? 'editor-input-toolbar text-workspace-chrome [&_button]:text-[length:inherit]'
     : ''}"
 >
@@ -150,7 +154,8 @@
        which is why the ladder acts before the row can overflow, not after. -->
   <div class="ml-auto flex min-w-0 items-center">
     <StatusBarControls
-      {mode}
+      {active}
+      {showDestination}
       sourceId={tabId ?? draftId}
       {isPrimary}
       {trailingActions}

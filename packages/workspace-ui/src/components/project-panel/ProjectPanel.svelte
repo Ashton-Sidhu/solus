@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import {
     existingTaskId,
@@ -36,6 +37,7 @@
   import GitSection from "./GitSection.svelte";
   import GitSetupSection from "./GitSetupSection.svelte";
   import TaskSection from "./TaskSection.svelte";
+  import SubagentsSection from "./SubagentsSection.svelte";
   import AutomationsSection from "./AutomationsSection.svelte";
   import {
     automationMatchesProject,
@@ -43,6 +45,7 @@
     buildAutomationBoard,
   } from "./lib/automation-board";
   import { isUnconfiguredCwd } from "./lib/project-cwd";
+  import { sessionSubagents } from "./lib/rail-subagents";
   import { taskRef } from "../tasks/task-page/lib/task-page";
   import { taskRefTooltip } from "./lib/rail-task-card";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
@@ -93,7 +96,10 @@
 
   $effect(() => {
     if (!outerScrollbar || !sectionsElement) return;
-    return outerScrollbar.register(sectionsElement);
+    // Registration reads and mutates the parent's reactive target list. Keep
+    // those implementation reads out of this element-lifecycle effect or the
+    // effect subscribes to its own write and repeatedly tears itself down.
+    return untrack(() => outerScrollbar.register(sectionsElement));
   });
 
   // Both rails render the same component, so every piece of their view state is
@@ -209,6 +215,13 @@
       session.tasksStore.taskForSession(panelTaskSessionId),
   );
   const panelTaskCwd = $derived(panelTask?.projectKey ?? cwd);
+
+  // The Subagents card exists only once the conversation has dispatched one,
+  // so the read that decides it belongs here rather than in the card it would
+  // hide. A draft has no transcript and therefore no card.
+  const panelSubagents = $derived(
+    panelSession ? sessionSubagents(panelSession.messages) : [],
+  );
 
   // The Task card exists only while the task has something linked, so the read
   // that decides it belongs here rather than in the card it would hide. Links
@@ -565,6 +578,18 @@
           active={active && open}
         />
       </PanelSection>
+    {/if}
+    {#if panelSession && panelSubagents.length > 0}
+      <!-- Only ever reached with a session behind it — a sub-agent is something
+           a conversation dispatched, so the section opens the pane off that
+           conversation's tab. -->
+      <SubagentsSection
+        tabId={sourceId}
+        messages={panelSubagents}
+        collapsed={collapsedSections.subagents}
+        onToggle={() => toggleSection("subagents")}
+        onResizePointerDown={startResize}
+      />
     {/if}
     {#if automationBoard.total > 0}
       <PanelSection

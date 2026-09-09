@@ -1,4 +1,5 @@
 import { BaseAgentBackend } from '../base-backend'
+import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { CodexRpcError, getCodexAppServerClient } from './codex-agent'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
@@ -16,7 +17,7 @@ import { getHeadCommit } from '../../git/worktree-manager'
 import { resolveRepoRoot } from '../../git/git-helpers'
 import { initSessionBase, prepareTurnSnapshot, snapshotTurn } from '../../git/session-snapshots'
 import type { AgentBackend, PermissionResponder, RunHandle } from '../agent-backend'
-import type { AgentRunRequest, AgentRunSessionState } from '../agent-runner'
+import { type AgentRunRequest, type AgentRunSessionState } from '../agent-runner'
 import type {
   AgentId,
   AgentMetadata,
@@ -31,7 +32,7 @@ import type {
   ThreadGoalSetRequest,
   UsageWindow,
 } from '@solus/contracts/types'
-import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import { MemoryCache } from '@solus/contracts/cache'
 import {
@@ -250,6 +251,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   startRun(request: AgentRunRequest, sessionState?: AgentRunSessionState): RunHandle {
+    const conversation = request.conversation ?? { kind: 'start' }
     const abortController = new AbortController()
     const workTree = request.cwd
     let handle!: CodexRunHandle
@@ -268,9 +270,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
     handle = {
-      agentSessionId: request.sessionId ?? null,
+      // The source is only a branch input; the fork has no provider id yet.
+      agentSessionId: conversation.kind === 'resume' ? conversation.threadId : null,
       persistence: request.persistence,
-      threadId: request.sessionId ?? null,
+      threadId: conversation.kind === 'fork' ? conversation.sourceThreadId : conversation.kind === 'resume' ? conversation.threadId : null,
       turnId: null,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -303,6 +306,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     request: AgentRunRequest,
   ): Promise<void> {
     try {
+      const conversation = request.conversation ?? { kind: 'start' }
       let threadId = handle.threadId
       const model = this.resolveModel(request.model ?? null)
       const developerInstructions = request.systemPrompt?.trim()
@@ -332,9 +336,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const reasoningEffort = request.reasoningEffort ?? 'high'
 
       let response: CodexThreadStartResponse
-      if (request.forkSession && threadId) {
+      if (conversation.kind === 'fork' && threadId) {
         let lastTurnId: string | undefined
-        if (request.forkExcludeLatestTurn) {
+        if (conversation.excludeLatestTurn) {
           const source = await this.client.request<CodexThreadReadResponse>('thread/read', {
             threadId,
             includeTurns: true,
@@ -352,7 +356,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         try {
           response = await this.client.request<CodexThreadStartResponse>('thread/start', { ...toolsConfig, reasoning_effort: reasoningEffort })
         } catch (err: any) {
-          if (this.dynamicToolsUnavailable) throw err
+          if (this.dynamicToolsUnavailable || !(err instanceof CodexRpcError) || err.code !== -32602) throw err
           // Retry once without dynamicTools — the agent loses work tools this run.
           log.warn('thread_start_dynamic_tools_rejected', { error: err?.message ?? String(err) })
           this.dynamicToolsUnavailable = true
@@ -417,9 +421,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // Emit before finishRun: a run that failed before it had an
       // agentSessionId is only reachable through the backend's pending handles,
       // which finishRun empties, so the ControlPlane would never see the error.
-      this.emit('error', sessionId, err instanceof Error ? err : new Error(String(err)))
+      const failure = err instanceof Error ? err : new Error(String(err))
+      this.emit('error', sessionId, failure)
       this.finishRun(handle)
-      handle._rejectRun(err instanceof Error ? err : new Error(String(err)))
+      handle._rejectRun(failure)
     }
   }
 
@@ -700,7 +705,18 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
     const response = await this.readThread(sessionId)
-    return codexTurnsToMessages(response.thread?.turns ?? [], limit)
+    return loadCodexHistory(sessionId, response.thread?.turns ?? [],
+      (params) => this.client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
+      limit)
+  }
+
+  async loadSessionPreview(sessionId: string): Promise<SessionPreviewResult> {
+    // Picker previews need spoken text, not hidden tool history. Keep them on
+    // the summary read even though opening the conversation now hydrates tools.
+    const response = await this.readThread(sessionId)
+    const messages = codexTurnsToMessages(response.thread?.turns ?? [])
+      .filter((message) => message.role !== 'reasoning')
+    return { head: messages.slice(0, 4), tail: messages.slice(-1), totalMessages: messages.length }
   }
 
   private appendCodexTurnMessages(messages: SessionLoadMessage[], turns: CodexTurnHistory[]): void {

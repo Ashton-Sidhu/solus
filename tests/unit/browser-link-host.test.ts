@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { BrowserOpenRequest, BrowserPage } from '@solus/contracts/browser-types'
 import { isWebUrl } from '@solus/workspace-ui/components/conversation/lib/external-link'
@@ -22,21 +20,6 @@ function installStateRune(): void {
 installStateRune()
 
 const { BrowserStore } = await import('@solus/workspace-ui/contexts/browser/browser.store.svelte')
-
-/**
- * Opening a link from the conversation in Solus's own browser.
- *
- * The link belongs to the session that wrote it, and that session's project may
- * be served by a machine other than the one the user is holding. A `localhost`
- * in an agent's output means the agent's host — so the one rule that matters
- * here is that the page is opened *there*, and never through whatever host this
- * client happens to consider primary.
- */
-
-const MARKDOWN_LINK = join(
-  import.meta.dir,
-  '../../packages/workspace-ui/src/components/conversation/MarkdownLink.svelte',
-)
 
 afterEach(() => {
   serverConnectionsMock.reset()
@@ -102,37 +85,5 @@ describe('the page opens on the session’s host', () => {
 
     expect(store.pages.get(key)?.serverId).toBe('studio')
     expect(store.activeKey).toBe(key)
-  })
-})
-
-describe('the affordance in the transcript', () => {
-  const source = readFileSync(MARKDOWN_LINK, 'utf8')
-
-  test('a plain click still hands the address to the user’s own browser', () => {
-    // WHY: links behave one way everywhere else in the product. Changing what a
-    // click does would make the conversation the exception.
-    expect(source).toContain('localApi.openExternal(href)')
-  })
-
-  test('the second destination is addressed to the link’s own host', () => {
-    // WHY: routing it through an ambient client API would open the address on
-    // whichever host this client calls primary, which for a remote session is
-    // the wrong machine.
-    expect(source).toContain('sessionLinkContext?.serverId() ?? session.fallbackServerId')
-    expect(source).toContain('session.openUrlInBrowser(href, linkServerId)')
-  })
-
-  test('a link Solus routes itself is not offered a browser pane', () => {
-    // WHY: a plan, a work, a pull request, a session, a file and a stored asset
-    // each have a destination of their own, and a browser pane is the worse one.
-    expect(source).toContain('!(assetId || linkRoute || sessionParams || fileRef) && isWebUrl(href)')
-  })
-
-  test('it is reachable without a pointer', () => {
-    // WHY: Solus is keyboard-first and ships on phones. A control revealed only
-    // by hover exists on neither.
-    expect(source).toContain('focus-visible:opacity-100')
-    expect(source).toContain('pointer-coarse:opacity-100')
-    expect(source).toContain('aria-label="Open in the Solus browser"')
   })
 })

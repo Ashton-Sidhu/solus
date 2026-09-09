@@ -78,11 +78,10 @@
     ListPage,
     ListRailRow,
     ListRow,
-    ListScopeMenu,
+    ListFilterGroup,
+    ListSortMenu,
     ListSkeleton,
-    ListStatusMenu,
     VirtualList,
-    FILTER_SORT_CHIP,
     LIST_GROUP_HEADER_HEIGHT,
     inboxRowHeight,
     listRowHeight,
@@ -95,7 +94,6 @@
   } from "../ui/list-page";
   import { isStackedPane } from "../../lib/pane-width";
   import PageEmpty from "../ui/PageEmpty.svelte";
-  import SortMenu from "../ui/SortMenu.svelte";
   import TaskComposer from "./TaskComposer.svelte";
   import TaskListRow from "./TaskListRow.svelte";
   import TaskBoard from "./TaskBoard.svelte";
@@ -1095,16 +1093,16 @@
 
 {#snippet layoutToggle()}
   <!-- The layout control re-plots the active task view rather than replacing
-       it, so it is presentation and sits after the divider with sort. -->
+       it, so it stays visible beside sort. -->
   {#if !splitList}
     <div
-      class="flex shrink-0 items-center gap-0.5 rounded-full bg-[var(--wash-2)] p-0.5 @max-[30rem]/pane:h-8 @max-[30rem]/pane:p-1"
+      class="flex h-8 shrink-0 items-center gap-0.5 rounded-lg bg-[var(--wash-2)] p-1 @max-[30rem]/pane:h-10"
       role="group"
       aria-label="Layout"
     >
       <button
         type="button"
-        class="grid size-6 cursor-pointer place-items-center rounded-full border-0 transition-colors {layout ===
+        class="grid size-6 cursor-pointer place-items-center rounded-md border-0 transition-colors @max-[30rem]/pane:size-8 {layout ===
         'list'
           ? 'bg-card text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
           : 'bg-transparent text-muted-foreground hover:text-foreground'}"
@@ -1117,7 +1115,7 @@
       </button>
       <button
         type="button"
-        class="grid size-6 cursor-pointer place-items-center rounded-full border-0 transition-colors {layout ===
+        class="grid size-6 cursor-pointer place-items-center rounded-md border-0 transition-colors @max-[30rem]/pane:size-8 {layout ===
         'board'
           ? 'bg-card text-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_12%,transparent)]'
           : 'bg-transparent text-muted-foreground hover:text-foreground'}"
@@ -1142,30 +1140,25 @@
         ? "Search tasks…"
         : "Search tasks, labels, assignees…"
       : "Search your inbox…"}
-    filters={view === "global" && !splitList ? filters : []}
+    filters={view === "global" ? filters : []}
+    activeCount={Number(!boardLayout && statusKeys.length !== statusOptions.length) + Number(view === "inbox" && inboxProjectKeys.length > 0) + Number(view === "inbox" && inboxStore.involvement !== "all")}
   >
-    {#snippet trailing()}
+    {#snippet filterContent()}
       {#if view === "inbox"}
         <!-- Wanting "just these two repos" narrows the inbox without moving the
              page, so it is a filter and sits with the others. -->
-        <ListScopeMenu
-          options={inboxScopeChoices}
-          selected={inboxProjectKeys}
-          onChange={(next) => (inboxProjectKeys = next)}
-          compactText
-        />
+        <ListFilterGroup label="Project" options={inboxScopeChoices} selected={inboxProjectKeys} onChange={(next) => (inboxProjectKeys = next)} multiple />
       {/if}
       <!-- The board plots every status as a column of its own, so a status
            filter there would only ever empty one. -->
       {#if !boardLayout}
-        <ListStatusMenu
-          options={statusOptions}
-          selected={statusKeys}
-          onChange={(next) => (statusKeys = next)}
-          ariaLabel="Filter tasks by status"
-          compactText
-        />
+        <ListFilterGroup label="Status" icon={CircleDashedIcon} options={statusOptions} selected={statusKeys} onChange={(next) => (statusKeys = next)} multiple showAll emptyLabel="None" />
       {/if}
+      {#if view === "inbox"}
+        <ListFilterGroup label="Involvement" options={INVOLVEMENT_OPTIONS} selected={[inboxStore.involvement]} onChange={(next) => changeInvolvement(next[0])} />
+      {/if}
+    {/snippet}
+    {#snippet trailing()}
       {#if truncationNote}
         <!-- Why the list is short, said where the narrowing is done. -->
         <span
@@ -1173,32 +1166,14 @@
           >{truncationNote}</span
         >
       {/if}
-      {#if !splitList}
-        <!-- Sort and layout are presentation, not membership — hence the
-             divider. The split rail shows neither, so it shows no divider. -->
-        <span
-          class="mx-0.5 h-[18px] w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-          aria-hidden="true"
-        ></span>
-      {/if}
+      {@render layoutToggle()}
       {#if view === "global" && !splitList}
-        <SortMenu
+        <ListSortMenu
           bind:value={sort}
           options={SORT_OPTIONS}
           ariaLabel="Sort tasks"
-          class="{FILTER_SORT_CHIP} text-xs"
         />
       {/if}
-      {#if view === "inbox"}
-        <SortMenu
-          bind:value={() => inboxStore.involvement, changeInvolvement}
-          options={INVOLVEMENT_OPTIONS}
-          ariaLabel="Filter inbox involvement"
-          contentClass="w-[180px]"
-          class="{FILTER_SORT_CHIP} text-workspace-chrome"
-        />
-      {/if}
-      {@render layoutToggle()}
     {/snippet}
   </ListFilterBar>
 {/snippet}
@@ -1262,10 +1237,10 @@
             run: () => beginComposing(),
           }
         : undefined}
-      compactPrimaryActionText
       onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
       isLeading={pane.isLeading}
       onClose={close}
+      toolbarFilters
       filters={filterBar}
       contentOwnsScroll
       bind:contentHeight

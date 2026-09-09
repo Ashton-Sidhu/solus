@@ -20,9 +20,8 @@
     getAgentContext,
     getWorkspaceContext,
     getSessionSidebarStore,
-    getWindowContext,
+    getClientShellContext,
     getSessionEnvironmentStore,
-    runtime,
     serversStore,
     toolsStore,
   } from "../../contexts";
@@ -77,9 +76,9 @@
   const sidebarStore = getSessionSidebarStore();
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
-  const windowCtx = getWindowContext();
-  const isPillMode = $derived(
-    windowCtx.viewMode === "pill" && !windowCtx.isWeb,
+  const shell = getClientShellContext();
+  const isOverlayWindow = $derived(
+    shell.isOverlayWindow,
   );
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
@@ -93,9 +92,8 @@
       .statusFor(gitCwd)
       ?.uncommittedChanges.files.map((file) => file.path) ?? [],
   );
-  const showDesktopActions = $derived(!runtime.isMobileViewport);
   const showNativeDesktopActions = $derived(
-    showDesktopActions && !windowCtx.isWeb,
+    shell.supportsNativeSettings,
   );
 
   const hasSessionChanges = $derived(sessionChangedFiles.length > 0);
@@ -129,7 +127,7 @@
   const showOpenFiles = $derived(
     showNativeDesktopActions && hasUncommittedChanges && hasSessionChanges,
   );
-  const showOpenTerminal = $derived(showNativeDesktopActions && isPillMode);
+  const showOpenTerminal = $derived(showNativeDesktopActions && isOverlayWindow);
   const remoteHost = $derived.by(() => {
     if (hostPolicy.isClientMachine(sess?.run.serverId)) return null;
     const host = serversStore.hostFor(sess?.run.serverId);
@@ -154,7 +152,7 @@
   // What this session cost and where its time went. It reads the active host's
   // own telemetry, and a session that never reached the provider has no turns
   // recorded for it yet.
-  const showInsights = $derived(showDesktopActions && !!sess?.agentSessionId);
+  const showInsights = $derived(!!sess?.agentSessionId);
   const isPinned = $derived(sidebarStore.isPinned(sess?.agentSessionId, sess?.run.serverId));
   const showInterrupt = $derived(
     isRunning && (sess?.messages.some((m) => m.role === "user") ?? false),
@@ -591,7 +589,7 @@
   });
   useKeybinding("orb.open-terminal", () => handleOpenTerminal(), {
     enabled: () =>
-      tabId === session.focusedChatTabId && !windowCtx.isWeb && isVisibleOrb(),
+      tabId === session.focusedChatTabId && shell.supportsNativeSettings && isVisibleOrb(),
   });
   useKeybinding("orb.pin", () => handleTogglePin(), {
     enabled: () =>
@@ -603,7 +601,7 @@
 <div
   bind:this={rootEl}
   class="action-orb-root pointer-events-none absolute inset-x-0 inset-y-0 z-[6] mx-auto [contain:layout]"
-  class:pill-mode={isPillMode}
+  class:pill-mode={isOverlayWindow}
   class:compact
   class:orb-streaming={isRunning}
 >

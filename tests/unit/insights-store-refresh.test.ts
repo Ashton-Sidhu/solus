@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
-import type { MetricsQueryResult, MetricsQuerySpec } from '@solus/contracts/observability-types'
+import type { MetricsQueryResult, MetricsQuerySpec, MetricsTurnPageRequest, MetricsTurnPageResult } from '@solus/contracts/observability-types'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
 
 const serverConnectionsMock = singleHostServerConnections()
@@ -22,8 +22,7 @@ function turnResult(traceIds: string[]): MetricsQueryResult {
 
 let sqlRuns: string[] = []
 let compiledQuestions: string[] = []
-let volumeRuns = 0
-let volumeSpecs: MetricsQuerySpec[] = []
+let pageRequests: MetricsTurnPageRequest[] = []
 let available: string[] = []
 
 function installHost(): void {
@@ -42,9 +41,19 @@ function installHost(): void {
             attempts: 1,
           }
         },
-        metricsQuery: async (spec: MetricsQuerySpec) => {
-          volumeRuns++
-          volumeSpecs.push(spec)
+        metricsTurnPage: async (request: MetricsTurnPageRequest): Promise<MetricsTurnPageResult> => {
+          pageRequests.push(request)
+          return {
+            page: turnResult(available),
+            pageIndex: request.pageIndex,
+            pageSize: request.pageSize,
+            totalRows: available.length,
+            statusCounts: { ok: 0, error: available.length, interrupted: 0 },
+            stats: { counted: available.length, failed: available.length, failureRate: 1, totalCostUsd: 0, p50DurationMs: 10, p95DurationMs: 10 },
+            volume: [],
+          }
+        },
+        metricsQuery: async (_spec: MetricsQuerySpec) => {
           return turnResult(available)
         },
         metricsRunSql: async (sql: string) => {
@@ -67,8 +76,7 @@ function installStateRune(): void {
 beforeEach(() => {
   sqlRuns = []
   compiledQuestions = []
-  volumeRuns = 0
-  volumeSpecs = []
+  pageRequests = []
   available = ['trace-old']
   installStateRune()
   installHost()
@@ -97,7 +105,7 @@ describe('Insights window refresh', () => {
     available = ['trace-new', 'trace-old']
     await store.refresh()
 
-    expect(volumeRuns).toBe(2)
+    expect(pageRequests).toHaveLength(2)
     expect(store.volumeRows.length).toBe(2)
     expect(store.result?.rows.length).toBe(2)
   })
@@ -129,7 +137,7 @@ describe('Insights window refresh', () => {
 
     await store.setRange({ kind: 'absolute', from: 1_000, to: 2_000 })
     expect(store.sqlText).toContain('started_at >= 1000 and started_at < 2000')
-    expect(sqlRuns.at(-1)).toBe(store.sqlText)
+    expect(pageRequests.at(-1)?.timeRange).toEqual({ from: 1_000, to: 2_000 })
     expect(store.answerWindowStale).toBe(false)
 
     const own = "select trace_id from turns where status = 'error'"
@@ -173,7 +181,7 @@ describe('Insights window refresh', () => {
 
     expect(store.windowFrom).toBe(1_000)
     expect(store.windowTo).toBe(2_000)
-    expect(volumeSpecs.at(-1)?.timeRange).toEqual({ from: 1_000, to: 2_000 })
+    expect(pageRequests.at(-1)?.timeRange).toEqual({ from: 1_000, to: 2_000 })
   })
 
   test('the opening load says it is busy before the first statement runs', async () => {
@@ -233,8 +241,8 @@ describe('Insights window refresh', () => {
 
     // The re-entry re-asks Solus's own statement rather than the closed one.
     await store.load()
-    expect(sqlRuns.at(-1)).toBe(store.sqlText)
-    expect(sqlRuns.at(-1)).not.toBe(own)
+    expect(pageRequests.at(-1)?.timeRange).toEqual({ from: 1_000, to: 2_000 })
+    expect(store.result?.rows).toEqual(turnResult(available).rows)
   })
 
   test('the reset lands in the question tab with an empty field', async () => {
@@ -253,7 +261,8 @@ describe('Insights window refresh', () => {
 
     expect(store.form).toBe('nl')
     expect(store.question).toBe('')
-    expect(sqlRuns.at(-1)).toBe(store.sqlText)
+    expect(pageRequests).toHaveLength(2)
+    expect(store.result?.rows).toEqual(turnResult(available).rows)
 
     // A generated query shown from elsewhere still lands where it can be read.
     await store.runGenerated({ kind: 'session', sessionId: 'session-1' })

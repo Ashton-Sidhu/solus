@@ -140,6 +140,10 @@ export interface DiagramEdge {
   route?: 'smooth' | 'step' | 'straight'
   /** Smooth-step bend offset in canvas px. Omitted = xyflow default. */
   bendOffset?: number
+  /** Axis of a manually moved route segment. Omitted = source-facing axis. */
+  bendAxis?: 'x' | 'y'
+  /** Label displacement from the connector midpoint, in canvas pixels. */
+  labelOffset?: { x: number; y: number }
   animated?: boolean
   sourceHandle?: string
   targetHandle?: string
@@ -212,6 +216,12 @@ function normalizeDoc(doc: LegacyDiagramDoc, allowDetail: boolean): void {
     return true
   })
   for (const edge of doc.edges) {
+    if (edge.bendAxis !== 'x' && edge.bendAxis !== 'y') delete edge.bendAxis
+    if (edge.labelOffset) {
+      const offset = z.object({ x: z.number().finite().min(-4000).max(4000), y: z.number().finite().min(-4000).max(4000) }).safeParse(edge.labelOffset)
+      if (offset.success) edge.labelOffset = offset.data
+      else delete edge.labelOffset
+    }
     const legacyRoute = edge['shape']
     if (!edge.route && legacyRoute) edge.route = legacyRoute
     delete edge['shape']

@@ -101,7 +101,7 @@ async function boot(): Promise<void> {
   // ready instead of blocking first paint on the WebSocket handshake.
   const [{ mount }, { default: App }, editorLayoutModule] = await Promise.all([
     import('svelte'),
-    import('@solus/workspace-ui/App.svelte'),
+    import('./App.svelte'),
     rendererMode === 'editor'
       ? import('@solus/workspace-ui/components/layout/EditorLayout.svelte')
       : Promise.resolve(null),

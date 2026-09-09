@@ -23,7 +23,7 @@ import { completeTasksForMergedPullRequest } from '../../tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
 import type { ReviewTarget } from '@solus/contracts/review'
 import { ensureManagedPrCheckout } from '../../review/managed-pr-checkout'
-import { prIndex } from '../../prs/pr-index'
+import { prIndex, repoKeyOf } from '../../prs/pr-index'
 import type { PullRequest } from '../../prs/pull-request'
 
 const log = createLogger('main', 'provider-handlers')
@@ -499,7 +499,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       const result = await provider.review.mergePullRequest(repo, number, method)
       if (!result.merged) return result
       const projectPath = projectScopeOf(ctx.session)
-      await completeTasksForMergedPullRequest(projectPath, number)
+      await completeTasksForMergedPullRequest(repoKeyOf(repo).toLowerCase(), number)
       const detailAfterMerge = await pullRequest.readFresh()
       // A merge is a lifecycle change like any other, so it is announced the
       // same way. Without this, only the surface that ran the merge learned

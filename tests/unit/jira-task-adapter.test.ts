@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { z } from 'zod'
+import { Database } from 'bun:sqlite'
+
+mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 import type { AtlassianRequest } from '@solus/server/atlassian/api'
 
 const jqlBodySchema = z.object({ jql: z.string() })

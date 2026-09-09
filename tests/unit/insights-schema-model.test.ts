@@ -43,12 +43,6 @@ describe('schema sources', () => {
       ['spans', 'fact'],
     ])
   })
-
-  test('the internal slice is documented without a separate visibility mode', () => {
-    expect(schemaSources(SCHEMA).map((source) => source.name)).toEqual([
-      'turns', 'events', 'internal_events', 'spans',
-    ])
-  })
 })
 
 describe('column grouping', () => {
@@ -147,8 +141,16 @@ describe('column search', () => {
   })
 
   test('an exact name outranks a prefix, and a name outranks a description', () => {
-    expect(searchColumns(sources, 'tool').map((m) => m.column.name)).toEqual(['tool'])
-    expect(searchColumns(sources, 'model').map((m) => m.column.name)).toEqual(['model'])
+    const competing = [{
+      ...sources[0],
+      columns: [
+        described('command', 'Tool that ran'),
+        described('tool_time_ms', 'Elapsed time'),
+        described('tool', 'Tool name'),
+      ],
+    }]
+    expect(searchColumns(competing, 'tool').map((match) => match.column.name))
+      .toEqual(['tool', 'tool_time_ms', 'command'])
   })
 
   test('an empty query is not a match-everything query', () => {

@@ -531,31 +531,31 @@ export function taskHasPendingSync(taskId: string): boolean {
  * `PrReconciler` for a merge made outside Solus.
  */
 export async function completeTasksForMergedPullRequest(
-  cwd: string,
+  repositoryScope: string,
   number: number,
   isMerged: (target: PrLinkTarget) => Promise<boolean> = ({ projectScope, number: linked }) =>
     pullRequestIsMerged(projectScope, linked),
 ): Promise<string[]> {
-  const config = await loadProjectConfig(cwd)
-  if (config?.taskDoneOnMerge === false) return []
   const db = getDb()
-  const rows = z.array(z.object({ id: z.string() })).parse(db.prepare(`
-    SELECT DISTINCT tasks.id
+  const rows = z.array(z.object({ id: z.string(), project_key: z.string().nullable() })).parse(db.prepare(`
+    SELECT DISTINCT tasks.id, tasks.project_key
     FROM tasks
     JOIN task_links ON task_links.task_id = tasks.id
     WHERE tasks.status NOT IN ('done', 'dropped')
       AND task_links.kind = 'pr'
       AND task_links.target_key = ?
       AND task_links.target_scope = ?
-  `).all(String(number), cwd))
+  `).all(String(number), repositoryScope))
 
   const completed: string[] = []
   for (const row of rows) {
+    const config = row.project_key ? await loadProjectConfig(row.project_key) : null
+    if (config?.taskDoneOnMerge === false) continue
     const others = readTaskLinks(db, row.id).flatMap((link) => {
       if (link.kind !== 'pr') return []
       const linkedNumber = Number(link.targetKey)
       if (!Number.isSafeInteger(linkedNumber) || linkedNumber <= 0) return []
-      if (linkedNumber === number && link.targetScope === cwd) return []
+      if (linkedNumber === number && link.targetScope === repositoryScope) return []
       return [{ projectScope: link.targetScope, number: linkedNumber }]
     })
     let allMerged = true

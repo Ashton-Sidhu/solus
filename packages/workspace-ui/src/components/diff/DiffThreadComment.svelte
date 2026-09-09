@@ -34,7 +34,7 @@
     thread: DiffReviewThread;
     /** Whether the resolved thread is collapsed to its summary bar. Owned by the
      *  host (DiffStream) so toggling re-measures the diff layout, and so the
-     *  state survives the annotation remount that re-measure triggers. */
+     *  state survives file recycling without remounting the comment. */
     collapsed?: boolean;
     onReply?: (threadId: string, body: string) => Promise<ReviewComment>;
     onToggleResolve?: (threadId: string, resolved: boolean) => Promise<void>;

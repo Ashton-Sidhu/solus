@@ -1,5 +1,5 @@
 [
-  "apps/client/src/components/MobileServerSheet.svelte",
+  "apps/client/src/shell/mobile/MobileServerSheet.svelte",
   "apps/client/src/components/ServerSetupSurface.svelte",
   "apps/client/src/demo/DemoCtaOverlay.svelte",
   "apps/client/src/routes/HostlessHome.svelte",

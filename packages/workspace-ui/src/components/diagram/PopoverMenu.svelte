@@ -6,13 +6,14 @@
     title: string;
     ariaLabel: string;
     minWidth?: string | number;
+    maxHeight?: number;
     // The trigger button's inner icon.
     icon: Snippet;
     // Menu items. Callers compose the shared dropdown primitives directly.
     children: Snippet;
   }
 
-  let { title, ariaLabel, minWidth = "9rem", icon, children }: Props = $props();
+  let { title, ariaLabel, minWidth = "9rem", maxHeight, icon, children }: Props = $props();
 
   let open = $state(false);
 </script>
@@ -26,7 +27,9 @@
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content side="top" align="start" sideOffset={6} collisionPadding={8} class="w-auto" style={`min-width:${typeof minWidth === "number" ? `${minWidth}px` : minWidth}`}>
+    <DropdownMenu.Content side="top" align="start" sideOffset={6} collisionPadding={8}
+      class={maxHeight ? "w-auto overscroll-contain" : "w-auto"}
+      style={`min-width:${typeof minWidth === "number" ? `${minWidth}px` : minWidth};${maxHeight ? `max-height:min(${maxHeight}px,var(--bits-floating-available-height,calc(100dvh - 16px)))` : ""}`}>
       {@render children()}
     </DropdownMenu.Content>
   </DropdownMenu.Root>

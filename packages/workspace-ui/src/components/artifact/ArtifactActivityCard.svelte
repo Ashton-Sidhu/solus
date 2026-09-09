@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import {
     LayoutTemplate as ArtifactIcon,
     ChevronDown as CaretDownIcon,
@@ -99,7 +100,7 @@
     {:else if html}
       <ArtifactView artifact={{ kind: "html", html }} skipMotion />
     {:else}
-      <div class="py-2 text-sm text-(--solus-text-tertiary)" role="status">Loading artifact…</div>
+      <ContentSkeleton label="Loading artifact" preview />
     {/if}
   </div>
 {/if}

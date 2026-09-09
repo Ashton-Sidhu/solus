@@ -17,7 +17,7 @@ export function uplinkStatusDescription(status: UplinkStatus | undefined): strin
   const { hostname } = status.link
   switch (status.state.observed) {
     case 'online': return `Reachable at ${hostname} · tunnel online`
-    case 'offline': return `Reachable at ${hostname} · tunnel offline`
-    case 'error': return `${hostname} · ${status.state.error ?? 'tunnel error'}`
+    case 'offline': return `${hostname} · tunnel offline. You can continue to use Solus locally.`
+    case 'error': return `${hostname} · tunnel offline. ${status.state.error ?? 'The tunnel has an error.'} You can continue to use Solus locally.`
   }
 }

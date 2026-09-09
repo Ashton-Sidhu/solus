@@ -76,14 +76,6 @@
       return "var(--solus-status-error)";
     return "var(--solus-text-tertiary)";
   }
-
-  function toggleButtonClass(a: Automation): string {
-    if (a.enabled) {
-      return "text-[color-mix(in_srgb,var(--solus-status-error)_76%,var(--solus-text-tertiary))] hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)";
-    }
-
-    return "text-[color-mix(in_srgb,var(--project-icon-green)_76%,var(--solus-text-tertiary))] hover:bg-[color-mix(in_srgb,var(--project-icon-green)_12%,transparent)] hover:text-(--project-icon-green)";
-  }
 </script>
 
 <ul class="m-0 flex list-none flex-col gap-px p-0">
@@ -96,10 +88,9 @@
         class="flex min-h-[2rem] w-full min-w-0 overflow-hidden cursor-pointer items-center gap-2 rounded-[0.4375rem] border-none bg-transparent py-[0.3125rem] pr-8 pl-2 text-left transition-colors duration-150 hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:shadow-[0_0_0_0.125rem_color-mix(in_srgb,var(--solus-accent)_35%,transparent)]"
         onclick={() => open(a)}
       >
-        <!-- 5c marks the row with a bare accent cycle glyph — no icon chip — and
-             fades it back for anything that isn't currently scheduled. -->
+        <!-- Unscheduled automations use a quieter version of the shared grey icon. -->
         <span
-          class="inline-flex shrink-0 text-(--solus-accent) transition-opacity duration-150 {a.enabled
+          class="inline-flex shrink-0 text-(--solus-text-tertiary) transition-opacity duration-150 {a.enabled
             ? 'opacity-100'
             : 'opacity-45'}"
           class:animate-pulse={running}
@@ -142,7 +133,7 @@
           variant="ghost"
           size="icon-xs"
           type="button"
-          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 text-(--solus-status-error) hover:bg-[color-mix(in_srgb,var(--solus-status-error)_12%,transparent)] hover:text-(--solus-status-error)"
+          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 text-(--solus-text-tertiary)"
           title="Stop run"
           aria-label="Stop run"
           onclick={(event) => void stop(a, event)}
@@ -154,9 +145,7 @@
           variant="ghost"
           size="icon-xs"
           type="button"
-          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 {toggleButtonClass(
-            a,
-          )}"
+          class="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 opacity-0 transition-[opacity,background-color,color] duration-150 group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 pointer-coarse:pointer-events-auto pointer-coarse:opacity-100 text-(--solus-text-tertiary)"
           title={a.enabled ? "Pause automation" : "Resume automation"}
           aria-label={a.enabled ? "Pause automation" : "Resume automation"}
           onclick={(event) => void toggleEnabled(a, event)}

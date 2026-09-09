@@ -66,14 +66,17 @@ class Backend extends EventEmitter implements AgentBackend {
   readonly requests: AgentRunRequest[] = []
   starts = 0
   onStart?: () => void
+  startupError?: Error
+  readonly loadedThreads: string[] = []
 
   startRun(request: AgentRunRequest): RunHandle {
     this.requests.push(request)
-    const threadId = request.sessionId ?? `thread-${this.starts + 1}`
+    const resumedThreadId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null)
+    const threadId = resumedThreadId ?? `thread-${this.starts + 1}`
     let resolve!: () => void
     let reject!: (error: Error) => void
     const handle: RunHandle = {
-      agentSessionId: request.sessionId ?? null,
+      agentSessionId: resumedThreadId ?? null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,
@@ -88,6 +91,12 @@ class Backend extends EventEmitter implements AgentBackend {
     this.starts++
     this.onStart?.()
     queueMicrotask(() => {
+      if (this.startupError) {
+        this.emit('error', null, this.startupError)
+        this.pending.delete(handle)
+        handle._rejectRun(this.startupError)
+        return
+      }
       handle.agentSessionId = threadId
       this.pending.delete(handle)
       this.handles.set(threadId, handle)
@@ -124,6 +133,7 @@ class Backend extends EventEmitter implements AgentBackend {
   }
   isSessionRunning(sessionId: string): boolean { return this.handles.has(sessionId) }
   async steerSession(): Promise<null> { return null }
+  loadSession(sessionId: string): Promise<never[]> { this.loadedThreads.push(sessionId); return Promise.resolve([]) }
   loadHistory(): Promise<never[]> { return Promise.resolve([]) }
   loadSessionSkills(): Promise<never[]> { return Promise.resolve([]) }
   getEnrichedError() { return { message: 'failed', isError: true, stderrTail: [] } }
@@ -333,7 +343,7 @@ describe.serial('ControlPlane observability hooks', () => {
     backend.complete('thread-2', 0)
     await target.done
     await reportStarted
-    expect(backend.requests[2]?.sessionId).toBe('thread-1')
+    expect(backend.requests[2]?.conversation).toEqual({ kind: 'resume', threadId: 'thread-1' })
     expect(backend.requests[2]?.prompt).toContain('[session report]')
 
     await Promise.resolve()
@@ -428,24 +438,25 @@ describe.serial('ControlPlane observability hooks', () => {
     plane.shutdown()
   })
 
-  test('a first dispatch keeps one stable task attempt and accepts provider metadata', async () => {
-    // WHY: the renderer also links the stable id after session_init. If the
-    // server links the provider thread id, one conversation appears twice under
-    // its task. Automatic naming still arrives under the provider id, so the
-    // same lifecycle must resolve that alias back to the one stable task link.
+  test.each([false, true])('a first dispatch keeps one stable task attempt and accepts provider metadata (fork: %s)', async (forked) => {
+    // Task ownership is linked when the provider initializes its thread.
+    // Automatic naming later resolves the provider alias to that same link.
     const taskSessions = await import('@solus/server/tasks/task-sessions')
     const record = await taskSessions.prepareSessionTask({ prompt: 'Raw first prompt' })
     if (!record) throw new Error('Expected a session-born task')
 
     const backend = new Backend()
+    backend.onStart = () => {
+      expect(taskSessions.taskSessions(record.id)[record.id] ?? []).toEqual([])
+    }
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
     plane.on('error', () => {})
     const lifecycle = await plane.runTurn({
-      target: { kind: 'new-session' }, sessionId: 'solus-task', input: input(null), tools: [],
-      options: { prompt: 'start', promptSource: 'typed', taskId: record.id, skipTaskCreation: true },
+      target: { kind: 'new-session' }, sessionId: 'solus-task',
+      input: { ...input(forked ? 'source-thread' : null), forked }, tools: [],
+      options: { prompt: 'start', clientPromptId: 'first-send', promptSource: 'typed', taskId: record.id, skipTaskCreation: true },
     })
-    await lifecycle.agentSessionId
-    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(await lifecycle.agentSessionId).toMatchObject({ agentSessionId: 'thread-1' })
 
     expect(taskSessions.taskSessions(record.id)[record.id]).toEqual([
       expect.objectContaining({ sessionId: 'solus-task' }),

@@ -48,7 +48,11 @@
   }
 </script>
 
-<div class="html-block" data-testid="html-block">
+<div
+  class="html-block {origin && mode === 'preview' ? 'w-full' : ''}"
+  data-testid="html-block"
+  data-conversation-preview={origin && mode === "preview" ? true : undefined}
+>
   {#if mode === "preview"}
     <SandboxFrame {html}>
       {#snippet actions()}

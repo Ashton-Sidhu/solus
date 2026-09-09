@@ -7,6 +7,7 @@
   } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
+  import { toasts } from "../../lib/toasts";
   import { relativeTime } from "../../lib/relative-time";
   import MarkdownImage from "../conversation/MarkdownImage.svelte";
   import BrowserSnapshotLightbox from "./BrowserSnapshotLightbox.svelte";
@@ -75,14 +76,28 @@
     sharedPageKey ? browserStore.pages.has(sharedPageKey) : false,
   );
 
-  function openPage(browserPageId: string) {
-    session.openRoute(
-      {
-        name: "browser",
-        params: serverId ? { browserPageId, serverId } : { browserPageId },
-      },
-      { via: "click" },
-    );
+  let openingPage = $state(false);
+
+  async function openPage(browserPageId: string) {
+    if (openingPage) return;
+    const snapshot = snapshots.find((frame) => frame.browserPageId === browserPageId);
+    if (!snapshot) return;
+    openingPage = true;
+    try {
+      const host = serverId ?? session.fallbackServerId;
+      const openedPageId = await browserStore.openSnapshot(host, snapshot);
+      openIndex = null;
+      session.openRoute(
+        { name: "browser", params: { browserPageId: openedPageId, serverId: host } },
+        { via: "click" },
+      );
+    } catch (error) {
+      toasts.error("Could not open the captured page", {
+        description: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      openingPage = false;
+    }
   }
 
   /** The same way back with the note tools already armed, so feedback lands on
@@ -272,9 +287,10 @@
         <button
           type="button"
           class="shrink-0 rounded-md bg-[var(--wash-2)] px-2.5 py-1 font-medium text-(--solus-text-primary) shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] transition-colors hover:bg-[var(--wash-3)]"
+          disabled={openingPage}
           onclick={() => openPage(sharedPageId)}
         >
-          Open in pane
+          {openingPage ? "Opening…" : "Open in pane"}
         </button>
       </div>
     {/if}

@@ -19,6 +19,7 @@ import {
   type ProviderSetupAction,
 } from './lib/host-onboarding'
 import { hostProviderContext, messageFor } from './lib/setup-rpc'
+import { toasts } from '../../lib/toasts'
 
 const LOG_LIMIT = 300
 
@@ -219,6 +220,22 @@ export class HostSetupSession {
       }
     } finally {
       this.providerStages[provider] = null
+    }
+  }
+
+  async updateProvider(provider: SetupAgent): Promise<void> {
+    if (this.providerStages[provider]) return
+    this.retain()
+    this.providerStages[provider] = 'install'
+    const label = provider === 'claude' ? 'Claude Code' : 'Codex'
+    const progress = toasts.progress(`Updating ${label}…`)
+    try {
+      const succeeded = await this.run('providers', (api) => api.setupInstallAgentCli({ agent: provider }), provider)
+      if (succeeded) progress.success(`${label} updated`)
+      else progress.error(`Could not update ${label}`, { description: this.stepError?.message })
+    } finally {
+      this.providerStages[provider] = null
+      this.release()
     }
   }
 

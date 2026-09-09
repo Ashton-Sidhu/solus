@@ -4,8 +4,6 @@ import { pullRequestFixture } from './__fixtures__/pull-request'
 import type { Task } from '@solus/contracts/task-types'
 import {
   completedTasksWithinRetention,
-  DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
-  SIDEBAR_COMPLETED_RETENTION_CHECK_MS,
 } from '@solus/workspace-ui/lib/completed-task-retention'
 import {
   aggregateReviewGuideStatus,
@@ -85,16 +83,6 @@ describe('sidebar task search', () => {
 
 describe('completed task age', () => {
   const now = Date.parse('2026-08-11T12:00:00Z')
-
-  it('keeps completed tasks in the sidebar for two days by default', () => {
-    expect(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS).toBe(2)
-  })
-
-  it('checks completed task retention once an hour', () => {
-    // WHY: the shelf changes slowly, so a minute-level timer adds needless
-    // renderer invalidations without making the retention rule more useful.
-    expect(SIDEBAR_COMPLETED_RETENTION_CHECK_MS).toBe(60 * 60 * 1000)
-  })
 
   it('keeps the completed shelf age compact from minutes through days', () => {
     // WHY: completed rows have one narrow trailing column and must not grow

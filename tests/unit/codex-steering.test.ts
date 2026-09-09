@@ -11,6 +11,54 @@ beforeAll(async () => {
 })
 
 describe('CodexBackend steering', () => {
+  test('a pending fork cannot report its source as its own session', async () => {
+    const backend = new CodexBackend()
+    const failure = new Error('test stops before provider startup')
+    const request = mock(async () => { throw failure })
+    ;(backend as unknown as { client: { request: typeof request } }).client = { request }
+    backend.on('error', () => {})
+    const handle = backend.startRun({
+      provider: 'codex', prompt: 'fork', cwd: '/tmp', tools: [],
+      permissionMode: 'ask', persistence: 'ephemeral', service: 'sessions',
+      conversation: { kind: 'fork', sourceThreadId: 'source-thread' },
+    })
+    expect(handle.agentSessionId).toBeNull()
+    expect(request).toHaveBeenCalledWith('thread/fork', {
+      threadId: 'source-thread', lastTurnId: undefined,
+    })
+    await expect(handle.runPromise).rejects.toBe(failure)
+  })
+
+  test.each(['start', 'fork'] as const)('an explicit %s rejection is retryable without a duplicate provider thread', async (kind) => {
+    const backend = new CodexBackend()
+    const request = mock(async () => { throw new CodexRpcError('Request rejected', -32000) })
+    ;(backend as unknown as { client: { request: typeof request } }).client = { request }
+    backend.on('error', () => {})
+    const handle = backend.startRun({
+      provider: 'codex', prompt: 'start', cwd: '/tmp', tools: [],
+      permissionMode: 'ask', persistence: 'ephemeral', service: 'sessions',
+      conversation: kind === 'fork' ? { kind, sourceThreadId: 'source' } : { kind },
+    })
+    await expect(handle.runPromise).rejects.toBeInstanceOf(CodexRpcError)
+    expect(handle.agentSessionId).toBeNull()
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
+  test('a disconnected thread start is never retried without tools', async () => {
+    const backend = new CodexBackend()
+    const failure = new Error('connection closed')
+    const request = mock(async () => { throw failure })
+    ;(backend as unknown as { client: { request: typeof request } }).client = { request }
+    backend.on('error', () => {})
+    const handle = backend.startRun({
+      provider: 'codex', prompt: 'start', cwd: '/tmp', tools: [],
+      permissionMode: 'ask', persistence: 'ephemeral', service: 'sessions',
+      conversation: { kind: 'start' },
+    })
+    await expect(handle.runPromise).rejects.toBe(failure)
+    expect(request).toHaveBeenCalledTimes(1)
+  })
+
   test('sends text and images to the active turn', async () => {
     const backend = new CodexBackend()
     const requests: Array<{ method: string; params: unknown }> = []

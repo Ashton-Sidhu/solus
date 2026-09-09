@@ -28,11 +28,16 @@ through `documents.get`. Google's converters are not used in either direction.
 - Headings are named styles. Bullets are real list paragraphs with a nesting
   level. Code is Courier New paragraphs with shading. Tables are inserted
   empty, read back to learn their cell indices, and filled last to first.
+- Each table is followed by an empty normal paragraph, so a blank line
+  separates it from the next block. This also applies to the last table in
+  a document.
 - A diagram PNG is staged as a Drive file readable by link for the seconds
   the insert takes, then deleted; the document keeps its own copy. The Docs
   API takes images by URL only.
 - The caption paragraph under a diagram carries its title. On pull, the
   link's `diagrams` list matches the caption back to its `work://embed` token.
+  This list records the rendered asset's title, which can differ from an
+  older embed label after the diagram is renamed.
   Any other image is named in `lossyParts` and dropped, never inlined as
   base64.
 - Every diagram is one picture on a landscape page of its own, with half-inch
@@ -97,6 +102,26 @@ through `documents.get`. Google's converters are not used in either direction.
   Google Cloud project; a disabled API is reported by name.
 
 ## Consequences
+
+The linked document header checks upstream state when it mounts and every
+five minutes until it unmounts, including in the secondary pane. Opening
+another pane for the same document also checks immediately. Returning focus
+to Solus or making its browser tab visible checks all mounted documents.
+Multiple mounted headers for the same work share a timer and any request
+already in progress. The check updates the sync state; only an explicit pull
+replaces local content. Publish and pull also update the sync state.
+
+The sync tooltip shows the last completed check and the next scheduled check
+in the client's local time. It also shows when a check is running. This uses
+the shared hover/focus tooltip on the status button. These are check times for the
+current mounted document, not timestamps of content pulled or published;
+the sync status still reports a failed check. Focus checks do not move the
+shared five-minute timer.
+
+Diagram node views inherit the document's Svelte contexts on every mount,
+including after undo restores an embed. The preview canvas needs those
+contexts to read settings. This applies to the shared desktop, web, and
+mobile document editor.
 
 Publish and pull are deterministic and round-trip. A publish costs one
 `batchUpdate` per run of paragraphs plus three requests per table, instead

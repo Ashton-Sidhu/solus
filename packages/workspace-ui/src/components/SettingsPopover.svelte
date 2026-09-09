@@ -22,8 +22,9 @@
     getAgentContext,
     getSettingsContext,
     getWorkspaceContext,
-    getWindowContext,
+    getClientShellContext,
     toolsStore,
+    updatesStore,
   } from "../contexts";
   import { agentLabel, buildAgentAvailabilityRows } from "../lib/agentAvailability";
   import { getPopoverLayer, useClickOutside } from "./popoverLayer.svelte";
@@ -31,6 +32,7 @@
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { cn } from "@solus/workspace-ui/lib/utils.js";
   import { menuRowVariants } from "./ui/menu";
+  import SettingsUpdateButton from "./settings/SettingsUpdateButton.svelte";
   import AppLogo from "./settings/AppLogo.svelte";
   import { requestInputFocus } from "../lib/inputFocus";
   import { Button } from "./ui/button";
@@ -41,7 +43,7 @@
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const session = getWorkspaceContext();
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   const tools = toolsStore;
   const layer = getPopoverLayer();
   const rateLimitStrats = [
@@ -94,10 +96,10 @@
     },
   );
 
-  const isPillMode = $derived(windowCtx.viewMode === "pill" && !windowCtx.isWeb);
+  const isOverlayWindow = $derived(shell.isOverlayWindow);
 
   useKeybinding("global.settings", () => {
-    if (isPillMode) {
+    if (isOverlayWindow) {
       if (!open) updatePos();
       open = !open;
     } else {
@@ -153,7 +155,7 @@
   });
 
   async function handleToggle() {
-    if (!isPillMode) {
+    if (!isOverlayWindow) {
       if (session.router.at('settings')) {
         session.router.close('settings');
       } else {
@@ -209,14 +211,20 @@
     variant="ghost"
     size="icon-xs"
     onclick={handleToggle}
-    class="rounded-full text-(--solus-text-tertiary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
+    class="relative rounded-full text-(--solus-text-tertiary) focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)"
   >
     <GearIcon size={14} />
+    {#if updatesStore.isReady}
+      <span
+        class="absolute top-0.5 right-0.5 size-1.5 rounded-full bg-(--solus-accent)"
+        aria-hidden="true"
+      ></span>
+    {/if}
   </Button>
 </span>
     {/snippet}
   </TooltipUI.Trigger>
-  <TooltipUI.Content value={open ? null : "Settings"} />
+  <TooltipUI.Content value={open ? null : updatesStore.isReady ? "Settings · Update ready" : "Settings"} />
 </TooltipUI.Root>
 
 {#if open && layer.el}
@@ -236,6 +244,8 @@
       "
   >
     <div class="p-3 flex flex-col gap-2.5">
+      <SettingsUpdateButton />
+      <div class="h-px bg-(--solus-popover-border)"></div>
       <div class="flex items-center justify-between gap-3">
         <div class="flex items-center gap-2 min-w-0">
           <BellIcon size={14} class="text-(--solus-text-tertiary)" />

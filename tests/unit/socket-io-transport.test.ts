@@ -5,7 +5,7 @@ import { io } from 'socket.io-client'
 import { SolusServer } from '@solus/server/server/server'
 import { ClientEventRegistry } from '@solus/server/events/client-event-registry'
 import { HostEventPublisher } from '@solus/server/events/host-event-publisher'
-import { attachWebSocketTransport, FRAME_COMPRESSION_OPTIONS, isLoopbackAddress } from '@solus/server/transports/websocket'
+import { attachWebSocketTransport, isLoopbackAddress } from '@solus/server/transports/websocket'
 import { WsTransport, type ConnectionStatus } from '@solus/client-core/ws-transport'
 import { HostSupervisor } from '@solus/client-core/host-supervisor'
 import type { SolusAPI } from '../../src/preload'
@@ -36,11 +36,6 @@ describe('Socket.IO transport', () => {
     await waitForStatus(client, 'connected')
 
     expect(hasServerFrameCompression(harness)).toBe(false)
-  })
-
-  test('enables frame compression above the remote payload threshold', () => {
-    expect(FRAME_COMPRESSION_OPTIONS).toEqual({ threshold: 1024 })
-    expect(isLoopbackAddress('10.10.1.219')).toBe(false)
   })
 
   test('recognizes IPv4, mapped IPv4, and IPv6 loopback addresses', () => {

@@ -61,16 +61,26 @@
       itemCount={items.length}
       itemSize={sizeForIndex}
       {estimatedItemSize}
-      getKey={(index: number) => keyOf(items[index])}
+      getKey={(index: number) => {
+        // The library can key its previous visible range before its effect
+        // applies a smaller itemCount. Keep stale keys separate from row keys.
+        const item = items[index];
+        if (item === undefined) return `missing:${index}`;
+        const key = keyOf(item);
+        return `item:${typeof key}:${key}`;
+      }}
       scrollToIndex={activeIndex !== undefined && activeIndex >= 0 ? activeIndex : undefined}
       scrollToAlignment="auto"
       scrollToBehaviour="instant"
       overscanCount={overscan}
       {scrollOffset}
-      on:afterScroll={(event) => onAfterScroll?.(event.detail)}
+      {onAfterScroll}
     >
       {#snippet item({ index, style }: VirtualItem)}
-        {@render children(items[index], index, style)}
+        {@const row = items[index]}
+        {#if row !== undefined}
+          {@render children(row, index, style)}
+        {/if}
       {/snippet}
       {#snippet footer()}
         {#if footerContent}{@render footerContent()}{/if}

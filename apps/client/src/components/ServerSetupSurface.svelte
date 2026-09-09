@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { hostUpdatesStore } from "@solus/workspace-ui/contexts/updates/host-updates.store.svelte";
   import { untrack } from "svelte";
   import {
     ArrowRight as ArrowRightIcon,
@@ -25,7 +26,7 @@
   import { classifyConnectInput } from "../lib/connect";
   import { toasts } from "@solus/workspace-ui/lib/toasts";
   import { webState } from "../lib/web-state.svelte";
-  import MobileSheet from "./MobileSheet.svelte";
+  import MobileSheet from "../shell/mobile/MobileSheet.svelte";
 
   const open = $derived(webState.serverSetupOpen);
   const isMobile = $derived(runtime.isMobileViewport);
@@ -138,7 +139,7 @@
       <span
         class="truncate font-mono text-xs text-(--solus-text-tertiary)"
       >
-        {urlHost(host.url)} · {hostStatusLabel(host.status)}
+        {urlHost(host.url)} · {hostStatusLabel(host.status)}{hostUpdatesStore.hostUpdateFor(host.id)?.check.kind === "available" ? " · update available" : ""}
       </span>
     </span>
     {#if host.local}

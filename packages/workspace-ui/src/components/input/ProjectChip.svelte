@@ -1,13 +1,18 @@
 <script lang="ts">
   import {
     Check as CheckIcon,
-    Folder as FolderIcon,
     House as HouseIcon,
     Plus as PlusIcon,
   } from "@lucide/svelte";
   import { mergeProps } from "bits-ui";
-  import { getWorkspaceContext, serversStore, projectsStore } from "../../contexts";
-  import { isWorkspaceDir, projectDirLabel } from "../../lib/paths";
+  import {
+    getWorkspaceContext,
+    serversStore,
+    projectsStore,
+    mergeProjectOptions,
+    type ProjectRef,
+  } from "../../contexts";
+  import { isWorkspaceDir } from "../../lib/paths";
   import { projectHostId } from "../servers/run-on";
   import type { RunConfig } from "@solus/contracts/types";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -15,6 +20,8 @@
   import * as Popover from "../ui/popover";
   import * as Command from "../ui/command";
   import { Button } from "../ui/button";
+  import ProjectRowAction from "../ui/ProjectRowAction.svelte";
+  import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import { MenuFooter, MenuSearch } from "../ui/menu";
 
   interface Props {
@@ -24,7 +31,7 @@
     projectDir: string;
     label: string;
     onSelect: (path: string) => void;
-    /** Open the full project browser: remote hosts and folders not in recents. */
+    /** Open the full project browser: remote hosts and folders not in the catalog. */
     onBrowse: () => void;
     /** Return focus to the composer once the menu closes. */
     onDismiss: () => void;
@@ -47,32 +54,37 @@
 
   const session = getWorkspaceContext();
   const workspacePath = $derived(session.staticInfo?.workspacePath ?? null);
-  // Recents follow the run-on picker: the run names where its project lives, and
+  // Projects follow the run-on picker: the run names where its project lives, and
   // that host's projects are the ones worth offering. Its own machine is where
   // "My Workspace" and the current checkout make sense; a remote host lists only
   // what it already has.
   const hostId = $derived(projectHostId(run));
   const hostIsLocal = $derived(serversStore.hostFor(hostId)?.local ?? true);
   const onWorkspace = $derived(hostIsLocal && isWorkspaceDir(projectDir, workspacePath));
-  // The current checkout is offered even when it has aged out of recents — but
+  // The current checkout is offered even when it is not in the catalog — but
   // only while it lives on the host being listed. A pending "open a project over
   // there" points at a host the current directory is not on, so it is left out.
   const canOfferCurrent = $derived(
-    hostIsLocal && run.pendingHostDispatch?.intent !== "open-project",
+    hostIsLocal &&
+      run.pendingHostDispatch?.intent !== "open-project" &&
+      !projectsStore.isRemoved({ serverId: hostId, projectRoot: projectDir }),
   );
 
   let tooltipOpen = $state(false);
   let triggerEl = $state<HTMLButtonElement | null>(null);
   let query = $state("");
-  const recents = $derived(projectsStore.recentProjectsFor(hostId));
-
+  let commandEl = $state<HTMLDivElement | null>(null);
   const projects = $derived(
-    canOfferCurrent && !recents.some((project) => project.path === projectDir)
-      ? [
-          { path: projectDir, folderName: label, lastOpened: new Date().toISOString() },
-          ...recents,
-        ].slice(0, 3)
-      : recents.slice(0, 3),
+    mergeProjectOptions(
+      [
+        canOfferCurrent
+          ? [{ serverId: hostId, projectRoot: projectDir, label }]
+          : [],
+        projectsStore.entries.filter((project) => project.serverId === hostId),
+      ],
+      (serverId) => serversStore.statusFor(serverId) !== "offline",
+      (serverId) => serversStore.hostFor(serverId)?.label ?? serverId,
+    ),
   );
 
   // The chip is no longer the only way in, so the list loads off the open state
@@ -104,6 +116,11 @@
     onSelect(path);
   }
 
+  function removeProject(project: ProjectRef) {
+    projectsStore.remove(project);
+    commandEl?.querySelector<HTMLInputElement>("[data-slot=command-input]")?.focus();
+  }
+
   function newProject() {
     open = false;
     onBrowse();
@@ -128,9 +145,10 @@
  : 'text-(--solus-text-tertiary) hover:bg-[color-mix(in_srgb,var(--solus-surface-hover)_60%,transparent)] hover:text-(--solus-text-secondary) focus-visible:bg-(--solus-surface-hover) focus-visible:text-(--solus-text-secondary)'}"
               style="max-width:12rem"
             >
-              <FolderIcon
-                size={14}
-                class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
+              <ProjectFavicon
+                projectRoot={projectDir}
+                serverId={hostId}
+                class="size-3.5 shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
  : 'opacity-70'}"
               />
@@ -162,7 +180,7 @@
     onCloseAutoFocus={handleCloseAutoFocus}
     class="menu-surface z-[10002] w-[288px] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome"
   >
-    <Command.Root>
+    <Command.Root bind:ref={commandEl}>
       <MenuSearch bind:value={query} placeholder="Search projects" />
       <Command.List class="max-h-[256px] overflow-y-auto p-1.5">
         <Command.Empty
@@ -170,24 +188,27 @@
         >
           No projects match
         </Command.Empty>
-        <Command.Group heading="Recent">
-          {#each projects as project (project.path)}
+        <Command.Group heading="Projects">
+          {#each projects as project (project.key)}
             <Command.Item
-              value="{project.folderName} {project.path}"
-              onSelect={() => activate(project.path)}
-              data-menu-current={project.path === projectDir ? "" : undefined}
-              class="menu-item-stagger"
+              value="{project.label} {project.projectRoot}"
+              onSelect={() => activate(project.projectRoot)}
+              data-menu-current={project.projectRoot === projectDir ? "" : undefined}
+              class="group/project-row relative menu-item-stagger pr-9 pointer-coarse:pr-11 pointer-fine:[.is-laptop-display_&]:pr-9"
             >
-              <FolderIcon
-                size={13}
-                class="shrink-0 text-(--solus-text-tertiary)"
+              <ProjectFavicon
+                projectRoot={project.projectRoot}
+                serverId={project.serverId}
+                class="size-[13px]"
               />
               <span class="min-w-0 flex-1 truncate">
-                {projectDirLabel(project.path, workspacePath)}
+                {project.label}
               </span>
-              {#if project.path === projectDir}
-                <CheckIcon size={12} class="shrink-0 text-(--solus-accent)" />
-              {/if}
+              <ProjectRowAction
+                selected={project.projectRoot === projectDir}
+                label={project.label}
+                onRemove={() => removeProject(project)}
+              />
             </Command.Item>
           {/each}
         </Command.Group>

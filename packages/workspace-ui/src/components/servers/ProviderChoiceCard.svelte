@@ -33,27 +33,28 @@
           {row.label}
         </span>
         <span
-          class="truncate text-xs leading-[1.35] text-(--solus-text-tertiary)"
+          class="whitespace-normal break-words text-xs leading-[1.35] text-(--solus-text-tertiary)"
           style="font-family: 'Geist Mono', ui-monospace, monospace"
         >
           {row.detail}
         </span>
       </span>
 
-      {#if row.state === "busy"}
-        <CircleNotchIcon size={12} class="mr-0.5 shrink-0 animate-spin text-(--solus-accent)" />
-      {:else if row.state === "done"}
-        {#if row.secondary}
+        {#if row.state !== "busy" && row.secondary}
           <Button
             variant="ghost"
             size="sm"
             class="h-[1.625rem] shrink-0 px-[0.5rem] text-xs text-[color:var(--solus-text-tertiary)]"
             aria-label="{row.secondary.label} to {row.label}"
+            disabled={row.disabled}
             onclick={row.secondary.run}
           >
             {row.secondary.label}
           </Button>
         {/if}
+      {#if row.state === "busy"}
+        <CircleNotchIcon size={12} class="mr-0.5 shrink-0 animate-spin text-(--solus-accent)" />
+      {:else if row.state === "done"}
         <span
           class="mr-0.5 flex size-[1.0625rem] shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--solus-accent)_13%,transparent)]"
         >

@@ -2,7 +2,7 @@
   import { untrack, type Snippet } from "svelte";
   import {
     getWorkspaceContext,
-    getWindowContext,
+    getClientShellContext,
     getSettingsContext,
     getSessionEnvironmentStore,
   } from "../../contexts";
@@ -28,6 +28,7 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import {
     closeTargetPaneId,
+    companionMinimizesProjectPanel,
     COMPANION_PANE_DEFAULT_SIZE,
     COMPANION_PANE_MIN_SIZE,
     isCompanionVisible,
@@ -69,7 +70,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   const settings = getSettingsContext();
   const environmentStore = getSessionEnvironmentStore();
   const router = session.router;
@@ -164,6 +165,9 @@
   const companion = $derived(router.asidePanes[0] ?? null);
   const companionRef = $derived(companion ? visibleRef(companion) : null);
   const secondaryVisible = $derived(isCompanionVisible(companionRef, session));
+  const secondaryMinimizesProjectPanel = $derived(
+    secondaryVisible && companionMinimizesProjectPanel(companionRef),
+  );
   const secondaryCollapsesSidebar = $derived(
     secondaryVisible && companionRef?.name !== "automation",
   );
@@ -551,7 +555,7 @@
       isProjectRailOpen(
         isPrimaryProjectPanelOpen,
         projectRailContainerWidth,
-        secondaryVisible,
+        secondaryMinimizesProjectPanel,
       ),
   );
 
@@ -740,7 +744,7 @@
                  capsule is centred, so nothing collides at the left edge. -->
                         {#if leadingRef?.name !== "settings"}
                           <div
-                            class="no-drag absolute left-[var(--solus-chrome-control-left,var(--solus-titlebar-control-left))] z-20 flex {windowCtx.hasInsetTitlebar
+                            class="no-drag absolute left-[var(--solus-chrome-control-left,var(--solus-titlebar-control-left))] z-20 flex {shell.hasInsetTitlebar
                               ? 'top-[var(--solus-titlebar-control-top)]'
                               : 'top-1 h-[2.875rem] items-center'}"
                           >
@@ -802,9 +806,9 @@
                      against the column. It mounts on first reveal, then hides
                      with display:none while a page, review, or maximized pane
                      covers it — unmounting here made every maximize/restore
-                     and page open rebuild the Git/Task sections. A secondary
-                     pane minimizes it temporarily without changing the user's
-                     persisted preference. -->
+                     and page open rebuild the Git/Task sections. Companion
+                     chats and drafts keep it when the column has room; other
+                     content minimizes it without changing the preference. -->
                 {#if enableProjectPanel && hasMountedProjectRail}
                   <div
                     class="project-rail contents"
@@ -815,7 +819,7 @@
                       {active}
                       containerWidth={projectRailContainerWidth}
                       {workspaceWidth}
-                      minimized={secondaryVisible ||
+                      minimized={secondaryMinimizesProjectPanel ||
                         (!leadingStarted && !newTabProjectPanelPoppedOut)}
                       onCollapse={() => toggleProjectPanel()}
                     />

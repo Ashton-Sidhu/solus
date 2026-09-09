@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { untrack } from "svelte"
+  import { tick, untrack } from "svelte"
+  import { Search as MagnifyingGlassIcon, X as XIcon } from "@lucide/svelte"
+  import { revealActiveOutlineRow } from "./lib/outline-scroll"
   import { fade } from "svelte/transition";
   import { sectionNumbers, type PlanHeading } from "./headings";
-  import { OUTLINE_DWELL_MS, afterDwell, holdsWithoutDwell, isOutlineVisible, type OutlineReason } from "./lib/outline";
+  import { OUTLINE_DWELL_MS, outlineTickRanges, afterDwell, holdsWithoutDwell, isOutlineVisible, type OutlineReason } from "./lib/outline";
+  import { OUTLINE_LONG_MIN, outlineRows } from "./lib/outline-filter";
 
   interface Props {
     headings: PlanHeading[]
+    /** Render the labelled list directly in a popover or mobile sheet. */
+    standalone?: boolean
     activePos?: number | null
     /** Threads per heading position — the amber count each row carries. */
     threadCounts?: Map<number, number>
@@ -18,36 +23,91 @@
     /** The fit rule: false where 262px + clearance do not fit left of the
      *  measure, and the gutter is bars only however it is reached. */
     canRevealPanel?: boolean
+    /** Put the caret in the filter on mount — the reader opened this panel to
+     *  search it. Never on a rail that unfolds under the pointer. */
+    autoFocusFilter?: boolean
     onScrollTo: (pos: number) => void
   }
 
   let {
     headings,
+    standalone = false,
     activePos = null,
     threadCounts,
     pinned = false,
     jumping = false,
     atTop = true,
     canRevealPanel = true,
+    autoFocusFilter = false,
     onScrollTo,
   }: Props = $props()
 
+  const tickRanges = $derived(outlineTickRanges(headings.length))
+  const activeIndex = $derived(headings.findIndex((heading) => heading.pos === activePos))
   const numerals = $derived(sectionNumbers(headings))
   const totalThreads = $derived(
     [...(threadCounts?.values() ?? [])].reduce((sum, n) => sum + n, 0),
   )
 
+  // ── Long documents. A hundred sections are searched, not scanned, so past
+  // the threshold the panel gains a field and the rows become its matches.
+  // That is the only thing length changes: no folding, no second model.
+  const isLong = $derived(headings.length >= OUTLINE_LONG_MIN)
+  let query = $state("")
+  let filterEl = $state<HTMLInputElement>()
+  const searching = $derived(isLong && query.trim().length > 0)
+  const rows = $derived(outlineRows(headings, isLong ? query : ""))
+
+  /** Enter takes the first match. The rest of them are a Tab away. */
+  function onFilterKeydown(e: KeyboardEvent) {
+    if (e.key === "Enter" && rows[0]) {
+      e.preventDefault()
+      onScrollTo(rows[0].heading.pos)
+    } else if (e.key === "Escape" && query) {
+      e.preventDefault()
+      e.stopPropagation()
+      clearFilter()
+    }
+  }
+
+  function clearFilter() {
+    query = ""
+    filterEl?.focus()
+  }
+
+  $effect(() => {
+    if (!autoFocusFilter || !isLong) return
+    void tick().then(() => filterEl?.focus())
+  })
+
   // Reasons the outline is currently showing its labels. A set, because
   // several can hold at once — pinning while hovering must survive the pointer
   // leaving. Starts at the top, where the full contents remain visible.
   let reasons = $state<Set<OutlineReason>>(new Set<OutlineReason>(['top']))
-  const open = $derived(isOutlineVisible(reasons, atTop, canRevealPanel))
+  const open = $derived(standalone || isOutlineVisible(reasons, atTop, canRevealPanel))
 
   // Where there is no room for the panel, the ticks carry the contents one row
   // at a time: the hovered — or focused — bar names its own section, and
   // nothing else does. `top` is measured against the rail so the label can live
   // outside the ticks' scroller, which would otherwise clip it.
   let railEl = $state<HTMLElement>()
+  let itemsEl = $state<HTMLDivElement>()
+
+  $effect(() => {
+    void activePos
+    void open
+    let cancelled = false
+    void tick().then(() => {
+      if (cancelled) return
+      untrack(() => {
+        // Do not move the list while the reader is choosing a section.
+        if (reasons.has("focus") || reasons.has("hover")) return
+        revealActiveOutlineRow(itemsEl)
+      })
+    })
+    return () => { cancelled = true }
+  })
+
   let namedTick = $state<{ text: string; top: number } | null>(null)
 
   function nameTick(tick: HTMLElement, text: string) {
@@ -95,17 +155,17 @@
 {/snippet}
 
 {#if headings.length >= 2}
-  <!-- At rest the outline is a margin rule, not a panel: one tick per heading,
-       and the only numeral showing is the section you are in. It renders in
-       full while the document is at the top and while the pointer is in it.
-       Row height and bar never move, so nothing reflows. -->
+  <!-- The collapsed overview covers the whole document in at most 12 marks.
+       The labelled list retains every heading. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
   <nav
     bind:this={railEl}
     class="doc-outline"
     class:doc-outline--open={open}
+    class:doc-outline--standalone={standalone}
+    class:doc-outline--long={isLong}
     aria-label="On this page"
-    onpointerenter={() => hold('hover', true)}
+    onpointerover={() => hold('hover', true)}
     onpointerleave={() => hold('hover', false)}
     onfocusin={() => hold('focus', true)}
     onfocusout={() => hold('focus', false)}
@@ -113,14 +173,17 @@
     <!-- With no margin for the panel the bars are the contents, so each one
          becomes its own row: hovering names that section and clicking jumps to
          it. One label at a time is a margin note the measure can carry. -->
+    {#if !standalone}
     <div
       class="doc-outline__ticks"
       aria-hidden={canRevealPanel ? "true" : undefined}
-      onscroll={canRevealPanel ? undefined : () => (namedTick = null)}
     >
-      {#each headings as h, i (h.pos)}
+      {#each tickRanges as range (range.start)}
+        {@const active = activeIndex >= range.start && activeIndex < range.end}
+        {@const i = active ? activeIndex : range.start}
+        {@const h = headings[i]}
         {#if canRevealPanel}
-          <span class="doc-outline__tick" class:doc-outline__tick--sub={h.level > 2} class:doc-outline__tick--active={activePos === h.pos}>
+          <span data-active={active} class="doc-outline__tick" class:doc-outline__tick--sub={h.level > 2} class:doc-outline__tick--active={active}>
             {@render tickMarks(i)}
           </span>
         {:else}
@@ -128,19 +191,23 @@
             type="button"
             class="doc-outline__tick doc-outline__tick--pickable"
             class:doc-outline__tick--sub={h.level > 2}
-            class:doc-outline__tick--active={activePos === h.pos}
+            class:doc-outline__tick--active={active}
             onclick={() => onScrollTo(h.pos)}
             onpointerenter={(e) => nameTick(e.currentTarget, h.text)}
             onpointerleave={() => (namedTick = null)}
             onfocus={(e) => nameTick(e.currentTarget, h.text)}
             onblur={() => (namedTick = null)}
             aria-label={h.text}
+            data-active={active}
+            aria-current={active ? "location" : undefined}
           >
             {@render tickMarks(i)}
           </button>
         {/if}
       {/each}
     </div>
+
+    {/if}
 
     <!-- The label is anchored to the rail rather than to the tick, because the
          ticks column scrolls and a scroller clips both axes. -->
@@ -156,34 +223,78 @@
     <!-- `--outline-rows` divides the cascade across however many sections this
          document has, so the dissolve lands in its 160ms whether there are
          three headings or thirty. -->
-    <div class="doc-outline__panel" style="--outline-rows:{headings.length}">
+    <div class="doc-outline__panel" style="--outline-rows:{rows.length}">
       <div class="doc-outline__head" style="--row:0">
         <span class="doc-outline__label">Contents</span>
         <span class="doc-outline__totals">
-          {headings.length}{totalThreads > 0 ? ` · ${totalThreads} thread${totalThreads === 1 ? "" : "s"}` : ""}
+          {#if searching}
+            {rows.length} of {headings.length}
+          {:else}
+            {headings.length}{totalThreads > 0 ? ` · ${totalThreads} thread${totalThreads === 1 ? "" : "s"}` : ""}
+          {/if}
         </span>
       </div>
-      {#each headings as h, i (h.pos)}
+
+      <!-- Past sixteen headings, scanning stops being the fast way in. -->
+      {#if isLong}
+        <div class="doc-outline__filter" style="--row:0">
+          <MagnifyingGlassIcon size={12} class="shrink-0 opacity-60" />
+          <input
+            bind:this={filterEl}
+            bind:value={query}
+            onkeydown={onFilterKeydown}
+            class="doc-outline__filter-input text-workspace-chrome"
+            type="text"
+            autocomplete="off"
+            spellcheck="false"
+            placeholder="Filter sections"
+            aria-label="Filter sections"
+          />
+          {#if query}
+            <button
+              type="button"
+              class="doc-outline__filter-clear"
+              onclick={clearFilter}
+              aria-label="Clear filter"
+            ><XIcon size={11} /></button>
+          {/if}
+        </div>
+      {/if}
+
+      <div bind:this={itemsEl} class="doc-outline__items no-scrollbar">
+      {#each rows as row, i (row.heading.pos)}
+        {@const h = row.heading}
         <button
           type="button"
           onclick={() => onScrollTo(h.pos)}
           style="--row:{i}"
           class="doc-outline__item text-workspace-chrome"
           class:doc-outline__item--sub={h.level > 2}
+          class:doc-outline__item--section={row.isSection}
           class:doc-outline__item--active={activePos === h.pos}
-          title={h.text}
+          data-active={activePos === h.pos}
+          aria-current={activePos === h.pos ? "location" : undefined}
         >
           <span class="doc-outline__mark" aria-hidden="true"></span>
-          <span class="doc-outline__index" aria-hidden="true">{numerals[i] ?? ""}</span>
+          <span class="doc-outline__index" aria-hidden="true">{numerals[row.index] ?? ""}</span>
           <span class="doc-outline__text">{h.text}</span>
           {#if threadCounts?.get(h.pos)}
             <span class="doc-outline__count">{threadCounts.get(h.pos)}</span>
           {/if}
         </button>
       {/each}
-      <div class="doc-outline__foot" style="--row:{headings.length - 1}">
-        <span class="doc-outline__foot-key">⌥1</span>
-        <span>jump to section</span>
+      {#if rows.length === 0}
+        <p class="doc-outline__empty text-workspace-chrome">No section matches</p>
+      {/if}
+      </div>
+      <div class="doc-outline__foot" style="--row:{Math.max(rows.length - 1, 0)}">
+        {#if searching}
+          <span class="doc-outline__foot-key">↵</span>
+          <span>jump to first match</span>
+        {:else}
+          <span class="doc-outline__foot-key">⌥1</span>
+          <span>jump to section</span>
+        {/if}
       </div>
     </div>
   </nav>
@@ -195,22 +306,29 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-  }
-  /* Ticks are flush right, so the rail reads as the inside edge of the margin
-     rather than a column of its own. The ticks scroll, not the rail, so the
-     unfolded panel below is never clipped by an overflow ancestor. */
-  .doc-outline__ticks {
-    flex: 1 1 auto;
+    max-height: 24rem;
     min-height: 0;
+    pointer-events: none;
+  }
+  /* A hundred sections take every row the reading viewport can spare. The
+     sleeve is already the height of that viewport, so the cap simply comes
+     off: the contents becomes a full-height column beside the prose instead of
+     a 24rem window onto a list twenty times longer. */
+  .doc-outline--long {
+    max-height: 100%;
+  }
+  .doc-outline__ticks,
+  .doc-outline__panel {
+    pointer-events: auto;
+  }
+  /* The overview never scrolls. More headings share the same finite marks. */
+  .doc-outline__ticks {
+    flex: 0 0 auto;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 0.625rem;
-    overflow-y: auto;
-    scrollbar-width: none;
-  }
-  .doc-outline__ticks::-webkit-scrollbar {
-    display: none;
+    gap: 0;
+    overflow: visible;
   }
   .doc-outline__tick {
     position: relative;
@@ -218,6 +336,7 @@
     display: flex;
     align-items: center;
     gap: 0.5625rem;
+    height: 0.75rem;
     padding: 0;
     background: transparent;
     border: 0;
@@ -311,11 +430,10 @@
     left: 0;
     z-index: 20;
     width: var(--outline-rail-w);
-    max-height: calc(100% - 1.25rem);
+    max-height: 100%;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    overflow-x: hidden;
+    overflow: hidden;
     overscroll-behavior: contain;
     padding: 0.9375rem 0.875rem 0.875rem 1rem;
     border-radius: 1rem;
@@ -335,7 +453,38 @@
       opacity 120ms var(--ease-premium) 40ms,
       visibility 0s linear 160ms;
   }
-  .doc-outline--open .doc-outline__panel {
+  /* `.no-scrollbar` in markup, never `scrollbar-width` here: in Chromium any
+     non-`auto` value opts the element out of ::-webkit-scrollbar and it falls
+     back to the chunky native bar (index.css). The contents is a margin note —
+     a rule drawn down the side of it is one element too many. */
+  .doc-outline__items {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior: contain;
+  }
+  .doc-outline--standalone {
+    height: min(24rem, 55dvh);
+  }
+  /* Stays inside the mobile sheet's own 70% cap, so the sheet never grows a
+     second scroller around the one the list already has. */
+  .doc-outline--standalone.doc-outline--long {
+    height: min(44rem, 66dvh);
+  }
+  .doc-outline--standalone .doc-outline__panel {
+    position: relative;
+    top: 0;
+    width: 100%;
+    opacity: 1;
+    visibility: visible;
+  }
+  .doc-outline.doc-outline--standalone .doc-outline__head,
+  .doc-outline.doc-outline--standalone .doc-outline__filter,
+  .doc-outline.doc-outline--standalone .doc-outline__item,
+  .doc-outline.doc-outline--standalone .doc-outline__foot {
+    width: 100%;
+  }
+  .doc-outline--open:not(.doc-outline--standalone) .doc-outline__panel {
     width: var(--outline-panel-w);
     opacity: 1;
     visibility: visible;
@@ -354,6 +503,7 @@
      so the widen reveals the labels rather than re-wrapping and re-ellipsing
      them on every frame of it. */
   .doc-outline__head,
+  .doc-outline__filter,
   .doc-outline__item,
   .doc-outline__foot {
     flex: 0 0 auto;
@@ -363,6 +513,7 @@
       calc((var(--outline-rows) - 1 - var(--row)) * var(--outline-step));
   }
   .doc-outline--open .doc-outline__head,
+  .doc-outline--open .doc-outline__filter,
   .doc-outline--open .doc-outline__foot {
     opacity: 1;
     transition-delay: calc(var(--row) * var(--outline-step));
@@ -397,7 +548,7 @@
      keeps a run of sub-items from reading as one continuous line. */
   .doc-outline__item {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.5625rem;
     text-align: left;
     line-height: 1.45;
@@ -414,6 +565,17 @@
   .doc-outline--open .doc-outline__item {
     opacity: 1;
     transition-delay: 0s, calc(var(--row) * var(--outline-step));
+  }
+  /* Structure without an interaction to learn: the section you are inside
+     stays at the top of the list while its own sub-headings scroll under it,
+     so a long list always says which part of the document it is showing. The
+     panel's own canvas is the mask — invisible until something scrolls behind
+     it. A set of filter matches is flat, so nothing pins there. */
+  .doc-outline__item--section {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--solus-container-bg);
   }
   .doc-outline__mark {
     flex: 0 0 auto;
@@ -469,12 +631,64 @@
     outline-offset: 0.0625rem;
     border-radius: 0.25rem;
   }
+  /* A name clipped to "2.3 The existing queue and.." is only half a table of
+     contents, and a tooltip that answers it lands on the rows around it. Two
+     lines instead: long titles simply read, and nothing has to be hovered. */
   .doc-outline__text {
     min-width: 0;
     flex: 1 1 auto;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    overflow-wrap: anywhere;
+  }
+  .doc-outline__empty {
+    padding: 0.5rem 0.375rem;
+    color: var(--solus-text-tertiary);
+  }
+  /* The filter. A hundred sections are searched, not scanned. */
+  .doc-outline__filter {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-bottom: 0.4375rem;
+    padding: 0.25rem 0.375rem 0.25rem 0.5rem;
+    border-radius: 0.4375rem;
+    color: var(--solus-text-tertiary);
+    background: var(--solus-surface-hover);
+    border: 0.0625rem solid transparent;
+    transition: border-color var(--duration-quick) var(--ease-premium);
+  }
+  .doc-outline__filter:focus-within {
+    border-color: var(--solus-accent-border);
+  }
+  .doc-outline__filter-input {
+    min-width: 0;
+    flex: 1 1 auto;
+    border: 0;
+    background: transparent;
+    color: var(--solus-text-primary);
+    outline: none;
+  }
+  .doc-outline__filter-input::placeholder {
+    color: color-mix(in srgb, var(--solus-text-tertiary) 80%, transparent);
+  }
+  .doc-outline__filter-clear {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.125rem;
+    border: 0;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+  }
+  .doc-outline__filter-clear:hover {
+    color: var(--solus-text-primary);
   }
   .doc-outline__foot {
     display: flex;
@@ -500,6 +714,7 @@
     padding: 0.75rem 0.75rem 0.75rem 0.875rem;
   }
   :global(html.is-laptop-display) .doc-outline__head,
+  :global(html.is-laptop-display) .doc-outline__filter,
   :global(html.is-laptop-display) .doc-outline__item,
   :global(html.is-laptop-display) .doc-outline__foot {
     width: calc(var(--outline-panel-w) - 1.625rem);
@@ -524,6 +739,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .doc-outline__head,
+    .doc-outline__filter,
     .doc-outline__item,
     .doc-outline__foot,
     .doc-outline__mark,

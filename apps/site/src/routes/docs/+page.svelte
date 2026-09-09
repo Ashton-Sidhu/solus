@@ -508,7 +508,7 @@
 						['Diffs and files', `${kbdHtml('⌥⇧D')} opens the diff, ${kbdHtml('⌥⇧O')} the files pane, ${kbdHtml('⌥⇧F')} changed files, each beside the conversation so you can inspect code and keep prompting.`],
 						['PR review', 'A pull request opens with the review maximized; use the Chat control to reveal the conversation beside Activity, Guide, and Diff.'],
 						['One commit at a time', 'Click a commit in the Activity timeline and the Diff narrows to that commit\'s own changes. A band names the commit and takes you back to all changes. Inline comments are off while one commit is in view, because comment anchors belong to the full diff.'],
-						['State stays put', 'Closing a pane restores the conversation with scroll position and drafts intact.'],
+						['State stays put', `Press ${kbdHtml('Esc')} inside a pane to close it. Closing a pane restores the conversation with scroll position and drafts intact.`],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -1167,6 +1167,7 @@ solus pair                            # create a one-time client pairing link</d
 					['⌥⇧T', 'Open tasks'],
 					['⌥⇧F', 'Task picker'],
 					['⌥A  (task picker)', 'Choose project scope'],
+					['⌥S  (task picker)', 'Sort and search options'],
 					['⌃/', 'Focus sidebar task search'],
 				])}
 

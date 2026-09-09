@@ -327,32 +327,15 @@
               data-frame={index}
               bind:clientWidth={frameWidth}
             >
-              <!-- A full-page capture is many screens tall, so the frame scrolls
-                   rather than shrinking the page to something nobody can read.
-                   The workspace's own bar, revealed on hover because this
-                   scroller is small and bounded. Embla claims horizontal drags
-                   only, so a vertical drag still scrolls the page. -->
+              <!-- Fit the entire capture on open. Scrolling is only needed
+                   after the reader explicitly requests actual-size zoom. -->
               <div class="scrollbar-on-hover h-full overflow-auto">
-                <!-- A second click is the reader asking to read, not to look:
-                     the page goes to the width its own browser drew it at and
-                     pans under the pointer. `w-max min-w-full` is what keeps a
-                     magnified page reachable — a centred flex child wider than
-                     its scroller has its left edge cut off, not scrolled to.
-
-                     `min-h-full items-center` places a picture shorter than the
-                     frame in the middle of the matte instead of hanging it from
-                     the top rail, so the ground reads as margin on both sides
-                     rather than as the card having run out. It cannot clip a
-                     tall page: once the picture is taller than the frame the
-                     button grows with it and centring has no free space to
-                     distribute. The hairline is what keeps a pale capture from
-                     dissolving into the matte at its own edges. -->
                 <button
                   type="button"
                   class="flex min-h-full items-center justify-center [&_img]:shadow-[shadow:0_0_0_0.5px_var(--hairline-strong)] {zoomed &&
                   index === selected
                     ? 'w-max min-w-full cursor-zoom-out [&_img]:w-(--frame-native-width) [&_img]:max-w-none'
-                    : `w-full [&_img]:w-full ${canZoom ? 'cursor-zoom-in' : 'cursor-default'}`}"
+                    : `h-full w-full [&_img]:h-full [&_img]:w-full [&_img]:object-contain ${canZoom ? 'cursor-zoom-in' : 'cursor-default'}`}"
                   style:--frame-native-width="{snapshotWidth(frame)}px"
                   aria-label={zoomed ? "Fit capture to the card" : "Zoom capture to actual size"}
                   aria-pressed={zoomed}

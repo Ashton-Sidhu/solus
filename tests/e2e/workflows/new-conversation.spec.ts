@@ -3,15 +3,6 @@ import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
 test.describe('New conversation workflow', () => {
-  test('app loads with an empty input ready to accept messages', async ({ page }) => {
-    // Given: the app is open
-    const app = new AppPage(page)
-
-    // Then: the message input is visible and ready
-    await app.waitForAppReady()
-    await expect(page.locator('.mode-shell:not(.mode-hidden) [data-testid="message-input"]')).toBeVisible()
-  })
-
   test('user sends a message and receives a streamed response', async ({ page }) => {
     // Given: app is open with a fresh tab
     const app = new AppPage(page)

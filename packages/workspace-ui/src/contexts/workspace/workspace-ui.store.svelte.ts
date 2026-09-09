@@ -1,3 +1,4 @@
+import { loadPickerResultType, savePickerResultType, type PickerResultType } from '../../components/session/unified-picker/lib/picker-preferences'
 import { SvelteSet } from 'svelte/reactivity'
 import type { PickerScope } from '../../components/session/unified-picker/lib/picker-scope'
 import type { PickerSearchMode, PickerSort } from '../../components/session/unified-picker/lib/picker-search'
@@ -24,6 +25,15 @@ export class WorkspaceUiStore {
    *  Held with the scope for the same reason: one picker, many mounts. */
   pickerSort = $state<PickerSort>('relevance')
   pickerSearchMode = $state<PickerSearchMode>('full-text')
+  private resultType = $state(loadPickerResultType())
+
+  get pickerResultType(): PickerResultType { return this.resultType }
+
+  set pickerResultType(value: PickerResultType) {
+    this.resultType = value
+    savePickerResultType(value)
+  }
+
   /** The standalone create-task modal: the captured environment it targets. `null` = closed.
    *  Lives here (not in App) so the command palette can open it. */
   taskComposer = $state<TaskCreationContext | null>(null)

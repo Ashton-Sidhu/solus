@@ -33,12 +33,4 @@ describe('pane width rungs', () => {
       if (isStackedPane(width)) expect(isCompactPane(width)).toBe(true)
     }
   })
-
-  test('the rungs are the numbers the stylesheet uses', () => {
-    // WHY: a surface that stacks at one width in CSS and another in JS has two
-    // layouts and no rule. 30rem is the composer ladder's first rung; 48rem is
-    // the Settings nav rail's.
-    expect(PANE_STACKED_MAX).toBe(30 * 16)
-    expect(PANE_COMPACT_MAX).toBe(48 * 16)
-  })
 })

@@ -10,6 +10,11 @@
    * than a microtask. It mirrors the leading-pane layout — the page form — since
    * that is the shape the outlet mounts.
    */
+  let { embedded = false, showChrome = true }: {
+    embedded?: boolean;
+    showChrome?: boolean;
+  } = $props();
+
   const activityRows = [86, 72, 91, 64];
 </script>
 
@@ -19,6 +24,7 @@
   aria-busy="true"
   aria-label="Loading pull request"
 >
+  {#if showChrome}
   <div
     class="workspace-titlebar h-(--solus-chrome-row-h,2.5rem) shrink-0 border-b border-[var(--hairline)]"
     aria-hidden="true"
@@ -43,10 +49,13 @@
     </div>
   </div>
 
+  {/if}
+
   <div class="min-h-0 flex-1 overflow-hidden" aria-hidden="true">
     <div
       class="mx-auto w-full max-w-[92rem] pt-[clamp(20px,1.8cqi,32px)] pr-8 pl-14 2xl:max-w-[104rem]"
     >
+      {#if !embedded}
       <div class="flex items-center justify-between gap-6 pb-5">
         <div class="flex min-w-0 items-center gap-2">
           <Skeleton class="h-3 w-32 rounded-[0.1875rem] opacity-55" />
@@ -57,6 +66,8 @@
       </div>
 
       <Skeleton class="h-7 w-[54%] max-w-[34rem] rounded-md opacity-70" />
+
+      {/if}
 
       <div class="flex flex-col gap-5 pt-9">
         {#each activityRows as width, index (index)}

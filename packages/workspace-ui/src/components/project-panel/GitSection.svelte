@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from "svelte";
   import { localApi } from "@solus/client-core/local-api";
   import {
     RefreshCw as ArrowsClockwiseIcon,
@@ -425,29 +426,37 @@
             : undefined,
   );
 
-  // `prUrl` gates the fetch, so a branch with no pull request never costs a host
-  // round-trip. Plain `let`, not `$state`: it guards the request, and writing
-  // reactive state the effect reads would re-run it.
-  let requestedPrsFor: string | null = null;
+  // The same branch read as the mobile navbar, shared by host and project.
+  // Only environment changes re-run it; store writes are not dependencies.
   $effect(() => {
-    if (!prUrl) return;
-    const key = `${env.cwd}\0${currentBranch}`;
-    if (requestedPrsFor === key) return;
-    requestedPrsFor = key;
-    void loadOpenPrs();
+    const url = prUrl;
+    const branch = currentBranch;
+    if (!url || !branch || !hasGitStatus || !env.cwd) return;
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
+    const api = prApi;
+    const serverId = prServerId;
+    untrack(() => {
+      void pullRequests.projects
+        .get(api, serverId, ctx)
+        .loadBranch(branch, url)
+        .catch(() => {});
+    });
   });
 
   // The host caches checks per repo, so asking for this one PR warms — and reads
   // from — the same snapshot the PRs page uses rather than a second poll.
-  let requestedChecksFor: number | null = null;
+  let requestedChecksFor: string | null = null;
   $effect(() => {
-    if (!activePr || requestedChecksFor === activePr.number) return;
-    requestedChecksFor = activePr.number;
+    if (!activePr) return;
+    const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
+    const key = JSON.stringify([prServerId, projectScopeOf(ctx.session), activePr.number]);
+    if (requestedChecksFor === key) return;
+    requestedChecksFor = key;
     void pullRequests.checks
       .load(
         prApi,
         prServerId,
-        session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
+        ctx,
         [activePr.number],
       )
       .catch(() => {});

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import type { TaskLink, TaskLinkKind } from "@solus/contracts/task-types";
   import type { DocProviderId } from "@solus/contracts/docs";
   import DocProviderLogo from "../../work/DocProviderLogo.svelte";
@@ -410,9 +411,7 @@
             {#if html}
               <ArtifactView artifact={{ kind: "html", html }} skipMotion />
             {:else}
-              <div class="px-1 py-3 text-muted-foreground" role="status">
-                Loading artifact…
-              </div>
+              <ContentSkeleton label="Loading artifact" preview />
             {/if}
             {#if onAttachArtifact}
               {@const attaching = attachingKey === row.key}

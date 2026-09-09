@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { Skeleton } from "../ui/skeleton";
   import { untrack } from "svelte";
   import type { HostApi } from "@solus/client-core/host-api";
   import { Input } from "../ui/input";
@@ -34,7 +35,9 @@
   import SessionChip from "../pickers/SessionChip.svelte";
   import type { PickerSelection } from "../pickers/lib/picker-selection";
   import SettingsSection from "./SettingsSection.svelte";
+  import AutomationRetentionSetting from "./AutomationRetentionSetting.svelte";
   import SettingsRow from "./SettingsRow.svelte";
+  import SettingsAboutSection from "./SettingsAboutSection.svelte";
   import type {
     AgentTaskLifecyclePolicy,
     TextGenerationModelSelection,
@@ -438,8 +441,16 @@
       ],
     },
     {
+      id: "automation-retention",
+      keywords: ["automation", "archived", "delete", "retention", "days", "history"],
+    },
+    {
       id: "analytics",
       keywords: ["analytics", "telemetry", "tracking", "privacy", "data"],
+    },
+    {
+      id: "about",
+      keywords: ["about", "version", "update", "upgrade", "release", "notes", "restart"],
     },
   ];
 
@@ -759,6 +770,7 @@
     "ratelimit",
     "task-lifecycle",
     "completed-retention",
+    "automation-retention",
     "notification",
   ].some(isVisible)}
 >
@@ -834,6 +846,8 @@
       {/snippet}
     {/if}
   </SettingsRow>
+
+  <AutomationRetentionSetting {serverId} visible={isVisible("automation-retention")} />
 
   <SettingsRow
     label="Completed task history"
@@ -980,7 +994,7 @@
           disabled
           class="min-w-40 text-xs shadow-xs"
         >
-          Loading…
+          <Skeleton class="h-3 w-24" aria-label="Loading settings" />
         </Button>
       {/if}
     {/snippet}
@@ -1119,6 +1133,8 @@
     {/snippet}
   </SettingsRow>
 </SettingsSection>
+
+<SettingsAboutSection visible={isVisible("about")} />
 
 {#if !anyVisible}
   <div

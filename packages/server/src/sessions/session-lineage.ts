@@ -78,7 +78,10 @@ export function resolveSessionLineage(
     SELECT session_id
     FROM session_lineage_members
     WHERE provider = ? AND provider_session_id = ?
-  `).get(provider, providerSessionId))
+    UNION ALL
+    SELECT session_id FROM session_thread_aliases WHERE provider = ? AND provider_session_id = ?
+    LIMIT 1
+  `).get(provider, providerSessionId, provider, providerSessionId))
   return parsed.success ? resolutionFromRows(rowsForLineage(db, parsed.data.session_id)) : null
 }
 
@@ -93,7 +96,10 @@ export function stableSessionIdForProviderThread(
     SELECT session_id
     FROM session_lineage_members
     WHERE provider_session_id = ?
-  `).get(providerSessionId))
+    UNION ALL
+    SELECT session_id FROM session_thread_aliases WHERE provider_session_id = ?
+    LIMIT 1
+  `).get(providerSessionId, providerSessionId))
   return parsed.success ? parsed.data.session_id : undefined
 }
 
@@ -147,6 +153,43 @@ export function registerSessionLineage(
     if (!resolution) throw new Error(`Failed to register session ${input.sessionId}`)
     db.exec('COMMIT')
     return resolution
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+}
+
+/** A same-provider fork contains its source transcript. Replace the active
+ * member instead of concatenating that copied history twice. Old references
+ * remain aliases, but cannot move the active endpoint backwards. */
+export function replaceSessionLineageThread(
+  input: { sessionId: string; provider: AgentId; sourceThreadId: string; providerSessionId: string; cwd: string },
+  db: DatabaseSync = getDb(),
+  now = Date.now(),
+): SessionLineageResolution {
+  db.exec('BEGIN IMMEDIATE')
+  try {
+    const current = resolutionFromRows(rowsForLineage(db, input.sessionId))
+    if (!current) throw new Error(`Session ${input.sessionId} has no lineage`)
+    if (current.active.provider === input.provider && current.active.providerSessionId === input.providerSessionId) {
+      db.exec('COMMIT')
+      return current
+    }
+    if (current.active.provider !== input.provider || current.active.providerSessionId !== input.sourceThreadId) {
+      throw new Error('The fork source is no longer the active session thread.')
+    }
+    if (resolveSessionLineage(input.provider, input.providerSessionId, db)) {
+      throw new Error('The fork thread already belongs to a session.')
+    }
+    db.prepare(`INSERT INTO session_thread_aliases(provider, provider_session_id, session_id)
+      VALUES (?, ?, ?)`).run(input.provider, input.sourceThreadId, input.sessionId)
+    db.prepare(`UPDATE session_lineage_members SET provider_session_id = ?, cwd = ?, updated_at = ?
+      WHERE session_id = ? AND position = ?`)
+      .run(input.providerSessionId, input.cwd, now, input.sessionId, current.active.position)
+    const result = resolutionFromRows(rowsForLineage(db, input.sessionId))
+    if (!result) throw new Error(`Session ${input.sessionId} disappeared during its fork`)
+    db.exec('COMMIT')
+    return result
   } catch (error) {
     db.exec('ROLLBACK')
     throw error

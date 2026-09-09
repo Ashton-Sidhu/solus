@@ -4,7 +4,7 @@ import {
   hasUnseenSection,
   mobileSectionSignal,
   type MobileSectionSignals,
-} from '../../apps/client/src/lib/mobile-sections'
+} from '../../apps/client/src/shell/mobile/lib/mobile-sections'
 
 const QUIET: MobileSectionSignals = { runningTasks: 0, prsNeedingReview: 0 }
 

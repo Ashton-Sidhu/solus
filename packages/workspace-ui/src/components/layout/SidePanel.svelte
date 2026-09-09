@@ -2,7 +2,7 @@
   import type { Component, Snippet } from "svelte";
   import { PanelLeft as SidebarSimpleIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { getWindowContext } from "../../contexts";
+  import { getClientShellContext } from "../../contexts";
   import * as Sidebar from "../ui/sidebar";
 
   interface Props {
@@ -54,7 +54,7 @@
   const panelColorVar = $derived(
     side === "right" ? "--solus-sidebar-bg-right" : "--solus-sidebar-bg-left",
   );
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   const panelBg = $derived(background ?? `var(${panelColorVar})`);
   // Horizontal space the shell's gutter steals from a fixed-width root. A
   // managed root uses 100% because percentages already resolve against the
@@ -103,10 +103,10 @@
  ? 'justify-between'
  : 'justify-end'} {flush
  ? 'border-b border-[color-mix(in_srgb,var(--solus-container-border)_50%,transparent)] px-2 py-0'
- : 'px-2.5 py-2'} {windowCtx.hasInsetTitlebar &&
+ : 'px-2.5 py-2'} {shell.hasInsetTitlebar &&
  side === 'left'
  ? 'side-panel-header--mac-left workspace-titlebar'
- : ''} {windowCtx.hasInsetTitlebar &&
+ : ''} {shell.hasInsetTitlebar &&
  side === 'left' &&
  !title
  ? 'side-panel-header--untitled'

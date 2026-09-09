@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import type { TaskAssigneeCandidate } from "@solus/contracts/task-types";
   import { Check as CheckIcon, User as UserIcon } from "@lucide/svelte";
   import * as Command from "../../ui/command";
@@ -92,7 +93,7 @@
         {/if}
 
         {#if loading}
-          <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">Loading people…</p>
+          <ContentSkeleton label="Loading people" />
         {:else if error}
           <p class="px-2.5 py-2 text-xs text-(--solus-text-tertiary)">{error}</p>
         {:else if visibleCandidates.length === 0}

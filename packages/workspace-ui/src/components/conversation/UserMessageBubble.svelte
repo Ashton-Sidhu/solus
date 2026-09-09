@@ -438,7 +438,7 @@
 >
   <!-- A held message has nothing worth copying yet and states its own time in
        the caption, so it gets no rail. -->
-  {#if !runtime.isMobileViewport && !isPending}
+  {#if runtime.hasKeyboardPointer && !isPending}
     <MessageHoverRail timestamp={message?.timestamp} text={text} side="right" />
   {/if}
   <!-- Held prompts stack as one block at 6px, not as separate messages: the

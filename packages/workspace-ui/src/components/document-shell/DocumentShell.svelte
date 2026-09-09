@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Editor, AnyExtension } from "@tiptap/core";
   import type { Snippet } from "svelte";
-  import { tick, untrack } from "svelte";
+  import { getAllContexts, tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
   import {
     X as XIcon,
@@ -34,7 +34,7 @@
   import { portal } from "../portal";
   import { extractHeadings, type PlanHeading } from "./headings";
   import { countThreadsByHeading } from "../comments/lib/anchors";
-  import { hasOutlineMarginRoom, hasOutlineTickRail, sectionJumpIndex } from "./lib/outline";
+  import { hasOutlineMarginRoom, sectionJumpIndex } from "./lib/outline";
   import { bylineContent } from "./lib/byline";
   import { formatSavedAgo } from "./saveStatus";
   import { isActive, cmd } from "./toolbar";
@@ -185,7 +185,10 @@
     onOpen: (workId: string) => session.openWork(workId, "focused"),
     onOpenSecondary: (workId: string) => session.openWork(workId, "aside"),
   };
-  const diagramEmbedExtension = createDiagramEmbedExtension(embedOptions);
+  const diagramEmbedExtension = createDiagramEmbedExtension({
+    ...embedOptions,
+    contexts: getAllContexts(),
+  });
   // A node view is mounted outside the component tree, so it reads the theme
   // through this getter rather than the settings context.
   const artifactEmbedExtension = createArtifactEmbedExtension({
@@ -379,13 +382,11 @@
   // The fit rule's other half. Where the panel cannot render beside the prose
   // it does not render over it either: the gutter keeps its at-rest bars, and
   // hovering one names that section alone. The header only takes the contents
-  // back where the pane is too narrow for the rail itself — with no ticks to
-  // hover, a popover under the breadcrumb is the one way left in.
+  // back when only the compact overview fits, so every heading stays reachable.
   const contentsOpensFromHeader = $derived(
     !isMobile &&
       tocHeadings.length >= 2 &&
-      !outlineHasMarginRoom &&
-      !hasOutlineTickRail(shellWidth),
+      !outlineHasMarginRoom,
   );
   let contentsPopoverOpen = $state(false);
   $effect(() => {
@@ -868,6 +869,8 @@
           transition:fly={{ y: -6, duration: 130, opacity: 0 }}
         >
           <DocumentOutline
+            standalone
+            autoFocusFilter
             headings={tocHeadings}
             activePos={activeHeadingPos}
             {threadCounts}
@@ -911,6 +914,7 @@
       <div class="doc-outline-sheet" role="dialog" aria-label="Outline">
         <div class="doc-outline-grabber" aria-hidden="true"></div>
         <DocumentOutline
+          standalone
           headings={tocHeadings}
           activePos={activeHeadingPos}
           {threadCounts}
@@ -933,7 +937,8 @@
         </div>
       {/if}
       {#if showTocRail}
-        <div class="doc-shell-toc-sleeve ml-3 shrink-0 grow-0 basis-22 @min-[90rem]:basis-38 pt-10 pr-3.5 pb-8">
+        <div class="doc-shell-toc-sleeve ml-3 shrink-0 grow-0 basis-22 @min-[90rem]:basis-38 pt-10 pr-3.5 pb-8"
+          style:height="{scrollHeight}px">
           <DocumentOutline
             headings={tocHeadings}
             activePos={activeHeadingPos}
@@ -1122,8 +1127,12 @@
     top: calc(100% - 0.25rem);
     left: 0.75rem;
     z-index: 44;
-    width: 16.375rem;
-    height: min(60vh, 24rem);
+    /* Opened deliberately rather than unfolded under the pointer, so it is not
+       bound by the gutter's fit rule and can take the room a long contents
+       wants. It still never outgrows the pane it is anchored in.
+       No height: the outline declares its own, and a wrapper taller than its
+       card would swallow clicks meant for the document under it. */
+    width: min(20rem, calc(100% - 1.5rem));
   }
 
   .doc-outline-scrim {

@@ -12,7 +12,7 @@ import { createLogger, flushLogs } from '@solus/server/logger'
 import type { AppGlobalShortcuts, AppShortcutCombo } from '@solus/contracts/types'
 import { clampZoomFactor } from '@solus/contracts/zoom'
 import { comboToAccelerator } from '@solus/workspace-ui/lib/keybindings/match'
-import { initAutoUpdater } from '@solus/desktop-main/updater'
+import { registerUpdateIpc } from '@solus/desktop-main/updates/ipc'
 import type { BootCore } from '@solus/server/boot-core'
 import { clientNotificationRequestSchema, showDesktopNotification } from '@solus/desktop-main/desktop-notifications'
 import type { WindowDeps } from '@solus/server/server/handlers/window-handlers'
@@ -104,6 +104,8 @@ function syncPowerSaveBlocker(): void {
 }
 
 let tray: Tray | null = null
+/** The version of a downloaded update, while one waits for a restart. */
+let readyUpdateVersion: string | null = null
 let screenshotCounter = 0
 let designModeCounter = 0
 let pasteCounter = 0
@@ -315,6 +317,22 @@ function allWindows(): BrowserWindow[] {
 
 function broadcastNativeEvent(channel: string, ...payload: unknown[]): void {
   for (const win of allWindows()) win.webContents.send(channel, ...payload)
+}
+
+/** Rebuilt whenever a downloaded update starts or stops waiting for a restart. */
+function buildTrayMenu(restartToUpdate: () => void): Menu {
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { label: 'Show Solus', click: () => showCurrentModeWindow('tray menu', { fromTrayShow: true }) },
+  ]
+  if (isDevMode) {
+    template.push({ label: 'Hide Solus Until Shown', click: hideUntilTrayShow })
+  }
+  if (readyUpdateVersion) {
+    template.push({ type: 'separator' })
+    template.push({ label: `Restart to update Solus ${readyUpdateVersion}`, click: restartToUpdate })
+  }
+  template.push({ label: 'Quit', click: () => { app.quit() } })
+  return Menu.buildFromTemplate(template)
 }
 
 /** The window the user is in: focused, else last-focused live, else the pill. */
@@ -1346,9 +1364,18 @@ if (isPairUrl) {
         currentViewMode = win === editorWindow ? 'editor' : 'pill'
       })
 
-      initAutoUpdater(() => {
-        forceQuit = true
-        void core?.shutdown()
+      const updates = registerUpdateIpc({
+        broadcast: broadcastNativeEvent,
+        onBeforeQuitAndInstall: () => {
+          forceQuit = true
+          void core?.shutdown()
+        },
+        onStatusChange: (status) => {
+          const version = status.state.kind === 'ready' ? status.state.release.version : null
+          if (version === readyUpdateVersion) return
+          readyUpdateVersion = version
+          tray?.setContextMenu(buildTrayMenu(updates.restartToUpdate))
+        },
       })
 
       if (!isTestMode) requestPermissions().catch((err: Error) => log.error('permission_preflight_failed', { error: err.message }))
@@ -1380,16 +1407,7 @@ if (isPairUrl) {
         trayIcon.setTemplateImage(true)
         tray = new Tray(trayIcon)
         tray.setToolTip('Solus')
-        const trayTemplate: Electron.MenuItemConstructorOptions[] = [
-          { label: 'Show Solus', click: () => showCurrentModeWindow('tray menu', { fromTrayShow: true }) },
-        ]
-        if (isDevMode) {
-          trayTemplate.push({ label: 'Hide Solus Until Shown', click: hideUntilTrayShow })
-        }
-        trayTemplate.push({ label: 'Quit', click: () => { app.quit() } })
-        tray.setContextMenu(
-          Menu.buildFromTemplate(trayTemplate)
-        )
+        tray.setContextMenu(buildTrayMenu(updates.restartToUpdate))
         void tray // keep alive for lifetime of the app
 
         app.on('activate', () => {

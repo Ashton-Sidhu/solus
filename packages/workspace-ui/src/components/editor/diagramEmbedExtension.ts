@@ -1,10 +1,11 @@
 import { Node, mergeAttributes } from '@tiptap/core'
-import { mount, unmount } from 'svelte'
+import { mount, unmount, type getAllContexts } from 'svelte'
 import { parseDiagramEmbed, serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 import DiagramEmbedNodeView from './DiagramEmbedNodeView.svelte'
 import type { WorkEmbedSource } from './lib/work-embed'
 
 interface DiagramEmbedExtensionOptions {
+  contexts: ReturnType<typeof getAllContexts>
   worksStore: WorkEmbedSource
   onOpen: (workId: string) => void
   onOpenSecondary: (workId: string) => void
@@ -82,6 +83,7 @@ export function createDiagramEmbedExtension(options: DiagramEmbedExtensionOption
         dom.className = 'doc-diagram-embed'
         const component = mount(DiagramEmbedNodeView, {
           target: dom,
+          context: options.contexts,
           props: {
             workId: String(node.attrs.workId ?? ''),
             fallbackTitle: String(node.attrs.title ?? ''),

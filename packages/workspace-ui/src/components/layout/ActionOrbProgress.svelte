@@ -166,7 +166,7 @@
         aria-label={`Progress: step ${progress.currentStep} of ${progress.totalSteps}`}
       >
         <span
-          class="pt-fill {isRunning && !progressAllDone ? 'pt-fill-live' : ''}"
+          class="pt-fill"
           aria-hidden="true"
         ></span>
         <span class="pt-dial" data-mode={iconRing.mode} aria-hidden="true">
@@ -305,19 +305,6 @@
     transition: transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
     pointer-events: none;
   }
-  .pt-fill-live::after {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: linear-gradient(
-      90deg,
-      transparent 0%,
-      color-mix(in srgb, var(--solus-accent) 18%, transparent) 50%,
-      transparent 100%
-    );
-    background-size: 200% 100%;
-    animation: pbi-flow 2.6s ease-in-out infinite;
-  }
   .pt-dial {
     display: none;
     position: relative;
@@ -439,8 +426,9 @@
     padding: 0;
     gap: 0;
   }
-  @keyframes pbi-flow {
-    0% { background-position: -50% 0; }
-    100% { background-position: 150% 0; }
+  :global(html.solus-resizing) .progress-toggle,
+  :global(.orb-streaming) .progress-toggle {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 </style>

@@ -54,6 +54,10 @@ describe('ConversationSearch', () => {
     expect(search.results.map((result) => result.session.sessionId)).toEqual(['newest', 'mid', 'old'])
     expect(search.results.map((result) => result.session.serverId)).toEqual(['local', 'laptop', 'local'])
     expect(search.loading).toBe(false)
+    search.search('different query', '/repo')
+    expect(search.results).toEqual([])
+    expect(search.capped).toBe(false)
+    search.reset()
   })
 
   test('a reply to a query the user has left is dropped', async () => {

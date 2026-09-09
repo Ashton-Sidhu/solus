@@ -16,16 +16,6 @@ async function replaceInput(page: import('@playwright/test').Page, text: string)
 // window.solus is exposed via contextBridge and is read-only from the page,
 // so these tests run against the real backend rather than mocked responses.
 test.describe('Input autocomplete menus', () => {
-  // The plan menu only shows when plan descriptors exist for the working
-  // directory, and the contextBridge API can't be mocked from the page.
-  // Needs a fixture that seeds a real plan file before this can assert.
-  test.fixme('# opens the plan menu', async ({ page }) => {
-    const app = new AppPage(page)
-    await app.waitForAppReady()
-    await replaceInput(page, '#')
-    await expect(page.locator('.plan-menu-list')).toBeVisible({ timeout: 5000 })
-  })
-
   test('/ opens the command menu', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
@@ -92,5 +82,4 @@ test.describe('Input autocomplete menus', () => {
     await expect(page.locator('.file-menu-list')).not.toBeVisible()
     await expect(page.locator(`${INPUT_EDITOR} [data-reference-kind="file"]`)).toBeVisible()
   })
-
 })

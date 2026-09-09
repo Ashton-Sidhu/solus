@@ -2,9 +2,12 @@ import { afterEach, describe, expect, test } from 'bun:test'
 
 const previousLocalStorage = globalThis.localStorage
 const previousWindow = globalThis.window
+const previousDocument = Object.getOwnPropertyDescriptor(globalThis, 'document')
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
 afterEach(() => {
+  if (previousDocument) Object.defineProperty(globalThis, 'document', previousDocument)
+  else Reflect.deleteProperty(globalThis, 'document')
   if (previousLocalStorage === undefined) {
     delete (globalThis as unknown as { localStorage?: Storage }).localStorage
   } else {
@@ -88,6 +91,7 @@ describe('server removal', () => {
         addEventListener: () => {},
         removeEventListener: () => {},
         visibilityState: 'visible',
+        hasFocus: () => true,
       },
     })
     ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value

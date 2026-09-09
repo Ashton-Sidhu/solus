@@ -11,7 +11,6 @@
     Plus as PlusIcon,
     Pin as PushPinIcon,
     PanelLeft as SidebarSimpleIcon,
-    SlidersHorizontal as SlidersIcon,
     Upload as UploadSimpleIcon,
     Link2 as LinkIcon,
   } from "@lucide/svelte";
@@ -19,7 +18,7 @@
   import {
     getWorkspaceContext,
     getPlanStore,
-    getWindowContext,
+    getClientShellContext,
     runtime,
     projectsStore,
     mergeProjectOptions,
@@ -38,21 +37,16 @@
   import { PAGE_PRIMARY_BTN, PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
   import {
     ListProjectSwitcher,
+    ListFilterMenu,
+    ListFilterGroup,
+    ListSortMenu,
     PageCrumbLine,
     syncStamp,
-    FILTER_CHIP,
-    FILTER_CHIP_COUNT,
-    FILTER_CHIP_OFF,
-    FILTER_CHIP_ON,
-    FILTER_SORT_CHIP,
-    type ListIcon,
     type ListProjectOption,
   } from "../ui/list-page";
-  import { BottomSheet } from "../ui/bottom-sheet";
   import { frameChrome } from "../layout/frame-chrome.store.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import PageEmpty from "../ui/PageEmpty.svelte";
-  import SortMenu from "../ui/SortMenu.svelte";
   import WorkspaceRow from "./WorkspaceRow.svelte";
   import WorkspaceItemContextMenu from "./WorkspaceItemContextMenu.svelte";
   import WorkspacePeek from "./WorkspacePeek.svelte";
@@ -85,14 +79,14 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
 
   const PINNED_PREVIEW = 6;
   const RENDER_PAGE = 80;
   const PINNED_COLLAPSED_KEY = "solus.workspace.pinned-collapsed";
 
-  const isEditorMode = $derived(
-    windowCtx.viewMode === "editor" || windowCtx.isWeb,
+  const fillsPane = $derived(
+    !shell.isOverlayWindow,
   );
   const open = $derived(session.router.at("folio"));
 
@@ -251,9 +245,6 @@
     return observePaneWidth(rootEl, (width) => (paneWidth = width));
   });
   const stacked = $derived(isStackedPane(paneWidth));
-  /** The record's filter sheet — time, status, the saved views and sort, which
-   *  the chip row has no width for. */
-  let filterSheetOpen = $state(false);
   /** Names for the sessions the rows link back to. */
   const sessionLabels = new SessionLabels();
 
@@ -440,16 +431,6 @@
   ]);
 
   const needsReviewActive = $derived(filter.status === "pending");
-
-  /** Whether anything the record's chip row cannot show is narrowing the ledger.
-   *  Without it the Filters chip would look inert while a status the reader
-   *  cannot see is hiding rows. */
-  const narrowedBeyondType = $derived(
-    filter.status !== DEFAULT_FILTER.status ||
-      filter.time !== DEFAULT_FILTER.time ||
-      filter.pinnedOnly !== DEFAULT_FILTER.pinnedOnly ||
-      sort !== "recent",
-  );
 
   /** The rail's two saved views, now toggle chips. "Needs review" is pending
    *  plans — the only type that has a status — so it narrows both axes. */
@@ -772,29 +753,24 @@
   }
 </script>
 
-<!-- The saved views, in the list pages' toggle-chip skin: brand fill while on,
-     and the count only while off — once it is on, the number is the ledger. -->
-{#snippet toggleChip(
-  label: string,
-  count: number,
-  active: boolean,
-  onclick: () => void,
-  Icon: ListIcon,
-)}
-  <button
-    type="button"
-    class="{FILTER_CHIP} [.is-laptop-display_&]:h-6.5 {active
-      ? FILTER_CHIP_ON
-      : `${FILTER_CHIP_OFF} hover:bg-[var(--wash-2)] hover:text-foreground`}"
-    {onclick}
-    aria-pressed={active}
-  >
-    <Icon size={11} class="shrink-0 opacity-75" />
-    {label}
-    {#if !active}
-      <span class={FILTER_CHIP_COUNT}>{count}</span>
-    {/if}
-  </button>
+{#snippet filterControls()}
+  <ListSortMenu bind:value={sort} options={SORT_OPTIONS} ariaLabel="Sort workspace" />
+  <ListFilterMenu activeCount={Number(filter.type !== "all") + Number(filter.time !== "all") + Number(filter.status !== "any") + Number(filter.pinnedOnly)}>
+    <ListFilterGroup label="Type" icon={BooksIcon} options={TYPE_OPTIONS} selected={[filter.type]} onChange={(next) => (filter.type = next[0])} />
+    <ListFilterGroup label="Time" options={TIME_OPTIONS} selected={[filter.time]} onChange={(next) => (filter.time = next[0])} />
+    <ListFilterGroup label="Status" options={STATUS_OPTIONS} selected={[filter.status]} onChange={(next) => (filter.status = next[0])} />
+    <DropdownMenu.Separator />
+    <DropdownMenu.CheckboxItem checked={filter.pinnedOnly} closeOnSelect={false} onCheckedChange={(checked) => (filter.pinnedOnly = checked)}>
+      <PushPinIcon size={14} class="shrink-0 text-muted-foreground" />
+      <span class="flex-1">Pinned</span>
+      <span class="mr-1 tabular-nums text-muted-foreground">{pinnedCount}</span>
+    </DropdownMenu.CheckboxItem>
+    <DropdownMenu.CheckboxItem checked={needsReviewActive} closeOnSelect={false} onCheckedChange={toggleNeedsReview}>
+      <MagnifyingGlassIcon size={14} class="shrink-0 text-muted-foreground" />
+      <span class="flex-1">Needs review</span>
+      <span class="mr-1 tabular-nums text-muted-foreground">{needsReviewCount}</span>
+    </DropdownMenu.CheckboxItem>
+  </ListFilterMenu>
 {/snippet}
 
 {#snippet ledgerRow(item: WorkspaceItem, index: number)}
@@ -845,7 +821,7 @@
               <button
                 {...props}
                 type="button"
-                class={triggerClass}
+                class="text-workspace-chrome {triggerClass}"
                 data-testid="workspace-new"
               >
                 <PlusIcon size={iconSize} weight="bold" class="shrink-0" />
@@ -971,7 +947,7 @@
   <div
     bind:this={rootEl}
     class="workspace-root relative flex min-h-0 flex-1 flex-col bg-background text-workspace-chrome text-foreground"
-    style={isEditorMode ? "" : "max-height:var(--pill-body-max)"}
+    style={fillsPane ? "" : "max-height:var(--pill-body-max)"}
     role="dialog"
     aria-label="Workspace"
     tabindex="-1"
@@ -1019,84 +995,25 @@
               </span>
             </span>
             {@render newMenu(
-              "flex h-9 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-primary px-[13px] font-semibold text-primary-foreground [-webkit-tap-highlight-color:transparent]",
-              14,
+              "flex h-10 shrink-0 cursor-pointer items-center gap-1.5 rounded-full border-0 bg-primary px-[13px] font-semibold text-primary-foreground [-webkit-tap-highlight-color:transparent]",
+              16,
             )}
           </div>
 
-          <!-- ── The record's filter band ──
-               Search on its own line, then one scrolling row of chips: the
-               project the ledger is pointed at, then the type facet as chips
-               rather than a menu, because type is the axis a reader changes.
-               Time, status, the saved views and sort are one axis further out
-               and live in the sheet the last chip raises. -->
-          <div
-            class="flex shrink-0 flex-col gap-2.5 border-b border-[var(--hairline)] px-4 pt-0.5 pb-2.5"
-          >
-            <WorkspaceSearchField
-              {filter}
-              totalCount={items.length}
-              {scopeLabel}
-              matches={searching ? filtered.length : null}
-              bind:ref={searchEl}
+          <div class="flex shrink-0 flex-col gap-2.5 border-b border-[var(--hairline)] px-4 pt-0.5 pb-2.5 text-workspace-chrome">
+            <ListProjectSwitcher
+              variant="chip"
+              projects={projectOptions}
+              activeKey={activeProjectOptionKey ?? undefined}
+              emptyLabel="All projects"
+              onSelect={(option) => selectProject(option)}
+              onRemoveHistory={removeProjectHistory}
+              onSelectAll={() => selectProject(null)}
+              footerNote="Switching keeps facets, clears search"
             />
-            <!-- The switcher stays out of the scroller. Its menu is absolutely
-                 positioned against the trigger, and `overflow-x: auto` forces
-                 `overflow-y: auto` with it — so inside the scroller the menu
-                 opened into a clipped box and nothing appeared to happen. -->
-            <div class="flex items-center gap-[7px]">
-              <ListProjectSwitcher
-                variant="chip"
-                projects={projectOptions}
-                activeKey={activeProjectOptionKey ?? undefined}
-                emptyLabel="All projects"
-                onSelect={(option) => selectProject(option)}
-                onRemoveHistory={removeProjectHistory}
-                onSelectAll={() => selectProject(null)}
-                footerNote="Switching keeps facets, clears search"
-              />
-              <span
-                class="h-[18px] w-px shrink-0 bg-[var(--hairline-strong)]"
-                aria-hidden="true"
-              ></span>
-              <div
-                class="flex min-w-0 flex-1 items-center gap-[7px] overflow-x-auto [scrollbar-width:none] [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] [&::-webkit-scrollbar]:hidden"
-              >
-              {#each TYPE_OPTIONS as option (option.value)}
-                <button
-                  type="button"
-                  class="{FILTER_CHIP} {filter.type === option.value
-                    ? FILTER_CHIP_ON
-                    : FILTER_CHIP_OFF}"
-                  onclick={() => (filter.type = option.value)}
-                  aria-pressed={filter.type === option.value}
-                >
-                  {option.label}
-                  {#if filter.type !== option.value}
-                    <span class={FILTER_CHIP_COUNT}>{option.count}</span>
-                  {/if}
-                </button>
-              {/each}
-              </div>
-              <span
-                class="h-[18px] w-px shrink-0 bg-[var(--hairline-strong)]"
-                aria-hidden="true"
-              ></span>
-              <!-- Pinned at the trailing edge, never in the scroller. It is the
-                   only way to the axes the chip row cannot show, so a chip that
-                   scrolls off the pane is a dead end. -->
-              <button
-                type="button"
-                class="{FILTER_CHIP} {narrowedBeyondType
-                  ? FILTER_CHIP_ON
-                  : FILTER_CHIP_OFF}"
-                onclick={() => (filterSheetOpen = true)}
-                aria-haspopup="dialog"
-                aria-expanded={filterSheetOpen}
-              >
-                <SlidersIcon size={13} class="shrink-0 opacity-75" />
-                Filters
-              </button>
+            <div class="flex min-w-0 items-center gap-2">
+              <WorkspaceSearchField {filter} totalCount={items.length} {scopeLabel} matches={searching ? filtered.length : null} bind:ref={searchEl} />
+              {@render filterControls()}
             </div>
           </div>
         {:else}
@@ -1122,9 +1039,9 @@
             />
           </div>
 
-          <!-- ── Row 2: search · type · time · status · saved views · sort · New ── -->
+          <!-- ── Row 2: search · sort · filters · New ── -->
           <div
-            class="mx-auto flex w-full max-w-[72rem] shrink-0 flex-wrap items-center gap-2 px-8 pb-[14px] text-chrome-dense @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4 [.is-laptop-display_&]:pb-3"
+            class="mx-auto flex w-full max-w-[72rem] shrink-0 flex-wrap items-center gap-2 px-8 pb-[14px] text-workspace-chrome @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4 [.is-laptop-display_&]:pb-3"
           >
           <WorkspaceSearchField
             {filter}
@@ -1133,56 +1050,15 @@
             matches={searching ? filtered.length : null}
             bind:ref={searchEl}
           />
-          <!-- The filter menus wear the chip skin the list pages use. The
-               colour carries the `color:` hint so tailwind-merge classifies it
-               and drops the trigger's own default rather than leaving both in
-               the sheet. -->
-          <SortMenu
-            bind:value={filter.type}
-            options={TYPE_OPTIONS}
-            ariaLabel="Filter by type"
-            class="{FILTER_SORT_CHIP} [.is-laptop-display_&]:h-6.5"
-          />
-          <SortMenu
-            bind:value={filter.time}
-            options={TIME_OPTIONS}
-            ariaLabel="Filter by time"
-            class="{FILTER_SORT_CHIP} [.is-laptop-display_&]:h-6.5"
-          />
-          <SortMenu
-            bind:value={filter.status}
-            options={STATUS_OPTIONS}
-            ariaLabel="Filter by status"
-            class="{FILTER_SORT_CHIP} [.is-laptop-display_&]:h-6.5"
-          />
-          {@render toggleChip(
-            "Pinned",
-            pinnedCount,
-            filter.pinnedOnly,
-            () => (filter.pinnedOnly = !filter.pinnedOnly),
-            PushPinIcon,
-          )}
-          {@render toggleChip(
-            "Needs review",
-            needsReviewCount,
-            needsReviewActive,
-            toggleNeedsReview,
-            MagnifyingGlassIcon,
-          )}
-          <SortMenu
-            bind:value={sort}
-            options={SORT_OPTIONS}
-            ariaLabel="Sort"
-            class="{FILTER_SORT_CHIP} [.is-laptop-display_&]:h-6.5"
-          />
+          {@render filterControls()}
 
           <span
             class="mx-0.5 h-[18px] w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
             aria-hidden="true"
           ></span>
           {@render newMenu(
-            "flex h-[30px] shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] [.is-laptop-display_&]:h-[26px] [.is-laptop-display_&]:px-2.5",
-            12,
+            "flex h-8 shrink-0 cursor-pointer items-center gap-[7px] rounded-lg border-0 bg-primary px-[13px] font-medium text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.14)] transition-colors duration-150 hover:bg-[color-mix(in_oklab,var(--primary)_90%,black)] [.is-laptop-display_&]:px-2.5",
+            16,
           )}
           </div>
         {/if}
@@ -1362,96 +1238,6 @@
           : undefined}
         onClose={() => (itemContextMenu = null)}
       />
-    {/if}
-
-    <!-- The axes the record's chip row has no width for, at 54px a row. Same
-         filter state as the wide pane's menus, so a facet set here is the facet
-         the search field's token writes. -->
-    {#if stacked && filterSheetOpen}
-      <BottomSheet
-        label="Workspace filters"
-        onClose={() => (filterSheetOpen = false)}
-      >
-        {#snippet header()}
-          <div class="flex items-center justify-between">
-            <span class="text-base font-semibold tracking-[-0.012em]"
-              >Filters</span
-            >
-            <button
-              type="button"
-              class="h-8 cursor-pointer rounded-full border-0 bg-[var(--wash-2)] px-[13px] font-medium text-foreground [-webkit-tap-highlight-color:transparent]"
-              onclick={() => (filterSheetOpen = false)}
-            >
-              Done
-            </button>
-          </div>
-        {/snippet}
-        <div class="flex flex-col gap-3.5">
-          <div
-            class="overflow-hidden rounded-xl bg-card shadow-[shadow:var(--elev-ring)] [&>*+*]:border-t [&>*+*]:border-[var(--hairline)]"
-          >
-            <div class="flex h-[54px] items-center gap-[11px] px-3.5">
-              <span class="flex-1 text-muted-foreground">Time</span>
-              <SortMenu
-                bind:value={filter.time}
-                options={TIME_OPTIONS}
-                ariaLabel="Filter by time"
-                class="h-8 gap-1.5 rounded-full bg-transparent px-2.5 py-0 font-medium text-[color:var(--foreground)]"
-              />
-            </div>
-            <div class="flex h-[54px] items-center gap-[11px] px-3.5">
-              <span class="flex-1 text-muted-foreground">Status</span>
-              <SortMenu
-                bind:value={filter.status}
-                options={STATUS_OPTIONS}
-                ariaLabel="Filter by status"
-                class="h-8 gap-1.5 rounded-full bg-transparent px-2.5 py-0 font-medium text-[color:var(--foreground)]"
-              />
-            </div>
-            <div class="flex h-[54px] items-center gap-[11px] px-3.5">
-              <span class="flex-1 text-muted-foreground">Sort</span>
-              <SortMenu
-                bind:value={sort}
-                options={SORT_OPTIONS}
-                ariaLabel="Sort"
-                class="h-8 gap-1.5 rounded-full bg-transparent px-2.5 py-0 font-medium text-[color:var(--foreground)]"
-              />
-            </div>
-          </div>
-
-          <div class="flex flex-col gap-[7px]">
-            <span
-              class="pl-1 text-xs font-medium tracking-[0.12em] text-muted-foreground uppercase"
-              >Saved views</span
-            >
-            <div class="flex gap-[7px]">
-              {@render toggleChip(
-                "Pinned",
-                pinnedCount,
-                filter.pinnedOnly,
-                () => (filter.pinnedOnly = !filter.pinnedOnly),
-                PushPinIcon,
-              )}
-              {@render toggleChip(
-                "Needs review",
-                needsReviewCount,
-                needsReviewActive,
-                toggleNeedsReview,
-                MagnifyingGlassIcon,
-              )}
-            </div>
-          </div>
-        </div>
-        {#snippet footer()}
-          <button
-            type="button"
-            class="h-[50px] w-full cursor-pointer rounded-lg border-0 bg-[var(--wash-2)] font-medium text-foreground [-webkit-tap-highlight-color:transparent]"
-            onclick={clearFilters}
-          >
-            Clear filters
-          </button>
-        {/snippet}
-      </BottomSheet>
     {/if}
 
     <!-- The preview: a transient card over the row, never a reserved column.

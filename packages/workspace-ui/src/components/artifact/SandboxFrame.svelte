@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { tick, untrack, type Snippet } from "svelte";
   import {
     Maximize as ArrowsOutIcon,
@@ -75,6 +76,8 @@
 
   const srcdoc = $derived(html === undefined ? null : wrapSandboxSrcdoc(html, untrack(() => dark)));
 
+  let frameResult = $state<{ srcdoc: string; reloadKey: number; failed: boolean } | null>(null);
+  const frameSettled = $derived(frameResult?.srcdoc === srcdoc && frameResult?.reloadKey === reloadKey);
   let iframeEl = $state<HTMLIFrameElement | null>(null);
   function syncTheme() {
     iframeEl?.contentWindow?.postMessage({
@@ -142,7 +145,7 @@
     return () => window.removeEventListener("message", onMessage);
   });
 
-  const handsOffOnTouch = $derived(!!onExpandOnTouch && runtime.isMobileViewport);
+  const handsOffOnTouch = $derived(!!onExpandOnTouch && runtime.isTouchDevice);
 
   function toggleExpand() {
     if (handsOffOnTouch) {
@@ -227,6 +230,7 @@
         bind:this={iframeEl}
         title="Rendered artifact"
         class="artifact-iframe"
+        class:invisible={!frameSettled || frameResult?.failed}
         class:fill-available={fillAvailable}
         data-testid="artifact-iframe"
         sandbox="allow-scripts allow-popups allow-forms allow-modals allow-downloads"
@@ -234,18 +238,33 @@
         style="color-scheme:{colorScheme};{expanded
           ? `width:${nativeWidth}px;height:${contentHeight}px;transform:scale(${scale})`
           : `height:${contentHeight}px`}"
-        onload={syncTheme}
-        onerror={() => onError?.()}
+        onload={() => {
+          frameResult = { srcdoc: srcdoc ?? "", reloadKey, failed: false };
+          syncTheme();
+        }}
+        onerror={() => {
+          frameResult = { srcdoc: srcdoc ?? "", reloadKey, failed: true };
+          onError?.();
+        }}
         {srcdoc}
       ></iframe>
     {/key}
+    {#if !frameSettled}
+      <div class="absolute inset-0 overflow-hidden bg-(--solus-container-bg)">
+        <ContentSkeleton label="Loading artifact" preview />
+      </div>
+    {:else if frameResult?.failed}
+      <div class="absolute inset-0 grid place-items-center text-sm text-destructive" role="alert">
+        This artifact could not be rendered.
+      </div>
+    {/if}
   {:else if srcdoc !== null}
     <!-- Reserves the frame's resting height so a scroll past an unmounted
          render does not jump when the iframe lands. -->
     <div class="artifact-placeholder" style="height:{contentHeight}px"></div>
   {/if}
 
-  {#if (children || srcdoc !== null) && (actions || expandable)}
+  {#if (children || (frameSettled && !frameResult?.failed)) && (actions || expandable)}
     <div class="artifact-actions">
       {@render actions?.()}
       {#if expandable}

@@ -115,4 +115,60 @@ describe('AutomationsStore host federation', () => {
     expect(writes).toEqual(['host-b'])
     expect(store.get('remote')?.name).toBe('Updated')
   })
+  test('an old list response cannot undo a live stop or restore a deleted schedule', async () => {
+    const original = automation('scheduled', '/repo')
+    let answer!: (items: Automation[]) => void
+    connections.registerPrimary('host-a', {
+      automationList: () => new Promise<Automation[]>(resolve => { answer = resolve }),
+    })
+    const store = new AutomationsStore()
+    store.applyChange('host-a', { kind: 'saved', automation: original })
+    const loading = store.loadAll('host-a')
+    // Capabilities resolve before the list request starts.
+    await Promise.resolve()
+    const stopped = { ...original, enabled: false }
+    store.applyChange('host-a', { kind: 'saved', automation: stopped })
+    answer([original])
+    await loading
+    expect(store.get(original.id)?.enabled).toBe(false)
+
+    const reloading = store.loadAll('host-a')
+    await Promise.resolve()
+    store.applyChange('host-a', { kind: 'deleted', automationId: original.id })
+    answer([original])
+    await reloading
+    expect(store.get(original.id)).toBeUndefined()
+  })
+
+  test('mounted cards share updates and reload schedule state after reconnect', async () => {
+    let reads = 0
+    const original = automation('watched', '/repo')
+    connections.registerPrimary('host-a', {
+      automationList: async () => { reads++; return [original] },
+    })
+    const store = new AutomationsStore()
+    const first = store.watchHost('host-a')
+    const second = store.watchHost('host-a')
+    await store.loadAll('host-a')
+    expect(reads).toBe(1)
+    connections.emit('host-a', 'automation.changed', {
+      kind: 'saved', automation: { ...original, enabled: false },
+    })
+    expect(store.get(original.id)?.enabled).toBe(false)
+    connections.emitStatus('host-a', 'disconnected')
+    expect(store.loadErrors.has('host-a')).toBe(true)
+    connections.emitStatus('host-a', 'connected')
+    await store.loadAll('host-a')
+    expect(reads).toBe(2)
+    expect(store.loadErrors.has('host-a')).toBe(false)
+    first()
+    connections.emit('host-a', 'automation.changed', {
+      kind: 'saved', automation: { ...original, enabled: false },
+    })
+    expect(store.get(original.id)?.enabled).toBe(false)
+    second()
+    connections.emit('host-a', 'automation.changed', { kind: 'saved', automation: original })
+    expect(store.get(original.id)?.enabled).toBe(false)
+  })
+
 })

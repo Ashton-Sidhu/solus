@@ -8,7 +8,7 @@
   import { EDGE_KINDS, type EdgeUpdates } from '../lib/inspector-model'
 
   interface Props {
-    edge: Pick<DiagramEdge, 'id' | 'label' | 'body' | 'kind' | 'cardinality'>
+    edge: Pick<DiagramEdge, 'id' | 'label' | 'body' | 'kind' | 'cardinality' | 'labelOffset'>
     update: EdgeUpdates
   }
 
@@ -53,6 +53,12 @@
     placeholder="Optional edge label"
   />
 </label>
+
+<div class="inspector-field">
+  <span class="inspector-label">Label position</span>
+  <p class="text-workspace-chrome text-(--solus-text-tertiary)">Drag the label, or use its arrow keys. Shift moves one pixel.</p>
+  <button type="button" class="inspector-add-row" disabled={!edge.labelOffset} onclick={() => update.labelOffset(edge.id, undefined)}>Reset label position</button>
+</div>
 
 <div class="inspector-field">
   <span class="inspector-label">Relationship</span>

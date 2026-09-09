@@ -8,7 +8,7 @@ class Panel extends EventTarget {
   style = { transition: '', transform: '', opacity: '' }
 }
 
-const source = readFileSync(new URL('../../apps/client/src/components/lib/overlay-transition.svelte.ts', import.meta.url), 'utf8')
+const source = readFileSync(new URL('../../apps/client/src/shell/mobile/lib/overlay-transition.svelte.ts', import.meta.url), 'utf8')
 const harness = `
 export function createHarness(panel, backdrop, onHidden) {
   let open = $state(false)

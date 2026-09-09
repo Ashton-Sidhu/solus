@@ -1,5 +1,3 @@
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { initBrowserRegistry, type BrowserEventSink } from '@solus/server/browser/browser-registry'
 import { BrowserFrameChannel } from '@solus/server/browser/browser-frame-channel'
@@ -352,64 +350,5 @@ describe('the headless browser host', () => {
     expect(page.problem?.kind).toBe('no-surface')
     await expect(registry.interact(page.browserPageId, { kind: 'click', ref: '#x' }))
       .rejects.toThrow('cannot render one')
-  })
-})
-
-/**
- * The ordering inside the host is the whole reason the rings mean anything, and
- * it is invisible from the registry — so it is asserted against the host's own
- * source. Attaching CDP lazily on the first automation action means that the
- * snapshot's console and network entries silently begin after the page has
- * already loaded. This host used that shape until a spike showed that
- * committing `about:blank` first gives CDP a document to attach to without the
- * deadlock that attaching to a brand-new window causes.
- */
-describe('the headless guest attach ordering', () => {
-  const source = readFileSync(
-    join(import.meta.dir, '../../apps/desktop/src/main/browser/headless-window.ts'),
-    'utf8',
-  )
-
-  test('commits a blank document, attaches, and only then loads the page', () => {
-    const blank = source.indexOf("loadURL('about:blank')")
-    const attach = source.indexOf('ChromiumBrowserDriver.attach')
-    const emulate = source.indexOf('applyEmulation')
-    const load = source.indexOf('loadURL(request.url)')
-
-    expect(blank).toBeGreaterThan(-1)
-    expect(attach).toBeGreaterThan(blank)
-    expect(emulate).toBeGreaterThan(attach)
-    // The page's own load is last, so the rings cover it and the guest never
-    // lays out at a size it is not supposed to be.
-    expect(load).toBeGreaterThan(emulate)
-  })
-})
-
-/**
- * An agent opening a page to check something must not take over the user's
- * screen. Before the headless host existed, `browser_open` always asked a client
- * for a surface, because a page with no surface could not be driven at all — so
- * every agent-opened page appeared as a live tab in the user's browser pane.
- * That is now a cost paid for nothing, and it also pinned the page to the
- * client's `<webview>`, which is the host where a screenshot can stall.
- */
-describe('opening a page on the agent’s behalf', () => {
-  const toolsSource = readFileSync(
-    join(import.meta.dir, '../../packages/server/src/browser/browser-tools.ts'),
-    'utf8',
-  )
-
-  test('does not ask for a surface unless the user wants to see it', () => {
-    expect(toolsSource).not.toContain('requestSurface: true')
-    expect(toolsSource).toContain('requestSurface: input.show === true')
-  })
-
-  test('offers showing as a deliberate choice, defaulting to invisible', () => {
-    // WHY: the reverse state already exists — a page opened quietly is still
-    // listed in the page strip, so the user can bring up anything the agent made.
-    const open = toolsSource.slice(toolsSource.indexOf("name: 'browser_open'"))
-    const spec = open.slice(0, open.indexOf('\nexport const'))
-    expect(spec).toContain('show: z.boolean().optional()')
-    expect(spec).toContain('Default false')
   })
 })

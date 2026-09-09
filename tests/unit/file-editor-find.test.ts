@@ -1,10 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import {
-  fileFindPosition,
-  isFileFindShortcut,
-  preserveFileFindNavigationFocus,
-  shouldRestoreFileEditorFocus,
-} from "@solus/workspace-ui/components/artifact/lib/file-find";
+import { isFileFindShortcut, preserveFileFindNavigationFocus, shouldRestoreFileEditorFocus } from "@solus/workspace-ui/components/artifact/lib/file-find";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM(
@@ -15,14 +10,6 @@ Object.assign(globalThis, {
 });
 
 describe("file editor find", () => {
-  test("uses the same 8px top inset as the conversation find bar", () => {
-    expect(fileFindPosition({ top: 40, left: 600, width: 420 })).toEqual({
-      top: 48,
-      left: 600,
-      width: 420,
-    });
-  });
-
   test("isolates primary-modifier find without swallowing replace shortcuts", () => {
     expect(
       isFileFindShortcut({

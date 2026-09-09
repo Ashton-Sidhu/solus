@@ -27,7 +27,7 @@
 		{preventScroll}
 		data-slot="select-content"
 		class={cn(
-			"text-popover-foreground data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 menu-surface min-w-36 p-1.5 ring-0 duration-100 relative isolate z-50 overflow-x-hidden overflow-y-auto",
+			"text-popover-foreground data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 menu-surface min-w-36 p-1.5 ring-0 duration-100 relative isolate z-[10002] overflow-x-hidden overflow-y-auto",
 			className
 		)}
 		{...restProps}

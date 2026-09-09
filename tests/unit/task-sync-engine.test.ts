@@ -460,22 +460,6 @@ describe('task sync engine', () => {
     expect(bodies[0]).toMatchObject({ externalId: 'IC_kwDO1' })
   })
 
-  test('names the provider on every read of a linked task, not just the detail read', async () => {
-    // WHY: the Tasks list has no detail read to consult, so without this a task
-    // published to GitHub keeps showing as local everywhere but its own page.
-    const task = await linkedTask()
-
-    const listed = taskStore.listTasks().tasks.find((row) => row.id === task.id)
-
-    expect(listed?.mirroredTicket).toEqual({
-      provider: 'github',
-      externalId: adapter.remote.externalId,
-      url: adapter.remote.url,
-    })
-    // Ownership does not move: reads and writes still take the native path.
-    expect(listed?.providerId).toBe('local')
-  })
-
   test('refuses to publish comments for a task with no linked ticket', async () => {
     // WHY: marking rows nothing will ever read would leave the page claiming a
     // push is queued when there is nowhere to push to.
@@ -517,10 +501,26 @@ describe('task sync engine', () => {
     await task.update({ projectKey: projectRoot, status: 'todo' })
     await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
 
-    expect(await syncEngine.completeTasksForMergedPullRequest(projectRoot, 17, neverMerged))
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, neverMerged))
       .toEqual([task.id])
     expect((await tasks.Task.byId(task.id)).status).toBe('done')
     expect(syncStore.externalLinkForTask(task.id)?.dirtyFields).toContain('status')
+  })
+
+  test('uses each linked task project setting and does not complete another repository', async () => {
+    const { saveProjectConfig } = await import('@solus/server/project-config/project-config')
+    const disabledRoot = join(dataDir, 'disabled-project')
+    await saveProjectConfig(disabledRoot, { taskDoneOnMerge: false })
+    const disabled = await taskStore.createTask({ title: 'Manual completion', projectKey: disabledRoot })
+    await (await tasks.Task.byId(disabled.id)).linkPullRequest({ number: 17, targetScope: disabledRoot, url: PR_URL(17) })
+    const other = await taskStore.createTask({ title: 'Different repository', projectKey: dataDir })
+    await (await tasks.Task.byId(other.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: 'https://github.com/owner/other/pull/17' })
+    const enabled = await taskStore.createTask({ title: 'Automatic completion', projectKey: dataDir })
+    await (await tasks.Task.byId(enabled.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: PR_URL(17) })
+
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, alwaysMerged)).toEqual([enabled.id])
+    expect((await tasks.Task.byId(disabled.id)).status).toBe('todo')
+    expect((await tasks.Task.byId(other.id)).status).toBe('todo')
   })
 
   test('leaves a task alone while any of its other pull requests is unmerged', async () => {
@@ -531,12 +531,12 @@ describe('task sync engine', () => {
     await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
     await task.linkPullRequest({ number: 18, targetScope: projectRoot, url: PR_URL(18) })
 
-    expect(await syncEngine.completeTasksForMergedPullRequest(projectRoot, 17, neverMerged))
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, neverMerged))
       .toEqual([])
     expect((await tasks.Task.byId(task.id)).status).toBe('in_review')
 
     // #18 merges too, and the task has nothing left outstanding.
-    expect(await syncEngine.completeTasksForMergedPullRequest(projectRoot, 18, alwaysMerged))
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 18, alwaysMerged))
       .toEqual([task.id])
     expect((await tasks.Task.byId(task.id)).status).toBe('done')
   })

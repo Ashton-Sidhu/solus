@@ -881,6 +881,17 @@ CREATE TABLE browser_profile_defaults (
   profile_id TEXT NOT NULL
 );
 `,
+  // Preserve old provider thread references after a worktree fork.
+  `
+CREATE TABLE session_thread_aliases (
+  provider TEXT NOT NULL,
+  provider_session_id TEXT NOT NULL,
+  session_id TEXT NOT NULL,
+  PRIMARY KEY (provider, provider_session_id)
+);
+CREATE INDEX session_thread_aliases_session ON session_thread_aliases(session_id);
+`,
+
 ]
 
 export function runMigrations(db: DatabaseSync): void {

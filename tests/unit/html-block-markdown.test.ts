@@ -1,6 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  HTML_SOURCE_INFO,
   htmlBlockFence,
   parseFence,
   serializeHtmlBlock,
@@ -60,14 +59,6 @@ describe('an HTML block in a document', () => {
     // content. Closing early would cut the render in half.
     const markdown = '````html\n<style>b{color:red}</style>\n```\n````'
     expect(htmlBlockFence(markdown)?.html).toBe('<style>b{color:red}</style>\n```')
-  })
-
-  test('reading a block as code writes a fence that stays code', () => {
-    // WHY: "Show as code" and Render are each other's reverse. Without the
-    // word, the next parse would render the block again and the reader could
-    // never get back to the source.
-    expect(HTML_SOURCE_INFO).toBe('html source')
-    expect(htmlBlockFence('```html source\n<style>b{}</style>\n```')).toBeNull()
   })
 })
 

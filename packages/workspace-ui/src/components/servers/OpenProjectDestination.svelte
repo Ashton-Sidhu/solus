@@ -1,7 +1,8 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
 import Icon from "@iconify/svelte";
   import { slide } from "svelte/transition";
-  import { LoaderCircle as CircleNotchIcon, Search as MagnifyingGlassIcon } from "@lucide/svelte";
+  import { Search as MagnifyingGlassIcon } from "@lucide/svelte";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import type { CloneProtocol } from "@solus/contracts/types";
@@ -156,10 +157,7 @@ import Icon from "@iconify/svelte";
         class="h-[16.625rem] overflow-y-auto pt-1"
       >
         {#if store.reposLoading && store.repos.length === 0}
-          <div class="flex h-full items-center justify-center gap-2  text-muted-foreground">
-            <CircleNotchIcon size={14} class="animate-spin" />
-            Loading repositories…
-          </div>
+          <ContentSkeleton label="Loading repositories" />
         {:else if store.reposError}
           <div class="flex h-full flex-col items-center justify-center gap-2 px-8 text-center">
             <div class="text-pretty  leading-relaxed text-muted-foreground">

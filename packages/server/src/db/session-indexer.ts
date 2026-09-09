@@ -1019,6 +1019,7 @@ export function searchIndexedSessions(
         s.is_worktree,
         s.slug,
         s.first_message,
+        s.custom_title,
         s.last_timestamp,
         s.size,
         s.model,
@@ -1044,26 +1045,37 @@ export function searchIndexedSessions(
       ${sinceFilter}
       ${untilFilter}
     )
-    SELECT *
-    FROM hits
-    WHERE message_id = (
-      SELECT candidate.message_id
-      FROM hits candidate
-      WHERE candidate.session_id = hits.session_id
-      ORDER BY candidate.rank ASC, candidate.hit_ts DESC
-      LIMIT 1
+    , ranked AS (
+      SELECT *, ROW_NUMBER() OVER (
+        PARTITION BY session_id ORDER BY rank ASC, hit_ts DESC, message_id ASC
+      ) AS match_number FROM hits
+    ), selected AS (
+      SELECT session_id FROM ranked WHERE match_number = 1
+      ORDER BY rank ASC, hit_ts DESC, session_id ASC LIMIT ?
     )
-    ORDER BY rank ASC
-    LIMIT ?
+    SELECT ranked.* FROM ranked JOIN selected USING (session_id)
+    WHERE match_number <= 3
+    ORDER BY rank ASC, hit_ts DESC, message_id ASC
   `).all(...params))
 
-  return rows.map((row) => ({
-    session: rowToSession(row),
-    snippet: row.snippet,
-    ts: row.hit_ts ?? 0,
-    messageId: row.message_id,
-    rank: row.rank,
-  }))
+  return groupSessionSearchResults(rows)
+}
+
+/** Preserve one result per session and keep its other passages bounded. */
+function groupSessionSearchResults(rows: z.infer<typeof searchResultRowSchema>[]): SessionSearchResult[] {
+  const results = new Map<string, SessionSearchResult>()
+  for (const row of rows) {
+    const hit = {
+      snippet: row.snippet,
+      ts: row.hit_ts ?? 0,
+      messageId: row.message_id,
+      rank: row.rank,
+    }
+    const existing = results.get(row.session_id)
+    if (existing) (existing.additionalMatches ??= []).push(hit)
+    else results.set(row.session_id, { session: rowToSession(row), ...hit })
+  }
+  return [...results.values()]
 }
 
 const MAX_WINDOW_RADIUS = 5

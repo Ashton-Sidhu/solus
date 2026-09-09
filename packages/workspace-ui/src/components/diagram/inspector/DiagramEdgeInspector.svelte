@@ -33,6 +33,7 @@
       | 'arrows'
       | 'route'
       | 'cardinality'
+      | 'labelOffset'
     >
     sourceLabel: string
     targetLabel: string

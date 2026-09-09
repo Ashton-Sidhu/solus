@@ -23,11 +23,22 @@ focus with nowhere to return.
 
 An idle input bar collapses to one line. The rule and its exceptions:
 
-- **Idle means the keyboard is not in the bar and not in a menu the bar
-  opened.** Focus moving into bits-ui floating content or a dialog holds the
-  bar open. If such a layer lets go of focus without handing it back, the bar
-  collapses then. A window blur is not idle: the bar keeps its shape so the app
-  does not paint one collapsed frame on return.
+- **Idle means the keyboard has been elsewhere for a grace.** The bar takes
+  the keyboard on its own `focusin` and opens at once. It lets go only after
+  a leave has settled: 150ms after the last focus change or pointer release
+  anywhere in the document, the bar reads where focus actually is. In the bar
+  or in a menu the bar opened — bits-ui floating content or a dialog — is not
+  a leave. Elsewhere, or on nothing, is. A window blur is not idle: the bar
+  keeps its shape so the app does not paint one collapsed frame on return.
+- **Nothing predicts a return.** Most leaves are not leaves: a closing picker
+  blurs its content a frame before it hands focus back, a sidebar row takes
+  focus on mousedown and asks for the input back two frames after the click,
+  and a settled recorder hands the keyboard back a frame after the mic lets
+  go. Each used to carry a hold of its own — a "refocus pending" flag the
+  caller set before its deferred focus — and every hold not released on time
+  left the bar stuck open, or folded it on one frame and unfolded it on the
+  next. The grace replaces all of them: a return inside it is simply not a
+  leave, and no caller has to tell the bar it is coming.
 - **The collapse hides the toolbar row and tightens the text well. Nothing
   else.** Mic and send stay, inline beside the well, so the reverse-state
   guarantee holds: you can always send and always stop dictating. Attachment
@@ -37,14 +48,20 @@ An idle input bar collapses to one line. The rule and its exceptions:
 - **The mic holds the bar open for its whole cycle.** The waveform stands in
   for the text well and its cancel and confirm controls must not move under
   the hand. The wait for the microphone before it and the transcription after
-  it hold the bar too, and so does the hand-back of the keyboard once the
-  recorder settles: the refocus lands a frame or two after the mic lets go.
-  The bar never folds on its own after a dictation; it folds next when the
-  user leaves it.
+  it hold the bar too. The mic letting go is decided like any other leave:
+  the editor is handed the keyboard a frame later, inside the grace, so the
+  bar never folds on its own after a dictation. Only if the keyboard was
+  elsewhere for the whole recording and nothing hands it back does the bar
+  fold once the grace is up.
 - **A shortcut that opens a toolbar picker focuses the bar first,
   synchronously.** The run picker and the task picker anchor to chips on the
   toolbar row. Focusing the editor before the picker opens puts the row back on
   screen in the same flush the picker positions against.
+- **Sending a prompt in a session returns focus to that input bar.** Enter
+  and Send focus the same editor directly after clearing it, including on
+  touch devices. This keeps the bar ready for the next prompt in Editor and
+  Pill modes, on desktop, web, and mobile. The editor stays available while
+  the session connects; sending another prompt waits until it is ready.
 - **It is a setting, on by default, promoted to host config.** It is a personal
   preference like the turn diff summary, so it follows the user across
   devices. Turning it off returns the full card at rest.
@@ -100,5 +117,16 @@ card `data-composer-surface`; the Editor card and the Pill composer do.
 
 Two more things hold the bar open: a press that began outside the bar and has
 not been released, so a drag-select in the transcript never folds the bar
-under the gesture; and a live selection inside the transcript, which lets go
-when the selection does.
+under the gesture, and so a click's consequences have the grace to land after
+the release rather than the press; and a live selection inside the
+transcript, which lets go when the selection does.
+
+While the bar holds the keyboard it watches focus on the document, not on its
+own box: a picker's content is portalled outside the bar, and a menu that
+closes by letting go — a click on the transcript with no return target —
+fires nothing on the bar. The watcher is attached only while the bar is open,
+so a resting bar costs nothing. The grace, the hold, and the reads are in
+`input/lib/composer-fold.svelte.ts`; the pure rules are in
+`input/lib/composer-collapse.ts`, and `tests/unit/composer-fold-grace.test.ts`
+drives the compiled controller through the sidebar click, the transcript
+click, a menu letting go, a hidden window, a drag-select, and a dictation.

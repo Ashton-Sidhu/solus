@@ -118,7 +118,8 @@ export interface TurnSnapshot {
   index: number
   /** Exact live worktree tree captured before provider execution. */
   fromTreeSha: string
-  /** Exact tree after applying only this turn's reported file changes. */
+  /** Live worktree tree captured when the turn ended — scoped to the session's
+   *  own paths in a shared checkout, where other authors share the tree. */
   toTreeSha: string
   /** Cumulative session snapshot commit; not the turn diff boundary. */
   sha: string

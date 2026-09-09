@@ -69,7 +69,7 @@
   <ContextMenu.Content class="min-w-48">
     <ContextMenu.Item onSelect={() => select(onEdit)}>
       <PencilSimpleIcon />
-      Edit automation
+      {automation.archivedAt ? "Schedule again" : "Edit automation"}
     </ContextMenu.Item>
     {#if automation.lastRunStatus === "running"}
       <ContextMenu.Item onSelect={() => select(onCancelRun)}>
@@ -82,9 +82,11 @@
         Run now
       </ContextMenu.Item>
     {/if}
+    {#if !automation.archivedAt}
     <ContextMenu.Item onSelect={() => select(onToggleEnabled)}>
       {#if automation.enabled}<PauseIcon /> Pause automation{:else}<PlayIcon /> Resume automation{/if}
     </ContextMenu.Item>
+    {/if}
     <ContextMenu.Item onSelect={() => select(onToggleFavorite)}>
       <StarIcon weight={automation.favorite ? "fill" : "regular"} />
       {automation.favorite ? "Unstar" : "Star"}

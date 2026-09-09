@@ -18,6 +18,52 @@ const {
 afterEach(() => connections.reset())
 
 describe('session transcript rehydration', () => {
+  test('consumes an early history read without issuing a duplicate RPC', async () => {
+    const loadSession = mock(async () => [])
+    connections.registerPrimary('transcript-host', { loadSession })
+    const ctx = {
+      apiForSession: () => connections.apiFor('transcript-host'),
+      automationsStore: { loaded: true },
+    } as unknown as WorkspaceContext
+    const transcript = await loadRestoredSessionTranscript(ctx, {
+      sessionId: 'stable-session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
+      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
+      history: Promise.resolve([{ role: 'tool', content: '', toolName: 'Read', toolId: 'read-1', toolInputKey: 'input-key', timestamp: 1 }]),
+    })
+    expect(loadSession).not.toHaveBeenCalled()
+    expect(transcript.messages.find((message) => message.toolId === 'read-1')?.historyToolInput).toMatchObject({
+      serverId: 'transcript-host', sessionId: 'stable-session', provider: 'codex', key: 'input-key',
+    })
+  })
+
+  test('mobile history keeps the source needed to fetch inputs on summary expansion', async () => {
+    const options: Array<{ deferToolInputs?: boolean } | undefined> = []
+    connections.registerPrimary('transcript-host', {
+      loadSession: async (_sessionId, _projectPath, _ctx, _provider, _limit, option) => {
+        options.push(option)
+        return [{ role: 'tool', content: '', toolName: 'Read', toolId: 'read-1', toolInputKey: 'input-key', timestamp: 1 }]
+      },
+    })
+    const ctx = {
+      apiForSession: () => connections.apiFor('transcript-host'),
+      deferHistoryToolInputs: true,
+      automationsStore: { loaded: true },
+    } as unknown as WorkspaceContext
+
+    const transcript = await loadSessionTranscript(ctx, {
+      sessionId: 'saved-session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
+      ctx: { session: { sessionId: 'tab-1' } } as IpcContext,
+    })
+
+    expect(options).toEqual([{ deferToolInputs: true }])
+    expect(transcript.messages.find((message) => message.toolId === 'read-1')).toMatchObject({
+      toolInput: undefined,
+      historyToolInput: {
+        serverId: 'transcript-host', sessionId: 'saved-session', projectPath: '/repo', provider: 'codex', key: 'input-key',
+      },
+    })
+  })
+
   test('rebuilds a rendered artifact with the work it was saved as', async () => {
     // WHY: the work id lived in the dropped tool result, so a reloaded frame
     // finds its work the way a create_work card does — by the title the host

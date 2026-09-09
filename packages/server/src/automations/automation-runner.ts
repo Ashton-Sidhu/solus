@@ -16,6 +16,7 @@ const log = createLogger('automations', 'automation-runner.ts')
 export type AutomationSessionDispatcher = (opts: {
   agentSessionId: string
   prompt: string
+  displayPrompt?: string
   automationId: string
   automationName: string
   /** Run config used to resume the session when it isn't resident in memory
@@ -164,10 +165,17 @@ async function executeRun(automation: Automation, run: AutomationRun, entry: Act
       if (!sessionDispatcher) throw new Error('In-session automations require the app to be running with an active control plane.')
       agentSessionId = action.sessionId
       await attachRunSession(automation.id, runId, action.sessionId)
-      const prompt = await composeAutomationPrompt(action)
+      const prompt = [
+        'Scheduled follow-up in this conversation.',
+        `Schedule id: ${automation.id}`,
+        'Do the check below using this conversation’s context. If its requested stop condition is met, call update_automation with automation_id set to the schedule id above, archived: true. This stops future checks and keeps the history until the host retention period expires. Do not create another schedule or run this automation again.',
+        '',
+        await composeAutomationPrompt(action),
+      ].join('\n')
       await sessionDispatcher({
         agentSessionId: action.sessionId,
         prompt,
+        displayPrompt: action.prompt,
         automationId: automation.id,
         automationName: automation.name,
         fallback: {

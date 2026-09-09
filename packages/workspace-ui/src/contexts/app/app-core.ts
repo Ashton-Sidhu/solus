@@ -1,7 +1,8 @@
+import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
 import { WorkspaceContext, setWorkspaceContext } from '../workspace/workspace.context.svelte'
-import { WindowContext, setWindowContext } from './window.context.svelte'
+import { type ClientShellContext, setClientShellContext } from './client-shell.svelte'
 import { StatusBarContext, setStatusBarContext } from './status-bar.context.svelte'
 import { PlanStore, setPlanStore } from '../plans/plan.store.svelte'
 import { SessionEnvironmentStore, setSessionEnvironmentStore } from '../git/session-environment.store.svelte'
@@ -27,7 +28,7 @@ import { toasts } from '../../lib/toasts'
 
 export interface AppCore {
   settings: SettingsContext
-  windowCtx: WindowContext
+  shell: ClientShellContext
   statusBar: StatusBarContext
   planStore: PlanStore
   sessionEnvironmentStore: SessionEnvironmentStore
@@ -50,9 +51,8 @@ export interface AppCore {
  * Platform-specific setup (analytics, root scaling, design mode, click-through,
  * view modes) stays in each App.svelte — only what's identical lives here.
  */
-export function createAppCore(): AppCore {
+export function createAppCore(shell: ClientShellContext): AppCore {
   const settings = new SettingsContext()
-  const windowCtx = new WindowContext()
   const statusBar = new StatusBarContext(settings)
   const planStore = new PlanStore()
   const sessionEnvironmentStore = new SessionEnvironmentStore()
@@ -63,7 +63,7 @@ export function createAppCore(): AppCore {
   const pullRequests = new PullRequestsContext()
   const session = new WorkspaceContext(
     settings,
-    windowCtx,
+    shell,
     statusBar,
     planStore,
     sessionEnvironmentStore,
@@ -71,6 +71,7 @@ export function createAppCore(): AppCore {
     agent,
   )
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects)
+  session.trackVisibleConversations()
   session.onTabClosing = (tabId) => sessionSidebarStore.clearTabAttention(tabId)
   const voiceModelStore = new VoiceModelStore()
   statusBar.bind(session)
@@ -105,7 +106,7 @@ export function createAppCore(): AppCore {
   keybindings.setOverrides(settings.keybindings)
 
   setSettingsContext(settings)
-  setWindowContext(windowCtx)
+  setClientShellContext(shell)
   setStatusBarContext(statusBar)
   setWorkspaceContext(session)
   setPlanStore(planStore)
@@ -119,9 +120,11 @@ export function createAppCore(): AppCore {
   setAgentContext(agent)
   setKeybindingsContext(keybindings)
 
+  installHostUpdateNotices(session, shell)
+
   return {
     settings,
-    windowCtx,
+    shell,
     statusBar,
     planStore,
     sessionEnvironmentStore,

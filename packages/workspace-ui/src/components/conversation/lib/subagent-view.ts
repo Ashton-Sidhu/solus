@@ -455,6 +455,27 @@ export function briefAsks(prompt: string): string[] {
     .filter((ask): ask is string => !!ask)
 }
 
+export interface BriefSummary {
+  /** The line the dispatch opened with — what it was sent to do. Empty when
+   *  the prompt opens straight on its first ask, which the list already prints. */
+  title: string
+  /** The asks as chrome: markdown resolved to text, so a code span reads as
+   *  the identifier it names rather than as its backticks. */
+  asks: string[]
+}
+
+/** The Ask block's collapsed face: the brief's opening line and its numbered
+ *  asks, which together are the shape of the work without the whole prompt. */
+export function briefSummary(prompt: string): BriefSummary {
+  const first = prompt.split('\n').find((line) => line.trim())?.trim() ?? ''
+  return {
+    // A prompt that opens on a heading still opens on a sentence — drop the
+    // marks and keep the words.
+    title: ASK.test(first) ? '' : headingText(first.replace(/^#{1,6}\s+/, '')),
+    asks: briefAsks(prompt).map(headingText),
+  }
+}
+
 export type TimelineEntry =
   | { kind: 'dispatch'; offsetMs: number; prompt: string; asks: string[]; call: string }
   | { kind: 'text'; offsetMs: number; id: string; content: string; isReport: boolean }

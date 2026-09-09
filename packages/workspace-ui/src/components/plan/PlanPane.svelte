@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RouteLoadError from "../ui/RouteLoadError.svelte";
   import { getWorkspaceContext, getPlanStore } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
@@ -9,6 +10,7 @@
 
   let { params, paneId }: RouteSurfaceProps<"plan"> = $props();
 
+  let loadAttempt = $state(0);
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
   const pane = paneActions(() => paneId);
@@ -38,12 +40,16 @@
      is the loading state, not an empty pane. The open path retracts the pane if
      the read comes back with nothing. -->
 {#if activePlan}
-  {#await import("./PlanModal.svelte")}
+  {#key loadAttempt}
+    {#await import("./PlanModal.svelte")}
     <PlanModalSkeleton inline />
   {:then planModule}
     {@const PlanModal = planModule.default}
     <PlanModal plan={activePlan} inline minimizeOutline={!pane.isLeading} onClose={close} />
-  {/await}
+  {:catch error}
+      <RouteLoadError {error} compact onRetry={() => (loadAttempt += 1)} />
+    {/await}
+    {/key}
 {:else}
   <PlanModalSkeleton inline />
 {/if}

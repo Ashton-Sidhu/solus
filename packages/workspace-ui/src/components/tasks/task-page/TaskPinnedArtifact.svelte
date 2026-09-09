@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../../ui/ContentSkeleton.svelte";
   import { PinOff as PinOffIcon, PanelRight as PanelRightIcon } from "@lucide/svelte";
   import type { TaskLink } from "@solus/contracts/task-types";
   import ArtifactView from "../../artifact/ArtifactView.svelte";
@@ -55,7 +56,7 @@
     {:else if html}
       <ArtifactView artifact={{ kind: "html", html }} skipMotion />
     {:else}
-      <div class="px-1 py-3 text-muted-foreground" role="status">Loading artifact…</div>
+      <ContentSkeleton label="Loading artifact" preview />
     {/if}
   </div>
 </div>

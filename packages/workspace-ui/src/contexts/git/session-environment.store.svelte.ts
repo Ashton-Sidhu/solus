@@ -191,7 +191,7 @@ export class SessionEnvironmentStore {
       ?? this.workspace.globalDefaults.gitContext?.worktreePath
       ?? this.workspace.globalDefaults.workingDirectory
     const status = this.statusFor(cwd)
-    const checkout = gitCheckoutFromState(status, attachedCheckout?.worktreePath) ?? attachedCheckout
+    const checkout = gitCheckoutFromState(status, attachedCheckout?.worktreePath, attachedCheckout?.repoRoot) ?? attachedCheckout
     const isolated = !!checkout?.worktreePath
     const pending = wantsWorktree && !isolated
 
@@ -448,7 +448,7 @@ export class SessionEnvironmentStore {
     if (!statusOutcome.ok) return { target: null, error: statusOutcome.error }
 
     const status = this.statusForHost(serverId, workingDirectory) ?? null
-    const detected = gitCheckoutFromState(status, options.worktreePath)
+    const detected = gitCheckoutFromState(status, options.worktreePath, options.fallbackGitContext?.repoRoot)
     // Retain worktree routing while detached instead of treating a valid
     // checkout as a non-repository.
     const gitContext = detected

@@ -39,6 +39,7 @@ export class PlanStore {
 
   private _saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private upstreamWatches = new PresenceWatch()
+  readonly upstreamCheckTimes = this.upstreamWatches.timings
   /** Which host owns each loaded or listed plan. */
   private hostByPlanId = new SvelteMap<string, string>()
 

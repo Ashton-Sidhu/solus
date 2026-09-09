@@ -2,7 +2,6 @@ import type { GitCheckout, IpcContext, PrReviewContext, RunConfig, Session, Sess
 import { worktreeProjectRoot } from '@solus/contracts/types'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { StatusBarContext } from '../app/status-bar.context.svelte'
-import type { WindowContext } from '../app/window.context.svelte'
 import type { StaticInfo } from './workspace-lifecycle.store.svelte'
 import { isDispatch } from './run-config'
 
@@ -24,7 +23,7 @@ export interface IpcContextBuilderDeps {
     }
   }
   staticInfo(): StaticInfo | null
-  window: WindowContext
+  rpcWindow(): IpcContext['window']
   settings: SettingsContext
   statusBar: StatusBarContext
 }
@@ -40,7 +39,7 @@ export class IpcContextBuilder {
     const session = this.sessionCtx(tabId)
     return {
       session,
-      window: { viewMode: this.deps.window.viewMode },
+      window: this.deps.rpcWindow(),
       settings: this.deps.settings.ctxForProject?.(session.projectPath) ?? this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctxFor(tabId),
     }
@@ -50,7 +49,7 @@ export class IpcContextBuilder {
     const base = this.sessionCtx(tabId)
     return {
       session: { ...base, workingDirectory, projectPath: worktreeProjectRoot(workingDirectory) },
-      window: { viewMode: this.deps.window.viewMode },
+      window: this.deps.rpcWindow(),
       settings: this.deps.settings.ctxForProject?.(worktreeProjectRoot(workingDirectory)) ?? this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctx,
     }

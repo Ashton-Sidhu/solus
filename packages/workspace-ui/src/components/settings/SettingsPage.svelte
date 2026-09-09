@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { hostUpdatesStore } from "../../contexts/updates/host-updates.store.svelte";
   import type { Component } from "svelte";
   import {
     X as XIcon,
@@ -19,7 +20,7 @@
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
-    getWindowContext,
+    getClientShellContext,
     runtime,
     serversStore,
   } from "../../contexts";
@@ -28,6 +29,7 @@
   import * as Breadcrumb from "../ui/breadcrumb";
   import { Button } from "../ui/button";
   import { SearchField } from "../ui/search-field";
+  import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
   import SettingsTabGeneral from "./SettingsTabGeneral.svelte";
   import SettingsTabInstructions from "./SettingsTabInstructions.svelte";
   import SettingsTabReview from "./SettingsTabReview.svelte";
@@ -47,7 +49,7 @@
   import { serverConnections } from "@solus/client-core/server-connections";
 
   const session = getWorkspaceContext();
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
 
   interface TabMeta {
     id: SettingsTab;
@@ -164,7 +166,7 @@
 
   const tabs = $derived(
     ALL_TABS.filter(
-      (t) => !t.hiddenFromNav && (!t.desktopOnly || !windowCtx.isWeb),
+      (t) => !t.hiddenFromNav && (!t.desktopOnly || shell.supportsNativeSettings),
     ),
   );
 
@@ -291,7 +293,7 @@
  ? 'bg-[color-mix(in_oklch,var(--primary)_14%,transparent)] font-semibold text-[color-mix(in_oklch,var(--primary)_82%,var(--foreground))]'
  : 'font-medium text-(--muted-foreground) shadow-[shadow:var(--elev-ring)] active:bg-(--wash-1)'}"
       >
-        <Icon size={14} /><span>{tab.label}</span>
+        <Icon size={14} /><span>{tab.label}</span>{#if tab.id === "api-access" && hostUpdatesStore.anyUpdateAvailable}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
       </button>
     {/each}
   </div>
@@ -406,6 +408,7 @@
         class="text-sm font-medium text-(--solus-text-primary)"
         >Settings</span
       >
+      <SettingsUpdateButton />
       <Button
         variant="ghost"
         size="icon"
@@ -512,6 +515,7 @@
                           class="min-w-0 flex-1 overflow-hidden text-left text-workspace-chrome text-ellipsis whitespace-nowrap"
                           >{tab.label}</span
                         >
+                      {#if tab.id === "api-access" && hostUpdatesStore.anyUpdateAvailable}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
                       </Sidebar.MenuButton>
                     </Sidebar.MenuItem>
                   {/each}
@@ -583,6 +587,7 @@
           </div>
         {/if}
         <div class="flex shrink-0 items-center gap-2">
+          <SettingsUpdateButton />
           {#if hostFramedTab}
             {@render hostFrame()}
           {/if}

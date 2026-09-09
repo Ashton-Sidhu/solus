@@ -48,6 +48,8 @@ export class ConversationSearch {
       this.loading = false
       return
     }
+    this.results = []
+    this.capped = false
     this.loading = true
     this.timer = setTimeout(() => {
       this.timer = null

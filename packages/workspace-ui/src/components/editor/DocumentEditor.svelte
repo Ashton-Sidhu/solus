@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { untrack } from "svelte";
@@ -826,6 +827,9 @@
 </script>
 
 <div bind:this={wrapperEl} class="solus-doc-editor-wrap relative {klass}" {style} oncontextmenu={handleContextMenu} role="presentation">
+  {#if !editorInstance}
+    <ContentSkeleton label="Loading editor" />
+  {/if}
   <div
     bind:this={editorDiv}
     class="solus-doc-editor"

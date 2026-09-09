@@ -13,11 +13,13 @@
     facingAnchor,
     type AnchorSide,
   } from "@solus/contracts/diagram-edge-anchor";
+  import { canvasRoutes } from "../lib/edge-routing.svelte";
+  import { onDestroy } from "svelte";
   import { EditableLabel } from "../editable-label.svelte";
 
   type DiagramFlowEdgeData = Pick<
     DiagramEdgeContract,
-    "bendOffset" | "cardinality" | "color" | "route"
+    "bendOffset" | "bendAxis" | "cardinality" | "color" | "route" | "labelOffset" | "width" | "kind"
   > & {
     floatingSource?: boolean;
     floatingTarget?: boolean;
@@ -28,7 +30,9 @@
       clientX: number,
       clientY: number,
     ) => void;
-    onBendOffsetChange?: (id: string, offset: number) => void;
+    onLabelOffsetChange?: (id: string, offset: { x: number; y: number }) => void;
+    onLabelOffsetCommit?: () => void;
+    onBendOffsetChange?: (id: string, offset: number, axis?: 'x' | 'y') => void;
     onBendOffsetCommit?: (id: string) => void;
   };
 
@@ -55,13 +59,15 @@
   }: EdgeProps<DiagramFlowEdge> = $props();
 
   const store = useStore();
+  const routes = canvasRoutes(store);
+  const drawing = $derived(routes.drawings.get(id));
 
   // Max |bendOffset| (canvas px) a dragged middle segment can travel from centre.
   const BEND_OFFSET_LIMIT = 4000;
   // Hit-area (px) of each reconnect grab dot.
   const RECONNECT_HANDLE_SIZE = 34;
   // Lift (px) applied to a selected edge's label so it clears the reconnect dots.
-  const SELECTED_LABEL_OFFSET = 22;
+
 
   // Live geometry of both endpoints. Used to "float" an endpoint that has no
   // explicit handle to the side facing the other node — otherwise xyflow anchors
@@ -116,6 +122,10 @@
         tPos = SIDE_TO_POSITION[a.side];
       }
     }
+    if (drawing) {
+      const first = drawing.points[0], last = drawing.points.at(-1)!;
+      return { sx: first.x, sy: first.y, sPos: SIDE_TO_POSITION[drawing.sourceSide], tx: last.x, ty: last.y, tPos: SIDE_TO_POSITION[drawing.targetSide] };
+    }
     return { sx, sy, sPos, tx, ty, tPos };
   });
 
@@ -134,6 +144,13 @@
   const bend = $derived(data?.bendOffset ?? 0);
   const centerX = $derived(horizontal ? midX + bend : midX);
   const centerY = $derived(horizontal ? midY : midY + bend);
+  const bendGuide: { start: { x: number; y: number }; end: { x: number; y: number }; axis: 'x' | 'y'; offset: number } = $derived(drawing?.bend ?? {
+    start: { x: horizontal ? centerX : ends.sx, y: horizontal ? ends.sy : centerY },
+    end: { x: horizontal ? centerX : ends.tx, y: horizontal ? ends.ty : centerY },
+    axis: horizontal ? 'x' : 'y', offset: bend,
+  });
+  const gripX = $derived((bendGuide.start.x + bendGuide.end.x) / 2);
+  const gripY = $derived((bendGuide.start.y + bendGuide.end.y) / 2);
 
   // Routing style: 'straight' draws a direct line; 'step' is a sharp-cornered
   // orthogonal path; 'smooth' (the default) keeps the rounded step corners. The
@@ -141,6 +158,7 @@
   const route = $derived(data?.route ?? "smooth");
 
   let [path, labelX, labelY] = $derived.by(() => {
+    if (drawing) return [drawing.path, drawing.label.x, drawing.label.y] as const;
     if (route === "straight") {
       return getStraightPath({
         sourceX: ends.sx,
@@ -219,12 +237,16 @@
     data?.onContextMenu?.(id, "edge", e.clientX, e.clientY);
   }
 
+  let stopBendDrag: (() => void) | undefined;
+  onDestroy(() => stopBendDrag?.());
   function handleBendPointerDown(e: PointerEvent) {
+    if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
-    const isHorizontal = horizontal;
+    const axis = bendGuide.axis;
+    const isHorizontal = axis === 'x';
     const startClient = isHorizontal ? e.clientX : e.clientY;
-    const startOffset = data?.bendOffset ?? 0;
+    const startOffset = bendGuide.offset;
 
     function onMove(moveEvent: PointerEvent) {
       const zoom = store.viewport.zoom || 1;
@@ -237,27 +259,68 @@
         -BEND_OFFSET_LIMIT,
         Math.min(BEND_OFFSET_LIMIT, Math.round(startOffset + delta / zoom)),
       );
-      data?.onBendOffsetChange?.(id, next);
+      data?.onBendOffsetChange?.(id, next, axis);
     }
 
     function onUp() {
+      stopBendDrag?.();
+      // Record the complete drag as one undo step.
+      data?.onBendOffsetCommit?.(id);
+    }
+    stopBendDrag = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
-      // The move handler updates the offset live without touching history; record
-      // the single undo step and schedule the save now that the drag has settled.
-      data?.onBendOffsetCommit?.(id);
-    }
+      stopBendDrag = undefined;
+    };
 
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp, { once: true });
     window.addEventListener("pointercancel", onUp, { once: true });
   }
+  function measureLabel(element: HTMLElement) {
+    const observer = new ResizeObserver(() => {
+      const size = { width: element.offsetWidth, height: element.offsetHeight };
+      const previous = routes.labelSizes.get(id);
+      if (size.width && size.height && (previous?.width !== size.width || previous?.height !== size.height)) routes.labelSizes.set(id, size);
+    });
+    observer.observe(element);
+    return { destroy() { observer.disconnect(); routes.labelSizes.delete(id); } };
+  }
+  let labelDragged = false;
+  let stopLabelDrag: (() => void) | undefined;
+  onDestroy(() => stopLabelDrag?.());
+  function startLabelDrag(event: PointerEvent) {
+    if (!data?.onLabelOffsetChange || event.button !== 0 || !drawing) return;
+    const start = { x: event.clientX, y: event.clientY };
+    const initial = { x: drawing.label.x - drawing.anchor.x, y: drawing.label.y - drawing.anchor.y };
+    labelDragged = false;
+    const move = (e: PointerEvent) => {
+      const dx = e.clientX - start.x, dy = e.clientY - start.y;
+      if (!labelDragged && Math.hypot(dx, dy) < 4) return;
+      labelDragged = true;
+      const zoom = store.viewport.zoom || 1;
+      data?.onLabelOffsetChange?.(id, { x: Math.max(-4000, Math.min(4000, initial.x + dx / zoom)), y: Math.max(-4000, Math.min(4000, initial.y + dy / zoom)) });
+    };
+    const finish = () => { stopLabelDrag?.(); if (labelDragged) data?.onLabelOffsetCommit?.(); };
+    stopLabelDrag = () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', finish); window.removeEventListener('pointercancel', finish); stopLabelDrag = undefined; };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish, { once: true });
+    window.addEventListener('pointercancel', finish, { once: true });
+  }
+  function moveLabelByKey(e: KeyboardEvent) {
+    const delta = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+    if (!delta || !drawing || !data?.onLabelOffsetChange) return;
+    e.preventDefault(); e.stopPropagation();
+    const step = e.shiftKey ? 1 : 10;
+    data.onLabelOffsetChange(id, { x: Math.max(-4000, Math.min(4000, drawing.label.x - drawing.anchor.x + delta[0] * step)), y: Math.max(-4000, Math.min(4000, drawing.label.y - drawing.anchor.y + delta[1] * step)) });
+    data.onLabelOffsetCommit?.();
+  }
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <!-- svelte-ignore a11y_click_events_have_key_events -->
-<g oncontextmenu={handleContextMenu} onclick={handleEdgeClick}>
+<g style:--edge-ink={data?.color ?? "var(--diagram-edge-stroke)"} style:--edge-marker-ink={data?.color ?? "var(--diagram-edge-arrow)"} style:--edge-weight={data?.width ?? (data?.kind === "data" ? 1.75 : 1.3)} oncontextmenu={handleContextMenu} onclick={handleEdgeClick}>
   <BaseEdge
     {path}
     {labelX}
@@ -274,7 +337,7 @@
        "many" end is a crow's foot whose three prongs spread at the entity
        boundary (ERD convention) and converge toward the edge. -->
   {#if sourceEnd}
-    <g transform="translate({ends.sx},{ends.sy}) rotate({sourceAngle})">
+    <g class="diagram-cardinality" transform="translate({ends.sx},{ends.sy}) rotate({sourceAngle})">
       {#if sourceEnd === 'n'}
         {@render crowFoot()}
       {:else}
@@ -283,7 +346,7 @@
     </g>
   {/if}
   {#if targetEnd}
-    <g transform="translate({ends.tx},{ends.ty}) rotate({targetAngle})">
+    <g class="diagram-cardinality" transform="translate({ends.tx},{ends.ty}) rotate({targetAngle})">
       {#if targetEnd === 'n'}
         {@render crowFoot()}
       {:else}
@@ -299,7 +362,7 @@
        hotspots would otherwise sit on top of the node handles and block drawing
        fresh edges from those sides. The dot auto-hides mid-drag (anchor only
        renders children when not reconnecting). -->
-  {#if selected}
+  {#if selected && data?.onLabelChange}
     <EdgeReconnectAnchor
       type="source"
       position={{ x: ends.sx, y: ends.sy }}
@@ -325,30 +388,35 @@
          edge has no stepped middle segment, so the bend grab is hidden there. -->
     {#if route !== "straight"}
     <line
-      class="edge-bend-hit nodrag nopan"
-      x1={horizontal ? centerX : ends.sx}
-      y1={horizontal ? ends.sy : centerY}
-      x2={horizontal ? centerX : ends.tx}
-      y2={horizontal ? ends.ty : centerY}
-      style:cursor={horizontal ? "ew-resize" : "ns-resize"}
+      data-diagram-editor-only class="edge-bend-hit nodrag nopan"
+      x1={bendGuide.start.x}
+      y1={bendGuide.start.y}
+      x2={bendGuide.end.x}
+      y2={bendGuide.end.y}
+      style:cursor={bendGuide.axis === 'x' ? "ew-resize" : "ns-resize"}
       onpointerdown={handleBendPointerDown}
       onclick={(e) => e.stopPropagation()}
     />
     <line
-      class="edge-bend-guide-bg"
-      x1={horizontal ? centerX : midX - 8}
-      y1={horizontal ? midY - 8 : centerY}
-      x2={horizontal ? centerX : midX + 8}
-      y2={horizontal ? midY + 8 : centerY}
+      data-diagram-editor-only class="edge-bend-guide-bg"
+      x1={gripX - (bendGuide.axis === 'y' ? 8 : 0)}
+      y1={gripY - (bendGuide.axis === 'x' ? 8 : 0)}
+      x2={gripX + (bendGuide.axis === 'y' ? 8 : 0)}
+      y2={gripY + (bendGuide.axis === 'x' ? 8 : 0)}
     />
     <line
-      class="edge-bend-guide"
-      x1={horizontal ? centerX : midX - 8}
-      y1={horizontal ? midY - 8 : centerY}
-      x2={horizontal ? centerX : midX + 8}
-      y2={horizontal ? midY + 8 : centerY}
+      data-diagram-editor-only class="edge-bend-guide"
+      x1={gripX - (bendGuide.axis === 'y' ? 8 : 0)}
+      y1={gripY - (bendGuide.axis === 'x' ? 8 : 0)}
+      x2={gripX + (bendGuide.axis === 'y' ? 8 : 0)}
+      y2={gripY + (bendGuide.axis === 'x' ? 8 : 0)}
     />
     {/if}
+  {/if}
+
+  {#if label && drawing && Math.hypot(drawing.label.x - drawing.anchor.x, drawing.label.y - drawing.anchor.y) > 24}
+    <line x1={drawing.anchor.x} y1={drawing.anchor.y} x2={drawing.label.x} y2={drawing.label.y}
+      stroke="var(--diagram-edge-stroke)" stroke-width="1" stroke-dasharray="2 3" pointer-events="none" />
   {/if}
 
   <!-- Only render a label chip when there's text to show (or while editing).
@@ -365,19 +433,24 @@
       />
     </EdgeLabel>
   {:else if label && data?.onLabelChange}
-    <EdgeLabel x={labelX} y={selected ? labelY - SELECTED_LABEL_OFFSET : labelY} selectEdgeOnClick>
+    <EdgeLabel x={labelX} y={labelY} selectEdgeOnClick>
       <button
         type="button"
         class="edge-label-display nodrag nopan"
         class:edge-label-display--selected={selected}
         aria-label="Edit edge label"
-        onclick={editor.start}>{label}</button
+        use:measureLabel
+        onpointerdown={startLabelDrag}
+        onclick={(e) => { if (labelDragged) { e.stopPropagation(); labelDragged = false; return; } editor.start(e); }}
+        onkeydown={moveLabelByKey}
+        title="Drag to move label. Arrow keys move it; Enter edits it."
+        >{label}</button
       >
     </EdgeLabel>
   {:else if label}
     <!-- Read-only: the same chip, minus the edit affordance. -->
     <EdgeLabel x={labelX} y={labelY}>
-      <span class="edge-label-display edge-label-display--static">{label}</span>
+      <span use:measureLabel class="edge-label-display edge-label-display--static">{label}</span>
     </EdgeLabel>
   {/if}
 </g>
@@ -401,14 +474,18 @@
   .edge-label-display {
     padding: 0.0625rem 0.3125rem;
     border-radius: 0.3125rem;
-    font-size: var(--text-xs);
+    font-size: 12px;
     font-weight: 500;
     color: var(--diagram-edge-label);
-    background: transparent;
+    background: var(--solus-container-bg);
     border: none;
     box-shadow: none;
     cursor: text;
-    white-space: nowrap;
+    max-width: 240px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    line-height: 18px;
+    touch-action: none;
     transition: color var(--duration-base) var(--ease-premium);
   }
 
@@ -507,7 +584,7 @@
     border-radius: 0.25rem;
     background: var(--solus-container-bg);
     color: var(--solus-text-primary);
-    font-size: var(--text-xs);
+    font-size: 12px;
     font-weight: 500;
     outline: none;
     box-shadow: 0 0 0 0.125rem var(--solus-accent-soft);

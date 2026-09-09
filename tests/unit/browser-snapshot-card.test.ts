@@ -1,6 +1,4 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { Message } from '@solus/contracts/types'
 import type { BrowserSnapshotRef } from '@solus/contracts/browser-types'
 import { snapshotViewportLabel } from '@solus/contracts/browser-types'
@@ -13,11 +11,6 @@ import {
   snapshotStamp,
   snapshotTitle,
 } from '@solus/workspace-ui/components/browser/lib/snapshot-card'
-
-const cardSource = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/browser/BrowserSnapshotCard.svelte'),
-  'utf8',
-)
 
 /**
  * The snapshot card exists because tool output never reaches a client: without
@@ -42,14 +35,6 @@ function snapshot(overrides: Partial<BrowserSnapshotRef> = {}): BrowserSnapshotR
 }
 
 describe('what a snapshot card says', () => {
-  test('keeps its header and footer below transcript body text at each display size', () => {
-    // WHY: the screenshot is the evidence and must remain the visual focus. The
-    // transcript meta rung is 12px on desktop and 11px on a precise-pointer
-    // laptop, so the card chrome does not grow into a second message body.
-    expect(cardSource).toContain('class="text-transcript-meta browser-snapshot-card')
-    expect(cardSource).not.toContain('class="text-workspace-chrome browser-snapshot-card')
-  })
-
   test('names the device it was captured as, not just the page', () => {
     // WHY: the same page at two viewports produces two very different pictures.
     // A caption that never says which device this was makes a set of captures

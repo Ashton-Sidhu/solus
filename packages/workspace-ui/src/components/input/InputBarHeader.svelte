@@ -6,7 +6,6 @@
   import { mergeProps } from "bits-ui";
   import {
     getWorkspaceContext,
-    getWindowContext,
     getSessionEnvironmentStore,
     serversStore,
   } from "../../contexts";
@@ -38,6 +37,7 @@
   import { withSelectedWorktree } from "./lib/worktree-destination";
 
   interface Props {
+    active: boolean;
     /** The tab or draft this header describes. A draft has no tab, so the header
      *  resolves its run through `runFor` and never assumes a session exists.
      *  Unset for the workspace dock, which follows the active conversation. */
@@ -52,6 +52,7 @@
     projectPickerAnchor?: HTMLElement | null;
   }
   let {
+    active,
     sourceId,
     paneId,
     projectPickerOpen = $bindable(false),
@@ -59,7 +60,6 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
-  const windowCtx = getWindowContext();
   const environmentStore = getSessionEnvironmentStore();
   const isPinned = $derived(sourceId !== undefined);
   const source = $derived(sourceId ?? session.activeTabId);
@@ -173,7 +173,7 @@
   $effect(() => {
     if (isPinned) return;
     const handler = (event: Event) => {
-      if (windowCtx.viewMode !== "editor" || !hasGitRepository) return;
+      if (!active || !hasGitRepository) return;
       if (gitOpen) {
         gitOpen = false;
       } else {

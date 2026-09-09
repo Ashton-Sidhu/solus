@@ -4,10 +4,7 @@
   import { clearChip, filterChips, parseToken } from "./lib/workspace-items";
   import { runtime } from "../../contexts";
   import {
-    FILTER_SEARCH_FIELD,
-    FILTER_SEARCH_ICON,
     FILTER_SEARCH_INPUT,
-    FILTER_SEARCH_KEYCAP,
   } from "../ui/list-page/filter-styles";
 
   /** Search field with token chips. A typed `key:value` becomes a chip on
@@ -79,8 +76,8 @@
      rung a 44px card with a 16px field — under 16px iOS zooms in on focus and
      does not zoom back out. The laptop rung is this page's own, because its
      chips beside it keep it too. -->
-<div class="{FILTER_SEARCH_FIELD} [.is-laptop-display_&]:h-6.5">
-  <MagnifyingGlassIcon size={12} class={FILTER_SEARCH_ICON} />
+<div class="flex h-8 min-w-0 flex-1 items-center gap-2 rounded-lg bg-card px-2.5 text-workspace-chrome shadow-[shadow:var(--elev-ring)] focus-within:shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary)_45%,transparent)] @max-[30rem]/pane:h-10 @max-[30rem]/pane:text-base">
+  <MagnifyingGlassIcon size={16} class="shrink-0 text-muted-foreground" />
 
   {#each chips as chip (chip.key)}
     <!-- The token rides inside the field, so it keeps the small rung the field
@@ -115,9 +112,5 @@
     <span class="shrink-0 tabular-nums text-muted-foreground opacity-75">
       {matches} {matches === 1 ? "match" : "matches"}
     </span>
-  {:else}
-    <!-- The keycap names the key that focuses this field, so it is absent on a
-         record, where there is no keyboard for it to describe. -->
-    <span class={FILTER_SEARCH_KEYCAP} aria-hidden="true">/</span>
   {/if}
 </div>

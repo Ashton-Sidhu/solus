@@ -1,7 +1,8 @@
 import { createAppContext } from '../app/create-app-context'
+import { ToolHistoryStore } from './tool-history.store'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
-import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, RuntimeSessionInfo, SessionDescription, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, PrReviewContext, PromptDelivery, PromptImageRef, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
+import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, RuntimeSessionInfo, SessionDescription, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, PrReviewContext, PromptImageRef, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { parseGitHubPullRequestUrl, type PrReviewTarget, type PullRequest, type RepoRef } from '@solus/contracts/providers'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewTarget } from '@solus/contracts/review'
 import type { SolusEventMap, Via } from '@solus/contracts/analytics-events'
@@ -26,7 +27,6 @@ import type { ProjectPageScope, ProjectRef } from '../projects/project-catalog'
 import { prSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { insightsStore } from '../../components/insights/insights.store.svelte'
 import { type Task, type TaskSnapshot } from '@solus/contracts/task-types'
-import { writeSessionHandoff } from './active-session-pointer'
 import { toasts } from '../../lib/toasts'
 import { RouterStore } from './routing/router.store.svelte'
 import { visibleRef, type NavTarget, type PaneId } from './routing/location'
@@ -42,7 +42,7 @@ import { WorkspaceLifecycleStore, type StaticInfo } from './workspace-lifecycle.
 import { SessionEventReducer } from './session-event-reducer.svelte'
 import { sessionTitleRegenerationInput } from './session-title-regeneration'
 import { type SettingsContext, type TabGroupMode } from '../app/settings.context.svelte'
-import { type WindowContext } from '../app/window.context.svelte'
+import { type ClientShellContext } from '../app/client-shell.svelte'
 import { type StatusBarContext } from '../app/status-bar.context.svelte'
 import { type AgentContext } from '../app/agent.context.svelte'
 import { environmentProjectKey, type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
@@ -76,7 +76,7 @@ import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry'
 import type { HostApi } from '@solus/client-core/host-api'
 import { localApi } from '@solus/client-core/local-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
-import { classifySendFailure, sendOutbox, type OutboxRecord } from '@solus/client-core/send-outbox'
+import { sendOutbox, classifySendFailure, type OutboxRecord } from '@solus/client-core/send-outbox'
 import { hostKey } from '@solus/client-core/host-key'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import { prReviewGitCheckout } from './pr-review-checkout'
@@ -195,12 +195,15 @@ interface CreateTabOptions {
 
 interface ForkTabOptions {
   activate?: boolean
+  task?: Session['task']
 }
 
 const notificationAudio = new Audio(notificationSrc)
 notificationAudio.volume = 1.0
 
 export class WorkspaceContext {
+  readonly toolHistory = new ToolHistoryStore()
+  get deferHistoryToolInputs(): boolean { return this.shell.deferHistoryToolInputs }
   registry = new TabRegistry()
   lifecycle: WorkspaceLifecycleStore
   pendingInput = $state<string | null>(null)
@@ -238,7 +241,7 @@ export class WorkspaceContext {
   onPromptSubmitted?: (tabId: string) => void
 
   settings: SettingsContext
-  private window: WindowContext
+  private shell: ClientShellContext
   private statusBar: StatusBarContext
   private agent?: AgentContext
   private workStreamTracker: WorkStreamTracker
@@ -254,7 +257,7 @@ export class WorkspaceContext {
 
   constructor(
     settings: SettingsContext,
-    windowCtx: WindowContext,
+    shell: ClientShellContext,
     statusBar: StatusBarContext,
     planStore: PlanStore,
     environment: SessionEnvironmentStore,
@@ -262,7 +265,7 @@ export class WorkspaceContext {
     agent?: AgentContext,
   ) {
     this.settings = settings
-    this.window = windowCtx
+    this.shell = shell
     this.statusBar = statusBar
     this.agent = agent
     this.planStore = planStore
@@ -378,7 +381,7 @@ export class WorkspaceContext {
       hasDraft: (sourceId) => this.sessionDrafts.has(sourceId),
       globalDefaults: this.globalDefaults,
       staticInfo: () => this.staticInfo,
-      window: this.window,
+      rpcWindow: () => this.shell.rpcWindow,
       settings: this.settings,
       statusBar: this.statusBar,
     })
@@ -543,22 +546,38 @@ export class WorkspaceContext {
     this.router.close('review')
   }
 
+  /** Visibility can change without selecting a tab: window focus, closing a
+   *  page, expanding the pill, and restoring a companion all reveal chats. */
+  trackVisibleConversations(): void {
+    $effect(() => {
+      for (const tabId of this.tabOrder) {
+        const tab = this.tabs[tabId]
+        if (tab?.hasUnread && this.isSessionVisible(tab.sessionId)) {
+          tab.hasUnread = false
+        }
+      }
+    })
+  }
+
   /** Is this conversation on screen anywhere? A session may be watched by
    *  several tabs; any one of them being on screen makes it visible. */
   private isSessionVisible(sessionId: string): boolean {
-    const editorLike = this.window.viewMode === 'editor' || this.window.isWeb
+    if (!this.shell.visible) return false
+    const hasCompanionPanes = this.shell.hasCompanionPanes
     // A chat pinned in a companion pane is on screen too — but only in
     // editor/web, where companion panes actually render.
-    if (editorLike && this.router.asidePanes.some(
+    if (hasCompanionPanes && this.router.asidePanes.some(
       (pane) => this.router.chatSessionIn(pane.id) === sessionId,
     )) {
       return true
     }
     return this.tabs[this.activeTabId]?.sessionId === sessionId
-      && (editorLike || this.isExpanded)
+      && this.showsConversation
+      && this.shell.conversationVisible
   }
 
   isSessionVisibleOnHost(serverId: string, sessionId: string): boolean {
+    if (!this.shell.visible) return false
     const tabId = findOpenTabForSession(
       sessionId,
       this.tabs,
@@ -568,8 +587,8 @@ export class WorkspaceContext {
       serverId,
     )
     if (!tabId) return false
-    const editorLike = this.window.viewMode === 'editor' || this.window.isWeb
-    if (editorLike && this.router.asidePanes.some((pane) => {
+    const hasCompanionPanes = this.shell.hasCompanionPanes
+    if (hasCompanionPanes && this.router.asidePanes.some((pane) => {
       if (pane.overlay || pane.base?.name !== 'chat') return false
       if (pane.base.params.sessionId !== sessionId) return false
       return pane.base.params.serverId
@@ -578,7 +597,7 @@ export class WorkspaceContext {
     })) {
       return true
     }
-    return this.activeTabId === tabId && (editorLike || this.isExpanded)
+    return this.activeTabId === tabId && this.showsConversation && this.shell.conversationVisible
   }
 
   /** Whether the conversation pool is what the leading pane is showing. A page,
@@ -1044,7 +1063,7 @@ export class WorkspaceContext {
    *  mobile web shell have no rail, so the goal takes the secondary pane. */
   revealGoal(tabId: string): void {
     const sessionId = this.tabs[tabId]?.sessionId
-    if (this.window.viewMode !== 'editor') {
+    if (!this.shell.hasProjectPanel) {
       if (!sessionId) return
       const pane = this.router.navigate(
         { name: 'goal', params: { sessionId, serverId: this.sessions[sessionId]?.run.serverId } },
@@ -1662,8 +1681,8 @@ export class WorkspaceContext {
   }
 
   /** Fork a session into a new tab. The fork inherits the transcript through the
-   *  source's last settled turn, resumes on first prompt, and lands as a subtask
-   *  of whatever task the source is working. */
+   *  source's last settled turn, resumes on first prompt, and joins the exact
+   *  task the source is working. */
   async forkTab(sourceTabId: string, options: ForkTabOptions = {}): Promise<string | null> {
     const sourceSession = this.sessionFor(sourceTabId)
     if (!sourceSession?.agentSessionId) return null
@@ -1693,26 +1712,17 @@ export class WorkspaceContext {
     }
     if (inFlightFrom !== -1) forkInfoMsg.forkSourceRunning = true
 
-    // A fork is another attempt at the same goal, so it belongs under the source's
-    // task rather than beside it as a loose session. Nesting is one level deep:
-    // forking a subtask's session adds a sibling under their shared parent.
-    const sourceTask = this.tasksStore.taskForSession(sourceSession.agentSessionId)
-      ?? (existingTaskId(sourceSession.task)
-        ? this.tasksStore.tasks.find((task) => task.id === existingTaskId(sourceSession.task))
-        : undefined)
-      ?? (parentTaskId(sourceSession.task)
-        ? this.tasksStore.tasks.find((task) => task.id === parentTaskId(sourceSession.task))
-        : undefined)
-
-    const forkTask: Session['task'] = sourceSession.task.kind === 'none'
-      ? { kind: 'none' }
-      : { kind: 'new' }
-    if (forkTask.kind === 'new' && sourceTask) forkTask.parentTaskId = sourceTask.parentId ?? sourceTask.id
+    const taskId = this.ownedTaskId(sourceSession)
+    const forkTask: Session['task'] = taskId
+      ? { kind: 'existing', taskId }
+      : { ...sourceSession.task }
     const forkedSession = makeSession(this.settings, {
       agentSessionId: sourceSession.agentSessionId,
       forked: true,
       forkExcludeLatestTurn: sourceIsRunning && inFlightFrom !== -1,
-      forkedFromSessionId: sourceSession.agentSessionId,
+      // Source provenance lives on the divider. It is not an identity alias:
+      // this fork and its source remain separate sessions.
+      forkedFromSessionId: null,
       messages: [...copiedMessages, forkInfoMsg],
       additionalDirs: [...sourceSession.additionalDirs],
       // A fork runs exactly where its source does.
@@ -1723,9 +1733,8 @@ export class WorkspaceContext {
         sessionSkills: [...sourceSession.run.sessionSkills],
       },
       pluginCommands: this.pluginCommands,
-      // A fork hangs under its source's top-level task until its own subtask is
-      // minted after its first turn — unless the source opted out of tasks entirely.
-      task: forkTask,
+      // Both entry points keep the exact source task.
+      task: options.task ?? forkTask,
     })
 
     forkedSession.title = `Fork: ${originalTitle}`
@@ -1738,7 +1747,7 @@ export class WorkspaceContext {
       this.setActiveTab(forkTab.id)
       this.resetOverlays()
     }
-    await this.environment.refreshEnvironment(this, { sourceId: tabId })
+    void this.environment.refreshEnvironment(this, { sourceId: tabId }).catch(() => null)
     if (options.activate !== false) requestInputFocus()
     return tabId
   }
@@ -1749,13 +1758,18 @@ export class WorkspaceContext {
    */
   async askInNewSession(sourceTabId: string, selectedText: string): Promise<void> {
     const draft = quotedReplyDraft(selectedText)
-    if (!draft || !this.sessionFor(sourceTabId)?.agentSessionId) return
+    const sourceSession = this.sessionFor(sourceTabId)
+    if (!draft || !sourceSession?.agentSessionId) return
 
     const splitTabId = this.splitChatTabId
     if (splitTabId === sourceTabId) this.promoteSplitToMainTab()
     else if (sourceTabId !== this.activeTabId) this.selectTab(sourceTabId)
 
-    const forkTabId = await this.forkTab(sourceTabId, { activate: false })
+    const taskId = this.ownedTaskId(sourceSession)
+    const forkTabId = await this.forkTab(sourceTabId, {
+      activate: false,
+      task: taskId ? { kind: 'existing', taskId } : { ...sourceSession.task },
+    })
     if (!forkTabId) return
     const forked = this.sessionFor(forkTabId)!
     forked.prompt.text = draft
@@ -1974,20 +1988,15 @@ export class WorkspaceContext {
    *  this is a bare window switch) and surfaces its window; main hides this
    *  one per switchMode's asymmetric visibility rules. */
   async continueInOtherMode(): Promise<void> {
-    const target = this.window.viewMode === 'pill' ? 'editor' : 'pill'
-    const sess = this.activeSession
-    if (sess?.agentSessionId) {
-      writeSessionHandoff({
-        sessionId: sess.agentSessionId,
-        serverId: sess.run.serverId,
-        provider: sess.run.provider ?? this.settings.activeAgent,
-        cwd: sess.run.workingDirectory,
-        title: sess.title ?? null,
-        target,
-      })
-    }
-    track('mode_toggled', { mode: target })
-    await this.window.setViewMode(target)
+    if (!this.shell.continueInOtherWindow) return
+    const session = this.activeSession
+    await this.shell.continueInOtherWindow(session?.agentSessionId ? {
+      sessionId: session.agentSessionId,
+      serverId: session.run.serverId,
+      provider: session.run.provider ?? this.settings.activeAgent,
+      cwd: session.run.workingDirectory,
+      title: session.title ?? null,
+    } : undefined)
   }
 
 
@@ -1997,6 +2006,7 @@ export class WorkspaceContext {
     const inheritedGitContext = gitCheckoutFromState(
       this.environment.statusFor(inheritedWorktreePath ?? workingDirectory),
       inheritedWorktreePath,
+      this.globalDefaults.gitContext?.repoRoot,
     )
     const session = makeSession(this.settings, {
       run: {
@@ -2035,8 +2045,8 @@ export class WorkspaceContext {
     const sessionId = tab?.sessionId
     const closedBranchKey = branchKeyFor(this.sessionFor(tabId))
     const openTabIds = this.tabOrder.filter((id) => this.tabs[id])
-    const editorLike = this.window.viewMode === 'editor' || this.window.isWeb
-    const displayedTabIds = editorLike
+    const groupsTabsByBranch = this.shell.groupsTabsByBranch
+    const displayedTabIds = groupsTabsByBranch
       ? openTabIds.filter((id) => branchKeyFor(this.sessionFor(id)) === closedBranchKey)
       : openTabIds
     const visualTabIds = buildTabSections(
@@ -2896,7 +2906,7 @@ export class WorkspaceContext {
 
     session.run.provider = session.run.provider ?? this.settings.activeAgent
 
-    const isFirstMessage = session.messages.length === 0
+    const isFirstMessage = session.messages.length === 0 || (session.forked && !session.forkedFromSessionId)
     const agent = session.run.provider ?? this.settings.activeAgent
     if (isFirstMessage) track('conversation_started', { agent })
     track('message_sent', { agent, is_first_message: isFirstMessage, permission_mode: session.run.permissionMode, attachment_count: input.attachments.length, image_count: imageAttachments.length, plan_ref_count: planRefs?.length ?? 0, work_ref_count: workRefs?.length ?? 0, session_ref_count: sessionRefs?.length ?? 0, has_slash_command: prompt.startsWith('/'), delivery: isBusy ? (isSteerableStatus(session.status) && delivery === 'steer' ? 'steer' : 'queue') : 'immediate', is_remote_host: session.run.serverId !== LOCAL_SERVER_ID })
@@ -2962,7 +2972,7 @@ export class WorkspaceContext {
       imageAttachments: imagePayload.inline,
       imageAttachmentRefs: imagePayload.refs,
       taskId: promptTaskId,
-      // Only until the fork's own subtask exists — the two are mutually exclusive.
+      // An existing task and a request to create a child are mutually exclusive.
       parentTaskId: promptTaskId ? undefined : parentTaskId(session.task) ?? undefined,
       skipTaskCreation: session.task.kind === 'none' || undefined,
       goalObjective: isFirstMessage ? session.pendingGoalObjective ?? undefined : undefined,
@@ -3208,14 +3218,16 @@ export class WorkspaceContext {
     const cwd = this.sessionFor(this.activeTabId)?.run.workingDirectory
     let resolvedId = workId
     if (workId) {
-      if (!(await this.worksStore.ensureContent(workId, 'open-work-modal', cwd))) return
+      // Start the read with the originating directory, then show the pane's
+      // loading state while it completes. WorkPane shares this pending read.
+      void this.worksStore.ensureContent(workId, 'open-work-modal', cwd)
     } else {
       if (!title) return
       // workId not yet resolved (historical message) — load manifest once, find by title
       await this.worksStore.loadAll(cwd)
       const entry = Object.entries(this.worksStore.works).find(([, w]) => w.title === title)
       if (!entry) return
-      if (!(await this.worksStore.ensureContent(entry[0], 'open-work-modal-title-fallback', cwd))) return
+      void this.worksStore.ensureContent(entry[0], 'open-work-modal-title-fallback', cwd)
       resolvedId = entry[0]
     }
     this.router.close('folio')
@@ -3536,7 +3548,7 @@ export class WorkspaceContext {
     // Browser is an Editor-mode surface: the pill has no pane row to put a
     // stage in, and a browser viewport inside the summon window would be
     // smaller than the phone it is showing.
-    if (this.window.viewMode !== 'editor') void this.window.setViewMode('editor')
+    void this.shell.showWorkspace?.()
   }
 
   /**
@@ -3734,7 +3746,7 @@ export class WorkspaceContext {
     ctx: IpcContext = this.ctx,
     serverId = this.serverIdForContext(ctx),
   ): Promise<void> {
-    if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
+    await this.shell.showWorkspace?.()
     this.pullRequests.view.beginReviewMode(items.map((item) => item.number), ctx, serverId)
     this.showPage({ name: 'reviewMode', params: {} }, 'click', 'review')
   }
@@ -3821,7 +3833,7 @@ export class WorkspaceContext {
     via: Via = 'click',
     target: 'focused' | 'aside' = 'focused',
   ): void {
-    if (focusId && this.window.viewMode === 'editor') this.openAutomationBuilder(focusId, target)
+    if (focusId && this.shell.hasCompanionPanes) this.openAutomationBuilder(focusId, target)
     else {
       this.showPage(
         { name: 'automations', params: { automationId: focusId ?? undefined } },
@@ -4012,7 +4024,7 @@ export class WorkspaceContext {
         void localApi.openExternal(fallbackUrl)
         return null
       }
-      if (this.window.viewMode !== 'editor') await this.window.setViewMode('editor')
+      await this.shell.showWorkspace?.()
     }
     const pane = this.router.navigate(ref, {
       target: opts.target ?? this.router.leadingPane.id,
@@ -4075,8 +4087,8 @@ export class WorkspaceContext {
     // Switch to the editor layout up front so the click registers immediately.
     // Only a preflighting caller waits, so an inaccessible web link never
     // causes a visible mode or pane transition before it opens the browser.
-    if (!opts.preflight && this.window.viewMode !== 'editor') {
-      await this.window.setViewMode('editor')
+    if (!opts.preflight) {
+      await this.shell.showWorkspace?.()
     }
     const ctx = opts.ctx ?? this.ctx
     await this.openPrReviewRoute(number, title, ctx, {

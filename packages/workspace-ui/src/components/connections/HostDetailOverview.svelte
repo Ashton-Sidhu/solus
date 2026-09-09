@@ -1,4 +1,5 @@
 <script lang="ts">
+  import HostUpdateRow from "./HostUpdateRow.svelte";
   /** Where a host stands, at a glance — each summary row is a way into the tab
    *  that can actually change it. */
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
@@ -59,6 +60,7 @@
 </script>
 
 <SettingsSection label="This host">
+  <HostUpdateRow {host} />
   <SettingsRow label="Reachable" description={reachability}>
     {#snippet control()}
       <Button

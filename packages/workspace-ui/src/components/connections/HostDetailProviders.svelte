@@ -16,6 +16,12 @@
 </script>
 
 <ProviderPanel {setup} />
+{#if setup.logLines.length}
+  <details class="text-workspace-chrome">
+    <summary class="cursor-pointer text-muted-foreground">Provider setup output</summary>
+    <pre class="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-muted p-3 text-workspace-chrome">{setup.logLines.join('\n')}</pre>
+  </details>
+{/if}
 
 <SettingsSection label="Session defaults">
   <SettingsRow

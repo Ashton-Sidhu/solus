@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils, type IpcRendererEvent } from 'electron'
 import type { AccountState } from '@solus/contracts/account-types'
+import type { DesktopUpdateStatus } from '@solus/contracts/desktop-update-types'
 import type { ClientNotificationRequest, NotificationSoundLog } from '@solus/contracts/notification-types'
 
 const LOCAL_CONNECTION_CHANNEL = 'solus:local-connection'
@@ -42,6 +43,7 @@ const subscribeThemeChange = channelFanOut<[isDark: boolean]>('solus:theme-chang
 const subscribeWindowShown = channelFanOut<[cursorPos: { x: number; y: number } | null]>('solus:window-shown')
 const subscribeWindowHidden = channelFanOut<[]>('solus:window-hidden')
 const subscribeAccountStateChange = channelFanOut<[state: AccountState]>('solus:account-state-changed')
+const subscribeUpdateStatusChange = channelFanOut<[status: DesktopUpdateStatus]>('solus:update-status-changed')
 
 const nativeApi: NativeSolusAPI = {
   getPlatform: () => process.platform,
@@ -82,6 +84,12 @@ const nativeApi: NativeSolusAPI = {
   uplinkListDirectoryHosts: () => ipcRenderer.invoke('solus:uplink-directory'),
   uplinkAcquireHostGrant: (hostId: string) => ipcRenderer.invoke('solus:uplink-grant', hostId),
   uplinkIssueEnrollmentTicket: () => ipcRenderer.invoke('solus:uplink-enrollment-ticket'),
+  updateStatus: () => ipcRenderer.invoke('solus:update-status'),
+  checkForUpdate: () => ipcRenderer.invoke('solus:update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('solus:update-download'),
+  restartToUpdate: () => ipcRenderer.send('solus:update-restart'),
+  setUpdateAutoDownload: (enabled: boolean) => ipcRenderer.invoke('solus:update-set-auto-download', enabled),
+  onUpdateStatusChange: subscribeUpdateStatusChange,
 }
 
 contextBridge.exposeInMainWorld('solusNative', nativeApi)

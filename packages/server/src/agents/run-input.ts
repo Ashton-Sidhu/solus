@@ -1,4 +1,6 @@
-import type { IpcContext, SessionRunInput } from '@solus/contracts/types'
+import type { ProviderConversation } from './agent-runner'
+import type { AgentId, IpcContext, SessionRunInput } from '@solus/contracts/types'
+import { MODEL_PROFILES } from '@solus/contracts/types'
 import { getHostConfig } from '../server/settings'
 
 /**
@@ -19,6 +21,28 @@ export function hostInstructionsFor(
     extraInstructions: config.extraInstructions,
     // A run with no resolved model simply has nothing scoped to it.
     modelInstructions: model ? config.modelInstructions[model] : undefined,
+  }
+}
+
+/**
+ * The model fields for a run with no renderer behind it. An automation stores
+ * no model to mean "the provider default", and all four of these fields are
+ * derived from the model, so they have to resolve it together — passing the
+ * unresolved model through left the window, the model-scoped instructions and
+ * the model itself disagreeing, and the backend fell back to whatever its own
+ * CLI defaults to instead of ours.
+ */
+export function hostModelInputFor(
+  provider: AgentId | null | undefined,
+  modelId: string | null | undefined,
+): Pick<SessionRunInput, 'contextWindow' | 'model' | 'preferredModel' | 'extraInstructions' | 'modelInstructions'> {
+  const profiles = provider ? MODEL_PROFILES[provider] ?? {} : {}
+  const model = modelId || Object.entries(profiles).find(([, p]) => p.isDefault)?.[0] || null
+  return {
+    contextWindow: model ? profiles[model]?.defaultContextWindow ?? null : null,
+    model: model ?? '',
+    preferredModel: model,
+    ...hostInstructionsFor(model),
   }
 }
 
@@ -56,4 +80,13 @@ export function runInputFromContext(ctx: IpcContext): SessionRunInput {
     extraInstructions: settings.extraInstructions,
     modelInstructions: settings.modelInstructions?.[statusBar.model],
   }
+}
+
+/** Resolve the legacy client snapshot once. A fork source is never the new thread id. */
+export function providerConversationFor(input: Pick<SessionRunInput, 'agentSessionId' | 'forked' | 'forkExcludeLatestTurn'>): ProviderConversation {
+  if (!input.agentSessionId) return { kind: 'start' }
+  if (input.forked) {
+    return { kind: 'fork', sourceThreadId: input.agentSessionId, excludeLatestTurn: input.forkExcludeLatestTurn }
+  }
+  return { kind: 'resume', threadId: input.agentSessionId }
 }

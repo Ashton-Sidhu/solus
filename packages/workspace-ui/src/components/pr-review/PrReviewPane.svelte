@@ -1,4 +1,6 @@
 <script lang="ts">
+  import DiffLoadingSkeleton from "../diff/DiffLoadingSkeleton.svelte";
+  import PrReviewSkeleton from "./PrReviewSkeleton.svelte";
   import { tick, untrack } from "svelte";
   import {
     GitPullRequest as GitPullRequestIcon,
@@ -1003,6 +1005,9 @@
         <GithubConnectionRequired {serverId} />
       </div>
     {/if}
+    {#if !pr && !surfaceError}
+      <PrReviewSkeleton {embedded} showChrome={false} />
+    {:else}
     <!-- A cached guide can load without checkout. Generation prepares one. -->
     {#if mountedGuide && pr}
       <div
@@ -1083,9 +1088,7 @@
         {/if}
         <div class="min-h-0 flex-1">
           {#if review.diffLoading && review.diffPatch === null}
-            <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
-              Loading pull request diff…
-            </div>
+            <DiffLoadingSkeleton variant="map" />
           {:else if review.diffError}
             <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
               {review.diffError}
@@ -1129,9 +1132,7 @@
         {/if}
         <div class="min-h-0 flex-1">
           {#if diffViewLoading}
-            <div class="grid h-full place-items-center text-xs text-muted-foreground" role="status">
-              Loading {commitScope ? "commit" : "pull request"} diff…
-            </div>
+            <DiffLoadingSkeleton variant="diff" />
           {:else if diffViewError}
             <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
               {diffViewError}
@@ -1223,6 +1224,7 @@
           masthead={headless || embedded ? undefined : detailMasthead}
         />
       </div>
+    {/if}
     {/if}
   </div>
 

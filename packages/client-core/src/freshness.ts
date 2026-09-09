@@ -21,13 +21,3 @@ export interface DomainSyncState {
   freshness: Freshness
   error: string | null
 }
-
-export function emptySyncState(): DomainSyncState {
-  return { freshness: 'empty', error: null }
-}
-
-/** Live data always wins: a snapshot may only seed rungs below `live`, so a
- *  reconnect can never let a stale cache overwrite newer live rows. */
-export function mayApplyCachedSnapshot(state: DomainSyncState): boolean {
-  return state.freshness === 'empty' || state.freshness === 'cached'
-}

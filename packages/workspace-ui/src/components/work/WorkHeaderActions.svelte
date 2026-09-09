@@ -402,6 +402,7 @@
      action is one object wherever it appears. */
   .wha-solus {
     display: inline-flex;
+    flex-shrink: 0;
     align-items: stretch;
     height: 1.625rem;
     /* Set apart from the verbs on its left and from the pane's floating chrome
@@ -441,6 +442,7 @@
   }
   .wha-solus-caret {
     display: inline-flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     /* Wide enough that the caret has the same air on both sides of it as the
@@ -465,6 +467,7 @@
   /* Overflow (⋯) trigger — a verb like the rest, so it stays unfilled until hover. */
   .wha-overflow {
     display: inline-flex;
+    flex-shrink: 0;
     align-items: center;
     justify-content: center;
     width: 1.625rem;
@@ -493,6 +496,11 @@
   }
   .wha-actions {
     display: contents;
+  }
+  @container pane (max-width: 30rem) {
+    .wha-label {
+      display: none;
+    }
   }
   /* The row's laptop rung. The runtime owns the display boundary and stamps
      `is-laptop-display` on the document, so the cluster steps down with the

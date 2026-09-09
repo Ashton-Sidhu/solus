@@ -103,10 +103,6 @@ export function grantedGoogleScopes(): string[] | null {
   return stored.scopes ?? LEGACY_GRANTED_SCOPES
 }
 
-function base64url(buf: Buffer): string {
-  return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
-
 function assertConfigured(): void {
   if (!GOOGLE_CLIENT_ID) throw new Error('Google client ID not configured')
   if (!GOOGLE_CLIENT_SECRET) throw new Error('Google client secret not configured')
@@ -169,7 +165,7 @@ export async function startGoogleOAuthFlow(opts: GoogleOAuthStartOptions): Promi
 
   const client = oauthClient(redirectUri)
   const { codeVerifier, codeChallenge } = await client.generateCodeVerifierAsync()
-  const state = base64url(randomBytes(32))
+  const state = randomBytes(32).toString('base64url')
   const expiresAt = Date.now() + PENDING_FLOW_TTL_MS
 
   const authUrl = client.generateAuthUrl({

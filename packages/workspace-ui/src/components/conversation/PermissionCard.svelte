@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import { getWorkspaceContext } from '../../contexts'
   import type { PermissionRequest, PermissionOption } from '@solus/contracts/types'
@@ -115,9 +116,7 @@
 <svelte:window onkeydown={handleKeydown} />
 
 {#snippet loadingDiff()}
-  <div class="grid min-h-16 place-items-center text-transcript-meta text-(--muted-foreground)" role="status">
-    Loading preview…
-  </div>
+  <ContentSkeleton label="Loading preview" />
 {/snippet}
 
 <InterruptCard

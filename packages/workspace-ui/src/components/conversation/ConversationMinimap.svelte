@@ -2,8 +2,8 @@
   import { untrack } from "svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import {
-    gutterWidth,
     hasRoomForRail,
+    indexMinimapNodes,
     pickActiveIndex,
     railRightOffset,
     type NavItem,
@@ -16,11 +16,13 @@
     items,
     scrollEl,
     isActive,
+    windowStart,
     prepareNavigate,
   }: {
     items: NavItem[];
     scrollEl: HTMLElement | null;
     isActive: boolean;
+    windowStart: number;
     prepareNavigate?: (id: string) => Promise<void>;
   } = $props();
 
@@ -33,31 +35,22 @@
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-  // id→element index, built once per items/DOM change with a single querySelectorAll
-  // rather than one full-subtree querySelector per user message per scroll frame. A
-  // stale (disconnected) node is re-queried lazily and re-cached.
+  // Missing historical nodes stay absent until the mounted window changes.
   let nodeMap = new Map<string, HTMLElement>();
+  let firstMountedIndex = -1;
 
   function rebuildNodeMap() {
     nodeMap = new Map();
+    firstMountedIndex = -1;
     if (!scrollEl) return;
-    for (const node of scrollEl.querySelectorAll<HTMLElement>("[data-nav-msg-id]")) {
-      const id = node.dataset.navMsgId;
-      if (id) nodeMap.set(id, node);
-    }
+    const index = indexMinimapNodes(scrollEl, items);
+    nodeMap = index.nodes;
+    firstMountedIndex = index.firstMountedIndex;
   }
 
   function nodeFor(id: string): HTMLElement | null {
-    if (!scrollEl) return null;
-    let node = nodeMap.get(id);
-    if (!node || !node.isConnected) {
-      node =
-        scrollEl.querySelector<HTMLElement>(`[data-nav-msg-id="${CSS.escape(id)}"]`) ??
-        undefined;
-      if (node) nodeMap.set(id, node);
-      else nodeMap.delete(id);
-    }
-    return node ?? null;
+    const node = nodeMap.get(id);
+    return node?.isConnected ? node : null;
   }
 
   function recompute() {
@@ -77,7 +70,6 @@
     // not below its active line. Treating every missing node as +Infinity made
     // the loop stop at item zero, so only the first and last ticks could become
     // active on the web client.
-    const firstMountedIndex = items.findIndex((item) => nodeFor(item.id));
     // Lazy top reads: pickActiveIndex stops at the first message below the active
     // line, so getBoundingClientRect is never called for messages past the fold.
     activeIndex = pickActiveIndex(
@@ -106,7 +98,6 @@
         untrack(recompute);
       });
     };
-    untrack(recompute);
     const ro = new ResizeObserver(schedule);
     ro.observe(el);
     el.addEventListener("scroll", schedule, { passive: true });
@@ -117,10 +108,12 @@
     };
   });
 
-  // Recompute when the set of user messages changes (new prompt added/removed).
-  // The DOM changed too, so rebuild the id→element index in the same pass.
+  // Paging can mount older messages without changing the navigation items.
+  // Returning to a hidden tab rebuilds its index after any deferred changes.
   $effect(() => {
-    void items.length;
+    if (!isActive || !scrollEl) return;
+    void items;
+    void windowStart;
     untrack(() => {
       rebuildNodeMap();
       recompute();
@@ -148,6 +141,7 @@
 
   async function goTo(id: string) {
     await prepareNavigate?.(id);
+    rebuildNodeMap();
     const el = scrollEl;
     const node = nodeFor(id);
     if (!el || !node) return;

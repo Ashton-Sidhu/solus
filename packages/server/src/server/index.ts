@@ -1,3 +1,7 @@
+import { UpdateStatusService } from '../updates/update-status-service'
+import { detectInstallKind } from '../updates/install-kind'
+import { fetchLatestRelease } from '../updates/release-sources'
+import { readProviderVersion } from '../updates/provider-versions'
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
@@ -331,7 +335,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
   registerSavedPromptsHandlers(server)
-  registerSetupHandlers(server, { events })
+  const hostUpdates = new UpdateStatusService({
+    currentVersion: packageJson.version,
+    install: detectInstallKind(),
+    latest: (target) => fetchLatestRelease(target, packageJson.version),
+    providerVersion: readProviderVersion,
+    publish: (status) => { events.broadcast('host.updateStatusChanged', status) },
+  })
+  server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))
+  server.register('hostCheckForUpdates', () => hostUpdates.check())
+  hostUpdates.start()
+  registerSetupHandlers(server, { events, onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent) })
   // Browser pages are server-owned so an agent addresses the same page the user
   // sees, and keeps addressing it after the pane closes. A headless host still
   // registers the domain: it can discover targets and hold pages, and reports
@@ -691,6 +705,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopAutomationScheduler()
         stopMetricsRollover()
         prReconciler.stop()
+        hostUpdates.stop()
         codeIntel.dispose()
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)

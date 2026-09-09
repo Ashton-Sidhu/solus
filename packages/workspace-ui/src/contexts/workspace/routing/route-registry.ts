@@ -190,10 +190,6 @@ export interface RouteResolveContext {
 
 type RouteTable = { [K in RouteName]: RouteDescriptor<K> }
 
-function defineRoutes(routes: RouteTable): RouteTable {
-  return routes
-}
-
 const optional = (value: string): string | undefined => value || undefined
 
 /**
@@ -247,7 +243,7 @@ function parseDiffScope(segment: string | undefined): DiffScope {
   return { kind: 'session' }
 }
 
-export const ROUTES = defineRoutes({
+export const ROUTES: RouteTable = {
   chat: {
     parse: (s) => {
       const { id, serverId } = parseScopedId(s)
@@ -581,7 +577,7 @@ export const ROUTES = defineRoutes({
     defaultWeight: 0.5,
     component: () => import('../../../components/browser/BrowserPane.svelte'),
   },
-})
+}
 
 function isRouteName(value: string): value is RouteName {
   return Object.prototype.hasOwnProperty.call(ROUTES, value)

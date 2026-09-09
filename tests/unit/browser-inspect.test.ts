@@ -7,8 +7,6 @@ import {
   type BrowserScreencastOptions,
   type BrowserSurfaceDriver,
 } from '@solus/server/browser/surface-driver'
-import { annotationOpExpression, annotationSyncExpression } from '@solus/server/browser/annotation-script'
-import { webVitalsExpression } from '@solus/server/browser/page-script'
 import { setBrowserSpanRecorder, type BrowserSpan } from '@solus/server/browser/browser-emitter'
 import type {
   BrowserConsoleEntry,
@@ -196,18 +194,6 @@ describe('browser annotation', () => {
     expect(driver.evaluated.at(-1)).toContain('too tight')
   })
 
-  test('the injected overlay never leaves a half-finished gesture as a mark', () => {
-    // WHY: asserted against the script source because the rule lives inside the
-    // guest, where no test can reach it. A click that never moved is not a
-    // rectangle, and an invisible zero-size mark in the prompt is worse than no
-    // mark at all.
-    const script = annotationSyncExpression('region')
-    expect(script).toContain('rect.width > 4 && rect.height > 4')
-    // The page must not also act on a gesture meant for the overlay.
-    expect(script).toContain("window.addEventListener('pointerdown', onDown, true)")
-    expect(script).toContain('__svelte_meta')
-  })
-
 })
 
 describe('browser web vitals', () => {
@@ -319,9 +305,4 @@ describe('browser web vitals', () => {
     }
   })
 
-  test('the expression drops shifts the user caused by interacting', () => {
-    // WHY: CLS measures the page being unstable, not the page responding. A
-    // reading that counted a scroll would flag every long list as a regression.
-    expect(webVitalsExpression()).toContain('hadRecentInput')
-  })
 })

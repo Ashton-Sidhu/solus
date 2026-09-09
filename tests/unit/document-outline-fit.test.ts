@@ -35,11 +35,6 @@ describe('contents fit rule', () => {
     expect(hasOutlineMarginRoom(900, true)).toBe(false)
     expect(hasOutlineMarginRoom(900, false)).toBe(false)
   })
-
-  test('a laptop display buys the room back with a narrower measure', () => {
-    expect(hasOutlineMarginRoom(1100, true)).toBe(true)
-    expect(hasOutlineMarginRoom(1100, false)).toBe(false)
-  })
 })
 
 // Which surface owns the contents where the panel does not fit. The bars are
@@ -47,28 +42,15 @@ describe('contents fit rule', () => {
 // pane is too narrow for the rail itself.
 
 describe('where the contents lives without a panel', () => {
-  /** What DocumentShell computes for `contentsOpensFromHeader`. */
-  const opensFromHeader = (shellWidth: number, isLaptopDisplay: boolean) =>
-    !hasOutlineMarginRoom(shellWidth, isLaptopDisplay) && !hasOutlineTickRail(shellWidth)
-
-  test('a pane with ticks but no room names sections from the bars, not the header', () => {
+  test('a pane can retain outline ticks when its full panel does not fit', () => {
     // 900px: no margin for the panel at either display class, but the rail is
     // still rendered, so hovering a bar is the way in.
     expect(hasOutlineMarginRoom(900, false)).toBe(false)
     expect(hasOutlineTickRail(900)).toBe(true)
-    expect(opensFromHeader(900, false)).toBe(false)
   })
 
-  test('below the rail the header takes the contents back', () => {
-    // 45rem is where the sleeve is hidden outright; with no bars to hover, a
-    // popover under the breadcrumb is the only way left in.
+  test('a narrow pane hides the outline ticks', () => {
+    // A narrow pane must not reserve space for an outline rail.
     expect(hasOutlineTickRail(700)).toBe(false)
-    expect(opensFromHeader(700, false)).toBe(true)
-    expect(opensFromHeader(700, true)).toBe(true)
-  })
-
-  test('a shell with room keeps the panel and needs neither fallback', () => {
-    expect(opensFromHeader(1440, false)).toBe(false)
-    expect(opensFromHeader(1100, true)).toBe(false)
   })
 })

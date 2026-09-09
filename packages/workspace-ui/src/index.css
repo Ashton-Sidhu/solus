@@ -10,6 +10,7 @@
    folder uses. */
 @source ".";
 @source "../../../apps/client/src";
+@source "../../../apps/desktop/src/renderer";
 
 /* Class-based dark mode: the app toggles a `.dark` class on the root rather
    than relying on prefers-color-scheme, so map Tailwind's `dark:` variant to it. */
@@ -3143,8 +3144,24 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   color: var(--solus-text-primary);
   text-wrap: pretty;
 }
+/* Rendered HTML uses the full conversation column.
+   Keep the surrounding prose narrow without constraining the frame. */
+.prose-transcript-main:has(> [data-conversation-preview]) {
+  max-width: none;
+}
+.prose-transcript-main:has(> [data-conversation-preview]) > :not([data-conversation-preview]) {
+  max-width: 88%;
+}
 @media (pointer: fine) {
   html.is-laptop-display .prose-transcript-main { max-width: 82%; }
+
+  html.is-laptop-display .prose-transcript-main:has(> [data-conversation-preview]) {
+    max-width: none;
+  }
+
+  html.is-laptop-display .prose-transcript-main:has(> [data-conversation-preview]) > :not([data-conversation-preview]) {
+    max-width: 82%;
+  }
 }
 /* Element margins alone set the rhythm; the generic sibling step would add to
    the asymmetric heading spacing below. */
@@ -3567,6 +3584,12 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   margin-bottom: 0.375rem;
   line-height: 1.75;
 }
+/* The paragraph a section opens with is its finding: the agent's own words, a
+   half-step heavier than the evidence under them so the answers can be read off
+   the tab without the support. */
+.prose-report-verdict p {
+  font-weight: 500;
+}
 
 /* ─── Agent exchange card prose (the other agent's reply) ───
    A reply is rendered by the transcript's own markdown renderer — one dialect,
@@ -3833,13 +3856,18 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) strong { font-weight: 500; color: var(--solus-text-primary); }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) em { font-style: italic; color: var(--solus-text-primary); }
 
-/* Mono runs at 0.9× whatever surrounds them — never equal, or the chip reads
-   as a size change rather than a change of voice. */
-:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) code {
-  padding: 0.0625rem 0.25rem;
-  border-radius: 0.25rem;
-  background: var(--solus-surface-hover);
+/* PR and task inline code uses the assistant message's bordered card shell.
+   File references produced from backticks use the same shell. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) :is(code, .solus-token) {
+  padding: 0.15625rem 0.40625rem;
+  border: 0.0625rem solid
+    color-mix(in oklch, var(--foreground) 11%, transparent);
+  border-radius: var(--radius-md);
+  margin-inline: 0;
+  background: var(--card);
   color: var(--solus-text-primary);
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
   /* `em`, not a rem: the description (caption rung) and an activity comment
      (chrome rung) read at different sizes, and the chip has to follow both. */
   font-size: 0.9em;
@@ -3847,15 +3875,10 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 /* The fenced block already is the chip; its inner `code` carries none of it. */
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) pre code {
   padding: 0;
+  border: none;
   border-radius: 0;
   background: none;
   font-size: inherit;
-}
-/* A commit SHA is an address, not a literal you'd retype: accent, no chip. */
-:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) code.markdown-sha {
-  padding: 0;
-  background: none;
-  color: var(--solus-accent);
 }
 
 /* Markers live in their own gutter rather than in the text flow, so a list

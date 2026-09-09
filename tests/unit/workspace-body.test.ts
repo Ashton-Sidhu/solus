@@ -1,10 +1,5 @@
 import { describe, expect, test } from 'bun:test'
 import {
-  COMPANION_PANE_DEFAULT_SIZE,
-  COMPANION_PANE_MIN_SIZE,
-  LIST_PRIMARY_PANE_MIN_SIZE,
-  LIST_PRIMARY_PANE_SIZE,
-  PRIMARY_PANE_MIN_SIZE,
   primaryProjectPanelOpen,
   retainedConversationTabIds,
   visibleWorkspaceTabIds,
@@ -184,26 +179,5 @@ describe('conversation transcript retention', () => {
         ['active-tab', 'recent-tab'],
       ),
     ).toEqual(['active-tab', 'recent-tab'])
-  })
-})
-
-describe('pane sizing', () => {
-  test('the docked PR inbox leaves the review every point it does not take', () => {
-    // WHY: the inbox is navigation beside its review, so it is the one case where
-    // the primary states its share and the companion takes the remainder. The two
-    // are set independently, so a drift between them opens the split with a gap.
-    expect(LIST_PRIMARY_PANE_SIZE + (100 - LIST_PRIMARY_PANE_SIZE)).toBe(100)
-    // A conversation floor is sized for a composer; navigation needs far less,
-    // and applying the chat floor here stranded the inbox at half the split.
-    expect(LIST_PRIMARY_PANE_MIN_SIZE).toBeLessThan(PRIMARY_PANE_MIN_SIZE)
-  })
-
-  test('a companion can never squeeze the primary below its floor', () => {
-    // WHY: PaneForge clamps each pane to its own bounds and cannot see that two
-    // floors together exceed the split. If these ever sum past 100 the group has
-    // no satisfiable layout, and the leading pane is the one that loses.
-    expect(COMPANION_PANE_MIN_SIZE + PRIMARY_PANE_MIN_SIZE).toBeLessThanOrEqual(100)
-    expect(COMPANION_PANE_DEFAULT_SIZE).toBeGreaterThanOrEqual(COMPANION_PANE_MIN_SIZE)
-    expect(COMPANION_PANE_DEFAULT_SIZE).toBeLessThanOrEqual(100 - PRIMARY_PANE_MIN_SIZE)
   })
 })

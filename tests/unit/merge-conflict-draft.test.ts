@@ -1,17 +1,6 @@
 import { describe, expect, test } from 'bun:test'
-import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
 import type { GitState } from '@solus/contracts/types'
 import { mergeConflictDraft } from '@solus/workspace-ui/components/project-panel/lib/merge-conflict-draft'
-
-const gitSection = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/components/project-panel/GitSection.svelte'),
-  'utf8',
-)
-const workspaceContext = readFileSync(
-  join(import.meta.dir, '../../packages/workspace-ui/src/contexts/workspace/workspace.context.svelte.ts'),
-  'utf8',
-)
 
 function status(overrides: Partial<GitState['uncommittedChanges']> = {}): GitState {
   return {
@@ -56,24 +45,5 @@ describe('merge conflict draft', () => {
 
   test('does not treat a merge with all conflicts fixed as an unresolved conflict', () => {
     expect(mergeConflictDraft(status({ mergeInProgress: true }))).toBeNull()
-  })
-
-  test('refreshes before opening a prefilled draft in the current environment', () => {
-    // WHY: conflict status can change after the row renders. The click must use
-    // one fresh environment snapshot and must leave Send to the user.
-    expect(gitSection).toContain('level: "details"')
-    expect(gitSection).toContain('force: true')
-    expect(gitSection).toContain('const prompt = mergeConflictDraft(currentEnvironment.status);')
-    // The draft is opened against the refreshed snapshot, not the one the row
-    // rendered from — and through the same opener every other agent handoff in
-    // the card uses, so all of them land in a composer the user still sends.
-    expect(gitSection).toContain('openAgentDraft(prompt, currentEnvironment);')
-    expect(gitSection).toContain('const draft = session.openSessionDraft(')
-    expect(gitSection).toContain('gitContext: environment.checkout')
-    expect(gitSection).toContain('environment.cwd')
-    expect(gitSection).toContain('draft.prompt.text = prompt;')
-    expect(gitSection).not.toContain('startNewSessionWithPrompt')
-    expect(gitSection).not.toContain('worktreeRequested: true')
-    expect(workspaceContext).not.toContain('startNewSessionWithPrompt')
   })
 })

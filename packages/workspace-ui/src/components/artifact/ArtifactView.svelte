@@ -1,7 +1,8 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { Check as CheckIcon, Copy as CopyIcon } from "@lucide/svelte";
   import {
-    getWindowContext,
+    getClientShellContext,
     getWorkspaceContext,
     hostCapabilitiesStore,
     serversStore,
@@ -64,7 +65,7 @@
     reloadKey = 0,
   }: Props = $props();
 
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   const session = getWorkspaceContext();
 
   const RASTER_EXTS = ["png", "jpg", "jpeg", "gif", "webp"];
@@ -93,7 +94,7 @@
       artifactRetryAvailable = artifact.kind === "html";
       return;
     }
-    if (!windowCtx.isWeb && hostPolicy.isClientMachine(run.serverId)) {
+    if (shell.supportsLocalAttachments && hostPolicy.isClientMachine(run.serverId)) {
       artifactUrl = localArtifactProtocolUrl(path);
       artifactError = null;
       artifactRetryAvailable = true;
@@ -295,9 +296,7 @@
         onError={() => (artifactError = "This artifact could not be rendered.")}
       />
     {:else}
-      <div class="artifact-loading" role="status" aria-label="Loading artifact">
-        <div class="artifact-loading__bone"></div>
-      </div>
+      <ContentSkeleton label="Loading artifact" preview />
     {/if}
 
     {#if workRef}
@@ -341,38 +340,6 @@
     }
   }
 
-  /* Brief hydration gap between the file landing and the frame painting —
-     the same quiet bone as the skeleton's canvas block, not a spinner. */
-  .artifact-loading {
-    display: flex;
-    min-height: 6rem;
-  }
-
-  .artifact-loading__bone {
-    --sk-ink: 4%;
-    flex: 1;
-    border-radius: 0.5rem;
-    background-image: linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--solus-text-primary) var(--sk-ink), transparent) 0%,
-      color-mix(in srgb, var(--solus-accent) 10%, transparent) 45%,
-      color-mix(in srgb, var(--solus-text-primary) var(--sk-ink), transparent) 90%
-    );
-    background-size: 260% 100%;
-    animation: artifact-loading-shim 2.4s linear infinite;
-    box-shadow: inset 0 0 0 0.03125rem
-      color-mix(in srgb, var(--solus-text-primary) 9%, transparent);
-  }
-
-  @keyframes artifact-loading-shim {
-    from {
-      background-position: 200% 0;
-    }
-    to {
-      background-position: -100% 0;
-    }
-  }
-
   .artifact-icon-swap {
     position: relative;
     display: inline-flex;
@@ -403,15 +370,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .artifact-loading__bone {
-      animation: none;
-      background-image: none;
-      background-color: color-mix(
-        in srgb,
-        var(--solus-text-primary) var(--sk-ink),
-        transparent
-      );
-    }
     .artifact-icon-swap :global(svg) {
       transition:
         opacity 0.16s ease,

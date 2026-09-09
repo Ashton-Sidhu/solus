@@ -149,6 +149,15 @@ export class UplinkLinkManager {
 
   /** Boot: finish an interrupted unlink, or verify the generation and start the connector. */
   async resume(): Promise<void> {
+    try {
+      await this.resumeLink()
+    } catch (err) {
+      log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
+      this.setObservation({ observed: 'error', error: 'The tunnel could not start. Restart Solus to try again.' })
+    }
+  }
+
+  private async resumeLink(): Promise<void> {
     if (!this.persisted) return
     if (this.persisted.desired === 'unlinked') {
       await this.completeUnlink()
@@ -170,6 +179,9 @@ export class UplinkLinkManager {
     }
     const verdict = await this.checkGeneration(tokens)
     if (verdict === 'current') this.deps.connector.start(tokens.connectorToken)
+    else if (verdict === 'unknown') {
+      this.setObservation({ observed: 'error', error: 'Solus cloud could not verify this link. Restart Solus to try again.' })
+    }
   }
 
   handleConnectorObservation(observation: ConnectorObservation): void {

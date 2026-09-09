@@ -2,7 +2,7 @@ import { dialog, shell } from 'electron'
 import type { BrowserWindow, OpenDialogOptions } from 'electron'
 import { join, basename, dirname, resolve as pathResolve, relative as pathRelative } from 'path'
 import { existsSync, writeFileSync, readFileSync, statSync } from 'fs'
-import { appendFile, mkdir, readFile as readBinaryFile, readdir, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
+import { appendFile, mkdir, readFile as readBinaryFile, realpath, stat, writeFile as writeTextFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { execFile, execFileSync } from 'child_process'
 import type { AgentId, ProjectContentSearchResult, WriteFileResult, FileMatch, DetectedEditor, DetectedTerminal } from '@solus/contracts/types'
@@ -20,7 +20,7 @@ import { getCliEnv } from '@solus/server/cli-env'
 import { createLogger } from '@solus/server/logger'
 import { solusDir } from '@solus/server/platform/paths'
 import { getFinder, refreshFinder } from '@solus/server/server/file-finder'
-import { sortDirEntries } from '@solus/server/server/handlers/filesystem-handlers'
+import { browseFileMatches } from '@solus/server/server/handlers/lib/file-browse'
 import { projectRootForRequest, readFilePreview, resolvePreviewPath } from '@solus/server/server/handlers/lib/file-preview'
 import { isInsideRoot } from '@solus/server/paths'
 import { searchProjectContents } from '@solus/desktop-main/server/handlers/lib/content-search'
@@ -353,47 +353,13 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const toDisplay = (p: string): string =>
       p === cwdRoot ? basename(p) : p.startsWith(cwdRoot + '/') ? p.slice(cwdRoot.length + 1) : p
 
-    // Browse mode — no query, or an absolute/home path ending in '/': list the
-    // directory's immediate children (readdir) instead of fuzzy-searching a
-    // tree. fff would rank deep recursive matches and build a per-base index;
-    // for orientation a flat alphabetized listing is both the better UX and
-    // the cheaper operation.
-    if (!query || (query.endsWith('/') && (query.startsWith('/') || query.startsWith('~/')))) {
-      const resolved = query ? resolvePreviewPath(query, cwd) : cwdRoot
-      let dirents: { name: string; isDirectory(): boolean }[] = []
-      try {
-        dirents = await readdir(resolved, { withFileTypes: true })
-      } catch {}
-      const entries = sortDirEntries(
-        dirents.filter(e => !e.name.startsWith('.')).map(e => ({ name: e.name, isDir: e.isDirectory() })),
-      )
-      return {
-        files: entries.map(({ name, isDir }): FileMatch => {
-          const path = join(resolved, name)
-          return { path, display: toDisplay(path), isDir }
-        }),
-      }
-    }
+    // Explicit paths browse one directory, including paths outside the project.
+    // Only plain project queries may create a recursive index.
+    const browsed = await browseFileMatches(query, cwd)
+    if (browsed) return { files: browsed }
 
-    // Resolve the query to an fff index base + a fuzzy search string within it.
-    // Plain queries fuzzy-search the whole project; path queries inside the
-    // project use fff's `dir/` constraint syntax; path queries outside it get
-    // a finder bound to the deepest existing directory of the path.
-    let base = cwd
-    let search = query
-    const isPath = query.startsWith('~/') || query.startsWith('./') || query.startsWith('../') || query.startsWith('/')
-    if (isPath) {
-      const resolved = query.startsWith('~/') ? expandHome(query) : pathResolve(cwd, query)
-      const rel = pathRelative(cwd, resolved)
-      if (!rel.startsWith('..')) {
-        search = rel === '' ? '' : rel + (query.endsWith('/') ? '/' : '')
-      } else {
-        let isDir = false
-        try { isDir = statSync(resolved).isDirectory() } catch {}
-        base = isDir ? resolved : dirname(resolved)
-        search = isDir ? '' : basename(resolved)
-      }
-    }
+    const base = cwd
+    const search = query
 
     const finder = await getFinder(base)
     if (!finder) return { files: [] }

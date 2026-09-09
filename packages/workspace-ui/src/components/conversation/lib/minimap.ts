@@ -38,6 +38,16 @@ export interface NavItem {
   preview: string;
 }
 
+/** Rebuild only when message membership changes, never on a scroll frame. */
+export function indexMinimapNodes(container: HTMLElement, items: NavItem[]) {
+  const nodes = new Map<string, HTMLElement>();
+  for (const node of container.querySelectorAll<HTMLElement>("[data-nav-msg-id]")) {
+    const id = node.dataset.navMsgId;
+    if (id) nodes.set(id, node);
+  }
+  return { nodes, firstMountedIndex: items.findIndex((item) => nodes.has(item.id)) };
+}
+
 /** Width (px) of one side gutter between the centered reading column and the pane edge. */
 export function gutterWidth(paneWidth: number): number {
   if (paneWidth <= 0) return 0;
@@ -71,8 +81,8 @@ export function pickActiveIndex(
   topAt: (i: number) => number | null,
   firstMountedIndex = 0,
 ): number {
-  let active = 0;
-  for (let i = 0; i < count; i++) {
+  let active = Math.max(0, firstMountedIndex - 1);
+  for (let i = Math.max(0, firstMountedIndex); i < count; i++) {
     const mountedTop = topAt(i);
     // Windowed transcript rows before the first mounted item are above the
     // viewport. Missing rows after it have not been reached yet.

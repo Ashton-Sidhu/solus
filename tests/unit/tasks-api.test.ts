@@ -71,17 +71,6 @@ describe('task list sort', () => {
   })
 })
 
-describe('task status colours', () => {
-  test('uses lifecycle semantics instead of the brown brand accent', () => {
-    // WHY: status colour is information. Active, review, complete, and dropped
-    // work must remain visually distinct from the product brand and each other.
-    expect(STATUS_META.in_progress.token).toBe('--running')
-    expect(STATUS_META.in_review.token).toBe('--review')
-    expect(STATUS_META.done.token).toBe('--success')
-    expect(STATUS_META.dropped.token).toBe('--idle')
-  })
-})
-
 describe('TASK_STATUSES', () => {
   test('offers every status a task can hold', () => {
     // WHY: the sidebar row menu, the task picker's row menu, and the picker

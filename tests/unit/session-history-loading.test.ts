@@ -5,7 +5,6 @@ import {
   sortedDedupedHistorySessions,
 } from '@solus/workspace-ui/lib/sessionPickerHistory'
 import { updateSessionHistoryStatus } from '@solus/workspace-ui/contexts/workspace/session-history.store.svelte'
-import { takeSessionScanBatch } from '@solus/server/server/session-scan'
 import type { SessionMeta, SessionScanEvent } from '@solus/contracts/types'
 
 function session(index: number): SessionMeta {
@@ -226,14 +225,5 @@ describe('session history loading', () => {
     expect(streamed.map((meta) => meta.lastTimestamp)).toEqual(
       [new Date(9_000).toISOString(), new Date(4_000).toISOString(), new Date(2_000).toISOString()],
     )
-  })
-
-  test('a full scan splits an oversized provider result into bounded batches', () => {
-    const buffer = Array.from({ length: 45 }, (_, index) => session(index))
-    const batches: SessionMeta[][] = []
-    while (buffer.length > 0) batches.push(takeSessionScanBatch(buffer, 20))
-
-    expect(batches.map((batch) => batch.length)).toEqual([20, 20, 5])
-    expect(buffer).toEqual([])
   })
 })

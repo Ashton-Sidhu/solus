@@ -4,6 +4,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { UplinkLinkError, UplinkLinkManager, SUPERSEDED_MESSAGE, type UplinkConnectorHandle } from '@solus/server/server/uplink/link'
 import type { EnrollHostResponse } from '@solus/contracts/uplink'
+import { uplinkStatusDescription } from '../../packages/workspace-ui/src/contexts/connections/host-routes'
 
 // docs/plans/personal-uplink.md H2/H4: desired state is written before anything
 // acts on it, so a crash between the control plane, the connector, and the secret
@@ -191,6 +192,44 @@ describe('the host side of the link', () => {
     expect(rebooted.connector.events).toEqual([])
     const status = rebooted.instance.status()
     if (status.linked) expect(status.state).toMatchObject({ observed: 'error', error: expect.stringContaining('34118') })
+  })
+
+  test.each(['network', 'server', 'invalid response'])('a %s failure at boot keeps the link and reports the offline tunnel in Settings', async (failure) => {
+    const plane = fakeControlPlane({ link: () => {
+      if (failure === 'network') throw new Error('ECONNREFUSED')
+      if (failure === 'server') return new Response(null, { status: 503 })
+      return Response.json({})
+    } })
+    await manager(plane).instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    const rebooted = manager(plane)
+
+    await expect(rebooted.instance.resume()).resolves.toBeUndefined()
+
+    expect(rebooted.connector.events).toEqual([])
+    const status = rebooted.instance.status()
+    expect(status).toMatchObject({ linked: true, state: { observed: 'error', error: expect.stringContaining('could not verify') } })
+    expect(uplinkStatusDescription(status)).toContain('tunnel offline')
+    expect(uplinkStatusDescription(status)).toContain('use Solus locally')
+    expect(existsSync(join(dataDir, 'uplink-link.json'))).toBe(true)
+  })
+
+  test('connector startup failure does not reject recovery and a later restart can recover', async () => {
+    const plane = fakeControlPlane()
+    await manager(plane).instance.link({ ticket: 'set_ticket', directoryUrl: DIRECTORY })
+    const connector = fakeConnector()
+    connector.start = () => { throw new Error('binary lookup failed') }
+    const rebooted = manager(plane, connector)
+
+    await expect(rebooted.instance.resume()).resolves.toBeUndefined()
+    expect(rebooted.instance.status()).toMatchObject({ linked: true, state: { observed: 'error', error: expect.stringContaining('could not start') } })
+
+    const recovered = manager(plane)
+    await recovered.instance.resume()
+    expect(recovered.connector.events).toEqual(['start'])
+    expect(uplinkStatusDescription(recovered.instance.status())).not.toContain('Reachable')
+    recovered.instance.handleConnectorObservation({ observed: 'online' })
+    expect(uplinkStatusDescription(recovered.instance.status())).toContain('tunnel online')
+    expect(uplinkStatusDescription(recovered.instance.status())).not.toContain('tunnel offline')
   })
 
   test('an insecure control-plane address is refused at enrolment', async () => {

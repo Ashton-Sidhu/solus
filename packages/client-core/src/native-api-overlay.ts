@@ -29,6 +29,12 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'uplinkListDirectoryHosts',
   'uplinkAcquireHostGrant',
   'uplinkIssueEnrollmentTicket',
+  'updateStatus',
+  'checkForUpdate',
+  'downloadUpdate',
+  'restartToUpdate',
+  'setUpdateAutoDownload',
+  'onUpdateStatusChange',
 ] as const
 
 // Most RPC methods belong to the selected host. External links are the lone

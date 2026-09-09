@@ -109,11 +109,21 @@ export class ProjectsStore {
     this.scheduleSave()
   }
 
+  /** Whether an explicit removal must also hide a picker's current-project fallback. */
+  isRemoved(ref: ProjectRef): boolean {
+    return this.ignoredDiscoveryKeys.has(projectRefKey({
+      serverId: ref.serverId,
+      projectRoot: normalizeProjectRoot(ref.projectRoot),
+    }))
+  }
+
   /** Explicit history removal — forgets the entry only. Never touches the
    *  project's files, sessions, or server-side records. */
   remove(ref: ProjectRef): void {
-    const key = projectRefKey(ref)
-    if (!this.entriesByKey.delete(key)) return
+    const projectRoot = normalizeProjectRoot(ref.projectRoot)
+    if (!ref.serverId || !projectRoot || projectRoot === '~') return
+    const key = projectRefKey({ serverId: ref.serverId, projectRoot })
+    this.entriesByKey.delete(key)
     this.ignoredDiscoveryKeys.add(key)
     this.scheduleSave()
   }

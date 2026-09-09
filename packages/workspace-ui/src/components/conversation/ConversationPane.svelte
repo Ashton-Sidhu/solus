@@ -74,6 +74,7 @@
 
       <div class="split-input-dock shrink-0 px-4 pt-2.5 pb-2.5">
         <EditorInputCard
+          active={surfaceVisible}
           class="mx-auto max-w-(--solus-reading-max)"
           tabId={conversationTabId}
           {paneId}

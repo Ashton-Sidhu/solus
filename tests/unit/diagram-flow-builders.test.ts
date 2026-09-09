@@ -13,7 +13,7 @@ describe("diagram flow edge styling", () => {
       {},
     );
 
-    expect(edge.className).toBe("edge--async");
+    expect(edge.class).toBe("edge--async");
     expect(edge.animated).toBe(false);
     expect(edge.markerEnd?.color).toBe(DEFAULT_ARROW_COLOR);
   });

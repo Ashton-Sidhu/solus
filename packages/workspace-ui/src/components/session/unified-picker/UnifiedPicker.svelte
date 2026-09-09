@@ -32,6 +32,8 @@
   import TaskContextMenu from "../TaskContextMenu.svelte";
   import PickerActionBar from "./PickerActionBar.svelte";
   import PickerPeekSheet from "./PickerPeekSheet.svelte";
+  import PickerResultMenu from "./PickerResultMenu.svelte";
+  import { PICKER_RESULT_LABELS } from "./lib/picker-preferences";
   import PickerSearchOptions from "./PickerSearchOptions.svelte";
   import TaskPreviewPane from "./TaskPreviewPane.svelte";
   import UnifiedPickerRow from "./UnifiedPickerRow.svelte";
@@ -49,7 +51,9 @@
     pickerRowHeight,
     previewHitTarget,
     projectLabel,
+    pickerSessionActivity,
     selectedRowIndex,
+    isTaskGroup,
     type ConversationHit,
     type PickerEntry,
   } from "./lib/picker-rows";
@@ -81,6 +85,7 @@
   let wasOpen = false;
   let scopeMenuOpen = $state(false);
   let searchOptionsOpen = $state(false);
+  let resultMenuOpen = $state(false);
 
   let taskContextMenu = $state<{ task: Task; x: number; y: number } | null>(null);
   let sessionContextMenu = $state<{
@@ -139,6 +144,7 @@
   const list = $derived(
     buildPickerRows({
       tasks, query, sessionsFor, expandedTaskIds,
+      resultType: session.ui.pickerResultType,
       projectKey: scopeProjectKey,
       sort: session.pickerSort,
       openTaskIds: new Set(sidebarStore.activeTasks.flatMap((row) => row.taskId ?? [])),
@@ -255,6 +261,7 @@
 
   $effect(() => {
     void query;
+    void session.ui.pickerResultType;
     selectedKey = null;
     revealedTaskId = null;
     if (open) void scrollSelectionIntoView();
@@ -265,7 +272,7 @@
   // match names only, and a section of passages would contradict that choice.
   $effect(() => {
     if (!open) return;
-    if (session.pickerSearchMode === "keywords") conversationSearch.reset();
+    if (session.pickerSearchMode === "keywords" || session.ui.pickerResultType === "tasks") conversationSearch.reset();
     else conversationSearch.search(query, scopeProjectKey);
   });
 
@@ -293,6 +300,7 @@
     peekTarget = null;
     scopeMenuOpen = false;
     searchOptionsOpen = false;
+    resultMenuOpen = false;
     revealedTaskId = null;
     open = false;
     preview.reset();
@@ -310,6 +318,7 @@
   useKeybinding("task-picker.choose-project", () => (scopeMenuOpen = true), {
     enabled: () => open && projectChoices.length > 0,
   });
+  useKeybinding("task-picker.result-type", () => (resultMenuOpen = true), { enabled: () => open });
   useKeybinding("task-picker.search-options", () => (searchOptionsOpen = true), {
     enabled: () => open,
   });
@@ -574,6 +583,13 @@
       suppressNextClick = false;
       return;
     }
+    // A phone's task with one session is that session: its tap resumes it,
+    // as a sidebar click does, and skips the group it is not. The task's own
+    // sheet stays one long press away.
+    if (entry.kind === "task" && !isTaskGroup(entry, runtime.isMobileViewport) && entry.sessions[0]) {
+      selectSession(entry.sessions[0]);
+      return;
+    }
     if (toggleTaskEntry(entry)) return;
     activate(entry);
   }
@@ -598,7 +614,7 @@
     // While the row menu or the sheet is up it owns the keyboard, including
     // the Escape that dismisses it — arrowing the list underneath would move
     // the selection away from the row the open surface is acting on.
-    if (taskContextMenu || sessionContextMenu || peekTarget || scopeMenuOpen || searchOptionsOpen) return;
+    if (taskContextMenu || sessionContextMenu || peekTarget || scopeMenuOpen || searchOptionsOpen || resultMenuOpen) return;
     if (event.key === "Escape") {
       event.preventDefault();
       close();
@@ -644,7 +660,10 @@
   const counts = $derived.by(() => {
     // A "+" where the hosts stopped at their cap: the number is a floor.
     const sessions = `${list.sessionCount}${list.sessionsCapped ? "+" : ""}`;
-    const base = `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"} · ${sessions} ${list.sessionCount === 1 && !list.sessionsCapped ? "session" : "sessions"}`;
+    const base = session.ui.pickerResultType === "sessions"
+      ? `${sessions} ${list.sessionCount === 1 && !list.sessionsCapped ? "session" : "sessions"}`
+      : session.ui.pickerResultType === "tasks" ? `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"}`
+      : `${list.taskCount} ${list.taskCount === 1 ? "task" : "tasks"} · ${sessions} ${list.sessionCount === 1 && !list.sessionsCapped ? "session" : "sessions"}`;
     // What the scope withheld, so widening it is a known quantity.
     return scopeProject && list.hiddenTaskCount > 0
       ? `${base} · ${list.hiddenTaskCount} more in other projects`
@@ -658,6 +677,12 @@
     if (session.tasksStore.loading) return "Loading tasks…";
     const where = scopeProject ? ` in ${scopeProject.label}` : "";
     if (isSearchingConversations) return "Searching conversations…";
+    if (session.ui.pickerResultType === "sessions") {
+      return query.trim() ? `No sessions match “${query}”${where}` : `No sessions${where} yet`;
+    }
+    if (session.ui.pickerResultType === "tasks") {
+      return query.trim() ? `No tasks match “${query}”${where}` : `No tasks${where} yet`;
+    }
     if (query.trim()) return `No tasks or conversations match “${query}”${where}`;
     return scopeProject ? `No tasks in ${scopeProject.label} yet` : "No tasks yet";
   });
@@ -667,7 +692,7 @@
   <!-- The same band the command palette opens with: one 53px line, the field
        leading, the one control that acts on it at the far end. -->
   <div
-    class="flex h-[3.3125rem] shrink-0 items-center gap-3 border-b border-(--solus-menu-hairline) px-5 max-md:h-auto max-md:border-0 max-md:px-4 max-md:pt-2 max-md:pb-1"
+    class="flex h-[3.3125rem] shrink-0 items-center gap-3 border-b border-(--solus-menu-hairline) px-5 max-md:h-auto max-md:flex-wrap max-md:border-0 max-md:px-4 max-md:pt-2 max-md:pb-1"
   >
     <!-- The scope leads the search the way a project crumb leads a page title:
          `<project> | search`. The same control every list page scopes with,
@@ -707,12 +732,18 @@
         bind:ref={searchEl}
         bind:value={query}
         type="text"
-        placeholder="Search work in solus…"
+        placeholder={session.ui.pickerResultType === "sessions" ? "Search sessions…" : session.ui.pickerResultType === "tasks" ? "Search tasks…" : "Search work in solus…"}
         class="h-auto flex-1 rounded-none border-0 bg-transparent p-0 caret-(--solus-accent) shadow-none placeholder:text-(--solus-text-tertiary) focus-visible:ring-0 dark:bg-transparent max-md:text-base"
       />
     </div>
     <!-- The order and the mode, last on the row, at the far end of the box
          they act on. The counts live in the footer alone. -->
+    <PickerResultMenu
+      value={session.ui.pickerResultType}
+      onChange={(value) => { session.ui.pickerResultType = value; }}
+      portalTarget={layer.el}
+      bind:open={resultMenuOpen}
+    />
     <PickerSearchOptions
       sort={session.pickerSort}
       mode={session.pickerSearchMode}
@@ -736,7 +767,7 @@
     <div
       class="flex w-1/2 shrink-0 flex-col overflow-hidden border-r border-(--solus-menu-hairline) px-2 pt-2 max-md:w-full max-md:border-0 max-md:px-3 max-md:pt-1"
     >
-      <div class="min-h-0 flex-1 overflow-hidden" bind:clientHeight={listHeight} role="listbox" aria-label="Tasks and sessions">
+      <div class="min-h-0 flex-1 overflow-hidden" bind:clientHeight={listHeight} role="listbox" aria-label={PICKER_RESULT_LABELS[session.ui.pickerResultType]}>
         {#if list.entries.length === 0}
           <div class="flex h-full items-center justify-center px-5 text-center text-workspace-chrome text-muted-foreground">
             {emptyMessage}
@@ -791,10 +822,11 @@
           <SessionPreview
             preview={preview.snapshot}
             hitWindow={previewHitWindow}
+            additionalMatches={selectedEntry?.kind !== "task" ? selectedEntry?.additionalMatches : []}
             loading={previewLoading}
             title={conversationTitle(conversation.meta)}
             byline={conversationProjectLabel(conversation.meta)}
-            timeAgo={relativeTime(conversation.hit.ts)}
+            timeAgo={relativeTime(pickerSessionActivity(conversation))}
             {query}
           />
         {:else if selectedEntry?.kind === "session" && selectedTask}
@@ -803,10 +835,11 @@
           <SessionPreview
             preview={preview.snapshot}
             hitWindow={previewHitWindow}
+            additionalMatches={selectedEntry?.kind !== "task" ? selectedEntry?.additionalMatches : []}
             loading={previewLoading}
             title={picked.session.label}
             byline={selectedTask.title}
-            timeAgo={relativeTime(picked.hit?.ts || picked.session.lastActivityAt || selectedTask.updatedAt)}
+            timeAgo={relativeTime(pickerSessionActivity(picked))}
             attention={picked.session.attention}
             {query}
           />
@@ -865,8 +898,10 @@
       {/if}
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> resume</span>
     {:else}
-      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">→</Kbd> expand sessions</span>
-      <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">Space</Kbd> expand sessions</span>
+      {#if !query.trim() && session.ui.pickerResultType !== "tasks"}
+        <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">→</Kbd> expand sessions</span>
+        <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">Space</Kbd> expand sessions</span>
+      {/if}
       <span class="inline-flex items-center gap-1.5"><Kbd variant="keycap">⏎</Kbd> {selectedTask && sessionsFor(selectedTask).length ? "resume latest" : "open new draft"}</span>
     {/if}
     {#if projectChoices.length > 0}
@@ -925,6 +960,7 @@
     sessions={peekTarget.kind === "conversation" ? [] : sessionsFor(peekTarget.task)}
     sessionPreview={preview.snapshot}
     sessionHitWindow={previewHitWindow}
+    additionalMatches={selectedEntry?.kind !== "task" ? selectedEntry?.additionalMatches : []}
     {previewLoading}
     messageCount={preview.messageCount}
     {query}

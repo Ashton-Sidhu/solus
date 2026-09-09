@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getWorkspaceContext, runtime } from "../../contexts";
+  import { getWorkspaceContext, getClientShellContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
@@ -20,9 +20,17 @@
 
   const session = getWorkspaceContext();
   const pane = paneActions(() => paneId);
-  const isMobile = $derived(runtime.isMobileViewport);
+  const shell = getClientShellContext();
 
-  const work = $derived(session.worksStore.get(params.workId));
+  let loadedWorkId = $state<string | null>(null);
+  const workMetadata = $derived(session.worksStore.get(params.workId));
+  // Manifest entries have no body. Do not mount an empty editor while the
+  // content read is pending; a successfully loaded empty document is valid.
+  const work = $derived(
+    workMetadata && (workMetadata.content || loadedWorkId === params.workId)
+      ? workMetadata
+      : null,
+  );
   const sess = $derived(session.sessionFor(session.activeTabId));
   let workLoadAttempt = $state(0);
   let workLoadError = $state<Error | null>(null);
@@ -38,7 +46,9 @@
     workLoadError = null;
     let active = true;
     void session.worksStore.ensureContent(workId, "work-pane").then((loaded) => {
-      if (active && !loaded) workLoadError = new Error("This work could not be loaded from its host.");
+      if (!active) return;
+      if (loaded) loadedWorkId = workId;
+      else workLoadError = new Error("This work could not be loaded from its host.");
     });
     return () => {
       active = false;
@@ -318,8 +328,8 @@
          holes. -->
     <PaneChrome
       onClose={handleClose}
-      onOpenInSplit={isMobile ? undefined : pane.moveAcross}
-      onToggleMaximize={isMobile ? null : pane.toggleMaximize}
+      onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
+      onToggleMaximize={shell.hasCompanionPanes ? pane.toggleMaximize : null}
       maximized={pane.maximized}
       isLeading={pane.isLeading}
       closeLabel={work.type === "diagram"
@@ -337,7 +347,22 @@
     onRetry={() => (workLoadAttempt += 1)}
   />
 {:else}
-  <DocumentModalSkeleton inline title="Loading work…" />
+  {#if workMetadata?.type === "diagram"}
+    <DiagramShellSkeleton />
+  {:else}
+    <DocumentModalSkeleton inline title={workMetadata?.title} workStorage={workMetadata?.storage} />
+  {/if}
+{/if}
+
+{#if !work}
+  <PaneChrome
+    onClose={handleClose}
+    onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
+    onToggleMaximize={shell.hasCompanionPanes ? pane.toggleMaximize : null}
+    maximized={pane.maximized}
+    isLeading={pane.isLeading}
+    closeLabel="Close loading work"
+  />
 {/if}
 
 {#if exportDraft && exportStartPath && sess}

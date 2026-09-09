@@ -128,7 +128,7 @@
         </span>
       {/snippet}
     </TooltipUI.Trigger>
-    <TooltipUI.Content class="z-[10050]" side="bottom" value="Go back" />
+    <TooltipUI.Content side="bottom" value="Go back" />
   </TooltipUI.Root>
   <TooltipUI.Root>
     <TooltipUI.Trigger>
@@ -149,7 +149,7 @@
         </span>
       {/snippet}
     </TooltipUI.Trigger>
-    <TooltipUI.Content class="z-[10050]" side="bottom" value="Go forward" />
+    <TooltipUI.Content side="bottom" value="Go forward" />
   </TooltipUI.Root>
   <!-- The reload glyph carries the loading motion, so the canvas needs no
        spinner of its own over the page being judged. -->
@@ -167,7 +167,7 @@
         </button>
       {/snippet}
     </TooltipUI.Trigger>
-    <TooltipUI.Content class="z-[10050]" side="bottom" value="Reload browser" />
+    <TooltipUI.Content side="bottom" value="Reload browser" />
   </TooltipUI.Root>
 
   <!-- Recessed rather than raised: this is the one place in the pane you type. -->
@@ -220,7 +220,6 @@
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content
-        class="z-[10050]"
         side="bottom"
         value="Edit browser address"
       />
@@ -265,7 +264,6 @@
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content
-        class="z-[10050]"
         side="bottom"
         value={page.devToolsOpen
           ? "DevTools are open — close them to let Solus drive this page"
@@ -294,7 +292,6 @@
       {/snippet}
     </TooltipUI.Trigger>
     <TooltipUI.Content
-      class="z-[10050]"
       side="bottom"
       value="Annotate this page"
     />
@@ -325,7 +322,6 @@
       {/snippet}
     </TooltipUI.Trigger>
     <TooltipUI.Content
-      class="z-[10050]"
       side="bottom"
       value="Rendering as {page.appearance} — switch to {nextAppearance}"
     />
@@ -346,7 +342,6 @@
       {/snippet}
     </TooltipUI.Trigger>
     <TooltipUI.Content
-      class="z-[10050]"
       side="bottom"
       value="Clear browser data — signs this profile's browser pages out"
     />
@@ -372,7 +367,6 @@
         {/snippet}
       </TooltipUI.Trigger>
       <TooltipUI.Content
-        class="z-[10050]"
         side="bottom"
         value="Open in your default browser"
       />

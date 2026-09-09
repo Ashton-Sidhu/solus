@@ -88,7 +88,7 @@ const prRecordTypes = new Set(['PullRequest'])
  * request, so nothing reads them expecting the pull request's current state.
  */
 const searchResultFiles = new Set([
-  'packages/workspace-ui/src/App.svelte',
+  'apps/desktop/src/renderer/shell/desktop-palette.svelte.ts',
   'packages/workspace-ui/src/components/editor/unified-autocomplete/reference-index.svelte.ts',
 ])
 

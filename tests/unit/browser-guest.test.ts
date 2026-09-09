@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import type { BrowserSurfaceReport } from '@solus/contracts/browser-types'
 import {
   browserGuest,
   shouldUseNativeBrowser,
@@ -16,15 +17,21 @@ import {
  * exactly what "I click a tool and nothing happens" was.
  */
 
+interface FakeLoadEvent {
+  errorDescription?: string
+  isMainFrame?: boolean
+  validatedURL?: string
+}
+
 interface FakeGuest extends BrowserGuestElement {
-  fire(event: string): void
+  fire(event: string, detail?: FakeLoadEvent): void
   listenerCount(event: string): number
 }
 
 /** A `<webview>` stand-in whose `getWebContentsId` throws until `domReady` is
  *  set — the one behaviour the attach race turns on. */
 function fakeGuest(webContentsId: number): FakeGuest {
-  const listeners = new Map<string, Set<() => void>>()
+  const listeners = new Map<string, Set<(event: FakeLoadEvent) => void>>()
   const attributes = new Map<string, string>()
   let domReady = false
   const node = {
@@ -38,18 +45,18 @@ function fakeGuest(webContentsId: number): FakeGuest {
     getTitle: () => '',
     hasAttribute: (name: string) => attributes.has(name),
     setAttribute: (name: string, value: string) => void attributes.set(name, value),
-    addEventListener(event: string, handler: () => void) {
+    addEventListener(event: string, handler: (event: FakeLoadEvent) => void) {
       if (!listeners.has(event)) listeners.set(event, new Set())
       listeners.get(event)?.add(handler)
     },
-    removeEventListener(event: string, handler: () => void) {
+    removeEventListener(event: string, handler: (event: FakeLoadEvent) => void) {
       listeners.get(event)?.delete(handler)
     },
-    fire(event: string) {
+    fire(event: string, detail = {}) {
       // `dom-ready` is the moment the id becomes readable — model that here so a
       // handler firing on it sees a working accessor.
       if (event === 'dom-ready') domReady = true
-      for (const handler of listeners.get(event) ?? []) handler()
+      for (const handler of listeners.get(event) ?? []) handler(detail)
     },
     listenerCount: (event: string) => listeners.get(event)?.size ?? 0,
   }
@@ -122,6 +129,78 @@ describe('browserGuest attach handover', () => {
     instance.destroy()
     expect(node.listenerCount('did-attach')).toBe(0)
     expect(node.listenerCount('dom-ready')).toBe(0)
+  })
+})
+
+describe('browserGuest load reports', () => {
+  function setup() {
+    const node = fakeGuest(7)
+    const reports: BrowserSurfaceReport[] = []
+    browserGuest(node, {
+      attach: () => {},
+      detach: () => {},
+      report: (report) => reports.push(report),
+      crashed: () => {},
+    })
+    return { node, reports }
+  }
+
+  test('keeps the picker loading until the document completes', () => {
+    const { node, reports } = setup()
+    node.getURL = () => 'http://localhost:5173/'
+    node.fire('did-start-loading')
+    node.fire('did-navigate')
+    node.fire('page-title-updated')
+    expect(reports.every((report) => report.loadState === 'loading')).toBe(true)
+
+    node.fire('did-finish-load')
+    expect(reports.at(-1)?.loadState).toBe('ready')
+  })
+
+  test('keeps a failed load visible until a new load succeeds', () => {
+    const { node, reports } = setup()
+    node.getURL = () => 'http://localhost:5173/'
+    node.fire('did-start-loading')
+    node.fire('did-fail-load', { isMainFrame: true, errorDescription: 'ERR_CONNECTION_REFUSED' })
+    node.fire('did-stop-loading')
+    node.fire('page-title-updated')
+    node.fire('did-navigate-in-page')
+    expect(reports.at(-1)?.loadState).toBe('failed')
+    expect(reports.at(-1)?.failure).toBe('ERR_CONNECTION_REFUSED')
+
+    node.fire('did-start-loading')
+    node.fire('did-finish-load')
+    expect(reports.at(-1)?.loadState).toBe('ready')
+    expect(reports.at(-1)?.failure).toBeUndefined()
+  })
+
+  test('does not treat an unreadable or blank startup document as a loaded page', () => {
+    const { node, reports } = setup()
+    node.fire('did-finish-load')
+    node.getURL = () => ''
+    node.fire('did-finish-load')
+    node.getURL = () => { throw new Error('Not attached') }
+    node.fire('page-title-updated')
+    expect(reports).toEqual([])
+  })
+
+  test('a subframe failure does not fail the page', () => {
+    const { node, reports } = setup()
+    node.getURL = () => 'http://localhost:5173/'
+    node.fire('did-finish-load')
+    node.fire('did-fail-load', { isMainFrame: false, errorDescription: 'ERR_CONNECTION_REFUSED' })
+    expect(reports.at(-1)?.loadState).toBe('ready')
+  })
+
+  test('reports an initial failure even when the guest is still blank', () => {
+    const { node, reports } = setup()
+    node.fire('did-fail-load', {
+      isMainFrame: true,
+      errorDescription: 'ERR_CONNECTION_REFUSED',
+      validatedURL: 'http://localhost:5173/',
+    })
+    expect(reports.at(-1)?.url).toBe('http://localhost:5173/')
+    expect(reports.at(-1)?.loadState).toBe('failed')
   })
 })
 

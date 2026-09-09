@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { runInputFromContext } from '@solus/server/agents/run-input'
 import { IpcContextBuilder, type IpcContextBuilderDeps } from '@solus/workspace-ui/contexts/workspace/ipc-context'
-import type { StatusBarCtx } from '@solus/contracts/types'
+import type { IpcContext, StatusBarCtx } from '@solus/contracts/types'
 
 function statusBar(
   model: string,
@@ -23,6 +23,31 @@ function statusBar(
 }
 
 describe('IPC context', () => {
+  test('every entry point reads the current shell RPC window', () => {
+    let shellWindow: IpcContext['window'] = { viewMode: 'editor' }
+    const deps = {
+      sessionFor: () => undefined,
+      runFor: () => undefined,
+      hasDraft: () => false,
+      globalDefaults: {
+        permissionMode: 'ask', workingDirectory: '/repo', gitContext: null,
+        modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
+      },
+      staticInfo: () => null,
+      rpcWindow: () => shellWindow,
+      settings: { ctx: { activeAgent: 'codex' } },
+      statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
+    } as IpcContextBuilderDeps
+    const builder = new IpcContextBuilder(deps)
+    expect(builder.forTab('tab').window).toEqual({ viewMode: 'editor' })
+    // The browser can change composition after resize. No context builder
+    // keeps a separate copy of the compatibility field sent to the host.
+    shellWindow = { viewMode: 'pill' }
+    expect(builder.forActive('tab').window).toEqual(shellWindow)
+    expect(builder.forDirectory('tab', '/other').window).toEqual(shellWindow)
+    expect(builder.forEnvironment('tab', '/other', null).window).toEqual(shellWindow)
+  })
+
   test('marks a cross-host run as dispatched in SessionCtx', () => {
     const run = {
       workingDirectory: '/remote/repo',
@@ -43,7 +68,7 @@ describe('IPC context', () => {
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       },
       staticInfo: () => null,
-      window: { viewMode: 'editor' },
+      rpcWindow: () => ({ viewMode: 'editor' }),
       settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps
@@ -71,7 +96,7 @@ describe('IPC context', () => {
         },
       },
       staticInfo: () => null,
-      window: { viewMode: 'editor' },
+      rpcWindow: () => ({ viewMode: 'editor' }),
       settings: {
         activeAgent: 'codex',
         ctx: {
@@ -109,7 +134,7 @@ describe('IPC context', () => {
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       },
       staticInfo: () => null,
-      window: { viewMode: 'editor' },
+      rpcWindow: () => ({ viewMode: 'editor' }),
       settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps
@@ -139,7 +164,7 @@ describe('IPC context', () => {
         modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
       },
       staticInfo: () => null,
-      window: { viewMode: 'editor' },
+      rpcWindow: () => ({ viewMode: 'editor' }),
       settings: { ctx: { activeAgent: 'codex' } },
       statusBar: { ctx: statusBar('model', 'high'), ctxFor: () => statusBar('model', 'high') },
     } as unknown as IpcContextBuilderDeps

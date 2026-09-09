@@ -1,4 +1,4 @@
-import { describe, expect, mock, test } from 'bun:test'
+import { beforeEach, describe, expect, mock, test } from 'bun:test'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import { Database } from 'bun:sqlite'
 import type { PullRequest as PullRequestFacts } from '@solus/contracts/providers'
@@ -30,6 +30,7 @@ function facts(state: PullRequestFacts['state']): PullRequestFacts {
 
 let mergedFacts = facts('merged')
 mock.module('@solus/server/prs/pr-index', () => ({
+  repoKeyOf: (target: RepoRef) => `${target.host}/${target.owner}/${target.repo}`,
   prIndex: {
     pullRequest: () => ({ readFresh: async () => mergedFacts }),
     invalidate: () => {},
@@ -40,8 +41,10 @@ mock.module('@solus/server/git/git-helpers', () => ({
   resolveRepoRoot: async (cwd: string) => cwd,
   computeGitState: async () => null,
 }))
+const completedScopes: string[] = []
+beforeEach(() => { completedScopes.length = 0 })
 mock.module('@solus/server/tasks/sync-engine', () => ({
-  completeTasksForMergedPullRequest: async () => [],
+  completeTasksForMergedPullRequest: async (scope: string) => { completedScopes.push(scope); return [] },
 }))
 
 let mergeAnswer = { merged: true }
@@ -83,6 +86,7 @@ describe('merging a pull request', () => {
 
     await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
 
+    expect(completedScopes).toEqual(['github.com/owner/repo'])
     expect(broadcasts).toEqual([
       { type: 'pr.lifecycleChanged', payload: { projectRoot: '/repo', detail: mergedFacts } },
     ])
@@ -96,5 +100,6 @@ describe('merging a pull request', () => {
     await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
 
     expect(broadcasts).toEqual([])
+    expect(completedScopes).toEqual([])
   })
 })

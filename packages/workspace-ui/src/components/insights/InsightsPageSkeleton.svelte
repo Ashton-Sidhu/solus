@@ -7,13 +7,14 @@
      console band, and the answer geometry stay in place, so the pane does not
      settle twice after it opens. -->
 <div
-  class="relative flex h-full w-full flex-col overflow-hidden bg-background text-insights-chrome text-foreground"
+  class="@container relative flex h-full w-full flex-col overflow-hidden bg-background text-insights-chrome text-foreground"
   role="status"
   aria-busy="true"
   aria-label="Loading insights"
 >
+  <div class="mx-auto w-full max-w-[72rem] shrink-0 px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4">
   <header
-    class="workspace-titlebar flex h-[calc(var(--solus-chrome-row-h,2.75rem)-0.25rem)] shrink-0 items-center gap-1 pr-6 pl-[max(1.625rem,var(--solus-chrome-lead-inset,0px))] shadow-[inset_0_-0.5px_0_var(--hairline)] pointer-coarse:h-(--solus-chrome-row-h,2.75rem)"
+    class="workspace-titlebar box-content flex h-[31px] shrink-0 items-center pt-[42px] pb-[13px] text-muted-foreground pointer-coarse:h-9 pointer-fine:[.is-laptop-display_&]:h-[27px] [.is-laptop-display_&]:pt-8 [.is-laptop-display_&]:pb-2.5 @max-[30rem]/pane:h-11! @max-[30rem]/pane:pb-2.5!"
   >
     <span class="flex h-7 shrink-0 items-center px-[7px] text-workspace-chrome font-semibold"
       >Insights</span
@@ -25,8 +26,9 @@
     <!-- The move-across control the real header ends with. -->
     <Skeleton class="size-[1.625rem] rounded-[0.4375rem] opacity-40" />
   </header>
+  </div>
 
-  <div class="flex min-h-0 flex-1 flex-col gap-3 px-4 pt-3.5 pb-4.5 sm:px-6.5">
+  <div class="mx-auto flex min-h-0 w-full max-w-[72rem] flex-1 flex-col gap-3 px-8 pb-4.5 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4">
     <section class="shrink-0 overflow-hidden rounded-xl bg-card" aria-hidden="true">
       <div class="flex h-11 items-center gap-2.5 pr-2 pl-2.5">
         <Skeleton class="h-6.5 w-24 shrink-0 rounded-lg opacity-55" />

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { Network as ArchitectureIcon, CircleAlert as WarningCircleIcon, PanelRight as PanelRightIcon } from "@lucide/svelte";
   import type { WorkEmbedSource } from "./lib/work-embed";
 
@@ -87,7 +88,7 @@
 
   {#if !isNearViewport || (!loadFinished && !work?.content)}
     <div class="flex h-52 items-center justify-center bg-(--solus-container-bg)" role="status">
-      <span class="text-xs text-(--solus-text-tertiary)">Loading diagram…</span>
+      <ContentSkeleton label="Loading diagram" preview />
     </div>
   {:else if isMissing}
     <div class="flex h-40 flex-col items-center justify-center gap-2 px-6 text-center">
@@ -104,7 +105,9 @@
     <!-- Mounted only once the card is near the viewport, so a document full of
          embeds costs one canvas per diagram the reader actually reaches. -->
     <div class="diagram-embed__canvas max-h-[55cqh]" draggable="false">
-      {#await import("../diagram/DiagramPreview.svelte") then previewModule}
+      {#await import("../diagram/DiagramPreview.svelte")}
+        <ContentSkeleton label="Loading diagram" preview />
+      {:then previewModule}
         <previewModule.default content={work.content} {title} />
       {/await}
     </div>

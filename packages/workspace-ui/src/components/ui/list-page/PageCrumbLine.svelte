@@ -160,7 +160,7 @@
          project has moved to a chip at the far end, so this is the page's own
          title and takes the title rung. -->
     <h1
-      class="min-w-0 shrink truncate px-2.5 font-semibold tracking-[-0.013em] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:flex-1 @max-[30rem]/pane:px-1.5 @max-[30rem]/pane:text-[17px] @max-[30rem]/pane:tracking-[-0.014em]"
+      class="min-w-0 shrink truncate px-2.5 text-[length:calc(var(--text-workspace-chrome)+2px)] font-semibold tracking-[-0.013em] [.is-laptop-display_&]:px-2 @max-[30rem]/pane:flex-1 @max-[30rem]/pane:px-1.5 @max-[30rem]/pane:text-[18px] @max-[30rem]/pane:tracking-[-0.014em]"
       title={pageTitle}
     >
       {pageTitle}
@@ -171,7 +171,7 @@
         aria-hidden="true">/</span
       >
       <span
-        class="min-w-0 truncate px-2.5 text-muted-foreground [.is-laptop-display_&]:px-2"
+        class="min-w-0 truncate px-2.5 text-[length:calc(var(--text-workspace-chrome)+2px)] text-muted-foreground [.is-laptop-display_&]:px-2"
         title={trailingCrumb}>{trailingCrumb}</span
       >
     {/if}

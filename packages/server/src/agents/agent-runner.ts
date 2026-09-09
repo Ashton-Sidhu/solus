@@ -27,6 +27,11 @@ function agentRunAttrs(promptChars: number, reasoningEffort: string | undefined)
   return attrs
 }
 
+export type ProviderConversation =
+  | { kind: 'start' }
+  | { kind: 'resume'; threadId: string }
+  | { kind: 'fork'; sourceThreadId: string; excludeLatestTurn?: boolean }
+
 export interface AgentRunRequest {
   provider: AgentId
   prompt: string
@@ -39,11 +44,7 @@ export interface AgentRunRequest {
   service: SpanService
   /** Background utility runs must never park on an interaction no surface can answer. */
   unattended?: boolean
-  sessionId?: string | null
-  forkSession?: boolean
-  /** Omit the source's latest turn when forking. Used for forks requested while
-   *  that turn was still live. Providers without a cutoff ignore this. */
-  forkExcludeLatestTurn?: boolean
+  conversation?: ProviderConversation
   additionalDirectories?: string[]
   imageAttachments?: PromptOptions['imageAttachments']
   contextWindow?: number | null

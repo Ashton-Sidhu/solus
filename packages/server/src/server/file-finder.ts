@@ -1,5 +1,6 @@
 import type { FileFinder } from '@ff-labs/fff-node'
 import { createLogger } from '../logger'
+import { resolveIndexRoot } from './index-root'
 
 // @ff-labs/fff-node is ESM-only while the main bundle is CJS, so it must be
 // loaded with a dynamic import (kept native by rollup) instead of require.
@@ -10,9 +11,8 @@ function loadFff() {
 
 const log = createLogger('main', 'file-finder')
 
-// One fff index per base directory. The common case is a single finder per
-// open project; path queries outside the project (e.g. ~/Downloads/…) get
-// their own finder bound to the deepest existing directory of the query.
+// One fff index per project directory. Path browsing uses shallow listings
+// and must never create additional recursive indexes.
 const MAX_FINDERS = 8
 const SCAN_TIMEOUT_MS = 5_000
 
@@ -24,6 +24,9 @@ interface FinderEntry {
 const finders = new Map<string, FinderEntry>()
 
 export async function getFinder(basePath: string): Promise<FileFinder | null> {
+  const root = await resolveIndexRoot(basePath)
+  if (!root) return null
+  basePath = root
   const hit = finders.get(basePath)
   if (hit) {
     // Refresh LRU position.
@@ -41,8 +44,8 @@ export async function getFinder(basePath: string): Promise<FileFinder | null> {
       disableMmapCache: true,
       disableContentIndexing: true,
       aiMode: false,
-      enableFsRootScanning: true,
-      enableHomeDirScanning: true,
+      enableFsRootScanning: false,
+      enableHomeDirScanning: false,
     })
   } catch (err) {
     log.warn('file_finder_load_failed', { basePath, error: err instanceof Error ? err.message : String(err) })
@@ -94,6 +97,9 @@ function touchContentFinder(basePath: string, entry: ContentFinderEntry): void {
 
 /** The content-indexed finder for a root, created on first search. */
 export async function getContentFinder(basePath: string): Promise<FileFinder | null> {
+  const root = await resolveIndexRoot(basePath)
+  if (!root) return null
+  basePath = root
   const hit = contentFinders.get(basePath)
   if (hit) {
     touchContentFinder(basePath, hit)
@@ -109,8 +115,8 @@ export async function getContentFinder(basePath: string): Promise<FileFinder | n
       disableMmapCache: true,
       disableContentIndexing: false,
       aiMode: false,
-      enableFsRootScanning: true,
-      enableHomeDirScanning: true,
+      enableFsRootScanning: false,
+      enableHomeDirScanning: false,
     })
   } catch (err) {
     log.warn('content_finder_load_failed', { basePath, error: err instanceof Error ? err.message : String(err) })
@@ -138,6 +144,9 @@ export function warmFinder(basePath: string): void {
 }
 
 export async function refreshFinder(basePath: string): Promise<void> {
+  const root = await resolveIndexRoot(basePath)
+  if (!root) return
+  basePath = root
   const entry = finders.get(basePath)
   if (!entry) return
 

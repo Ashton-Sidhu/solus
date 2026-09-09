@@ -17,21 +17,37 @@ class FakeCodexRpcError extends Error {
 interface FakeCodexRequestParams {
   threadId: string
   includeTurns?: boolean
+  turnId?: string
+  cursor?: string
+  limit?: number
+  sortDirection?: string
 }
 
 class FakeCodexClient extends EventEmitter {
   requests: Array<{ method: string; params: FakeCodexRequestParams }> = []
   readError: Error | null = null
+  summaryOnly = false
 
   async request(method: string, params: FakeCodexRequestParams) {
     this.requests.push({ method, params })
     if (method === 'thread/read' && this.readError) throw this.readError
+    if (method === 'thread/items/list') {
+      return {
+        data: [
+          { turnId: 'turn-1', item: { id: 'tool-2', type: 'dynamicToolCall', tool: 'read_task', arguments: { task_id: 'task-1' }, success: true } },
+          { turnId: 'turn-1', item: { id: 'tool-1', type: 'commandExecution', command: 'pwd', aggregatedOutput: '/fixture', status: 'completed' } },
+          { turnId: 'turn-1', item: { id: 'message-1', type: 'userMessage', content: [{ type: 'text', text: 'Persisted prompt' }] } },
+        ],
+        nextCursor: null,
+      }
+    }
     return {
       thread: {
         turns: [
           {
             id: 'turn-1',
             status: 'completed',
+            itemsView: this.summaryOnly ? 'summary' : 'full',
             items: [
               {
                 id: 'message-1',
@@ -64,9 +80,27 @@ beforeAll(async () => {
 beforeEach(() => {
   client.requests = []
   client.readError = null
+  client.summaryOnly = false
 })
 
 describe('Codex history loading', () => {
+  test('picker previews do not fetch hidden tool history', async () => {
+    client.summaryOnly = true
+    const preview = await new CodexBackend().loadSessionPreview('thread-1')
+    expect(preview.head[0].content).toBe('Persisted prompt')
+    expect(client.requests.map((request) => request.method)).toEqual(['thread/read'])
+  })
+
+  test('hydrates tool calls omitted by a saved turn summary', async () => {
+    client.summaryOnly = true
+    const messages = await new CodexBackend().loadSession('thread-1', undefined, 200)
+    expect(messages.map((message) => message.toolName).filter(Boolean)).toEqual(['exec_command', 'read_task'])
+    expect(client.requests[1]).toMatchObject({
+      method: 'thread/items/list',
+      params: { threadId: 'thread-1', turnId: 'turn-1', sortDirection: 'desc', limit: 200 },
+    })
+  })
+
   test('resumes a dormant persisted thread when preview loading cannot read it', async () => {
     // WHY: history rows include threads that app-server has not loaded into
     // memory. Selecting one must load its persisted turns instead of showing an

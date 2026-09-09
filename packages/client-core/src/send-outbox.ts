@@ -138,7 +138,10 @@ export class SendOutbox {
     this.draining.add(serverId)
     try {
       for (const record of this.entriesFor(serverId)) {
-        if (record.lastError !== null) continue
+        // A prior send may await for seconds. Cancellation/removal during that
+        // wait must win over this drain's original snapshot.
+        const current = this.entriesFor(serverId).find((entry) => entry.clientPromptId === record.clientPromptId)
+        if (!current || current.lastError !== null) continue
         try {
           await send(record)
           this.remove(serverId, record.clientPromptId)

@@ -4,7 +4,7 @@ import {
   contextFact,
   filterModelGroups,
   groupModels,
-} from '../../apps/client/src/lib/mobile-model-groups'
+} from '../../apps/client/src/shell/mobile/lib/mobile-model-groups'
 
 /**
  * The mobile model sheet exists to answer "which one" in two taps rather than a

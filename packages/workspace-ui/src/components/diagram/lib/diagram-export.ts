@@ -1,3 +1,4 @@
+import { includeRenderedBounds } from "./export-bounds";
 import type { useSvelteFlow } from "@xyflow/svelte";
 import { toPng, toSvg } from "html-to-image";
 import type { PixelSize } from "@solus/contracts/diagram-page";
@@ -66,8 +67,24 @@ function frameForBounds(bounds: PixelSize): PixelSize {
 }
 
 /** The image frame, in CSS pixels, that an export of this flow fills. */
-export function exportFrame(flow: DiagramExportFlow): PixelSize {
-  return frameForBounds(flow.getNodesBounds(flow.getNodes()));
+export function exportFrame(flow: DiagramExportFlow, root?: HTMLElement): PixelSize {
+  return frameForBounds(imageBounds(flow, root));
+}
+
+function isDiagramInk(element: Element): boolean {
+  return !element.closest('[data-diagram-editor-only], .edge-reconnect-anchor, .svelte-flow__handle, .svelte-flow__resize-control, .svelte-flow__edge-interaction');
+}
+
+function imageBounds(flow: DiagramExportFlow, root?: HTMLElement) {
+  const base = flow.getNodesBounds(flow.getNodes().filter(node => !node.hidden));
+  const viewport = root?.querySelector<HTMLElement>('.svelte-flow__viewport');
+  if (!viewport) return base;
+  const transform = new DOMMatrix(getComputedStyle(viewport).transform);
+  const zoom = Math.hypot(transform.a, transform.b) || 1;
+  const origin = viewport.getBoundingClientRect();
+  const ink = [...viewport.querySelectorAll('.svelte-flow__edge-path, .svelte-flow__edge line, .edge-label-display')]
+    .filter(isDiagramInk).map(element => element.getBoundingClientRect());
+  return includeRenderedBounds(base, ink, { x: origin.left, y: origin.top }, zoom);
 }
 
 /**
@@ -87,14 +104,17 @@ async function renderViewport(
   encode: (el: HTMLElement, opts: EncodeOptions) => Promise<string>,
   { flow, root, backgroundColor, devicePixelRatio, prepare }: RenderDiagramImageOptions,
 ): Promise<string | null> {
-  const nodes = flow.getNodes();
-  if (!nodes.length) return null;
+  if (!flow.getNodes().some(n => !n.hidden)) return null;
   const finish = await prepare?.();
+  const previousExporting = root.getAttribute('data-diagram-exporting');
+  root.setAttribute('data-diagram-exporting', 'true');
   try {
+    await document.fonts.ready;
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
     const el = root.querySelector<HTMLElement>(".svelte-flow__viewport");
     if (!el) return null;
 
-    const bounds = flow.getNodesBounds(nodes);
+    const bounds = imageBounds(flow, root);
     const { width: imageWidth, height: imageHeight } = frameForBounds(bounds);
     // One margin, stated once. The frame is already the graph plus
     // EXPORT_PADDING, so the graph is drawn at 1:1 and centred in it;
@@ -105,6 +125,7 @@ async function renderViewport(
 
     return await encode(el, {
       backgroundColor,
+      filter: (element) => !(element instanceof Element) || isDiagramInk(element),
       pixelRatio: exportPixelRatio(imageWidth, imageHeight, devicePixelRatio ?? window.devicePixelRatio),
       width: imageWidth,
       height: imageHeight,
@@ -115,6 +136,8 @@ async function renderViewport(
       },
     });
   } finally {
+    if (previousExporting === null) root.removeAttribute("data-diagram-exporting");
+    else root.setAttribute("data-diagram-exporting", previousExporting);
     finish?.();
   }
 }

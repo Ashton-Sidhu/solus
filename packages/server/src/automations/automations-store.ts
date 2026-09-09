@@ -58,6 +58,8 @@ const automationCreatorSchema = z.object({
   sessionId: z.string().optional(),
 })
 const automationMetadataSchema = z.object({
+  archivedAt: z.string().optional(),
+  archiveRequested: z.boolean().optional(),
   createdBy: automationCreatorSchema.default({ kind: 'user' }),
   lastRunId: z.string().optional(),
   lastRunStatus: runStatusSchema.optional(),
@@ -322,7 +324,7 @@ export async function loadAutomation(id: string): Promise<Automation | null> {
  *  the trigger or the enabled state re-arms `nextRunAt` from now. */
 export async function updateAutomation(
   id: string,
-  patch: { name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
+  patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
 ): Promise<Automation | null> {
   const db = database()
   const row = automationRowSchema.nullish().parse(
@@ -346,6 +348,15 @@ export async function updateAutomation(
   // afresh from now so resuming never replays a fire that elapsed while paused.
   if (patch.trigger !== undefined || enabledChanged) {
     existing.nextRunAt = existing.enabled ? nextRunFrom(existing.trigger, new Date()) : undefined
+  }
+  if (patch.archived === true) {
+    existing.enabled = false
+    existing.nextRunAt = undefined
+    if (existing.lastRunStatus === 'running') existing.archiveRequested = true
+    else existing.archivedAt = new Date().toISOString()
+  } else if (patch.archived === false || patch.enabled === true) {
+    delete existing.archivedAt
+    delete existing.archiveRequested
   }
   existing.updatedAt = new Date().toISOString()
   writeAutomation(db, existing)
@@ -516,6 +527,17 @@ export async function finishRun(
     const automation = automationRow ? automationFromRow(automationRow) : null
     if (automation?.lastRunId === runId) {
       automation.lastRunStatus = outcome.status
+      const completed = outcome.status === 'succeeded' || outcome.status === 'dispatched'
+      if (automation.archiveRequested || (completed && automation.action.sessionId &&
+          automation.trigger.type === 'once' && !automation.enabled && !automation.nextRunAt &&
+          finished && Date.parse(finished.startedAt) >= Date.parse(automation.trigger.runAt))) {
+        if (outcome.status !== 'failed') {
+          automation.archivedAt = new Date().toISOString()
+          automation.enabled = false
+          automation.nextRunAt = undefined
+        }
+        delete automation.archiveRequested
+      }
       writeAutomation(db, automation)
     }
     return { automation, finished }
@@ -532,4 +554,30 @@ export async function loadRun(automationId: string, runId: string): Promise<Auto
     WHERE automation_id = ? AND id = ?
   `).get(automationId, runId))
   return row ? runFromRow(row) : null
+}
+
+/** Delete only expired archives. Runs are removed by the database foreign key;
+ * provider conversations and their messages are stored separately. */
+export function deleteExpiredArchivedAutomations(retentionDays: number, now = new Date(), isRunning?: (id: string) => boolean): number {
+  if (!Number.isInteger(retentionDays) || retentionDays < 1 || retentionDays > 3650) {
+    throw new Error('Archive retention must be between 1 and 3650 days.')
+  }
+  const cutoff = new Date(now.getTime() - retentionDays * 86_400_000).toISOString()
+  const db = database()
+  const deleted = withTx(() => {
+    const rows = automationRowSchema.array().parse(db.prepare(`
+      SELECT * FROM automations WHERE enabled = 0
+      AND json_extract(last_run, '$.archivedAt') <= ?
+    `).all(cutoff))
+    const ids: string[] = []
+    for (const row of rows) {
+      const automation = automationFromRow(row)
+      if (automation.lastRunStatus === 'running' || isRunning?.(automation.id)) continue
+      db.prepare('DELETE FROM automations WHERE id = ?').run(automation.id)
+      ids.push(automation.id)
+    }
+    return ids
+  })
+  for (const automationId of deleted) emitChanged({ kind: 'deleted', automationId })
+  return deleted.length
 }

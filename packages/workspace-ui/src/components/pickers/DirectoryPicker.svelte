@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ContentSkeleton from "../ui/ContentSkeleton.svelte";
   import { fade, fly } from "svelte/transition";
   import { expoOut } from "svelte/easing";
   import { Input } from "../ui/input";
@@ -734,7 +735,7 @@
                 role="status"
                 aria-live="polite"
               >
-                <span class="text-xs text-(--solus-text-tertiary) max-md:text-[0.8125rem]">Loading folders…</span>
+                <ContentSkeleton label="Loading folders" />
               </div>
             {:else if loadError}
               <div

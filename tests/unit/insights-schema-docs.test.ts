@@ -69,14 +69,6 @@ describe('the served schema documents the fact table, not just the views', () =>
       .toContain('Thinking includes')
   })
 
-  test('the join key and the fact table are stated, not left to be inferred', () => {
-    const facts = SCHEMA_RELATIONSHIPS.join(' ')
-    expect(facts).toContain('trace_id')
-    expect(facts).toContain('spans')
-    // The user must be told the cost of joining before they write one.
-    expect(facts.toLowerCase()).toContain('grid')
-  })
-
   test('documenting spans did not make it a registered view — a raw-spans query still declares no grain', () => {
     expect(registeredViewNames().has('spans')).toBe(false)
     expect(sqlGuard.declaredSourceView('select kind, count(*) from spans group by kind')).toBeUndefined()

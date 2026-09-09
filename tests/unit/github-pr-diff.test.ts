@@ -88,6 +88,7 @@ class DiffBaseGitHubProvider extends GitHubProvider {
 
   protected override async clients(): Promise<GitHubClient[]> {
     return [{
+      credential: { source: 'host', token: 'test-token' },
       rest: {
         repos: {
           compareCommitsWithBasehead: async (params: { basehead: string }) => {
@@ -166,7 +167,7 @@ class ScriptedGitHubProvider extends GitHubProvider {
         getCommit: async () => ({ data: { parents: [{ sha: 'parent-sha' }] } }),
       },
     }
-    return [{ rest } as unknown as GitHubClient]
+    return [{ rest, credential: { source: 'host', token: 'test-token' } } as unknown as GitHubClient]
   }
 
   override async getPullRequest(): Promise<PullRequest> {

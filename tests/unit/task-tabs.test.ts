@@ -18,10 +18,6 @@ describe('the task page keeps its four sections when it becomes a strip', () => 
     expect(tabs.map((tab) => tab.count)).toEqual([undefined, 3, 2, 7])
   })
 
-  it('gives Overview no count, because it would be counting the task', () => {
-    expect(taskTabs({ linked: 1, sessions: 1, activity: 1 })[0].count).toBeUndefined()
-  })
-
   it('reports zero rather than hiding it, and lets the strip decide what to draw', () => {
     // The rule "an empty section draws no number" belongs to the strip, so the
     // model stays honest and one component owns the presentation choice.

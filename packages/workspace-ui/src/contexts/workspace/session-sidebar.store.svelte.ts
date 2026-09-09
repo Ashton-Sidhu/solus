@@ -174,12 +174,12 @@ export function mountedSidebarTabIds(
  * to the same tab or the sidebar projects the old attempt beside the live one. */
 export function sidebarSessionIds(
   tab: Pick<Tab, 'sessionId'>,
-  session: Pick<Session, 'handoffId' | 'agentSessionId' | 'forkedFromSessionId'> | null | undefined,
+  session: Pick<Session, 'handoffId' | 'agentSessionId' | 'forkedFromSessionId' | 'forked'> | null | undefined,
 ): string[] {
   return [
     tab.sessionId,
     session?.handoffId,
-    session?.agentSessionId,
+    session?.forked ? null : session?.agentSessionId,
     session?.forkedFromSessionId,
   ].filter((sessionId): sessionId is string => !!sessionId)
 }

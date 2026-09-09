@@ -6,7 +6,7 @@
   import type { Automation } from "@solus/contracts/types";
   import {
     getWorkspaceContext,
-    getWindowContext,
+    getClientShellContext,
     runtime,
     serversStore,
     projectsStore,
@@ -18,11 +18,11 @@
   } from "../../lib/keybindings/use-keybinding.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { PAGE_SECONDARY_BTN } from "../../lib/page-chrome";
-  import SegmentedControl from "../ui/SegmentedControl.svelte";
-  import SortMenu from "../ui/SortMenu.svelte";
   import {
     ListEmpty,
     ListFilterBar,
+    ListFilterGroup,
+    ListSortMenu,
     ListGroup,
     ListPage,
     ListSkeleton,
@@ -30,7 +30,7 @@
     type ListFilterSpec,
     type ListProjectOption,
   } from "../ui/list-page";
-  import { folderLabel, relativeTime } from "./lib/automation-format";
+  import { folderLabel } from "./lib/automation-format";
   import AutomationBuilder from "./AutomationBuilder.svelte";
   import AutomationContextMenu from "./AutomationContextMenu.svelte";
   import AutomationLaunchpad from "./AutomationLaunchpad.svelte";
@@ -47,7 +47,7 @@
 
   const session = getWorkspaceContext();
   const pane = paneActions(() => paneId);
-  const windowCtx = getWindowContext();
+  const shell = getClientShellContext();
   const store = session.automationsStore;
   const pageProject = $derived(
     session.projectPageScope.kind === "project"
@@ -69,7 +69,7 @@
   const open = $derived(session.router.at("automations"));
   // Editor mode opens the builder in the side panel; pill mode has no pane, so it
   // keeps editing inline within this overlay.
-  const isEditorMode = $derived(windowCtx.viewMode === "editor");
+  const canShowBuilderPane = $derived(shell.hasCompanionPanes);
 
   // view: the list, or the create/edit builder.
   type View =
@@ -130,9 +130,14 @@
   );
 
   // ── Command bar: search + status filter + favourites + sort ──
-  type StatusFilter = "all" | "active" | "paused";
+  type StatusFilter = "all" | "active" | "paused" | "archived";
   type SortMode = "recent" | "name";
-  type StatusSectionId = "running" | "failed" | "active" | "paused";
+  type StatusSectionId =
+    | "running"
+    | "failed"
+    | "active"
+    | "paused"
+    | "archived";
   type StatusSection = {
     id: StatusSectionId;
     label: string;
@@ -147,6 +152,7 @@
     { id: "failed", label: "Needs attention" },
     { id: "active", label: "Active" },
     { id: "paused", label: "Paused" },
+    { id: "archived", label: "Archived" },
   ];
 
   let query = $state("");
@@ -189,15 +195,18 @@
   const counts = $derived.by(() => {
     let active = 0;
     let paused = 0;
+    let archived = 0;
     for (const automation of scoped) {
-      if (automation.enabled) active++;
+      if (automation.archivedAt) archived++;
+      else if (automation.enabled) active++;
       else paused++;
     }
-    return { all: scoped.length, active, paused };
+    return { all: scoped.length - archived, active, paused, archived };
   });
 
-  const statusSegments = $derived(([
+  const statusSegments = $derived([
     { value: "all", label: "All", count: counts.all },
+    { value: "archived", label: "Archived", count: counts.archived },
     {
       value: "active",
       label: "Active",
@@ -210,7 +219,12 @@
       short: "Off",
       count: counts.paused,
     },
-  ] satisfies Array<{ value: StatusFilter; label: string; short?: string; count: number }>));
+  ] satisfies Array<{
+    value: StatusFilter;
+    label: string;
+    short?: string;
+    count: number;
+  }>);
 
   const isInitialLoading = $derived(
     !!selectedServerId &&
@@ -220,20 +234,6 @@
   // The zero-state owns the page, so the header hides its New button and the
   // command bar (search/filter noise with nothing to filter) while it shows.
   const showEmpty = $derived(!isInitialLoading && hostItems.length === 0);
-
-  // Active and paused used to be restated above the list; the status segments
-  // on the narrowing row carry both counts and act on them, so only the fact
-  // neither of them holds survives — when the next unattended run happens.
-  const nextRunNote = $derived.by(() => {
-    const soonest = scoped
-      .filter((a) => a.enabled && a.nextRunAt)
-      .map((a) => a.nextRunAt!)
-      .sort()[0];
-    return soonest
-      ? `next run ${relativeTime(soonest, now)}`
-      : "nothing scheduled";
-  });
-
   const synced = syncStamp(() => store.loading);
 
   // Flat, filtered, sorted list. Sections are built from this result so search,
@@ -242,6 +242,7 @@
     const q = query.trim().toLowerCase();
     return scoped
       .filter((a) => {
+        if ((statusFilter === "archived") !== !!a.archivedAt) return false;
         if (statusFilter === "active" && !a.enabled) return false;
         if (statusFilter === "paused" && a.enabled) return false;
         if (showStarred && !a.favorite) return false;
@@ -267,10 +268,11 @@
   const automationSections: StatusSection[] = $derived.by(() => {
     const groups = new Map<StatusSectionId, Automation[]>();
     for (const a of automations) {
-      const sectionId: StatusSectionId =
-        a.lastRunStatus === "running"
+      const sectionId: StatusSectionId = a.archivedAt
+        ? "archived"
+        : a.lastRunStatus === "running"
           ? "running"
-          : a.enabled && a.lastRunStatus === "failed"
+          : a.lastRunStatus === "failed"
             ? "failed"
             : a.enabled
               ? "active"
@@ -353,14 +355,14 @@
   }
 
   function startCreate() {
-    if (isEditorMode) {
+    if (canShowBuilderPane) {
       session.openAutomationBuilder(null);
       return;
     }
     view = { kind: "edit", automation: null };
   }
   function startEdit(a: Automation) {
-    if (isEditorMode) {
+    if (canShowBuilderPane) {
       session.openAutomationBuilder(a.id);
       return;
     }
@@ -382,7 +384,7 @@
 
   function selectProject(projectKey: string | null) {
     const project = projectKey
-      ? projects.find((candidate) => candidate.key === projectKey) ?? null
+      ? (projects.find((candidate) => candidate.key === projectKey) ?? null)
       : null;
     session.setProjectPageScope(
       project?.serverId
@@ -462,7 +464,10 @@
     });
   }
 
-  function openAutomationContextMenu(event: MouseEvent, automation: Automation) {
+  function openAutomationContextMenu(
+    event: MouseEvent,
+    automation: Automation,
+  ) {
     event.preventDefault();
     event.stopPropagation();
     selectedId = automation.id;
@@ -504,30 +509,21 @@
     compactText
     placeholder="Search automations…"
     filters={listFilters}
+    activeCount={Number(statusFilter !== "all")}
   >
-    {#snippet trailing()}
-      <SegmentedControl
-        variant="bar"
-        compact
+    {#snippet filterContent()}
+      <ListFilterGroup
+        label="Status"
         options={statusSegments}
-        isActive={(v) => statusFilter === v}
-        onSelect={(v) => (statusFilter = v)}
-        ariaLabel="Filter by status"
+        selected={[statusFilter]}
+        onChange={(next) => (statusFilter = next[0])}
       />
-      <!-- The one fact the status segments beside it cannot state. -->
-      <span
-        class="shrink-0 text-xs whitespace-nowrap text-muted-foreground @max-[44rem]:hidden"
-        >{nextRunNote}</span
-      >
-      <span
-        class="mx-0.5 h-[18px] w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-        aria-hidden="true"
-      ></span>
-      <SortMenu
+    {/snippet}
+    {#snippet trailing()}
+      <ListSortMenu
         bind:value={sortMode}
         options={SORT_OPTIONS}
         ariaLabel="Sort automations"
-        class="h-7 gap-1.5 rounded-lg px-2.5 text-xs font-normal text-muted-foreground shadow-[0_0_0_.5px_color-mix(in_oklch,var(--foreground)_13%,transparent)] hover:text-foreground"
       />
     {/snippet}
   </ListFilterBar>
@@ -559,10 +555,10 @@
         primaryAction={showEmpty
           ? undefined
           : { label: "New automation", shortcut: "⌘N", run: startCreate }}
-        compactPrimaryActionText
         onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
         isLeading={pane.isLeading}
         onClose={close}
+        toolbarFilters
         filters={showEmpty ? undefined : filterBar}
       >
         <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -618,7 +614,8 @@
                     <li>
                       <AutomationRow
                         automation={a}
-                        projectLabel={project?.label ?? folderLabel(a.action.cwd)}
+                        projectLabel={project?.label ??
+                          folderLabel(a.action.cwd)}
                         projectPath={project?.projectPath ?? a.action.cwd}
                         serverId={store.hostFor(a.id)}
                         {now}
@@ -647,7 +644,8 @@
                 : "pt-[30px] [.is-laptop-display_&]:pt-6"}
             >
               <AutomationLaunchpad
-                projectPath={selectedProject?.projectPath ?? session.galleryProjectPath}
+                projectPath={selectedProject?.projectPath ??
+                  session.galleryProjectPath}
                 onOpen={openSeeded}
                 onCreateBlank={startCreate}
               />

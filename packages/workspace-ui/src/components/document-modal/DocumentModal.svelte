@@ -8,7 +8,7 @@
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import CommentLayer from "../comments/CommentLayer.svelte";
   import { CommentMark } from "../editor/commentMark";
-  import { getWindowContext, getWorkspaceContext } from "../../contexts";
+  import { getClientShellContext, getWorkspaceContext } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -48,12 +48,12 @@
   let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, workStorage, onExport, hostIsRemote = false, onRename, onOpenWorkspace }: DocumentModalProps = $props();
 
   const session = getWorkspaceContext();
-  const windowContext = getWindowContext();
+  const clientShell = getClientShellContext();
   setMarkdownImageContext({
     cwd: () => undefined,
     serverId: () => workId ? session.worksStore.hostFor(workId) ?? undefined : undefined,
     ctx: () => undefined,
-    isWeb: () => windowContext.isWeb,
+    isWeb: () => !clientShell.supportsLocalAttachments,
     api: () => {
       const serverId = workId ? session.worksStore.hostFor(workId) : null;
       return serverId ? serverConnections.apiFor(serverId) : undefined;

@@ -738,6 +738,7 @@ describe('Codex subagent history', () => {
     }, 123)).toEqual({
       role: 'tool',
       content: 'Auth is safe.',
+      toolId: 'claude-agent-1',
       toolName: 'claude_subagent',
       toolInput: JSON.stringify(input),
       timestamp: 123,

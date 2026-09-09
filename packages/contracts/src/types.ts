@@ -75,6 +75,8 @@ export interface HostCapabilities {
    *  fact (a native surface), not a host one. */
   browser?: boolean
   atlassianProvider?: boolean
+  /** This host checks its own Solus release and its providers' releases. */
+  hostUpdates?: boolean
 }
 
 export type SetupAgent = 'claude' | 'codex'
@@ -883,9 +885,10 @@ export interface Session {
   /** True when only a recent window of the transcript was hydrated and older
    *  messages still live on disk (fetched on demand via expandHistory). */
   historyTruncated: boolean
-  /** Agent session ID this session was forked from. */
+  /** Prior provider identity retained by a worktree move within the same session.
+   *  A separate fork records its source on the transcript divider instead. */
   forkedFromSessionId: string | null
-  /** True until the first prompt is sent, so the provider starts from a fork of agentSessionId. */
+  /** True until the fork initializes, so the provider branches from agentSessionId. */
   forked: boolean
   /** True when the fork was requested during an active source turn. The provider
    *  must omit that latest turn when it creates the fork, if it supports a cutoff. */
@@ -898,9 +901,8 @@ export interface Session {
    * exists. A taskless session keeps `{ kind: 'new' }` through its first turn so
    * the agent can link an existing task before fallback minting runs.
    *
-   * A fork carries `{ kind: 'new', parentTaskId }`: its own task is minted as a
-   * subtask after its first turn, so until then it has no task of its own — only
-   * the parent it will hang under.
+   * A fork carries `{ kind: 'existing', taskId }` for the source's exact task.
+   * The first dispatch links the new session to that task.
    */
   task: TaskTarget
   /** Set when this session is the chat tab of a PR review (worktree = PR head).
@@ -1066,6 +1068,7 @@ export interface Message {
   toolId?: string
   toolIndex?: number
   toolInput?: string
+  historyToolInput?: import('./session-history').DeferredToolInput
   /** For a sub-agent card this tracks the *agent*, not the tool call: it stays
    *  'running' until the agent's own result or background-settle event lands. */
   toolStatus?: 'running' | 'completed' | 'error'
@@ -2050,8 +2053,13 @@ export interface SessionDelegation {
   createdAt: number
 }
 
-export interface SessionSearchResult {
+export interface SessionSearchResult extends SessionSearchHit {
   session: SessionMeta
+  /** Up to two other matching messages, in relevance order. */
+  additionalMatches?: SessionSearchHit[]
+}
+
+export interface SessionSearchHit {
   /** The passage the words were found in, with each matched token wrapped in
    *  the markers of `search-snippet.ts`. Read it through `snippetRuns` or
    *  `plainSnippet`; never show it raw. */
@@ -2647,6 +2655,7 @@ export type GitCheckout = GitCheckoutIdentity & (
 export function gitCheckoutFromState(
   status: GitIdentity | null | undefined,
   worktreePath?: string,
+  projectRoot?: string,
 ): GitCheckout | null {
   if (!status) return null
   const checkoutIdentity: GitCheckoutIdentity = {
@@ -2657,7 +2666,7 @@ export function gitCheckoutFromState(
   return worktreePath
     ? {
         ...checkoutIdentity,
-        repoRoot: worktreeProjectRoot(worktreePath),
+        repoRoot: projectRoot ?? worktreeProjectRoot(worktreePath),
         worktreePath,
       }
     : { ...checkoutIdentity, repoRoot: status.repoRoot }
@@ -2771,6 +2780,10 @@ export interface AutomationCreator {
 }
 
 export interface Automation {
+  /** Archived records are disabled and retained until the host retention period expires. */
+  archivedAt?: string
+  /** Stop was requested while a check was still running. */
+  archiveRequested?: boolean
   id: string
   name: string
   enabled: boolean

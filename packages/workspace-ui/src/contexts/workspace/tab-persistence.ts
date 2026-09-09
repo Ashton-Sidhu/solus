@@ -1,4 +1,4 @@
-import type { AgentId, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, SessionStatus, StartInfo } from '@solus/contracts/types'
+import type { AgentId, Message, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, SessionStatus, StartInfo } from '@solus/contracts/types'
 import { localApi } from '@solus/client-core/local-api'
 import { z } from 'zod'
 
@@ -43,6 +43,9 @@ export interface PersistedTab {
   /** Stable server identity used to recover from a changed registry id after re-pairing. */
   serverInstallationId?: string
   agentSessionId: string | null
+  /** A pending fork owns no provider thread yet. Keep its preview until send. */
+  pendingFork?: { messages: Message[]; excludeLatestTurn: boolean }
+  forkedFromSessionId?: string | null
   provider: AgentId | null
   handoffFrom?: SessionHandoffLineage
   workingDirectory: string

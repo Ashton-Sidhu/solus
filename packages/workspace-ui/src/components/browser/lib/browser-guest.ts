@@ -63,20 +63,22 @@ export interface BrowserGuestHandlers {
  */
 export function browserGuest(node: BrowserGuestElement, handlers: BrowserGuestHandlers) {
   let current = handlers
+  let loadState: BrowserLoadState = 'loading'
+  let failure: string | undefined
 
   // A dev server's OAuth popup and every `target="_blank"` link call
   // `window.open`. Without this the guest's call returns null and the flow dies
   // silently; with it, the host decides where the new page goes.
   if (!node.hasAttribute('allowpopups')) node.setAttribute('allowpopups', 'true')
 
-  const report = (loadState: BrowserLoadState, failure?: string): void => {
-    const url = safe(() => node.getURL(), '')
+  const report = (failedUrl?: string): void => {
+    const url = failedUrl || safe(() => node.getURL(), '')
     // The guest is mounted blank so the host can attach and emulate before the
     // real page loads. That blank commit is scaffolding, not a navigation:
     // reporting it would put `about:blank` in the toolbar and, worse, announce
     // `ready` for a page that has not started loading — which is exactly when
     // the pane would drop its loading state.
-    if (url === BROWSER_BLANK_URL) return
+    if (!url || url === BROWSER_BLANK_URL) return
     const payload: BrowserSurfaceReport = {
       url,
       title: safe(() => node.getTitle(), ''),
@@ -104,18 +106,33 @@ export function browserGuest(node: BrowserGuestElement, handlers: BrowserGuestHa
     attached = true
     current.attach(id)
   }
-  const onStartLoading = (): void => report('loading')
-  const onStopLoading = (): void => report('ready')
-  const onNavigate = (): void => report('ready')
-  const onTitle = (): void => report('ready')
+  const onStartLoading = (): void => {
+    loadState = 'loading'
+    failure = undefined
+    report()
+  }
+  // A navigation commit or title change can precede the first document load.
+  // Only completion can release the picker and its loading veil. Stopping also
+  // happens after a failed load, so it must not turn that failure into success.
+  const onFinishLoading = (): void => {
+    loadState = 'ready'
+    failure = undefined
+    report()
+  }
+  const onNavigate = (): void => report()
+  const onTitle = (): void => report()
   const onFail = (event: Event): void => {
     // SAFETY: `did-fail-load` is Electron's own event on this element, and it
-    // carries these two fields on every emission.
-    const detail = event as Event & { errorDescription?: string; isMainFrame?: boolean }
+    // carries the failed address and frame information.
+    const detail = event as Event & { errorDescription?: string; isMainFrame?: boolean; validatedURL?: string }
     // Sub-resource failures are the page's business, not the pane's: only a
     // main-frame failure means the user is looking at nothing.
     if (detail.isMainFrame === false) return
-    report('failed', detail.errorDescription || 'The dev server did not answer.')
+    loadState = 'failed'
+    failure = detail.errorDescription || 'The dev server did not answer.'
+    // The first request can fail before getURL leaves about:blank. Its failed
+    // address still needs to reach the pane so the picker can show the error.
+    report(detail.validatedURL)
   }
 
   // `crashed` is the older spelling and `render-process-gone` the current one;
@@ -128,7 +145,7 @@ export function browserGuest(node: BrowserGuestElement, handlers: BrowserGuestHa
   node.addEventListener('crashed', onCrash)
   node.addEventListener('render-process-gone', onCrash)
   node.addEventListener('did-start-loading', onStartLoading)
-  node.addEventListener('did-stop-loading', onStopLoading)
+  node.addEventListener('did-finish-load', onFinishLoading)
   node.addEventListener('did-navigate', onNavigate)
   node.addEventListener('did-navigate-in-page', onNavigate)
   node.addEventListener('page-title-updated', onTitle)
@@ -146,7 +163,7 @@ export function browserGuest(node: BrowserGuestElement, handlers: BrowserGuestHa
       node.removeEventListener('crashed', onCrash)
       node.removeEventListener('render-process-gone', onCrash)
       node.removeEventListener('did-start-loading', onStartLoading)
-      node.removeEventListener('did-stop-loading', onStopLoading)
+      node.removeEventListener('did-finish-load', onFinishLoading)
       node.removeEventListener('did-navigate', onNavigate)
       node.removeEventListener('did-navigate-in-page', onNavigate)
       node.removeEventListener('page-title-updated', onTitle)

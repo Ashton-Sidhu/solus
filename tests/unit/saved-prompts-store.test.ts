@@ -52,8 +52,8 @@ describe('SavedPromptsStore host routing', () => {
 
     // WHY: project paths are not identities across machines. Each composer must
     // read the saved prompts from the host that owns its run.
-    expect(store.get('/same/project', 'host-a').map((item) => item.id)).toEqual(['a'])
-    expect(store.get('/same/project', 'host-b').map((item) => item.id)).toEqual(['b'])
+    expect(store.forProject('/same/project', 'host-a').map((item) => item.id)).toEqual(['a'])
+    expect(store.forProject('/same/project', 'host-b').map((item) => item.id)).toEqual(['b'])
   })
 
   test('routes create and delete through the selected host', async () => {

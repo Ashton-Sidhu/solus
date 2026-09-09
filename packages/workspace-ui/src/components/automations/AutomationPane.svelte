@@ -1,4 +1,5 @@
 <script lang="ts">
+  import RouteLoadError from "../ui/RouteLoadError.svelte";
   import { getWorkspaceContext } from "../../contexts";
   import type { RouteSurfaceProps } from "../ui/lib/pane-surface";
   import { paneActions } from "../ui/lib/pane-actions.svelte";
@@ -7,6 +8,7 @@
 
   let { params, paneId }: RouteSurfaceProps<"automation"> = $props();
 
+  let loadAttempt = $state(0);
   const session = getWorkspaceContext();
   const pane = paneActions(() => paneId);
 
@@ -25,6 +27,7 @@
   <AutomationBuilderSkeleton />
 {:else}
   {#key automation?.id ?? "new"}
+    {#key loadAttempt}
     {#await import("./AutomationBuilder.svelte")}
       <AutomationBuilderSkeleton />
     {:then automationModule}
@@ -36,7 +39,10 @@
         onClose={pane.close}
         onDone={pane.close}
       />
+    {:catch error}
+      <RouteLoadError {error} compact onRetry={() => (loadAttempt += 1)} />
     {/await}
+    {/key}
   {/key}
 {/if}
 <!-- After the content: the builder header is a window drag region, and a drag

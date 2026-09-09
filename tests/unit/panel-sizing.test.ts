@@ -70,16 +70,6 @@ describe('panel sizing across displays', () => {
     }
   })
 
-  test('both rails use the responsive width at each display size', () => {
-    // WHY: matching is not enough if both rails stay large on a small screen.
-    // These are the actual clamp(200px, 17%, 380px) results for the supported
-    // logical display widths.
-    const expected = [200, 203, 218, 245, 257, 294, 380]
-    expect(DISPLAYS.map((display) => defaultWorkspaceRailWidth(display.width))).toEqual(
-      expected,
-    )
-  })
-
   test('a tablet takes the floor and a large display the cap', () => {
     // WHY: the band is the whole design. Without the floor a tablet gets a rail
     // too narrow to read a session title in; without the cap an ultrawide keeps

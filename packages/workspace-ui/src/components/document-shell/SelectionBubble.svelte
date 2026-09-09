@@ -36,7 +36,7 @@
   // commenting is what people do on a phone and suggesting is what they do at a
   // desk. Bold/italic/code/link are desk work at 13px glyphs and would spend
   // four of the six slots a 44px bar has.
-  const isPhone = $derived(runtime.isMobileViewport);
+  const usesTouchSelection = $derived(runtime.isTouchDevice);
 
   async function copySelection() {
     const state = editor?.state;
@@ -135,9 +135,9 @@
     class="doc-bubble fixed z-[10001]"
     style="left:{clampedCentre(rect, BUBBLE_WIDTH)}px;top:{rect.top}px"
     transition:fly={{ y: 4, duration: 120, opacity: 0 }}
-    class:doc-bubble--touch={isPhone}
+    class:doc-bubble--touch={usesTouchSelection}
   >
-    {#if isPhone}
+    {#if usesTouchSelection}
       {#if onComment}
         <Button
           variant="ghost"

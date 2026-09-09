@@ -13,6 +13,7 @@
     x: number
     y: number
     type: 'node' | 'edge'
+    onDuplicate?: () => void
     onDelete: () => void
     onEditDetails: () => void
     onClose: () => void
@@ -31,6 +32,7 @@
     x,
     y,
     type,
+    onDuplicate,
     onDelete,
     onEditDetails,
     onClose,
@@ -90,6 +92,9 @@
       </ContextMenu.Item>
     {/if}
 
+    {#if type === 'node' && onDuplicate}
+      <ContextMenu.Item onSelect={onDuplicate}>Duplicate</ContextMenu.Item>
+    {/if}
     <ContextMenu.Separator />
     <ContextMenu.Item variant="destructive" onSelect={onDelete}>
       <TrashIcon />

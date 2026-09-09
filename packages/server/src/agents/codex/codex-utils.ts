@@ -199,6 +199,7 @@ export interface CodexThreadSummary {
 
 export interface CodexTurnHistory {
   id?: string
+  itemsView?: 'notLoaded' | 'summary' | 'full'
   status?: string | null
   error?: unknown
   startedAt?: number | string | null
@@ -635,6 +636,7 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
       role: 'tool',
       content: item.aggregatedOutput || item.status || '',
       toolName,
+      toolId: item.id,
       toolInput: item.command,
       timestamp,
     }
@@ -649,6 +651,7 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
       role: 'tool',
       content: '',
       toolName,
+      toolId: item.id,
       toolInput,
       timestamp,
     }
@@ -661,6 +664,7 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
       role: 'tool',
       content: '',
       toolName,
+      toolId: item.id,
       toolInput: JSON.stringify({ path: codexImageArtifactPath(item) ?? undefined }),
       timestamp,
     }
@@ -673,6 +677,7 @@ export function codexItemToMessage(item: CodexHistoryItem, timestamp: number): S
       item.result ?? (item.contentItems ? { contentItems: item.contentItems } : undefined),
     ),
     toolName,
+    toolId: item.id,
     toolInput: codexToolInputFromArguments(item.arguments),
     isSubagent: isCodexSubagent || undefined,
     subagentType: isCodexSubagent ? 'codex' : undefined,
@@ -691,6 +696,12 @@ export function codexTurnToMessages(turn: CodexTurnHistory): SessionLoadMessage[
   const messages = (turn.items ?? [])
     .map((item) => codexItemToMessage(item, startedAt))
     .filter((message): message is SessionLoadMessage => message !== null)
+  return completeCodexTurnMessages(turn, messages)
+}
+
+/** Apply turn-level timing and failure state after full or paginated item reads. */
+export function completeCodexTurnMessages(turn: CodexTurnHistory, messages: SessionLoadMessage[]): SessionLoadMessage[] {
+  const startedAt = toEpochMs(turn.startedAt)
   const durationMs = parsedFiniteNumber(turn.durationMs)
   const completedAt = parseEpochMs(turn.completedAt)
     ?? (durationMs && durationMs > 0

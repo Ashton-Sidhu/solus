@@ -1,4 +1,7 @@
 <script lang="ts">
+  import { Undo2, Redo2, Copy, Search } from '@lucide/svelte'
+  import SelectionArrangeMenu from './SelectionArrangeMenu.svelte'
+  import type { Arrangement } from './lib/selection-arrangement'
   import { Panel, useSvelteFlow } from '@xyflow/svelte'
   import CanvasZoomControls from './CanvasZoomControls.svelte'
   import DiagramLayoutMenu from './DiagramLayoutMenu.svelte'
@@ -6,6 +9,15 @@
   import type { LayoutDirection } from '@solus/contracts/diagram-layout'
 
   interface Props {
+    canUndo: boolean
+    canRedo: boolean
+    onUndo: () => void
+    onRedo: () => void
+    onDuplicate: () => void
+    onSearch: () => void
+    onSelectAll: () => void
+    onArrange: (action: Arrangement) => void
+    arrangementCount: number
     onAddNode: () => void
     onAddGroup: () => void
     onRelayout: (direction: LayoutDirection) => void
@@ -24,6 +36,7 @@
   }
 
   let {
+    canUndo, canRedo, onUndo, onRedo, onDuplicate, onSearch, onSelectAll, onArrange, arrangementCount,
     onAddNode,
     onAddGroup,
     onRelayout,
@@ -58,6 +71,11 @@
      thing on this bar worth spending the accent on, so it leads. -->
 <Panel position="bottom-center">
   <div class="canvas-toolbar" role="toolbar" aria-label="Canvas controls">
+    <div class="canvas-toolbar__group">
+      <button type="button" class="canvas-toolbar__btn" disabled={!canUndo} onclick={onUndo} title="Undo" aria-label="Undo"><Undo2 size={16} /></button>
+      <button type="button" class="canvas-toolbar__btn" disabled={!canRedo} onclick={onRedo} title="Redo" aria-label="Redo"><Redo2 size={16} /></button>
+    </div>
+    <span class="canvas-toolbar__divider" aria-hidden="true"></span>
     <div class="canvas-toolbar__group">
       <button
         type="button"
@@ -113,6 +131,9 @@
         </button>
       {/if}
 
+      <SelectionArrangeMenu count={arrangementCount} {onArrange} {onSelectAll} />
+      <button type="button" class="canvas-toolbar__btn" disabled={arrangementCount === 0} onclick={onDuplicate} title="Duplicate selected nodes" aria-label="Duplicate selected nodes"><Copy size={16} /></button>
+      <button type="button" class="canvas-toolbar__btn" onclick={onSearch} title="Search diagram" aria-label="Search diagram"><Search size={16} /></button>
       <DiagramLayoutMenu onLayout={relayoutAndFit} current={layoutDirection} />
 
       <!-- Dropped, not disabled, where no minimap fits: a toggle that cannot

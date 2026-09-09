@@ -47,7 +47,7 @@ async function untilFrame<T>(check: () => T | null): Promise<T | null> {
  */
 function hasMeasuredNodes(flow: FlowInstance): boolean {
   const nodes = flow.getNodes();
-  return nodes.length > 0 && nodes.every((node) => node.measured?.width && node.measured?.height);
+  return nodes.length > 0 && nodes.filter(node => !node.hidden).every((node) => node.measured?.width && node.measured?.height);
 }
 
 /**
@@ -127,7 +127,7 @@ export function renderDiagramAsAuthored(
   contexts: StageContexts,
 ): Promise<string | null> {
   return withMountedStage(content, title, contexts, false, (stage) =>
-    capture(stage, scrollingFigureRasterRatio(exportFrame(stage.flow))));
+    capture(stage, scrollingFigureRasterRatio(exportFrame(stage.flow, stage.root))));
 }
 
 /**
@@ -153,9 +153,9 @@ export async function renderDiagramForPage(
   // The authored drawing stands only when the content cannot be re-laid out.
   let best = { content, scale: 0 };
   for (const candidate of printLayoutCandidates(content, measured)) {
-    const scale = await withMountedStage(candidate, title, contexts, true, async (stage) => fitToPage(exportFrame(stage.flow)));
+    const scale = await withMountedStage(candidate, title, contexts, true, async (stage) => fitToPage(exportFrame(stage.flow, stage.root)));
     if (scale !== null && scale > best.scale) best = { content: candidate, scale };
   }
   return withMountedStage(best.content, title, contexts, true, (stage) =>
-    capture(stage, figureRasterRatio(exportFrame(stage.flow))));
+    capture(stage, figureRasterRatio(exportFrame(stage.flow, stage.root))));
 }

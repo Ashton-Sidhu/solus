@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Editor } from '@tiptap/core'
 import {
   afterDwell,
+  outlineTickRanges,
   hasOutlineMarginRoom,
   holdsWithoutDwell,
   isOutlineOpen,
@@ -100,5 +101,17 @@ describe('thread counts per section', () => {
     // a number beside a heading the reader never scrolled to.
     const counts = countThreadsByHeading([{ id: 'a', pos: 5 }], [30, 120])
     expect(counts.size).toBe(0)
+  })
+})
+
+// A long document must never produce a scrollable wall of margin marks.
+describe('compact outline overview', () => {
+  test('caps the marks while covering every heading, including the end', () => {
+    for (const count of [0, 2, 12, 13, 180, 1000]) {
+      const ranges = outlineTickRanges(count)
+      expect(ranges.length).toBe(Math.min(count, 12))
+      expect(ranges.flatMap(({ start, end }) => Array.from({ length: end - start }, (_, i) => start + i)))
+        .toEqual(Array.from({ length: count }, (_, i) => i))
+    }
   })
 })

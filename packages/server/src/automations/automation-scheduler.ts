@@ -1,5 +1,6 @@
 import { createLogger } from '../logger'
-import { claimDueAutomations } from './automations-store'
+import { getHostConfig } from '../server/settings'
+import { claimDueAutomations, deleteExpiredArchivedAutomations } from './automations-store'
 import { hasActiveRun, triggerAutomationRun } from './automation-runner'
 
 const log = createLogger('automations', 'automation-scheduler.ts')
@@ -16,12 +17,21 @@ const TICK_MS = 30_000
 
 let timer: NodeJS.Timeout | null = null
 let ticking = false
+let lastCleanupAt = 0
+let lastRetentionDays: number | undefined
 
 async function tick(): Promise<void> {
   // Guard against overlap if a tick's I/O outlasts the interval.
   if (ticking) return
   ticking = true
   try {
+    const retentionDays = getHostConfig().config.archivedAutomationRetentionDays
+    const now = Date.now()
+    if (now - lastCleanupAt >= 3_600_000 || retentionDays !== lastRetentionDays) {
+      deleteExpiredArchivedAutomations(retentionDays, new Date(now), hasActiveRun)
+      lastCleanupAt = now
+      lastRetentionDays = retentionDays
+    }
     // Skip automations still running a previous fire: they keep their past-due
     // nextRunAt and get claimed on the first tick after the run finishes,
     // instead of stacking overlapping runs on the same working directory.

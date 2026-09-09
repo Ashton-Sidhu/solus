@@ -37,9 +37,9 @@ export class TabRegistry {
 
   /**
    * The same index against the *provider's* id rather than ours. A resumed or
-   * forked conversation is the same agent session under a new renderer id, so a
-   * work item or task link — which only ever knows the provider's id — resolves
-   * through here.
+   * moved conversation can retain an older provider identity. A separate fork
+   * must never resolve through its source: that id is only a branching input
+   * until the fork initializes.
    *
    * Keys are host-scoped: a dispatched session gives a second host a clone
    * under the same provider id, and those are two conversations, not one.
@@ -49,7 +49,7 @@ export class TabRegistry {
     for (const tabId of this.tabOrder) {
       const session = this.sessionFor(tabId)
       if (!session) continue
-      for (const agentId of [session.agentSessionId, session.forkedFromSessionId]) {
+      for (const agentId of [session.forked ? null : session.agentSessionId, session.forkedFromSessionId]) {
         if (!agentId) continue
         const key = hostKey(session.run.serverId, agentId)
         const listening = index.get(key)

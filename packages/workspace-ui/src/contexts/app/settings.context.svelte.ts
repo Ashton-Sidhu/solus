@@ -33,7 +33,7 @@ export type {
   ThemeMode,
 } from '@solus/contracts/host-config'
 
-export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'task' | 'automations'
+export type ProjectPanelSectionId = 'goal' | 'environment' | 'git' | 'task' | 'subagents' | 'automations'
 const DEFAULT_PROJECT_PANEL_COLLAPSED = {
   // The section only exists while a goal is set, so it opens on arrival — a
   // collapsed default would hide the thing the user just asked to see.
@@ -43,6 +43,9 @@ const DEFAULT_PROJECT_PANEL_COLLAPSED = {
   // The card only exists while the session is bound to a task, so it opens on
   // arrival — the same reasoning as the goal section above.
   task: true,
+  // The section only exists once the session has dispatched a sub-agent, and
+  // a live fan-out is the thing the reader wants to watch — so it opens.
+  subagents: false,
   automations: true,
 } as const satisfies Record<ProjectPanelSectionId, boolean>
 
@@ -87,6 +90,7 @@ export type SettingsFields = {
   tabGroupMode: TabGroupMode
   /** Number of days a done task remains in the session sidebar's Completed shelf. */
   sidebarCompletedRetentionDays: number
+  archivedAutomationRetentionDays: number
   /** The project the task list is scoped to, by `projectKey`. Null is the whole
    *  list — the sidebar is flat across every open project either way, so this
    *  narrows what is in it rather than changing its shape. */
@@ -272,6 +276,7 @@ const HOST_CONFIG_KEY_MAP = {
   documentFontFamily: true, documentFontSize: true, extraInstructions: true,
   modelInstructions: true, analyticsEnabled: true, tabGroupMode: true,
   sidebarCompletedRetentionDays: true,
+  archivedAutomationRetentionDays: true,
 } satisfies Record<keyof HostConfig, true>
 
 function isHostConfigKey(key: string): key is keyof HostConfig {
@@ -307,6 +312,7 @@ const projectPanelCollapsedSchema = z.object({
   environment: z.boolean().optional(),
   git: z.boolean().optional(),
   task: z.boolean().optional(),
+  subagents: z.boolean().optional(),
   automations: z.boolean().optional(),
 }).transform((collapsed) => ({ ...DEFAULT_PROJECT_PANEL_COLLAPSED, ...collapsed }))
 
@@ -350,6 +356,7 @@ const savedSettingsSchema = z.object({
   splitProjectPanelCollapsed: projectPanelCollapsedSchema.catch(DEFAULT_PROJECT_PANEL_COLLAPSED),
   tabGroupMode: z.enum(TAB_GROUP_MODES).catch('flat'),
   sidebarCompletedRetentionDays: z.number().int().min(1).max(365).catch(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS),
+  archivedAutomationRetentionDays: z.number().int().min(1).max(3650).catch(30),
   sidebarProjectFilter: z.string().nullable().catch(null),
   onboardingCompleted: z.boolean().catch(true),
 })
@@ -418,6 +425,7 @@ function loadSettings(): SettingsFields {
     splitProjectPanelCollapsed: { ...DEFAULT_PROJECT_PANEL_COLLAPSED },
     tabGroupMode: 'flat',
     sidebarCompletedRetentionDays: DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS,
+    archivedAutomationRetentionDays: 30,
     sidebarProjectFilter: null,
     onboardingCompleted: false,
   }
@@ -463,6 +471,7 @@ export class SettingsContext {
   splitProjectPanelCollapsed = $state<Record<ProjectPanelSectionId, boolean>>({ ...DEFAULT_PROJECT_PANEL_COLLAPSED })
   tabGroupMode = $state<TabGroupMode>('flat')
   sidebarCompletedRetentionDays = $state(DEFAULT_SIDEBAR_COMPLETED_RETENTION_DAYS)
+  archivedAutomationRetentionDays = $state(30)
   sidebarProjectFilter = $state<string | null>(null)
   onboardingCompleted = $state(true)
   // Seeded from the media query so 'system' paints correctly before the main
@@ -517,6 +526,7 @@ export class SettingsContext {
     this.splitProjectPanelCollapsed = saved.splitProjectPanelCollapsed
     this.tabGroupMode = saved.tabGroupMode
     this.sidebarCompletedRetentionDays = saved.sidebarCompletedRetentionDays
+    this.archivedAutomationRetentionDays = saved.archivedAutomationRetentionDays
     this.sidebarProjectFilter = saved.sidebarProjectFilter
     this.onboardingCompleted = saved.onboardingCompleted
 
@@ -676,6 +686,8 @@ export class SettingsContext {
     if (patch.splitProjectPanelCollapsed !== undefined)
       this.splitProjectPanelCollapsed = patch.splitProjectPanelCollapsed
     if (patch.tabGroupMode !== undefined) this.tabGroupMode = patch.tabGroupMode
+    if (patch.archivedAutomationRetentionDays !== undefined)
+      this.archivedAutomationRetentionDays = patch.archivedAutomationRetentionDays
     if (patch.sidebarCompletedRetentionDays !== undefined)
       this.sidebarCompletedRetentionDays = Math.max(1, Math.min(365, Math.floor(patch.sidebarCompletedRetentionDays)))
     if (patch.sidebarProjectFilter !== undefined)
@@ -750,6 +762,7 @@ export class SettingsContext {
       analyticsEnabled: this.analyticsEnabled,
       tabGroupMode: this.tabGroupMode,
       sidebarCompletedRetentionDays: this.sidebarCompletedRetentionDays,
+      archivedAutomationRetentionDays: this.archivedAutomationRetentionDays,
       // Plain-object snapshots: these are `$state` proxies, and a proxy is not
       // structured-cloneable, so passing one raw fails the RPC call.
       defaultModels: $state.snapshot(this.defaultModels),
@@ -877,6 +890,7 @@ export class SettingsContext {
         splitProjectPanelCollapsed: this.splitProjectPanelCollapsed,
         tabGroupMode: this.tabGroupMode,
         sidebarCompletedRetentionDays: this.sidebarCompletedRetentionDays,
+      archivedAutomationRetentionDays: this.archivedAutomationRetentionDays,
         sidebarProjectFilter: this.sidebarProjectFilter,
         onboardingCompleted: this.onboardingCompleted,
       }))

@@ -18,11 +18,39 @@ export class AutomationsStore {
   private loadedServerIds = new SvelteSet<string>()
   private loadingServerIds = new SvelteSet<string>()
   private loadingCountByServerId = new Map<string, number>()
+  readonly loadErrors = new SvelteMap<string, string>()
+  private hostWatches = new Map<string, { count: number; stop: () => void }>()
+  private revision = 0
+  private revisions = new Map<string, number>()
   private listLoads = new Map<string, Promise<void>>()
 
   /** A soft-deleted row awaiting its undo window. Hidden from `items` but not yet
    *  deleted on disk; filtered out of `loadAll` so a refresh can't resurrect it. */
   private pendingDelete: { automation: Automation; index: number } | null = null
+
+  /** Mounted schedule cards share one host subscription and reconnect load. */
+  watchHost(serverId: string): () => void {
+    const hostId = serverConnections.resolveId(serverId)
+    let watch = this.hostWatches.get(hostId)
+    if (!watch) {
+      const stopEvents = serverConnections.eventsFor(hostId).subscribe('automation.changed', (event) => this.applyChange(hostId, event))
+      const stopStatus = serverConnections.onStatusChange((changedHostId, status) => {
+        if (changedHostId !== hostId) return
+        if (status === 'connected') void this.loadAll(hostId)
+        else this.loadErrors.set(hostId, 'Host disconnected. Schedule state may be out of date.')
+      })
+      watch = { count: 0, stop: () => { stopEvents(); stopStatus() } }
+      this.hostWatches.set(hostId, watch)
+      void this.loadAll(hostId)
+    }
+    watch.count++
+    return () => {
+      if (--watch.count === 0) {
+        watch.stop()
+        this.hostWatches.delete(hostId)
+      }
+    }
+  }
 
   itemsForHost(serverId: string): Automation[] {
     const resolvedServerId = serverConnections.resolveId(serverId)
@@ -49,6 +77,7 @@ export class AutomationsStore {
       this.loadingServerIds.add(targetServerId)
     }
     this.loading = this.loadingServerIds.size > 0
+    const startedRevision = this.revision
     const listLoad = (async () => {
       try {
         const results = await Promise.all(serverIds.map(async (serverId) => {
@@ -63,10 +92,15 @@ export class AutomationsStore {
         }))
         const pendingId = this.pendingDelete?.automation.id
         for (const result of results) {
-          if (!result.list) continue
+          if (!result.list) {
+            if (result.error) this.loadErrors.set(result.serverId, 'Schedule state is unavailable. Reconnect or retry.')
+            continue
+          }
+          this.loadErrors.delete(result.serverId)
           const liveIds = new Set<string>()
           for (const automation of result.list) {
             liveIds.add(automation.id)
+            if ((this.revisions.get(automation.id) ?? 0) > startedRevision) continue
             this.hostByAutomationId.set(automation.id, result.serverId)
             if (automation.id !== pendingId) this.upsert(automation)
           }
@@ -75,6 +109,7 @@ export class AutomationsStore {
           for (let index = this.items.length - 1; index >= 0; index--) {
             const automation = this.items[index]
             if (this.hostByAutomationId.get(automation.id) !== result.serverId) continue
+            if ((this.revisions.get(automation.id) ?? 0) > startedRevision) continue
             if (liveIds.has(automation.id) || automation.id === pendingId) continue
             this.items.splice(index, 1)
             this.runs.delete(automation.id)
@@ -121,6 +156,7 @@ export class AutomationsStore {
   /** Replace one automation in-place (or append) without reassigning the array,
    *  so only the changed row's derived state invalidates. */
   private upsert(a: Automation): void {
+    this.revisions.set(a.id, ++this.revision)
     const i = this.items.findIndex((x) => x.id === a.id)
     if (i === -1) this.items.unshift(a)
     else this.items[i] = a
@@ -132,6 +168,7 @@ export class AutomationsStore {
    *  the upsert absorbs idempotently. */
   applyChange(serverId: string, event: AutomationsChangedEvent): void {
     if (event.kind === 'deleted') {
+      this.revisions.set(event.automationId, ++this.revision)
       if (this.hostByAutomationId.get(event.automationId) !== serverId) return
       const i = this.items.findIndex((a) => a.id === event.automationId)
       if (i !== -1) this.items.splice(i, 1)
@@ -176,7 +213,7 @@ export class AutomationsStore {
 
   async update(
     id: string,
-    patch: { name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
+    patch: { archived?: boolean; name?: string; enabled?: boolean; favorite?: boolean; action?: Partial<AutomationAction>; trigger?: AutomationTrigger },
   ): Promise<void> {
     const updated = await this.apiForAutomation(id).automationUpdate(id, patch)
     if (updated) this.upsert(updated)

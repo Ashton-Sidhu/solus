@@ -5,8 +5,8 @@ import {
   projectRailWidth,
 } from '@solus/workspace-ui/components/project-panel/lib/rail-width'
 import {
-  defaultWorkspaceRailWidth,
   MIN_PRIMARY_PANE_WIDTH,
+  companionMinimizesProjectPanel,
   SIDEBAR_MAX_WIDTH,
   SIDEBAR_MIN_WIDTH,
 } from '@solus/workspace-ui/components/layout/lib/workspace-body'
@@ -16,17 +16,6 @@ import {
 // rule: it never squeezes the conversation below its minimum in a narrow split.
 
 describe('project rail width', () => {
-  test('matches the session sidebar on the same window', () => {
-    // WHY: this is the whole rule. Two rails of different widths on one window
-    // read as a layout accident, not a frame.
-    for (const workspaceWidth of [1194, 1440, 1512, 1728, 2560]) {
-      const roomy = workspaceWidth // no split: the view can give the full width
-      expect(projectRailWidth(workspaceWidth, roomy)).toBe(
-        defaultWorkspaceRailWidth(workspaceWidth),
-      )
-    }
-  })
-
   test('a narrow split caps the rail at what the conversation can spare', () => {
     // WHY: sizing off the window alone breaks here. A 5K window with a narrow
     // split view would hand the rail 380px out of a 620px pane and leave the
@@ -68,8 +57,24 @@ describe('project rail width', () => {
     expect(isProjectRailOpen(false, 2000)).toBe(false)
   })
 
-  test('secondary content minimizes the rail without changing its preference', () => {
-    expect(isProjectRailOpen(true, 2000, true)).toBe(false)
-    expect(isProjectRailOpen(true, 2000, false)).toBe(true)
+  test('a companion draft becoming a chat keeps the primary rail open when it fits', () => {
+    for (const companion of [
+      { name: 'draft', params: { draftId: 'draft' } },
+      { name: 'chat', params: { sessionId: 'companion-session' } },
+    ] as const) {
+      const minimized = companionMinimizesProjectPanel(companion)
+      expect(isProjectRailOpen(true, 800, minimized)).toBe(true)
+      expect(isProjectRailOpen(false, 800, minimized)).toBe(false)
+      expect(isProjectRailOpen(true, PROJECT_RAIL_MIN_CONTAINER_WIDTH - 1, minimized)).toBe(false)
+    }
+  })
+
+  test('review content still minimizes the rail and closing it restores the preference', () => {
+    const minimized = companionMinimizesProjectPanel({
+      name: 'review', params: { sourceTabId: 'primary-tab' },
+    })
+    expect(isProjectRailOpen(true, 2000, minimized)).toBe(false)
+    expect(isProjectRailOpen(true, 2000, companionMinimizesProjectPanel(null))).toBe(true)
+    expect(isProjectRailOpen(false, 2000, companionMinimizesProjectPanel(null))).toBe(false)
   })
 })

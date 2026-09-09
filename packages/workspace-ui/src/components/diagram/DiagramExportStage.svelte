@@ -58,7 +58,7 @@
    * the node reads `--diagram-node-scale` and derives its type from the two
    * tokens below.
    */
-  .print {
+  .print :global(.diagram-shell) {
     --diagram-node-scale: 0.8;
     --text-caption: 20px;
     --text-footnote: 15px;

@@ -101,10 +101,6 @@ export function isOAuthConfigured(): boolean {
   return ATLASSIAN_CLIENT_ID !== '' && ATLASSIAN_CLIENT_SECRET !== ''
 }
 
-function base64url(buffer: Buffer): string {
-  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
-}
-
 function cleanupExpiredFlows(now = Date.now()): void {
   for (const [state, flow] of pendingFlows) {
     if (flow.expiresAt < now) pendingFlows.delete(state)
@@ -147,9 +143,9 @@ export async function startOAuthFlow(
   stopListening()
   pendingFlows.clear()
 
-  const verifier = base64url(randomBytes(32))
-  const challenge = base64url(createHash('sha256').update(verifier).digest())
-  const state = base64url(randomBytes(24))
+  const verifier = randomBytes(32).toString('base64url')
+  const challenge = createHash('sha256').update(verifier).digest('base64url')
+  const state = randomBytes(24).toString('base64url')
   const expiresAt = Date.now() + PENDING_FLOW_TTL_MS
 
   await (options.listenForCallback ?? listenForCallback)()

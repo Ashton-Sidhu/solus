@@ -7,7 +7,7 @@ import {
   mobileSessionState,
   mobileSnoozeWake,
   mobileTaskState,
-} from '../../apps/client/src/lib/mobile-task-row'
+} from '../../apps/client/src/shell/mobile/lib/mobile-task-row'
 
 /**
  * A mobile row draws its state as a glyph, the way the desktop sidebar does,

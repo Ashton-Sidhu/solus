@@ -410,6 +410,7 @@ export class SessionConfigController {
       : gitCheckoutFromState(
           await api.gitRefreshState(worktreePath).catch(() => null),
           worktreePath,
+          projectRoot,
         )
     // The conversation on screen has already started, or there is none. Either
     // way there is nothing here to point somewhere else: entering a worktree is

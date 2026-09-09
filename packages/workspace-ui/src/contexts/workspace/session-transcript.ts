@@ -89,6 +89,8 @@ export interface SessionTranscriptLoadArgs {
   ctx: IpcContext
   /** Hydrate only the most recent `limit` messages for a fast initial paint. */
   limit?: number
+  /** A restore can start this read while resolving the session's identity. */
+  history?: Promise<WireSessionLoadMessage[]>
   shouldApply?: () => boolean
 }
 
@@ -123,7 +125,8 @@ const imageInputSchema = z.object({ path: z.string().optional() })
 export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<SessionTranscriptLoadResult> {
   const api = ctx.apiForSession(args.ctx.session.sessionId)
   const serverId = serverConnections.serverIdForApi(api)
-  const history = await api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit)
+  const history = await (args.history ?? api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit,
+    ctx.deferHistoryToolInputs ? { deferToolInputs: true } : undefined))
   // A full window of messages means older ones were left on disk.
   const truncated = !!args.limit && history.length >= args.limit
   if (args.shouldApply && !args.shouldApply()) {
@@ -226,6 +229,10 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       toolName: m.toolName,
       toolId: m.toolId,
       toolInput: m.toolInput,
+      historyToolInput: m.toolInputKey ? {
+        serverId, sessionId: args.sessionId, projectPath: args.loadPath,
+        provider: args.provider, key: m.toolInputKey,
+      } : undefined,
       toolStatus: m.toolStatus ?? (m.toolName ? 'completed' : undefined),
       planToolUseId: m.planToolUseId,
       agentChangedTo: m.agentChangedTo,

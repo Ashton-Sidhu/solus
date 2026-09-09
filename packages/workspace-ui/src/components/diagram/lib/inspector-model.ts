@@ -61,6 +61,7 @@ export function edgeRouteLabel(route: DiagramEdge['route']): string {
  * tab takes one prop instead of seven, and so adding a property is one edit.
  */
 export interface EdgeUpdates {
+  labelOffset: (id: string, offset: DiagramEdge["labelOffset"]) => void
   label: (id: string, label: string) => void
   body: (id: string, body: string | undefined) => void
   kind: (id: string, kind: NonNullable<DiagramEdge['kind']>) => void

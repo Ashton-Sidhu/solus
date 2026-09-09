@@ -38,13 +38,6 @@ const VIEWPORT_ANCHORED = [
   'ui/toast/',
   'popoverLayer.svelte.ts',
   'portal.ts',
-  // The pill shell sizes the OS window itself, which is the one place the window
-  // is the right question (locked decision 3).
-  'layout/PillLayout.svelte',
-  // TabStrip is imported only by PillLayout, where the pill window *is* the
-  // container. It becomes an offender the moment the strip is reused elsewhere.
-  'layout/TabStrip.css',
-  'layout/TabStrip.svelte',
   // The geometry helper for a `use:portal` + `position: fixed` bubble. The
   // structural check cannot see that from here: the overlay is one file away,
   // and this module is only the arithmetic that clamps it to the window it is

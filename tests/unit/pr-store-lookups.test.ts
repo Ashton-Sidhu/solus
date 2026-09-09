@@ -187,6 +187,81 @@ describe('PrsStore lookups are scoped to one project', () => {
   })
 })
 
+describe('branch discovery shared by mobile and the git rail', () => {
+  test('the same path and branch on different hosts keep independent answers', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const reads: string[] = []
+    for (const serverId of ['host-a', 'host-b']) {
+      const api = asHostApi({
+        prList: async (): Promise<PrListPage> => {
+          reads.push(serverId)
+          return { items: [pr(7, { title: serverId, headRef: 'feature/x' })], page: 1, hasMore: false }
+        },
+      })
+      await store.get(api, serverId, ctxFor('/repos/a')).loadBranch('feature/x', pr(7).url)
+    }
+    expect(reads).toEqual(['host-a', 'host-b'])
+    expect(store.at('host-a', '/repos/a')?.prForBranch('feature/x')?.title).toBe('host-a')
+    expect(store.at('host-b', '/repos/a')?.prForBranch('feature/x')?.title).toBe('host-b')
+  })
+
+  test('mounted surfaces share the request and cached answer without changing the list filter', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    let reads = 0
+    const response = Promise.withResolvers<PrListPage>()
+    const api = asHostApi({ prList: async (_ctx, filter) => {
+      expect(filter).toEqual({ state: 'open', head: 'feature/x' })
+      reads++
+      return response.promise
+    } })
+    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
+    project.filter = { state: 'closed' }
+    const first = project.loadBranch('feature/x', pr(7).url)
+    const second = project.loadBranch('feature/x', pr(7).url)
+    expect(reads).toBe(1)
+    response.resolve({ items: [pr(7, { headRef: 'feature/x' })], page: 1, hasMore: false })
+    await Promise.all([first, second])
+    await project.loadBranch('feature/x', pr(7).url)
+    expect(reads).toBe(1)
+    expect(project.prForBranch('feature/x')?.number).toBe(7)
+    expect(project.filter).toEqual({ state: 'closed' })
+    expect(project.items).toEqual([])
+  })
+
+  test('a failed branch read can retry when the environment is read again', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    let reads = 0
+    const api = asHostApi({ prList: async (): Promise<PrListPage> => {
+      if (++reads === 1) throw new Error('Host disconnected')
+      return { items: [pr(7, { headRef: 'feature/x' })], page: 1, hasMore: false }
+    } })
+    const project = new PrsStore().get(api, 'host-a', ctxFor('/repos/a'))
+    await expect(project.loadBranch('feature/x', pr(7).url)).rejects.toThrow('Host disconnected')
+    await project.loadBranch('feature/x', pr(7).url)
+    expect(reads).toBe(2)
+    expect(project.prForBranch('feature/x')?.number).toBe(7)
+  })
+
+  test('a branch without a discovered pull request does not ask the host', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    let reads = 0
+    const api = asHostApi({ prList: async (): Promise<PrListPage> => {
+      reads++
+      return { items: [], page: 1, hasMore: false }
+    } })
+    const project = new PrsStore().get(api, 'host-a', ctxFor('/repos/a'))
+    await project.loadBranch('feature/x', null)
+    await project.loadBranch(null, pr(7).url)
+    expect(reads).toBe(0)
+  })
+})
+
 describe('one pull request, one object', () => {
   test('a detail read through one route is the same pull request the list indexed', async () => {
     installStateRune()

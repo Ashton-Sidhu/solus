@@ -29,6 +29,8 @@
     onOpenSecondary?: () => void;
     secondaryActionLabel?: string;
     actions?: Snippet;
+    /** Metadata aligned opposite the kicker above the title and actions. */
+    headerMeta?: Snippet;
     /** Status chip beside the title. */
     chip?: Snippet;
     /** Rich second line under the title; replaces `subtitle` when present. */
@@ -56,6 +58,7 @@
     onOpenSecondary,
     secondaryActionLabel = "Open in side pane",
     actions,
+    headerMeta,
     chip,
     statusSlot,
     children,
@@ -85,6 +88,7 @@
   }
 
   function handleKeydown(e: KeyboardEvent) {
+    if (isNestedInteractive(e.target, e.currentTarget)) return;
     if (e.key !== "Enter" && e.key !== " ") return;
     e.preventDefault();
     onOpen();
@@ -106,9 +110,19 @@
   >
     <!-- No icon tile and no header wash: the header sits on the card surface and
          is separated from the body by a 6% hairline alone. -->
-    <div class="conversation-ref-card__header flex items-center gap-3">
+    <div class="conversation-ref-card__header flex items-center gap-3" class:flex-wrap={!!headerMeta}>
+      {#if headerMeta}
+        <div class="flex w-full items-start justify-between gap-4">
+          <span class="conversation-ref-card__kicker">{kicker}</span>
+          <span class="conversation-ref-card__kicker max-w-[60%] text-right text-pretty">
+            {@render headerMeta()}
+          </span>
+        </div>
+      {/if}
       <span class="flex min-w-0 flex-1 flex-col">
-        <span class="conversation-ref-card__kicker">{kicker}</span>
+        {#if !headerMeta}
+          <span class="conversation-ref-card__kicker">{kicker}</span>
+        {/if}
         <span class="flex min-w-0 items-center gap-2">
           <span class="conversation-ref-card__title min-w-0 truncate">
             {title}

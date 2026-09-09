@@ -3,9 +3,11 @@
     ChevronDown as CaretDownIcon,
     Search as MagnifyingGlassIcon,
     Check as CheckIcon,
-    Trash2 as TrashIcon,
     FolderPlus as FolderPlusIcon,
   } from "@lucide/svelte";
+  import ProjectRowAction from "../ProjectRowAction.svelte";
+  import { menuRowVariants } from "../menu/menu-row";
+  import { cn } from "../../../lib/tw";
   import ProjectFavicon from "../ProjectFavicon.svelte";
   import { abbreviateHome, projectDirLabel } from "../../../lib/paths";
   import {
@@ -182,13 +184,12 @@
         />
       {/key}
     {/if}
-    <!-- A named project is where you are, so it reads at full contrast beside
-         the page crumb. "All projects" is the absence of a scope rather than a
-         place, and stays muted. -->
+    <!-- Keep the project scope muted so the heavier page title is the focus,
+         including when the scope moves to a separate chip on narrow panes. -->
     <span
-      class="truncate {variant === 'crumb'
-        ? `font-semibold tracking-[-0.013em] @max-[30rem]/pane:text-xs @max-[30rem]/pane:font-medium ${active ? '' : 'text-muted-foreground'}`
-        : 'max-w-[180px] font-normal'}"
+      class="truncate font-normal text-muted-foreground {variant === 'crumb'
+        ? 'text-[length:calc(var(--text-workspace-chrome)+2px)] tracking-[-0.013em] @max-[30rem]/pane:text-sm'
+        : 'max-w-[180px]'}"
     >
       {active?.label ?? (allActive ? allLabel : emptyLabel)}
     </span>
@@ -258,12 +259,15 @@
 
       {#each matches as project (project.key)}
         {@const isActive = project.key === activeKey}
-        <div class="group/row flex items-center gap-0.5">
+        <div class="group/project-row relative rounded-lg hover:bg-(--solus-surface-hover)">
           <button
             type="button"
-            class="flex h-[34px] min-w-0 flex-1 overflow-hidden items-center gap-[9px] rounded-lg border-0 px-[9px] text-left transition-colors duration-150 {project.available
- ? 'cursor-pointer hover:bg-[var(--wash-2)]'
- : 'cursor-not-allowed opacity-50'} {isActive ? 'bg-[var(--wash-2)]' : 'bg-transparent'}"
+            class={cn(
+              menuRowVariants({ stagger: false }),
+              "w-full pr-9 text-left text-workspace-chrome pointer-coarse:pr-11 pointer-fine:[.is-laptop-display_&]:pr-9",
+              !project.available && "cursor-not-allowed opacity-50",
+            )}
+            data-menu-current={isActive ? "" : undefined}
             title={project.available
               ? abbreviateHome(project.projectKey)
               : `${abbreviateHome(project.projectKey)} — host unavailable`}
@@ -282,23 +286,14 @@
             >
               {project.label}
             </span>
-            <span class="flex w-3 shrink-0 justify-end">
-              {#if isActive}
-                <CheckIcon size={14} class="text-primary" />
-              {/if}
-            </span>
           </button>
-          {#if project.historyOnly && onRemoveHistory}
-            <button
-              type="button"
-              class="flex size-[34px] shrink-0 cursor-pointer items-center justify-center rounded-lg border-0 bg-transparent text-muted-foreground opacity-0 transition-opacity duration-150 hover:bg-[var(--wash-2)] hover:text-foreground group-hover/row:opacity-100 pointer-coarse:opacity-100"
-              title="Remove from history"
-              aria-label="Remove {project.label} from history"
-              onclick={() => onRemoveHistory(project)}
-            >
-              <TrashIcon size={13} />
-            </button>
-          {/if}
+          <ProjectRowAction
+            selected={isActive}
+            label={project.label}
+            onRemove={project.historyOnly && onRemoveHistory
+              ? () => onRemoveHistory?.(project)
+              : undefined}
+          />
         </div>
       {/each}
 

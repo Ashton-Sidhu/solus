@@ -10,9 +10,10 @@ import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { generateSessionMetadata } from '../../sessions/session-title'
 import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
 import { emitChanged } from '../../tasks/task-store'
-import { takeSessionScanBatch } from '../session-scan'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { projectSessionHistory, serializedBytes } from '../result-projection'
+import { deferSessionToolInputs, selectSessionToolInputs } from '../session-tool-inputs'
+import { MAX_SESSION_TOOL_INPUTS } from '@solus/contracts/session-history'
 
 const log = createLogger('main', 'history-handlers')
 
@@ -40,7 +41,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
 
       function flushBatch() {
         if (batchBuffer.length === 0) return
-        const sessions = takeSessionScanBatch(batchBuffer, BATCH_SIZE)
+        const sessions = batchBuffer.splice(0, BATCH_SIZE)
         if (handlerCtx.clientId) {
           if (streamId) {
             events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'batch', sessions } satisfies SessionScanEvent)
@@ -118,7 +119,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   })
 
   server.register('loadSession', async (args) => {
-    const [sessionId, projectPath, ctx, provider, limit] = args
+    const [sessionId, projectPath, ctx, provider, limit, options] = args
     const agentId = provider ?? agentIdFromContext(ctx)
     log.info('rpc_load_session', { sessionId, projectPath, limit })
     try {
@@ -140,11 +141,21 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         }
         log.debug('session_load_bytes', { sessionId, bytes: totalBytes, messageCount: messages.length })
       }
-      return projectSessionHistory(messages)
+      const projected = projectSessionHistory(messages)
+      return options?.deferToolInputs ? deferSessionToolInputs(projected) : projected
     } catch (err) {
       log.error('load_session_failed', { error: String(err), sessionId, projectPath })
       return []
     }
+  })
+
+  server.register('loadSessionToolInputs', async ([request]) => {
+    if (!request.keys.length) return []
+    if (request.keys.length > MAX_SESSION_TOOL_INPUTS || request.keys.some((key) => !/^[a-f0-9]{64}$/.test(key))) {
+      throw new Error('Invalid session tool input keys')
+    }
+    const messages = await controlPlane.loadSession(request.provider, request.sessionId, request.projectPath)
+    return selectSessionToolInputs(messages, request.keys)
   })
 
   server.register('loadSessionPreview', async (args) => {

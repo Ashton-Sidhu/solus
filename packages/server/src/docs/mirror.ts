@@ -48,7 +48,13 @@ function prepareDocument(content: string, diagramAssets?: DocDiagramAsset[]): Pr
 /** The embeds a publish carried as images, and so the ones a later pull can
  *  recognize. Empty when the provider received captions instead. */
 function publishedDiagrams(prepared: PreparedDocument): DiagramEmbedReference[] {
-  return prepared.diagramAssets?.length ? findDiagramEmbeds(prepared.markdown) : []
+  const assets = new Map(prepared.diagramAssets?.map((asset) => [asset.workId, asset]))
+  return findDiagramEmbeds(prepared.markdown).flatMap((reference) => {
+    const asset = assets.get(reference.workId)
+    // Google Docs captions use the rendered work's title. The embed label can
+    // differ after a rename, so remember the caption the provider received.
+    return asset ? [{ workId: reference.workId, title: asset.title }] : []
+  })
 }
 
 function linkFrom(doc: NormalizedDoc, destination: DocDestination, content: string, prepared: PreparedDocument): WorkExternalLink {

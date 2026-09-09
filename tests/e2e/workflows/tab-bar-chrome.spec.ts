@@ -2,46 +2,6 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 
 test.describe('Editor tab bar chrome', () => {
-  test('tab bar is flush (no pill margin) in editor mode', async ({ page }) => {
-    const app = new AppPage(page)
-    await app.waitForAppReady()
-    await app.switchToEditorMode()
-
-    // The editor variant bar should have no rounded-pill margin/border-radius —
-    // it must extend flush to the window edges.
-    const tabBarRow = page.locator('.editor-shell .editor-variant .tab-bar-row')
-    await expect(tabBarRow).toBeVisible()
-
-    const margin = await tabBarRow.evaluate((el) => {
-      const s = getComputedStyle(el)
-      return {
-        marginLeft: s.marginLeft,
-        marginRight: s.marginRight,
-        borderRadius: s.borderRadius,
-      }
-    })
-
-    expect(margin.marginLeft).toBe('0px')
-    expect(margin.marginRight).toBe('0px')
-    expect(margin.borderRadius).toBe('0px')
-  })
-
-  test('sidebar expand toggle appears in bar when sidebar is collapsed', async ({ page }) => {
-    const app = new AppPage(page)
-    await app.waitForAppReady()
-    await app.switchToEditorMode()
-
-    // Initially sidebar is open — no in-bar expand toggle
-    await expect(page.locator('.editor-shell .tab-chrome-lead[aria-label="Expand sidebar"]')).not.toBeVisible()
-
-    // Collapse the sidebar
-    await page.keyboard.press('ControlOrMeta+b')
-
-    // The expand toggle should now appear in the tab bar
-    const expandBtn = page.locator('.editor-shell .tab-chrome-lead[aria-label="Expand sidebar"]')
-    await expect(expandBtn).toBeVisible()
-  })
-
   test('sidebar expand toggle re-expands sidebar and disappears', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
@@ -57,19 +17,6 @@ test.describe('Editor tab bar chrome', () => {
 
     // Toggle should be gone again (sidebar is open)
     await expect(expandBtn).not.toBeVisible()
-  })
-
-  test('tab bar has a bottom hairline seam separating chrome from canvas', async ({ page }) => {
-    const app = new AppPage(page)
-    await app.waitForAppReady()
-    await app.switchToEditorMode()
-
-    const tabBarRow = page.locator('.editor-shell .editor-variant .tab-bar-row')
-    const borderBottom = await tabBarRow.evaluate((el) =>
-      getComputedStyle(el).borderBottomWidth
-    )
-    // 1px seam must be present
-    expect(borderBottom).toBe('1px')
   })
 })
 

@@ -64,11 +64,11 @@ class ClaudeShapedBackend extends EventEmitter implements AgentBackend {
   readonly pending = new Set<RunHandle>()
 
   startRun(request: AgentRunRequest): RunHandle {
-    const agentSessionId = request.sessionId ?? 'claude-session-1'
+    const agentSessionId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? 'claude-session-1'
     let resolve!: () => void
     let reject!: (error: Error) => void
     const handle: RunHandle = {
-      agentSessionId: request.sessionId ?? null,
+      agentSessionId: (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,

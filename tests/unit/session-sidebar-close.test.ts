@@ -196,6 +196,37 @@ describe('session sidebar dismissal', () => {
     expect(store.openedDraftCount).toBe(0)
   })
 
+  test('completion keeps a durable task available on the completed shelf', async () => {
+    // Both the mobile sheet and desktop control use this command. Completing
+    // must unload conversations without dismissing the durable task row.
+    const store = sidebarStoreForDismissal()
+    const statuses: string[] = []
+    Object.assign(store.session, {
+      tasksStore: {
+        peek: () => ({ id: 'root', status: 'in_progress' }),
+        get: () => ({ setStatus: async (status: string) => { statuses.push(status) } }),
+      },
+    })
+    await store.completeTask({ id: 'root', taskId: 'root', tabIds: ['root-tab', 'child-tab'] } as SidebarTask)
+    expect(statuses).toEqual(['done'])
+    expect(store.closedTabIds).toEqual(['root-tab', 'child-tab'])
+    expect([...store.dismissedRowKeys]).toEqual([])
+  })
+
+  test('a failed completion leaves the conversation and task row open', async () => {
+    const store = sidebarStoreForDismissal()
+    Object.assign(store.session, {
+      tasksStore: {
+        peek: () => ({ id: 'root', status: 'in_progress' }),
+        get: () => ({ setStatus: async () => { throw new Error('Host disconnected') } }),
+      },
+    })
+    await expect(store.completeTask({ id: 'root', taskId: 'root', tabIds: ['root-tab'] } as SidebarTask))
+      .rejects.toThrow('Host disconnected')
+    expect(store.closedTabIds).toEqual([])
+    expect([...store.dismissedRowKeys]).toEqual([])
+  })
+
   test('reopening a shelved task puts its row back in the column', async () => {
     // WHY: the Completed shelf lists finished work whether or not this client
     // has the row open, so a task reopened from there leaves Completed and the

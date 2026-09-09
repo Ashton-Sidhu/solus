@@ -3,7 +3,6 @@
   import type { Snippet } from "svelte";
   import {
     getWorkspaceContext,
-    getWindowContext,
     getStatusBarContext,
     getSessionEnvironmentStore,
   } from "../../contexts";
@@ -19,7 +18,8 @@
   import { comboHint } from "../../lib/keybindings/manifest";
 
   interface Props {
-    mode?: "pill" | "editor";
+    active: boolean;
+    showDestination?: boolean;
     showDirIcon?: boolean;
     /** The tab or session draft these controls describe and edit. Both own the
      *  same `run`, which is all this row reads, so it names either without
@@ -29,10 +29,9 @@
     isPrimary?: boolean;
     trailingActions?: Snippet;
   }
-  let { mode = "pill", showDirIcon = true, sourceId, isPrimary = false, trailingActions }: Props = $props();
+  let { active, showDestination = true, showDirIcon = true, sourceId, isPrimary = false, trailingActions }: Props = $props();
 
   const session = getWorkspaceContext();
-  const windowCtx = getWindowContext();
   const statusBar = getStatusBarContext();
   const environmentStore = getSessionEnvironmentStore();
   // "Pinned" means these controls belong to a pane of their own rather than to
@@ -62,7 +61,7 @@
   const gitStatusCwd = $derived(worktreePath ?? projectDir);
   const git = $derived(environmentStore.statusFor(gitStatusCwd));
   $effect(() => {
-    if (mode !== "pill") return;
+    if (!showDestination) return;
     const cwd = gitStatusCwd;
     if (!cwd || cwd === "~") return;
     void environmentStore.refresh(cwd);
@@ -109,14 +108,14 @@
   // This cluster now lives on the full-width input toolbar row, so the old
   // width-based collapse no longer applies: dir + usage always show, and branch
   // shows in pill mode as before. Text truncates to degrade gracefully.
-  const showBranch = $derived(mode === "pill");
+  const showBranch = $derived(showDestination);
   const showDirLabel = true;
-  const showUsage = $derived(mode !== "pill");
+  const showUsage = $derived(!showDestination);
 
   $effect(() => {
     if (isPinned) return;
     const handler = (event: Event) => {
-      if (mode !== windowCtx.viewMode || !displayBranch) return;
+      if (!active || !showDestination || !displayBranch) return;
       if (gitOpen) {
         gitOpen = false;
       } else {
@@ -226,7 +225,7 @@
   <div class="contents @max-[25rem]/composer:hidden">
   <!-- Project info (dir + branch). Editor mode says this in the input bar's
        header strip instead, where it can also be changed. -->
-  {#if mode === "pill"}
+  {#if showDestination}
     {@render projectInfo()}
   {/if}
 
@@ -256,7 +255,7 @@
       <TooltipUI.Content value={"Syncing runtime state"} />
     </TooltipUI.Root>
   {/if}
-  {#if mode === "pill" && !isPinned}
+  {#if showDestination && !isPinned}
     <RunOnPicker
       run={run ?? session.defaultRunConfig}
       requesterId={source}
@@ -268,7 +267,7 @@
   {@render trailingActions?.()}
 </div>
 
-{#if mode === "pill" && displayBranch}
+{#if showDestination && displayBranch}
   <GitDropdown
     bind:open={gitOpen}
     initialView={gitInitialView}

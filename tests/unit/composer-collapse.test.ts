@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { JSDOM } from 'jsdom'
 import {
   floatingLayerOf,
-  focusDestinationAfterFocusOut,
+  keyboardHoldsComposerOpen,
   selectionHoldsComposerOpen,
   shouldCollapseComposer,
 } from '@solus/workspace-ui/components/input/lib/composer-collapse'
@@ -32,7 +32,7 @@ describe('a selection in the transcript', () => {
 })
 
 describe('when the composer collapses', () => {
-  const idle = { enabled: true, focused: false, recording: false, refocusPending: false }
+  const idle = { enabled: true, focused: false, recording: false }
 
   test('an idle bar collapses only when the setting allows it', () => {
     // WHY: the collapse is a preference with a way out. A user who turns it
@@ -50,16 +50,9 @@ describe('when the composer collapses', () => {
     // confirm controls must not move under the hand that is about to use them.
     expect(shouldCollapseComposer({ ...idle, recording: true })).toBe(false)
   })
-
-  test('a mic that has just settled holds the bar open until the keyboard is back', () => {
-    // WHY: the waveform lets go and the editor is refocused a frame or two
-    // later. Folding in that gap painted a collapsed bar that sprang open
-    // again as soon as focus landed — a visible stutter after every dictation.
-    expect(shouldCollapseComposer({ ...idle, refocusPending: true })).toBe(false)
-  })
 })
 
-describe('where focus went when the bar lost it', () => {
+describe('where the keyboard is once a leave settles', () => {
   const dom = new JSDOM(`
     <div id="app">
       <div id="bar"><textarea id="editor"></textarea><button id="chip">Model</button></div>
@@ -71,42 +64,37 @@ describe('where focus went when the bar lost it', () => {
   const doc = dom.window.document
   const root = doc.getElementById('bar')!
   const el = (id: string) => doc.getElementById(id)!
+  const holds = (activeElement: Element | null, documentHasFocus = true) =>
+    keyboardHoldsComposerOpen({ root, activeElement, documentHasFocus })
 
-  test('moving between the bar’s own controls is not leaving', () => {
-    expect(
-      focusDestinationAfterFocusOut({ root, relatedTarget: el('chip'), documentHasFocus: true }),
-    ).toBe('inside')
+  test('focus on the bar’s own controls holds it open', () => {
+    expect(holds(el('editor'))).toBe(true)
+    expect(holds(el('chip'))).toBe(true)
   })
 
-  test('a menu opened from the bar keeps it open', () => {
-    // WHY: the model chip and permission picker are portalled. Collapsing on
-    // that focusout would hide the trigger the open menu is anchored to and
-    // returns focus to.
-    expect(
-      focusDestinationAfterFocusOut({ root, relatedTarget: el('menu-item'), documentHasFocus: true }),
-    ).toBe('menu')
-    expect(
-      focusDestinationAfterFocusOut({ root, relatedTarget: el('dialog-field'), documentHasFocus: true }),
-    ).toBe('menu')
+  test('a menu or dialog opened from the bar holds it open', () => {
+    // WHY: the model chip and permission picker are portalled. Folding while
+    // one is open would hide the trigger the menu is anchored to and returns
+    // focus to.
+    expect(holds(el('menu-item'))).toBe(true)
+    expect(holds(el('dialog-field'))).toBe(true)
     expect(floatingLayerOf(el('menu-item'))?.hasAttribute('data-bits-floating-content-wrapper')).toBe(true)
     expect(floatingLayerOf(el('elsewhere'))).toBeNull()
   })
 
-  test('focus landing elsewhere in the page is leaving', () => {
-    expect(
-      focusDestinationAfterFocusOut({ root, relatedTarget: el('elsewhere'), documentHasFocus: true }),
-    ).toBe('left')
+  test('focus elsewhere in the page, or on nothing, lets the bar fold', () => {
+    // WHY: read from `activeElement` at the deadline, not from a focusout's
+    // `relatedTarget`: Safari reports a clicked chip as a leave to nowhere,
+    // and a return handed back a frame later was never a leave at all.
+    expect(holds(el('elsewhere'))).toBe(false)
+    expect(holds(doc.body)).toBe(false)
+    expect(holds(null)).toBe(false)
   })
 
-  test('a click on nothing focusable is leaving, but a hidden window is not', () => {
-    // WHY: clicking the transcript blurs the editor with no next target and
-    // should collapse the bar. Hiding the Electron window also blurs it with
-    // no next target, and there the bar must keep its shape for the return.
-    expect(
-      focusDestinationAfterFocusOut({ root, relatedTarget: null, documentHasFocus: true }),
-    ).toBe('left')
-    expect(
-      focusDestinationAfterFocusOut({ root, relatedTarget: null, documentHasFocus: false }),
-    ).toBe('window')
+  test('a hidden window holds the bar’s shape', () => {
+    // WHY: hiding the Electron window blurs the editor with no next target,
+    // and there the bar must keep its shape for the return.
+    expect(holds(doc.body, false)).toBe(true)
+    expect(holds(null, false)).toBe(true)
   })
 })

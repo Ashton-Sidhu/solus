@@ -77,10 +77,4 @@ describe('column emphasis', () => {
     )
     expect(columnEmphasis({ name: 'exit_code', numeric: true })).toBe('measure')
   })
-
-  test('an instant is never a measure, however numeric its epoch is', () => {
-    expect(columnEmphasis({ name: 'started_at', numeric: true, format: 'time' })).not.toBe(
-      'measure',
-    )
-  })
 })

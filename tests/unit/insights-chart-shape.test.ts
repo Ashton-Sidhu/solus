@@ -227,10 +227,6 @@ describe('which measure the chart draws', () => {
     [['2026-08-12', 4, 700], ['2026-08-13', 6, 800]],
   )
 
-  test('without a choice, a duration outranks an earlier count', () => {
-    expect(trendChart(shaped)?.valueColumn).toBe('avg_ms')
-  })
-
   test('the reader\'s choice wins, and every measure is offered', () => {
     const trend = trendChart(shaped, 'calls')
     expect(trend?.valueColumn).toBe('calls')

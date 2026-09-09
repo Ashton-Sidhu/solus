@@ -8,6 +8,7 @@
   import InputToolbar from "./InputToolbar.svelte";
 
   interface Props {
+    active: boolean;
     class?: string;
     tabId?: string;
     /** The pane this card fills, when it fills one of its own. Unset by the
@@ -20,6 +21,7 @@
   }
 
   let {
+    active,
     class: className,
     tabId,
     paneId,
@@ -61,7 +63,7 @@
   {#if !started}
     <!-- Raw `tabId`, not the active-resolved one: unset for the workspace dock,
          which is what keeps it answering the global git-dropdown shortcut. -->
-    <InputBarHeader sourceId={tabId} {paneId} />
+    <InputBarHeader {active} sourceId={tabId} {paneId} />
   {/if}
   <!--
     One card, one hairline, one accent. The card sits flat on the page — a
@@ -85,7 +87,9 @@
     onfocusout={() => (focused = false)}
   >
     <InputBar
-      mode="editor"
+      {active}
+      spacious
+      maxHeight={260}
       sessionId={sess?.id ?? null}
       tabId={targetTabId}
       {isPrimary}
@@ -95,7 +99,9 @@
     >
       {#snippet leadingActions(savedPromptsControl)}
         <InputToolbar
-          mode="editor"
+          {active}
+          spacious
+          showDestination={false}
           tabId={targetTabId}
           {isPrimary}
           {onAttachFile}

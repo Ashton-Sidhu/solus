@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { useComposerCommands } from "./lib/composer-commands.svelte";
   import {
     CornerDownRight as ArrowBendDownRightIcon,
     ArrowUp as ArrowUpIcon,
@@ -12,7 +13,6 @@
     getSettingsContext,
     getAgentContext,
     getVoiceModelStore,
-    getWindowContext,
     runtime,
   } from "../../contexts";
   import {
@@ -25,7 +25,6 @@
     clampReasoningEffort,
   } from "../pickers/lib/picker-selection";
   import { track } from "../../lib/analytics";
-  import { toasts } from "../../lib/toasts";
   import type {
     PlanReference,
     Prompt,
@@ -40,8 +39,8 @@
     worktreeProjectRoot,
   } from "@solus/contracts/types";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
-  import { comboHint } from "../../lib/keybindings/manifest";
   import { isMac } from "../../lib/keybindings/match";
+  import { comboHint } from "../../lib/keybindings/manifest";
   import AttachmentChips from "./AttachmentChips.svelte";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import {
@@ -49,53 +48,29 @@
     removeMarkFromAttachment,
   } from "../browser/lib/annotation-attachment";
   import SavedPromptsControl from "./SavedPromptsControl.svelte";
-  import { SLASH_COMMANDS, type SlashCommand } from "./slash-commands";
   import PromptEditor from "../ui/PromptEditor.svelte";
   import WaveformVisualizer from "./WaveformVisualizer.svelte";
   import RecordingControls from "./RecordingControls.svelte";
-  import { dictation, isDictationTarget } from "../../lib/dictation.svelte";
+  import { dictation } from "../../lib/dictation.svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
-  import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../lib/inputFocus";
-  import { VoiceRetryTracker } from "./lib/voice-retry.svelte";
+  import { requestInputFocus } from "../../lib/inputFocus";
+  import { useComposerVoice } from "./lib/composer-voice.svelte";
   import { formatReleaseTime } from "../conversation/lib/queued-prompts";
-  import { quotedReplyDraft } from "../../lib/quoted-reply";
+  import { useComposerFocus } from "./lib/composer-focus.svelte";
   import { pendingPlanForPrompt } from "./lib/pending-plan";
   import {
-    answersForQuestionNote,
     pendingQuestionForPrompt,
   } from "./lib/pending-question";
-  import { localApi } from "@solus/client-core/local-api";
-  import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
-  import { hostPolicy } from "@solus/client-core/host-policy";
   import { serverConnections } from "@solus/client-core/server-connections";
-  import {
-    clipboardImages,
-    pastedImageAttachment,
-    readFileDataUrl,
-    uploadPastedImage,
-  } from "./lib/attachment-upload";
-  import {
-    loadPromptHistory,
-    savePromptToHistory,
-  } from "./lib/prompt-history";
-  import {
-    floatingLayerOf,
-    focusDestinationAfterFocusOut,
-    selectionHoldsComposerOpen,
-    shouldCollapseComposer,
-  } from "./lib/composer-collapse";
-  import {
-    composerSurfaceOf,
-    measureFold,
-    tweenComposerFold,
-    type ComposerFoldTween,
-    type FoldGeometry,
-  } from "./lib/composer-fold";
+  import { useComposerFold } from "./lib/composer-fold.svelte";
 
   import type { Snippet } from "svelte";
 
   interface Props {
-    mode?: "pill" | "editor";
+    active: boolean;
+    maxHeight?: number;
+    spacious?: boolean;
+    onSent?: () => void;
     /** The conversation this bar composes for, or `null` when nothing has
      *  started behind it — a session draft. The bar is addressed by session and
      *  looks its tab up from that; it never resolves a session from whichever
@@ -158,7 +133,10 @@
     leadingActions?: Snippet<[Snippet]>;
   }
   let {
-    mode = "pill",
+    active,
+    maxHeight = 140,
+    spacious = false,
+    onSent,
     sessionId,
     tabId,
     isPrimary = false,
@@ -176,14 +154,12 @@
     leadingActions,
   }: Props = $props();
 
-  const INPUT_MAX_HEIGHT = $derived(mode === "editor" ? 260 : 140);
 
   const theme = getSettingsContext();
   const agent = getAgentContext();
   const voiceModel = getVoiceModelStore();
   const session = getWorkspaceContext();
   const statusBar = getStatusBarContext();
-  const windowCtx = getWindowContext();
   const router = session.router;
 
   const sess = $derived(sessionId ? session.sessions[sessionId] : undefined);
@@ -205,7 +181,6 @@
     pendingPlanForPrompt(sess, session.planStore.plans),
   );
   const pendingQuestion = $derived(pendingQuestionForPrompt(sess));
-  const isActiveMode = $derived(mode === windowCtx.viewMode);
   // Not a width question. The four things that used to read `isMobileViewport`
   // here each ask about the *hand* or the *keyboard*: whether there is an Escape
   // key to stop a run, whether ⌥Enter is spellable, and how big a hit target has
@@ -230,7 +205,7 @@
   // composer — `isPrimary` drops when a draft covers it — keeping exactly one
   // bar eligible at a time.
   const ownsComposerShortcuts = $derived(
-    isActiveMode &&
+    active &&
       isFocusedPaneComposer &&
       (paneId !== undefined || isPrimary) &&
       !!run &&
@@ -283,17 +258,6 @@
     run?.serverId ?? serverConnections.defaultServerId(),
   );
 
-  // ─── Prompt history ───
-
-  let promptHistory = $state<string[]>(loadPromptHistory(localStorage));
-  let historyIndex = $state(-1);
-  let savedInput = "";
-
-  function resetHistoryNavigation() {
-    historyIndex = -1;
-    savedInput = "";
-  }
-
   // ─── Editor state ───
 
   // The prompt is handed in, so switching tabs swaps the whole object and the
@@ -306,9 +270,9 @@
   // switch back to the live reactive value the instant it becomes active again.
   let frozenText = $state(untrack(() => prompt.text));
   $effect(() => {
-    if (!isActiveMode) frozenText = untrack(() => prompt.text);
+    if (!active) frozenText = untrack(() => prompt.text);
   });
-  const editorValue = $derived(isActiveMode ? prompt.text : frozenText);
+  const editorValue = $derived(active ? prompt.text : frozenText);
   let composerEl: ReturnType<typeof PromptEditor> | null = $state(null);
   // The draft route stays mounted while its draft id changes. The editor then
   // receives a different prompt object without an input event, so explicitly
@@ -323,6 +287,41 @@
   /** The composer card — the saved-prompts sheet matches its width. */
   let composerRootEl = $state<HTMLElement | null>(null);
 
+  // ─── Voice recorder ───
+
+  const voice = dictation;
+  const voiceOwnerId = $props.id();
+  const commands = useComposerCommands(() => ({
+    isReadOnly, isConnecting, isTouch, run, prompt, sessionId, targetTabId,
+    draftId, composerCwd, pluginCommands, onDispatch, onDispatchInBackground,
+    onSent, editor: composerEl, refocusComposer,
+  }));
+  const { handleSend, handleSolusCommand, stopRun, handleKeyDown, handleEditorChange, handlePaste } = commands;
+
+  // Initialize voice before the fold below. The fold creates its collapsed
+  // derived value immediately and reads `micHoldsBarOpen` through its recording
+  // getter; reversing these two controllers puts that value in the temporal
+  // dead zone while a draft pane mounts.
+  const composerVoice = useComposerVoice({
+    ownerId: voiceOwnerId,
+    active: () => active,
+    isPrimary: () => isPrimary,
+    isReadOnly: () => isReadOnly,
+    isConnecting: () => isConnecting,
+    isBusy: () => isBusy,
+    text: () => inputText,
+    editor: () => composerEl,
+    sendPrompt: commands.sendPrompt,
+  });
+  const ownsVoice = $derived(composerVoice.ownsVoice);
+  const voiceState = $derived(composerVoice.state);
+  const hasMountedWaveform = $derived(composerVoice.hasMountedWaveform);
+  const showWaveform = $derived(composerVoice.showWaveform);
+  const voiceControlState = $derived(composerVoice.controlState);
+  const micHoldsBarOpen = $derived(composerVoice.holdsBarOpen);
+  const claimVoice = composerVoice.claim;
+  const toggleVoice = composerVoice.toggle;
+
   // ─── Idle collapse (ADR-0027) ───
 
   // Mic and send are pinned to the card's corner, out of flow, so the toolbar
@@ -330,285 +329,14 @@
   let actionsWidth = $state(0);
   let actionsHeight = $state(0);
 
-  // The keyboard is in this bar, or in a menu this bar opened. Tracked on the
-  // bar's own box rather than the host card so every host — dock, split pane,
-  // pill, draft, web — gets the same answer.
-  let composerFocused = $state(false);
-  // Menus that have been given a leave watcher, so one is not added per open.
-  const watchedMenus = new WeakSet<Element>();
-  // A press that began outside the bar and has not been released. The leave
-  // decision waits for the release, so a drag-select in the transcript never
-  // folds the bar under the gesture, and a click's focus has fully landed.
-  let outsidePointerInFlight = false;
-  let outsidePointerReleaseTimer: ReturnType<typeof setTimeout> | null = null;
-  // A live selection in the transcript is holding the bar open; it lets go
-  // when the selection does.
-  let heldBySelection = $state(false);
-  // The recorder has just settled and the keyboard is being handed back to
-  // the editor. Held until focus is next in the bar; a bar the hand-back
-  // never reaches stays open until the user comes and goes themselves.
-  let voiceRefocusPending = $state(false);
-
-  function transcriptEl(): Element | null {
-    return targetTabId
-      ? document.querySelector(
-          `[data-conversation-tab-id="${CSS.escape(targetTabId)}"]`,
-        )
-      : null;
-  }
-
-  /**
-   * Focus leaving with no destination is not yet a leave. A closing picker
-   * blurs its content first and hands focus back to the editor through a
-   * deferred focus request — a frame later, not a microtask later. Deciding
-   * before that lands folded the bar and unfolded it again on the next frame,
-   * which read as a stutter. So the decision waits two frames and then reads
-   * where focus actually is; a return to the bar or into another menu in the
-   * meantime keeps it open, as does a press still in flight or a selection
-   * still being made.
-   */
-  function collapseOnceFocusSettles() {
-    requestAnimationFrame(() =>
-      requestAnimationFrame(() => {
-        if (outsidePointerInFlight) return;
-        const active = document.activeElement;
-        if (active && composerRootEl?.contains(active)) return;
-        if (active && floatingLayerOf(active)) return;
-        if (selectionHoldsComposerOpen(document.getSelection(), transcriptEl())) {
-          heldBySelection = true;
-          return;
-        }
-        heldBySelection = false;
-        composerFocused = false;
-      }),
-    );
-  }
-
-  $effect(() => {
-    if (!heldBySelection) return;
-    const release = () => {
-      if (selectionHoldsComposerOpen(document.getSelection(), transcriptEl())) return;
-      heldBySelection = false;
-      collapseOnceFocusSettles();
-    };
-    document.addEventListener("selectionchange", release);
-    return () => document.removeEventListener("selectionchange", release);
+  const fold = useComposerFold({
+    root: () => composerRootEl,
+    tabId: () => targetTabId,
+    enabled: () => collapseWhenIdle,
+    recording: () => micHoldsBarOpen,
+    claimVoice: () => claimVoice(true),
   });
-
-  $effect(() => {
-    if (!composerFocused) return;
-    const releaseOutsidePointer = () => {
-      if (!outsidePointerInFlight) return;
-      outsidePointerInFlight = false;
-      if (outsidePointerReleaseTimer !== null) clearTimeout(outsidePointerReleaseTimer);
-      outsidePointerReleaseTimer = null;
-      collapseOnceFocusSettles();
-    };
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) return;
-      if (composerRootEl?.contains(target) || floatingLayerOf(target)) return;
-      outsidePointerInFlight = true;
-      // A release the page never sees — the pointer left the window — must
-      // not hold the bar open for good.
-      if (outsidePointerReleaseTimer !== null) clearTimeout(outsidePointerReleaseTimer);
-      outsidePointerReleaseTimer = setTimeout(releaseOutsidePointer, 1500);
-    };
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("pointerup", releaseOutsidePointer, true);
-    document.addEventListener("pointercancel", releaseOutsidePointer, true);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("pointerup", releaseOutsidePointer, true);
-      document.removeEventListener("pointercancel", releaseOutsidePointer, true);
-      if (outsidePointerReleaseTimer !== null) clearTimeout(outsidePointerReleaseTimer);
-      outsidePointerReleaseTimer = null;
-      outsidePointerInFlight = false;
-    };
-  });
-
-  /**
-   * A menu keeps the bar open while it holds focus. bits-ui hands focus back
-   * to the trigger on close, which lands as a `focusin` here — but a menu that
-   * closes by letting go (a click on the transcript with no return target)
-   * fires nothing on this box, so the layer itself is watched for that leave.
-   */
-  function watchMenuForLeave(target: Node) {
-    const layer = floatingLayerOf(target);
-    if (!layer || watchedMenus.has(layer)) return;
-    watchedMenus.add(layer);
-    layer.addEventListener("focusout", (event) => {
-      const next = event.relatedTarget;
-      if (
-        next instanceof Node &&
-        (layer.contains(next) || composerRootEl?.contains(next))
-      )
-        return;
-      collapseOnceFocusSettles();
-    });
-  }
-
-  function handleComposerFocusIn() {
-    composerFocused = true;
-    // The keyboard is back after a dictation; the focus flag holds from here.
-    voiceRefocusPending = false;
-    claimVoice(true);
-  }
-
-  function handleComposerFocusOut(event: FocusEvent) {
-    if (!composerRootEl) return;
-    const destination = focusDestinationAfterFocusOut({
-      root: composerRootEl,
-      relatedTarget: event.relatedTarget,
-      documentHasFocus: document.hasFocus(),
-    });
-    if (destination === "inside" || destination === "window") return;
-    if (destination === "menu") {
-      if (event.relatedTarget instanceof Node) watchMenuForLeave(event.relatedTarget);
-      return;
-    }
-    // Settled rather than immediate for the same reason as a closing menu: a
-    // browser that does not focus a clicked button (Safari) reports a chip
-    // click as a leave to nowhere, and the menu it opens takes focus a beat
-    // later. Two frames on a transcript click is not a visible delay.
-    collapseOnceFocusSettles();
-  }
-
-  // Skill commands, used only to strip a mobile-autocorrect duplication on send.
-  const providerSkills = $derived(
-    [...pluginCommands.project, ...pluginCommands.global].filter(
-      (command) => command.kind === "skill",
-    ),
-  );
-  // ─── Voice recorder ───
-
-  // The app-wide voice controller owns the single recorder, shared with plain
-  // fields' dictation. This bar drives its conversational ('message') mode.
-  const voice = dictation;
-  const voiceRetry = new VoiceRetryTracker();
-  let retryClock = $state(Date.now());
-
-  // The recorder is shared, so gate this bar's voice UI on conversational mode:
-  // a plain field dictating elsewhere must not light up the input bar. Primary
-  // and split composers claim ownership on focus so transcripts land in the
-  // draft the user is actually working in.
-  const voiceOwnerId = $derived(
-    `input-bar:${mode}:${paneId ?? (isPrimary ? "primary" : (tabId ?? "composer"))}`,
-  );
-  const ownsVoice = $derived(voice.messageOwner === voiceOwnerId);
-  const voiceState = $derived(
-    ownsVoice && voice.mode === "message" ? voice.state : "idle",
-  );
-
-  // Lazy-mount the waveform: once true, never resets so the canvas stays alive.
-  let hasMountedWaveform = $state(false);
-  $effect(() => {
-    if (voiceState === "recording") hasMountedWaveform = true;
-  });
-
-  // Pure derived — no timers. Covers the full recording→transcribing→idle→
-  // recording cycle without flickering because the Dictation layer re-arms
-  // synchronously in onIdle (setting voice.starting=true in the same microtask
-  // as the idle transition, before any Svelte render).
-  const showWaveform = $derived(
-    voiceState === "recording" ||
-      (voiceState === "transcribing" && voiceModeEnabled) ||
-      (voiceState === "idle" && voiceModeEnabled && voice.starting),
-  );
-  const voiceControlState = $derived<"idle" | "recording" | "transcribing">(
-    voice.starting && showWaveform ? "recording" : voiceState,
-  );
-
-  // The whole mic cycle holds the bar open, not only the frames the waveform
-  // is on screen: the mic-permission wait before it, and the transcription
-  // after it, when the editor is back but disabled. Folding in either gap and
-  // unfolding when the transcript landed read as a stutter after every
-  // dictation.
-  const micHoldsBarOpen = $derived(
-    showWaveform ||
-      voiceState !== "idle" ||
-      (ownsVoice && voice.mode === "message" && voice.starting),
-  );
-
-  // A phone keeps its toolbar: the `+` there is the only way to attach,
-  // capture, or change the run, and collapsing it would cost a tap into the
-  // field and a soft-keyboard pop before each. Same predicate as auto-focus.
-  const isCollapsed = $derived(
-    shouldCollapseComposer({
-      enabled:
-        collapseWhenIdle &&
-        theme.collapseComposerWhenIdle &&
-        !runtime.shouldSuppressFocus,
-      focused: composerFocused,
-      recording: micHoldsBarOpen,
-      refocusPending: voiceRefocusPending,
-    }),
-  );
-
-  // The fold's tween is a FLIP: the layout flips in one step, and the card,
-  // the prompt line, and the toolbar are animated from where they were to
-  // where they are. The conversation column lays out once per fold instead
-  // of once per frame. Hosts that mark no surface get the cut.
-  let foldTween: ComposerFoldTween | null = null;
-  let geometryBeforeFold: FoldGeometry | null = null;
-  // Read before the DOM flips, so the tween starts from where the card is —
-  // mid-tween, if the last fold was interrupted.
-  $effect.pre(() => {
-    void isCollapsed;
-    geometryBeforeFold = untrack(() => {
-      const surface = composerRootEl && composerSurfaceOf(composerRootEl);
-      return surface ? measureFold(surface) : null;
-    });
-  });
-  $effect(() => {
-    const collapsed = isCollapsed;
-    untrack(() => {
-      const surface = composerRootEl && composerSurfaceOf(composerRootEl);
-      foldTween = surface
-        ? tweenComposerFold(surface, geometryBeforeFold, collapsed)
-        : null;
-    });
-    return () => foldTween?.cancel();
-  });
-
-  function handleVoiceTranscript(transcript: string) {
-    const text = transcript.trim();
-    if (!text || isConnecting || isReadOnly) return;
-    if (theme.autoSendVoiceTranscripts) {
-      sendPrompt(text, { refocus: false });
-    } else {
-      composerEl?.insertTranscript(text);
-    }
-  }
-
-  function claimVoice(startIfEnabled = false) {
-    if (!isActiveMode || isReadOnly) return;
-    const claimed = voice.claimMessageConsumer(
-      voiceOwnerId,
-      handleVoiceTranscript,
-      () => canAutoStart(),
-    );
-    if (claimed && startIfEnabled && canAutoStart())
-      voice.startConversational();
-  }
-
-  function toggleVoice() {
-    voice.toggleConversationalFor(voiceOwnerId, handleVoiceTranscript, () =>
-      canAutoStart(),
-    );
-  }
-
-  // The visible primary composer is the default owner. A split composer takes
-  // over when the user focuses or activates its controls.
-  $effect(() => {
-    if (!isActiveMode) return;
-    const ownerId = voiceOwnerId;
-    // Claiming reads recorder state to decide whether auto-start is allowed.
-    // Keep those reads out of this ownership effect: otherwise starting the
-    // recorder reruns the effect, whose cleanup immediately cancels it.
-    if (isPrimary) untrack(() => claimVoice(true));
-    return () => voice.releaseMessageConsumer(ownerId);
-  });
+  const isCollapsed = $derived(fold.collapsed);
 
   // ─── Derived state ───
 
@@ -618,6 +346,9 @@
   // because PromptEditor immediately reports the true state once its `value`
   // prop lands.
   let editorHasText = $state(untrack(() => inputText.trim().length > 0));
+  const planRefs = $derived(prompt.planRefs);
+  const workRefs = $derived(prompt.workRefs);
+  const sessionRefs = $derived(prompt.sessionRefs);
   const hasContent = $derived(
     editorHasText ||
       attachments.length > 0 ||
@@ -632,9 +363,6 @@
   // instant anything is typed the button is a Send (or a Steer) again, so
   // nothing is taken away.
   const stopsRun = $derived(isTouch && !hasKeyboard && isBusy && !hasContent);
-  const planRefs = $derived(prompt.planRefs);
-  const workRefs = $derived(prompt.workRefs);
-  const sessionRefs = $derived(prompt.sessionRefs);
   // Work this session is actively collaborating on — its content is injected
   // into each prompt so the agent revises the live version.
   const boundWork = $derived.by(() => {
@@ -668,7 +396,7 @@
   });
   const voicePausedTooltip = $derived.by(() => {
     if (!voice.error) return null;
-    if (voice.errorKind === "transient" && voiceRetry.exhausted)
+    if (voice.errorKind === "transient" && composerVoice.retryExhausted)
       return `Voice paused: ${voice.error}`;
     if (voice.errorKind && voice.errorKind !== "transient")
       return `Voice paused: ${voice.error}`;
@@ -726,281 +454,20 @@
     else composerEl?.focus();
   }
 
-  // Recording replaces the editor with the waveform. Once the recorder settles
-  // and the editor is visible again, return keyboard input to the composer.
-  // The mic stops holding the bar open in this same flush, and the focus
-  // request lands a frame or two later, so the bar is held open from here
-  // (ADR-0027). The hold lets go when focus arrives — the bar is then simply
-  // focused. It never folds on its own after a dictation.
-  let previousVoiceStateForFocus = untrack(() => voiceState);
-  $effect(() => {
-    const previousState = previousVoiceStateForFocus;
-    const currentState = voiceState;
-    previousVoiceStateForFocus = currentState;
-
-    if (
-      !isActiveMode ||
-      !ownsVoice ||
-      previousState === "idle" ||
-      currentState !== "idle" ||
-      showWaveform
-    )
-      return;
-
-    voiceRefocusPending = true;
-    requestAnimationFrame(() => {
-      if (isActiveMode && ownsVoice && voiceState === "idle" && !showWaveform) {
-        refocusComposer();
-      }
-    });
-  });
-
-  let prevFocusable = untrack(() => isActiveMode && !session.unifiedPickerOpen);
-  $effect(() => {
-    if (!isPrimary) return;
-    void sess?.run.workingDirectory;
-    void sess?.readOnlyReason;
-    const isFocusable = isActiveMode && !session.unifiedPickerOpen;
-    const justBecameFocusable = isFocusable && !prevFocusable;
-    prevFocusable = isFocusable;
-
-    if (!isFocusable || isReadOnly || runtime.shouldSuppressFocus) return;
-
-    if (justBecameFocusable) {
-      // rAF ensures focus lands after display:none → visible transitions
-      requestAnimationFrame(() => {
-        if (isActiveMode && !session.unifiedPickerOpen && !isReadOnly) {
-          composerEl?.focus();
-        }
-      });
-      return;
-    }
-
-    const active = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    if (
-      active &&
-      active !== document.body &&
-      (active.tagName === "INPUT" ||
-        active.tagName === "TEXTAREA" ||
-        active.isContentEditable)
-    ) {
-      return;
-    }
-    composerEl?.focus();
-  });
-
-  // "Quote in reply": main sends the selected conversation text when the user
-  // picks it from the native right-click menu. Prepend it as a markdown
-  // blockquote so they can type their message addressing that snippet. Only the
-  // active-mode bar subscribes (both pill+editor instances stay mounted).
-  function insertQuote(text: string) {
-    const quoted = quotedReplyDraft(text);
-    if (!quoted) return;
-    const existing = prompt.text;
-    const next = existing.trim() ? `${existing}\n\n${quoted}` : quoted;
-    prompt.text = next;
-    composerEl?.setValueAndCursor(next, true, true);
-    requestInputFocus();
-  }
-
-  $effect(() => {
-    if (!isActiveMode) return;
-    return localApi.onQuoteSelection((text, sourceTabId) => {
-      if (sourceTabId !== targetTabId || isReadOnly) return;
-      insertQuote(text);
-    });
-  });
-
-  $effect(() => {
-    if (!receivesFocusedInput) return;
-    const p = session.pendingInput;
-    if (!p) return;
-    if (isReadOnly) {
-      session.update({ pendingInput: null });
-      return;
-    }
-    prompt.text = p;
-    session.update({ pendingInput: null });
-    requestInputFocus();
-  });
-
-  $effect(() => {
-    const handleFocusRequest = (event: Event) => {
-      const detail = event instanceof CustomEvent ? event.detail : undefined;
-      const requestedTabId = detail?.tabId;
-      if (
-        requestedTabId === undefined
-          ? !isFocusedPaneComposer
-          : requestedTabId !== targetTabId
-      )
-        return;
-      if (!isActiveMode || session.unifiedPickerOpen || isReadOnly) return;
-      requestAnimationFrame(() => {
-        if (isActiveMode && !session.unifiedPickerOpen && !isReadOnly) {
-          composerEl?.focus();
-        }
-      });
-    };
-    window.addEventListener(FOCUS_INPUT_EVENT, handleFocusRequest);
-    return () =>
-      window.removeEventListener(FOCUS_INPUT_EVENT, handleFocusRequest);
-  });
-
-  // ─── Voice mode effects ───
-
-  // Conditions under which conversational voice mode may (re)arm the mic. Note
-  // there is NO `isBusy` gate: voice stays live while Claude is running so the
-  // user can keep dictating follow-ups, which queue as messages. We yield the
-  // mic whenever a plain-input field owns dictation (dictation.focusedTarget).
-  function canAutoStart(): boolean {
-    const errorAllowsStart =
-      voice.errorKind === null ||
-      (voice.errorKind === "transient" && voiceRetry.canRetry(retryClock));
-    return (
-      voiceModeEnabled &&
-      voiceModel.ready &&
-      isActiveMode &&
-      ownsVoice &&
-      windowCtx.visible &&
-      !isReadOnly &&
-      errorAllowsStart &&
-      voice.state === "idle" &&
-      inputText.trim().length === 0 &&
-      dictation.focusedTarget === null
-    );
-  }
-
-  let prevVoiceErrorKind = untrack(() => voice.errorKind);
-  $effect(() => {
-    const kind = voice.errorKind;
-    if (kind === prevVoiceErrorKind) return;
-    prevVoiceErrorKind = kind;
-    if (kind === null) voiceRetry.reset();
-    else voiceRetry.note(kind);
-  });
-
-  let prevVoiceError = untrack(() => voice.error);
-  $effect(() => {
-    const error = voice.error;
-    if (error === prevVoiceError) return;
-    prevVoiceError = error;
-    if (error && isActiveMode && ownsVoice) {
-      toasts.error("Dictation unavailable", { description: error });
-    }
-  });
-
-  $effect(() => {
-    const nextRetryAt = voiceRetry.nextRetryAt;
-    if (!nextRetryAt) return;
-    const delayMs = Math.max(0, nextRetryAt - Date.now());
-    const timer = window.setTimeout(() => {
-      retryClock = Date.now();
-    }, delayMs);
-    return () => window.clearTimeout(timer);
-  });
-
-  $effect(() => {
-    // Only the active bar cancels; the inactive instance must not touch the
-    // shared recorder — it would immediately kill the active bar's recording.
-    if (
-      isActiveMode &&
-      ownsVoice &&
-      isReadOnly &&
-      (voiceState === "recording" || voice.starting)
-    )
-      voice.cancel();
-    if (isReadOnly) composerEl?.clearCompletions();
-  });
-
-  $effect(() => {
-    if (!isPrimary) return;
-    const unsub = window.solusNative?.onWindowShown(() => {
-      if (!isActiveMode) return;
-      if (!session.unifiedPickerOpen && !isReadOnly) {
-        requestInputFocus();
-      }
-    });
-    return unsub ?? (() => {});
-  });
-
-  $effect(() => {
-    const unsub = window.solusNative?.onWindowHidden(() => {
-      if (
-        isActiveMode &&
-        ownsVoice &&
-        (voiceState === "recording" || voice.starting)
-      )
-        voice.cancel();
-    });
-    return unsub ?? (() => {});
-  });
-
-  // Single source of truth for (re)arming the recorder. Fires on any rising
-  // edge that should resume listening: voice mode enabled, window shown, a turn
-  // finishing, or a transcript completing (transcribing → idle) so the next
-  // utterance can be queued even mid-turn. A user cancel goes recording → idle
-  // (never through "transcribing"), so it does NOT re-arm — that's the escape
-  // hatch to type instead of talk.
-  let prevVoiceMode = untrack(() => voiceModeEnabled);
-  let prevVisible = untrack(() => windowCtx.visible);
-  let prevIsBusy = untrack(() => isBusy);
-  let prevVoiceState = untrack(() => voiceState);
-  let prevDictationFocus = untrack(() => dictation.focusedTarget);
-  let prevVoiceModelReady = untrack(() => voiceModel.ready);
-  $effect(() => {
-    if (!ownsVoice) return;
-    const enabled = voiceModeEnabled;
-    const visible = windowCtx.visible;
-    const busy = isBusy;
-    const vstate = voiceState;
-    const dictationFocus = dictation.focusedTarget;
-    const modelReady = voiceModel.ready;
-    const retryReady =
-      voice.errorKind === "transient" && voiceRetry.canRetry(retryClock);
-
-    if (prevVoiceMode && !enabled && (vstate === "recording" || voice.starting))
-      voice.cancel();
-    if (!prevVoiceMode && enabled) {
-      voiceRetry.reset();
-      voice.clearError();
-    }
-
-    const shouldArm =
-      (enabled && !prevVoiceMode) ||
-      (visible && !prevVisible) ||
-      (prevIsBusy && !busy) ||
-      (!prevVoiceModelReady && modelReady) ||
-      retryReady ||
-      (prevVoiceState === "transcribing" && vstate === "idle") ||
-      (prevDictationFocus !== null && dictationFocus === null); // plain field released the mic
-
-    prevVoiceMode = enabled;
-    prevVisible = visible;
-    prevIsBusy = busy;
-    prevVoiceState = vstate;
-    prevDictationFocus = dictationFocus;
-    prevVoiceModelReady = modelReady;
-
-    if (shouldArm && canAutoStart()) voice.startConversational();
-  });
-
-  useKeybinding(
-    "voice.toggle-mode",
-    () => theme.update({ voiceModeEnabled: !theme.voiceModeEnabled }),
-    {
-      enabled: () => isActiveMode && ownsVoice && !isReadOnly,
-    },
-  );
-  useKeybinding("voice.toggle-recorder", toggleVoice, {
-    enabled: () =>
-      isActiveMode &&
-      ownsVoice &&
-      !isReadOnly &&
-      // The mic is hidden on a host that cannot transcribe, so the shortcut
-      // that toggles it must go quiet too rather than opening a recording no
-      // one can finish.
-      voiceModel.supported &&
-      !isDictationTarget(document.activeElement),
+  useComposerFocus({
+    active: () => active,
+    isPrimary: () => isPrimary,
+    isReadOnly: () => isReadOnly,
+    ownsVoice: () => ownsVoice,
+    voiceState: () => voiceState,
+    showWaveform: () => showWaveform,
+    session: () => sess,
+    editor: () => composerEl,
+    prompt: () => prompt,
+    tabId: () => targetTabId,
+    receivesFocusedInput: () => receivesFocusedInput,
+    isFocusedPaneComposer: () => isFocusedPaneComposer,
+    refocusComposer,
   });
 
   // ─── Model / mode shortcuts ───
@@ -1124,474 +591,12 @@
       prompt.sessionRefs = nextSessionRefs;
   }
 
-  function solusCommandFromInput(
-    value: string,
-  ): { cmd: SlashCommand; argument: string } | null {
-    for (const cmd of SLASH_COMMANDS) {
-      if (!value.startsWith(cmd.command)) continue;
-      const rest = value.slice(cmd.command.length);
-      if (rest && !/^[ \t\n]/.test(rest)) continue;
-      return { cmd, argument: rest ? rest.slice(1) : "" };
-    }
-    return null;
-  }
-
-  function executeCommand(cmd: SlashCommand, argument = "") {
-    if (isReadOnly && !cmd.allowReadOnly) return;
-    void cmd.run?.({
-      api: session.apiForRun(run),
-      argument,
-      // A command run from a draft's composer has no conversation to clear or
-      // to speak into; it still runs, against the project the draft points at.
-      ipcContext: targetTabId
-        ? session.ctxFor(targetTabId)
-        : session.ctxForDirectory(composerCwd),
-      clearCurrentConversation: () => {
-        if (targetTabId) {
-          session.clearTabToDraft(targetTabId, "keybinding");
-        } else {
-          session.openSessionDraft({ via: "keybinding" });
-        }
-      },
-      addSystemMessage: (message) => {
-        if (targetTabId) session.addSystemMessage(message, targetTabId);
-      },
-      appendGlobalInstructions: (text) => {
-        const existing = theme.extraInstructions.trim();
-        theme.update({
-          extraInstructions: existing ? `${existing}\n\n${text}` : text,
-        });
-      },
-      requestInputFocus: refocusComposer,
-    });
-  }
-
-  function clearComposer() {
-    prompt.text = "";
-    composerEl?.clearEditor();
-  }
-
-  async function handleGoalCommand(argument: string) {
-    if (isReadOnly) return;
-    const goalTabId = targetTabId;
-    const normalized = argument.trim();
-    // A goal belongs to a thread, and a draft has none yet. Its objective goes
-    // out as the first prompt instead; the session that starts inherits it the
-    // same way a started-but-idle tab's does.
-    if (!goalTabId) {
-      if (normalized) sendPrompt(normalized);
-      return;
-    }
-    const goalSession = session.sessionFor(goalTabId);
-    // A goal belongs to the thread, not to the tab showing it.
-    const goalSessionId = goalSession?.id ?? "";
-    const isCodexGoal = goalSession?.run.provider === "codex";
-
-    if (!normalized) {
-      clearComposer();
-      await session.refreshThreadGoal(goalSessionId);
-      if (session.sessionFor(goalTabId)?.goal) {
-        session.revealGoal(goalTabId);
-      } else {
-        session.addSystemMessage(
-          "No goal is defined for this session yet.",
-          goalTabId,
-        );
-      }
-      refocusComposer();
-      return;
-    }
-
-    if (!goalSession?.agentSessionId) {
-      if (
-        normalized === "clear" ||
-        normalized === "pause" ||
-        normalized === "resume" ||
-        normalized === "edit" ||
-        normalized.startsWith("edit ")
-      ) {
-        clearComposer();
-        session.addSystemMessage(
-          isCodexGoal
-            ? "Define a goal before changing it."
-            : "Goal changes are only supported for Codex sessions.",
-          goalTabId,
-        );
-        refocusComposer();
-        return;
-      }
-      if (normalized.length > 4000) {
-        session.addSystemMessage(
-          "Goal objectives must be 4,000 characters or fewer.",
-          goalTabId,
-        );
-        refocusComposer();
-        return;
-      }
-      if (goalSession) goalSession.pendingGoalObjective = normalized;
-      sendPrompt(normalized);
-      return;
-    }
-
-    try {
-      if (!isCodexGoal) await session.refreshThreadGoal(goalSessionId);
-      if (normalized === "clear") {
-        if (!isCodexGoal) {
-          clearComposer();
-          session.addSystemMessage(
-            "Clearing goals is only supported for Codex sessions.",
-            goalTabId,
-          );
-          refocusComposer();
-          return;
-        }
-        clearComposer();
-        await session.clearThreadGoal(goalSessionId);
-        if (router.params("goal")?.sessionId === goalSessionId) {
-          router.close("goal");
-        }
-      } else if (normalized === "pause" || normalized === "resume") {
-        if (!isCodexGoal) {
-          clearComposer();
-          session.addSystemMessage(
-            "Pausing goals is only supported for Codex sessions.",
-            goalTabId,
-          );
-          refocusComposer();
-          return;
-        }
-        clearComposer();
-        await session.setThreadGoal(goalSessionId, {
-          status: normalized === "pause" ? "paused" : "active",
-        });
-        session.revealGoal(goalTabId);
-      } else if (normalized === "edit") {
-        if (!isCodexGoal) {
-          clearComposer();
-          session.addSystemMessage(
-            "Editing goals is only supported for Codex sessions.",
-            goalTabId,
-          );
-          refocusComposer();
-          return;
-        }
-        clearComposer();
-        await session.refreshThreadGoal(goalSessionId);
-        if (goalSession.goal) session.revealGoal(goalTabId);
-      } else {
-        if (!isCodexGoal && normalized.startsWith("edit ")) {
-          clearComposer();
-          session.addSystemMessage(
-            "Editing goals is only supported for Codex sessions.",
-            goalTabId,
-          );
-          refocusComposer();
-          return;
-        }
-        const objective = normalized.startsWith("edit ")
-          ? normalized.slice(5).trim()
-          : normalized;
-        if (!objective || objective.length > 4000) {
-          session.addSystemMessage(
-            "Goal objectives must be between 1 and 4,000 characters.",
-            goalTabId,
-          );
-          refocusComposer();
-          return;
-        }
-        const currentGoal = session.sessionFor(goalTabId)?.goal;
-        if (!isCodexGoal && currentGoal) {
-          clearComposer();
-          session.addSystemMessage(
-            "Editing goals is only supported for Codex sessions.",
-            goalTabId,
-          );
-          refocusComposer();
-          return;
-        }
-        if (currentGoal)
-          await session.setThreadGoal(goalSessionId, {
-            objective,
-            status: "active",
-          });
-        else await session.createThreadGoal(goalSessionId, objective);
-        session.revealGoal(goalTabId);
-        if (!normalized.startsWith("edit ")) sendPrompt(objective);
-        else clearComposer();
-      }
-    } catch (error) {
-      session.addSystemMessage(
-        `Couldn't update goal: ${error instanceof Error ? error.message : String(error)}`,
-        goalTabId,
-      );
-    }
-    refocusComposer();
-  }
-
-  // A Solus built-in command was picked from the menu. The composer has already
-  // cleared its completion state; here we either insert its template text or run
-  // it outright.
-  function handleSolusCommand(cmd: SlashCommand) {
-    if (isReadOnly) return;
-    if (cmd.insertTextOnSelect) {
-      const text = cmd.insertTextOnSelect;
-      prompt.text = text;
-      composerEl?.setValueAndCursor(text);
-      refocusComposer();
-      return;
-    }
-    prompt.text = "";
-    composerEl?.clearEditor();
-    executeCommand(cmd);
-  }
-
-  // ─── Core input handlers ───
-
   /** Focus this exact composer. Route surfaces use this instead of broadcasting
    *  a workspace focus request that every mounted InputBar can hear. */
   export function focus() {
     composerEl?.focus();
   }
 
-  function sendPrompt(
-    text: string,
-    options: {
-      refocus?: boolean;
-      delivery?: PromptDelivery;
-      background?: boolean;
-    } = {},
-  ): boolean {
-    const fallbackText = attachments.some(
-      (attachment) =>
-        attachment.type === "design-selection" &&
-        Boolean(attachment.designData?.browserMarks?.length),
-    )
-      ? "Please address these UI concerns"
-      : "See attached files";
-    let accepted = true;
-    if (options.background && onDispatchInBackground) {
-      // A draft only, so none of the session-shaped branches below can apply:
-      // there is no held plan or question behind a composer with no session.
-      accepted = onDispatchInBackground(text || fallbackText);
-    } else if (pendingPlan) {
-      // Match the plan surface's Revise action: answer the held ExitPlanMode
-      // request, keep the provider in plan mode, and send this text as feedback
-      // instead of letting it become an ordinary queued prompt.
-      void session.rejectPlan(pendingPlan.id, text || fallbackText);
-    } else if (pendingQuestion && text && targetTabId) {
-      // Match the question card's free-text answer. Responding releases the held
-      // provider turn; queuing this as a normal prompt would leave it blocked.
-      session.respondQuestion(
-        targetTabId,
-        pendingQuestion.questionId,
-        answersForQuestionNote(pendingQuestion, text),
-      );
-    } else if (onDispatch) {
-      accepted = onDispatch(
-        text || fallbackText,
-        options.delivery ?? "steer",
-      );
-    } else {
-      accepted = session.sendMessage(
-        text || fallbackText,
-        undefined,
-        targetTabId,
-        options.delivery,
-      );
-    }
-
-    if (!accepted) {
-      if (options.refocus !== false) refocusComposer();
-      return false;
-    }
-
-    promptHistory = savePromptToHistory(localStorage, text);
-    prompt.text = "";
-    resetHistoryNavigation();
-    composerEl?.clearEditor();
-    if (mode === "pill") {
-      session.isExpanded = true;
-    }
-
-    if (options.refocus !== false) {
-      refocusComposer();
-    }
-    return true;
-  }
-
-  /** The same two calls `conversation.interrupt` makes: the tab lets go of the
-   *  turn locally, and the host is told to stop the provider. */
-  function stopRun() {
-    if (!targetTabId) return;
-    session.interruptTabSession(targetTabId);
-    void session
-      .apiFor(targetTabId)
-      .stopSession(session.ctxFor(targetTabId).session.sessionId);
-    requestInputFocus({ tabId: targetTabId });
-  }
-
-  function handleSend(
-    delivery: PromptDelivery = "steer",
-    options: { refocus?: boolean; background?: boolean } = {},
-  ): boolean {
-    if (isReadOnly) return false;
-    let text = inputText.trim();
-    if (
-      !text &&
-      attachments.length === 0 &&
-      planRefs.length === 0 &&
-      workRefs.length === 0 &&
-      sessionRefs.length === 0
-    )
-      return false;
-    if (isConnecting) return false;
-
-    if (/^\/goal(?:\s|$)/.test(text)) {
-      void handleGoalCommand(text.slice("/goal".length));
-      return false;
-    }
-
-    // Mobile keyboards sometimes autocorrect the skill name and insert it as
-    // plain text before the slash command (e.g. "ui /ui rest"). Strip it.
-    for (const skill of providerSkills) {
-      const prefix = skill.name + " /" + skill.name;
-      if (text.startsWith(prefix)) {
-        text = text.slice(skill.name.length + 1);
-        break;
-      }
-    }
-
-    const solusCommand = solusCommandFromInput(inputText);
-    if (solusCommand) {
-      prompt.text = "";
-      composerEl?.clearEditor();
-      executeCommand(solusCommand.cmd, solusCommand.argument);
-      refocusComposer();
-      return false;
-    }
-
-    return sendPrompt(text, {
-      delivery,
-      refocus: options.refocus,
-      background: options.background,
-    });
-  }
-
-  function navigateHistory(delta: -1 | 1) {
-    // Editor mode, Pill mode, and split panes keep separate composers mounted.
-    // Ctrl+C can refocus a composer other than the one that sent the prompt, so
-    // refresh from the shared durable history before recall.
-    if (historyIndex === -1) {
-      promptHistory = loadPromptHistory(localStorage);
-    }
-    if (delta === -1) {
-      if (historyIndex === -1) {
-        savedInput = inputText;
-        historyIndex = promptHistory.length - 1;
-      } else if (historyIndex > 0) {
-        historyIndex--;
-      }
-    } else {
-      if (historyIndex < promptHistory.length - 1) {
-        historyIndex++;
-      } else {
-        historyIndex = -1;
-      }
-    }
-    const next = historyIndex >= 0 ? promptHistory[historyIndex] : savedInput;
-    prompt.text = next;
-    composerEl?.setValueAndCursor(next);
-  }
-
-  // Fired by the composer only when no autocomplete menu consumed the event.
-  function handleKeyDown(e: KeyboardEvent) {
-    if (
-      e.key === "ArrowUp" &&
-      !e.shiftKey &&
-      !e.metaKey &&
-      !e.ctrlKey &&
-      !e.altKey
-    ) {
-      const atStart = composerEl?.isCaretAtStart() ?? false;
-      if ((atStart || historyIndex !== -1) && promptHistory.length > 0) {
-        e.preventDefault();
-        navigateHistory(-1);
-        return;
-      }
-    }
-
-    if (e.key === "ArrowDown" && historyIndex !== -1) {
-      e.preventDefault();
-      navigateHistory(1);
-      return;
-    }
-
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      // ⌘Enter (Ctrl+Enter off macOS) starts the session in the background and
-      // leaves this composer where it is, so a run of prompts can be fired off
-      // one after another. Same `mod` key every other Solus binding uses.
-      const modifier = isMac ? e.metaKey : e.ctrlKey;
-      const otherModifier = isMac ? e.ctrlKey : e.metaKey;
-      const background =
-        modifier && !e.altKey && !otherModifier && !!onDispatchInBackground;
-      const delivery: PromptDelivery = e.altKey ? "queue" : "steer";
-      // On iOS the soft keyboard holds the word under the caret in flight, and
-      // clearing the composer inside this synchronous keydown is undone by it:
-      // iOS defers the settle blur `clearEditor` issues while it is still
-      // processing the key, so the word is put straight back and the bar never
-      // clears. The send button clears cleanly because a click runs in a fresh
-      // task where that blur takes effect. Hand the send to a fresh task on
-      // touch so Enter behaves the same; leave the synchronous path on desktop.
-      if (isTouch) {
-        setTimeout(() => handleSend(delivery, { background }), 0);
-      } else {
-        handleSend(delivery, { background });
-      }
-    }
-  }
-
-  function handleEditorChange(md: string) {
-    if (isReadOnly) return;
-    prompt.text = md;
-    if (historyIndex !== -1) resetHistoryNavigation();
-  }
-
-  async function handlePaste(e: ClipboardEvent) {
-    if (isReadOnly) return;
-    const clipboard = e.clipboardData;
-    if (!clipboard) return;
-    const blobs = clipboardImages(clipboard);
-    if (blobs.length === 0) return;
-    e.preventDefault();
-
-    const api = session.apiForRun(run);
-    // Addressed by this composer's own source. `ctxForDirectory` falls back to
-    // the active tab, which for a draft names an unrelated session — the upload
-    // would be filed under that conversation, or refused outright when no tab
-    // is mounted at all, which is the ordinary state of a phone.
-    const composerSourceId = targetTabId ?? draftId;
-    const ctx = composerSourceId
-      ? session.ctxFor(composerSourceId)
-      : session.ctxForDirectory(run?.workingDirectory ?? session.ctx.session.workingDirectory);
-    const serverId = run?.serverId ?? LOCAL_SERVER_ID;
-    // One image failing — too large, say — must not drop the rest of the paste,
-    // so each is attached on its own and reports its own error.
-    for (const blob of blobs) {
-      try {
-        const dataUrl = await readFileDataUrl(blob);
-        const capabilities = await serverConnections.capabilitiesFor(serverId);
-        const attachment = !windowCtx.isWeb && hostPolicy.isClientMachine(serverId)
-          ? await api.pasteImage(dataUrl, ctx)
-          : capabilities.attachUpload === true
-            ? await uploadPastedImage(api, ctx, serverId, dataUrl)
-            : pastedImageAttachment(dataUrl, serverId);
-        if (attachment) prompt.attachments.push(attachment);
-      } catch (error) {
-        toasts.error(error instanceof Error ? error.message : "Couldn't attach pasted image");
-      }
-    }
-  }
 </script>
 
 <!-- `contain: layout`, never `paint`. This box has no padding of its own, so its
@@ -1604,8 +609,8 @@
   bind:this={composerRootEl}
   class="flex flex-col w-full relative"
   style="contain:layout"
-  onfocusin={handleComposerFocusIn}
-  onfocusout={handleComposerFocusOut}
+  onfocusin={fold.handleFocusIn}
+  onfocusout={fold.handleFocusOut}
 >
   {#if boundWork}
     <div class="flex pt-1.5">
@@ -1737,7 +742,7 @@
     tabId={targetTabId}
     projectRoot={composerProjectRoot}
     serverId={composerServerId}
-    active={isActiveMode && receivesFocusedInput}
+    active={active && receivesFocusedInput}
     {isReadOnly}
     anchorEl={composerRootEl}
     onClearEditor={() => composerEl?.clearEditor()}
@@ -1776,14 +781,14 @@
   <div
     data-composer-prompt
     class="[--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {isCollapsed
-      ? mode === 'editor'
+      ? spacious
         ? attachments.length > 0
           ? '[--plain-editor-padding:0.5rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0]'
           : '[--plain-editor-padding:1rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0]'
         : attachments.length > 0
           ? '[--plain-editor-padding:0.5rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0.25rem]'
           : '[--plain-editor-padding:0.9375rem_calc(var(--composer-actions-width)_+_0.5rem)_0.25rem_0.25rem]'
-      : mode === 'editor'
+      : spacious
         ? attachments.length > 0
           ? '[--plain-editor-padding:0.5rem_0_1.25rem_0]'
           : '[--plain-editor-padding:1.25rem_0_1.25rem_0]'
@@ -1824,8 +829,8 @@
         onPaste={handlePaste}
         {placeholder}
         readOnly={isReadOnly}
-        disabled={isReadOnly || isConnecting || voiceState === "transcribing"}
-        maxHeight={INPUT_MAX_HEIGHT}
+        disabled={isReadOnly || voiceState === "transcribing"}
+        maxHeight={maxHeight}
       />
     </div>
   </div>
@@ -1863,9 +868,9 @@
             {#if stopsRun}
               <StopIcon size={12} fill="currentColor" strokeWidth={0} />
             {:else if canSteer && canSend}
-              <ArrowBendDownRightIcon size={14} weight="bold" />
+              <ArrowBendDownRightIcon size={14} strokeWidth={3} />
             {:else}
-              <ArrowUpIcon size={14} weight="bold" />
+              <ArrowUpIcon size={14} strokeWidth={3} />
             {/if}
           </button>
         {/snippet}

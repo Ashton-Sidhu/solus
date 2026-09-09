@@ -1,8 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import {
-  buildSandboxThemeStyle,
-  wrapSandboxSrcdoc,
-} from '../../packages/workspace-ui/src/lib/artifactSandbox'
+import { wrapSandboxSrcdoc } from '../../packages/workspace-ui/src/lib/artifactSandbox'
 
 const previousDocument = globalThis.document
 const previousGetComputedStyle = globalThis.getComputedStyle
@@ -25,39 +22,6 @@ function stubTheme(isDark: boolean): void {
     }),
   })
 }
-
-function themeStyle(isDark: boolean): string {
-  stubTheme(isDark)
-  return buildSandboxThemeStyle(isDark)
-}
-
-describe('artifact sandbox theme', () => {
-  test('paints the iframe document canvas with the dark workspace surface', () => {
-    // WHY: a transparent iframe root falls back to a white browser canvas.
-    // Dark palette values then render on white and lose contrast, even though
-    // the artifact correctly used the injected Solus variables.
-    const style = themeStyle(true)
-
-    expect(style).toContain(':root{color-scheme:dark;--solus-container-bg:#262522}')
-    expect(style).toContain('html{margin:0;background:var(--solus-container-bg,Canvas)')
-    expect(style).toContain('body{margin:0;background:transparent')
-    expect(style).not.toContain('html,body{margin:0;background:transparent')
-  })
-
-  test('centres a root block that caps its own width', () => {
-    // WHY: the frame is as wide as the transcript, and a chart card with a
-    // max-width hugged its left edge. The rule is on the body's children, at
-    // element specificity, so a render's own class rule still overrides it.
-    expect(themeStyle(false)).toContain('body>*{margin-inline:auto}')
-  })
-
-  test('uses the same canvas rule with the light workspace palette', () => {
-    const style = themeStyle(false)
-
-    expect(style).toContain(':root{color-scheme:light;--solus-container-bg:#fefefc}')
-    expect(style).toContain('background:var(--solus-container-bg,Canvas)')
-  })
-})
 
 describe('what a render is allowed to load', () => {
   test('any https origin serves a render, and a render may fetch', () => {

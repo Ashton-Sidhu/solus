@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import packageJson from '../../../package.json'
+import { isOlderVersion } from '@solus/contracts/version'
 import { forwardCompatibleArray } from './forward-compat'
 import { HOST_BOOLEAN_CAPABILITY_KEYS, type HostBooleanCapability } from './host-capabilities'
 import type { HostCapabilities } from '@solus/contracts/types'
@@ -30,22 +31,8 @@ const FEATURE_WORDING = {
   automations: 'automations',
   githubProvider: 'GitHub',
   atlassianProvider: 'Atlassian',
+  hostUpdates: 'update checks',
 } satisfies Record<HostBooleanCapability, string | null>
-
-function numericParts(version: string): number[] {
-  return version.split('.').map((part) => Number.parseInt(part, 10) || 0)
-}
-
-function isOlder(candidate: string, reference: string): boolean {
-  const a = numericParts(candidate)
-  const b = numericParts(reference)
-  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
-    const left = a[i] ?? 0
-    const right = b[i] ?? 0
-    if (left !== right) return left < right
-  }
-  return false
-}
 
 /**
  * The per-host version-skew notice (dispatch-client step 3). Null when the
@@ -59,7 +46,7 @@ export function versionSkewNotice(
   clientVersion: string = CLIENT_VERSION,
 ): VersionSkewNotice | null {
   if (!serverVersion || serverVersion === clientVersion) return null
-  const direction = isOlder(serverVersion, clientVersion) ? 'host-older' : 'host-newer'
+  const direction = isOlderVersion(serverVersion, clientVersion) ? 'host-older' : 'host-newer'
   if (direction === 'host-newer') {
     return {
       direction,

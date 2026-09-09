@@ -56,11 +56,11 @@ class Backend extends EventEmitter implements AgentBackend {
   starts = 0
 
   startRun(request: AgentRunRequest): RunHandle {
-    const threadId = request.sessionId ?? `thread-${this.starts + 1}`
+    const threadId = (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? `thread-${this.starts + 1}`
     let resolve!: () => void
     let reject!: (error: Error) => void
     const handle: RunHandle = {
-      agentSessionId: request.sessionId ?? null,
+      agentSessionId: (request.conversation?.kind === 'resume' ? request.conversation.threadId : null) ?? null,
       persistence: request.persistence,
       startedAt: Date.now(),
       toolCallCount: 0,

@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { DocDiagramAsset, DocDraft, DocPatch, DocReadHints, DocRef, DocScope, NormalizedDoc } from '@solus/contracts/docs'
 import { serializeDiagramEmbed } from '@solus/contracts/diagram-embed'
 import { serializeWorkEmbed } from '@solus/contracts/work-embed'
+import { documentToMarkdown } from '@solus/server/google/docs-markdown'
 import { DocVersionConflictError } from '@solus/server/docs/types'
 
 /**
@@ -125,6 +126,7 @@ const ENGINEERING = { provider: 'confluence' as const, scope: 'ENG', label: 'Eng
 
 beforeEach(async () => {
   upstream.version = '5'
+  upstream.markdown = '# Upstream'
   upstream.lastPatch = null
   upstream.lastScope = null
   upstream.lastAssets = null
@@ -282,6 +284,26 @@ describe('publishWork', () => {
     upstream.version = '9'
     await workSync.pullWorkUpstream(withDiagram)
     expect(upstream.lastReadHints?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
+  })
+
+  test('a renamed diagram survives the Google caption round trip', async () => {
+    const withDiagram = await newWork(serializeDiagramEmbed({ workId: 'd1', title: 'Old label' }))
+    await workSync.publishWork(withDiagram, {
+      destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
+      diagramAssets: [{ workId: 'd1', title: 'Current diagram title', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }],
+    })
+    const link = await linkOf(withDiagram)
+    const converted = documentToMarkdown({
+      documentId: 'doc',
+      body: { content: [
+        { paragraph: { elements: [{ inlineObjectElement: { inlineObjectId: 'image' } }] } },
+        { paragraph: { elements: [{ textRun: { content: `${upstream.lastAssets![0].title}\n` } }] } },
+      ] },
+    }, link?.diagrams)
+    expect(converted.lossyParts).toEqual([])
+    upstream.markdown = converted.markdown
+    const pulled = await workSync.pullWorkUpstream(withDiagram)
+    expect(pulled.ok && pulled.content).toContain(serializeDiagramEmbed({ workId: 'd1', title: 'Current diagram title' }))
   })
 })
 

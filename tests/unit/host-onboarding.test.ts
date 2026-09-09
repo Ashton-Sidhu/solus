@@ -457,7 +457,7 @@ describe('provider setup action', () => {
     })
     const claude = rows.find((row) => row.id === 'claude')!
     expect(claude.state).toBe('done')
-    expect(claude.secondary?.label).toBe('Sign in again')
+    expect(claude.secondary?.label).toBe('Switch account')
     claude.secondary!.run()
     expect(calls).toEqual([['claude', { force: true }]])
     // A provider that was never set up keeps its primary action and gains no

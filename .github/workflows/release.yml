@@ -60,6 +60,18 @@ jobs:
           echo "SOLUS_ATLASSIAN_CLIENT_ID=${{ secrets.SOLUS_ATLASSIAN_CLIENT_ID }}" >> .env.production
           echo "SOLUS_ATLASSIAN_CLIENT_SECRET=${{ secrets.SOLUS_ATLASSIAN_CLIENT_SECRET }}" >> .env.production
 
+      # electron-builder folds `build/release-notes.md` into the update feed
+      # manifest (latest-mac.yml), which is where the app reads release notes
+      # from. GitHub generates the same notes the release below will show.
+      - name: Write release notes for the update feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build
+          gh api "repos/${{ github.repository }}/releases/generate-notes" \
+            -f tag_name="${{ github.ref_name }}" \
+            --jq '.body' > build/release-notes.md || : > build/release-notes.md
+
       - name: Build Electron app
         env:
           NODE_OPTIONS: --max-old-space-size=4096

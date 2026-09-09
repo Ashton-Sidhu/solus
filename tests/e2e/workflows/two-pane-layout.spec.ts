@@ -25,18 +25,12 @@ const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
  */
 
 test.describe('Two-pane layout', () => {
-  test('split-chat shortcut toggles the secondary chat pane', async ({ page, electronApp }) => {
-    let editorPage = page
-    if (new URL(page.url()).searchParams.get('mode') !== 'editor') {
-      const editorWindow = electronApp.waitForEvent('window')
-      await page.evaluate(() => window.solus.switchMode('editor'))
-      editorPage = await editorWindow
-      await editorPage.waitForLoadState('domcontentloaded')
-    }
-
-    const app = new AppPage(editorPage)
-    const pane = new PanePage(editorPage)
+  test('split-chat shortcut toggles the secondary chat pane', async ({ page }) => {
+    const app = new AppPage(page)
     await app.waitForAppReady()
+    await app.switchToEditorMode()
+    const editorPage = page
+    const pane = new PanePage(page)
 
     // The same keyboard-first action must both open and dismiss the split so
     // users do not have to reach for the tab context menu to recover the space.
@@ -190,7 +184,7 @@ test.describe('Two-pane layout', () => {
     await expect(pane.isConversationVisible()).resolves.toBe(true)
   })
 
-  test('plan in secondary survives tab switch; diff in secondary resets on tab switch', async ({ page }) => {
+  test('plan in secondary survives switching away and back', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     const planPage = new PlanPage(page)

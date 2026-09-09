@@ -35,6 +35,7 @@ export function registerCapabilityHandlers(server: SolusServer): void {
       automations: server.hasHandler('automationList'),
       githubProvider: server.hasHandler('providerStatus'),
       browser: server.hasHandler('browserListPages'),
+      hostUpdates: server.hasHandler('hostUpdateStatus'),
       atlassianProvider: server.hasHandler('atlassianStatus'),
     }
     if (editors) capabilities.editors = editors
