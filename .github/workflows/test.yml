@@ -40,9 +40,8 @@ jobs:
         run: bun run qa setup
 
       # A failure keeps CI red, while later QA steps still collect evidence.
-      # `--parallel` gives each file a fresh global and module registry — without it
-      # ~80 files that call `mock.module` leak their mocks into every file that
-      # runs after them, and the suite reports failures that no file actually has.
+      # The unit runner gives each file a fresh process and a deadline so module
+      # mocks cannot leak between files and stalled workers cannot outlive the run.
       - name: Run unit tests
         run: |
           set -o pipefail

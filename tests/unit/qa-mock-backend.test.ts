@@ -40,7 +40,7 @@ for (const provider of ['claude-code', 'codex'] as const) {
       expect(backend.isSessionRunning(waiting.agentSessionId!)).toBe(false)
       expect(backend.isSessionRunning(other.agentSessionId!)).toBe(true)
       expect(history.load(waiting.agentSessionId!).at(-1)?.content).toContain('Permission approved')
-      const resumed = backend.startRun({ ...request, provider, sessionId: waiting.agentSessionId, prompt: 'follow-up\n\n[Working On Task "__MOCK_PERMISSION__"]' })
+      const resumed = backend.startRun({ ...request, provider, conversation: { kind: 'resume', threadId: waiting.agentSessionId! }, prompt: 'follow-up\n\n[Working On Task "__MOCK_PERMISSION__"]' })
       await resumed.runPromise
       expect(resumed.agentSessionId).toBe(waiting.agentSessionId)
       expect(history.load(resumed.agentSessionId!)).toHaveLength(4)

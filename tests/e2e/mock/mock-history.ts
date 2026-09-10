@@ -32,10 +32,12 @@ export class MockHistory {
     }
   }
 
-  begin(request: Pick<AgentRunRequest, 'sessionId' | 'forkSession' | 'prompt' | 'cwd'> & Partial<Pick<AgentRunRequest, 'persistence'>>): string {
-    const previous = request.sessionId ? this.sessions.get(request.sessionId) : undefined
-    if (request.sessionId && !previous) throw new Error(`Unknown mock session: ${request.sessionId}`)
-    const sessionId = previous && !request.forkSession ? previous.sessionId : `mock-${this.provider}-${randomUUID()}`
+  begin(request: Pick<AgentRunRequest, 'conversation' | 'prompt' | 'cwd'> & Partial<Pick<AgentRunRequest, 'persistence'>>): string {
+    const conversation = request.conversation ?? { kind: 'start' }
+    const previousId = conversation.kind === 'resume' ? conversation.threadId : conversation.kind === 'fork' ? conversation.sourceThreadId : undefined
+    const previous = previousId ? this.sessions.get(previousId) : undefined
+    if (previousId && !previous) throw new Error(`Unknown mock session: ${previousId}`)
+    const sessionId = previous && conversation.kind === 'resume' ? previous.sessionId : `mock-${this.provider}-${randomUUID()}`
     let session = this.sessions.get(sessionId)
     if (!session) {
       session = { sessionId, cwd: request.cwd, persistent: request.persistence !== 'ephemeral', messages: previous ? structuredClone(previous.messages) : [] }
