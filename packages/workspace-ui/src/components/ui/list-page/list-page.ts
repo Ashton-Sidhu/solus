@@ -47,7 +47,7 @@ export interface ListProjectOption {
 
 /** Status tints a chip or a lead statistic may carry. `neutral` is the default
  *  ring-only chip; the rest are the four status semantics from index.css. */
-export type ListTint = 'neutral' | 'primary' | 'running' | 'success' | 'warning' | 'failure'
+export type ListTint = 'info' | 'neutral' | 'primary' | 'running' | 'success' | 'warning' | 'failure'
 
 export interface ListPerson {
   /** Stable identity — drives the avatar tint, so the same person is the same
@@ -64,6 +64,10 @@ export interface ListPerson {
 }
 
 export interface ListChipSpec {
+  /** Compact state glyph with its label retained for assistive technology. */
+  iconOnly?: boolean
+  statusIcon?: ListIcon
+  spinning?: boolean
   label: string
   /** A domain label uses the shared pastel pill treatment in this host colour. */
   labelColor?: string
@@ -413,6 +417,12 @@ export function chipSkin(
   emphasis?: ListChipSpec['emphasis'],
 ): ListChipSkin {
   switch (tint) {
+    case 'info':
+      return {
+        background: 'color-mix(in oklch, var(--color-blue-500) 13%, transparent)',
+        color: 'color-mix(in oklch, var(--color-blue-500) 70%, var(--foreground))',
+        boxShadow: 'none',
+      }
     case 'primary':
     case 'running':
       return {

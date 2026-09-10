@@ -2,10 +2,6 @@
   import DiffLoadingSkeleton from "../diff/DiffLoadingSkeleton.svelte";
   import PrReviewSkeleton from "./PrReviewSkeleton.svelte";
   import { tick, untrack } from "svelte";
-  import {
-    GitPullRequest as GitPullRequestIcon,
-    LoaderCircle as CircleNotchIcon,
-  } from "@lucide/svelte";
   import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import type {
     DraftReview,
@@ -32,14 +28,14 @@
     useScope,
   } from "../../lib/keybindings/use-keybinding.svelte";
   import GuideSurface from "../review/GuideSurface.svelte";
-  import { GuideLoader } from "../review/lib/guide-loader.svelte";
+  import { PrGuideController } from "./lib/pr-guide-controller.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
   import DiffHeatMap from "../diff/DiffHeatMap.svelte";
   import { parsePatchFiles } from "@pierre/diffs";
   import ActivityFeed from "./ActivityFeed.svelte";
   import type { PrActivityTarget } from "./lib/activity-data";
   import SubmitReviewModal from "./SubmitReviewModal.svelte";
-  import SinceReviewBar from "./SinceReviewBar.svelte";
+  import PrReviewDiff from "./PrReviewDiff.svelte";
   import { prReviewState } from "./lib/pr-review.store.svelte";
   import PrDetailChrome from "./PrDetailChrome.svelte";
   import GithubConnectionRequired from "../prs/GithubConnectionRequired.svelte";
@@ -48,9 +44,8 @@
   import PrPanelHeader from "./PrPanelHeader.svelte";
   import PrPanelOverflowMenu from "./PrPanelOverflowMenu.svelte";
   import PrViewTabs from "./PrViewTabs.svelte";
-  import { Button } from "../ui/button";
+  import PrCheckoutButton from "./PrCheckoutButton.svelte";
   import FrameExpandButton from "../layout/FrameExpandButton.svelte";
-  import StackDiffBanner from "./StackDiffBanner.svelte";
   import {
     buildPrChecksFixPrompt,
     buildPrCommentsFixPrompt,
@@ -60,17 +55,8 @@
     type PrFixFeedback,
   } from "./lib/pr-input-drafts";
 
-  // The review surface (M3–M5): Activity · Guide · Diff content tabs over a PR's
-  // change, living maximized in the secondary pane. PR handoffs prepare the
-  // worktree here, then open a session composer rooted in that checkout.
-  //
-  // The surface mounts the moment a PR is clicked, before its worktree has been
-  // fetched and checked out: `pr` is null until then, and everything that reads
-  // the checkout — the stack, the guide, the diff, the interdiff, PR handoffs — waits
-  // for it. Activity does not: it is provider-backed, so it renders from
-  // `target` against `targetCtx` and is usually filled from PrsStore's prefetch
-  // by first paint. One mounted component across both phases is what keeps the
-  // open to a single page filling in rather than a placeholder swap.
+  // Activity is provider-backed and available before checkout. Guide generation
+  // and source actions prepare the PR worktree through shared domain state.
   let {
     pr,
     paneId,
@@ -237,144 +223,41 @@
     if (review.liveDiffBase.kind === "target") review.showingFullDiff = false;
   });
 
-  // The guide tab's data layer. This host renders its own chrome (header +
-  // regenerate), so it drives the loader directly rather than through a child.
-  const guideLoader = new GuideLoader({
+  const guide = new PrGuideController({
     getApi,
     getServerId: () => serverId,
-    getCtx: prCtx,
-    getKey: () => effectiveGuideKey,
-    getScope: () => "branch",
-    getOwnDeltaBase: () => ownDeltaBase,
+    getCtx: projectCtx,
+    getPr: () => pr,
     getAgent: () => resolveReviewAgent(settings),
   });
-  const guideStatus = $derived(
-    pullRequests.guides.statusFor(serverId, prCtx(), target.number),
-  );
-  // A first-time generation may need to prepare the PR checkout before the
-  // durable queue can report `queued`. Cover that gap so the click changes the
-  // Guide surface immediately, then let the shared status take over.
-  let preparingGuide = $state(false);
-  const visibleGuideStatus = $derived(
-    preparingGuide ? "queued" : guideStatus,
-  );
-  // Follow generation progress for the whole time this review is open, not just
-  // around the loader's own call — the Generate button queues the work in the
-  // background, and its progress is what fills the stepped screen.
-  $effect(() => guideLoader.trackProgress());
+  const guideLoader = guide.loader;
+  const guideEvent = $derived(guide.event);
+  const visibleGuideStatus = $derived(guideEvent?.status === "ready" && guideLoader.stale ? "outdated" : guideEvent?.status);
   $effect(() => {
-    void effectiveGuideKey;
-    if (!guideEnabled || !review.stackReady || showingFullDiff) return;
-    const backgroundStatus = untrack(() =>
-      pullRequests.guides.statusFor(serverId, prCtx(), target.number),
-    );
-    if (backgroundStatus === "queued" || backgroundStatus === "generating")
-      return;
-    const generateIfMissing = settings.generatePrGuidesOnOpen && !!review.checkout;
-    void untrack(() => guideLoader.load(false, generateIfMissing));
+    const revision = pr;
+    // Provider detail refreshes can reveal a push before the route is reopened.
+    void reviewDetail?.headSha;
+    void reviewDetail?.baseSha;
+    const host = serverId;
+    const automatic = settings.generatePrGuidesOnOpen;
+    if (!revision || !host || !guideEnabled) return;
+    void untrack(() => guide.load(automatic));
   });
-
-  // A background "Generate guide" (Activity header / PRs page) finishing while
-  // this pane sits on the empty or stale Guide state: pick up the cached guide.
-  // Remember the ready transition we consumed so an old ready status plus a
-  // stale cached guide cannot create a reload loop after the PR head moves.
-  let handledReadyKey: string | null = null;
   $effect(() => {
-    const readyKey =
-      guideStatus === "ready" && pr
-        ? `${pr.number}:${pr.headSha}:${effectiveGuideKey}`
-        : null;
-    if (!readyKey) {
-      handledReadyKey = null;
-      return;
-    }
-    if (
-      handledReadyKey === readyKey ||
-      !review.stackReady ||
-      showingFullDiff ||
-      guideLoader.loading ||
-      (guideLoader.guide && !guideLoader.stale)
-    ) {
-      return;
-    }
-    handledReadyKey = readyKey;
-    void untrack(() => guideLoader.load(false, false));
+    const event = guideEvent;
+    if (!event || guideLoader.loading) return;
+    void untrack(() => guide.syncSaved(event));
   });
-
-  // Size of the change, for the Guide empty state's "what will this cost me"
-  // line. `loadChangedFiles` is the same cached call the Activity tab makes, so
-  // opening on Guide doesn't add a request.
-  let changedFileCount = $state<number | null>(null);
-  $effect(() => {
-    const number = target.number;
-    changedFileCount = null;
-    const ctx = untrack(prCtx);
-    void pullRequests.projects
-      .get(api, serverId, ctx)
-      .get(number)
-      .loadChangedFiles()
-      .then((files) => {
-        if (target.number === number) changedFileCount = files.length;
-      })
-      .catch(() => {});
-  });
-  const guideEmptyHint = $derived.by(() => {
-    const count = changedFileCount;
-    if (count === null) return undefined;
-    const files = `${count} ${count === 1 ? "file" : "files"} changed`;
-    return count > 20
-      ? `${files} · a minute or two for a change this size`
-      : `${files} · usually under a minute`;
-  });
-  async function generateGuide() {
-    if (preparingGuide) return;
-    preparingGuide = true;
-    toasts.info(`Started generating the review guide for PR #${target.number}`);
-    try {
-      await review.ensureCheckout();
-      await pullRequests.guides.request(api, serverId, prCtx(), [target.number], {
-        onSettled: ({ failed }) => {
-          if (failed > 0) {
-            toasts.error(`Review guide generation failed for PR #${target.number}`, {
-              description: "Try again from Activity or Guide.",
-            });
-          } else {
-            toasts.success(`Review guide ready for PR #${target.number}`, {
-              description: "Open the Guide tab to review it.",
-            });
-          }
-        },
-      });
-    } catch (error) {
-      toasts.error("Couldn't prepare the review guide", {
-        description: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      preparingGuide = false;
-    }
-    requestInputFocus();
-  }
-
-  // Whether the cached guide still describes HEAD is state about this pull
-  // request, so it rides in the header with the rest of it rather than as a
-  // chip inside the narrative it qualifies.
   const guideHeaderActions = $derived({
     present: !!guideLoader.guide,
     stale: guideLoader.stale,
-    regenerating: guideLoader.loading,
-    onRegenerate: (mode: "full" | "new-commits") => void regenerateGuide(mode),
+    regenerating: guide.running,
+    onRegenerate: () => void guide.generate(),
   });
-
-  async function regenerateGuide(mode: "full" | "new-commits") {
-    toasts.info(`Started generating the review guide for PR #${target.number}`);
-    try {
-      await review.ensureCheckout();
-      await guideLoader.refresh(mode);
-    } catch (error) {
-      toasts.error(error instanceof Error ? error.message : String(error));
-    }
-    requestInputFocus();
-  }
+  const generateGuide = () => void guide.generate();
+  const guideEmptyHint = $derived(reviewDetail?.changedFiles != null
+    ? `${reviewDetail.changedFiles} files changed`
+    : undefined);
 
   // The active content tab lives in the PR store so chrome outside this
   // component can react to it (see PrReviewSession.tab).
@@ -385,7 +268,6 @@
     pr ? (activeTab ?? pullRequests.view.tab) : "activity",
   );
 
-  const diffScope = $derived(review.diffScope);
 
   // The Map tab reads the same effective patch as the Diff tab, so a
   // since-review checkpoint narrows both views together.
@@ -435,22 +317,11 @@
   });
 
   const interdiff = $derived(review.interdiff);
-  const hasReviewCheckpointNotice = $derived(review.hasReviewCheckpointNotice);
   const isSinceReviewMode = $derived(review.isSinceReviewMode);
-  const sinceReviewThreads = $derived(review.sinceReviewThreads);
 
   // ── Commit scope ──
   // While set, the Diff tab shows one commit's changes instead of the PR diff.
   const commitScope = $derived(review.commitScope);
-  const diffViewLoading = $derived(
-    commitScope
-      ? review.commitDiffLoading && review.commitDiffPatch === null
-      : review.diffLoading && review.diffPatch === null,
-  );
-  const diffViewError = $derived(
-    commitScope ? review.commitDiffError : review.diffError,
-  );
-
   $effect(() => {
     const currentNumber = target.number;
     const prCwd = review.checkout?.worktreePath;
@@ -475,14 +346,6 @@
       clearTimeout(timer);
     };
   });
-
-  // Reply / resolve for the threads rendered inline in the Diff tab. Mirrors the
-  // Activity tab's affordances; mutation of the thread object lives in
-  // DiffThreadComment so the inline card and the popover update in place.
-  const replyToThread = (threadId: string, body: string) =>
-    review.replyToThread(threadId, body);
-  const resolveThread = (threadId: string, resolved: boolean) =>
-    review.resolveThread(threadId, resolved);
 
   // GitHub-bound draft comments, persisted per guide key (shared store with the
   // local review guide surface, where drafts become agent feedback instead).
@@ -832,19 +695,20 @@
     if (e.metaKey || e.ctrlKey || e.altKey) return;
     const el = e.target instanceof HTMLElement ? e.target : null;
     if (el && (el.isContentEditable || el.closest("input, textarea"))) return;
-    if (e.key === "Escape") {
+    const key = e.key.toLowerCase();
+    if (key === "escape") {
       e.preventDefault();
       // Full screen is a state you back out of before you leave the review —
       // unless it is the only state this surface has room for.
       if (embedded && fullScreen && onToggleFullScreen) onToggleFullScreen();
       else exit();
-    } else if (e.key === "j" || e.key === "J") {
+    } else if (key === "j") {
       e.preventDefault();
       step(1);
-    } else if (e.key === "k" || e.key === "K") {
+    } else if (key === "k") {
       e.preventDefault();
       step(-1);
-    } else if (embedded && (e.key === "e" || e.key === "E")) {
+    } else if (embedded && key === "e") {
       e.preventDefault();
       onToggleFullScreen?.();
     }
@@ -872,8 +736,7 @@
     onOpenPage={prUrl ? openPr : undefined}
     tab={sub === "guide" || sub === "map" ? sub : "activity"}
     diffOpen={diffPoppedOut}
-    guideDisabled={showingFullDiff}
-    guideDisabledReason="Guides cover the stacked view"
+    guideStatus={visibleGuideStatus}
     tabsDisabled={!pr}
     onSelect={select}
   />
@@ -885,56 +748,15 @@
   <PrViewTabs
     tab={sub === "diff" ? null : sub}
     diffOpen={sub === "diff"}
-    guideDisabled={showingFullDiff}
-    guideDisabledReason="Guides cover the stacked view"
+    guideStatus={visibleGuideStatus}
     tabsDisabled={!pr}
     diffHint="Read the change"
     onSelect={select}
   />
 {/snippet}
 
-<!-- The one filled surface in either header shape: it gives the pull request a
-     worktree of its own and opens a session composer on it. It is the shared Button in
-     its compact size, so it carries the same accent fill, rounded-rectangle
-     radius and press response as the document and work headers' own primary
-     action — a full pill read as a different family of button from every other
-     control the user presses.
-
-     It sits in the band's trailing cluster, beside the #number and the tabs,
-     and wears the same glyph the number does, so the row names one object once.
-     Its geometry follows the chrome rung it is typed on: 26px on a desktop
-     display, 24px on a laptop, and a thumb-sized target on touch.
-
-     Under 40rem of band it gives up its label and keeps the glyph: the band
-     beside a companion pane is legally that narrow, and with the traffic-light
-     inset in front of the tabs the full label was what pushed the overflow and
-     the ✕ past the pane's edge, under the pane beside it. The rung is named
-     against the band, so in the page shape — where no band is declared — it
-     never fires and the label stays. -->
 {#snippet checkoutButton()}
-  <Button
-    type="button"
-    size="xs"
-    class="ml-[5px] h-[26px] shrink-0 gap-1.5 px-2.5 text-workspace-chrome pointer-coarse:h-10 pointer-coarse:px-3.5 pointer-fine:[.is-laptop-display_&]:h-6 pointer-fine:[.is-laptop-display_&]:px-2 @max-[40rem]/band:px-2"
-    onclick={() => void openPrComposer()}
-    disabled={preparingComposer || !pr}
-    aria-label="Check out this pull request"
-    title={preparingComposer
-      ? "Preparing checkout…"
-      : "Check out this pull request in its own worktree and open a session composer on it"}
-  >
-    {#if preparingComposer}
-      <CircleNotchIcon
-        class="size-3 animate-spin [animation-duration:0.9s]"
-        aria-hidden="true"
-      />
-    {:else}
-      <GitPullRequestIcon class="size-3" aria-hidden="true" />
-    {/if}
-    <span class="@max-[40rem]/band:hidden">
-      {preparingComposer ? "Preparing…" : "Check out"}
-    </span>
-  </Button>
+  <PrCheckoutButton {preparingComposer} disabled={!pr} onclick={() => void openPrComposer()} />
 {/snippet}
 
 <!-- The overflow both header shapes hand their occasional commands to: the
@@ -1042,14 +864,6 @@
               {@render detailMasthead()}
             </div>
           {/if}
-          {#if ownDeltaBase}
-            <StackDiffBanner
-              parent={ownDeltaBase.parent}
-              fileCount={review.ownDeltaFileCount}
-              showingFull={false}
-              onToggle={toggleFullDiff}
-            />
-          {/if}
           <GuideSurface
             loader={guideLoader}
             onFileJump={jumpToDiff}
@@ -1063,7 +877,9 @@
               branch: pr.headRef,
             }}
             emptyHint={guideEmptyHint}
-            generationStatus={visibleGuideStatus}
+            generationEvent={guideEvent ?? undefined}
+            unavailable={guide.unavailable}
+            onCancel={() => void guide.cancel()}
             onGenerate={generateGuide}
             onAlwaysGenerate={settings.generatePrGuidesOnOpen
               ? undefined
@@ -1113,85 +929,14 @@
     {/if}
     {#if mountedDiff && pr}
       <div class="absolute inset-0 flex flex-col" class:hidden={sub !== "diff"}>
-        {#if !commitScope && ownDeltaBase}
-          <StackDiffBanner
-            parent={ownDeltaBase.parent}
-            fileCount={review.ownDeltaFileCount}
-            showingFull={showingFullDiff}
-            onToggle={toggleFullDiff}
-          />
-        {:else if hasReviewCheckpointNotice && interdiff}
-          <SinceReviewBar
-            result={interdiff}
-            showingSince={isSinceReviewMode}
-            onModeChange={(sinceReview) => {
-              review.showingSinceReview = sinceReview;
-              requestInputFocus();
-            }}
-          />
-        {/if}
-        <div class="min-h-0 flex-1">
-          {#if diffViewLoading}
-            <DiffLoadingSkeleton variant="diff" />
-          {:else if diffViewError}
-            <div class="grid h-full place-items-center px-6 text-center text-xs text-destructive" role="alert">
-              {diffViewError}
-            </div>
-          {:else}
-          <DiffPanel
-            bind:this={diffPanelRef}
-            tabId={reviewTabId}
-            {paneId}
-            getCtx={prCtx}
-            {getApi}
-            projectPath={checkout?.worktreePath ?? projectScopeOf(projectCtx().session)}
-            worktreePath={checkout?.worktreePath}
-            worktreeBranch={pr.headRef}
-            targetBranch={pr.baseRef}
-            isWorktree={!!checkout}
-            onClose={() => select(showingFullDiff ? "activity" : "guide")}
-            embedded
-            hasHostHeaderRow={!headless}
-            initialScope={diffScope}
-            commentingDisabled={!!commitScope}
-            commitSha={commitScope?.sha ?? null}
-            onClearCommitScope={clearCommitScope}
-            patchOverride={commitScope
-              ? (review.commitDiffPatch ?? "")
-              : isSinceReviewMode
-                ? (interdiff?.patch ?? "")
-                : (review.diffPatch ?? "")}
-            patchOverrideFileLoader={commitScope
-              ? review.loadCommitDiffFiles
-              : isSinceReviewMode
-                ? undefined
-                : review.loadDiffFiles}
-            emptyState={commitScope
-              ? {
-                  title: "No file changes in this commit",
-                  description:
-                    "This commit did not change any reviewable files.",
-                }
-              : isSinceReviewMode
-                ? {
-                    title: "No patch changes since your review",
-                    description:
-                      "The PR head moved, but its effective patch stayed the same.",
-                  }
-                : undefined}
-            externalComments={commitScope ? [] : diffComments}
-            onExternalCommentSave={saveDiffComment}
-            onExternalCommentDelete={removeDraft}
-            reviewThreads={commitScope
-              ? []
-              : isSinceReviewMode
-                ? sinceReviewThreads
-                : reviewThreads}
-            onThreadReply={replyToThread}
-            onThreadResolve={resolveThread}
-          />
-          {/if}
-        </div>
+        <PrReviewDiff
+          {review} {pr} {reviewTabId} {paneId} {getApi} {headless}
+          getCtx={prCtx}
+          projectPath={projectScopeOf(projectCtx().session)}
+          onClose={() => select(showingFullDiff ? "activity" : "guide")}
+          {toggleFullDiff} {clearCommitScope}
+          bind:diffPanelRef
+        />
       </div>
     {/if}
     {#if mountedActivity}
@@ -1213,6 +958,7 @@
           onFixChecks={openFixChecks}
           onUpdateBranch={openUpdateBranch}
           generationStatus={visibleGuideStatus}
+          onOpenGuide={() => select("guide")}
           onGenerateGuide={generateGuide}
           onRefreshThreads={() => loadThreads(true)}
           {onRefreshTarget}

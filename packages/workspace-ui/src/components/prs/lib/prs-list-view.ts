@@ -33,6 +33,7 @@ import {
   type ListRowSpec,
   type ListTint,
 } from '../../ui/list-page/list-page'
+import { Clock, LoaderCircle, CircleAlert, CircleMinus, BookOpen, BookOpenCheck } from '@lucide/svelte'
 import { relativeTime } from './pr-utils'
 import { hasMergeConflicts } from '../../pr-review/lib/merge-readiness'
 
@@ -110,9 +111,17 @@ export interface PrRowContext {
 
 function guideChips(pr: PullRequest, ctx: PrRowContext): ListRowSpec['chips'] {
   const status = ctx.guideStatus?.(pr)
-  if (status === 'queued') return [{ label: 'Guide queued', tint: 'running' }]
-  if (status === 'generating') return [{ label: 'Generating guide', tint: 'running' }]
-  return []
+  if (!status) return []
+  const states = {
+    ready: { label: 'Review guide available', statusIcon: undefined, tint: 'success' },
+    outdated: { label: 'Review guide outdated', statusIcon: CircleAlert, tint: 'warning' },
+    queued: { label: 'Review guide queued', statusIcon: Clock, tint: 'neutral' },
+    generating: { label: 'Generating review guide', statusIcon: LoaderCircle, tint: 'info' },
+    failed: { label: 'Review guide generation failed', statusIcon: CircleAlert, tint: 'failure' },
+    cancelled: { label: 'Review guide generation cancelled', statusIcon: CircleMinus, tint: 'neutral' },
+  } satisfies Record<PrGuideStatus, { label: string; statusIcon: ListIcon | undefined; tint: ListTint }>
+  return [{ ...states[status], icon: status === 'ready' ? BookOpenCheck : BookOpen, iconOnly: true, spinning: status === 'generating' }]
+
 }
 
 /** A conflict is a fact of an open PR that neither the group nor the state
@@ -485,6 +494,7 @@ function failingContext(checks: PrChecksSummary | undefined): string {
  * keying never did anything. It is page state, and the page keeps it.
  */
 export interface PrListView {
+  guide: 'all' | 'has-guide'
   query: string
   /** The lifecycle states the list and the inbox are showing. Also decides the
    *  *fetch* scope, since the server pages open and closed separately. */
@@ -509,6 +519,7 @@ export interface PrListView {
 
 export function emptyListView(): PrListView {
   return {
+    guide: 'all',
     query: '',
     statusKeys: [...OPEN_PR_STATUS_KEYS],
     sortMode: 'created',

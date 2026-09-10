@@ -317,6 +317,8 @@
       content: initialValue || "",
       contentType: "markdown",
       editable: initialEditable,
+      // Read-only text still needs focus for selection-based comments and copy.
+      coreExtensionOptions: { tabindex: { value: "0" } },
       editorProps: {
         handlePaste: (view, event) => {
           // 1) Files → store images inline and other attachments as links.
@@ -917,4 +919,3 @@
     />
   {/if}
 </div>
-

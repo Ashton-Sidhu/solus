@@ -1,3 +1,4 @@
+import type { DocCommentAction, DocCommentMutationResult, DocCommentMutation, DocCommentThread } from '@solus/contracts/doc-comments'
 import type {
   DocDestination,
   DocDraft,
@@ -18,6 +19,8 @@ import type {
  */
 export interface DocProviderAdapter {
   readonly id: DocProviderId
+  /** Omitted when this adapter has no comment integration. */
+  readonly comments?: DocCommentsAdapter
   /** Whether this provider can be used right now, and if not, why — the answer
    *  the agent and the UI both show, so a missing connection reads the same
    *  either way. */
@@ -50,4 +53,24 @@ export class DocProviderUnavailableError extends Error {
     super(message)
     this.name = 'DocProviderUnavailableError'
   }
+}
+
+/** A definite rejection may be retried; an uncertain write must not be reposted. */
+export class DocCommentRequestError extends Error {
+  constructor(message: string, readonly uncertain: boolean) {
+    super(message)
+    this.name = 'DocCommentRequestError'
+  }
+}
+
+/** Optional provider capability. Actions describe support, not document permissions.
+ * The host owns private/shared state and delivery receipts. The provider owns
+ * authentication, permission checks, and API conversion. Never retry uncertain writes.
+ */
+export interface DocCommentsAdapter {
+  readonly actions: readonly DocCommentAction[]
+  readonly limitations: string[]
+  /** A complete snapshot; reject if any page fails. */
+  list(ref: DocRef): Promise<DocCommentThread[]>
+  mutate(ref: DocRef, mutation: DocCommentMutation): Promise<DocCommentMutationResult>
 }

@@ -10,10 +10,12 @@ import { computePrInterdiff } from '../../git/interdiff'
 import { runAsync } from '../../git/exec'
 import { writeReviewCheckpoint } from '../../review/checkpoints'
 import { estimateReviewEffort } from '../../review/effort'
+import { readPrGuidePatch, readPrGuideFileContents } from '../../review/pr-guide-diff'
 import { readPrGuideMetadata, requestPrGuides, scheduleGuideWarming } from '../../review/guide-warmer'
+import { publishPrGuideStatus } from '../../review/pr-guide-events'
 import type { Provider, RepoRef } from '../../providers/types'
 import type { PrEffortRequest, PrEffortResult, PrListPage, PrReviewTarget, DraftReview, PullRequestUpdate } from '@solus/contracts/providers'
-import { projectScopeOf, worktreeProjectRoot, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
+import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
@@ -21,8 +23,6 @@ import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { Task } from '../../tasks/task'
 import { completeTasksForMergedPullRequest } from '../../tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
-import type { ReviewTarget } from '@solus/contracts/review'
-import { ensureManagedPrCheckout } from '../../review/managed-pr-checkout'
 import { prIndex, repoKeyOf } from '../../prs/pr-index'
 import type { PullRequest } from '../../prs/pull-request'
 
@@ -180,6 +180,7 @@ export async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget)
     const checkout = await fetchAndCheckoutPr(repoRoot, target.number, detail.baseRef, {
       headRef: detail.headRef,
       isFork: detail.headRepo.isFork,
+      diffBaseSha: target.baseSha,
     })
     if (checkout.headSha !== target.headSha || checkout.baseSha !== target.baseSha) {
       throw new Error('The prepared checkout does not match the pull request revision. Refresh it and try again.')
@@ -196,62 +197,8 @@ export async function preparePrCheckout(ctx: IpcContext, target: PrReviewTarget)
   return operation
 }
 
-export async function prepareReviewGuidePrContext(
-  ctx: IpcContext,
-  requested: Extract<ReviewTarget, { kind: 'pr' }>,
-): Promise<{ ctx: IpcContext; target: Extract<ReviewTarget, { kind: 'pr' }> }> {
-  const repo: RepoRef = {
-    host: requested.host,
-    owner: requested.owner,
-    repo: requested.repo,
-  }
-  const provider = providerForRepo(repo)
-  if (!provider) throw new Error(`PR review isn't supported for ${repo.host} yet.`)
+export { prepareReviewGuidePrContext } from '../../review/pr-guide-context'
 
-  // Resolve the host revision from the URL's repository, not from the active
-  // project. A review command is allowed to target any accessible pull request.
-  const detail = await provider.review.getPullRequest(repo, requested.number)
-  const current = buildPrReviewTarget(
-    repo,
-    detail,
-    await provider.review.getPullRequestDiffBase(repo, detail),
-  )
-  const target = requested.baseSha && requested.headSha
-    ? { ...requested, baseSha: requested.baseSha, headSha: requested.headSha }
-    : {
-        ...requested,
-        baseSha: current.baseSha,
-        headSha: current.headSha,
-      }
-
-  const cwd = projectScopeOf(ctx.session)
-  const activeRepo = cwd ? await resolveRepoRef(cwd) : null
-  const isActiveRepo = activeRepo
-    && activeRepo.host.toLowerCase() === repo.host.toLowerCase()
-    && activeRepo.owner.toLowerCase() === repo.owner.toLowerCase()
-    && activeRepo.repo.toLowerCase() === repo.repo.toLowerCase()
-  const isCurrentRevision = target.baseSha === current.baseSha && target.headSha === current.headSha
-  const checkout = isActiveRepo && isCurrentRevision
-    ? await preparePrCheckout(ctx, current)
-    : await ensureManagedPrCheckout(repo, target)
-  return {
-    ctx: {
-      ...ctx,
-      session: {
-        ...ctx.session,
-        workingDirectory: checkout.worktreePath,
-        gitContext: {
-          repoRoot: worktreeProjectRoot(checkout.worktreePath),
-          branch: checkout.branch,
-          targetBranch: current.baseRef,
-          worktreePath: checkout.worktreePath,
-        },
-        prReview: { ...current, ...checkout },
-      },
-    },
-    target,
-  }
-}
 
 async function persistReviewCheckpoint(
   ctx: IpcContext,
@@ -412,6 +359,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
             openPullRequests: result.items,
             graph: emptyStackGraph(),
             isWorktreeInUse: deps.isWorktreeInUse,
+            onStatus: (event) => publishPrGuideStatus(deps.events, event),
           })
         }
         return
@@ -434,6 +382,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
               openPullRequests: result.items,
               graph,
               isWorktreeInUse: deps.isWorktreeInUse,
+              onStatus: (event) => publishPrGuideStatus(deps.events, event),
             })
           }
         },
@@ -460,9 +409,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   server.register('prGuideMetadata', async (args) => {
     const [ctx, request] = args
-    const repoRoot = await repoRootOrScope(ctx)
-    const graph = ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null
-    return readPrGuideMetadata(repoRoot, graph, request)
+    const { repo } = await reviewTargetFor(ctx)
+    return readPrGuideMetadata(ctx, repo, request)
   })
 
   server.register('prOpenReview', async (args) => {
@@ -472,12 +420,14 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   server.register('prGetDiff', async (args) => {
     const [ctx, request] = args
+    if (request.repo) return readPrGuidePatch(request.repo, request)
     const { repo, provider } = await reviewTargetFor(ctx)
     return provider.review.getPullRequestDiff(repo, request)
   })
 
   server.register('prGetDiffFileContents', async (args) => {
     const [ctx, request] = args
+    if (request.repo) return readPrGuideFileContents(request.repo, request)
     const { repo, provider } = await reviewTargetFor(ctx)
     return provider.review.getPullRequestDiffFileContents(repo, request)
   })
@@ -828,11 +778,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       provider,
       graph: ctx.settings.stackedPrsEnabled ? await readStackGraph(repoRoot) : null,
       isWorktreeInUse: deps.isWorktreeInUse,
-      onStatus: (number, status, metadata) => {
-        const event = { repoRoot, number, status }
-        if (metadata) Object.assign(event, { metadata })
-        deps.events.broadcast('pr.guideStatusChanged', event)
-      },
+      onStatus: (event) => publishPrGuideStatus(deps.events, event),
     }, numbers)
   })
 }

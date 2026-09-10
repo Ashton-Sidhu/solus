@@ -49,6 +49,12 @@
     total?: number;
   } = $props();
 
+  // Bound mounted file cards even when a saved guide contains thousands of files.
+  let requestedPage = $state(0);
+  const pageCount = $derived(Math.max(1, Math.ceil(section.files.length / 40)));
+  const page = $derived(Math.min(requestedPage, pageCount - 1));
+  const pageFiles = $derived(section.files.slice(page * 40, (page + 1) * 40));
+
   const sectionRecords = $derived(
     resolveLedgerRefs(section.ledgerRefs, records),
   );
@@ -81,10 +87,12 @@
   }
 
   // Diff cards on the right, keyed by path, so a left chip can scroll to its card.
-  let cards = $state<Record<string, HTMLElement>>({});
+  // DOM references are used only by jump commands. Register them in the action
+  // below: thousands of bind:this cleanups form a recursive teardown chain.
+  const cards = new Map<string, HTMLElement>();
   function jumpToCard(path: string): void {
     collapsed.delete(path);
-    cards[path]?.scrollIntoView({ behavior: "smooth", block: "start" });
+    cards.get(path)?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   // Per-file collapse for the diff cards; diffs are open by default.
@@ -96,7 +104,7 @@
   }
 
   function lazyDiffCard(node: HTMLElement, path: string) {
-    if (visibleFiles.has(path)) return {};
+    cards.set(path, node);
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) {
@@ -106,15 +114,19 @@
       },
       { rootMargin: "500px" },
     );
-    observer.observe(node);
+    if (!visibleFiles.has(path)) observer.observe(node);
     return {
       update(nextPath: string) {
         if (nextPath === path) return;
+        if (cards.get(path) === node) cards.delete(path);
         path = nextPath;
-        if (visibleFiles.has(path)) observer.disconnect();
+        cards.set(path, node);
+        observer.disconnect();
+        if (!visibleFiles.has(path)) observer.observe(node);
       },
       destroy() {
         observer.disconnect();
+        if (cards.get(path) === node) cards.delete(path);
       },
     };
   }
@@ -156,9 +168,17 @@
 
     <GuideExplanation {section} records={sectionRecords} />
 
+    {#if pageCount > 1}
+      <nav aria-label={`Files in ${section.title}`} class="flex flex-wrap items-center gap-2 text-workspace-chrome">
+        <Button variant="ghost" disabled={page === 0} onclick={() => { requestedPage = page - 1; }}>Previous files</Button>
+        <span role="status" class="text-muted-foreground">Files {page * 40 + 1}–{Math.min((page + 1) * 40, section.files.length)} of {section.files.length}</span>
+        <Button variant="ghost" disabled={page === pageCount - 1} onclick={() => { requestedPage = page + 1; }}>Next files</Button>
+      </nav>
+    {/if}
+
     {#if section.files.length > 0}
       <ul class="mt-1 flex flex-col gap-0.5" role="list">
-        {#each section.files as file (file.path)}
+        {#each pageFiles as file (file.path)}
           <li>
             <button
               type="button"
@@ -197,14 +217,13 @@
 
   <!-- Right: the diffs this section spans, in cards of similar width. -->
   <div class="flex min-w-0 flex-col gap-4">
-    {#each section.files as file (file.path)}
+    {#each pageFiles as file (file.path)}
       <!-- Prefer the agent's concern-scoped hunks; fall back to the file's full
            diff (from the whole-episode patch) when they're absent or blank. -->
       {@const patch = file.hunks?.trim() || patchByPath.get(file.path)}
       {@const open = !collapsed.has(file.path)}
       {@const fileVisible = visibleFiles.has(file.path)}
       <div
-        bind:this={cards[file.path]}
         use:lazyDiffCard={file.path}
         class="scroll-mt-6 overflow-hidden rounded-2xl border border-(--solus-art-border) bg-(--solus-art-surface) [contain-intrinsic-size:auto_12rem] [content-visibility:auto]"
       >

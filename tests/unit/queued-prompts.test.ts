@@ -109,11 +109,14 @@ describe('queuedCaption', () => {
   })
 
   // A live limit with no reset time can't be counted against, so the caption
-  // must fall back to the condition rather than print a zeroed clock.
-  it('falls back to the condition when the reset time is unknown', () => {
-    const caption = queuedCaption([heldPrompt()], { isRateLimited: true, now: NOW })
+  // must state the condition rather than print a zeroed clock. It must not say
+  // the queue "runs when this turn ends" either: nothing releases it on a
+  // timer, so the manual escape is the only way these go out and has to stay.
+  it('states the condition and keeps the escape when the reset time is unknown', () => {
+    const caption = queuedCaption([heldPrompt()], { isRateLimited: true, resetsAt: null, now: NOW })
     expect(caption?.clock).toBe('')
-    expect(caption?.detail).toBe('runs when this turn ends')
+    expect(caption?.detail).toBe('rate limit active — reset time unknown')
+    expect(caption?.canSendNow).toBe(true)
   })
 })
 

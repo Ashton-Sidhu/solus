@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { ReviewGuideStatus } from "@solus/contracts/review";
   import PrIdentityLink from "./PrIdentityLink.svelte";
   import PrViewTabs from "./PrViewTabs.svelte";
 
@@ -24,6 +25,7 @@
     tab,
     diffOpen,
     guideDisabled = false,
+    guideStatus,
     guideDisabledReason,
     tabsDisabled = false,
     onSelect,
@@ -38,6 +40,7 @@
     /** Whether the change is open in the pane beside this one. */
     diffOpen: boolean;
     guideDisabled?: boolean;
+    guideStatus?: ReviewGuideStatus;
     guideDisabledReason?: string;
     /** The host target is still loading, so revision-backed tabs are not ready. */
     tabsDisabled?: boolean;
@@ -57,6 +60,7 @@
     {tab}
     {diffOpen}
     {guideDisabled}
+    {guideStatus}
     {guideDisabledReason}
     {tabsDisabled}
     diffHint="Open the change beside this review"

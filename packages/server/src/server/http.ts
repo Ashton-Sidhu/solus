@@ -33,6 +33,7 @@ import { hostDisplayName } from '../platform/host-display-name'
 const log = createLogger('main', 'http')
 
 export interface HttpServerOptions {
+  isVerifyingUpdate?: () => boolean
   /** Bind address: defaults to 127.0.0.1 (loopback only). Set 0.0.0.0 for remote access. */
   host?: string
   /** Current bind address when the listener can rebind without rebuilding routes. */
@@ -102,6 +103,10 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   let voiceTranscriptionActive = false
 
   const app = new Hono<Env>()
+  app.use('*', async (c, next) => {
+    if (opts.isVerifyingUpdate?.()) return c.json({ error: 'Solus is verifying an update. Try again shortly.' }, 503)
+    await next()
+  })
 
   // Every route below is authenticated (if at all) by an `Authorization`
   // bearer header, never cookies, so a cross-origin caller can't ride on an

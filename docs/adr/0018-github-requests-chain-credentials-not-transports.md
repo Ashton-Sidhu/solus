@@ -39,7 +39,7 @@ as well as the pull-request list did, so the rule is decided once here rather th
   spawned to read a token, not a transport spawned per request.
 - Adding a GitHub operation means writing the Octokit call once inside `withClient`. There is no
   `ghXxx` twin to add, and no per-method choice about whether it falls back.
-- The dispatch-checkout, publish, and managed-review-checkout paths take the first credential of
+- The dispatch-checkout and publish paths take the first credential of
   the same chain instead of choosing between `buildClient` and a delegated client by hand.
 - GitHub issue reads, assignment, comments, search, publication, and attachment upload use the
   same chain. A user signed in through `gh auth` can therefore manage task assignees without also
@@ -53,3 +53,10 @@ as well as the pull-request list did, so the rule is decided once here rather th
   chain; a `gh` sign-in still counts, but only as a token.
 - The GraphQL client is exposed as its query form only. Solus never used the endpoint-options
   form, and narrowing the type is what lets one 401 policy wrap both REST and GraphQL.
+
+Managed PR review checkouts retry with the next credential, including the `gh` token, when
+HTTPS clone or fetch reports an authentication or repository-access failure. Each retry starts
+with a clean managed checkout and uses the same exact base and head revisions. Credential
+helpers are disabled for token-authenticated commands so they cannot override the selected
+token. Other Git failures stop without trying another account. Existing project checkouts
+continue to use their configured Git authentication.

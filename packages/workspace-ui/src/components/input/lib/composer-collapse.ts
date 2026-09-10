@@ -10,8 +10,8 @@
 export interface ComposerCollapseState {
   /** The user's setting, already gated on the surface it applies to. */
   enabled: boolean
-  /** The keyboard is in the bar, or in a menu the bar opened, or left it less
-   *  than a grace ago. */
+  /** The keyboard is in the bar, or in a menu the bar opened, or is returning
+   *  from a closing menu or recorder. */
   focused: boolean
   /** The mic is live. The waveform replaces the text well, and its cancel and
    *  confirm controls must stay exactly where the hand left them. */
@@ -22,25 +22,34 @@ export function shouldCollapseComposer(state: ComposerCollapseState): boolean {
   return state.enabled && !state.focused && !state.recording
 }
 
+/** Allow a closing menu or recorder to return focus on a later frame. */
+export const COMPOSER_REFOCUS_GRACE_MS = 150
+
 /**
- * How long the keyboard must be elsewhere before the bar folds.
+ * The room the transcript keeps under itself for the docked composer.
  *
- * A leave is never decided from the focusout that starts it, because most
- * leaves are not leaves: a closing picker blurs its content a frame before it
- * hands focus back, a sidebar row takes focus on mousedown and gives it back
- * two frames after the click, and a settled recorder hands the keyboard back
- * a frame or two after the mic lets go. Each of those used to be predicted
- * with a hold of its own, and every hold that was not released on time left
- * the bar stuck open or folding under a hand-back. Now nothing is predicted:
- * the bar reads where the keyboard is once the grace is up, and any return
- * inside it is not a leave at all.
+ * The dock floats over the conversation, so the transcript's own box never
+ * changes size and nothing in it moves when the bar folds. This reservation is
+ * what keeps the last message, the orb, the activity strip and the minimap
+ * clear of the bar — and it is *held* at the expanded height while the bar
+ * rests. A folded measurement may only hold the reservation, never shrink it,
+ * so unfolding does not move the transcript either. An expanded measurement is
+ * authoritative and may shrink it: that is the bar reporting its true height
+ * after a chip or a draft line came or went.
  *
- * Long enough for a refocus that waits three frames on a slow one; short
- * enough that a click on the transcript still folds the bar before the eye
- * has settled there. The pointer's release restarts it, so the clock runs
- * from the end of a click, not its start.
+ * A bar that has never been expanded reserves its folded height, and the first
+ * expansion moves the transcript once. Guessing an expansion delta instead
+ * would be a number no surface agrees on.
  */
-export const COMPOSER_FOLD_GRACE_MS = 150
+export function resolveComposerInset(state: {
+  currentInset: number
+  dockHeight: number
+  collapsed: boolean
+}): number {
+  return state.collapsed
+    ? Math.max(state.currentInset, state.dockHeight)
+    : state.dockHeight
+}
 
 /**
  * The portalled surfaces a bar's own controls open: bits-ui floating content

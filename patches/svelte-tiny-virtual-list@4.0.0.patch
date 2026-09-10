@@ -1,0 +1,42 @@
+diff --git a/dist/VirtualList.svelte b/dist/VirtualList.svelte
+index f130ed9609d77fbb67907228e50facec61430e80..b91bb37a9dc37aa9724f7b9e72244848e57b54d3 100644
+--- a/dist/VirtualList.svelte
++++ b/dist/VirtualList.svelte
+@@ -59,15 +59,16 @@
+ 	/** @type {{ index: number, style: string }[]} */
+ 	let items = $state.raw([]);
+ 
++	let heightNumber = $derived(Number.isFinite(height) ? Number(height) : wrapperHeight);
++	let widthNumber = $derived(Number.isFinite(width) ? Number(width) : wrapperWidth);
++
+ 	/** @type {{ offset: number, changeReason: number }} */
+ 	let scroll = $state.raw({
+-		offset: scrollOffset || (scrollToIndex !== undefined && getOffsetForIndex(scrollToIndex)) || 0,
++		offset: scrollOffset || (scrollToIndex !== undefined && getOffsetForIndex(scrollToIndex, 0)) || 0,
+ 		changeReason: SCROLL_CHANGE_REASON.REQUESTED
+ 	});
+ 	let prevScroll = $state.snapshot(scroll);
+ 
+-	let heightNumber = $derived(Number.isFinite(height) ? Number(height) : wrapperHeight);
+-	let widthNumber = $derived(Number.isFinite(width) ? Number(width) : wrapperWidth);
+ 	let prevProps = {
+ 		scrollToIndex: $state.snapshot(scrollToIndex),
+ 		scrollToAlignment: $state.snapshot(scrollToAlignment),
+@@ -271,14 +272,15 @@
+ 	/**
+ 	 * Calculates the offset for a given index based on the scroll direction and alignment.
+ 	 * @param {number} index
++	 * @param {number} currentOffset Pass zero during initialization, before scroll exists.
+ 	 */
+-	function getOffsetForIndex(index) {
++	function getOffsetForIndex(index, currentOffset = scroll.offset || 0) {
+ 		if (index < 0 || index >= itemCount) index = 0;
+ 
+ 		return sizeAndPositionManager.getUpdatedOffsetForIndex(
+ 			scrollToAlignment,
+ 			scrollDirection === DIRECTION.VERTICAL ? heightNumber : widthNumber,
+-			scroll.offset || 0,
++			currentOffset,
+ 			index
+ 		);
+ 	}

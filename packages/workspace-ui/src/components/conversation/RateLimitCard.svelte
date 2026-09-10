@@ -63,6 +63,10 @@
   // drawn — so it needs a fixed-width clock face, not a prose duration.
   const clockFace = $derived(formatClock(secondsLeft));
   const releaseClock = $derived(resetsAt ? formatReleaseTime(resetsAt) : "");
+  // A window that reopens while the card is still asking does not answer it:
+  // the held prompt stays held. Saying 00:00 would report a countdown still
+  // running, so the clock face states the fact it arrived at instead.
+  const hasReopened = $derived(!!resetsAt && secondsLeft <= 0);
 
   $effect(() => {
     if (!isVisible || !resetsAt || secondsLeft <= 0) return;
@@ -112,27 +116,45 @@
     footerClass="rate-limit-footer"
   >
     {#snippet meta()}
-      <span class="shrink-0">Resets at</span>
-      <span class="text-transcript-meta font-medium text-(--foreground)"
-        >{releaseClock}</span
-      >
+      {#if releaseClock}
+        <span class="shrink-0">{hasReopened ? "Reset at" : "Resets at"}</span>
+        <span class="text-transcript-meta font-medium text-(--foreground)"
+          >{releaseClock}</span
+        >
+      {:else}
+        <span class="shrink-0">Reset time unknown</span>
+      {/if}
     {/snippet}
 
+    <!-- No reset means no countdown to draw. A clock reading 00:00 would say
+         the window opens now, which is the one thing we do not know. -->
     {#snippet headerAside()}
-      <div class="flex shrink-0 flex-col items-end">
-        <span class="limit-clock">{clockFace}</span>
-        <span class="limit-clock-caption">Until reset</span>
-      </div>
+      {#if releaseClock}
+        <div class="flex shrink-0 flex-col items-end">
+          <span class="limit-clock">{hasReopened ? "Open" : clockFace}</span>
+          <span class="limit-clock-caption"
+            >{hasReopened ? "Window" : "Until reset"}</span
+          >
+        </div>
+      {/if}
     {/snippet}
 
     <div
       class="flex items-center gap-2 px-[1.125rem] py-[0.875rem] text-transcript-meta text-(--muted-foreground) pointer-fine:[.is-laptop-display_&]:px-3.5 pointer-fine:[.is-laptop-display_&]:py-2.5"
     >
       <ClockIcon size={14} class="shrink-0 opacity-50" />
-      <span
-        >Nothing runs until you choose. Queuing sends it the moment the window
-        opens.</span
-      >
+      <span>
+        {#if hasReopened}
+          The window reopened while this waited. Nothing has run — your prompt
+          is still here, and still yours to send or discard.
+        {:else if releaseClock}
+          Nothing runs until you choose. Queuing sends it the moment the window
+          opens.
+        {:else}
+          Nothing runs until you choose. This provider did not say when the
+          window reopens, so a queued prompt waits for you to send it.
+        {/if}
+      </span>
     </div>
 
     {#snippet footer()}
@@ -141,13 +163,17 @@
         Stop &amp; discard
       </button>
       <div class="flex-1"></div>
-      <button
-        type="button"
-        class="interrupt-btn interrupt-btn--secondary"
-        onclick={handleQueueIt}
-      >
-        Queue prompt
-      </button>
+      <!-- Queuing means "send it when the window opens". Once it has, the
+           button would be a second Send now under a waiting label. -->
+      {#if !hasReopened}
+        <button
+          type="button"
+          class="interrupt-btn interrupt-btn--secondary"
+          onclick={handleQueueIt}
+        >
+          Queue prompt
+        </button>
+      {/if}
       <button
         type="button"
         class="interrupt-btn interrupt-btn--primary"

@@ -1,7 +1,7 @@
 import { createLogger } from '../logger'
 import { getHostConfig } from '../server/settings'
 import { claimDueAutomations, deleteExpiredArchivedAutomations } from './automations-store'
-import { hasActiveRun, triggerAutomationRun } from './automation-runner'
+import { automationUpdatesPaused, hasActiveRun, triggerAutomationRun } from './automation-runner'
 
 const log = createLogger('automations', 'automation-scheduler.ts')
 
@@ -22,7 +22,7 @@ let lastRetentionDays: number | undefined
 
 async function tick(): Promise<void> {
   // Guard against overlap if a tick's I/O outlasts the interval.
-  if (ticking) return
+  if (ticking || automationUpdatesPaused()) return
   ticking = true
   try {
     const retentionDays = getHostConfig().config.archivedAutomationRetentionDays

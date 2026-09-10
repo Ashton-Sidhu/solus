@@ -1,3 +1,4 @@
+import { ExternalCommentsStore } from './external-comments.store.svelte'
 import type { AgentId, CommentAuthor, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
 import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
@@ -17,6 +18,7 @@ import { PresenceWatch } from '../../lib/presence-watch'
 import { firstHeadingTitle, isPlaceholderWorkTitle } from './work-title'
 
 export class WorksStore {
+  readonly externalComments = new ExternalCommentsStore(workId => this.apiForWork(workId), workId => this.get(workId)?.mirroredDoc)
   works = $state<Record<string, Work>>({})
   activeCwd = $state<string | undefined>(undefined)
   /** A work pending deletion from the open-work view, held while the undo toast

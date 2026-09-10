@@ -1,3 +1,5 @@
+import { RemoteUpdateService } from '../updates/remote-update-service'
+import type { ServerUpdateSupport, SupervisorMessage } from '@solus/contracts/server-update'
 import { UpdateStatusService } from '../updates/update-status-service'
 import { detectInstallKind } from '../updates/install-kind'
 import { fetchLatestRelease } from '../updates/release-sources'
@@ -40,7 +42,7 @@ import { registerFolioHandlers } from './handlers/folio-handlers'
 import { registerReviewHandlers } from './handlers/review-handlers'
 import { registerAutomationHandlers } from './handlers/automation-handlers'
 import { startAutomationScheduler, stopAutomationScheduler } from '../automations/automation-scheduler'
-import { setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatcher, setAutomationWorktreeNameGenerator } from '../automations/automation-runner'
+import { hasAutomationWork, setAutomationUpdatesPaused, setAutomationBackgroundSessionDispatcher, setAutomationSessionDispatcher, setAutomationWorktreeNameGenerator } from '../automations/automation-runner'
 import { generateWorktreeName } from '../git/worktree-name'
 import { onAutomationsChanged } from '../automations/automations-store'
 import { setSessionController, setSessionCreator } from '../sessions/session-tools'
@@ -49,7 +51,7 @@ import { registerConnectionsHandlers } from './handlers/connections-handlers'
 import { registerSettingsHandlers } from './handlers/settings-handlers'
 import { isLanDiscoveryDisabled, startLanDiscoveryService, type LanDiscoveryService } from './lan-discovery'
 import { registerGoogleHandlers } from './handlers/google-handlers'
-import { prepareReviewGuidePrContext, registerProviderHandlers } from './handlers/provider-handlers'
+import { registerProviderHandlers } from './handlers/provider-handlers'
 import { PrReconciler } from '../prs/pr-reconciler'
 import { registerCloudflareHandlers } from './handlers/cloudflare-handlers'
 import { registerAtlassianHandlers } from './handlers/atlassian-handlers'
@@ -103,6 +105,12 @@ export interface BootOptions {
   port?: number
   /** Path to the bundled web client static files. */
   staticDir?: string
+  updateSupervisor?: {
+    support: ServerUpdateSupport
+    send(message: SupervisorMessage): void
+    subscribe(listener: (message: SupervisorMessage) => void): () => void
+    shutdown(): void
+  }
   /** Optional voice transcription implementation supplied by the desktop host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
@@ -253,7 +261,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   await opts.registerHostHandlers?.(server)
   registerFolioHandlers(server)
-  registerReviewHandlers(server, opts.controlPlane, events, prepareReviewGuidePrContext)
+  registerReviewHandlers(server, opts.controlPlane, events)
   registerAutomationHandlers(server)
   // Let session-bound automations run their prompt inside the chat thread they
   // were created in (full conversation context), routed through the control plane.
@@ -306,7 +314,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   // Local, in-process automation scheduler. Fires time-based triggers while the
   // app is open and catches up missed fires on launch (local-only by design).
-  startAutomationScheduler()
   startMetricsRollover(() => getServerSettings().metricsRetentionDays)
   registerObservabilityHandlers(server, { controlPlane: opts.controlPlane })
   registerProjectConfigHandlers(server)
@@ -342,10 +349,34 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     providerVersion: readProviderVersion,
     publish: (status) => { events.broadcast('host.updateStatusChanged', status) },
   })
+  let activeSetupSteps = 0
+  const supervisor = opts.updateSupervisor
+  server.setUpdateTrial(supervisor?.support.operation?.phase === 'restarting')
+  const remoteUpdates = new RemoteUpdateService({
+    status: () => hostUpdates.status,
+    publish: (support) => hostUpdates.setServerUpdate(support),
+    blockNewTurns: (blocked) => { opts.controlPlane.setUpdatePending(blocked); setAutomationUpdatesPaused(blocked) },
+    hasWork: () => activeSetupSteps > 0 || hasAutomationWork() || opts.controlPlane.hasWorkForUpdate(),
+    send: (message) => { if (!supervisor) throw new Error('No update supervisor.'); supervisor.send(message) },
+  }, supervisor?.support ?? { supported: false, reason: 'Start a supported installation through solus start or solus-server to enable remote updates.', operation: null })
+  const stopSupervisor = supervisor?.subscribe((message) => {
+    if (message.type === 'solus:update-status') {
+      server.setUpdateTrial(message.support.operation?.phase === 'restarting')
+      remoteUpdates.apply(message.support)
+    }
+    if (message.type === 'solus:stop-for-update' && remoteUpdates.canStop(message.operationId)) supervisor.shutdown()
+  })
+  startAutomationScheduler()
+  server.register('hostInstallUpdate', () => { remoteUpdates.install(); return structuredClone(hostUpdates.status) })
+  server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
   server.register('hostUpdateStatus', () => structuredClone(hostUpdates.status))
   server.register('hostCheckForUpdates', () => hostUpdates.check())
   hostUpdates.start()
-  registerSetupHandlers(server, { events, onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent) })
+  registerSetupHandlers(server, { events,
+    assertNewWorkAllowed: () => opts.controlPlane.assertNewWorkAllowed(),
+    onActiveStepsChanged: (count) => { activeSetupSteps = count },
+    onProviderInstalled: (agent) => hostUpdates.providerInstalled(agent),
+  })
   // Browser pages are server-owned so an agent addresses the same page the user
   // sees, and keeps addressing it after the pane closes. A headless host still
   // registers the domain: it can discover targets and hold pages, and reports
@@ -452,6 +483,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   followLink(uplinkManager.currentLink())
 
   const { server: http, requestListener } = buildHttpServer({
+    isVerifyingUpdate: () => server.isVerifyingUpdate,
     host,
     port,
     staticDir: opts.staticDir,
@@ -706,6 +738,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         stopMetricsRollover()
         prReconciler.stop()
         hostUpdates.stop()
+        remoteUpdates.stop()
+        stopSupervisor?.()
         codeIntel.dispose()
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)

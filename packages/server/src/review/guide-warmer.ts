@@ -1,19 +1,18 @@
 import path from 'path'
 import type { PullRequest } from '@solus/contracts/providers'
 import {
-  reviewGuideKeyForBase,
   type PrGuideMetadata,
   type PrGuideMetadataRequest,
-  type PrGuideStatus,
+  type ReviewGuideStatusEvent,
 } from '@solus/contracts/review'
-import { resolveStackDiffBase, type StackGraph } from '@solus/contracts/stack-types'
+import { type StackGraph } from '@solus/contracts/stack-types'
 import { SOLUS_WORKTREE_DIR, type IpcContext } from '@solus/contracts/types'
-import { fetchAndCheckoutPr, getHeadCommit, listProjectWorktrees, type PrWorktree } from '../git/worktree-manager'
+import { fetchAndCheckoutPr, listProjectWorktrees } from '../git/worktree-manager'
 import { createLogger } from '../logger'
 import type { Provider, RepoRef } from '../providers/types'
-import { generateGuide } from './guide-producer'
-import { readGuideByKey } from './ledger'
-import { guideKeyFor } from './review-target'
+import { prGuideJobs } from './pr-guide-jobs'
+import { readPrGuide } from './pr-guide-store'
+import { currentPrGuideTarget } from './pr-guide-context'
 import type { AgentDispatcher } from '../agents/agent-runner'
 
 const log = createLogger('review', 'guide-warmer.ts')
@@ -29,6 +28,7 @@ interface GuideWarmerInput {
   openPullRequests: PullRequest[]
   graph: StackGraph
   isWorktreeInUse: (path: string) => boolean
+  onStatus: (event: ReviewGuideStatusEvent) => void
 }
 
 interface HeadObservation {
@@ -43,9 +43,7 @@ interface RepoWarmState {
 
 const repoStates = new Map<string, RepoWarmState>()
 const queuedGuides = new Set<string>()
-const queuedRequests = new Set<string>()
 const queuedPrefetches = new Set<string>()
-let guideTail = Promise.resolve()
 let prefetchTail = Promise.resolve()
 
 export interface PrGuideRequest {
@@ -56,7 +54,7 @@ export interface PrGuideRequest {
   provider: Provider
   graph: StackGraph | null
   isWorktreeInUse: (path: string) => boolean
-  onStatus: (number: number, status: PrGuideStatus, metadata?: PrGuideMetadata) => void
+  onStatus: (event: ReviewGuideStatusEvent) => void
 }
 
 /**
@@ -65,71 +63,37 @@ export interface PrGuideRequest {
  * serialized queue so only one guide generates at a time.
  */
 export function requestPrGuides(request: PrGuideRequest, numbers: number[]): void {
-  for (const number of numbers) {
-    const key = `${request.repoRoot}::${number}`
-    if (queuedRequests.has(key)) continue
-    queuedRequests.add(key)
-    request.onStatus(number, 'queued')
-    guideTail = guideTail
-      .then(async () => {
-        request.onStatus(number, 'generating')
-        const metadata = await generateRequestedGuide(request, number)
-        request.onStatus(number, 'ready', metadata ?? undefined)
-      })
-      .catch((err) => {
-        log.warn('requested_guide_failed', { prNumber: number, error: errorMessage(err) })
-        request.onStatus(number, 'failed')
-      })
-      .finally(() => queuedRequests.delete(key))
+  for (const number of new Set(numbers)) {
+    prGuideJobs.request({
+      dispatcher: request.dispatcher,
+      ctx: request.ctx,
+      opts: {
+        target: { kind: 'pr', ...request.repo, number },
+        agent: request.ctx.settings.reviewAgent ?? request.ctx.settings.activeAgent,
+        model: request.ctx.settings.reviewModel,
+        reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
+      },
+      onStatus: request.onStatus,
+    })
   }
 }
 
-async function generateRequestedGuide(request: PrGuideRequest, number: number): Promise<PrGuideMetadata | null> {
-  const detail = await request.provider.review.getPullRequest(request.repo, number)
-  if (detail.state !== 'open') throw new Error(`PR #${number} is not open`)
-  const diffBase = request.graph ? resolveStackDiffBase(request.graph, number, '') : null
-  const ownDelta = diffBase?.kind === 'own-delta' && diffBase.parent
-    ? { parent: diffBase.parent, headSha: diffBase.ref }
-    : null
-  const checkout = await checkoutForGuide(request.repoRoot, request.isWorktreeInUse, detail)
-  if (!checkout) throw new Error(`PR #${number}'s review worktree is busy on a different commit`)
-  const ctx = contextForPr(request.ctx, request.repoRoot, detail, checkout)
-  const generated = await generateGuide(request.dispatcher, ctx, {
-    agent: request.ctx.settings.reviewAgent ?? request.ctx.settings.activeAgent,
-    model: request.ctx.settings.reviewModel,
-    reasoningEffort: request.ctx.settings.reviewReasoning ?? 'medium',
-    scope: 'branch',
-    ownDeltaBase: ownDelta ?? undefined,
-  })
-  if (!generated?.persisted) return null
-  return {
-    number,
-    headSha: generated.guide.headSha,
-    generatedAt: generated.guide.generatedAt ?? null,
-    current: generated.guide.headSha === detail.headSha,
-  }
-}
-
-/** Read locally cached guide metadata for a PR page without checking out the
- *  PRs or contacting the provider. The live stack graph selects the same cache
- *  key as generation, so a moved stacked base correctly appears guide-less. */
+/** Metadata reads use the same PR identity and both provider revisions as the
+ * pane. No checkout is required to read an existing guide. */
 export async function readPrGuideMetadata(
-  repoRoot: string,
-  graph: StackGraph | null,
+  ctx: IpcContext,
+  repo: RepoRef,
   request: PrGuideMetadataRequest,
 ): Promise<PrGuideMetadata | null> {
-  const diffBase = resolveStackDiffBase(graph, request.number, '')
-  const key = reviewGuideKeyForBase(
-    guideKeyFor({ branch: `solus/pr-${request.number}` }, 'branch', null),
-    diffBase.kind === 'own-delta' ? diffBase.ref : null,
-  )
-  const guide = await readGuideByKey(repoRoot, key)
+  const target = { kind: 'pr' as const, ...repo, number: request.number }
+  const current = await currentPrGuideTarget(target)
+  const guide = await readPrGuide(ctx, current)
   if (!guide) return null
   return {
     number: request.number,
     headSha: guide.headSha,
     generatedAt: guide.generatedAt ?? null,
-    current: guide.headSha === request.headSha,
+    current: guide.headSha === current.headSha && guide.baseSha === current.baseSha,
   }
 }
 
@@ -191,8 +155,7 @@ function enqueueGuide(repoRoot: string, number: number, headSha: string): void {
   const key = `${repoRoot}::${number}::${headSha}`
   if (queuedGuides.has(key)) return
   queuedGuides.add(key)
-  guideTail = guideTail
-    .then(() => warmGuide(repoRoot, number, headSha))
+  void warmGuide(repoRoot, number, headSha)
     .catch((err) => {
       log.warn('guide_warm_failed', { prNumber: number, error: errorMessage(err) })
       scheduleRetry(repoRoot, number, headSha)
@@ -216,55 +179,21 @@ async function warmGuide(repoRoot: string, number: number, headSha: string): Pro
   const pr = input?.openPullRequests.find((candidate) => candidate.number === number)
   if (!input || input.ctx.settings.reviewWarmingEnabled !== true || pr?.headSha !== headSha || pr.draft) return
 
-  const diffBase = resolveStackDiffBase(input.graph, number, '')
-  const guideKey = reviewGuideKeyForBase(
-    guideKeyFor({ branch: `solus/pr-${number}` }, 'branch', null),
-    diffBase.kind === 'own-delta' ? diffBase.ref : null,
-  )
-  const cached = await readGuideByKey(repoRoot, guideKey)
-  // Re-check after acquiring the global model slot: a foreground generation may
-  // have filled the same cache while this task waited.
-  if (cached?.headSha === headSha) return
-
-  const detail = await input.provider.review.getPullRequest(input.repo, number)
-  if (detail.state !== 'open' || detail.draft || detail.headSha !== headSha) return
-  const checkout = await checkoutForGuide(input.repoRoot, input.isWorktreeInUse, detail)
-  if (!checkout) {
-    scheduleRetry(repoRoot, number, headSha)
-    return
-  }
-
-  const ctx = contextForPr(input.ctx, repoRoot, detail, checkout)
-  await generateGuide(input.dispatcher, ctx, {
-    agent: input.ctx.settings.reviewAgent ?? input.ctx.settings.activeAgent,
-    model: input.ctx.settings.reviewModel,
-    reasoningEffort: input.ctx.settings.reviewReasoning ?? 'medium',
-    scope: 'branch',
-    ownDeltaBase: diffBase.kind === 'own-delta' && diffBase.parent
-      ? { parent: diffBase.parent, headSha: diffBase.ref }
-      : undefined,
-  })
-}
-
-async function checkoutForGuide(
-  repoRoot: string,
-  isWorktreeInUse: (path: string) => boolean,
-  detail: PullRequest,
-): Promise<PrWorktree | null> {
-  const existing = findPrWorktree(repoRoot, detail)
-  if (existing && isWorktreeInUse(existing.path)) {
-    if (getHeadCommit(existing.path) !== detail.headSha) return null
-    return {
-      worktreePath: existing.path,
-      branch: existing.branch,
-      baseSha: detail.baseSha,
-      headSha: detail.headSha,
-    }
-  }
-  return fetchAndCheckoutPr(repoRoot, detail.number, detail.baseRef, {
-    headRef: detail.headRef,
-    isFork: detail.headRepo.isFork,
-  })
+  const target = { kind: 'pr' as const, ...input.repo, number }
+  const status = await prGuideJobs.status(input.ctx, target)
+  if (status && ['queued', 'generating', 'ready'].includes(status.status)) return
+  const result = await prGuideJobs.request({
+    dispatcher: input.dispatcher,
+    ctx: input.ctx,
+    opts: {
+      target,
+      agent: input.ctx.settings.reviewAgent ?? input.ctx.settings.activeAgent,
+      model: input.ctx.settings.reviewModel,
+      reasoningEffort: input.ctx.settings.reviewReasoning ?? 'medium',
+    },
+    onStatus: input.onStatus,
+  }).completion
+  if (!result?.persisted) scheduleRetry(repoRoot, number, headSha)
 }
 
 async function prefetchWorktree(repoRoot: string, number: number, headSha: string): Promise<void> {
@@ -297,42 +226,6 @@ function scheduleRetry(repoRoot: string, number: number, headSha: string): void 
     observation.timer = null
     enqueueGuide(repoRoot, number, headSha)
   }, HEAD_STABLE_MS)
-}
-
-function contextForPr(
-  ctx: IpcContext,
-  repoRoot: string,
-  detail: PullRequest,
-  checkout: PrWorktree,
-): IpcContext {
-  return {
-    ...ctx,
-    session: {
-      ...ctx.session,
-      workingDirectory: checkout.worktreePath,
-      projectPath: repoRoot,
-      gitContext: {
-        branch: checkout.branch,
-        targetBranch: detail.baseRef,
-        worktreePath: checkout.worktreePath,
-        repoRoot,
-      },
-      prReview: {
-        host: detail.baseRepo?.host ?? 'github.com',
-        owner: detail.baseRepo?.owner ?? '',
-        repo: detail.baseRepo?.repo ?? '',
-        number: detail.number,
-        title: detail.title,
-        baseRef: detail.baseRef,
-        headRef: detail.headRef,
-        headSha: checkout.headSha,
-        baseSha: checkout.baseSha,
-        headRepo: detail.headRepo,
-        worktreePath: checkout.worktreePath,
-        branch: checkout.branch,
-      },
-    },
-  }
 }
 
 function errorMessage(err: Parameters<typeof String>[0]): string {

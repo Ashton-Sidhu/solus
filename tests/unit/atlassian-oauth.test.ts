@@ -80,6 +80,11 @@ describe('Atlassian OAuth state', () => {
     expect(scope).toContain('read:space:confluence')
     expect(scope).toContain('read:page:confluence')
     expect(scope).toContain('write:page:confluence')
+    expect(scope).toContain('read:comment:confluence')
+    expect(scope).toContain('write:comment:confluence')
+    expect(scope).toContain('delete:comment:confluence')
+    expect(scope).toContain('read:user:confluence')
+    expect(scope).toContain('read:confluence-user')
     // CQL search has no v2 endpoint, so its classic scope has to survive too.
     expect(scope).toContain('search:confluence')
   })

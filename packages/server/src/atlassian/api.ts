@@ -27,7 +27,7 @@ export interface AtlassianRequest {
   cloudId: string
   /** Product-relative, e.g. `/rest/api/3/issue/ACME-1`. */
   path: string
-  method?: 'GET' | 'POST' | 'PUT'
+  method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   query?: Record<string, string>
   /** JSON, or a `FormData` for the attachment endpoints — sent as multipart
    *  with the boundary `fetch` derives, plus the XSRF header Atlassian

@@ -555,6 +555,29 @@ describe('CodexTurnNormalizer', () => {
     })).toEqual([])
   })
 
+  // Codex writes JSON null for an absent window and an unreached limit. The
+  // schema asked for `.optional()`, which rejects null, so every real snapshot
+  // failed to parse and this normalizer returned nothing at all — leaving the
+  // terminal error's guess as the only limit any surface ever saw.
+  test('parses a snapshot whose absent fields are null, not missing', () => {
+    expect(normalizeCodexNotification('account/rateLimits/updated', {
+      rateLimits: {
+        limitId: 'codex',
+        limitName: null,
+        primary: { usedPercent: 100, windowDurationMins: 10_080, resetsAt: 1789446377 },
+        secondary: null,
+        credits: { hasCredits: false, unlimited: false, balance: '0' },
+        individualLimit: null,
+        spendControlReached: null,
+        planType: 'prolite',
+        rateLimitReachedType: null,
+      },
+    })).toMatchObject([
+      { type: 'usage_limits', windows: [{ windowDurationMins: 10_080, usedPercent: 100 }] },
+      { type: 'rate_limit', status: 'limited', rateLimitType: 'Codex weekly' },
+    ])
+  })
+
   test('reports a window only once it is spent, never while it fills', () => {
     setSystemTime(new Date('2026-01-01T12:00:00Z'))
     const window = (usedPercent: number) => ({
@@ -564,13 +587,24 @@ describe('CodexTurnNormalizer', () => {
     })
 
     // Codex reports every update. A window with room left is the sidebar usage
-    // meters' business, so none of these reach the transcript.
-    expect(normalizeCodexNotification('account/rateLimits/updated', window(60))).toEqual([])
-    expect(normalizeCodexNotification('account/rateLimits/updated', window(99))).toEqual([])
+    // meters' business, so no limit reaches the transcript — but the reset it
+    // carries still feeds the store, which is the only thing that will know
+    // when this window reopens once it is spent.
+    const filling = [{
+      type: 'usage_limits',
+      windows: [{ windowDurationMins: 300, usedPercent: 60, resetsAt: 1767272520_000 }],
+    }]
+    expect(normalizeCodexNotification('account/rateLimits/updated', window(60))).toEqual(filling)
+    expect(normalizeCodexNotification('account/rateLimits/updated', window(99)))
+      .toEqual([{ ...filling[0], windows: [{ ...filling[0].windows[0], usedPercent: 99 }] }])
 
     // Spent is a different fact: it stops the next run, so it is said out loud.
+    // Both events retain the raw provider reset.
     expect(normalizeCodexNotification('account/rateLimits/updated', window(100)))
-      .toMatchObject([{ type: 'rate_limit', status: 'limited', rateLimitType: 'Codex 5h' }])
+      .toMatchObject([
+        { type: 'usage_limits' },
+        { type: 'rate_limit', status: 'limited', rateLimitType: 'Codex 5h', resetsAt: 1767272520, windowDurationMins: 300 },
+      ])
   })
 
   test('tracks account and failed-turn rate limits in the summary', async () => {
@@ -579,18 +613,24 @@ describe('CodexTurnNormalizer', () => {
 
     expect(events).toEqual([
       {
+        type: 'usage_limits',
+        windows: [{ windowDurationMins: 300, usedPercent: 100, resetsAt: 1767269100_000 }],
+      },
+      {
         type: 'rate_limit',
         status: 'limited',
-        resetsAt: 1767269220,
+        resetsAt: 1767269100,
         rateLimitType: 'Codex 5h',
         windowDurationMins: 300,
         isUsingOverage: false,
         deferCurrentRun: true,
       },
+      // The failed turn names no window and gives no readable reset — its
+      // "try again at 1:00 PM" is the prose this normalizer no longer parses.
       {
         type: 'rate_limit',
         status: 'limited',
-        resetsAt: 1767272520,
+        resetsAt: null,
         rateLimitType: 'usage_limit_exceeded',
         isUsingOverage: false,
       },

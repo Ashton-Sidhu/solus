@@ -8,26 +8,20 @@ import type { HostEventPublisher } from '../../events/host-event-publisher'
 import type { IpcContext } from '@solus/contracts/types'
 import type { ReviewGuideRequestOptions, ReviewTarget } from '@solus/contracts/review'
 import { reviewSessionStatus } from '../../review/session-lifecycle'
+import { prGuideJobs } from '../../review/pr-guide-jobs'
+import { readPrGuide } from '../../review/pr-guide-store'
+import { publishPrGuideStatus } from '../../review/pr-guide-events'
 
 export function registerReviewHandlers(
   server: SolusServer,
   dispatcher: AgentDispatcher,
   events: HostEventPublisher,
-  preparePr?: (
-    ctx: IpcContext,
-    target: Extract<ReviewTarget, { kind: 'pr' }>,
-  ) => Promise<{ ctx: IpcContext; target: Extract<ReviewTarget, { kind: 'pr' }> }>,
 ): void {
-  const resolveRequest = async (
-    ctx: IpcContext,
-    opts: ReviewGuideRequestOptions | undefined,
-  ): Promise<{ ctx: IpcContext; opts: ReviewGuideRequestOptions | undefined }> => {
-    if (!preparePr || opts?.target?.kind !== 'pr') return { ctx, opts }
-    const requestedTarget = opts.regenerationBaseSha && opts.target.headSha
-      ? { ...opts.target, baseSha: opts.regenerationBaseSha }
-      : opts.target
-    const prepared = await preparePr(ctx, requestedTarget)
-    return { ctx: prepared.ctx, opts: { ...opts, target: prepared.target } }
+  const prTargetFor = (ctx: IpcContext, opts?: ReviewGuideRequestOptions): Extract<ReviewTarget, { kind: 'pr' }> | null => {
+    if (opts?.target?.kind === 'pr') return opts.target
+    if (opts?.scope === 'session' || opts?.target) return null
+    const pr = ctx.session.prReview
+    return pr ? { kind: 'pr', host: pr.host, owner: pr.owner, repo: pr.repo, number: pr.number } : null
   }
   server.register('readLedger', async (args) => {
     const [ctx] = args
@@ -48,11 +42,15 @@ export function registerReviewHandlers(
 
   server.register('generateGuide', async (args) => {
     const [ctx, opts] = args
-    const resolved = await resolveRequest(ctx, opts)
+    const target = prTargetFor(ctx, opts)
+    if (target) return prGuideJobs.request({
+      dispatcher, ctx, opts: { ...opts, target },
+      onStatus: (event) => publishPrGuideStatus(events, event),
+    }).completion
     return generateGuide(
       dispatcher,
-      resolved.ctx,
-      resolved.opts,
+      ctx,
+      opts,
       (event) => events.broadcast('review.progressChanged', event),
       (event) => events.broadcast('review.guideStatusChanged', event),
     )
@@ -60,9 +58,10 @@ export function registerReviewHandlers(
 
   server.register('requestReviewGuide', async (args) => {
     const [ctx, opts] = args
-    const resolved = await resolveRequest(ctx, opts)
+    const target = prTargetFor(ctx, opts)
     const reportStatus = (event: import('@solus/contracts/review').ReviewGuideStatusEvent) => {
-      events.broadcast('review.guideStatusChanged', event)
+      if (target) publishPrGuideStatus(events, event)
+      else events.broadcast('review.guideStatusChanged', event)
       if (!opts?.reportSessionLifecycle) return
       events.broadcast('session.statusChanged', {
         sessionId: ctx.session.sessionId,
@@ -71,10 +70,11 @@ export function registerReviewHandlers(
         at: Date.now(),
       })
     }
+    if (target) return prGuideJobs.request({ dispatcher, ctx, opts: { ...opts, target }, onStatus: reportStatus }).status
     const result = await requestReviewGuide(
       dispatcher,
-      resolved.ctx,
-      resolved.opts,
+      ctx,
+      opts,
       (event) => events.broadcast('review.progressChanged', event),
       reportStatus,
     )
@@ -91,22 +91,28 @@ export function registerReviewHandlers(
 
   server.register('reviewGuideStatus', async (args) => {
     const [ctx, opts] = args
-    const resolved = await resolveRequest(ctx, opts)
-    return getReviewGuideStatus(resolved.ctx, resolved.opts)
+    const target = prTargetFor(ctx, opts)
+    return target ? prGuideJobs.status(ctx, target) : getReviewGuideStatus(ctx, opts)
   })
 
   server.register('cancelGenerateGuide', async (args) => {
     const [ctx, opts] = args
-    const resolved = await resolveRequest(ctx, opts)
+    const target = prTargetFor(ctx, opts)
+    if (target) return prGuideJobs.cancel(target)
     return cancelGenerateGuide(
-      resolved.ctx,
-      resolved.opts,
+      ctx,
+      opts,
       (event) => events.broadcast('review.guideStatusChanged', event),
     )
   })
 
   server.register('readGuide', async (args) => {
-    const [ctx, key] = args
+    const [ctx, key, target] = args
+    const legacy = !target ? prTargetFor(ctx) : null
+    const branchKey = ctx.session.prReview?.branch.replace(/\//g, '__')
+    const isLegacyPrKey = !!branchKey && (key === branchKey || key.startsWith(`${branchKey}--base-`))
+    const pr = target?.kind === 'pr' ? target : isLegacyPrKey ? legacy : null
+    if (pr) return readPrGuide(ctx, pr)
     const repoRoot = await reviewRepoRoot(ctx)
     if (!repoRoot) return null
     const current = await readGuideByKey(repoRoot, key)

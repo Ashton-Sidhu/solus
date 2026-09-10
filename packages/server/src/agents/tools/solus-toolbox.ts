@@ -1,3 +1,4 @@
+import { readExternalDocCommentsAgentTool, writeExternalDocCommentAgentTool } from '../../docs/comment-tools'
 import {
   createWorkAgentTool,
   findWorksAgentTool,
@@ -81,6 +82,8 @@ export const solusToolbox = {
     pullUpstream: pullWorkUpstreamAgentTool,
   },
   docs: {
+    readComments: readExternalDocCommentsAgentTool,
+    writeComment: writeExternalDocCommentAgentTool,
     search: searchExternalDocAgentTool,
     read: readExternalDocAgentTool,
     create: createExternalDocAgentTool,

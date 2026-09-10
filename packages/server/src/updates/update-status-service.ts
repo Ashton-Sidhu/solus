@@ -35,6 +35,11 @@ export class UpdateStatusService {
     }
   }
 
+  setServerUpdate(support: import('@solus/contracts/server-update').ServerUpdateSupport): void {
+    this.status.serverUpdate = support
+    if (!this.stopped) this.deps.publish(structuredClone(this.status))
+  }
+
   start(): void {
     if (this.firstTimer || this.interval) return
     this.stopped = false
@@ -93,10 +98,9 @@ export class UpdateStatusService {
       const latest = await this.deps.latest(target)
       if (target === 'solus') {
         this.status.releaseUrl = latest.url
-        this.status.remediation = this.status.install === 'homebrew'
-          ? 'Run brew upgrade solus-server on this host, then restart it.'
-          : this.status.install === 'tarball' ? 'Run solus update on this host, then restart it.'
-            : `Install Solus ${latest.version} on this host.`
+        this.status.remediation = this.status.install === 'managed'
+          ? 'Run solus update on this host, or use Update Solus from a connected client.'
+          : `Install Solus ${latest.version} on this host.`
       }
       this.apply(target, { kind: 'result', current, latest: latest.version, now: this.now() })
     } catch (error) {

@@ -57,8 +57,11 @@ afterAll(() => {
   rmSync(dataDir, { recursive: true, force: true })
 })
 
+type SessionController = Parameters<SessionToolsModule['setSessionController']>[0]
+let controller: SessionController
+
 function installController(): void {
-  sessionTools.setSessionController({
+  controller = {
     listSessions: async () => [],
     getSessionInfo: async (sessionId) => (sessionId === PEER.sessionId ? PEER : { ...PEER, sessionId, slug: 'caller' }),
     loadSessionTail: async () => [],
@@ -75,7 +78,8 @@ function installController(): void {
       { planToolUseId: 'toolu_1', sessionId: 'peer-1', projectPath: CWD, cwd: CWD, timestamp: 2, title: 'Evict on write', excerpt: '', status: 'pending' as const, commentCount: 0, bookmarked: false, revisions: [] },
     ],
     invalidatePlanCaches: () => {},
-  })
+  }
+  sessionTools.setSessionController(controller)
 }
 
 async function seedPlan(): Promise<void> {
@@ -170,6 +174,22 @@ describe('authorship', () => {
       author: 'solus',
       authorAgent: { sessionId: 'caller-1', title: 'caller', provider: 'codex' },
     })
+  })
+
+  test('an unnamed Codex thread signs as Solus, never with the user prompt it reports as its name', async () => {
+    // Codex reports an unnamed thread's first message as both `slug` and
+    // `firstMessage`; that prompt carries Solus's injected task context.
+    const prompt = 'what would a similar change look like for confluence?\n\n[Working On Task "Sync"]'
+    sessionTools.setSessionController({
+      ...controller,
+      getSessionInfo: async (sessionId) => ({ ...PEER, sessionId, slug: prompt, firstMessage: prompt }),
+    })
+    await run('comment_document', {
+      target_id: PLAN_ID,
+      comments: [{ quote: 'Swap under a read lock', comment: 'and the writers?' }],
+    })
+    const saved = await planAnnotations.loadAnnotations('peer-1', 'toolu_1')
+    expect(saved!.comments[0].authorAgent).toEqual({ sessionId: 'caller-1', provider: 'codex' })
   })
 })
 

@@ -239,6 +239,8 @@ export const RPC_INVOKE_METHODS = [
   // Host and provider updates: the host's own release check and its CLIs'
   'hostUpdateStatus',
   'hostCheckForUpdates',
+  'hostInstallUpdate',
+  'hostCancelUpdate',
 
   // Attention (server-side per-session needs-attention state; outlives clients)
   'listAttention',
@@ -259,6 +261,12 @@ export const RPC_INVOKE_METHODS = [
   'promoteWorkToProject',
   'loadWorkAnnotations',
   'saveWorkAnnotations',
+  'readWorkGoogleComments',
+  'refreshWorkGoogleComments',
+  'sendWorkGoogleComment',
+  'readWorkExternalComments',
+  'refreshWorkExternalComments',
+  'sendWorkExternalComment',
   'agentSaveWork',
   'loadWorkPrevious',
   'revertWork',

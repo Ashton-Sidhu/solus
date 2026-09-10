@@ -1,5 +1,6 @@
+import { formatExternalThreads, refreshWorkExternalComments } from './work-comments'
 import { z } from 'zod'
-import { listWorks, loadWork, agentSaveWork, createWork } from './works'
+import { GOOGLE_WORK_READ_ONLY, listWorks, loadWork, agentSaveWork, createWork } from './works'
 import { searchWorks } from './work-search'
 import { loadWorkAnnotations } from './work-annotations'
 import { formatOpenThreads } from '../annotations/comment-tools'
@@ -112,6 +113,7 @@ const CREATE_DESC = [
   DIAGRAM_GUIDANCE,
 ].join('\n')
 const UPDATE_DESC = [
+  'Google-linked works are read-only in Solus. Edit in Google Docs and pull the latest content; local and shared comments remain available.',
   'Replace the content (and optionally the title) of an existing work by id. Use this to revise a document, diagram, or HTML artifact the user is looking at — never create a new work to revise one that already exists.',
   'The `content` arg takes the same payload shapes as create_work; see its description for the diagram contract. For an artifact, `content` is the full self-contained HTML document.',
   'Call read_work first so you revise the latest version, and carry forward any standalone work://embed link and any fenced ```html block already in the content — both are live renders, not stale text.',
@@ -272,10 +274,11 @@ export async function executeWorkTool(
       // Surface the open threads alongside the content so the agent sees
       // feedback without the user having to paste it into chat. Rendered by the
       // same formatter as read_plan, so both read identically.
+      if (work.mirroredDoc) await refreshWorkExternalComments(workId)
       const annotations = await loadWorkAnnotations(workId)
       return {
         ok: true,
-        text: `Work "${work.title}" (${work.type}, id: ${work.id})${embedTokenNote(work.id, work.title, work.type)}:\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}`,
+        text: `Work "${work.title}" (${work.type}, id: ${work.id})${embedTokenNote(work.id, work.title, work.type)}${work.mirroredDoc?.provider === 'gdrive' ? `\n${GOOGLE_WORK_READ_ONLY}` : ''}:\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}${formatExternalThreads(work.mirroredDoc?.provider === annotations?.externalComments?.provider && work.mirroredDoc?.externalId === annotations?.externalComments?.documentId && work.mirroredDoc?.externalKey === annotations?.externalComments?.externalKey ? annotations?.externalComments : undefined)}`,
       }
     }
 

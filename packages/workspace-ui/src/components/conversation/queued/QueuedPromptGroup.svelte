@@ -16,15 +16,15 @@
   const sess = $derived(session.sessionFor(tabId));
   const prompts = $derived(sess?.outboundPrompts ?? []);
   const isRateLimited = $derived(sess?.status === "rate_limited");
-  const resetsAt = $derived(
-    sess?.rateLimitInfo?.resetsAt ??
-      prompts.find((prompt) => prompt.releaseAt)?.releaseAt,
-  );
   // The held prompt carries the window it was queued against, which survives a
   // reconnect that drops rateLimitInfo.
   const rateLimitType = $derived(
     sess?.rateLimitInfo?.rateLimitType ??
       prompts.find((prompt) => prompt.rateLimitType)?.rateLimitType,
+  );
+  const resetsAt = $derived(
+    sess?.rateLimitInfo?.resetsAt ??
+      prompts.find((prompt) => prompt.releaseAt)?.releaseAt,
   );
 
   // One timer for the whole queue rather than one per held prompt. It must not

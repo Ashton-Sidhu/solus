@@ -14,7 +14,14 @@
   const skin = $derived(chipSkin(chip.tint, chip.emphasis));
 </script>
 
-{#if chip.labelColor}
+{#if chip.iconOnly && chip.icon}
+  <span role="img" aria-label={chip.label} title={chip.label} class="inline-flex h-[1.5em] shrink-0 items-center justify-center gap-[0.2em] text-workspace-chrome" style="color: {skin.color}">
+    <chip.icon class="size-[1em]" aria-hidden="true" />
+    {#if chip.statusIcon}
+      <chip.statusIcon class={chip.spinning ? "size-[0.65em] animate-spin motion-reduce:animate-none" : "size-[0.65em]"} aria-hidden="true" />
+    {/if}
+  </span>
+{:else if chip.labelColor}
   <LabelChip label={chip.label} color={chip.labelColor} class="shrink-0 text-xs whitespace-nowrap" />
 {:else}
   <span

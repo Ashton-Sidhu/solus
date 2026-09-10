@@ -1,4 +1,6 @@
 <script lang="ts">
+  import type { ReviewGuideStatus } from "@solus/contracts/review";
+  import { LoaderCircle, BookOpenCheck, BookOpen, TriangleAlert } from "@lucide/svelte";
   /**
    * Which view of the change you are reading: Activity · Guide · Diff.
    *
@@ -11,6 +13,7 @@
     tab,
     diffOpen,
     guideDisabled = false,
+    guideStatus,
     guideDisabledReason,
     tabsDisabled = false,
     diffHint,
@@ -23,6 +26,7 @@
     /** Whether the change is showing, wherever this surface puts it. */
     diffOpen: boolean;
     guideDisabled?: boolean;
+    guideStatus?: ReviewGuideStatus;
     guideDisabledReason?: string;
     /** The host target is still loading, so revision-backed tabs are not ready. */
     tabsDisabled?: boolean;
@@ -57,21 +61,31 @@
       type="button"
       role="tab"
       aria-selected={isActive}
+      aria-label={t.id === "guide" && guideStatus ? `Guide: ${guideStatus}` : t.label}
       disabled={(t.id === "guide" && guideDisabled) ||
         (t.id !== "activity" && tabsDisabled)}
       title={t.id === "guide" && guideDisabled
         ? guideDisabledReason
         : t.id !== "activity" && tabsDisabled
-          ? "Checking out this PR's worktree…"
+          ? "Loading PR details…"
           : t.id === "diff"
             ? diffHint
             : undefined}
-      class="h-7 cursor-pointer rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 pointer-fine:[.is-laptop-display_&]:h-6.5 {isActive
+      class="inline-flex items-center gap-1 h-7 cursor-pointer rounded-lg px-2 text-workspace-chrome transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)] disabled:cursor-not-allowed disabled:opacity-40 pointer-coarse:h-10 @min-[34rem]/band:px-2.5 @min-[53.75rem]/band:px-3 pointer-fine:[.is-laptop-display_&]:h-6.5 {isActive
         ? 'bg-[var(--wash-2)] font-medium text-foreground'
         : 'bg-transparent font-normal text-muted-foreground hover:text-foreground'}"
       onclick={() => onSelect(t.id)}
     >
       {t.label}
+      {#if t.id === "guide"}
+        {#if guideStatus === "queued" || guideStatus === "generating"}
+          <LoaderCircle size={12} aria-hidden="true" class="animate-spin motion-reduce:animate-none" />
+        {:else if guideStatus === "ready"}
+          <BookOpenCheck size={15} aria-hidden="true" />
+        {:else if guideStatus === "outdated" || guideStatus === "failed" || guideStatus === "cancelled"}
+          <BookOpen size={15} aria-hidden="true" /><TriangleAlert size={10} aria-hidden="true" />
+        {/if}
+      {/if}
     </button>
   {/each}
 </div>

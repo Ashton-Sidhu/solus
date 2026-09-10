@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
   import type { FileDiffMetadata } from "@pierre/diffs";
-  import type { PrGuideStatus, ReviewContext, ReviewTarget } from "@solus/contracts/review";
+  import type { ReviewContext, ReviewTarget } from "@solus/contracts/review";
   import type { DiffComment, DiffScope } from "@solus/contracts/types";
   import {
     getAgentContext,
@@ -13,6 +13,7 @@
   import type { ReviewView } from "../../contexts/workspace/routing/route-registry";
   import type { PaneId } from "../../contexts/workspace/routing/location";
   import { resolveReviewAgent } from "../../lib/reviewAgent";
+  import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import DiffPanel from "../diff/DiffPanel.svelte";
@@ -22,6 +23,7 @@
   import { GuideLoader } from "./lib/guide-loader.svelte";
   import {
     branchGuideIdentity,
+    prGuideIdentity,
     reviewGuideStore,
     sessionGuideIdentity,
     type ReviewGuideIdentity,
@@ -179,12 +181,14 @@
 
   // ── The guide ─────────────────────────────────────────────────────────────
   const guideIdentity = $derived.by((): ReviewGuideIdentity | null => {
+    if (target?.kind === "pr") {
+      return prGuideIdentity(checkoutRepoRoot ?? environment.repoRoot ?? environment.cwd, target);
+    }
     if (target && checkoutRepoRoot && guideKeyOverride) {
       return {
         repoRoot: checkoutRepoRoot,
         key: guideKeyOverride,
         target,
-        headSha: target.kind === "pr" ? target.headSha : undefined,
       };
     }
     return guideScope === "session"
@@ -193,6 +197,8 @@
   });
   const guideKey = $derived(guideIdentity?.key ?? "");
 
+  let checkedRevision = $state<string | null>(null);
+  const currentRevision = $derived(JSON.stringify([getServerId(), guideIdentity?.repoRoot, guideKey, targetPullRequest?.headSha, targetPullRequest?.baseSha]));
   const loader = new GuideLoader({
     getApi,
     getServerId,
@@ -200,6 +206,11 @@
     getKey: () => guideKey,
     getScope: () => guideScope,
     getTarget: () => target,
+    getCurrentRevision: () => target?.kind === "pr"
+      ? guideStatus?.baseSha && !generating && checkedRevision === currentRevision
+        ? { headSha: guideStatus.headSha, baseSha: guideStatus.baseSha }
+        : target
+      : reviewContext,
     getAgent: () => resolveReviewAgent(settings),
     getResolvedReviewContext: () => reviewContext,
     // The panel below is showing a comparison of its own. Where that is the
@@ -226,20 +237,21 @@
   const generating = $derived(
     guideStatus?.status === "queued" || guideStatus?.status === "generating",
   );
-  // The guide surface speaks the pull-request vocabulary, which has no
-  // `cancelled`: a cancelled generation is simply one that is no longer running.
-  const generationStatus = $derived<PrGuideStatus | undefined>(
-    guideStatus?.status === "cancelled" ? undefined : guideStatus?.status,
-  );
+  const generationStatus = $derived(guideStatus?.status);
   $effect(() => {
-    if (!guideIdentity) return;
-    void reviewGuideStore.load(
-      getApi(),
-      getServerId(),
-      getCtx(),
-      guideIdentity,
-      target ?? guideScope,
-    );
+    const identity = guideIdentity;
+    const revision = currentRevision;
+    const api = getApi();
+    const serverId = getServerId();
+    const context = getCtx();
+    const request = target ?? guideScope;
+    if (!identity) return;
+    let current = true;
+    void untrack(() => reviewGuideStore.load(api, serverId, context, identity, request))
+      .then(() => {
+        if (current && !reviewGuideStore.loadErrorFor(serverId, identity)) checkedRevision = revision;
+      });
+    return () => { current = false; };
   });
   $effect(() => loader.trackProgress());
 
@@ -248,7 +260,7 @@
   $effect(() => {
     void guideKey;
     if (!guideKey) return;
-    void untrack(() => loader.load(false, false));
+    void untrack(() => loader.load(false, false)).catch(() => {});
   });
 
   // A generation that finished — here or in the Git panel — while this pane sat
@@ -260,7 +272,7 @@
     if (status?.status !== "ready" || status.updatedAt === handledReadyAt) return;
     if (loader.loading) return;
     handledReadyAt = status.updatedAt;
-    void loader.load(false, false);
+    void loader.load(false, false).catch(() => {});
   });
 
   async function generateGuide() {
@@ -276,6 +288,18 @@
       toasts.error("Couldn't generate the review guide", {
         description: error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      requestInputFocus();
+    }
+  }
+
+  async function cancelGuide() {
+    try {
+      await reviewGuideStore.cancel(getApi(), getCtx(), target ?? guideScope);
+    } catch (error) {
+      toasts.error("Couldn't cancel the review guide", { description: String(error) });
+    } finally {
+      requestInputFocus();
     }
   }
 
@@ -297,12 +321,16 @@
     stale: loader.stale,
     regenerating: loader.loading || generating,
     onRegenerate: (mode: "full" | "new-commits") => {
+      if (target?.kind === "pr") {
+        void generateGuide();
+        return;
+      }
       toasts.info("Started generating the review guide");
       void loader.refresh(mode).catch((error) => {
         toasts.error("Couldn't generate the review guide", {
           description: error instanceof Error ? error.message : String(error),
         });
-      });
+      }).finally(() => requestInputFocus());
     },
   });
 
@@ -377,6 +405,9 @@
     }}
     emptyHint={guideEmptyHint(files.length)}
     generationStatus={generationStatus}
+    generationEvent={guideStatus ?? undefined}
+    unavailable={reviewGuideStore.reconnectingFor(getServerId()) || !!reviewGuideStore.loadErrorFor(getServerId(), guideIdentity)}
+    onCancel={cancelGuide}
     onGenerate={generateGuide}
   />
 {/snippet}

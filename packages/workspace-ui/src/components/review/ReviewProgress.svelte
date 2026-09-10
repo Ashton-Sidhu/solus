@@ -5,24 +5,23 @@
     type ReviewProgressStep,
   } from "@solus/contracts/review";
 
+  import { Button } from "../ui/button";
+
   // Stepped indicator shown while a review companion generates, in place of the
   // bare spinner. `step` drives which row is active.
-  let { step }: { step: ReviewProgressStep } = $props();
+  let { step, queued = false, onCancel }: { step: ReviewProgressStep; queued?: boolean; onCancel?: () => void } = $props();
 
   const steps = REVIEW_PROGRESS_STEPS;
   const activeIndex = $derived(Math.max(0, steps.findIndex((s) => s.id === step)));
-  const pct = $derived(((activeIndex + 1) / steps.length) * 100);
+
 </script>
 
 <div class="flex h-full items-center justify-center px-6">
   <div class="prog-card w-full max-w-[17rem]">
-    <div class="mb-5 h-1 overflow-hidden rounded-full bg-(--solus-accent-soft)">
-      <div
-        class="h-full rounded-full bg-(--solus-accent) transition-[width] duration-500 ease-out motion-reduce:transition-none"
-        style="width: {pct}%"
-      ></div>
-    </div>
-
+    <p role="status" class="mb-5 text-sm font-medium">{queued ? "Guide queued" : steps[activeIndex].label}</p>
+    {#if queued}
+      <p class="text-sm text-muted-foreground">Generation will start when the review companion is available.</p>
+    {:else}
     <ul class="prog-steps flex flex-col gap-3" role="list">
       {#each steps as s, i (s.id)}
         {@const state = i < activeIndex ? "done" : i === activeIndex ? "active" : "pending"}
@@ -58,13 +57,14 @@
         </li>
       {/each}
     </ul>
+    {/if}
+    {#if onCancel}<Button variant="ghost" class="mt-5" onclick={onCancel}>Cancel generation</Button>{/if}
   </div>
 </div>
 
 <style>
   /* The generation state fades up on mount, then its steps stagger in — so the
-     guide's loading screen resolves rather than snapping into place. The bar
-     width keeps animating as steps advance (handled inline above). */
+     guide's loading screen resolves rather than snapping into place. Each step follows the host generation state. */
   .prog-card {
     animation: prog-card-in 0.3s ease-out backwards;
   }

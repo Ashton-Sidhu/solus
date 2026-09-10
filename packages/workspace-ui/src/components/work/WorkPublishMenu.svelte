@@ -147,7 +147,7 @@
           description: "Pull it down first, or publish over it.",
           actions: [
             { label: "Pull latest", onAction: () => void pull() },
-            { label: "Publish anyway", onAction: () => void publish({ force: true }) },
+            { label: "Publish anyway", onAction: () => void publish({ ...options, force: true }) },
           ],
         });
         return;
@@ -305,12 +305,14 @@
         </DropdownMenu.Item>
       {:else if link}
         <DropdownMenu.Label>{docProviderLabel(link.provider)}</DropdownMenu.Label>
+        {#if !workId || link.provider !== "gdrive"}
         <DropdownMenu.Item class="text-workspace-chrome" data-testid="publish-work" disabled={busy} onSelect={() => void publish()}>
           <UploadIcon size={14} />
           <span class="flex-1 text-left">
             {link.syncState === "conflict" || link.syncState === "upstream_changed" ? "Publish anyway" : "Publish update"}
           </span>
         </DropdownMenu.Item>
+        {/if}
         <DropdownMenu.Item class="text-workspace-chrome" data-testid="pull-work" disabled={busy} onSelect={() => void pull()}>
           <DownloadSimpleIcon size={14} /><span class="flex-1 text-left">Pull latest</span>
         </DropdownMenu.Item>

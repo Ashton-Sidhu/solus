@@ -2,17 +2,18 @@
   import type { PlanComment } from '@solus/contracts/types'
   import { threadTime } from '../../lib/relative-time'
   import { CommentComposer } from '../ui/comment-composer'
+  import ExternalCommentPublish from '../work/ExternalCommentPublish.svelte'
   import CommentBody from './CommentBody.svelte'
   import {
     authorLabel,
     commentAuthor,
     isResolved,
-    isUnread,
     showsAuthor,
     visibleReplies,
   } from './lib/thread'
 
   interface Props {
+    externalWorkId?: string
     comment: PlanComment
     /** The thread the reader is in. Deepens the fill, thickens the edge, and
      *  is the one state that earns a shadow. */
@@ -39,6 +40,7 @@
   }
 
   let {
+    externalWorkId,
     comment,
     focused = false,
     anchorVisible = true,
@@ -57,7 +59,6 @@
 
   const author = $derived(commentAuthor(comment))
   const resolved = $derived(isResolved(comment))
-  const unread = $derived(isUnread(comment))
   const replies = $derived(visibleReplies(comment))
 
   // Resolved threads collapse to one sage row; "Show" re-expands this one
@@ -114,7 +115,6 @@
   <div
     class="ctc"
     class:ctc--focused={focused}
-    class:ctc--unread={unread}
     class:ctc--solus={author === 'solus'}
     class:ctc--resolved={resolved}
     class:ctc--stuck={!!stickyEdge}
@@ -126,6 +126,7 @@
     tabindex="0"
     onclick={activate}
     onkeydown={(e) => {
+      if (e.target instanceof Element && e.target.closest('button, a, textarea')) return
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault()
         activate(e)
@@ -135,7 +136,6 @@
     {#if focused}<span class="ctc__edge" aria-hidden="true"></span>{/if}
 
     <div class="ctc__head">
-      {#if unread}<span class="ctc__unread" aria-label="Unread"></span>{/if}
       <!-- Only the agent names itself. Your own thread carries no byline: in a
            document with one human reader, "You" is the one thing the card can
            never tell you that you did not already know. -->
@@ -145,6 +145,12 @@
       {/if}
       {#if comment.createdAt}
         <span class="ctc__time">{threadTime(comment.createdAt, now)}</span>
+      {/if}
+      <!-- The one action with durable outbound state, so it stays visible at
+           rest: whether this comment reached the document is not something the
+           reader should have to hover to learn. -->
+      {#if externalWorkId && !editing}
+        <ExternalCommentPublish workId={externalWorkId} messageId={comment.id} text={comment.comment} quote={comment.selectedText} author={comment.author} />
       {/if}
 
       <!-- Verbs are type, never filled buttons — a thread is a note, not a
@@ -218,6 +224,9 @@
             {/if}
             <CommentBody text={reply.text} />
           </div>
+          {#if externalWorkId}
+            <ExternalCommentPublish workId={externalWorkId} messageId={reply.id} text={reply.text} quote={comment.selectedText} author={reply.author} />
+          {/if}
         </div>
       {/each}
     </div>
@@ -328,14 +337,6 @@
     display: flex;
     align-items: center;
     gap: 0.4375rem;
-  }
-  /* Unread — a filled amber dot, and the author steps up to ink 100. */
-  .ctc__unread {
-    flex-shrink: 0;
-    width: 0.375rem;
-    height: 0.375rem;
-    border-radius: 9999px;
-    background: var(--solus-art-2);
   }
   .ctc__spark {
     flex-shrink: 0;
@@ -448,6 +449,7 @@
     gap: 0.4375rem;
   }
   .ctc__reply-text {
+    flex: 1;
     min-width: 0;
     font-size: var(--text-xs);
     line-height: 1.55;

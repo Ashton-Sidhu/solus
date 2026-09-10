@@ -18,7 +18,7 @@
   import Icon from "@iconify/svelte";
   import { untrack, type Snippet } from "svelte";
   import type { ChangedFileStat } from "@solus/contracts/types";
-  import type { PrGuideStatus } from "@solus/contracts/review";
+  import type { ReviewGuideStatus } from "@solus/contracts/review";
   import type { CheckItem, PrChecksSummary } from "@solus/contracts/checks-types";
   import type {
     PullRequest,
@@ -32,7 +32,7 @@
   import { Button } from "../ui/button";
   import VirtualList from "../ui/list-page/VirtualList.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
-  import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
+  import PrGuideActions from "./PrGuideActions.svelte";
   import { checkDuration, orderedChecks } from "../prs/lib/checks";
   import { checkVerdict } from "./lib/check-verdict";
   import {
@@ -98,6 +98,7 @@
     onFileJump,
     guideStatus,
     onGenerateGuide,
+    onOpenGuide,
     onRetry,
     actions,
     menu,
@@ -127,10 +128,11 @@
     onFileJump?: (path: string) => void;
     /** Background guide-generation lifecycle for this PR (guides are opt-in).
      *  Undefined means no guide has ever been asked for. */
-    guideStatus?: PrGuideStatus;
+    guideStatus?: ReviewGuideStatus;
     /** Absent while the PR cannot carry a guide (draft, closed, merged), which
      *  is what hides the row rather than showing a dead action. */
     onGenerateGuide?: () => void;
+    onOpenGuide?: () => void;
     /** Re-reads everything the rail shows. Offered beside any section that
      *  failed to load. */
     onRetry?: () => void;
@@ -162,24 +164,6 @@
     files: startsOpen,
   });
   type SectionKey = keyof typeof sectionOpen;
-
-  const generatingGuide = $derived(
-    guideStatus === "queued" || guideStatus === "generating",
-  );
-  // Only the states that say something the trailing action does not. The action
-  // beside this row already reads "Generate" whenever no guide exists, so a
-  // "Not generated yet" sub-line under it was the same fact twice on one row.
-  const guideNote = $derived(
-    guideStatus === "ready"
-      ? "Ready to read"
-      : guideStatus === "queued"
-        ? "Queued"
-        : guideStatus === "generating"
-          ? "Generating…"
-          : guideStatus === "failed"
-            ? "Generation failed"
-            : "",
-  );
 
   // Failing checks lead, so the rows above the fold always show what's broken
   // rather than whichever the host happened to list first.
@@ -357,37 +341,7 @@
      it belongs with the state of the pull request rather than floating loose
      under the card as a second, unrelated object. -->
 {#snippet guideRow()}
-  {#if onGenerateGuide}
-    <button
-      type="button"
-      disabled={generatingGuide}
-      class="flex h-10 w-full cursor-pointer items-center gap-2.5 border-t border-[var(--hairline)] px-3.5 text-left transition-colors enabled:hover:bg-[var(--wash-2)] disabled:cursor-default focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[color-mix(in_srgb,var(--solus-accent)_50%,transparent)]"
-      title={guideStatus === "ready"
-        ? "Open the review guide — regenerates only if the PR changed"
-        : guideStatus === "failed"
-          ? "Guide generation failed — try again"
-          : "Generate the review guide in the background"}
-      onclick={onGenerateGuide}
-    >
-      <ReviewGuideGlyph size={13} class="shrink-0 text-muted-foreground" />
-      <span class="min-w-0 flex-1 truncate">Review guide</span>
-      {#if guideNote}
-        <span class="min-w-0 truncate text-xs text-muted-foreground">
-          {guideNote}
-        </span>
-      {/if}
-      {#if generatingGuide}
-        <CircleNotchIcon
-          size={12}
-          class="shrink-0 animate-spin text-muted-foreground [animation-duration:0.9s]"
-        />
-      {:else}
-        <span class="shrink-0 text-xs font-medium text-primary">
-          {guideStatus === "ready" ? "Regenerate" : "Generate"}
-        </span>
-      {/if}
-    </button>
-  {/if}
+  <PrGuideActions {guideStatus} {onOpenGuide} {onGenerateGuide} />
 {/snippet}
 
 <!-- Fixed widths rather than a percentage clamp: the rail's contents are mono

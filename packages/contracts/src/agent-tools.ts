@@ -28,6 +28,8 @@ export const SOLUS_AGENT_TOOL_NAMES = [
   // documents in another tool (Confluence, Google Docs)
   'search_external_doc',
   'read_external_doc',
+  'read_external_doc_comments',
+  'write_external_doc_comment',
   'create_external_doc',
   'update_external_doc',
   'import_external_doc',

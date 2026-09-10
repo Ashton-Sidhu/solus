@@ -76,6 +76,11 @@ const activeRuns = new Map<string, ActiveRun>()
 // yet (startRun is async). Claimed synchronously so two near-simultaneous
 // triggers can't both slip past hasActiveRun.
 const pendingTriggers = new Set<string>()
+let updatesPaused = false
+
+export function setAutomationUpdatesPaused(paused: boolean): void { updatesPaused = paused }
+export function hasAutomationWork(): boolean { return pendingTriggers.size > 0 || activeRuns.size > 0 }
+export function automationUpdatesPaused(): boolean { return updatesPaused }
 
 /** Whether an automation has a run in flight. Used by the scheduler, the tools,
  *  and the RPC handler to refuse overlapping runs of the same automation. */
@@ -109,6 +114,7 @@ function prependAutomationRunContext(prompt: string, run: AutomationRun): string
  * more automations. This is the fork-bomb guard; everything else is available.
  */
 export async function triggerAutomationRun(automation: Automation): Promise<AutomationRun> {
+  if (updatesPaused) throw new Error('This host is waiting to update Solus. Cancel the update to start an automation.')
   // One run per automation at a time. Overlapping unattended runs of the same
   // automation would race on the same working directory; callers (scheduler,
   // tools, RPC) check hasActiveRun first — this throw is the backstop.

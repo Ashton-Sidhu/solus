@@ -285,7 +285,7 @@
          spent on the selected elbow alone, so the clock never competes with the
          green a pull request chip puts on the same row. -->
     <span
-      class="shrink-0 text-chrome-shelf tabular-nums {isCurrentSession
+      class="shrink-0 text-sidebar-time tabular-nums {isCurrentSession
         ? 'font-medium text-foreground'
         : 'text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]'}"
       >{mark.label}</span
@@ -294,13 +294,13 @@
     <!-- The same blue the Snoozed shelf header uses, so a sleeping row and the
          shelf holding it read as one thing. -->
     <span
-      class="shrink-0 text-chrome-shelf tabular-nums text-(--solus-status-unread)"
+      class="shrink-0 text-sidebar-time tabular-nums text-(--solus-status-unread)"
       title={`Wakes ${new Date(task.snoozedUntil).toLocaleString()}`}
       >{mark.label}</span
     >
   {:else if mark?.kind === "age"}
     <span
-      class="shrink-0 text-chrome-shelf tabular-nums text-muted-foreground"
+      class="shrink-0 text-sidebar-time tabular-nums text-muted-foreground"
       title={`Completed ${new Date(task.completedAt).toLocaleString()}`}
       >{mark.label}</span
     >

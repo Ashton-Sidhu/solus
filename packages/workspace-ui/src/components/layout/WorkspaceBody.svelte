@@ -43,6 +43,13 @@
     SIDEBAR_PANE_MAX_SIZE,
     SIDEBAR_PANE_MIN_SIZE,
   } from "./lib/workspace-body";
+  import { resolveComposerInset } from "../input/lib/composer-collapse";
+  import {
+    COMPOSER_COLLAPSED_ATTRIBUTE,
+    COMPOSER_FOLD_DURATION_MS,
+    COMPOSER_FOLD_EASING,
+    COMPOSER_SURFACE_ATTRIBUTE,
+  } from "../input/lib/composer-fold";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import { isProjectRailOpen } from "../project-panel/lib/rail-width";
   import * as Resizable from "../ui/resizable";
@@ -189,6 +196,62 @@
   const conversationChromeVisible = $derived(
     poolInLead && maximizedPaneId === null,
   );
+
+  // ─── The composer's reserved band (ADR-0027) ───
+  //
+  // The dock floats over the bottom of the column instead of standing in flow
+  // beside the transcript, and the column reserves the band it needs through
+  // `--solus-composer-inset`. A dock in flow resized the transcript every time
+  // the bar folded: the scroll viewport grew, the browser clamped `scrollTop`
+  // to the smaller maximum, and the whole conversation slid by the fold
+  // distance under the reader. Floating it means the transcript's box never
+  // changes, and holding the reservation at the expanded height means folding
+  // does not move the band either — so the transcript stays exactly where it
+  // is, in either direction.
+  //
+  // Two vars come out of the same measurement, because the column's chrome
+  // wants two different answers. `--solus-composer-inset` is the held band:
+  // the transcript's bottom padding and the minimap's centre take it, and
+  // neither moves with a fold. `--solus-composer-height` is where the bar's
+  // top edge actually is right now: the action row hugs it, because that row
+  // belongs to the bar rather than to the transcript and a held anchor left it
+  // stranded at the top of the band with dead space underneath.
+  let inputDockEl: HTMLElement | undefined = $state();
+  let composerInset = $state(0);
+  let composerHeight = $state(0);
+  // The action row's travel is armed only after the bar's first measurement.
+  // Otherwise the opening move — no bar, then a bar — is itself a change of
+  // the edge the row rides, and every conversation would open by sliding its
+  // action row up through the fold's whole 280ms.
+  let hasMeasuredComposer = $state(false);
+  $effect(() => {
+    const dock = inputDockEl;
+    if (!dock) return;
+    const observer = new ResizeObserver(() => {
+      const dockHeight = dock.getBoundingClientRect().height;
+      // A hidden dock measures zero and says nothing about the band it will
+      // want back; the reservation it had is the honest answer until it
+      // returns. Both vars are zeroed while it is away regardless.
+      if (dockHeight <= 0) return;
+      if (dockHeight !== untrack(() => composerHeight)) composerHeight = dockHeight;
+      const next = resolveComposerInset({
+        currentInset: untrack(() => composerInset),
+        dockHeight,
+        collapsed:
+          dock.querySelector(
+            `[${COMPOSER_SURFACE_ATTRIBUTE}][${COMPOSER_COLLAPSED_ATTRIBUTE}]`,
+          ) !== null,
+      });
+      if (next !== untrack(() => composerInset)) composerInset = next;
+      if (!untrack(() => hasMeasuredComposer)) {
+        requestAnimationFrame(() => {
+          hasMeasuredComposer = true;
+        });
+      }
+    });
+    observer.observe(dock);
+    return () => observer.disconnect();
+  });
   // The band and the rail say where you are, which a draft answers as fully as
   // a conversation does — so they stay while the leading pane composes one,
   // even though the pool's composer and transcript have stepped aside for it.
@@ -726,6 +789,13 @@
 
                       <div
                         class="primary-column relative flex h-full flex-1 flex-col min-w-0"
+                        style="--solus-composer-inset:{conversationChromeVisible
+                          ? composerInset
+                          : 0}px;--solus-composer-height:{conversationChromeVisible
+                          ? composerHeight
+                          : 0}px;--solus-composer-fold-duration:{hasMeasuredComposer
+                          ? COMPOSER_FOLD_DURATION_MS
+                          : 0}ms;--solus-composer-fold-easing:{COMPOSER_FOLD_EASING}"
                       >
                         {#if showLeadingBand}
                           <SessionBreadcrumb
@@ -791,7 +861,8 @@
                         {/if}
 
                         <div
-                          class="input-dock no-drag shrink-0 px-4 pt-2.5 pb-2.5"
+                          bind:this={inputDockEl}
+                          class="input-dock no-drag absolute inset-x-0 bottom-0 z-10 px-4 pt-2.5 pb-2.5"
                           class:mode-hidden={!conversationChromeVisible}
                           onfocusin={() => router.focusPane(leadingPane.id)}
                         >
@@ -1057,8 +1128,14 @@
   .conversation-area {
     overflow: hidden;
   }
+  /* The dock floats over the transcript, so it owns the background the rows
+     used to end against, and the rows now scroll under it. The fade that keeps
+     an arriving row from being cut in half belongs to the transcript's bottom
+     edge, not here: painted from the dock it also covered the action row
+     sitting on that edge (ConversationView's `.transcript-fade`). */
   .input-dock {
     contain: layout paint;
+    background: var(--solus-container-bg);
   }
   .workspace-body.is-resizing,
   .is-resizing {

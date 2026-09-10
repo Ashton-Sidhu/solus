@@ -192,13 +192,22 @@ export function reviewGuideTargetId(target: ReviewTarget): string {
     case 'branch':
       return `branch-${target.targetBranch ?? 'default'}`
     case 'pr':
-      return `pr-${target.host}-${target.owner}-${target.repo}-${target.number}`
+      return `pr-${prIdentityPart(target.host)}-${prIdentityPart(target.owner)}-${prIdentityPart(target.repo)}-${target.number}`
   }
+}
+
+/** Escape separators and the escape character itself, so repository names
+ * such as a-b/c and a/b-c cannot share a job or cache key. */
+function prIdentityPart(value: string): string {
+  return encodeURIComponent(value.toLowerCase())
+    .replace(/[!'()*~_-]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/%/g, '_')
 }
 
 export interface ReviewGuide {
   version: 1
   key: string
+  target?: ReviewTarget
   headSha: string
   baseSha: string
   /** Hash of the exact patch reviewed. Older guides use `headSha` as their
@@ -275,6 +284,9 @@ export interface ReviewGuideStatusEvent {
   target?: ReviewTarget
   status: ReviewGuideStatus
   headSha: string
+  baseSha?: string
+  generationId?: string
+  generatedAt?: string
   changeFingerprint?: string
   step?: ReviewProgressStep
   updatedAt: number
@@ -282,7 +294,7 @@ export interface ReviewGuideStatusEvent {
 }
 
 /** Lifecycle of an explicitly requested background PR-guide generation. */
-export type PrGuideStatus = 'queued' | 'generating' | 'ready' | 'failed'
+export type PrGuideStatus = ReviewGuideStatus
 
 export interface PrGuideMetadataRequest {
   number: number

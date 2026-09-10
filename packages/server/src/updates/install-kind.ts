@@ -1,4 +1,4 @@
-import { isBrewManaged, isTarballInstall } from '@solus/contracts/host-install'
+import { isManagedVersion } from '@solus/contracts/host-install'
 import { existsSync, realpathSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import type { HostInstallKind } from '@solus/contracts/host-update-types'
@@ -10,8 +10,7 @@ export function detectInstallKind(): HostInstallKind {
   const path = existsSync(entry) ? realpathSync(entry) : resolve(entry)
   let directory = process.env.SOLUS_INSTALL_DIR ? path : dirname(path)
   while (true) {
-    if (isBrewManaged(directory)) return 'homebrew'
-    if (isTarballInstall(directory)) return 'tarball'
+    if (isManagedVersion(directory)) return 'managed'
     if (existsSync(join(directory, '.git'))) return 'source'
     const parent = dirname(directory)
     if (parent === directory) return 'unknown'

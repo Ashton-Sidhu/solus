@@ -255,9 +255,9 @@ export const ROUTES: RouteTable = {
     placement: 'any',
     // The pool owns a chat's lifecycle: the leading pane renders it hidden
     // rather than unmounted, so navigation never tears a conversation down.
-    // A chat pinned into a companion pane still mounts through the outlet.
+    // A chat pinned into a companion pane mounts eagerly through the outlet,
+    // so sending a draft does not cross a module-loading boundary.
     keepAlive: true,
-    component: () => import('../../../components/conversation/ConversationPane.svelte'),
   },
   draft: {
     parse: (s) => (s ? { draftId: s } : null),

@@ -69,6 +69,27 @@ describe('cross-provider subagent control-plane dispatch', () => {
     expect(names).toContain('find_sessions')
   })
 
+  // Plan mode makes Claude answer with a plan and makes Codex refuse to touch
+  // anything, and no surface can approve a plan for an unattended child, so a
+  // subagent must always run in auto — including when a caller sends a stale
+  // read_only argument.
+  test.each([
+    ['claude-code', () => createClaudeSubagentAgentTool] as const,
+    ['codex', () => createCodexSubagentAgentTool] as const,
+  ])('%s child always runs in auto permission mode', async (provider, factory) => {
+    const dispatcher = new ChildDispatcher()
+    const agentTool = factory()(dispatcher)
+
+    await agentTool.execute({ prompt: 'Inspect the change' }, context(provider))
+    expect(dispatcher.request?.permissionMode).toBe('auto')
+
+    await agentTool.execute(
+      { prompt: 'Inspect the change', read_only: true } as unknown as Parameters<AgentTool['execute']>[0],
+      context(provider),
+    )
+    expect(dispatcher.request?.permissionMode).toBe('auto')
+  })
+
   test.each([
     ['claude-code', () => createClaudeSubagentAgentTool] as const,
     ['codex', () => createCodexSubagentAgentTool] as const,

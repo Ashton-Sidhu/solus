@@ -70,13 +70,13 @@
     transition:fade={{ duration: 120 }}
   >
     <div
-      class="w-[min(32rem,calc(100vw-2rem))] rounded-2xl border border-border bg-popover p-5 text-foreground shadow-xl"
+      class="w-[min(32rem,calc(100vw-2rem))] rounded-2xl border border-border bg-popover p-5 text-workspace-chrome text-foreground shadow-xl"
       role="dialog"
       aria-modal="true"
       aria-label={copy.title}
     >
-      <h2 class="text-sm font-medium">{copy.title}</h2>
-      <p class="mt-1 text-xs text-muted-foreground">{copy.description}</p>
+      <h2 class="font-medium">{copy.title}</h2>
+      <p class="mt-1 text-muted-foreground">{copy.description}</p>
       <form
         class="mt-4 flex flex-col gap-3"
         onsubmit={(event) => {
@@ -93,8 +93,8 @@
           spellcheck={false}
         />
         <div class="flex justify-end gap-2">
-          <Button type="button" variant="ghost" size="sm" onclick={onClose}>Cancel</Button>
-          <Button type="submit" size="sm" disabled={!url.trim() || importing}>
+          <Button type="button" variant="ghost" size="sm" class="text-workspace-chrome" onclick={onClose}>Cancel</Button>
+          <Button type="submit" size="sm" class="text-workspace-chrome" disabled={!url.trim() || importing}>
             {importing ? "Importing…" : "Import"}
           </Button>
         </div>

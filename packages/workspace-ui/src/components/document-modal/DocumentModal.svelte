@@ -1,9 +1,15 @@
 <script lang="ts">
   import type { Editor } from "@tiptap/core";
-  import { ArrowUp as ArrowUpIcon } from "@lucide/svelte";
+  import { ArrowUp as ArrowUpIcon, MessageSquare as CommentIcon } from "@lucide/svelte";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { Button } from "../ui/button";
   import DocumentShell from "../document-shell/DocumentShell.svelte";
+  import { googleQuoteRange } from "../work/lib/google-comment-quote";
+  import { ExternalCommentHighlights, updateExternalCommentHighlights, externalCommentRange } from "../work/lib/external-comment-highlights";
+  import { formatExternalThreadsForAgent, localCommentsForDisplay } from "../work/lib/external-comments-view";
+  import { removeCommentMark } from "../plan/lib/comments";
+  import type { DocCommentThread } from "@solus/contracts/work-comments";
+  import { uuid } from "@solus/contracts/uuid";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import CommentLayer from "../comments/CommentLayer.svelte";
@@ -59,7 +65,7 @@
       return serverId ? serverConnections.apiFor(serverId) : undefined;
     },
   });
-  const commentExtensions = [CommentMark];
+  const commentExtensions = [CommentMark, ExternalCommentHighlights];
 
   // A document is one file: its own markdown. The header still renders it
   // through the shared format list so Save and Download read the same way here
@@ -92,9 +98,53 @@
   // The threads' own visibility. Its toggle lives in the header, because the
   // count is one of the few things the design keeps on screen at every width.
   let railOpen = $state(true);
+  const readOnly = $derived(workId ? session.worksStore.get(workId)?.mirroredDoc?.provider === "gdrive" : false);
+  const hasExternalDoc = $derived(workId ? !!session.worksStore.get(workId)?.mirroredDoc : false);
+  const externalSnapshot = $derived(workId && hasExternalDoc ? session.worksStore.externalComments.stateFor(workId) : undefined);
+  // Deleted threads are the provider's own tombstones; nothing reads them here.
+  const externalThreads = $derived(externalSnapshot?.threads.filter(thread => !thread.deleted) ?? []);
 
-  const comments = $derived(workId ? session.worksStore.annotationComments(workId) : []);
-  const openCount = $derived(openThreads(comments).length);
+  $effect(() => {
+    if (workId && hasExternalDoc) return session.worksStore.externalComments.watch(workId);
+  });
+
+  $effect(() => {
+    if (tiptapEditor && !tiptapEditor.isDestroyed) updateExternalCommentHighlights(tiptapEditor, externalSnapshot, workId);
+  });
+
+  function locateExternalQuote(quote: string, threadId: string): boolean {
+    if (!tiptapEditor || tiptapEditor.isDestroyed) return false;
+    const range = externalCommentRange(tiptapEditor, threadId) ?? googleQuoteRange(tiptapEditor.state.doc, quote);
+    if (!range) return false;
+    tiptapEditor.chain().focus().setTextSelection(range).scrollIntoView().run();
+    return true;
+  }
+
+  async function askPrivately(thread: DocCommentThread) {
+    if (!workId) return;
+    const id = workId;
+    const comment: PlanComment = { id: uuid(), externalThreadId: thread.id, selectedText: thread.quote, comment: `Review this external comment privately: ${thread.text}`, author: 'you', createdAt: Date.now() };
+    session.worksStore.addAnnotationComment(id, comment);
+    await session.worksStore.saveAnnotations(id);
+    await session.openChatForWork(id, 'new');
+    if (!session.leadingInput.text) session.leadingInput.text = `Please review local comment ${comment.id} on work ${id}. Keep the discussion in Solus. Do not post to the external document.`;
+    requestInputFocus();
+  }
+
+  const localComments = $derived(workId ? session.worksStore.annotationComments(workId) : []);
+  const comments = $derived(localCommentsForDisplay(localComments, externalSnapshot));
+  $effect(() => {
+    if (!tiptapEditor || tiptapEditor.isDestroyed) return;
+    const visible = new Set(comments.map(comment => comment.id));
+    suppressSave = true;
+    for (const comment of localComments) {
+      if (!visible.has(comment.id)) removeCommentMark(tiptapEditor, comment.id);
+    }
+    suppressSave = false;
+  });
+  // The count is the whole surface, which holds both kinds of thread: the
+  // header reads it, and the send bar sends exactly what it counts.
+  const openThreadCount = $derived(openThreads(comments).length + externalThreads.filter(thread => !thread.resolved).length);
   // Published by the comment layer, read by the outline's per-section counts.
   let threadAnchors = $state<{ id: string; pos: number }[]>([]);
   let loadedForWorkId: string | null = null;
@@ -175,7 +225,7 @@
   // against double-sends while the chat tab is being opened.
   let sending = $state(false);
   async function handleSendComments() {
-    if (sending || openCount === 0) return;
+    if (sending || openThreadCount === 0) return;
     sending = true;
     try {
       await sendCommentsToAgent();
@@ -187,9 +237,12 @@
   async function sendCommentsToAgent() {
     if (!workId) return;
     const unresolved = openThreads(comments);
-    if (unresolved.length === 0) return;
-    const body = formatInlineComments(unresolved);
-    const msg = `Please address these comments on "${doc.title}" (work_id: ${workId}):\n${body}`;
+    // The rail holds both kinds of thread, so the button sends both. The
+    // external ones travel as context the agent may not answer upstream.
+    const external = externalSnapshot ? formatExternalThreadsForAgent(externalSnapshot.threads, externalSnapshot.provider) : "";
+    if (unresolved.length === 0 && !external) return;
+    const body = unresolved.length > 0 ? formatInlineComments(unresolved) : "There are no open Solus comments.";
+    const msg = `Please address these comments on "${doc.title}" (work_id: ${workId}):\n${body}${external}`;
 
     const sent = await session.sendMessageToNewWorkSession(workId, msg);
     if (!sent) return;
@@ -211,7 +264,8 @@
   breadcrumb={workBreadcrumb(workStorage)}
   {onOpenWorkspace}
   content={doc.content}
-  onRenameTitle={onRename}
+  onRenameTitle={readOnly ? undefined : onRename}
+  {readOnly}
   {inline}
   {minimizeOutline}
   editorClass="doc-document-editor"
@@ -236,20 +290,32 @@
   placeholder="Start writing…"
 >
   {#snippet documentMeta()}
-    <!-- Amber is annotation everywhere in this document, so the count wears a
-         swatch of the same hue as the marks it counts rather than an icon. -->
-    {#if workId && comments.length > 0}
+    <!-- This snippet renders inside the shell's own verb cluster, so it wears
+         that cluster's type rung (`--text-chrome-dense`), ink and hover wash
+         rather than a rung of its own — `doc-shell-header-btn` is scoped to the
+         shell and cannot reach markup passed in from here. Mobile puts the same
+         snippet in the compact toolbar row, whose buttons are 40px, and those
+         are keyed to the shell's own 767px query, so this matches it. -->
+    {#if readOnly}<span class="text-[length:var(--text-chrome-dense)] text-(--solus-text-tertiary)" title="Edit in Google Docs, then Pull latest. Comments remain available.">Read-only</span>{/if}
+    <!-- One of the meta line's own words, not a chip on top of it: the glyph
+         says what the number counts, so the count needs no unit spelled out and
+         no surface of its own. The rail appearing beside the page is the state;
+         deepening the ink here as well only made the count look mis-set against
+         the verbs either side of it. The glyph is sized in `em` so it tracks
+         whichever rung the row is on, and lightened to the weight of the type
+         it sits in — lucide's default stroke reads bold at this size. -->
+    {#if workId && (comments.length > 0 || externalThreads.length > 0)}
       <button
         type="button"
-        class="dm-comment-count"
-        class:dm-comment-count--on={railOpen}
+        class="inline-flex h-6 shrink-0 items-center gap-1 rounded-md px-1.75 text-[length:var(--text-chrome-dense)] text-(--solus-text-tertiary) tabular-nums transition-colors hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-(--solus-accent-border) max-md:h-10 max-md:rounded-lg max-md:px-2.5"
         onclick={() => (railOpen = !railOpen)}
         data-testid="toggle-comments"
         title={railOpen ? "Hide comments" : "Show comments"}
+        aria-label={`${openThreadCount} open comment${openThreadCount === 1 ? "" : "s"} — ${railOpen ? "hide" : "show"}`}
         aria-pressed={railOpen}
       >
-        <span class="dm-comment-count__swatch" aria-hidden="true"></span>
-        {openCount} open
+        <CommentIcon class="size-[0.9em]" strokeWidth={1.75} aria-hidden="true" />
+        {openThreadCount}
       </button>
     {/if}
   {/snippet}
@@ -266,7 +332,7 @@
       currentContent={doc.content}
       getCurrentContent={() => shell?.getCurrentMarkdown() ?? doc.content}
       flushSave={() => shell?.flushSave() ?? Promise.resolve()}
-      {onRevert}
+      onRevert={readOnly ? undefined : onRevert}
       {onDelete}
       {onDuplicate}
       {workStorage}
@@ -279,6 +345,10 @@
   {#snippet rail({ folded })}
     {#if workId}
       <CommentLayer
+        externalWorkId={hasExternalDoc ? workId : undefined}
+        externalThreads={hasExternalDoc ? externalThreads : []}
+        onAskExternalPrivately={askPrivately}
+        onLocateExternalQuote={locateExternalQuote}
         bind:this={commentLayer}
         editor={tiptapEditor}
         railFolded={folded}
@@ -300,7 +370,7 @@
         {#snippet footer()}
           <div class="dm-send-bar">
             <span class="dm-send-bar__hint">
-              {openCount} open thread{openCount === 1 ? "" : "s"}
+              {openThreadCount} open thread{openThreadCount === 1 ? "" : "s"}
             </span>
             <TooltipUI.Root>
               <TooltipUI.Trigger>
@@ -310,7 +380,7 @@
                       size="icon"
                       class="rounded-full"
                       data-testid="send-comments"
-                      disabled={sending || openCount === 0}
+                      disabled={sending || openThreadCount === 0}
                       onclick={handleSendComments}
                       aria-label="Send comments to agent"
                     >
@@ -332,55 +402,6 @@
   /* Reading typography (measure, type scale, heading rhythm, code and table
      treatment) is the shared doc-shell column in index.css — this surface only
      keeps what is genuinely its own. */
-  /* An unfilled header verb like the rest of the cluster — the count is the
-     label, so it needs no icon and no surface of its own. */
-  .dm-comment-count {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3125rem;
-    flex-shrink: 0;
-    height: 1.5rem;
-    padding: 0 0.4375rem;
-    border: none;
-    border-radius: 0.375rem;
-    background: transparent;
-    font-family: inherit;
-    font-size: var(--text-chrome-dense);
-    font-weight: 400;
-    font-variant-numeric: tabular-nums;
-    color: var(--solus-text-tertiary);
-    cursor: pointer;
-    transition:
-      background var(--duration-quick) var(--ease-premium),
-      color var(--duration-quick) var(--ease-premium);
-  }
-  .dm-comment-count:hover,
-  .dm-comment-count--on {
-    background: var(--solus-surface-hover);
-    color: var(--solus-text-primary);
-  }
-  .dm-comment-count:focus-visible {
-    outline: 0.125rem solid var(--solus-accent-border);
-    outline-offset: 0.0625rem;
-  }
-  /* Mobile puts this in the formatting strip, whose targets are 40px. */
-  @media (max-width: 767px) {
-    .dm-comment-count {
-      height: 2.5rem;
-      padding: 0 0.75rem;
-      border-radius: 0.5rem;
-    }
-  }
-  .dm-comment-count__swatch {
-    width: 0.4375rem;
-    height: 0.4375rem;
-    border-radius: 0.125rem;
-    background: color-mix(in srgb, var(--solus-art-2) 55%, transparent);
-  }
-  .dm-comment-count--on .dm-comment-count__swatch {
-    background: var(--solus-art-2);
-  }
-
   /* Submit lives at the bottom of the comments rail and uses the canonical accent
      send button shared with the input bar and diff-feedback composer, so sending
      comments to the agent looks and feels identical to every other page. */

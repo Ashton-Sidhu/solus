@@ -113,6 +113,9 @@ describe('restored tab metadata', () => {
 
     expect(session.status).toBe('failed')
     expect(session.currentTurnStartedAt).toBeNull()
-    expect(getAttentionState(session, makeTab(session.id))).toBe('error')
+    // The failure is a notification, like the finished check: it marks the tab
+    // unread, and a tab restored already-read has had its error read too.
+    expect(getAttentionState(session, makeTab(session.id, { hasUnread: true }))).toBe('error')
+    expect(getAttentionState(session, makeTab(session.id))).toBeNull()
   })
 })

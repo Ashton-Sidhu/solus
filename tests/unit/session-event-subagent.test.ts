@@ -40,6 +40,20 @@ async function createReducer() {
 }
 
 describe('SessionEventReducer sub-agent transcript events', () => {
+  test('a follow-up reopens the same completed card without replacing its transcript', async () => {
+    const { parent, reducer } = await createReducer()
+    const transcript = parent.subMessages
+    reducer.apply('session-1', { type: 'subagent_report', toolUseId: 'parent-tool', text: 'First answer.' })
+    expect(parent.toolStatus).toBe('completed')
+    reducer.apply('session-1', { type: 'subagent_running', toolUseId: 'parent-tool' })
+    expect(parent.toolStatus).toBe('running')
+    expect(parent.toolCompletedAt).toBeUndefined()
+    expect(parent.report).toBeUndefined()
+    expect(parent.subMessages).toBe(transcript)
+    reducer.apply('session-1', { type: 'subagent_report', toolUseId: 'parent-tool', text: 'Follow-up complete.' })
+    expect(parent.toolStatus).toBe('completed')
+  })
+
   test('reconciles streamed chunks with assembled messages without doubling', async () => {
     const { parent, reducer } = await createReducer()
 

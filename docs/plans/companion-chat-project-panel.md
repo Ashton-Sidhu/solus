@@ -14,6 +14,11 @@ header and body. The header occupies only the conversation column, so the panel'
 cards align with the primary project panel. Draft content stays centered below
 its header; chat content keeps its composer at the bottom.
 
+The pane loads both the draft composer and the conversation shell directly.
+Sending a companion draft shows the conversation without an intermediate
+route-loading skeleton. Loading saved conversation history can still show its
+own loading state.
+
 Desktop Editor mode and the wide web layout share this rule through WorkspaceBody.
 Mobile's compact layout and desktop Pill mode do not display this project panel;
 their existing navigation is unchanged. The rule is independent of the agent

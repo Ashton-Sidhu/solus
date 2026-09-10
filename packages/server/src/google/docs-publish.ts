@@ -25,7 +25,7 @@ function lastTable(doc: DocsDocument): DocsStructuralElement | null {
 }
 
 /**
- * Replace a Google Doc's body with a markdown document.
+ * Populate a newly created, empty Google Doc. Never use this for updates.
  *
  * Paragraphs and images go up in one batch per run. A table is inserted
  * empty, the document is read back to learn where its cells landed, and the
@@ -33,13 +33,15 @@ function lastTable(doc: DocsDocument): DocsStructuralElement | null {
  * Diagram PNGs are staged as link-readable Drive files only for as long as
  * the insert takes.
  */
-export async function writeDocsBody(
+export async function writeNewDocsBody(
   accessToken: string,
   documentId: string,
   markdown: string,
   assets: DocDiagramAsset[],
   folderId?: string,
 ): Promise<void> {
+  const initial = await getDocument(accessToken, documentId)
+  if (appendIndex(initial) !== BODY_START) throw new Error('Google Doc creation requires an empty document. Existing content is never replaced.')
   const staged: string[] = []
   try {
     const images: DocsImage[] = []
@@ -66,13 +68,7 @@ export async function writeDocsBody(
     }
     const blocks = compileDocsBlocks(markdown, images)
 
-    // Clearing the body leaves its first section, and a previous publish may
-    // have made that a landscape figure page; it starts portrait again.
-    const existing = appendIndex(await getDocument(accessToken, documentId))
-    await batchUpdateDocument(accessToken, documentId, [
-      ...(existing > BODY_START ? [{ deleteContentRange: { range: { startIndex: BODY_START, endIndex: existing } } }] : []),
-      sectionStyleRequest(BODY_START, 'portrait'),
-    ])
+    await batchUpdateDocument(accessToken, documentId, [sectionStyleRequest(BODY_START, 'portrait')])
 
     let cursor = BODY_START
     let run: RunBlock[] = []

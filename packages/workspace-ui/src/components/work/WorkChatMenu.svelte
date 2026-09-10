@@ -39,16 +39,12 @@
     {#each options as option, index (option.id)}
       <DropdownMenu.Item
         disabled={loading}
-        class="h-auto min-h-11 gap-2.5 py-1.5"
+        class="h-auto py-1.5 text-workspace-chrome"
         onSelect={() => handleSelect(index)}
       >
-        <span class="mt-[0.1875rem] flex shrink-0 items-center justify-center self-start text-(--solus-text-tertiary)">
-          <option.Icon size={14} />
-        </span>
-        <!-- Label on the menu rung, description a step down: two lines of the
-             same 12px gave the row no hierarchy and read as one dense block. -->
+        <option.Icon size={14} />
         <span class="flex min-w-0 flex-1 flex-col gap-[0.0625rem]">
-          <span class="truncate text-menu leading-[1.25] font-medium text-(--solus-text-primary)">{option.label}</span>
+          <span class="truncate">{option.label}</span>
           {#if option.id === 'resume'}
             <span class="truncate text-xs leading-[1.25] text-(--solus-text-tertiary)">
               {#if originalSessionMeta}

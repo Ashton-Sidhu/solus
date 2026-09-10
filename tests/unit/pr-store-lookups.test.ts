@@ -3,6 +3,7 @@ import type { PrListPage, PullRequest } from '@solus/contracts/providers'
 import type { PrGuideMetadataRequest, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import { asHostApi } from '@solus/client-core/host-api'
+import { HostEventSubscriber } from '@solus/client-core/host-event-subscriber'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -353,20 +354,23 @@ describe('review guide metadata is scoped to one pull request', () => {
     const store = new PrsStore()
     // Guides hang off the pull requests the store indexed, but are their own
     // domain: Solus made them, the code host has never heard of them.
-    const guides = new PrGuidesStore(store)
+    const { ReviewGuideStore } = await import('@solus/workspace-ui/components/review/review-guide.store.svelte')
+    const shared = new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {})
+    const guides = new PrGuidesStore(store, shared)
     const ctx = ctxFor('/repos/a')
     const requests: PrGuideMetadataRequest[] = []
     const target = pr(7)
     const api = asHostApi({
       prList: async (): Promise<PrListPage> => ({ items: [target, pr(8)], page: 1, hasMore: false }),
       prChecks: async () => ({ repo: { host: 'github.com', owner: 'acme', repo: 'a' }, checks: [] }),
-      prGuideMetadata: async (_ctx, request) => {
-        requests.push(request)
+      reviewGuideStatus: async (_ctx, options) => {
+        if (options?.target?.kind !== 'pr') throw new Error('Expected a PR target')
+        const request = options.target
+        requests.push({ number: request.number, headSha: request.headSha ?? '' })
         return {
-          number: request.number,
-          headSha: request.headSha,
-          generatedAt: '2026-01-01T00:00:00Z',
-          current: true,
+          repoRoot: '/repos/a', key: 'pr-guide', scope: 'pr', target: request,
+          status: 'ready', headSha: request.headSha ?? '', baseSha: request.baseSha,
+          generatedAt: '2026-01-01T00:00:00Z', updatedAt: 1,
         }
       },
     })
@@ -380,12 +384,14 @@ describe('review guide metadata is scoped to one pull request', () => {
     expect(guides.metadataFor('host-a', ctx, 8)).toBeUndefined()
   })
 
-  test('a branch guide for an open PR head shares its live generation state with PR surfaces', async () => {
+  test('only an explicit PR guide shares its state with PR surfaces', async () => {
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const { PrGuidesStore } = await import('@solus/workspace-ui/contexts/prs/pr-guides.store.svelte')
     const store = new PrsStore()
-    const guides = new PrGuidesStore(store)
+    const { ReviewGuideStore } = await import('@solus/workspace-ui/components/review/review-guide.store.svelte')
+    const shared = new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {})
+    const guides = new PrGuidesStore(store, shared)
     const ctx = ctxFor('/repos/a')
     const api = asHostApi({
       prList: async (): Promise<PrListPage> => ({ items: [pr(7), pr(8)], page: 1, hasMore: false }),
@@ -401,13 +407,16 @@ describe('review guide metadata is scoped to one pull request', () => {
       headSha: 'sha-7',
       updatedAt: Date.now(),
     }
-    guides.applyReviewGuideStatus('host-a', event)
+    shared.set('host-a', event)
+    expect(guides.statusFor('host-a', ctx, 7)).toBeUndefined()
+    const target = { kind: 'pr' as const, ...pr(7).baseRepo, number: 7, headSha: 'sha-7', baseSha: pr(7).baseSha }
+    shared.set('host-a', { ...event, scope: 'pr', target })
 
     expect(guides.statusFor('host-a', ctx, 7)).toBe('generating')
     expect(guides.statusFor('host-a', ctx, 8)).toBeUndefined()
 
-    guides.applyReviewGuideStatus('host-a', { ...event, status: 'cancelled' })
-    expect(guides.statusFor('host-a', ctx, 7)).toBeUndefined()
+    shared.set('host-a', { ...event, target, scope: 'pr', status: 'cancelled' })
+    expect(guides.statusFor('host-a', ctx, 7)).toBe('cancelled')
   })
 
   test('a session guide at the same commit is not presented as a PR guide', async () => {
@@ -415,7 +424,9 @@ describe('review guide metadata is scoped to one pull request', () => {
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     const { PrGuidesStore } = await import('@solus/workspace-ui/contexts/prs/pr-guides.store.svelte')
     const store = new PrsStore()
-    const guides = new PrGuidesStore(store)
+    const { ReviewGuideStore } = await import('@solus/workspace-ui/components/review/review-guide.store.svelte')
+    const shared = new ReviewGuideStore(() => new HostEventSubscriber(), () => () => {})
+    const guides = new PrGuidesStore(store, shared)
     const ctx = ctxFor('/repos/a')
     const api = asHostApi({
       prList: async (): Promise<PrListPage> => ({ items: [pr(7)], page: 1, hasMore: false }),
@@ -423,7 +434,7 @@ describe('review guide metadata is scoped to one pull request', () => {
     })
     await store.get(api, 'host-a', ctx).list()
 
-    guides.applyReviewGuideStatus('host-a', {
+    shared.set('host-a', {
       repoRoot: '/repos/a',
       key: 'session:abc',
       scope: 'session',

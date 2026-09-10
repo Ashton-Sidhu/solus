@@ -942,7 +942,7 @@
         bind:this={scrollEl}
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
-        class="overflow-y-auto overflow-x-hidden px-4 pt-1 conversation-selectable {fillsPane
+        class="overflow-y-auto overflow-x-hidden px-4 pt-1 pb-[var(--solus-composer-inset,0px)] conversation-selectable {fillsPane
           ? 'h-full'
           : ''}"
         style="overscroll-behavior-y:contain; {fillsPane
@@ -1427,12 +1427,26 @@
         />
       {/if}
 
+      <!-- The transcript's own bottom edge. Rows scroll under the floating
+           composer (ADR-0027) and would otherwise be cut in half at its top
+           edge, so they dissolve into it. It rides that edge like the action
+           row, and sits under the row: painted from the dock instead, it
+           washed out the row's lower half. -->
+      {#if fillsPane}
+        <div
+          class="transcript-fade pointer-events-none absolute inset-x-0 z-5 h-5"
+          style="bottom:var(--solus-composer-height, 0px)"
+        ></div>
+      {/if}
+
       {#if showActivityStrip}
         <div
           class="activity-strip flex items-end gap-1.5 absolute pointer-events-none"
           class:activity-strip-editor={fillsPane}
           class:activity-strip-pill={!fillsPane}
-          style="bottom:{fillsPane ? 3 : 16}px;height:2rem;z-index:7"
+          style="bottom:calc(var(--solus-composer-height, 0px) + {fillsPane
+            ? 3
+            : 16}px);height:2rem;z-index:7"
         >
           <div
             bind:clientWidth={activityReservedWidth}
@@ -1508,6 +1522,29 @@
     left: 50%;
     width: min(calc(100% - 2rem), var(--solus-reading-max));
     transform: translateX(-50%);
+  }
+
+  /* The strip is the left half of the orb's row, so it rides the composer's
+     top edge on the fold's curve exactly as the orb does. The fade under them
+     rides the same edge. */
+  .activity-strip,
+  .transcript-fade {
+    transition: bottom var(--solus-composer-fold-duration, 0ms)
+      var(--solus-composer-fold-easing, linear);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .activity-strip,
+    .transcript-fade {
+      transition: none;
+    }
+  }
+
+  .transcript-fade {
+    background: linear-gradient(
+      to top,
+      var(--solus-container-bg),
+      transparent
+    );
   }
 
   .activity-strip-pill {

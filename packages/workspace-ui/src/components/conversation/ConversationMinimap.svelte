@@ -5,12 +5,12 @@
     hasRoomForRail,
     indexMinimapNodes,
     pickActiveIndex,
-    railRightOffset,
     type NavItem,
   } from "./lib/minimap";
 
   // Editor-mode message navigator: a rail of dashes (one per user message) in the
-  // reading gutter. Hover expands it into a preview list; clicking scrolls to the
+  // reading gutter, anchored to the pane edge so sidebar resizing cannot shift
+  // the ticks within the gutter. Hover expands it into a preview list; clicking scrolls to the
   // message. Only renders when the gutter is wide enough to clear the text.
   let {
     items,
@@ -31,7 +31,6 @@
   let hovered = $state(false);
 
   const visible = $derived(items.length >= 3 && hasRoomForRail(paneWidth));
-  const rightOffset = $derived(railRightOffset(paneWidth));
 
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -157,9 +156,8 @@
 {#if visible}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <nav
-    class="msg-nav"
+    class="msg-nav right-4"
     class:expanded={hovered}
-    style="right:{rightOffset}px"
     aria-label="Jump to message"
     onmouseenter={() => (hovered = true)}
     onmouseleave={() => (hovered = false)}
@@ -184,7 +182,10 @@
 <style>
   .msg-nav {
     position: absolute;
-    top: 50%;
+    /* Centred on the reading area, not on the column: the floating composer
+       reserves the band below it (ADR-0027), so half of that band comes off
+       the centre. Held across a fold, so the ticks never move with the bar. */
+    top: calc(50% - var(--solus-composer-inset, 0px) / 2);
     transform: translateY(-50%);
     z-index: 20;
     display: flex;

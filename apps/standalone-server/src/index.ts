@@ -1,3 +1,5 @@
+import { supervisorMessageSchema, type SupervisorMessage } from '@solus/contracts/server-update'
+import packageJson from '../../../package.json'
 import { join } from 'path'
 import { createLogger, flushLogs } from '@solus/server/logger'
 import { shutdownAnalytics } from '@solus/server/analytics'
@@ -87,7 +89,31 @@ async function main(): Promise<void> {
     import('@solus/server/server/endpoints'),
   ])
 
+  let stopForUpdate: (() => void) | undefined
+  const initialSupport = supervisorMessageSchema.safeParse({
+    type: 'solus:update-status',
+    support: JSON.parse(process.env.SOLUS_UPDATE_SUPPORT || 'null'),
+  })
+  const updateSupervisor = process.send && process.env.SOLUS_UPDATE_SUPERVISED === '1'
+    && initialSupport.success && initialSupport.data.type === 'solus:update-status'
+    ? {
+      support: initialSupport.data.support,
+      send: (message: SupervisorMessage) => {
+        if (!process.connected || !process.send) throw new Error('The update supervisor disconnected.')
+        process.send(message, (error) => { if (error) log.error('update_supervisor_send_failed', { error: error.message }) })
+      },
+      subscribe: (listener: (message: SupervisorMessage) => void) => {
+        const receive = (raw: Parameters<typeof supervisorMessageSchema.safeParse>[0]) => {
+          const parsed = supervisorMessageSchema.safeParse(raw)
+          if (parsed.success) listener(parsed.data)
+        }
+        process.on('message', receive)
+        return () => { process.off('message', receive) }
+      },
+      shutdown: () => stopForUpdate?.(),
+    } : undefined
   const core = await bootCore({
+    updateSupervisor,
     host: args.host,
     port: args.port,
     staticDir: join(__dirname, '../client'),
@@ -113,10 +139,14 @@ async function main(): Promise<void> {
     '',
   ].join('\n'))
 
-  installShutdownHandlers(core, closeBrowserHost)
+  stopForUpdate = installShutdownHandlers(core, closeBrowserHost)
+  if (updateSupervisor) {
+    process.once('disconnect', () => stopForUpdate?.())
+    updateSupervisor.send({ type: 'solus:ready', version: packageJson.version })
+  }
 }
 
-function installShutdownHandlers(core: BootCore, closeBrowserHost: (() => Promise<void>) | null): void {
+function installShutdownHandlers(core: BootCore, closeBrowserHost: (() => Promise<void>) | null): () => void {
   let shuttingDown = false
   const shutdown = async (signal: NodeJS.Signals) => {
     if (shuttingDown) return
@@ -143,6 +173,7 @@ function installShutdownHandlers(core: BootCore, closeBrowserHost: (() => Promis
 
   process.once('SIGINT', (signal) => void shutdown(signal))
   process.once('SIGTERM', (signal) => void shutdown(signal))
+  return () => { void shutdown('SIGTERM') }
 }
 
 main().catch((err) => {

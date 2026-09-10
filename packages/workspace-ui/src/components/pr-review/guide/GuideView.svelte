@@ -49,6 +49,8 @@
     onCommentDelete?: (id: string) => void;
   } = $props();
 
+  let hasOpenedLowSignal = $state(false);
+
   const patchByPath = $derived(splitPatchByFile(patch));
   const records = $derived(ledger?.records ?? []);
 
@@ -145,7 +147,7 @@
         </div>
 
         {#if lowSignalSections.length > 0}
-          <details class="group border-t border-(--solus-art-border)">
+          <details class="group border-t border-(--solus-art-border)" ontoggle={(event) => { if (event.currentTarget.open) hasOpenedLowSignal = true; }}>
             <summary
               class="flex cursor-pointer list-none items-center gap-1.5 py-3.5 pr-8 pl-14 font-medium text-(--solus-text-tertiary) select-none hover:text-(--solus-text-secondary)"
             >
@@ -154,6 +156,7 @@
               ></span>
               Low-signal changes ({lowSignalSections.length})
             </summary>
+            {#if hasOpenedLowSignal}
             <div class="lowsig-body">
               {#each lowSignalSections as section (section.id)}
                 <GuideSection
@@ -168,6 +171,7 @@
                 />
               {/each}
             </div>
+            {/if}
           </details>
         {/if}
       </div>

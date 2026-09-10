@@ -85,6 +85,7 @@
     onFixChecks,
     onUpdateBranch,
     onGenerateGuide,
+    onOpenGuide,
     generationStatus,
     onAskQuestion,
     askQuestionBusy = false,
@@ -123,6 +124,7 @@
     /** Prepare the PR checkout and put "bring the base in" in a new composer. */
     onUpdateBranch?: () => Promise<void>;
     onGenerateGuide?: () => void;
+    onOpenGuide?: () => void;
     /** Immediate parent-owned state while the PR checkout is being prepared.
      *  The durable store takes over as soon as the request is queued. */
     generationStatus?: PrGuideStatus;
@@ -1195,6 +1197,7 @@
     {unresolvedCount}
     onFileJump={(path) => jumpToFile(path)}
     {guideStatus}
+    {onOpenGuide}
     onGenerateGuide={onGenerateGuide &&
     detail?.state === "open" &&
     !detail.draft

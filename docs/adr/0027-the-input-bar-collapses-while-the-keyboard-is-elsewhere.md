@@ -23,22 +23,17 @@ focus with nowhere to return.
 
 An idle input bar collapses to one line. The rule and its exceptions:
 
-- **Idle means the keyboard has been elsewhere for a grace.** The bar takes
-  the keyboard on its own `focusin` and opens at once. It lets go only after
-  a leave has settled: 150ms after the last focus change or pointer release
-  anywhere in the document, the bar reads where focus actually is. In the bar
-  or in a menu the bar opened — bits-ui floating content or a dialog — is not
-  a leave. Elsewhere, or on nothing, is. A window blur is not idle: the bar
-  keeps its shape so the app does not paint one collapsed frame on return.
-- **Nothing predicts a return.** Most leaves are not leaves: a closing picker
-  blurs its content a frame before it hands focus back, a sidebar row takes
-  focus on mousedown and asks for the input back two frames after the click,
-  and a settled recorder hands the keyboard back a frame after the mic lets
-  go. Each used to carry a hold of its own — a "refocus pending" flag the
-  caller set before its deferred focus — and every hold not released on time
-  left the bar stuck open, or folded it on one frame and unfolded it on the
-  next. The grace replaces all of them: a return inside it is simply not a
-  leave, and no caller has to tell the bar it is coming.
+- **Leaving the input starts collapse without a timed delay.** The bar takes
+  the keyboard on its own `focusin` and opens at once. After an ordinary blur
+  or pointer release, it reads focus in the next event-loop task, with no
+  150ms grace. This lets the current click or focus event finish first.
+  Focus in the bar or one of its floating menus still holds it open.
+  A window blur also keeps the bar's shape.
+- **Only a closing menu or recorder gets a refocus grace.** These can return
+  focus on a later frame, so they retain a 150ms grace. Ordinary navigation
+  does not wait for a possible future return: if it returns focus later,
+  the current collapse reverses into expand. A return in the same event
+  cancels collapse before it starts.
 - **The collapse hides the toolbar row and tightens the text well. Nothing
   else.** Mic and send stay, inline beside the well, so the reverse-state
   guarantee holds: you can always send and always stop dictating. Attachment
@@ -91,41 +86,77 @@ the Tab order and off screen without being unmounted. Mic and send are pinned
 to the card's bottom-right corner in both states, so nothing moves between two
 rows.
 
-The dock stays in flow. The transcript, the action row, and the activity
-strip end where the bar begins, so all three take the room back the moment
-the bar folds and no gap opens under the transcript while it rests. The
-alternative, a dock floating over a transcript that keeps the expanded height
-clear, was tried and rejected: it left a band of empty space between the last
-message and the resting bar.
+The dock floats over the conversation and the column reserves the band it
+needs in `--solus-composer-inset`. This replaces the original in-flow dock,
+which resized the transcript on every fold: the scroll viewport grew by the
+fold distance, the browser clamped `scrollTop` to the smaller maximum, and
+the whole conversation slid under the reader. That happened on a reduced-motion
+cut as much as on the animation, so it was never something the tween could fix.
 
-The motion is a FLIP over that flipped layout, run through the Web Animations
-API (`input/lib/composer-fold.ts`). An earlier version tweened the row and the
-well in CSS and let the card's height follow them in flow; that laid out the
-whole conversation column on every frame and the transcript's resize observer
-re-pinned the scroll on every one of them, so the fold read as laggy on a long
-session however short the tween. Now, for the length of the tween, the card's
-host holds its destination height while the card, lifted out of flow and
-anchored to the host's bottom edge, tweens its height from where it was. The
-prompt line slides from its old position to its new one, and on expand the
-toolbar row arrives through the second half of the tween with a fade and a
-short drift, once the card has grown room for it. The column and the
-transcript move once per fold; the card catches up over the tween. The clock
-is 280ms on `cubic-bezier(0.32, 0.72, 0, 1)`, a slower settle than the
-chrome's base clock because the card travels further than a chip does.
-Reduced motion turns the whole fold into a cut. A host opts in by marking the
-card `data-composer-surface`; the Editor card and the Pill composer do.
+The reservation is *held* while the bar rests. A folded measurement may only
+hold the band, never shrink it; an expanded measurement is authoritative and
+may shrink it, which is how a departing chip or draft line gives the room back.
+So unfolding does not move the transcript either — both directions are inert.
+The transcript's bottom padding and the minimap's centre take that held band.
+The rule is `resolveComposerInset` in `input/lib/composer-collapse.ts`; the
+card publishes its state for the dock to read as `data-composer-collapsed`.
+
+The action row — the orb and the activity strip beside it — is the exception,
+and takes a second var, `--solus-composer-height`: the bar's live top edge. It
+belongs to the bar rather than to the transcript, so it hugs the bar and
+travels with a fold. Anchored to the held band instead, it stranded itself at
+the top of the band with dead space underneath while the bar rested. It travels
+on the fold's own duration and easing, published from the same constants, since
+the card's WAAPI tween reports the dock at its destination height from the
+first frame and the row would otherwise jump the whole distance at once. The
+travel is armed only after the bar's first measurement, so opening a
+conversation does not slide the row up from nothing.
+
+The cost is a band of background between the last message and the resting bar,
+which the first version of this decision rejected. It is paid back by the
+float: the rows scroll *under* the bar and dissolve into it, so the collapse
+still gives reading space to everything except the very end of the transcript.
+An opaque dock in flow would have kept the band and reclaimed nothing.
+
+That dissolve is the transcript's own bottom edge (`.transcript-fade` in
+`ConversationView`), riding the bar's live edge beneath the action row. Painted
+from the dock instead, it also washed out the lower half of the row sitting on
+that edge.
+
+A bar that has never been expanded reserves its folded height, and the first
+expansion moves the transcript once. Guessing an expansion delta instead would
+be a number no surface agrees on.
+
+Pill mode is unchanged. Its composer is a separate card below a body of fixed
+height, and the whole stack is bottom-anchored, so the body descends with the
+folding bar as the card's own geometry rather than through a transcript
+re-pin. A phone does not collapse at all, so the mobile clients never see
+either shape.
+
+Collapse and expand use the same 280ms animation on
+`cubic-bezier(0.32, 0.72, 0, 1)` through the Web Animations API
+(`input/lib/composer-fold.ts`). The host holds its destination height while the
+card is lifted out of flow and anchored to its bottom edge. The prompt slides
+from its previous position. On expand, the toolbar fades in with a short drift
+through the second half of the animation.
+
+On collapse, the mic and send buttons are compensated for the inner content's
+immediate size change so they do not jump up and then slide back down. The
+toolbar stays outside layout at its previous height and fades out through the
+first half of the animation. It becomes inert immediately. Temporary styles are
+removed on completion or interruption. Reduced motion makes both directions
+immediate. The Editor and Pill cards opt in with `data-composer-surface`.
 
 Two more things hold the bar open: a press that began outside the bar and has
 not been released, so a drag-select in the transcript never folds the bar
-under the gesture, and so a click's consequences have the grace to land after
-the release rather than the press; and a live selection inside the
+under the gesture, and so a click can finish before focus is read; and a live selection inside the
 transcript, which lets go when the selection does.
 
 While the bar holds the keyboard it watches focus on the document, not on its
 own box: a picker's content is portalled outside the bar, and a menu that
 closes by letting go — a click on the transcript with no return target —
 fires nothing on the bar. The watcher is attached only while the bar is open,
-so a resting bar costs nothing. The grace, the hold, and the reads are in
+so a resting bar costs nothing. The refocus grace, holds, and focus reads are in
 `input/lib/composer-fold.svelte.ts`; the pure rules are in
 `input/lib/composer-collapse.ts`, and `tests/unit/composer-fold-grace.test.ts`
 drives the compiled controller through the sidebar click, the transcript

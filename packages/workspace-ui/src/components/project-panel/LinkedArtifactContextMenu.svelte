@@ -16,6 +16,15 @@
   }
 
   let { x, y, onOpen, onCopyReference, onUnlink, onClose }: Props = $props();
+
+  // Act first, close second. The caller holds the row this menu was opened for
+  // in the same state `onClose` clears, and a `{@const}` capture of it is a
+  // derived: closing first re-reads it as null and every action throws on the
+  // link it was given. Closing after the action leaves that state intact.
+  function select(action: () => void) {
+    action();
+    onClose();
+  }
 </script>
 
 <ContextMenu.Root
@@ -25,31 +34,18 @@
 >
   <ContextMenu.PointTrigger {x} {y} />
   <ContextMenu.Content class="min-w-40">
-    <ContextMenu.Item
-      onSelect={() => {
-        onClose();
-        onOpen();
-      }}
-    >
+    <ContextMenu.Item onSelect={() => select(onOpen)}>
       <OpenIcon />
       Open
     </ContextMenu.Item>
-    <ContextMenu.Item
-      onSelect={() => {
-        onClose();
-        onCopyReference();
-      }}
-    >
+    <ContextMenu.Item onSelect={() => select(onCopyReference)}>
       <CopyIcon />
       Copy Reference
     </ContextMenu.Item>
     <ContextMenu.Separator />
     <ContextMenu.Item
       variant="destructive"
-      onSelect={() => {
-        onClose();
-        onUnlink();
-      }}
+      onSelect={() => select(onUnlink)}
     >
       <UnlinkIcon />
       Unlink

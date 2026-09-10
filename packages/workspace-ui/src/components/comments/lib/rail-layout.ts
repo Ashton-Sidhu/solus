@@ -47,6 +47,13 @@ export interface RailLayout {
   nearestAboveId: string | null
   nearestBelowId: string | null
   /**
+   * Cards the margin could not fit: their anchors are on screen, but the ones
+   * above used the room. They are hidden and counted at the bottom edge rather
+   * than sliced by it or painted off the end of the page — and the counter
+   * takes you to one, which then wins its line and comes back into view.
+   */
+  hidden: Set<string>
+  /**
    * Set when the focused thread's anchor has scrolled out of the reading
    * viewport: the card holds that edge instead of leaving with its anchor, so
    * the thread you are in is never the one that disappears. At most one card
@@ -128,26 +135,48 @@ export function layoutThreads(
     }
   }
 
-  // Off-screen threads become a count at the edge, never a stack of cards the
-  // reader has to scroll past to reach the ones they can see. The counter also
-  // carries the nearest thread in its direction, so clicking it goes somewhere.
+  return {
+    tops,
+    connectors,
+    stickyEdge,
+    ...countEdges(ordered, tops, stickyEdge ? opts.focusedId : null, opts.viewport),
+  }
+}
+
+/**
+ * Off-screen threads become a count at the edge, never a stack of cards the
+ * reader has to scroll past to reach the ones they can see. The counter also
+ * carries the nearest thread in its direction, so clicking it goes somewhere.
+ *
+ * A card is off-screen in two ways: its anchor left the viewport, or the margin
+ * ran out of room for it. The second kind is hidden rather than left half-drawn
+ * at the bottom edge — the counter is the whole of what the reader sees.
+ */
+function countEdges(
+  ordered: ThreadAnchor[],
+  tops: Map<string, number>,
+  stuckId: string | null | undefined,
+  viewport?: RailViewport,
+) {
   let above = 0
   let below = 0
   let nearestAboveId: string | null = null
   let nearestBelowId: string | null = null
-  if (opts.viewport) {
-    for (const item of ordered) {
-      // The stuck card is still on screen, so it is not one of the hidden ones.
-      if (stickyEdge && item.id === opts.focusedId) continue
-      if (item.anchorTop < opts.viewport.top) {
-        above++
-        nearestAboveId = item.id
-      } else if (item.anchorTop > opts.viewport.bottom) {
-        below++
-        nearestBelowId ??= item.id
-      }
+  const hidden = new Set<string>()
+  if (!viewport) return { above, below, nearestAboveId, nearestBelowId, hidden }
+  for (const item of ordered) {
+    // The stuck card is still on screen, so it is not one of the hidden ones.
+    if (item.id === stuckId) continue
+    if (item.anchorTop < viewport.top) {
+      above++
+      nearestAboveId = item.id
+      continue
     }
+    const crowdedOut = tops.get(item.id)! + item.height > viewport.bottom
+    if (item.anchorTop <= viewport.bottom && !crowdedOut) continue
+    below++
+    nearestBelowId ??= item.id
+    if (crowdedOut) hidden.add(item.id)
   }
-
-  return { tops, connectors, above, below, nearestAboveId, nearestBelowId, stickyEdge }
+  return { above, below, nearestAboveId, nearestBelowId, hidden }
 }

@@ -332,15 +332,22 @@ export class SessionSidebarStore {
         })
         linkedServerId ??= linkServerId
         createdAt = Math.min(createdAt, link.startedAt ?? createdAt)
-        const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
-        attention = maxTaskAttention(attention, liveState?.attention ?? null)
-        if (liveState?.attention === 'running') {
-          runStartedAt = runStartedAt === 0
-            ? liveState.runStartedAt
-            : Math.min(runStartedAt, liveState.runStartedAt)
-        }
         const tabId = openTabBySessionId.get(link.sessionId)
-        if (!tabId || tabIds.includes(tabId)) continue
+        // The feed speaks for the sessions with no tab, as its name says. A
+        // mounted tab knows the same status and, unlike the feed, whether the
+        // user has read it — letting the feed answer for one kept a viewed
+        // failure red on the parent row.
+        if (!tabId) {
+          const liveState = this.sessionStatusFeed().stateFor(linkServerId, link.sessionId)
+          attention = maxTaskAttention(attention, liveState?.attention ?? null)
+          if (liveState?.attention === 'running') {
+            runStartedAt = runStartedAt === 0
+              ? liveState.runStartedAt
+              : Math.min(runStartedAt, liveState.runStartedAt)
+          }
+          continue
+        }
+        if (tabIds.includes(tabId)) continue
         tabIds.push(tabId)
         const tab = this.session.tabs[tabId]
         const session = this.session.sessionFor(tabId)

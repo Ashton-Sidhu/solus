@@ -4,7 +4,7 @@ import path from 'path'
 import { isSolusWorktreePath, worktreeProjectRoot, type GitCheckout, type GitDiscardResult, type GitSyncResult, type WorktreeEntry } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import { dispatchStep } from '../observability/session-emitter'
-import { git, runAsync } from './exec'
+import { git, gitCommitExists, runAsync } from './exec'
 // `git-helpers` imports this module back for the branch and default-branch
 // helpers. Both sides only reach across inside function bodies, so the cycle
 // resolves at call time.
@@ -540,7 +540,7 @@ export async function fetchAndCheckoutPr(
   projectPath: string,
   prNumber: number,
   baseRef: string,
-  source: PrCheckoutSource,
+  source: PrCheckoutSource & { diffBaseSha?: string },
 ): Promise<PrWorktree> {
   const { branch, headSha } = await fetchPrHead(projectPath, prNumber, source)
   const worktreePath = worktreePathFor(projectPath, `pr-${prNumber}`)
@@ -631,11 +631,20 @@ export async function fetchAndCheckoutPr(
     throw new Error(`The existing checkout for PR #${prNumber} has local commits. They were left untouched.`)
   }
 
-  // Ensure the base ref is present locally, then anchor the diff at the divergence point.
-  await runAsync('git', ['fetch', 'origin', baseRef], projectPath).catch(() => {})
-  const baseSha = await runAsync('git', ['merge-base', headSha, `origin/${baseRef}`], projectPath).catch(
-    () => headSha,
-  )
+  let baseSha = source.diffBaseSha
+  if (baseSha) {
+    // The provider's diff base remains valid in shallow and single-branch
+    // clones, where local history cannot establish the divergence point.
+    if (!await gitCommitExists(projectPath, baseSha)) {
+      await runAsync('git', ['fetch', '--depth=1', 'origin', baseSha], projectPath)
+    }
+    baseSha = await runAsync('git', ['rev-parse', '--verify', `${baseSha}^{commit}`], projectPath)
+  } else {
+    await runAsync('git', ['fetch', 'origin', baseRef], projectPath).catch(() => {})
+    baseSha = await runAsync('git', ['merge-base', headSha, `origin/${baseRef}`], projectPath).catch(
+      () => headSha,
+    )
+  }
 
   return { worktreePath: resolvedWorktreePath, branch: resolvedBranch, baseSha, headSha, reused: !!existingWorktreePath }
 }

@@ -7,7 +7,7 @@
 import type { SetupAgent } from './types'
 
 /** How Solus got onto the host. Decides the remediation. */
-export type HostInstallKind = 'desktop' | 'homebrew' | 'tarball' | 'source' | 'unknown'
+export type HostInstallKind = 'desktop' | 'managed' | 'source' | 'unknown'
 
 /**
  * The desktop update states without `downloading` and `ready`: a host or a
@@ -38,5 +38,7 @@ export interface HostUpdateStatus {
   remediation: string | null
   releaseUrl: string | null
   check: UpdateCheckState
+  /** Absent on hosts that predate remote installation. */
+  serverUpdate?: import('./server-update').ServerUpdateSupport
   providers: ProviderUpdateStatus[]
 }

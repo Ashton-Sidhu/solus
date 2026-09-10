@@ -598,9 +598,13 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
+<!-- The action row belongs to the bar, not to the transcript, so it rides on
+     the bar's live top edge and travels with a fold on the fold's own curve
+     (ADR-0027). Anchoring it to the held band instead stranded it at the top
+     of the band with dead space under it while the bar rested. -->
 <div
   bind:this={rootEl}
-  class="action-orb-root pointer-events-none absolute inset-x-0 inset-y-0 z-[6] mx-auto [contain:layout]"
+  class="action-orb-root pointer-events-none absolute inset-x-0 top-0 bottom-[var(--solus-composer-height,0px)] z-[6] mx-auto [contain:layout]"
   class:pill-mode={isOverlayWindow}
   class:compact
   class:orb-streaming={isRunning}

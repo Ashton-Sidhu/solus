@@ -63,7 +63,7 @@
 <form onsubmit={submit}>
   {#if store.pairingView === "connecting"}
     <p class="mt-4 text-pretty leading-[1.6] font-secondary text-(--solus-text-secondary) [.is-laptop-display_&]:mt-3">
-      Solus is using your existing SSH access to install and start the agent on
+      Solus is using your existing SSH access to pair with the server on
       {target.name}. Nothing is installed on this Mac.
     </p>
   {:else if store.pairingView === "error"}

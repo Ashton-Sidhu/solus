@@ -87,6 +87,12 @@ test.each(['fixed', 'grouped', 'picker-fixed', 'picker-grouped'])('%s virtual li
       assert.equal(document.querySelectorAll('[data-row]').length, 0);
       app.replace([{ key: 'restored' }]); flushSync();
       assert.equal(document.querySelector('[data-row]').textContent, 'restored');
+      // Project switches remount the list with a selected row and a reset offset.
+      // The selected row must be visible even when it starts below the viewport.
+      app.replace([]); flushSync();
+      app.select(39); app.scrollTo(0);
+      app.replace(Array.from({ length: 40 }, (_, key) => ({ key }))); flushSync();
+      assert.ok(document.querySelector('[data-row="39"]'));
       await unmount(app);
       dom.window.close();
     `)

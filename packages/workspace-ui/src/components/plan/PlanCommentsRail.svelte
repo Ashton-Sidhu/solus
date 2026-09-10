@@ -1,13 +1,25 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
   import type { CommentAuthor, PlanComment } from '@solus/contracts/types'
+  import type { DocCommentThread } from '@solus/contracts/work-comments'
   import CommentThreadCard from '../comments/CommentThreadCard.svelte'
+  import ExternalCommentCard from '../work/ExternalCommentCard.svelte'
   import type { MeasuredAnchor } from '../comments/lib/anchors'
-  import { layoutThreads } from '../comments/lib/rail-layout'
-  import { openThreads, resolvedThreads } from '../comments/lib/thread'
+  import { layoutThreads, type ThreadAnchor } from '../comments/lib/rail-layout'
+  import { openThreads, railThreads, resolvedThreads, type RailThread } from '../comments/lib/thread'
 
   interface Props {
+    externalWorkId?: string
     comments: PlanComment[]
+    /** External threads the highlight plugin placed in this text. They share
+     *  the margin with the local ones, each on the line it annotates. */
+    externalThreads?: DocCommentThread[]
+    /** External threads with no line to sit beside: comments on the document as
+     *  a whole, detached ones, and quotes this copy no longer holds. They are
+     *  a second view of the same rail rather than cards crowding the margin. */
+    pageThreads?: DocCommentThread[]
+    onAskExternalPrivately?: (thread: DocCommentThread) => void
+    onLocateExternalQuote?: (quote: string, threadId: string) => boolean
     activeCommentId?: string | null
     editingCommentId?: string | null
     /** Guidance shown in the empty state; lets each host surface its own shortcut. */
@@ -38,7 +50,12 @@
   }
 
   let {
+    externalWorkId,
     comments,
+    externalThreads = [],
+    pageThreads = [],
+    onAskExternalPrivately,
+    onLocateExternalQuote,
     activeCommentId = null,
     editingCommentId = null,
     emptyHint = 'Select text in the plan to add one.',
@@ -56,8 +73,38 @@
     footer,
   }: Props = $props()
 
-  const open = $derived(openThreads(comments))
-  const resolved = $derived(resolvedThreads(comments))
+  const anchorById = $derived(new Map(anchors.map((a) => [a.id, a])))
+
+  // Two views of one rail. Inline is the margin: every thread that annotates a
+  // passage, local and external alike, on its own line. Page is the list of
+  // threads that annotate the document rather than a passage — they have no
+  // line, and crowding them into the margin pushes the anchored cards off the
+  // end of it. The toggle only appears when there is a second view to show.
+  let view = $state<'inline' | 'page'>('inline')
+  const inline = $derived(railThreads(comments, externalThreads))
+  // Never show an empty view while the other one holds the threads: a document
+  // whose only comments are on the page as a whole opens on them.
+  const activeView = $derived(
+    view === 'page'
+      ? pageThreads.length > 0
+        ? 'page'
+        : 'inline'
+      : inline.length > 0 || pageThreads.length === 0
+        ? 'inline'
+        : 'page',
+  )
+  const threads = $derived(activeView === 'page' ? railThreads([], pageThreads) : inline)
+  const anchored = $derived(placement === 'anchored' && activeView === 'inline')
+
+  const shown = $derived(activeView === 'page' ? pageThreads : externalThreads)
+  const open = $derived(
+    (activeView === 'page' ? 0 : openThreads(comments).length) +
+      shown.filter((thread) => !thread.resolved).length,
+  )
+  const resolved = $derived(
+    (activeView === 'page' ? 0 : resolvedThreads(comments).length) +
+      shown.filter((thread) => thread.resolved).length,
+  )
 
   // One clock for the whole rail rather than a timer per card.
   let now = $state(Date.now())
@@ -87,18 +134,16 @@
   // rather than restated as a number, so the CSS stays the one source of truth.
   let connectorWidth = $state(0)
 
-  const anchorById = $derived(new Map(anchors.map((a) => [a.id, a])))
-
   const layout = $derived.by(() => {
-    if (placement !== 'anchored') return null
-    const items = comments
-      .map((c) => {
-        const anchor = anchorById.get(c.id)
+    if (!anchored) return null
+    const items = threads
+      .map((t) => {
+        const anchor = anchorById.get(t.id)
         if (!anchor) return null
         return {
-          id: c.id,
+          id: t.id,
           anchorTop: anchor.anchorTop - canvasBox.top,
-          height: heights[c.id] ?? 92,
+          height: heights[t.id] ?? 92,
         }
       })
       .filter((item) => item !== null)
@@ -131,11 +176,12 @@
   }
 
   const visibleConnectors = $derived(
-    settled && layout ? comments.filter((c) => layout.connectors.has(c.id)) : [],
+    settled && layout ? threads.filter((t) => layout.connectors.has(t.id)) : [],
   )
 
   function threadProps(comment: PlanComment) {
     return {
+      externalWorkId,
       comment,
       focused: activeCommentId === comment.id,
       anchorVisible: placement === 'anchored' ? (anchorById.get(comment.id)?.visible ?? true) : true,
@@ -166,6 +212,19 @@
   })
 </script>
 
+{#snippet railCard(thread: RailThread)}
+  {#if thread.kind === 'local'}
+    <CommentThreadCard {...threadProps(thread.comment)} />
+  {:else if externalWorkId}
+    <ExternalCommentCard
+      workId={externalWorkId}
+      thread={thread.thread}
+      onAskPrivately={onAskExternalPrivately ?? (() => {})}
+      onLocateQuote={onLocateExternalQuote ?? (() => false)}
+    />
+  {/if}
+{/snippet}
+
 <!-- Threads in the margin, not a panel: the same page as the prose, with no
      frame, fill or shadow of their own. Only the amber thread cards are drawn,
      because amber *is* annotation everywhere in the document. -->
@@ -174,12 +233,43 @@
     class="plan-comments-rail__header no-drag"
     class:plan-comments-rail__header--anchored={placement === 'anchored'}
   >
-    {open.length} open{resolved.length > 0 ? ` · ${resolved.length} resolved` : ''}
+    <!-- The count is of the view you are in, so the toggle beside it carries no
+         numbers of its own — and the count is what yields when the rail is too
+         narrow for both, because losing the toggle would strand a whole view. -->
+    <span class="plan-comments-rail__count"
+      >{open} open{resolved > 0 ? ` · ${resolved} resolved` : ''}</span
+    >
+    <!-- Only when the document has threads of both kinds: with one kind there
+         is nothing to switch between, and the count says what you are reading. -->
+    {#if pageThreads.length > 0}
+      <div class="plan-comments-rail__views" role="group" aria-label="Which comments">
+        <button
+          type="button"
+          class="plan-comments-rail__view"
+          class:plan-comments-rail__view--on={activeView === 'inline'}
+          aria-pressed={activeView === 'inline'}
+          title={`Comments on a passage of this document (${inline.length})`}
+          onclick={() => (view = 'inline')}
+        >
+          Inline
+        </button>
+        <button
+          type="button"
+          class="plan-comments-rail__view"
+          class:plan-comments-rail__view--on={activeView === 'page'}
+          aria-pressed={activeView === 'page'}
+          title={`Comments on the document rather than a passage (${pageThreads.length})`}
+          onclick={() => (view = 'page')}
+        >
+          Page
+        </button>
+      </div>
+    {/if}
   </div>
 
-  {#if comments.length === 0}
+  {#if threads.length === 0}
     <p class="plan-comments-rail__empty">{emptyHint}</p>
-  {:else if placement === 'anchored'}
+  {:else if anchored}
     <!-- Anchored: each card rides its own line, the rail clips what scrolls
          past, and the counts at the edges stand in for the rest. -->
     <div
@@ -207,25 +297,27 @@
         bind:clientWidth={connectorWidth}
       >
         <svg>
-          {#each visibleConnectors as comment (comment.id)}
-            <path d={connectorPath(comment.id)} />
+          {#each visibleConnectors as thread (thread.id)}
+            <path d={connectorPath(thread.id)} />
           {/each}
         </svg>
       </div>
 
-      {#each comments as comment (comment.id)}
+      {#each threads as thread (thread.id)}
         <div
           class="plan-comments-rail__slot"
           class:plan-comments-rail__slot--stuck={!!layout?.stickyEdge &&
-            activeCommentId === comment.id}
-          style:transform="translateY({layout?.tops.get(comment.id) ?? 0}px)"
-          style:visibility={layout?.tops.has(comment.id) ? 'visible' : 'hidden'}
-          bind:clientHeight={heights[comment.id]}
-          onmouseenter={() => onHover(comment.id)}
+            activeCommentId === thread.id}
+          style:transform="translateY({layout?.tops.get(thread.id) ?? 0}px)"
+          style:visibility={layout?.tops.has(thread.id) && !layout.hidden.has(thread.id)
+            ? 'visible'
+            : 'hidden'}
+          bind:clientHeight={heights[thread.id]}
+          onmouseenter={() => onHover(thread.id)}
           onmouseleave={() => onHover(null)}
           role="presentation"
         >
-          <CommentThreadCard {...threadProps(comment)} />
+          {@render railCard(thread)}
         </div>
       {/each}
 
@@ -244,13 +336,14 @@
     </div>
   {:else}
     <div class="plan-comments-rail__body no-drag" bind:this={bodyEl}>
-      {#each comments as comment (comment.id)}
+      {#each threads as thread (thread.id)}
         <div
-          onmouseenter={() => onHover(comment.id)}
+          data-comment-id={thread.id}
+          onmouseenter={() => onHover(thread.id)}
           onmouseleave={() => onHover(null)}
           role="presentation"
         >
-          <CommentThreadCard {...threadProps(comment)} />
+          {@render railCard(thread)}
         </div>
       {/each}
     </div>
@@ -296,6 +389,8 @@
     flex-shrink: 0;
     display: flex;
     align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
     padding: 0 0.125rem 0.625rem;
     font-family: 'Geist Mono', var(--solus-code-font-family);
     font-size: var(--text-xs);
@@ -309,6 +404,52 @@
      them — the count belongs to the column of threads it counts. */
   .plan-comments-rail__header--anchored {
     padding-left: var(--rail-gutter);
+  }
+  /* One line, always. The count truncates before the toggle gives up a pixel:
+     a wrapped header pushes the margin's first card down its own line. */
+  .plan-comments-rail__count {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Which kind of thread the margin is showing. The same micro voice as the
+     count beside it, so the header stays one line of chrome rather than
+     becoming a toolbar over the page. */
+  .plan-comments-rail__views {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+  .plan-comments-rail__view {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 0.0625rem 0.3125rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    color: var(--solus-text-tertiary);
+    font-variant-numeric: tabular-nums;
+    cursor: pointer;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
+  }
+  .plan-comments-rail__view:hover {
+    color: var(--solus-text-primary);
+  }
+  .plan-comments-rail__view--on {
+    background: color-mix(in srgb, var(--solus-art-2) 14%, transparent);
+    color: color-mix(in srgb, var(--solus-text-primary) 84%, var(--solus-text-tertiary));
+  }
+  .plan-comments-rail__view:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.125rem;
   }
   .plan-comments-rail__body {
     flex: 1;
@@ -429,7 +570,8 @@
 
   @media (prefers-reduced-motion: reduce) {
     .plan-comments-rail__canvas--settled .plan-comments-rail__slot,
-    .plan-comments-rail__edge {
+    .plan-comments-rail__edge,
+    .plan-comments-rail__view {
       transition: none !important;
     }
   }

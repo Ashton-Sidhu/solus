@@ -222,11 +222,13 @@ describe('ClaudeTurnNormalizer', () => {
     setSystemTime(new Date('2026-01-01T00:00:00Z'))
     const { events, normalizer } = await normalizeClaudeFixture('claude-rate-limit.jsonl')
 
+    // An unknown window name must not discard a directly reported reset.
     expect(events).toEqual([{
       type: 'rate_limit',
       status: 'limited',
       resetsAt: 1767225900,
       rateLimitType: 'Claude',
+      windowDurationMins: undefined,
       isUsingOverage: false,
     }])
     expect(normalizer.summary.sawRateLimit).toBe(true)
@@ -248,9 +250,13 @@ describe('ClaudeTurnNormalizer', () => {
     }
 
     // Claude flags the seven-day window on nearly every turn from about a
-    // quarter spent. The sidebar usage meters already say that, so it never
-    // reaches the renderer at all.
-    expect(normalizer.push(warning)).toEqual([])
+    // quarter spent. No card is raised for it, but the reset it carries is
+    // exactly what the usage store needs, and this stream is where it comes
+    // from — so the window update rides out even when nothing is shown.
+    expect(normalizer.push(warning)).toEqual([{
+      type: 'usage_limits',
+      windows: [{ windowDurationMins: 10_080, usedPercent: null, resetsAt: 1767225900_000 }],
+    }])
     expect(normalizer.summary.sawRateLimit).toBe(false)
 
     // A limit that actually stops the run is the one thing worth raising the
@@ -258,13 +264,20 @@ describe('ClaudeTurnNormalizer', () => {
     expect(normalizer.push({
       ...warning,
       rate_limit_info: { ...warning.rate_limit_info, status: 'limited' },
-    })).toEqual([{
-      type: 'rate_limit',
-      status: 'limited',
-      resetsAt: 1767225900,
-      rateLimitType: 'seven_day',
-      isUsingOverage: false,
-    }])
+    })).toEqual([
+      {
+        type: 'usage_limits',
+        windows: [{ windowDurationMins: 10_080, usedPercent: null, resetsAt: 1767225900_000 }],
+      },
+      {
+        type: 'rate_limit',
+        status: 'limited',
+        resetsAt: 1767225900,
+        rateLimitType: 'seven_day',
+        windowDurationMins: 10_080,
+        isUsingOverage: false,
+      },
+    ])
     expect(normalizer.summary.sawRateLimit).toBe(true)
   })
 
@@ -284,7 +297,9 @@ describe('ClaudeTurnNormalizer', () => {
       usage: {},
     })
 
-    expect(events[0]).toMatchObject({ type: 'rate_limit', resetsAt: 1786737600 })
+    // The wording carries no year, so it says a limit was hit and nothing more.
+    // Parsing "resets 4pm" here is exactly what produced wrong countdowns.
+    expect(events[0]).toMatchObject({ type: 'rate_limit', status: 'limited', resetsAt: null })
     expect(normalizer.summary.sawRateLimit).toBe(true)
   })
 

@@ -1,10 +1,11 @@
+import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLabel, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
 import type { SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
-import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest } from './review'
+import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, ReviewTarget } from './review'
 import type { StackGraph } from './stack-types'
 import type { PrChecksSnapshot } from './checks-rpc-types'
 import type { AssetCreateUrlRequest, AssetCreateUrlResult, AssetUploadRequest, AssetUploadResult, AttachmentUploadRequest, SearchSessionsRequest } from './rpc'
@@ -213,6 +214,8 @@ export interface SolusAPI {
   hostUpdateStatus(): Promise<HostUpdateStatus>
   /** Runs every check now; inside the host's rate limit it returns the current status. */
   hostCheckForUpdates(): Promise<HostUpdateStatus>
+  hostInstallUpdate(): Promise<HostUpdateStatus>
+  hostCancelUpdate(): Promise<HostUpdateStatus>
 
   /** Active per-session needs-attention entries (server-side, outlive clients). */
   listAttention(): Promise<AttentionEntry[]>
@@ -327,11 +330,11 @@ export interface SolusAPI {
   readLedger(ctx: IpcContext): Promise<ReviewLedger | null>
   writeLedger(ctx: IpcContext, ledger: ReviewLedger): Promise<boolean>
   getReviewContext(ctx: IpcContext): Promise<ReviewContext | null>
-  generateGuide(ctx: IpcContext, opts?: ReviewGuideRequestOptions): Promise<{ key: string; guide: ReviewGuide; persisted: boolean } | null>
+  generateGuide(ctx: IpcContext, opts?: ReviewGuideRequestOptions): Promise<{ key: string; guide: ReviewGuide; persisted: boolean; outdated?: boolean } | null>
   requestReviewGuide(ctx: IpcContext, opts?: ReviewGuideRequestOptions): Promise<ReviewGuideStatusEvent | null>
   reviewGuideStatus(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope' | 'ownDeltaBase'>): Promise<ReviewGuideStatusEvent | null>
   cancelGenerateGuide(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope' | 'ownDeltaBase'>): Promise<boolean>
-  readGuide(ctx: IpcContext, key: string): Promise<ReviewGuide | null>
+  readGuide(ctx: IpcContext, key: string, target?: ReviewTarget): Promise<ReviewGuide | null>
   readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
   writeReviewState(ctx: IpcContext, state: ReviewState): Promise<boolean>
 
@@ -345,6 +348,12 @@ export interface SolusAPI {
   promoteWorkToProject(id: string, projectRoot: string): Promise<Work>
   loadWorkAnnotations(workId: string): Promise<WorkAnnotations | null>
   saveWorkAnnotations(ann: WorkAnnotations): Promise<void>
+  readWorkGoogleComments(workId: string): Promise<WorkExternalComments>
+  refreshWorkGoogleComments(workId: string): Promise<WorkExternalComments>
+  sendWorkGoogleComment(workId: string, command: ExternalCommentCommand): Promise<WorkExternalComments>
+  readWorkExternalComments(workId: string): Promise<WorkExternalComments>
+  refreshWorkExternalComments(workId: string): Promise<WorkExternalComments>
+  sendWorkExternalComment(workId: string, command: ExternalCommentCommand): Promise<WorkExternalComments>
   agentSaveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, cwd?: string): Promise<Work>
   loadWorkPrevious(workId: string, cwd?: string): Promise<WorkPrevious | null>
   revertWork(id: string, cwd?: string): Promise<Work | null>

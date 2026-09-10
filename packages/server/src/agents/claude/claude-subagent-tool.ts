@@ -40,17 +40,11 @@ const claudeSubagentFields = {
     .describe(
       "Match to task difficulty: 'low' for mechanical edits and lookups, 'medium' for typical coding tasks, 'high'+ only for hard debugging or design. Omit to use the model's default.",
     ),
-  read_only: z
-    .boolean()
-    .optional()
-    .describe(
-      'Run with write-capable tools denied — the subagent can explore but not modify files. Use for research/review tasks.',
-    ),
 }
 const claudeSubagentInputSchema = z.object(claudeSubagentFields)
 
 const CLAUDE_SUBAGENT_DESC =
-  "Delegate a task to a Claude subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts); set read_only for tasks that must not modify files. The result is the subagent's final text — it has no memory between calls."
+  "Delegate a task to a Claude subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts). The result is the subagent's final text — it has no memory between calls."
 
 export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): AgentTool {
   return {
@@ -60,7 +54,6 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
     requiresApproval: false,
     execute: async (rawArgs, context) => {
       const args = claudeSubagentInputSchema.parse(rawArgs)
-      const readOnly = args.read_only === true
       const model = args.model && claudeProfiles[args.model] ? args.model : DEFAULT_CLAUDE_MODEL
       const reasoningEffort =
         args.reasoning_effort ?? claudeProfiles[model]?.defaultReasoningEffort ?? 'medium'
@@ -81,7 +74,7 @@ export function createClaudeSubagentAgentTool(dispatcher: AgentDispatcher): Agen
         ],
         model,
         reasoningEffort,
-        permissionMode: readOnly ? 'plan' : 'auto',
+        permissionMode: 'auto',
         persistence: 'ephemeral',
         service: SPAN_SERVICES.subagents,
         unattended: true,

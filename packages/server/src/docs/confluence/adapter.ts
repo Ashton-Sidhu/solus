@@ -1,3 +1,6 @@
+import { withConfluencePage } from './page-lock'
+import { ConfluenceDocComments } from './comments'
+import { preserveConfluenceMarkers } from './inline-markers'
 import { z } from 'zod'
 import type {
   DocDestination,
@@ -117,6 +120,7 @@ function cqlLiteral(value: string): string {
 
 export class ConfluenceDocAdapter implements DocProviderAdapter {
   readonly id = 'confluence' as const
+  readonly comments = new ConfluenceDocComments()
 
   async status(): Promise<DocProviderStatus> {
     const credential = loadCredential()
@@ -212,40 +216,43 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
   }
 
   async update(ref: DocRef, patch: DocPatch): Promise<NormalizedDoc> {
-    const credential = await this.credential()
-    const spaceKey = ref.externalKey.split('/')[1] ?? ''
-    const cloudId = linkedCloudId(ref)
-    const current = await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}`, pageSchema)
-    const currentVersion = current.version?.number ?? 0
+    return withConfluencePage(ref, async () => {
+      const credential = await this.credential()
+      const spaceKey = ref.externalKey.split('/')[1] ?? ''
+      const cloudId = linkedCloudId(ref)
+      const current = await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}?body-format=storage`, pageSchema)
+      const currentVersion = current.version?.number ?? 0
 
-    // Confluence's required `version.number = current + 1` is optimistic
-    // concurrency built into the API; checking first turns the rejection into a
-    // conflict the user can act on rather than a raw HTTP 409.
-    if (patch.expectedVersion !== undefined && patch.expectedVersion !== String(currentVersion)) {
-      throw new DocVersionConflictError(String(currentVersion), current.version?.createdAt)
-    }
+      // Confluence's required `version.number = current + 1` is optimistic
+      // concurrency built into the API; checking first turns the rejection into a
+      // conflict the user can act on rather than a raw HTTP 409.
+      if (patch.expectedVersion !== undefined && patch.expectedVersion !== String(currentVersion)) {
+        throw new DocVersionConflictError(String(currentVersion), current.version?.createdAt)
+      }
 
-    // Attachments go up before the body that references them, so the page is
-    // never published pointing at a picture that is not there yet. Confluence
-    // may count that upload as an edit, so the version the write increments is
-    // re-read afterwards rather than assumed — the guard above has already run.
-    const assets = this.publishableDiagrams(credential, patch.diagramAssets)
-    await this.uploadDiagrams(credential, ref.externalId, assets)
-    const versionToReplace = assets.length
-      ? (await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}`, pageSchema)).version?.number ?? currentVersion
-      : currentVersion
+      // Plan marker preservation before uploads. Never adopt a newer revision
+      // after staging attachments: it may also contain a collaborator's edit.
+      const assets = this.publishableDiagrams(credential, patch.diagramAssets)
+      if (!current.body?.storage) throw new Error('Confluence did not return the current page body. Refresh before publishing.')
+      const storage = preserveConfluenceMarkers(current.body.storage.value, markdownToStorage(patch.markdown, diagramAttachments(assets)))
+      await this.uploadDiagrams(credential, ref.externalId, assets)
+      const latest = await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}?body-format=storage`, pageSchema)
+      if (latest.version?.number !== currentVersion || latest.body?.storage?.value !== current.body.storage.value) {
+        throw new DocVersionConflictError(String(latest.version?.number ?? currentVersion))
+      }
 
-    const page = await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}`, pageSchema, {
-      method: 'PUT',
-      body: {
-        id: ref.externalId,
-        status: 'current',
-        title: patch.title ?? current.title,
-        body: { representation: 'storage', value: markdownToStorage(patch.markdown, diagramAttachments(assets)) },
-        version: { number: versionToReplace + 1, message: 'Updated from Solus' },
-      },
+      const page = await this.request(cloudId, `/wiki/api/v2/pages/${encodeURIComponent(ref.externalId)}`, pageSchema, {
+        method: 'PUT',
+        body: {
+          id: ref.externalId,
+          status: 'current',
+          title: patch.title ?? current.title,
+          body: { representation: 'storage', value: storage },
+          version: { number: currentVersion + 1, message: 'Updated from Solus' },
+        },
+      })
+      return this.normalize(credential, page, spaceKey)
     })
-    return this.normalize(credential, page, spaceKey)
   }
 
   /** The diagrams this publish may carry: valid images, and a grant that can

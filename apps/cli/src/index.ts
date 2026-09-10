@@ -1,25 +1,18 @@
+import { superviseServer } from './lib/server-supervisor'
 import { spawn } from 'child_process'
 import type { ChildProcess } from 'child_process'
-import { z } from 'zod'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
-import { tmpdir } from 'os'
-import { basename, dirname, join } from 'path'
+import { existsSync, mkdirSync } from 'fs'
+import { dirname, join } from 'path'
 import { createAdminHeaders, readSigningKey } from './lib/admin-auth'
 import { connectHost, connectStatus, disconnectHost, type ConnectOptions } from './lib/connect'
 import { renderQrAscii } from './lib/qr'
-import { defaultDataDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type ServerLock } from './lib/runtime'
-import {
-  compareVersions,
-  isBrewManaged,
-  isTarballInstall,
-  normalizeVersion,
-  replaceInstallDirectory,
-  verifyArchiveSha256,
-} from './lib/update'
+import { defaultDataDir, defaultRuntimeDir, isProcessAlive, localConnectHost, readLockFile, runtimePaths, type ServerLock } from './lib/runtime'
+import { runUpdate } from './lib/remote-update-client'
+import { runSetup, serviceEnvFor } from './lib/setup'
+import { reportStatus } from './lib/status'
+import { restartService, serviceStatus, startService, stopService, uninstallService } from './lib/service'
 import { bestEndpoint, extractGitCredentialAction, formatPairBlock, hostForUrl, parseFlags, parsePort } from '@solus/contracts/entrypoint'
 import packageJson from '../../../package.json'
-
-const DEFAULT_RELEASE_REPO = process.env.SOLUS_RELEASE_REPO || 'Ashton-Sidhu/solus'
 
 interface CommonOptions {
   dataDir: string
@@ -32,10 +25,6 @@ interface StartOptions extends CommonOptions {
 
 interface LogsOptions extends CommonOptions {
   lines: number
-}
-
-interface UpdateOptions {
-  repo: string
 }
 
 interface AuthSessionCreateOptions extends CommonOptions {
@@ -89,7 +78,16 @@ async function main(argv: string[]): Promise<void> {
       await gitCredential(rest)
       return
     case 'update':
-      await update(parseUpdateOptions(rest))
+      await update(parseCommonOptions(rest))
+      return
+    case 'setup':
+      await setup(parseCommonOptions(rest))
+      return
+    case 'status':
+      await status(parseCommonOptions(rest))
+      return
+    case 'service':
+      await service(rest)
       return
     default:
       throw new Error(`Unknown command: ${command}`)
@@ -100,7 +98,10 @@ function printHelp(): void {
   console.log(`solus ${packageJson.version}
 
 Usage:
+  solus setup [--data-dir PATH]
   solus start [--data-dir PATH] [--host HOST] [--port PORT]
+  solus status [--data-dir PATH]
+  solus service <start|stop|restart|uninstall|status> [--data-dir PATH]
   solus logs [--data-dir PATH] [--lines N]
   solus pair [--data-dir PATH]
   solus connect [--data-dir PATH] [--cloud-url URL] [--no-open]
@@ -108,9 +109,49 @@ Usage:
   solus connect unlink [--data-dir PATH]
   solus auth session create --json [--device-label LABEL] [--data-dir PATH]
   solus git-credential <get|store|erase> [--data-dir PATH] [--delegation DEVICE_ID]
-  solus update [--repo OWNER/REPO]
+  solus update [--data-dir PATH]
   solus --version
   solus --help`)
+}
+
+async function setup(opts: CommonOptions): Promise<void> {
+  await runSetup(runtimePaths(opts.dataDir), (line) => console.log(line))
+}
+
+async function status(opts: CommonOptions): Promise<void> {
+  await reportStatus(runtimePaths(opts.dataDir), (line) => console.log(line))
+}
+
+async function service(args: string[]): Promise<void> {
+  const [subcommand, ...rest] = args
+  const paths = runtimePaths(parseCommonOptions(rest).dataDir)
+  const env = serviceEnvFor(paths)
+  switch (subcommand) {
+    case 'start':
+      startService(env)
+      console.log('Solus service started.')
+      return
+    case 'stop':
+      stopService(env)
+      console.log('Solus service stopped.')
+      return
+    case 'restart':
+      restartService(env)
+      console.log('Solus service restarted.')
+      return
+    case 'uninstall':
+      uninstallService(env)
+      console.log(`Solus service removed. Data in ${paths.dataDir} was kept.`)
+      return
+    case 'status': {
+      const svc = serviceStatus(env)
+      console.log(`Service: ${svc.installed ? (svc.active ? 'active' : svc.enabled ? 'enabled, not running' : 'installed, disabled') : 'not installed'}`)
+      if (svc.detail) console.log(`  ${svc.detail}`)
+      return
+    }
+    default:
+      throw new Error('Unknown service command. Expected: solus service <start|stop|restart|uninstall|status>')
+  }
 }
 
 async function connect(args: string[]): Promise<void> {
@@ -165,13 +206,7 @@ async function start(opts: StartOptions): Promise<void> {
   mkdirSync(paths.dataDir, { recursive: true })
   mkdirSync(dirname(paths.logFile), { recursive: true })
 
-  const child = spawn(paths.nodePath, [paths.serverEntry, '--data-dir', paths.dataDir], {
-    env: serverEnv(opts),
-    stdio: 'inherit',
-  })
-  const { code, signal } = await waitForExit(child)
-  if (signal) process.exitCode = 1
-  else process.exitCode = code ?? 1
+  process.exitCode = await superviseServer({ runtimeDir: defaultRuntimeDir(), dataDir: opts.dataDir, env: serverEnv(opts) })
 }
 
 
@@ -259,54 +294,8 @@ async function gitCredential(args: string[]): Promise<void> {
   else process.exitCode = code ?? 1
 }
 
-async function update(opts: UpdateOptions): Promise<void> {
-  const paths = runtimePaths()
-  if (isBrewManaged(paths.installDir)) {
-    console.log('This Solus install appears to be managed by Homebrew. Run: brew upgrade solus-server')
-    return
-  }
-  if (!isTarballInstall(paths.installDir)) {
-    throw new Error('Self-update is only supported from the server tarball install')
-  }
-
-  const release = await getLatestRelease(opts.repo)
-  const latest = normalizeVersion(release.tag_name)
-  const current = normalizeVersion(packageJson.version)
-  if (compareVersions(latest, current) <= 0) {
-    console.log(`Solus ${packageJson.version} is up to date`)
-    return
-  }
-
-  const target = artifactTarget()
-  const artifactName = `solus-server-${target}.tar.gz`
-  const asset = release.assets.find((item) => item.name === artifactName)
-  const sums = release.assets.find((item) => item.name === 'SHA256SUMS')
-  if (!asset || !sums) throw new Error(`Release ${release.tag_name} is missing ${artifactName} or SHA256SUMS`)
-
-  const tempDir = mkdtempSync(join(tmpdir(), 'solus-update-'))
-  try {
-    const archive = join(tempDir, artifactName)
-    const sumsFile = join(tempDir, 'SHA256SUMS')
-    await downloadFile(asset.browser_download_url, archive)
-    await downloadFile(sums.browser_download_url, sumsFile)
-    verifyArchiveSha256(archive, readFileSync(sumsFile, 'utf-8'), artifactName)
-
-    // Stage beside the install. `/tmp` can be another filesystem on Linux, where
-    // rename would fail with EXDEV after the old install had already moved away.
-    const nextDir = `${paths.installDir}.next-${process.pid}`
-    const backup = `${paths.installDir}.bak-${Date.now()}`
-    rmSync(nextDir, { recursive: true, force: true })
-    mkdirSync(nextDir)
-    try {
-      await run('tar', ['-xzf', archive, '-C', nextDir])
-      replaceInstallDirectory(paths.installDir, nextDir, backup)
-      console.log(`Updated Solus to ${release.tag_name}. Previous install moved to ${basename(backup)}. Restart the server to use the new version.`)
-    } finally {
-      rmSync(nextDir, { recursive: true, force: true })
-    }
-  } finally {
-    rmSync(tempDir, { recursive: true, force: true })
-  }
+async function update(opts: CommonOptions): Promise<void> {
+  await runUpdate(runtimePaths(opts.dataDir), (line) => console.log(line))
 }
 
 function parseStartOptions(args: string[]): StartOptions {
@@ -385,14 +374,6 @@ function parseLogsOptions(args: string[]): LogsOptions {
   return opts
 }
 
-function parseUpdateOptions(args: string[]): UpdateOptions {
-  const opts: UpdateOptions = { repo: DEFAULT_RELEASE_REPO }
-  parseFlags(args, {
-    '--repo': { value: (value) => { opts.repo = value } },
-  }, (arg) => new Error(`Unknown update option: ${arg}`))
-  return opts
-}
-
 function parsePositiveInt(value: string, flag: string): number {
   const parsed = Number(value)
   if (!Number.isInteger(parsed) || parsed <= 0) throw new Error(`${flag} requires a positive integer`)
@@ -411,55 +392,6 @@ function serverEnv(opts: StartOptions): NodeJS.ProcessEnv {
 
 function serverBaseUrl(lock: ServerLock): string {
   return `http://${hostForUrl(localConnectHost(lock.host))}:${lock.port}`
-}
-
-interface ReleaseAsset {
-  name: string
-  browser_download_url: string
-}
-
-interface GithubRelease {
-  tag_name: string
-  assets: ReleaseAsset[]
-}
-
-const githubReleaseSchema = z.object({
-  tag_name: z.string(),
-  assets: z.array(z.object({
-    name: z.string(),
-    browser_download_url: z.string(),
-  })),
-})
-
-async function getLatestRelease(repo: string): Promise<GithubRelease> {
-  const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
-    headers: {
-      accept: 'application/vnd.github+json',
-      'user-agent': `solus-cli/${packageJson.version}`,
-    },
-  })
-  if (!response.ok) throw new Error(`GitHub release lookup failed: ${response.status} ${response.statusText}`)
-  const parsed = githubReleaseSchema.safeParse(await response.json())
-  if (!parsed.success) throw new Error('GitHub release response was missing tag_name/assets')
-  return parsed.data
-}
-
-function artifactTarget(): string {
-  if (process.platform !== 'darwin' && process.platform !== 'linux') throw new Error(`Unsupported update platform: ${process.platform}`)
-  if (process.arch !== 'x64' && process.arch !== 'arm64') throw new Error(`Unsupported update architecture: ${process.arch}`)
-  return `${process.platform}-${process.arch}`
-}
-
-async function downloadFile(url: string, file: string): Promise<void> {
-  const response = await fetch(url, { headers: { 'user-agent': `solus-cli/${packageJson.version}` } })
-  if (!response.ok) throw new Error(`Download failed: ${response.status} ${response.statusText}`)
-  writeFileSync(file, Buffer.from(await response.arrayBuffer()))
-}
-
-async function run(command: string, args: string[]): Promise<void> {
-  const child = spawn(command, args, { stdio: 'inherit' })
-  const { code } = await waitForExit(child)
-  if (code !== 0) throw new Error(`${command} exited with status ${code}`)
 }
 
 main(process.argv.slice(2)).catch((err) => {

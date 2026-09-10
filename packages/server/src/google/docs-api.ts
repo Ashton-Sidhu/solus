@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { editableDocumentSchema, UNSUPPORTED_GOOGLE_EDIT, type EditableDocument } from './docs-edit-plan'
 
 /**
  * The Google Docs API, as far as Solus reads and writes it.
@@ -122,6 +123,7 @@ const documentSchema: z.ZodType<DocsDocument> = z.object({
 // ─── the requests Solus writes ───
 
 export interface DocsRange {
+  tabId?: string
   startIndex: number
   endIndex: number
 }
@@ -202,8 +204,19 @@ export interface DocsWrittenSectionStyle {
   marginRight: DocsDimension
 }
 
+export interface DocsTableCellLocation {
+  tableStartLocation: { index: number; tabId: string }
+  rowIndex: number
+  columnIndex: number
+}
+
 export type DocsRequest =
-  | { insertText: { location: { index: number }; text: string } }
+  | { replaceImage: { imageObjectId: string; uri: string; imageReplaceMethod: 'CENTER_CROP'; tabId: string } }
+  | { insertTableRow: { tableCellLocation: DocsTableCellLocation; insertBelow: boolean } }
+  | { deleteTableRow: { tableCellLocation: DocsTableCellLocation } }
+  | { insertTableColumn: { tableCellLocation: DocsTableCellLocation; insertRight: boolean } }
+  | { deleteTableColumn: { tableCellLocation: DocsTableCellLocation } }
+  | { insertText: { location: { index: number; tabId?: string }; text: string } }
   | { insertSectionBreak: { location: { index: number }; sectionType: 'NEXT_PAGE' } }
   | { updateSectionStyle: { range: DocsRange; sectionStyle: DocsWrittenSectionStyle; fields: string } }
   | { deleteContentRange: { range: DocsRange } }
@@ -258,16 +271,32 @@ export async function getDocument(accessToken: string, documentId: string): Prom
   return documentSchema.parse(await res.json())
 }
 
+/** Read the full tab structure before planning edits; the markdown reader is lossy. */
+export async function getEditableDocument(accessToken: string, documentId: string): Promise<EditableDocument> {
+  const res = await docsFetch(accessToken, `${DOCS_URL}/${encodeURIComponent(documentId)}?includeTabsContent=true`)
+  const parsed = editableDocumentSchema.safeParse(await res.json())
+  if (!parsed.success) throw new Error(UNSUPPORTED_GOOGLE_EDIT)
+  return parsed.data
+}
+
+interface DocsBatchUpdate {
+  requests: DocsRequest[]
+  writeControl?: { requiredRevisionId: string }
+}
+
 export async function batchUpdateDocument(
   accessToken: string,
   documentId: string,
   requests: DocsRequest[],
+  requiredRevisionId?: string,
 ): Promise<void> {
   if (requests.length === 0) return
+  const body: DocsBatchUpdate = { requests }
+  if (requiredRevisionId) body.writeControl = { requiredRevisionId }
   await docsFetch(accessToken, `${DOCS_URL}/${encodeURIComponent(documentId)}:batchUpdate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ requests }),
+    body: JSON.stringify(body),
   })
 }
 

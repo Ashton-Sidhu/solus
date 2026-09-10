@@ -3,6 +3,7 @@ import { JSDOM } from 'jsdom'
 import {
   floatingLayerOf,
   keyboardHoldsComposerOpen,
+  resolveComposerInset,
   selectionHoldsComposerOpen,
   shouldCollapseComposer,
 } from '@solus/workspace-ui/components/input/lib/composer-collapse'
@@ -96,5 +97,75 @@ describe('where the keyboard is once a leave settles', () => {
     // and there the bar must keep its shape for the return.
     expect(holds(doc.body, false)).toBe(true)
     expect(holds(null, false)).toBe(true)
+  })
+})
+
+describe('the band the transcript reserves for the floating composer', () => {
+  const expandedDock = 118
+  const collapsedDock = 62
+
+  test('an expanded bar reports the reservation outright', () => {
+    // WHY: this is the height the transcript must stay clear of. It is also
+    // the only measurement allowed to shrink the band, so a chip or a draft
+    // line leaving really does give the room back.
+    expect(
+      resolveComposerInset({ currentInset: 0, dockHeight: expandedDock, collapsed: false }),
+    ).toBe(expandedDock)
+    expect(
+      resolveComposerInset({ currentInset: 160, dockHeight: expandedDock, collapsed: false }),
+    ).toBe(expandedDock)
+  })
+
+  test('folding holds the band it already had', () => {
+    // WHY: this is the whole point. Letting the fold shrink the band resizes
+    // the transcript's scroll viewport, the browser clamps scrollTop to the
+    // smaller maximum, and the entire conversation slides under the reader —
+    // the defect this reserve exists to remove.
+    expect(
+      resolveComposerInset({
+        currentInset: expandedDock,
+        dockHeight: collapsedDock,
+        collapsed: true,
+      }),
+    ).toBe(expandedDock)
+  })
+
+  test('a fold and an unfold leave the band exactly where it started', () => {
+    // WHY: both directions must be inert, not just collapse. The prior
+    // attempt fixed the fold and left expand moving the transcript back.
+    const atRest = resolveComposerInset({
+      currentInset: 0,
+      dockHeight: expandedDock,
+      collapsed: false,
+    })
+    const folded = resolveComposerInset({
+      currentInset: atRest,
+      dockHeight: collapsedDock,
+      collapsed: true,
+    })
+    const unfolded = resolveComposerInset({
+      currentInset: folded,
+      dockHeight: expandedDock,
+      collapsed: false,
+    })
+    expect(folded).toBe(atRest)
+    expect(unfolded).toBe(atRest)
+  })
+
+  test('a bar that has only ever been folded reserves what it can see', () => {
+    // WHY: with no expanded measurement to hold, the folded height is the
+    // honest answer; the first expansion sets the real band. Inventing an
+    // expansion delta here would be a number no surface agrees on.
+    expect(
+      resolveComposerInset({ currentInset: 0, dockHeight: collapsedDock, collapsed: true }),
+    ).toBe(collapsedDock)
+  })
+
+  test('a folded bar that grew past its band still takes the room it needs', () => {
+    // WHY: attachment chips and the "Working on" chip stay while the bar
+    // rests (ADR-0027). A held band must never let the bar cover a message.
+    expect(
+      resolveComposerInset({ currentInset: expandedDock, dockHeight: 190, collapsed: true }),
+    ).toBe(190)
   })
 })

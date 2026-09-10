@@ -206,6 +206,8 @@ export interface PrReviewTarget {
 }
 
 export interface PrDiffRequest {
+  /** Recorded guide comparison. Repository identity is independent of the active session. */
+  repo?: RepoRef
   number: number
   baseSha: string
   /** Reject the response if the pull request moved after the review opened. */
@@ -225,6 +227,8 @@ export interface PrDiffSlice {
 export type PrDiffChangeType = 'change' | 'rename-pure' | 'rename-changed' | 'new' | 'deleted'
 
 export interface PrDiffFileContentsRequest {
+  /** Recorded guide comparison, including guides for an older PR revision. */
+  repo?: RepoRef
   number: number
   baseSha: string
   headSha: string

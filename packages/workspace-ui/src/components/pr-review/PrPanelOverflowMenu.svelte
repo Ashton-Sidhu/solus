@@ -3,7 +3,6 @@
     Copy as CopyIcon,
     Ellipsis as DotsThreeIcon,
     ExternalLink as OpenExternalIcon,
-    GitCompareArrows as CompareIcon,
     PenLine as RewriteIcon,
     RotateCw as ArrowClockwiseIcon,
   } from "@lucide/svelte";
@@ -93,11 +92,11 @@
       ? 'bg-[var(--wash-3)] text-foreground'
       : 'bg-transparent text-muted-foreground hover:bg-[var(--wash-3)] hover:text-foreground'}"
     aria-label={flagsStale
-      ? "More pull request options — new commits since guide"
+      ? "More pull request options — guide is outdated"
       : "More pull request options"}
     aria-haspopup="menu"
     aria-expanded={open}
-    title={flagsStale ? "New commits since guide" : "More options"}
+    title={flagsStale ? "Guide is outdated" : "More options"}
     onclick={() => (open = !open)}
   >
     <DotsThreeIcon class="size-[15px] pointer-fine:[.is-laptop-display_&]:size-3.5" />
@@ -119,7 +118,7 @@
       side="bottom"
       align="end"
       sideOffset={6}
-      class="w-[min(23rem,calc(100vw-2rem))] [&_.menu-row]:text-workspace-chrome"
+      class="w-64 max-w-[calc(100vw-2rem)] [&_.menu-row]:text-workspace-chrome"
       onInteractOutside={(event) => {
         // The trigger is a custom anchor, so Bits UI otherwise treats its
         // pointer-down as an outside interaction and closes the menu before the
@@ -143,40 +142,13 @@
 
       <DropdownMenu.Label>{heading}</DropdownMenu.Label>
 
-      {#if showsGuideRow && guide && guide.stale && !guide.regenerating}
-        <DropdownMenu.Sub>
-          <DropdownMenu.SubTrigger>
-            <CompareIcon size={14} />
-            <span class="whitespace-nowrap">New commits since guide</span>
-            <span
-              class="ml-auto size-[5px] shrink-0 rounded-full bg-primary"
-              aria-hidden="true"
-            ></span>
-          </DropdownMenu.SubTrigger>
-          <DropdownMenu.SubContent
-            class="w-auto min-w-52 [&_.menu-row]:text-workspace-chrome"
-          >
-            <DropdownMenu.Item
-              onSelect={() => void runAction(() => guide.onRegenerate("new-commits"))}
-            >
-              <CompareIcon size={14} />
-              Review new commits only
-            </DropdownMenu.Item>
-            <DropdownMenu.Item
-              onSelect={() => void runAction(() => guide.onRegenerate("full"))}
-            >
-              <RewriteIcon size={14} />
-              Regenerate full guide
-            </DropdownMenu.Item>
-          </DropdownMenu.SubContent>
-        </DropdownMenu.Sub>
-      {:else if showsGuideRow && guide}
+      {#if showsGuideRow && guide}
         <DropdownMenu.Item
           disabled={guide.regenerating}
           onSelect={() => void runAction(() => guide.onRegenerate("full"))}
         >
-          <RewriteIcon size={14} />
-          {guide.regenerating ? "Regenerating…" : "Regenerate guide"}
+          <RewriteIcon size={14} class={guide.regenerating ? "animate-spin motion-reduce:animate-none" : ""} />
+          Regenerate guide
         </DropdownMenu.Item>
       {/if}
 

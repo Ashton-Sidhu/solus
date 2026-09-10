@@ -170,7 +170,7 @@ export const createExternalDocAgentTool = docTool(
 
 export const updateExternalDocAgentTool = docTool(
   'update_external_doc',
-  'Replace the content of an existing upstream document. Read it first — this replaces the whole body, and anything the markdown cannot express (Confluence macros, Docs suggestions) is lost when you write it back.',
+  'Update an existing upstream document. Read it first. Google Docs supports targeted text and basic formatting edits within existing paragraphs and unmerged table cells. It also supports unambiguous contiguous row, column, and paragraph additions or removals. Existing standalone images remain in place; Solus-rendered diagram images can be replaced through linked-work publishing. Unsupported changes are refused and the body is never replaced. Confluence replaces the page body, so macros the markdown cannot express are lost.',
   {
     url: z.string().describe('The document URL.'),
     content: z.string().describe('The full new content, in markdown. Replaces the existing body entirely.'),

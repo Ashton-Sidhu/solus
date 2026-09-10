@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { join, resolve } from 'path'
 import { z } from 'zod'
+import { currentVersionDir } from './version-store'
 
 const serverLockSchema = z.object({
   pid: z.number().int().positive(),
@@ -32,13 +33,29 @@ export function defaultDataDir(env: NodeJS.ProcessEnv = process.env, home = home
   return env.SOLUS_DATA_DIR || join(home, '.solus')
 }
 
-export function resolveInstallDir(): string {
+/** Parent of `versions/` and the `current` symlink (`docs/plans/host-and-provider-updates.md`). */
+export function defaultRuntimeDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  return env.SOLUS_RUNTIME_DIR || join(home, '.local', 'share', 'solus')
+}
+
+export function defaultBinDir(env: NodeJS.ProcessEnv = process.env, home = homedir()): string {
+  return env.SOLUS_BIN_DIR || join(home, '.local', 'bin')
+}
+
+/**
+ * Resolution order: an explicit override (tests, or a launcher that already
+ * resolved its own root), then the runtime dir's active version, then
+ * self-location for a bundle run directly out of an extracted release
+ * without going through the runtime dir at all.
+ */
+export function resolveInstallDir(runtimeDir = defaultRuntimeDir()): string {
   if (process.env.SOLUS_INSTALL_DIR) return resolve(process.env.SOLUS_INSTALL_DIR)
+  const active = currentVersionDir(runtimeDir)
+  if (active) return active
   return resolve(__dirname, '../..')
 }
 
-export function runtimePaths(dataDir = defaultDataDir()): RuntimePaths {
-  const installDir = resolveInstallDir()
+export function runtimePaths(dataDir = defaultDataDir(), installDir = resolveInstallDir()): RuntimePaths {
   return {
     installDir,
     dataDir,

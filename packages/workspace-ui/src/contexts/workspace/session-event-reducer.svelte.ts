@@ -76,9 +76,7 @@ export class SessionEventReducer {
     return span
   }
 
-  /** A user turn opened outside the event stream (the sender's own optimistic
-   *  bubble — main excludes the sender from the user_message broadcast) must
-   *  still cut the one-card-per-agent-per-turn boundary. */
+  /** An optimistic user message opens the turn before its host confirmation. */
   closeAgentConversationTurn(session: Session): void {
     this.agentConversations.closeTurn(session)
   }
@@ -122,6 +120,15 @@ export class SessionEventReducer {
     }
     if (event.type === 'subagent_report') {
       this.applySubagentReport(session, event)
+      return
+    }
+    if (event.type === 'subagent_running') {
+      const target = this.findToolMsg(session.messages, event.toolUseId)
+      if (target) {
+        target.toolStatus = 'running'
+        target.toolCompletedAt = undefined
+        target.report = undefined
+      }
       return
     }
 
@@ -622,6 +629,9 @@ export class SessionEventReducer {
           break
         }
         const outbound = this.takeOutboundPrompt(session, event.clientPromptId)
+        // The host confirms delivery even when this client already inserted
+        // the message. Replayed confirmations must not add a second turn.
+        if (event.clientPromptId && session.messages.some((message) => message.clientPromptId === event.clientPromptId)) break
         if (event.delivery === 'steer') {
           session.currentTurnStart = 'steer'
           session.currentActivity = 'Steering...'

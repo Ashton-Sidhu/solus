@@ -1022,6 +1022,9 @@ html, body, #root {
 @theme {
   --text-workspace-chrome: 0.875rem;
   --text-workspace-chrome--line-height: 1.1875rem;
+  /* Sidebar times: 12px on desktop and touch, 10px on laptops. */
+  --text-sidebar-time: 0.75rem;
+  --text-sidebar-time--line-height: 1rem;
   /* Message gutter timestamps stay below the persistent rails they annotate:
      12px on desktop and touch, then 10px on a precise-pointer laptop. */
   --text-conversation-gutter: 0.75rem;
@@ -1171,6 +1174,7 @@ html, body, #root {
 @media (pointer: fine) {
   html.is-laptop-display {
     --text-workspace-chrome: 0.75rem;
+    --text-sidebar-time: 0.625rem;
     --text-conversation-gutter: 0.625rem;
     --text-insights-chrome: 0.625rem;
     --text-insights-query: 0.75rem;
@@ -1588,6 +1592,9 @@ button.solus-token {
   display: none !important;
 }
 .solus-doc-editor .ProseMirror {
+  /* The app shell disables selection. Read-only prose must remain selectable. */
+  -webkit-user-select: text;
+  user-select: text;
   outline: none;
   border: none;
   background: transparent;
@@ -2583,6 +2590,12 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   cursor: pointer;
   transition: background var(--duration-quick) var(--ease-premium);
 }
+.external-comment-highlight {
+  background: color-mix(in srgb, var(--solus-art-2) 22%, transparent);
+  border-bottom: 0.0625rem solid color-mix(in srgb, var(--solus-art-2) 70%, transparent);
+  color: inherit;
+}
+
 .plan-comment-saved:hover {
   background: color-mix(in srgb, var(--solus-art-2) 32%, transparent);
 }

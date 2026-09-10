@@ -318,7 +318,7 @@
                  one level up. Terracotta stays on the elbow, so the clock never
                  competes with the green of a pull request chip beside it. -->
             <span
-              class="shrink-0 text-chrome-shelf tabular-nums {selected
+              class="shrink-0 text-sidebar-time tabular-nums {selected
                 ? 'font-medium text-foreground'
                 : 'text-[color-mix(in_oklch,var(--foreground)_45%,transparent)]'}"
               >{mark.label}</span

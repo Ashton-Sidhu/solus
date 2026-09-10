@@ -11,7 +11,7 @@ import ts from 'typescript'
  * assertions are about what the bar does across real focus events, not
  * about which helper it calls.
  */
-test('the bar folds only once the keyboard has been elsewhere for the grace', async () => {
+test('ordinary blur folds without delay while menus, selections and recording stay protected', async () => {
   const root = new URL('../../', import.meta.url)
   const file = new URL('packages/workspace-ui/src/components/input/lib/composer-fold.svelte.ts', root)
   const source = readFileSync(file, 'utf8')
@@ -27,10 +27,12 @@ test('the bar folds only once the keyboard has been elsewhere for the grace', as
     import { untrack, flushSync } from 'svelte';
     import { JSDOM } from 'jsdom';
     import {
-      COMPOSER_FOLD_GRACE_MS, floatingLayerOf, keyboardHoldsComposerOpen,
+      COMPOSER_REFOCUS_GRACE_MS, floatingLayerOf, keyboardHoldsComposerOpen,
       selectionHoldsComposerOpen, shouldCollapseComposer,
     } from ${helperUrl('composer-collapse')};
-    import { composerSurfaceOf, measureFold, tweenComposerFold } from ${helperUrl('composer-fold')};
+    import {
+      COMPOSER_COLLAPSED_ATTRIBUTE, composerSurfaceOf, measureFold, tweenComposerFold,
+    } from ${helperUrl('composer-fold')};
 
     // ─── A clock the test turns by hand ───
     let now = 0;
@@ -61,7 +63,9 @@ test('the bar folds only once the keyboard has been elsewhere for the grace', as
     // ─── The page ───
     const dom = new JSDOM(\`
       <div id="transcript" data-conversation-tab-id="tab"><p id="line">hello there</p></div>
-      <div id="bar"><textarea id="editor"></textarea><button id="chip">Model</button></div>
+      <div id="card" data-composer-surface>
+        <div id="bar"><textarea id="editor"></textarea><button id="chip">Model</button></div>
+      </div>
       <div id="row" tabindex="0">Task</div>
       <div data-bits-floating-content-wrapper><button id="menu-item">Opus</button></div>
     \`, { pretendToBeVisual: true });
@@ -98,47 +102,65 @@ test('the bar folds only once the keyboard has been elsewhere for the grace', as
     const flush = () => { flushSync(); paints.push(fold.collapsed); };
     const neverFoldedSince = (index) => assert.deepEqual(paints.slice(index), paints.slice(index).map(() => false));
 
+    // The dock that reserves room for the card reads this flag off the
+    // surface to decide whether a measurement may shrink its band, so the
+    // card has to publish it in the same flush it changes shape.
+    const foldedOnCard = () => el('card').hasAttribute(COMPOSER_COLLAPSED_ATTRIBUTE);
+
     flush();
     assert.equal(fold.collapsed, true, 'a bar nobody has focused rests folded');
+    assert.equal(foldedOnCard(), true, 'the card publishes the fold for the dock to read');
     el('editor').focus(); flush();
     assert.equal(fold.collapsed, false, 'focus opens the bar at once, with no grace');
+    assert.equal(foldedOnCard(), false, 'unfolding clears the flag, so the dock may re-measure');
     assert.equal(claims, 1, 'focus claims the mic for this bar');
 
-    // ─── A click on the task already on screen ───
-    // The sidebar row takes focus on mousedown, and the click's navigation
-    // is a no-op for the selected task; only its focus request remains, and
-    // that lands three frames after the release. Every step of that used to
-    // be a fold followed by an unfold.
+    // A pointer gesture holds the bar, but its release adds no timed delay.
     let since = paints.length;
     press(el('row')); el('row').focus(); flush();
-    advance(COMPOSER_FOLD_GRACE_MS * 3); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
     assert.equal(fold.collapsed, false, 'a press still in flight holds the bar');
     release(el('row')); flush();
-    advance(COMPOSER_FOLD_GRACE_MS - 50); flush();
-    assert.equal(fold.collapsed, false, 'the grace runs from the release, not the press');
+    advance(0); flush();
+    assert.equal(fold.collapsed, true, 'release starts collapse without waiting 150ms');
     el('editor').focus(); flush();
-    advance(COMPOSER_FOLD_GRACE_MS * 3); flush();
-    neverFoldedSince(since);
+    assert.equal(fold.collapsed, false, 'later focus reverses the collapse');
 
-    // ─── A click into the transcript ───
-    since = paints.length;
+    // A click into the transcript starts collapse after the event completes.
     press(el('line')); el('editor').blur(); flush();
     release(el('line')); flush();
-    advance(COMPOSER_FOLD_GRACE_MS - 1); flush();
-    assert.equal(fold.collapsed, false, 'nothing folds before the grace is up');
-    advance(1); flush();
-    assert.equal(fold.collapsed, true, 'a leave with no return folds the bar');
+    advance(0); flush();
+    assert.equal(fold.collapsed, true, 'a transcript click adds no timed grace');
     el('editor').focus(); flush();
-    assert.equal(fold.collapsed, false);
+
+    // Keyboard navigation has no pointer release to wait for.
+    el('row').focus(); flush();
+    advance(0); flush();
+    assert.equal(fold.collapsed, true, 'keyboard blur starts collapse without delay');
+    el('editor').focus(); flush();
+
+    // Focus returned within the same event never starts a collapse.
+    since = paints.length;
+    el('editor').blur();
+    el('editor').focus(); flush();
+    advance(0); flush();
+    neverFoldedSince(since);
 
     // ─── A menu opened from the bar ───
     since = paints.length;
     el('menu-item').focus(); flush();
-    advance(COMPOSER_FOLD_GRACE_MS * 3); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
     neverFoldedSince(since);
     assert.equal(fold.collapsed, false, 'focus in a floating layer is the bar still in use');
     el('menu-item').blur(); flush();
-    advance(COMPOSER_FOLD_GRACE_MS); flush();
+    advance(50); flush();
+    assert.equal(fold.collapsed, false, 'a closing menu can return focus on a later frame');
+    el('editor').focus(); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS); flush();
+    neverFoldedSince(since);
+    el('menu-item').focus(); flush();
+    el('menu-item').blur(); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS); flush();
     assert.equal(fold.collapsed, true, 'a menu that lets go without handing back folds the bar');
     el('editor').focus(); flush();
 
@@ -146,7 +168,7 @@ test('the bar folds only once the keyboard has been elsewhere for the grace', as
     since = paints.length;
     windowHasFocus = false;
     el('editor').blur(); flush();
-    advance(COMPOSER_FOLD_GRACE_MS * 3); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
     neverFoldedSince(since);
     windowHasFocus = true;
     el('editor').focus(); flush();
@@ -159,12 +181,12 @@ test('the bar folds only once the keyboard has been elsewhere for the grace', as
     press(el('line')); el('editor').blur(); flush();
     selection.addRange(range);
     release(el('line')); flush();
-    advance(COMPOSER_FOLD_GRACE_MS * 3); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
     neverFoldedSince(since);
     selection.removeAllRanges();
     document.dispatchEvent(new window.Event('selectionchange'));
-    advance(COMPOSER_FOLD_GRACE_MS); flush();
-    assert.equal(fold.collapsed, true, 'the bar folds once the selection is gone');
+    advance(0); flush();
+    assert.equal(fold.collapsed, true, 'selection release adds no timed delay');
 
     // ─── The mic ───
     // Dictating with the keyboard elsewhere: the mic alone holds the bar,
@@ -173,19 +195,19 @@ test('the bar folds only once the keyboard has been elsewhere for the grace', as
     since = paints.length;
     recording = true; flush();
     el('editor').blur(); flush();
-    advance(COMPOSER_FOLD_GRACE_MS * 3); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
     assert.equal(fold.collapsed, false, 'a live mic holds the bar whatever focus does');
     recording = false; flush();
-    advance(COMPOSER_FOLD_GRACE_MS - 1); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS - 1); flush();
     el('editor').focus(); flush();
-    advance(COMPOSER_FOLD_GRACE_MS * 3); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS * 3); flush();
     neverFoldedSince(since);
     // With nobody to hand the keyboard back, the mic letting go is a leave.
     recording = true; flush();
     el('editor').blur(); flush();
     recording = false; flush();
     assert.equal(fold.collapsed, false, 'the mic letting go is not itself a leave');
-    advance(COMPOSER_FOLD_GRACE_MS); flush();
+    advance(COMPOSER_REFOCUS_GRACE_MS); flush();
     assert.equal(fold.collapsed, true, 'it folds once the grace is up and the keyboard is still elsewhere');
 
     destroy();

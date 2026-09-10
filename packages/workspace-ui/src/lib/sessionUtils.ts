@@ -65,9 +65,14 @@ export function getAttentionState(sess: Session, tab: Tab, plans?: Record<string
     }
   }
   if (sess.status === 'rate_limited') return 'queued'
-  if (sess.status === 'failed' || sess.status === 'dead') return 'error'
-  if (sess.status === 'completed' && tab.hasUnread) return 'unread'
   if (sess.status === 'running' || sess.status === 'connecting') return 'running'
+  // A failure reads like the finished check, not like a status light: every path
+  // that fails a session marks its tabs unread, so viewing the transcript — where
+  // the error itself is — retires the glyph. Without this the red mark outlived
+  // the reading of it and only a new turn could clear it.
+  if (!tab.hasUnread) return null
+  if (sess.status === 'failed' || sess.status === 'dead') return 'error'
+  if (sess.status === 'completed') return 'unread'
   return null
 }
 

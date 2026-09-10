@@ -2958,8 +2958,8 @@ export class WorkspaceContext {
       session.retryAttempt = 1
       session.terminalFailure = null
       session.messages.push(userMsg)
-      // Main excludes this tab from the user_message broadcast (the bubble is
-      // already here), so the agent-conversation turn boundary must be cut locally too.
+      // Cut the turn boundary immediately; the host confirmation reconciles
+      // this optimistic message without opening the turn again.
       this.eventReducer.closeAgentConversationTurn(session)
     }
 
@@ -4072,7 +4072,6 @@ export class WorkspaceContext {
       preflight?: boolean
     } = {},
   ): Promise<void> {
-    if (this.router.params('prReview')?.number === target.number) return
     const cachedPr = this.pullRequests.projects.at(this.serverIdForContext(this.ctx), projectScopeOf(this.ctx.session))?.prFor(target.number) ?? null
     const expectedRepo = target.expectedRepo
       ?? target.baseRepo

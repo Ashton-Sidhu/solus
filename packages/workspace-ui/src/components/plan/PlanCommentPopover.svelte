@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ExternalCommentPublish from '../work/ExternalCommentPublish.svelte'
   import { fly } from 'svelte/transition'
   import { Pen as PencilSimpleIcon, Trash2 as TrashIcon } from "@lucide/svelte";
   import type { PlanComment } from '@solus/contracts/types'
@@ -6,6 +7,7 @@
   import { Button } from '../ui/button'
 
   interface Props {
+    externalWorkId?: string
     comment: PlanComment
     anchor: { x: number; y: number }
     onEdit: (comment: PlanComment) => void
@@ -13,7 +15,7 @@
     onClose: () => void
   }
 
-  let { comment, anchor, onEdit, onDelete, onClose }: Props = $props()
+  let { externalWorkId, comment, anchor, onEdit, onDelete, onClose }: Props = $props()
 
   let popoverEl: HTMLDivElement | null = $state(null)
 
@@ -42,6 +44,9 @@
        as a caption. A popover and a rail thread are one design. -->
   <div class="flex flex-col gap-2 px-3 py-2.5">
     <div class="flex items-center gap-[0.4375rem]">
+      {#if externalWorkId}
+        <ExternalCommentPublish workId={externalWorkId} messageId={comment.id} text={comment.comment} quote={comment.selectedText} author={comment.author} />
+      {/if}
       <div class="ml-auto flex gap-1">
         <Button
           variant="ghost"

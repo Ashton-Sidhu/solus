@@ -66,8 +66,8 @@
     </span>
 
     <span class="flex min-w-0 flex-1 flex-col gap-[3px]">
-      <span class="truncate text-workspace-chrome font-medium text-foreground" title={row.title}>
-        {row.title}
+      <span class="flex min-w-0 items-center gap-2 text-workspace-chrome">
+        <span class="truncate font-medium text-foreground" title={row.title}>{row.title}</span>
       </span>
 
       <!-- Every fact is `shrink-0`; the line as a whole clips at its end. That
@@ -95,7 +95,7 @@
             <span class="shrink-0 tabular-nums">+{row.moreLabels}</span>
           {/if}
         {/if}
-        {#each row.chips as chip (chip.label)}
+        {#each row.chips.filter((chip) => !chip.iconOnly) as chip (chip.label)}
           {@render dot()}
           <span class="flex shrink-0 items-center"><ListChip {chip} /></span>
         {/each}
@@ -111,6 +111,10 @@
             <checks.icon size={14} />
           </span>
         {/if}
+        {#each row.chips.filter((chip) => chip.iconOnly) as chip (chip.label)}
+          {@render dot()}
+          <ListChip {chip} />
+        {/each}
       </span>
     </span>
 

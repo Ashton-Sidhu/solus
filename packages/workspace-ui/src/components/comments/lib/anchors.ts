@@ -16,39 +16,64 @@ export interface MeasuredAnchor {
 }
 
 /**
- * Measure every comment mark.
+ * Measure every comment mark, and every external thread whose quote the
+ * highlight plugin found a place for in this text.
  *
  * Coordinates stay in the viewport space `getBoundingClientRect` returns, and
  * the rail converts them against its own box. That way the rail's distance
  * from the text column — its padding, its header, whatever chrome grows above
  * it — never has to be encoded here.
+ *
+ * An external thread with no measurement here is one the rail cannot put on a
+ * line: a page-level comment, a detached one, or a quote this document no
+ * longer holds. The rail pins those above the margin instead of dropping them.
  */
 export function measureAnchors(
   scrollContainer: HTMLElement | null,
   comments: PlanComment[],
+  externalThreadIds: string[] = [],
 ): MeasuredAnchor[] {
   if (!scrollContainer) return []
   const containerRect = scrollContainer.getBoundingClientRect()
   const measured: MeasuredAnchor[] = []
   for (const comment of comments) {
-    const mark = scrollContainer.querySelector<HTMLElement>(
-      `mark[data-plan-comment="${comment.id}"]`,
-    )
-    if (!mark) continue
-    // A highlight that wraps has several rects; the first is its opening line
-    // (where the card wants to sit) and the last is where a connector leaves.
-    const rects = mark.getClientRects()
-    const first = rects[0] ?? mark.getBoundingClientRect()
-    const last = rects[rects.length - 1] ?? first
-    measured.push({
-      id: comment.id,
-      anchorTop: first.top,
-      anchorBottom: last.bottom,
-      anchorRight: last.right,
-      visible: last.bottom > containerRect.top && first.top < containerRect.bottom,
-    })
+    const anchor = measureOne(scrollContainer, containerRect, comment.id, `mark[data-plan-comment="${comment.id}"]`)
+    if (anchor) measured.push(anchor)
+  }
+  for (const threadId of externalThreadIds) {
+    const anchor = measureOne(scrollContainer, containerRect, threadId, `[data-external-comment="${threadId}"]`)
+    if (anchor) measured.push(anchor)
   }
   return measured
+}
+
+function measureOne(
+  scrollContainer: HTMLElement,
+  containerRect: DOMRect,
+  id: string,
+  selector: string,
+): MeasuredAnchor | null {
+  // A decoration is split at every node boundary it crosses, so one thread can
+  // own several elements — and each of those wraps into several rects. The
+  // first rect is the opening line (where the card wants to sit) and the last
+  // is where a connector leaves.
+  const parts = scrollContainer.querySelectorAll<HTMLElement>(selector)
+  const rects: DOMRect[] = []
+  for (const part of parts) {
+    const own = part.getClientRects()
+    if (own.length === 0) rects.push(part.getBoundingClientRect())
+    else for (const rect of own) rects.push(rect)
+  }
+  if (rects.length === 0) return null
+  const first = rects[0]
+  const last = rects[rects.length - 1]
+  return {
+    id,
+    anchorTop: first.top,
+    anchorBottom: last.bottom,
+    anchorRight: last.right,
+    visible: last.bottom > containerRect.top && first.top < containerRect.bottom,
+  }
 }
 
 /**

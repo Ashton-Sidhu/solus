@@ -3,8 +3,10 @@
   import { fly } from "svelte/transition";
   import type { Editor } from "@tiptap/core";
   import type { PlanComment, PlanCommentReply } from "@solus/contracts/types";
+  import type { DocCommentThread } from "@solus/contracts/work-comments";
   import { uuid } from "@solus/contracts/uuid";
   import { portal } from "../portal";
+  import ExternalCommentsStatus from "../work/ExternalCommentsStatus.svelte";
   import { CommentComposer } from "../ui/comment-composer";
   import { toasts } from "../../lib/toasts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
@@ -23,6 +25,12 @@
   } from "../plan/lib/comments";
 
   interface Props {
+    externalWorkId?: string;
+    /** Threads that live in the linked external document. They share the one
+     *  rail with the local ones rather than a panel of their own. */
+    externalThreads?: DocCommentThread[];
+    onAskExternalPrivately?: (thread: DocCommentThread) => void;
+    onLocateExternalQuote?: (quote: string, threadId: string) => boolean;
     editor: Editor | null;
     scrollContainer: HTMLDivElement | null;
     comments: PlanComment[];
@@ -59,6 +67,10 @@
   }
 
   let {
+    externalWorkId,
+    externalThreads = [],
+    onAskExternalPrivately,
+    onLocateExternalQuote,
     editor,
     scrollContainer,
     comments,
@@ -106,7 +118,28 @@
   let hoveredMarkId = $state<string | null>(null);
   let editingCommentId = $state<string | null>(null);
 
-  const railVisible = $derived(railOpen && comments.length > 0 && !railFolded);
+  // Resolved external threads are out of the way until they are asked for. The
+  // toggle sits in the rail's provider line, so one control governs the whole
+  // margin rather than one part of it.
+  let showExternalResolved = $state(false);
+  const shownExternal = $derived(
+    externalThreads.filter((thread) => !thread.deleted && (showExternalResolved || !thread.resolved)),
+  );
+  const threadCount = $derived(comments.length + shownExternal.length);
+
+  const railVisible = $derived(railOpen && threadCount > 0 && !railFolded);
+  // Folded there is no margin, so the same rail becomes a sheet over the foot
+  // of the reading pane — one comments surface at every width.
+  const sheetVisible = $derived(railOpen && threadCount > 0 && railFolded);
+
+  // The margin is open by default; the sheet is not, because it covers the text
+  // it belongs to. Folding closes it, unfolding gives the margin back.
+  let lastFolded: boolean | null = null;
+  $effect(() => {
+    if (lastFolded === railFolded) return;
+    lastFolded = railFolded;
+    railOpen = !railFolded;
+  });
 
   /**
    * Focus is mutual, and so is hover: the focused thread's highlight is deepened
@@ -151,14 +184,28 @@
   // on scroll, on resize, and whenever the comment set or the document
   // changes — the three things that can move a mark.
   let anchors = $state<MeasuredAnchor[]>([]);
+  // Which external threads annotate a passage of this text and which annotate
+  // the document. The highlight plugin decides it: a thread it placed has an
+  // anchor here, and one it could not — a comment on the page as a whole, a
+  // detached one, a quote this copy no longer holds — does not.
+  const anchoredIds = $derived(new Set(anchors.map((anchor) => anchor.id)));
+  const inlineExternal = $derived(shownExternal.filter((thread) => anchoredIds.has(thread.id)));
+  const pageExternal = $derived(shownExternal.filter((thread) => !anchoredIds.has(thread.id)));
+  // Where the sheet sits when the rail is folded: the foot of the reading pane,
+  // which is not the foot of the window once a document is in a split.
+  let sheetBox = $state<{ left: number; width: number; bottom: number } | null>(null);
   // False while the rail is moving: cards keep following their anchors, but
   // connectors are suppressed so nothing flickers across the margin.
   let settled = $state(true);
   let settleTimer: ReturnType<typeof setTimeout> | null = null;
 
   function remeasure() {
-    anchors = measureAnchors(scrollContainer, comments);
+    anchors = measureAnchors(scrollContainer, comments, shownExternal.map((thread) => thread.id));
     threadAnchors = commentMarkPositions(editor);
+    const rect = scrollContainer?.getBoundingClientRect();
+    sheetBox = rect
+      ? { left: rect.left, width: rect.width, bottom: window.innerHeight - rect.bottom }
+      : null;
   }
 
   function markMoving() {
@@ -172,6 +219,7 @@
     // a thread is added by pushing into the same array, so reading `comments`
     // alone never re-runs this and the new card is left without an anchor.
     void comments.length;
+    void shownExternal.length;
     void editor?.state.doc;
     void scrollContainer;
     void tick().then(remeasure);
@@ -179,8 +227,7 @@
 
   $effect(() => {
     const el = scrollContainer;
-    const hasComments = comments.length > 0;
-    if (!el || !hasComments) return;
+    if (!el || threadCount === 0) return;
     // One rAF per frame — a fast scroll must not run a layout read per event.
     let pending = false;
     const onScroll = () => {
@@ -340,13 +387,26 @@
     // reaches this handler too — and must not read as "clicked bare prose",
     // which would unfocus the thread the reader has just opened.
     if (e.target instanceof Element && e.target.closest(".plan-comments-rail")) return;
+    // An external highlight has no local thread behind it, so it opens the rail
+    // on its card rather than a popover — the card is where its provider
+    // actions live, and they are too many for the folded popover.
+    const externalId =
+      e.target instanceof Element
+        ? e.target.closest("[data-external-comment]")?.getAttribute("data-external-comment")
+        : null;
+    if (externalId) {
+      popoverComment = null;
+      railOpen = true;
+      activeRailCommentId = externalId;
+      return;
+    }
     const resolved = resolveHoveredComment(e, comments);
     if (!resolved) {
       popoverComment = null;
       activeRailCommentId = null;
       return;
     }
-    railOpen = true;
+    if (!railFolded) railOpen = true;
     activeRailCommentId = resolved.comment.id;
     onRead(resolved.comment.id);
     popoverComment = railFolded ? resolved.comment : null;
@@ -467,6 +527,7 @@
      annotates. Dismissed by Escape or by clicking anywhere else in the text. -->
 {#if popoverComment}
   <PlanCommentPopover
+    {externalWorkId}
     comment={popoverComment}
     anchor={popoverAnchor}
     pinned
@@ -476,32 +537,65 @@
   />
 {/if}
 
-<!-- Comments rail (floating panel anchored to the right of the document) -->
+<!-- One comments surface: a line of provider chrome, then the margin, local and
+     external cards alike on the lines they annotate. -->
+{#snippet threadSurface(placement: "stacked" | "anchored")}
+  {#if externalWorkId && shownExternal.length > 0}
+    <ExternalCommentsStatus
+      workId={externalWorkId}
+      showResolved={showExternalResolved}
+      onToggleResolved={() => (showExternalResolved = !showExternalResolved)}
+    />
+  {/if}
+  <PlanCommentsRail
+  {externalWorkId}
+  {comments}
+  externalThreads={inlineExternal}
+  pageThreads={pageExternal}
+  onAskExternalPrivately={onAskExternalPrivately}
+  onLocateExternalQuote={onLocateExternalQuote}
+  activeCommentId={focusedCardId}
+  {editingCommentId}
+  {placement}
+  {anchors}
+  {settled}
+  onScrollTo={handleScrollToComment}
+  onHover={(commentId) => (hoveredRailCommentId = commentId)}
+  onResolve={handleResolve}
+  onReply={handleReply}
+  onStartEdit={(commentId) => {
+    editingCommentId = commentId;
+    activeRailCommentId = commentId;
+  }}
+  onSaveEdit={(commentId, text) => {
+    onEdit(commentId, text);
+    editingCommentId = null;
+  }}
+  onCancelEdit={() => (editingCommentId = null)}
+  onDelete={handleDeleteComment}
+  {footer}
+    />
+{/snippet}
+
+<!-- Comments rail (the document's own margin, to the right of the text) -->
 {#if railVisible}
   <div class="cl-rail-sleeve" transition:fly={{ x: 264, duration: 200, opacity: 0 }}>
-    <PlanCommentsRail
-      {comments}
-      activeCommentId={focusedCardId}
-      {editingCommentId}
-      placement="anchored"
-      {anchors}
-      {settled}
-      onScrollTo={handleScrollToComment}
-      onHover={(commentId) => (hoveredRailCommentId = commentId)}
-      onResolve={handleResolve}
-      onReply={handleReply}
-      onStartEdit={(commentId) => {
-        editingCommentId = commentId;
-        activeRailCommentId = commentId;
-      }}
-      onSaveEdit={(commentId, text) => {
-        onEdit(commentId, text);
-        editingCommentId = null;
-      }}
-      onCancelEdit={() => (editingCommentId = null)}
-      onDelete={handleDeleteComment}
-      {footer}
-    />
+    {@render threadSurface("anchored")}
+  </div>
+{/if}
+
+<!-- Folded: no margin to hold cards on their lines, so the same surface becomes
+     a sheet over the foot of the reading pane. Positioned against that pane's
+     own box — a document in a split does not reach the foot of the window. -->
+{#if sheetVisible && sheetBox}
+  <div
+    use:portal={document.body}
+    data-solus-ui
+    class="cl-rail-sheet fixed flex flex-col"
+    style="left:{sheetBox.left}px;width:{sheetBox.width}px;bottom:{sheetBox.bottom}px"
+    transition:fly={{ y: 24, duration: 200, opacity: 0 }}
+  >
+    {@render threadSurface("stacked")}
   </div>
 {/if}
 
@@ -530,5 +624,23 @@
        viewport's edge, so nothing is drawn between the prose and its margin. */
     padding-right: 1.5rem;
     background: transparent;
+  }
+  /* The provider line is one row at the head of the surface, so the margin
+     below it takes the rest of the room rather than its own full height. */
+  .cl-rail-sleeve :global(.plan-comments-rail),
+  .cl-rail-sheet :global(.plan-comments-rail) {
+    height: auto;
+    flex: 1;
+    min-height: 0;
+  }
+  /* Folded, the same surface is a sheet on the foot of the reading pane: the
+     one place a thread can be read when there is no margin to hold it. */
+  .cl-rail-sheet {
+    max-height: 45vh;
+    padding: 0.75rem 0.875rem 0.875rem;
+    border-top: 0.0625rem solid var(--solus-container-border);
+    background: var(--solus-container-bg);
+    box-shadow: var(--solus-popover-shadow);
+    z-index: 10000;
   }
 </style>

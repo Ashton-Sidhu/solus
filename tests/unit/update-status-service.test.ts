@@ -9,7 +9,7 @@ function fixture() {
   const calls: string[] = []
   const published: HostUpdateStatus[] = []
   const service = new UpdateStatusService({
-    currentVersion: '1.0.0', install: 'tarball', now: () => now,
+    currentVersion: '1.0.0', install: 'managed', now: () => now,
     latest: async (target) => {
       calls.push(target)
       if (target === 'claude' && failClaude) throw new Error('Registry unavailable')

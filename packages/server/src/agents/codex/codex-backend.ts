@@ -1,5 +1,6 @@
 import { BaseAgentBackend } from '../base-backend'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
+import { reconcileCodexSubagentHistory } from './codex-subagent-history'
 import { CodexRpcError, getCodexAppServerClient } from './codex-agent'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
@@ -705,9 +706,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
     const response = await this.readThread(sessionId)
-    return loadCodexHistory(sessionId, response.thread?.turns ?? [],
+    const messages = await loadCodexHistory(sessionId, response.thread?.turns ?? [],
       (params) => this.client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
       limit)
+    await reconcileCodexSubagentHistory(messages, async (threadId) => {
+      const child = await this.readThread(threadId)
+      return child.thread?.turns ?? []
+    })
+    return messages
   }
 
   async loadSessionPreview(sessionId: string): Promise<SessionPreviewResult> {
@@ -888,7 +894,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const isChildTurn = !!handle && !!eventThreadId && eventThreadId !== handle.threadId
       if (isChildTurn) {
         for (const event of normalized) this.emit('normalized', sessionId, event)
-        this.sessionByChildThread.delete(eventThreadId)
+        // A follow-up can run this child again. Keep its owner until the
+        // parent run ends and forgetRoutingForSession clears the mapping.
         return
       }
       // A turn just created or updated a thread — drop the cached session lists

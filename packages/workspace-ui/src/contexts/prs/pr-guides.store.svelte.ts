@@ -1,94 +1,61 @@
-// Review guides, as this client sees them being made.
-//
-// Not a fact about a pull request, which is why this is not `PrsStore`: a guide
-// is something *Solus* generated about one, on this machine. The code host has
-// never heard of it. It is keyed by the local checkout and a stack-derived diff
-// base, so two worktrees of one repository legitimately have different guides —
-// which is also why the server does not hold it on its `PullRequest` entity.
-//
-// What lives here is the lifecycle of that generation: which pull requests are
-// queued, which are being written, and whether a batch somebody explicitly
-// asked for has finished.
-
-import { SvelteMap } from 'svelte/reactivity'
+// PR list vocabulary over the shared review-guide lifecycle. The typed PR
+// target identifies a guide across projects, checkouts, and entry points.
 import type { HostApi } from '@solus/client-core/host-api'
-import { hostKey } from '@solus/client-core/host-key'
-import { subscribeAllHosts } from '@solus/client-core/host-events'
+import { serverConnections } from '@solus/client-core/server-connections'
 import type { PullRequest } from '@solus/contracts/providers'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
-import type {
-  PrGuideMetadata,
-  PrGuideStatus,
-  ReviewGuideStatusEvent,
-} from '@solus/contracts/review'
-import { detached, projectPrsKey } from './project-prs.svelte'
+import { reviewGuideTargetId, type PrGuideMetadata, type PrGuideStatus, type ReviewGuideStatusEvent } from '@solus/contracts/review'
+import { detached } from './project-prs.svelte'
 import type { PrsStore } from './prs.store.svelte'
+import { prGuideIdentity, prGuideTarget, reviewGuideStore, type ReviewGuideIdentity, type ReviewGuideStore } from '../../components/review/review-guide.store.svelte'
 
-/** How a batch somebody asked for finished. */
 export interface GuideBatchOutcome {
   total: number
   failed: number
 }
 
 export class PrGuidesStore {
-  /** Shared by the PRs page and the Activity tab, so both surfaces show one queue. */
-  readonly status = new SvelteMap<string, PrGuideStatus>()
-  readonly metadata = new SvelteMap<string, PrGuideMetadata>()
+  constructor(private readonly prs: PrsStore, private readonly guides: ReviewGuideStore = reviewGuideStore) {}
 
-  /** The batch a person is waiting on, and how to tell them it is done. */
-  private requestedNumbers = new Set<number>()
-  private requestedContextKey = ''
-  private onSettled: ((outcome: GuideBatchOutcome) => void) | null = null
-
-  constructor(private readonly prs: PrsStore) {}
+  private identityFor(serverId: string, ctx: IpcContext, number: number): ReviewGuideIdentity | null {
+    const root = projectScopeOf(ctx.session)
+    const pr = this.prs.at(serverId, root)?.prFor(number)
+    return pr ? prGuideIdentity(root, prGuideTarget({ ...pr.baseRepo, number, headSha: pr.headSha, baseSha: pr.baseSha })) : null
+  }
 
   statusFor(serverId: string, ctx: IpcContext, number: number): PrGuideStatus | undefined {
-    return this.status.get(this.keyFor(serverId, ctx, number))
+    const identity = this.identityFor(serverId, ctx, number)
+    const event = this.guides.statusFor(serverId, identity)
+    // The list's baseSha is the target branch tip, not the guide's merge base.
+    // The host checks comparison-base freshness; a known head push is local.
+    if (event?.status === 'ready' && identity?.target?.kind === 'pr'
+      && event.headSha !== identity.target.headSha) return 'outdated'
+    return event?.status
+  }
+
+  /** Only the summary needs a collection; rows read the shared entry directly. */
+  get status(): ReadonlyMap<string, PrGuideStatus> {
+    const statuses = new Map<string, PrGuideStatus>()
+    for (const project of this.prs.all) {
+      for (const pr of project.prs.values()) {
+        const status = this.statusFor(project.serverId, project.hostContext, pr.number)
+        if (status) statuses.set(`${project.key}::${pr.number}`, status)
+      }
+    }
+    return statuses
   }
 
   metadataFor(serverId: string, ctx: IpcContext, number: number): PrGuideMetadata | undefined {
-    return this.metadata.get(this.keyFor(serverId, ctx, number))
+    const event = this.guides.statusFor(serverId, this.identityFor(serverId, ctx, number))
+    if (!event?.generatedAt) return undefined
+    return { number, headSha: event.headSha, generatedAt: event.generatedAt, current: this.statusFor(serverId, ctx, number) === 'ready' }
   }
 
-  /**
-   * Read whether a guide exists for this pull request at this revision.
-   *
-   * The answer is dropped if the pull request moved while it was in flight: a
-   * guide describes one revision, so "there is a guide" about the revision
-   * before a push is not an answer about the one after it.
-   */
-  async loadMetadata(
-    api: HostApi,
-    serverId: string,
-    ctx: IpcContext,
-    pr: Pick<PullRequest, 'number' | 'headSha'>,
-  ): Promise<void> {
-    const contextKey = projectPrsKey(serverId, ctx)
-    const request = { number: pr.number, headSha: pr.headSha }
-    const metadata = await api.prGuideMetadata(detached(ctx), request)
-    if (this.prs.at(serverId, projectScopeOf(ctx.session))?.prFor(request.number)?.headSha !== request.headSha) return
-    const key = `${contextKey}::${request.number}`
-    const current = this.metadata.get(key)
-    if (!metadata) {
-      if (current) this.metadata.delete(key)
-      return
-    }
-    // Compared before writing: an identical answer written back would notify
-    // every row reading this map for nothing.
-    if (
-      current?.headSha === metadata.headSha
-      && current.generatedAt === metadata.generatedAt
-      && current.current === metadata.current
-    ) return
-    this.metadata.set(key, metadata)
+  async loadMetadata(api: HostApi, serverId: string, ctx: IpcContext, pr: Pick<PullRequest, 'number' | 'headSha'>): Promise<void> {
+    const identity = this.identityFor(serverId, ctx, pr.number)
+    if (identity?.target) await this.guides.load(api, serverId, detached(ctx), identity, identity.target)
   }
 
-  /**
-   * Queue generation for these pull requests — an explicit opt-in.
-   *
-   * Ones already queued or generating are skipped. Resolving means only
-   * "queued"; completion arrives over the status subscription.
-   */
   async request(
     api: HostApi,
     serverId: string,
@@ -96,100 +63,49 @@ export class PrGuidesStore {
     numbers: number[],
     options: { onSettled?: (outcome: GuideBatchOutcome) => void } = {},
   ): Promise<void> {
-    if (options.onSettled) {
-      this.requestedContextKey = projectPrsKey(serverId, ctx)
-      this.requestedNumbers = new Set(numbers)
-      this.onSettled = options.onSettled
+    const project = this.prs.get(api, serverId, ctx)
+    const unique = [...new Set(numbers)]
+    const targets = await Promise.all(unique.map(async (number) => {
+      if (!project.prFor(number)) await project.get(number).loadDetail()
+      const identity = this.identityFor(serverId, ctx, number)
+      if (!identity?.target) throw new Error(`Pull request #${number} is unavailable.`)
+      return { identity, target: identity.target }
+    }))
+    const remaining = new Set(targets.map(({ target }) => reviewGuideTargetId(target)))
+    let failed = 0
+    let unsubscribe = () => {}
+    const settle = (host: string, event: ReviewGuideStatusEvent) => {
+      if (host !== serverId || !event.target || event.status === 'queued' || event.status === 'generating') return
+      if (!remaining.delete(reviewGuideTargetId(event.target))) return
+      if (event.status !== 'ready') failed += 1
+      if (remaining.size === 0) {
+        unsubscribe()
+        options.onSettled?.({ total: unique.length, failed })
+      }
     }
-    const targets = numbers.filter((number) => {
-      const status = this.statusFor(serverId, ctx, number)
-      return status !== 'queued' && status !== 'generating'
-    })
-    if (targets.length === 0) {
-      this.settle()
-      return
-    }
-    // Optimistic: the broadcast back confirms, or corrects, these.
-    for (const number of targets) this.status.set(this.keyFor(serverId, ctx, number), 'queued')
+    if (options.onSettled) unsubscribe = this.guides.onChange(settle)
     try {
-      await api.prGenerateGuides(detached(ctx), targets)
-    } catch (err) {
-      if (options.onSettled) {
-        this.requestedNumbers.clear()
-        this.onSettled = null
+      await Promise.all(targets.map(async ({ identity, target }) => {
+        const status = this.guides.statusFor(serverId, identity)?.status
+        if (status !== 'queued' && status !== 'generating') {
+          await this.guides.generate(api, serverId, detached(ctx), identity, { target })
+        }
+        const event = this.guides.statusFor(serverId, identity)
+        if (event) settle(serverId, event)
+      }))
+      if (unique.length === 0) {
+        unsubscribe()
+        options.onSettled?.({ total: 0, failed: 0 })
       }
-      for (const number of targets) {
-        const key = this.keyFor(serverId, ctx, number)
-        if (this.status.get(key) === 'queued') this.status.delete(key)
-      }
-      throw err
+    } catch (error) {
+      unsubscribe()
+      throw error
     }
   }
 
-  /** Wired once, for the whole workspace. */
+  /** Bind before any PR list is opened, so tool-initiated work is retained. */
   subscribe(): () => void {
-    const unsubscribePrGuides = subscribeAllHosts('pr.guideStatusChanged', (serverId, event) => {
-      const contextKey = hostKey(serverId, event.repoRoot)
-      const key = `${contextKey}::${event.number}`
-      this.status.set(key, event.status)
-      this.settle(contextKey)
-      if (event.metadata) this.metadata.set(key, event.metadata)
-    })
-    // GitSection and the review surfaces generate through the general review
-    // producer. A branch guide for the exact head of an open PR is still work
-    // on that PR, so reflect its live lifecycle anywhere the PR is shown.
-    const unsubscribeReviewGuides = subscribeAllHosts(
-      'review.guideStatusChanged',
-      (serverId, event) => this.applyReviewGuideStatus(serverId, event),
-    )
-    return () => {
-      unsubscribePrGuides()
-      unsubscribeReviewGuides()
-    }
-  }
-
-  applyReviewGuideStatus(serverId: string, event: ReviewGuideStatusEvent): void {
-    if (event.scope !== 'branch' && event.scope !== 'pr') return
-    const project = this.prs.at(serverId, event.repoRoot)
-    if (!project) return
-
-    const pullRequests = event.target?.kind === 'pr'
-      ? [project.prFor(event.target.number)].filter((pr) => pr?.headSha === event.headSha)
-      : project.openPrs.filter((pr) => pr.headSha === event.headSha)
-
-    for (const pr of pullRequests) {
-      if (!pr) continue
-      const key = `${hostKey(serverId, event.repoRoot)}::${pr.number}`
-      if (event.status === 'queued' || event.status === 'generating' || event.status === 'failed') {
-        this.status.set(key, event.status)
-        continue
-      }
-      this.status.delete(key)
-      if (event.status === 'ready') {
-        void this.loadMetadata(project.hostApi, serverId, project.hostContext, pr).catch(() => {})
-      }
-    }
-  }
-
-  /** Tell the asker once every pull request in their batch has settled. */
-  private settle(contextKey = this.requestedContextKey): void {
-    if (contextKey !== this.requestedContextKey) return
-    if (this.requestedNumbers.size === 0) return
-    const statuses = [...this.requestedNumbers].map((number) => this.status.get(`${contextKey}::${number}`))
-    if (statuses.some((status) => status !== 'ready' && status !== 'failed')) return
-
-    const outcome: GuideBatchOutcome = {
-      total: this.requestedNumbers.size,
-      failed: statuses.filter((status) => status === 'failed').length,
-    }
-    const onSettled = this.onSettled
-    this.requestedNumbers.clear()
-    this.requestedContextKey = ''
-    this.onSettled = null
-    onSettled?.(outcome)
-  }
-
-  private keyFor(serverId: string, ctx: IpcContext, number: number): string {
-    return `${projectPrsKey(serverId, ctx)}::${number}`
+    for (const serverId of serverConnections.connectedServerIds()) this.guides.bind(serverId)
+    return serverConnections.onConnectionCreated((connection) => this.guides.bind(connection.serverId))
   }
 }

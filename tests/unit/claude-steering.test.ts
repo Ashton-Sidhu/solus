@@ -5,6 +5,13 @@ import type { NormalizedEvent } from '@solus/contracts/types'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
+const realCliEnv = await import('@solus/server/cli-env')
+mock.module('@solus/server/cli-env', () => ({
+  ...realCliEnv,
+  warmCliPath: async () => '/fixture/bin',
+  findOnPath: () => '/fixture/bin/claude',
+}))
+
 /** Raw provider messages the mocked SDK replays for the turn-lifetime tests.
  *  Only `query` is stubbed — the rest of the SDK (notably `tool`) is still
  *  needed by the MCP servers the backend builds. */

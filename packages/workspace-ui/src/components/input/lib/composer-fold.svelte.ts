@@ -1,13 +1,14 @@
 import { untrack } from "svelte";
 import { getSettingsContext, runtime } from "../../../contexts";
 import {
-  COMPOSER_FOLD_GRACE_MS,
+  COMPOSER_REFOCUS_GRACE_MS,
   floatingLayerOf,
   keyboardHoldsComposerOpen,
   selectionHoldsComposerOpen,
   shouldCollapseComposer,
 } from "./composer-collapse";
 import {
+  COMPOSER_COLLAPSED_ATTRIBUTE,
   composerSurfaceOf, measureFold, tweenComposerFold,
   type ComposerFoldTween, type FoldGeometry,
 } from "./composer-fold";
@@ -21,20 +22,14 @@ interface ComposerFoldOptions {
 }
 
 /**
- * Owns the keyboard hold, the grace before a fold, and the finite fold
- * animation (ADR-0027).
- *
- * The bar is open while it holds the keyboard. It takes the keyboard on its
- * own `focusin` and lets go only when a leave has settled: a grace after the
- * last focus change or pointer release, the bar reads where focus actually
- * is. Nothing predicts a return — a closing menu, a sidebar click, a settled
- * recorder each hand focus back inside the grace, and that return is simply
- * not a leave.
+ * Owns focus, pointer and selection holds, and the fold animation (ADR-0027).
+ * Ordinary focus changes settle after the current event, with no timed grace.
+ * A closing menu or recorder gets time to return focus on a later frame.
  */
 export function useComposerFold(options: ComposerFoldOptions) {
   const theme = getSettingsContext();
   // The bar has the keyboard: focus is in it or in a menu it opened, or it
-  // left less than a grace ago. Tracked on the bar's own box rather than the
+  // is returning from a closing menu or recorder. Tracked on the bar's own box rather than the
   // host card so every host — dock, split pane, draft, web — gets the same
   // answer.
   let keyboardHeld = $state(false);
@@ -42,7 +37,7 @@ export function useComposerFold(options: ComposerFoldOptions) {
   // A press that began outside the bar and has not been released. The leave
   // decision waits for the release, so a drag-select in the transcript never
   // folds the bar under the gesture, and a click's consequences — the focus
-  // it asks for — have had the grace to land.
+  // it asks for — can complete in the same event.
   let outsidePointerInFlight = false;
   let outsidePointerReleaseTimer: ReturnType<typeof setTimeout> | null = null;
   // A live selection in the transcript is holding the bar open; it lets go
@@ -58,10 +53,10 @@ export function useComposerFold(options: ComposerFoldOptions) {
       : null;
   }
 
-  /** Every focus change and pointer release restarts the grace. */
-  function settleAfterGrace() {
+  /** Defer the focus read until the current event has completed. */
+  function scheduleSettle(delay = 0) {
     cancelSettle();
-    settleTimer = setTimeout(settle, COMPOSER_FOLD_GRACE_MS);
+    settleTimer = setTimeout(settle, delay);
   }
 
   function cancelSettle() {
@@ -95,7 +90,7 @@ export function useComposerFold(options: ComposerFoldOptions) {
     const release = () => {
       if (selectionHoldsComposerOpen(document.getSelection(), transcriptEl())) return;
       heldBySelection = false;
-      settleAfterGrace();
+      scheduleSettle();
     };
     document.addEventListener("selectionchange", release);
     return () => document.removeEventListener("selectionchange", release);
@@ -104,17 +99,20 @@ export function useComposerFold(options: ComposerFoldOptions) {
   // While the bar holds the keyboard, focus is watched on the document, not
   // on the bar: a menu that closes by letting go — a click on the transcript
   // with no return target — fires nothing on the bar's box, and a picker's
-  // content is portalled outside it. Every change anywhere restarts the grace;
-  // where focus ends up is read when it is up.
+  // content is portalled outside it. Read focus after the event completes.
   $effect(() => {
     if (!keyboardHeld) return;
-    const handleFocusChange = () => settleAfterGrace();
+    const handleFocusChange = (event: FocusEvent) => {
+      const isMenuClosing = event.type === "focusout" &&
+        event.target instanceof Node && floatingLayerOf(event.target) !== null;
+      scheduleSettle(isMenuClosing ? COMPOSER_REFOCUS_GRACE_MS : 0);
+    };
     const releaseOutsidePointer = () => {
       if (!outsidePointerInFlight) return;
       outsidePointerInFlight = false;
       if (outsidePointerReleaseTimer !== null) clearTimeout(outsidePointerReleaseTimer);
       outsidePointerReleaseTimer = null;
-      settleAfterGrace();
+      scheduleSettle();
     };
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
@@ -144,11 +142,11 @@ export function useComposerFold(options: ComposerFoldOptions) {
     };
   });
 
-  // The mic letting go is decided like a leave. The keyboard is handed back
+  // The mic gets a refocus grace. The keyboard is handed back
   // to the editor a frame later (composer-focus), inside the grace, so the
   // bar never folds on its own after a dictation. Should nothing hand it
   // back — the keyboard was elsewhere for the whole recording — it folds
-  // once the grace is up, like any other leave.
+  // once that refocus grace is up.
   let wasRecording = untrack(() => options.recording());
   $effect(() => {
     const recording = options.recording();
@@ -157,7 +155,7 @@ export function useComposerFold(options: ComposerFoldOptions) {
     if (!stopped) return;
     untrack(() => {
       keyboardHeld = true;
-      settleAfterGrace();
+      scheduleSettle(COMPOSER_REFOCUS_GRACE_MS);
     });
   });
 
@@ -173,7 +171,7 @@ export function useComposerFold(options: ComposerFoldOptions) {
   function handleComposerFocusOut(event: FocusEvent) {
     const root = options.root();
     if (root && event.relatedTarget instanceof Node && root.contains(event.relatedTarget)) return;
-    settleAfterGrace();
+    scheduleSettle();
   }
 
   // A phone keeps its toolbar: the `+` there is the only way to attach,
@@ -190,7 +188,7 @@ export function useComposerFold(options: ComposerFoldOptions) {
     }),
   );
 
-  // The fold's tween is a FLIP: the layout flips in one step, and the card,
+  // The fold tween is a FLIP: the layout flips in one step, and the card,
   // the prompt line, and the toolbar are animated from where they were to
   // where they are. The conversation column lays out once per fold instead
   // of once per frame. Hosts that mark no surface get the cut.
@@ -211,6 +209,10 @@ export function useComposerFold(options: ComposerFoldOptions) {
     untrack(() => {
       const root = options.root();
       const surface = root && composerSurfaceOf(root);
+      // Written before the browser lays out, so the dock's resize observer —
+      // which runs after layout — reads the flag belonging to the height it
+      // just measured, and never holds a reservation against an expansion.
+      surface?.toggleAttribute(COMPOSER_COLLAPSED_ATTRIBUTE, collapsed);
       foldTween = surface
         ? tweenComposerFold(surface, geometryBeforeFold, collapsed)
         : null;

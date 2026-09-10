@@ -1,3 +1,4 @@
+import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState, WorktreeEntry } from './git-types'
 import type { TaskProviderId, TaskSnapshot } from './task-types'
@@ -991,6 +992,10 @@ export interface PlanCommentReply {
 }
 
 export interface PlanComment {
+  /** A private discussion about a Google thread; never an outbound message. */
+  externalThreadId?: string
+  /** Legacy private Google discussion reference. */
+  googleThreadId?: string
   id: string
   /** The anchor's display text: the quoted selection (docs/plans) or the node label (diagrams). */
   selectedText: string
@@ -1341,6 +1346,10 @@ export interface AnnotationsChanged {
 
 /** Selection comments on a work (document), stored in a per-work sidecar. */
 export interface WorkAnnotations {
+  /** Host-owned shared discussion snapshot. Private comment saves cannot change it. */
+  externalComments?: WorkExternalComments
+  /** Legacy Google snapshot; migrated by the host on next refresh. */
+  googleComments?: WorkGoogleComments
   version: 1
   workId: string
   comments: PlanComment[]
@@ -1530,6 +1539,7 @@ export type NormalizedEvent =
   | { type: 'tool_call_complete'; index: number; toolId?: string; toolInput?: string; parentToolUseId?: string; completedAtMs?: number; outcome?: { status?: string; exitCode?: number; error?: string; declined?: boolean; durationMs?: number } }
   | { type: 'tool_result'; toolUseId: string; content: string; isError?: boolean; parentToolUseId?: string; isAsyncLaunch?: boolean; isSubagentReport?: boolean }
   | { type: 'subagent_report'; toolUseId: string; text: string; isError?: boolean }
+  | { type: 'subagent_running'; toolUseId: string }
   | { type: 'assistant_message'; text: string; parentToolUseId?: string; isFinal?: boolean }
   | { type: 'task_complete'; result: string; costUsd: number; durationMs: number; numTurns: number; usage: UsageData; sessionId: string; permissionDenials?: Array<{ toolName: string; toolUseId: string }> }
   /** Solus's authoritative top-level turn boundary. Unlike `task_complete`, this
@@ -1540,7 +1550,14 @@ export type NormalizedEvent =
   | { type: 'background_task_settled'; taskId: string; status: 'completed' | 'failed' | 'stopped' | 'killed'; toolUseId?: string }
   | { type: 'error'; message: string; isError: boolean; sessionId?: string }
   | { type: 'session_dead'; exitCode: number | null; signal: string | null; stderrTail: string[] }
-  | { type: 'rate_limit'; status: string; resetsAt: number; rateLimitType: string; isUsingOverage?: boolean; windowDurationMins?: number; info?: RateLimitInfo; deferCurrentRun?: boolean }
+  /** `resetsAt` is epoch seconds from the provider. The server fills missing
+   * resets from cached usage and applies its retry buffer before publication.
+   * Null means no automatic release and no countdown. */
+  | { type: 'rate_limit'; status: string; resetsAt: number | null; rateLimitType: string; isUsingOverage?: boolean; windowDurationMins?: number; info?: RateLimitInfo; deferCurrentRun?: boolean }
+  /** Quota windows a provider reported mid-stream. Both agents send these on
+   *  nearly every turn, which is what keeps the usage store current enough to
+   *  answer the moment a limit lands. */
+  | { type: 'usage_limits'; windows: UsageWindowUpdate[] }
   | { type: 'usage'; context?: ContextUsage; run?: UsageData }
   | { type: 'model_rerouted'; fromModel: string; toModel: string; reason?: string }
   | { type: 'session_changed_files_updated'; paths: string[] }
@@ -1943,10 +1960,26 @@ export interface OutboundPrompt {
 }
 
 export interface RateLimitInfo {
-  resetsAt: number
+  /** Epoch seconds, or null when no window reset is known. */
+  resetsAt: number | null
   rateLimitType: string
   prompt: string
   queuedPrompt: string
+}
+
+/** The canonical window durations. A provider names its windows however it
+ *  likes; the duration is the only identity that survives the difference, and
+ *  it is what `readUsageLimits` already matches on. */
+export const FIVE_HOUR_WINDOW_MINS = 300
+export const WEEKLY_WINDOW_MINS = 10_080
+
+/** One window as a provider reported it mid-stream. `usedPercent` is absent
+ *  when the report only carries a reset. */
+export interface UsageWindowUpdate {
+  windowDurationMins: number
+  usedPercent: number | null
+  /** Epoch ms. */
+  resetsAt: number | null
 }
 
 /** One subscription quota window (rolling 5h or weekly). */

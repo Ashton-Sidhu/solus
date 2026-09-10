@@ -78,6 +78,17 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   statusBar.bindAgent(agent)
 
   const unsubscribeReviewGuideReady = reviewGuideStore.onReady((serverId, event) => {
+    if (event.target?.kind === 'pr') {
+      const target = event.target
+      toasts.success(`Review guide ready for ${target.owner}/${target.repo} #${target.number}`, {
+        duration: 10_000,
+        action: {
+          label: 'Open guide',
+          onAction: () => { void session.openPullRequest({ number: target.number, expectedRepo: target }, { serverId, tab: 'guide' }) },
+        },
+      })
+      return
+    }
     if (event.scope !== 'session') return
     const tabId = session.tabOrder.find((candidateTabId) => {
       if (session.serverIdFor(candidateTabId) !== serverId) return false

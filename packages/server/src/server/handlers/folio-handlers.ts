@@ -1,3 +1,4 @@
+import { readWorkExternalComments, refreshWorkExternalComments, sendWorkExternalComment } from '../../folio/work-comments'
 import type { SolusServer } from '../server'
 import { createWork, duplicateWork, saveWork, loadWork, listWorks, deleteWork, agentSaveWork, loadWorkPrevious, revertWork, setWorkPinned, promoteWorkToProject, linkWorkSession } from '../../folio/works'
 import { loadWorkAnnotations, saveWorkAnnotations } from '../../folio/work-annotations'
@@ -26,6 +27,12 @@ async function linkWorkToSessionTasks(work: Work): Promise<void> {
 }
 
 export function registerFolioHandlers(server: SolusServer): void {
+  server.register('readWorkGoogleComments', args => readWorkExternalComments(args[0]))
+  server.register('refreshWorkGoogleComments', args => refreshWorkExternalComments(args[0]))
+  server.register('sendWorkGoogleComment', args => sendWorkExternalComment(args[0], args[1]))
+  server.register('readWorkExternalComments', args => readWorkExternalComments(args[0]))
+  server.register('refreshWorkExternalComments', args => refreshWorkExternalComments(args[0]))
+  server.register('sendWorkExternalComment', args => sendWorkExternalComment(args[0], args[1]))
   server.register('createWork', async (args) => {
     const [title, type, content, preview, sessionId, agentProvider, cwd, id] = args
     const work = await createWork(title, type, content, preview, sessionId, agentProvider, cwd, id)

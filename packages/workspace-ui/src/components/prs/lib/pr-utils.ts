@@ -11,6 +11,7 @@ export type PrStateFilter = 'open' | 'closed' | 'all'
 export type PrSortMode = 'updated' | 'created' | 'effort'
 
 export interface PrFacetSelection {
+  guide?: 'all' | 'has-guide'
   involvement: 'all' | 'created' | 'assigned' | 'review-requested'
   author: string | null
   label: string | null
@@ -20,6 +21,7 @@ export interface PrFacetSelection {
 }
 
 interface PrFacetContext {
+  hasGuide?: (pr: PullRequest) => boolean
   viewerLogin: (pr: PullRequest) => string | null
   checksState: (pr: PullRequest) => 'passing' | 'pending' | 'failing' | null
 }
@@ -31,16 +33,8 @@ export function filterPrFacets(
   context: PrFacetContext,
 ): PullRequest[] {
   return items.filter((pr) => {
-    const viewer = context.viewerLogin(pr)?.toLowerCase() ?? null
-    if (selection.involvement === 'created' && pr.author.toLowerCase() !== viewer) return false
-    if (
-      selection.involvement === 'assigned' &&
-      !pr.assignees?.some((login) => login.toLowerCase() === viewer)
-    ) return false
-    if (
-      selection.involvement === 'review-requested' &&
-      !pr.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === viewer)
-    ) return false
+    if (selection.guide === 'has-guide' && !context.hasGuide?.(pr)) return false
+    if (!matchesInvolvement(pr, selection.involvement, context.viewerLogin(pr))) return false
     if (selection.author && pr.author.toLowerCase() !== selection.author.toLowerCase()) return false
     if (selection.label && !pr.labels.some((label) => label.name === selection.label)) return false
     if (selection.draft === 'ready' && pr.draft) return false
@@ -49,6 +43,16 @@ export function filterPrFacets(
     if (selection.checks !== 'all' && context.checksState(pr) !== selection.checks) return false
     return true
   })
+}
+
+function matchesInvolvement(pr: PullRequest, involvement: PrFacetSelection['involvement'], login: string | null): boolean {
+  const viewer = login?.toLowerCase() ?? null
+  switch (involvement) {
+    case 'created': return pr.author.toLowerCase() === viewer
+    case 'assigned': return !!pr.assignees?.some((assignee) => assignee.toLowerCase() === viewer)
+    case 'review-requested': return !!pr.requestedReviewers?.some((reviewer) => reviewer.login.toLowerCase() === viewer)
+    default: return true
+  }
 }
 
 export interface PrStatusBadge {

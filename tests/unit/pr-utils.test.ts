@@ -46,6 +46,13 @@ describe('pull request facet filters', () => {
     }),
   ]
 
+  test('has-guide filter uses saved content and composes with other facets', () => {
+    const saved = { ...context, hasGuide: (pr: PullRequest) => pr.number === 1 };
+    expect(filterPrFacets(items, { ...selection, guide: 'has-guide' }, saved).map((pr) => pr.number)).toEqual([1]);
+    expect(filterPrFacets(items, { ...selection, guide: 'has-guide', checks: 'failing' }, saved)).toEqual([]);
+    expect(filterPrFacets(items, { ...selection, guide: 'all' }, saved)).toEqual(items);
+  });
+
   test('narrows on each facet without treating missing viewer facts as a match', () => {
     // WHY: each row in the menu must change the list, not only reproduce the
     // reference's appearance. The current viewer can vary by host in the inbox.

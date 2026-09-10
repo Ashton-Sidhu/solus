@@ -182,7 +182,9 @@ export async function callerAgent(ctx: SessionToolCtx | undefined): Promise<Comm
     // session to name: the thread signs as plain "Solus".
     provider: ctx.agentProvider,
   }
-  if (meta?.slug) author.title = meta.slug
+  // Codex has no CLI slug: an unnamed thread reports its own first message as
+  // its name, which is the same first-message fallback under another field.
+  if (meta?.slug && meta.slug !== meta.firstMessage) author.title = meta.slug
   return author
 }
 

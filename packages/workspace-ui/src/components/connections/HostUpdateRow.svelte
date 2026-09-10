@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { isServerUpdateActive } from '@solus/contracts/server-update';
+  import { serverUpdateText } from '../../contexts/updates/server-update-text';
   import { hostCapabilitiesStore } from '../../contexts/connections/host-capabilities.store.svelte';
   import type { ServerItem } from '../../contexts/connections/servers.store.svelte';
   import { serversStore } from '../../contexts/connections/servers.store.svelte';
@@ -10,6 +12,8 @@
   import { Button } from '../ui/button';
   let { host }: { host: ServerItem } = $props();
   const status = $derived(hostUpdatesStore.hostUpdateFor(host.id));
+  const operation = $derived(hostUpdatesStore.operations.get(host.id));
+  const updating = $derived(isServerUpdateActive(operation));
   const desktop = $derived(host.local && updatesStore.isAvailable);
   const command = $derived(desktop ? updateCommandFor(updatesStore.state) : null);
   const skew = $derived(serversStore.versionSkewNoticeFor(host.id));
@@ -29,16 +33,24 @@
     {#if desktop && command && command.command !== 'check'}
       <Button variant="outline" size="sm" onclick={runDesktopCommand}>{command.label}</Button>
     {/if}
+    {#if !desktop && status?.serverUpdate?.supported}
+      {#if operation?.phase === 'waiting'}
+        <Button variant="outline" size="sm" disabled={host.status !== 'online' || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.cancelUpdate(host.id)}>Cancel update</Button>
+      {:else if status.check.kind === 'available' || updating}
+        <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating || hostUpdatesStore.updateRequests.has(host.id)} onclick={() => void hostUpdatesStore.install(host.id)}>{updating ? 'Updating Solus…' : 'Update Solus'}</Button>
+      {/if}
+    {/if}
     {#if hostCapabilitiesStore.supports(host.id, 'hostUpdates')}
-      <Button variant="outline" size="sm" disabled={host.status !== 'online' || status?.check.kind === 'checking' || status?.providers.some((p) => p.check.kind === 'checking')} onclick={() => void checkHost()}>Check for updates</Button>
+      <Button variant="outline" size="sm" disabled={host.status !== 'online' || updating || status?.check.kind === 'checking' || status?.providers.some((p) => p.check.kind === 'checking')} onclick={() => void checkHost()}>Check for updates</Button>
     {/if}
     </div>
   {/snippet}
   {#snippet body()}
     <div class="text-workspace-chrome text-muted-foreground" aria-live="polite">
+      {#if operation}<p>{serverUpdateText(operation, host.label, host.status === 'online')}</p>{#if operation.message}<p>{operation.message}</p>{/if}{/if}
       {#if desktop}<p>{updateStatusLine(updatesStore.state)}</p>{/if}
       {#if status?.check.kind === 'available'}
-        <p>{status.remediation}</p>
+        {#if !status.serverUpdate?.supported}<p>{status.remediation}</p><p>{status.serverUpdate?.reason}</p>{/if}
         {#if status.releaseUrl}<a class="underline" href={status.releaseUrl} target="_blank" rel="noreferrer">Release notes</a>{/if}
       {/if}
       {#if hostUpdatesStore.errors.get(host.id)}<p>{hostUpdatesStore.errors.get(host.id)}</p>{/if}

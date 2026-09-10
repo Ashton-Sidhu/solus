@@ -680,9 +680,8 @@
            The row is at least as tall as the pinned buttons, so they sit
            inside it at rest rather than up into the well.
 
-           The fold is a cut here: grid rows 0fr↔1fr fold the row in one step,
-           and the bar's fold tween (composer-fold.ts) carries the motion —
-           the card's height, the prompt line, and this row's arrival. `inert`
+           Grid rows 0fr↔1fr fold the row in one step with the text well.
+           composer-fold.ts animates the card and the row's arrival or exit. `inert`
            and `invisible` keep a folded row out of the Tab order, so the
            pickers are folded, never unmounted — every picker keeps its state.
            Rings need no room here: the chips draw none outside their box. -->
@@ -705,6 +704,7 @@
            overlapping; see the `pointer-coarse:tap-area` utility. Last in the
            DOM so Tab still runs toolbar → mic → send. -->
       <div
+        data-composer-actions
         bind:clientWidth={actionsWidth}
         bind:clientHeight={actionsHeight}
         class="absolute bottom-0 right-0 flex shrink-0 items-center gap-1 pointer-coarse:gap-2"
@@ -775,9 +775,8 @@
        line. With chips above, the top is tightened in every case so the well
        does not add a second gap under them.
 
-       The well's padding flips in one step; the fold tween slides the whole
-       well from where its line was to where it is, so the line settles
-       rather than jumps. -->
+       The well's padding changes in one step; the tween slides the well
+       from its previous position as the card changes height. -->
   <div
     data-composer-prompt
     class="[--plain-editor-font-size:var(--text-workspace-chrome)] [--plain-editor-line-height:1.5] [--solus-font-weight-body:var(--solus-font-weight-user-content)] {isCollapsed

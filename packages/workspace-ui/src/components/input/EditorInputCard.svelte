@@ -75,9 +75,8 @@
     class={cn(
       // The `composer` container. The toolbar row's disclosure ladder measures
       // this card, so it narrows identically whether the cause is a phone, a
-      // laptop, or a companion pane opening beside it. The bar tweens this
-      // card's height out of flow while it folds; the root above holds the
-      // dock's height for the tween.
+      // laptop, or a companion pane opening beside it. During the fold, the bar
+      // tweens this card out of flow while the root holds its final height.
       "@container/composer overflow-hidden rounded-2xl bg-(--solus-input-pill-bg) px-3 pb-3 transition-[box-shadow] duration-[180ms]",
       focused
         ? "shadow-[shadow:0_0_0_0.0625rem_color-mix(in_oklch,var(--solus-accent)_34%,transparent),0_0_0_0.25rem_color-mix(in_oklch,var(--solus-accent)_9%,transparent)]"

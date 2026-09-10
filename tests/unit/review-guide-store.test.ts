@@ -374,7 +374,7 @@ describe('ReviewGuideStore', () => {
 
     // A later event for the same target replaces the entry rather than adding
     // one under its checkout or generated guide key.
-    store.set(HOST, status({ repoRoot: '/other/checkout', key: `${key}-next`, scope, target, status: 'generating' }))
+    store.set(HOST, status({ repoRoot: '/other/checkout', key: `${key}-next`, scope, target, status: 'generating', updatedAt: 2 }))
     expect(store.statusFor(HOST, { repoRoot: '/requesting/project', key: 'anything', target })?.status).toBe('generating')
   })
 
@@ -394,5 +394,74 @@ describe('ReviewGuideStore', () => {
     await store.load(api, HOST, {} as never, identity, 'branch')
 
     expect(store.statusFor(HOST, identity)).toBeNull()
+  })
+})
+
+describe('ReviewGuideStore reconciliation', () => {
+  async function storeWithEvents(watchConnections?: ConstructorParameters<typeof import('@solus/workspace-ui/components/review/review-guide.store.svelte').ReviewGuideStore>[1]) {
+    ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
+    const { ReviewGuideStore } = await import('@solus/workspace-ui/components/review/review-guide.store.svelte')
+    const events = new HostEventSubscriber()
+    return { events, store: new ReviewGuideStore(() => events, watchConnections ?? (() => () => {})) }
+  }
+  const identity = { repoRoot: '/repo', key: 'feature__reviews', headSha: 'head-a' }
+
+  test('reopening the same revision asks the host again', async () => {
+    const { store } = await storeWithEvents()
+    let current = status({ status: 'generating' })
+    let calls = 0
+    const api = { reviewGuideStatus: async () => { calls++; return current } } as unknown as typeof window.solus
+    await store.load(api, HOST, {} as never, identity, 'branch')
+    current = status({ updatedAt: 2 })
+    await store.load(api, HOST, {} as never, identity, 'branch')
+    expect(calls).toBe(2)
+    expect(store.statusFor(HOST, identity)?.status).toBe('ready')
+  })
+
+  test('a late status probe cannot undo a live completion on the same revision', async () => {
+    const { store, events } = await storeWithEvents()
+    const probe = Promise.withResolvers<ReviewGuideStatusEvent>()
+    const api = { reviewGuideStatus: () => probe.promise } as unknown as typeof window.solus
+    const loading = store.load(api, HOST, {} as never, identity, 'branch')
+    events.receive({ type: 'review.guideStatusChanged', payload: status({ updatedAt: 3 }), occurredAt: 3 })
+    probe.resolve(status({ status: 'queued', updatedAt: 1 }))
+    await loading
+    expect(store.statusFor(HOST, identity)?.status).toBe('ready')
+  })
+
+  test('a delayed queued receipt cannot undo a completed generation', async () => {
+    const { store, events } = await storeWithEvents()
+    const receipt = Promise.withResolvers<ReviewGuideStatusEvent>()
+    const api = { requestReviewGuide: () => receipt.promise } as unknown as typeof window.solus
+    const generating = store.generate(api, HOST, {} as never, identity, { scope: 'branch' })
+    expect(store.statusFor(HOST, identity)?.status).toBe('queued')
+    events.receive({ type: 'review.guideStatusChanged', payload: status({ updatedAt: 3, generationId: 'run-1' }), occurredAt: 3 })
+    receipt.resolve(status({ status: 'queued', updatedAt: 1, generationId: 'run-1' }))
+    await generating
+    expect(store.statusFor(HOST, identity)?.status).toBe('ready')
+  })
+
+  test('reconnect revalidates a tracked guide and exposes connection loss', async () => {
+    let onConnection: ((serverId: string, status: 'connected' | 'disconnected', attempt: number) => void) | undefined
+    const { store } = await storeWithEvents((listener) => { onConnection = listener; return () => {} })
+    let current = status({ status: 'generating' })
+    const api = { reviewGuideStatus: async () => current } as unknown as typeof window.solus
+    await store.load(api, HOST, {} as never, identity, 'branch')
+    onConnection?.(HOST, 'disconnected', 0)
+    expect(store.reconnectingFor(HOST)).toBe(true)
+    current = status({ updatedAt: 2 })
+    onConnection?.(HOST, 'connected', 0)
+    await store.load(api, HOST, {} as never, identity, 'branch')
+    expect(store.reconnectingFor(HOST)).toBe(false)
+    expect(store.statusFor(HOST, identity)?.status).toBe('ready')
+  })
+
+  test('failed status refresh keeps the saved state and exposes an error', async () => {
+    const { store } = await storeWithEvents()
+    store.set(HOST, status())
+    const api = { reviewGuideStatus: async () => { throw new Error('Host unreachable') } } as unknown as typeof window.solus
+    await store.load(api, HOST, {} as never, identity, 'branch')
+    expect(store.statusFor(HOST, identity)?.status).toBe('ready')
+    expect(store.loadErrorFor(HOST, identity)).toBe('Host unreachable')
   })
 })

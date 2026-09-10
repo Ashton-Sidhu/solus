@@ -1,7 +1,8 @@
 import { execFileSync } from 'child_process'
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, realpathSync } from 'fs'
 
-import { basename, join } from 'path'
+import { basename, dirname, join, sep } from 'path'
+import { homedir } from 'os'
 import type { CloneProtocol, PackageInstallCommand, SetupAgent } from '@solus/contracts/types'
 import { getCliEnv } from '../../cli-env'
 
@@ -150,6 +151,67 @@ export function buildAgentInstallCommand(agent: SetupAgent, opts: BuildInstallCo
     display: `npm install -g ${CODEX_NPM_PACKAGE}`,
     strategy: 'npm',
   }
+}
+
+export type AgentInstallOwnership =
+  | { kind: 'absent' }
+  | { kind: 'solus-managed'; resolvedPath: string }
+  | { kind: 'unmanaged'; resolvedPath: string }
+
+export interface AgentOwnershipOptions {
+  resolveCommandPath?: (command: string) => string | null
+  npmGlobalBinDir?: () => string | null
+  home?: string
+}
+
+/** `which`, but a miss returns null instead of throwing. */
+export function resolveCommandPath(command: string): string | null {
+  try {
+    return execFileSync('which', [command], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 }).trim() || null
+  } catch {
+    return null
+  }
+}
+
+export function npmGlobalBinDir(): string | null {
+  try {
+    const prefix = execFileSync('npm', ['config', 'get', 'prefix'], { encoding: 'utf8', env: getCliEnv(), timeout: 5000 }).trim()
+    return prefix ? join(prefix, 'bin') : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether Solus's own installer already owns the CLI currently on PATH for
+ * this agent. Claude's native installer always manages `~/.local/bin/claude`
+ * (a symlink into `~/.local/share/claude`); Codex is `npm install -g`, which
+ * lands in npm's global bin directory. A binary found anywhere else got there
+ * some other way (Homebrew, a version manager, a manual copy), so re-running
+ * Solus's installer would create a competing copy rather than update what the
+ * host actually runs.
+ */
+export function resolveAgentOwnership(agent: SetupAgent, opts: AgentOwnershipOptions = {}): AgentInstallOwnership {
+  const resolvePath = opts.resolveCommandPath ?? resolveCommandPath
+  const resolved = resolvePath(agent)
+  if (!resolved) return { kind: 'absent' }
+
+  let real: string
+  try { real = realpathSync(resolved) } catch { real = resolved }
+
+  if (agent === 'claude') {
+    const home = opts.home ?? homedir()
+    const managedDir = join(home, '.local', 'share', 'claude')
+    const managedLink = join(home, '.local', 'bin', 'claude')
+    const managed = real === managedDir || real.startsWith(`${managedDir}${sep}`) || resolved === managedLink
+    return managed ? { kind: 'solus-managed', resolvedPath: resolved } : { kind: 'unmanaged', resolvedPath: resolved }
+  }
+
+  const binDir = (opts.npmGlobalBinDir ?? npmGlobalBinDir)()
+  let realBinDir: string | null = null
+  if (binDir) { try { realBinDir = realpathSync(binDir) } catch { realBinDir = binDir } }
+  const managed = !!realBinDir && (dirname(real) === realBinDir || (dirname(resolved) === binDir && real.includes('/node_modules/@openai/codex/')))
+  return managed ? { kind: 'solus-managed', resolvedPath: resolved } : { kind: 'unmanaged', resolvedPath: resolved }
 }
 
 export function validateCloneUrl(raw: string): CloneUrlInfo {

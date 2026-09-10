@@ -10,8 +10,9 @@ export interface LatestRelease { version: string; url: string }
 export async function fetchLatestRelease(target: 'solus' | SetupAgent, currentVersion: string): Promise<LatestRelease> {
   const repo = process.env.SOLUS_RELEASE_REPO || 'Ashton-Sidhu/solus'
   const packageName = target === 'claude' ? '@anthropic-ai/claude-code' : '@openai/codex'
+  const apiBase = process.env.SOLUS_RELEASE_API_BASE || 'https://api.github.com'
   const url = target === 'solus'
-    ? `https://api.github.com/repos/${repo}/releases/latest`
+    ? `${apiBase}/repos/${repo}/releases/latest`
     : `https://registry.npmjs.org/${packageName}/latest`
   const response = await fetch(url, { signal: AbortSignal.timeout(10_000), headers: { 'user-agent': `solus-server/${currentVersion}` } })
   if (!response.ok) throw new Error(`Update source returned HTTP ${response.status}.`)

@@ -1,4 +1,3 @@
-import type { AgentId, AgentUsageLimits } from '@solus/contracts/types'
 import type { ControlPlane } from '../../control-plane'
 import { createLogger } from '../../logger'
 import type { SolusServer } from '../server'
@@ -14,49 +13,27 @@ const REFRESH_MS = 5 * 60_000
 const IDLE_TIMEOUT_MS = 15 * 60_000
 
 export function registerUsageHandlers(server: SolusServer, deps: { controlPlane: ControlPlane; events: HostEventPublisher }): void {
-  const cache = new Map<AgentId, AgentUsageLimits>()
+  const store = deps.controlPlane.usageLimits
   let timer: ReturnType<typeof setTimeout> | null = null
   let refresh: Promise<void> | null = null
   let refreshBroadcast: Promise<void> | null = null
   let lastAttemptAt = 0
   let lastRequestAt = 0
 
-  const snapshot = (): AgentUsageLimits[] => [...cache.values()]
-
-  // Keep the last-good numbers and say they're old. Dropping them would leave a
-  // watching UI blank on a single transient failure.
-  //
-  // With nothing cached there are no numbers to keep, but the provider still
-  // has to appear: Claude's `/usage` report carries its quota from an account
-  // endpoint that can answer empty or rate-limited, and a boot inside such a
-  // window would otherwise remove the whole row — indistinguishable from a
-  // provider that has no quota at all. Seed a windowless snapshot so the row
-  // survives and reads as unavailable until a read succeeds.
-  const markStale = (agentId: AgentId, reason: string): void => {
-    log.warn('usage_refresh_failed', { agentId, reason })
-    const cached = cache.get(agentId)
-    if (cached) {
-      cached.stale = true
-      return
-    }
-    // fetchedAt stays 0: no read has ever landed for this provider.
-    cache.set(agentId, { provider: agentId, fiveHour: null, weekly: null, planType: null, fetchedAt: 0, stale: true })
-  }
-
   const refreshAll = (): Promise<void> => {
     if (refresh) return refresh
     const run = Promise.all(deps.controlPlane.usageCapableAgents().map(async (agentId) => {
       try {
         const limits = await deps.controlPlane.readUsageLimits(agentId)
-        if (!limits) return markStale(agentId, 'no_report')
-        cache.set(agentId, limits)
+        if (!limits) return store.markStale(agentId, 'no_report')
+        store.apply(limits)
         log.info('usage_refreshed', {
           agentId,
           fiveHourPercent: limits.fiveHour?.usedPercent ?? null,
           weeklyPercent: limits.weekly?.usedPercent ?? null,
         })
       } catch (err) {
-        markStale(agentId, err instanceof Error ? err.message : String(err))
+        store.markStale(agentId, err instanceof Error ? err.message : String(err))
       }
     })).then(() => { lastAttemptAt = Date.now() })
     refresh = run.finally(() => { refresh = null })
@@ -72,7 +49,7 @@ export function registerUsageHandlers(server: SolusServer, deps: { controlPlane:
   const refreshAndBroadcast = (): Promise<void> => {
     if (refreshBroadcast) return refreshBroadcast
     const run = refreshAll().then(() => {
-      deps.events.broadcast('usage.limitsChanged', { snapshots: snapshot() })
+      deps.events.broadcast('usage.limitsChanged', { snapshots: store.snapshot() })
     })
     refreshBroadcast = run.finally(() => { refreshBroadcast = null })
     return refreshBroadcast
@@ -97,9 +74,9 @@ export function registerUsageHandlers(server: SolusServer, deps: { controlPlane:
         }))
       // Nothing cached yet means the caller would otherwise get an empty array
       // on the very first ask; after that, refresh behind the broadcast.
-      if (cache.size === 0) await pending
+      if (store.snapshot().length === 0) await pending
     }
     schedule()
-    return snapshot()
+    return store.snapshot()
   })
 }

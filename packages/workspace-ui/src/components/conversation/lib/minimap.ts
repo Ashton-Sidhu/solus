@@ -27,10 +27,6 @@ export const MIN_GUTTER = 60;
 // message: the last user message whose top has crossed this line is active.
 const ACTIVE_LINE = 96;
 
-// Approximate on-screen width of the collapsed rail, used to centre it in the
-// gutter.
-export const RAIL_WIDTH = 30;
-
 export interface NavItem {
   id: string;
   /** Single-line hover preview, precomputed at build time so the rail rows never
@@ -62,11 +58,6 @@ export function gutterWidth(paneWidth: number): number {
 /** Whether the gutter is wide enough to host the rail without crowding text. */
 export function hasRoomForRail(paneWidth: number): boolean {
   return gutterWidth(paneWidth) >= MIN_GUTTER;
-}
-
-/** Right offset (px) that centres the collapsed rail within the gutter. */
-export function railRightOffset(paneWidth: number): number {
-  return Math.max(10, Math.round((gutterWidth(paneWidth) - RAIL_WIDTH) / 2));
 }
 
 /**

@@ -54,6 +54,15 @@ export class CodexAppServerClient extends EventEmitter {
   async request<T = any, Params = never>(method: string, params?: Params, timeoutMs?: number): Promise<T>
   async request<T = any, Params = never>(method: string, params?: Params, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
     await this.ensureStarted()
+    return this._send<T, Params>(method, params, timeoutMs)
+  }
+
+  /**
+   * Writes without waiting for startup. Only the handshake inside `start()` may
+   * use this: everything else has to go through `request`, or it reaches a
+   * spawned but uninitialized app-server and is answered "Not initialized".
+   */
+  private _send<T = any, Params = never>(method: string, params?: Params, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
     const proc = this.proc
     if (!proc || proc.killed || !proc.stdin.writable) throw new Error('Codex app-server is not running')
 
@@ -80,8 +89,14 @@ export class CodexAppServerClient extends EventEmitter {
   }
 
   async ensureStarted(): Promise<void> {
-    if (this.proc && !this.proc.killed) return
+    // The in-flight start is checked first. `start()` assigns `this.proc` the
+    // moment it spawns, long before the `initialize` handshake lands, so
+    // checking the process first let every concurrent caller through that
+    // window — at boot the renderer asks for usage, sessions and skills at
+    // once, and whichever lost the race was answered "Not initialized" and
+    // showed the provider as unavailable.
     if (this.startPromise) return this.startPromise
+    if (this.proc && !this.proc.killed) return
 
     this.startPromise = this.start()
       .finally(() => { this.startPromise = null })
@@ -147,7 +162,7 @@ export class CodexAppServerClient extends EventEmitter {
     })
 
     try {
-      await this.request('initialize', {
+      await this._send('initialize', {
         clientInfo: { name: 'Solus', title: null, version: '0.7.0' },
         capabilities: { experimentalApi: true, optOutNotificationMethods: null },
       }, 15_000)
@@ -158,7 +173,7 @@ export class CodexAppServerClient extends EventEmitter {
     // Point Codex at the app-bundled skills via the live API rather than config,
     // so every turn sees the Solus plugin's skills directory.
     try {
-      await this.request('skills/extraRoots/set', {
+      await this._send('skills/extraRoots/set', {
         extraRoots: [join(SOLUS_PLUGINS_DIR, 'skills')],
       }, 15_000)
     } catch (err) {

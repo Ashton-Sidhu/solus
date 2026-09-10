@@ -24,7 +24,8 @@ import { isRawReviewSkill } from './agents/review-command'
 import { hostInstructionsFor, hostModelInputFor, providerConversationFor, runInputFromContext } from './agents/run-input'
 import { buildHandoff, composeHandoffSeed } from './agents/session-handoff'
 import { buildSystemPrompt } from './agents/system-hint'
-import { RateLimitState } from './rate-limits'
+import { isWindowClosed, RateLimitState } from './rate-limits'
+import { UsageLimitsStore } from './usage/usage-store'
 import { AttentionService, attentionActionForStatus } from './attention/attention-service'
 import type { AttentionKind } from '@solus/contracts/attention-types'
 import { prepareSessionTask, rekeyTaskSessionLinks, tasksForSession } from './tasks/task-sessions'
@@ -92,6 +93,7 @@ import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/
 import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
 import { SPAN_SERVICES } from './observability/registries'
 
+const CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS = 2 * 60
 const MAX_QUEUE_DEPTH = 32
 const RUN_WATCHDOG_INTERVAL_MS = 30_000
 /** Cap on the in-flight turn's replay log. A turn this long is pathological; the
@@ -319,6 +321,9 @@ export class ControlPlane extends EventEmitter {
   private rateLimitTimers = new Map<string, ReturnType<typeof setTimeout>>()
   private missingRunCounts = new Map<string, number>()
   private rateLimits = new RateLimitState()
+  /** Cached provider quota windows. Fed by the provider streams
+   *  below and by the polled read in the usage handlers. */
+  readonly usageLimits = new UsageLimitsStore()
   /** questionId → sessionId index so we can resolve which backend owns a question without iterating all backends. */
   private questionIdToSession = new Map<string, string>()
 
@@ -409,6 +414,15 @@ export class ControlPlane extends EventEmitter {
       if (!agentSessionId) return
       const eventHandle = backend.getSessionHandle(agentSessionId)
       if (eventHandle?.persistence === 'ephemeral') return
+
+      // Quota is an account fact, not a conversation one: it goes to the store
+      // and stops there. Both providers report it on nearly every turn, which
+      // is what keeps a reset time available the moment a limit lands.
+      if (event.type === 'usage_limits') {
+        this.usageLimits.applyWindows(backend.id, event.windows)
+        return
+      }
+
       let initializedGoal: ThreadGoal | null = null
 
       // ─── Session-level state (always runs, even with nobody watching) ───
@@ -667,7 +681,7 @@ export class ControlPlane extends EventEmitter {
         }
 
         if (event.type === 'rate_limit') {
-          const rateLimitEvent = this.rateLimits.record(session.sessionId, event)
+          const rateLimitEvent = this.rateLimits.record(session.sessionId, this._prepareRateLimit(backend.id, event))
           if (!rateLimitEvent) return
           event = rateLimitEvent
         }
@@ -695,7 +709,7 @@ export class ControlPlane extends EventEmitter {
         // No session record to key the limit against; without one there is
         // nothing to hold the snapshot for, so route the event through as-is.
         if (!sessionId) return
-        const rateLimitEvent = this.rateLimits.record(sessionId, event)
+        const rateLimitEvent = this.rateLimits.record(sessionId, this._prepareRateLimit(backend.id, event))
         if (!rateLimitEvent) return
         event = rateLimitEvent
       }
@@ -863,6 +877,8 @@ export class ControlPlane extends EventEmitter {
   }
 
   runAgent(request: AgentRunRequest, sessionState?: AgentRunSessionState): AgentRun {
+    // Helpers called by an accepted turn must be able to finish its workflow.
+    if (!sessionState && this.updateWorkCount === 0) this.assertNewWorkAllowed()
     const run = this.agentRunner.run(request, sessionState)
     this.activeAgentRuns.add(run)
     if (request.unattended) {
@@ -1373,11 +1389,12 @@ export class ControlPlane extends EventEmitter {
     if (targetAgentSessionId === callerAgentSessionId) {
       throw new Error('Cannot watch your own session.')
     }
-    const targetSessionId = this.agentSessionToSession.get(targetAgentSessionId)
-    const callerSessionId = this.agentSessionToSession.get(callerAgentSessionId)
+    const targetSessionId = this._sessionIdFor(targetAgentSessionId)
+    const callerSessionId = this._sessionIdFor(callerAgentSessionId)
     if (!targetSessionId || !callerSessionId) {
       throw new Error(`Session ${!targetSessionId ? targetAgentSessionId : callerAgentSessionId} is not live`)
     }
+    if (targetSessionId === callerSessionId) throw new Error('Cannot watch your own session.')
 
     const run = watch.runKey === 'active'
       ? this.activeRunRequests.get(targetSessionId)
@@ -1625,7 +1642,34 @@ export class ControlPlane extends EventEmitter {
 
   /** The only execution entry point. Every caller supplies an explicit target
    * and receives the same lifecycle whether the input starts, steers, or queues. */
+  private updatePending = false
+  private updateWorkCount = 0
+
+  setUpdatePending(pending: boolean): void { this.updatePending = pending }
+  hasWorkForUpdate(): boolean { return this.updateWorkCount > 0 || this.activeAgentRuns.size > 0 || this.pendingSetupControllers.size > 0 || this.requestQueue.size > 0 }
+
+  assertNewWorkAllowed(): void {
+    if (this.updatePending) throw new Error('This host is waiting to update Solus. Cancel the update to start new work.')
+  }
+
   async runTurn(request: SessionRunRequest, deviceId?: string): Promise<SessionRunLifecycle> {
+    // Existing automation runs and agent follow-ups drain with their parent
+    // work. User submissions and new automation triggers are gated separately.
+    if (request.options.promptSource !== 'automation' && !(request.options.promptSource === 'agent' && this.hasWorkForUpdate())) this.assertNewWorkAllowed()
+    // Count before the first await: a concurrent update must see setup and
+    // accepted queued work, not just an already-running provider process.
+    this.updateWorkCount++
+    try {
+      const lifecycle = await this._acceptTurn(request, deviceId)
+      void lifecycle.done.finally(() => { this.updateWorkCount-- }).catch(() => {})
+      return lifecycle
+    } catch (error) {
+      this.updateWorkCount--
+      throw error
+    }
+  }
+
+  private async _acceptTurn(request: SessionRunRequest, deviceId?: string): Promise<SessionRunLifecycle> {
     if (request.target.kind === 'session') {
       const sessionId = request.target.sessionId
       const session = this.activeSessions.get(sessionId)
@@ -1633,6 +1677,10 @@ export class ControlPlane extends EventEmitter {
         const pendingRateLimit = this._currentRateLimitEvent(sessionId)
         if (
           pendingRateLimit?.type === 'rate_limit' &&
+          // A limit kept past its window is only holding the card's question
+          // open. Nothing would drain a prompt queued behind it, so a prompt
+          // typed after the window reopened runs.
+          isWindowClosed(pendingRateLimit) &&
           (request.input.rateLimitBehavior === 'ask' || request.input.rateLimitBehavior === 'queue')
         ) {
           return this._enqueueRequest(request, {
@@ -1640,7 +1688,7 @@ export class ControlPlane extends EventEmitter {
             reason: 'rate_limit',
             deviceId,
             rateLimitSessionId: sessionId,
-            releaseAt: pendingRateLimit.resetsAt,
+            releaseAt: pendingRateLimit.resetsAt ?? undefined,
             rateLimitType: pendingRateLimit.rateLimitType,
           })
         }
@@ -1660,10 +1708,9 @@ export class ControlPlane extends EventEmitter {
             const currentSession = this.activeSessions.get(sessionId)
             const hasQueuedAfterSteer = (this.requestQueue.get(sessionId)?.length ?? 0) > 0
             if ((!currentSession || !isSessionBusyStatus(currentSession.status)) && !hasQueuedAfterSteer) {
-              // The sender withheld its own bubble waiting on a steer verdict
-              // (see _steerActiveTurn), and a fresh run broadcasts the user
-              // message to every client *but* the sender — so echo it back here.
-              if (request.sourceClientId && wasRunningAtDispatch) {
+              // Legacy senders withheld their bubble for a steer verdict but
+              // cannot match the normal confirmation without a prompt id.
+              if (request.sourceClientId && wasRunningAtDispatch && !request.options.clientPromptId) {
                 this._emit(sessionId, this._userMessageEvent(request.options), { only: request.sourceClientId })
               }
               return this._startRunLifecycle(request)
@@ -1753,6 +1800,7 @@ export class ControlPlane extends EventEmitter {
     options: PromptOptions,
     origin?: { clientId?: string; deviceId?: string },
   ): Promise<PromptDispatchResult> {
+    this.assertNewWorkAllowed()
     const proposedSessionId = ctx.session.sessionId
     if (!proposedSessionId) {
       throw new Error('No sessionId provided — rejecting to prevent misrouting')
@@ -1913,12 +1961,12 @@ export class ControlPlane extends EventEmitter {
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
     const { permissionMode, ...promptOrigin } = origin ?? {}
     const requestedMeta = getIndexedSession(agentSessionId)
-    const handoff = requestedMeta
+    const handoff = resolveSessionLineageById(agentSessionId) ?? (requestedMeta
       ? resolveSessionLineage(requestedMeta.provider, agentSessionId)
-      : null
+      : null)
     agentSessionId = handoff?.active.providerSessionId ?? agentSessionId
-    // The agent-tool surface addresses peers by their provider thread id; a peer
-    // that is only on disk gets a Solus id when this prompt starts it.
+    // Tools can name either the stable Solus session or a provider thread.
+    // Keep the stable target for dispatch and pass only its thread to the backend.
     const sessionId = handoff?.sessionId ?? this.agentSessionToSession.get(agentSessionId) ?? crypto.randomUUID()
     const resident = this.activeSessions.get(sessionId)
     let input: SessionRunInput | undefined
@@ -1945,7 +1993,13 @@ export class ControlPlane extends EventEmitter {
         preferredModel: meta.model,
         reasoningEffort: meta.reasoningEffort,
         fastMode: false,
-        permissionMode: 'ask',
+        // A turn settles and its run record — with the mode it started in — is
+        // dropped, so every later agent-driven prompt rebuilds the input from
+        // scratch. This surface is peers prompting peers and session reports:
+        // nobody is at the keyboard of the session being prompted, and 'ask'
+        // parked a session an agent created in auto on permission prompts it
+        // never asked for. Matches the automation resume path above.
+        permissionMode: 'auto',
         rateLimitBehavior: 'queue',
         ...hostInstructionsFor(meta.model),
       }
@@ -2301,6 +2355,8 @@ export class ControlPlane extends EventEmitter {
   }
 
   private _dispatchSessionReport(callerAgentSessionId: string, prompt: string, agent: { agentSessionId: string; exchangeId: string }): void {
+    // Keep the update drain open until this report has started or queued.
+    this.updateWorkCount++
     // promptSession addresses its target the way the agent-tool surface does.
     log.info('session_report_dispatch_started', {
       callerAgentSessionId,
@@ -2326,7 +2382,7 @@ export class ControlPlane extends EventEmitter {
         exchangeId: agent.exchangeId,
         error: String(error),
       })
-    })
+    }).finally(() => { this.updateWorkCount-- })
   }
 
   /** A watched agent paused for human input. Surfaces the question on the OLDEST
@@ -2370,7 +2426,20 @@ export class ControlPlane extends EventEmitter {
     }
   }
 
-  private async _settleCompletionRoutes(
+  private _settleCompletionRoutes(
+    run: SessionRunRequest,
+    status: 'completed' | 'interrupted' | 'failed',
+    resultText: string | undefined,
+    runMeta?: { durationMs?: number; toolCallCount?: number },
+  ): Promise<void> {
+    // Reading a finished agent's transcript can outlive its provider process.
+    // An update must wait until the resulting report has been delivered too.
+    this.updateWorkCount++
+    return this._deliverCompletionRoutes(run, status, resultText, runMeta)
+      .finally(() => { this.updateWorkCount-- })
+  }
+
+  private async _deliverCompletionRoutes(
     run: SessionRunRequest,
     status: 'completed' | 'interrupted' | 'failed',
     resultText: string | undefined,
@@ -2840,11 +2909,12 @@ export class ControlPlane extends EventEmitter {
       setForeignTaskSnapshot(sessionId, null)
     }
 
-    // A queue drain already told the submitter its prompt left the queue, so the
-    // message goes to everyone; a direct dispatch skips the sender, whose
-    // optimistic bubble is already on screen.
+    // Confirm identified prompts to the sender too: its busy state can differ
+    // from ours, leaving a pending steer instead of an optimistic message.
+    // Clients reconcile by clientPromptId. Keep the legacy exclusion for
+    // senders without an id, whose optimistic message cannot be matched.
     this._emit(sessionId, this._userMessageEvent(options), {
-      except: request.servedQueueId ? undefined : sourceClientId,
+      except: request.servedQueueId || options.clientPromptId ? undefined : sourceClientId,
     })
 
     let handle: RunHandle
@@ -3248,6 +3318,7 @@ export class ControlPlane extends EventEmitter {
       this._cancelAgentConversationRunWatches(sessionId, 'active')
       this._rejectRateLimitQueue(sessionId, new Error('Rate-limited prompts stopped'))
       this._broadcastRateLimitResolved(sessionId, action)
+      this._dropParkedSession(sessionId)
       return true
     }
 
@@ -3280,14 +3351,28 @@ export class ControlPlane extends EventEmitter {
 
   private _currentRateLimitEvent(sessionId: string | null | undefined): Extract<NormalizedEvent, { type: 'rate_limit' }> | null {
     if (!sessionId) return null
-    const hadActive = this.rateLimits.hasActive(sessionId)
+    const parked = this.rateLimits.peek(sessionId)
+    // The card is still asking what to do with the held prompt, so the limit
+    // outlives its own window: retiring it here would take the question away
+    // and the prompt with it. The user's answer releases it, whenever it comes.
+    if (parked && this._hasUndecidedHeldPrompt(sessionId)) return parked
     const event = this.rateLimits.current(sessionId, Date.now() / 1000)
-    if (!event && hadActive) {
+    if (!event && parked) {
       this._releaseRateLimitQueue(sessionId, 'wait')
       return null
     }
 
     return event
+  }
+
+  /** A prompt the limit stopped, whose three ways out the user has not chosen
+   *  between: the session is still parked on the limit, the prompt is still its
+   *  active run request, and nothing was queued for it. A later run taking the
+   *  session over answers the question by making it moot. */
+  private _hasUndecidedHeldPrompt(sessionId: string): boolean {
+    if (this.activeSessions.get(sessionId)?.status !== 'rate_limited') return false
+    if (!this.activeRunRequests.has(sessionId)) return false
+    return !(this.requestQueue.get(sessionId) ?? []).some((req) => req.rateLimitSessionId === sessionId)
   }
 
   // ─── Worktree registry helpers (used by main's worktree IPC handlers) ───
@@ -3465,13 +3550,32 @@ export class ControlPlane extends EventEmitter {
     if (!req.rateLimitSessionId) return true
     const event = this.rateLimits.current(req.rateLimitSessionId, Date.now() / 1000)
     if (!event) return true
+    // A limit with no known reset never becomes ready on its own; only an
+    // explicit send releases it.
+    if (event.resetsAt === null) return false
     return event.resetsAt * 1000 <= Date.now()
   }
 
-  private _scheduleRateLimitRelease(sessionId: string, resetsAt: number): void {
+  /** Resolve missing provider data, then apply retry policy once before the
+   * session gate, queue and countdown all consume the same release time.
+   * The usage store keeps raw provider timestamps. */
+  private _prepareRateLimit(agentId: AgentId, event: Extract<NormalizedEvent, { type: 'rate_limit' }>): Extract<NormalizedEvent, { type: 'rate_limit' }> {
+    const reset = event.resetsAt ?? this.usageLimits.resetsAtFor(agentId, event.windowDurationMins)
+    const resetsAt = reset === null ? null : reset + (agentId === 'codex' ? CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS : 0)
+    return resetsAt === event.resetsAt ? event : { ...event, resetsAt }
+  }
+
+  private _scheduleRateLimitRelease(sessionId: string, resetsAt: number | null): void {
     this._clearRateLimitTimer(sessionId)
+    if (resetsAt === null) return
     const delay = Math.max(resetsAt * 1000 - Date.now(), 0)
-    const timer = setTimeout(() => this._releaseRateLimitQueue(sessionId, 'wait'), delay)
+    const timer = setTimeout(() => {
+      // The timer releases a prompt somebody queued. A window reopening is not
+      // itself a decision, so a held prompt the user has not answered for stays
+      // held — releasing it here would either run it unasked or discard it.
+      if (this._hasUndecidedHeldPrompt(sessionId)) return
+      this._releaseRateLimitQueue(sessionId, 'wait')
+    }, delay)
     timer.unref?.()
     this.rateLimitTimers.set(sessionId, timer)
   }
@@ -3489,6 +3593,14 @@ export class ControlPlane extends EventEmitter {
     if (queue.some((r) => r.rateLimitSessionId === sessionId)) return
     this._clearRateLimitTimer(sessionId)
     this.rateLimits.clear(sessionId)
+    // Removing the last prompt a limit was holding ends the limit, and nothing
+    // else will: the session would keep the `rate_limited` status, and the card
+    // its countdown, until some unrelated turn moved it.
+    if (this.activeSessions.get(sessionId)?.status !== 'rate_limited') return
+    this.sessionEmitter.resolveRateLimit(sessionId)
+    this._setStatus(sessionId, 'idle')
+    this._broadcastRateLimitResolved(sessionId, 'stop')
+    this._dropParkedSession(sessionId)
   }
 
   private _queueActiveRateLimitedRequest(sessionId: string): boolean {
@@ -3509,7 +3621,7 @@ export class ControlPlane extends EventEmitter {
         sessionId,
         reason: 'rate_limit',
         rateLimitSessionId: sessionId,
-        releaseAt: event.resetsAt,
+        releaseAt: event.resetsAt ?? undefined,
         rateLimitType: event.rateLimitType,
       })
       // Completion routes are fields on the copied request, so they move with
@@ -3538,7 +3650,29 @@ export class ControlPlane extends EventEmitter {
       this._setStatus(sessionId, hasQueued ? 'running' : 'idle')
     }
     this._broadcastRateLimitResolved(sessionId, action)
+    if (!hasQueued) this._dropParkedSession(sessionId)
     this._processQueueForSession(sessionId)
+  }
+
+  /**
+   * Finish the teardown the `exit` handler deferred. A run that ends on a rate
+   * limit keeps its session record so the held turn can resume at release, and
+   * the run watchdog exempts it while the status says `rate_limited`. Once the
+   * limit is resolved with nothing left to dispatch, that exemption is gone and
+   * the record describes a session with no provider run behind it — which the
+   * watchdog reads as a dead agent and kills a minute later. Callers run this
+   * after the status change and the broadcast, both of which read the record.
+   */
+  private _dropParkedSession(sessionId: string): void {
+    const session = this.activeSessions.get(sessionId)
+    // Every caller settles the status to `idle` first. Anything else means a run
+    // took the session over between the limit resolving and this teardown.
+    if (session?.status !== 'idle') return
+    const agentSessionId = session.agentSessionId
+    if (agentSessionId && this._backendFor(session.backendId).isSessionRunning(agentSessionId)) return
+    this.activeSessions.delete(sessionId)
+    this.activeRunRequests.delete(sessionId)
+    this.missingRunCounts.delete(sessionId)
   }
 
   private _rejectRateLimitQueue(sessionId: string, reason: Error): void {
@@ -3640,9 +3774,11 @@ export class ControlPlane extends EventEmitter {
         this.missingRunCounts.delete(sessionId)
         continue
       }
-      if (session.status === 'rate_limited') {
-        // A rate-limited session is intentionally parked without a provider run
-        // until its release time. The missing run is expected, not a dead agent.
+      if (this.rateLimits.hasActive(sessionId)) {
+        // A session parked on a rate limit intentionally has no provider run:
+        // it is holding the limit snapshot that gates its next send. The status
+        // is not the test — Codex reports a spent account while it finishes the
+        // current turn, which parks a session that settled as `completed`.
         this.missingRunCounts.delete(sessionId)
         continue
       }

@@ -21,6 +21,7 @@ const now = '2026-08-22T10:00:00.000Z'
 
 /** The fake upstream doc, plus what the last call to it carried. */
 interface FakeUpstream {
+  createdProvider: 'confluence' | 'gdrive'
   version: string
   markdown: string
   title: string
@@ -33,6 +34,7 @@ interface FakeUpstream {
 }
 
 const upstream: FakeUpstream = {
+  createdProvider: 'confluence',
   version: '5',
   markdown: '# Upstream',
   title: 'Upstream title',
@@ -65,7 +67,7 @@ const adapter = {
     upstream.lastDraft = doc
     return {
       ref: {
-        provider: 'confluence',
+        provider: upstream.createdProvider,
         externalKey: 'cloud/ENG',
         externalId: 'new-page',
         url: 'https://acme.atlassian.net/wiki/spaces/ENG/pages/new-page/Spec',
@@ -125,6 +127,7 @@ async function linkOf(id: string) {
 const ENGINEERING = { provider: 'confluence' as const, scope: 'ENG', label: 'Engineering' }
 
 beforeEach(async () => {
+  upstream.createdProvider = 'confluence'
   upstream.version = '5'
   upstream.markdown = '# Upstream'
   upstream.lastPatch = null
@@ -161,6 +164,29 @@ describe('publishWork', () => {
 
     // Derived from the content, not stored: an edit never touches the link.
     expect((await linkOf(workId))?.syncState).toBe('dirty')
+  })
+
+  test('Google-linked works refuse repeat publish even for version-only changes', async () => {
+    await workSync.publishWork(workId, { destination: ENGINEERING })
+    const link = await linkOf(workId)
+    if (!link) throw new Error('Missing test link')
+    await works.setWorkMirroredDoc(workId, { ...link, provider: 'gdrive' })
+    upstream.version = '9'
+    const result = await workSync.publishWork(workId)
+    expect(result).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
+    expect(upstream.lastPatch).toBeNull()
+  })
+
+  test('Google review updates still reject a changed upstream body', async () => {
+    await workSync.publishWork(workId, { destination: ENGINEERING })
+    const link = await linkOf(workId)
+    if (!link) throw new Error('Missing test link')
+    await works.setWorkMirroredDoc(workId, { ...link, provider: 'gdrive' })
+    upstream.version = '9'
+    upstream.markdown = '# Changed by reviewer'
+    const result = await workSync.publishWork(workId)
+    expect(result).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
+    expect(upstream.lastPatch).toBeNull()
   })
 
   test('refuses a deck — v1 publishes documents only', async () => {
@@ -509,12 +535,53 @@ describe('unlinkWork', () => {
 })
 
 describe('importDocFromUrl', () => {
-  test('creates a work that is already linked to the page it came from', async () => {
+  test('creates a linked work even when the adapter has no comment capability', async () => {
     const imported = await workSync.importDocFromUrl('https://acme.atlassian.net/wiki/spaces/ENG/pages/98765/Spec')
 
     expect(imported.work.title).toBe('Upstream title')
     const link = await linkOf(imported.work.id)
     expect(link?.externalId).toBe('98765')
     expect(link?.syncState).toBe('ok')
+    expect(link?.upstreamContentHash).toBeDefined()
+    upstream.version = '9'
+    expect((await workSync.refreshUpstreamState(imported.work.id))?.syncState).toBe('ok')
+  })
+})
+
+
+describe('Google-linked work read-only policy', () => {
+  test('first Google publish links the work and immediately prevents further edits', async () => {
+    upstream.createdProvider = 'gdrive'
+    const result = await workSync.publishWork(workId, { destination: { provider: 'gdrive', scope: 'root' } })
+    expect(result.ok).toBe(true)
+    expect((await linkOf(workId))?.provider).toBe('gdrive')
+    await expect(works.agentSaveWork(workId, { content: '# Later edit' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    expect((await works.loadWork(workId))?.content).toBe('# Local')
+  })
+
+  test('blocks local and agent writes and restore, but allows pull, comments and unlink', async () => {
+    await works.agentSaveWork(workId, { content: '# Before linking' })
+    await workSync.publishWork(workId, { destination: ENGINEERING })
+    const link = await linkOf(workId)
+    if (!link) throw new Error('Missing test link')
+    await works.setWorkMirroredDoc(workId, { ...link, provider: 'gdrive' })
+    await expect(works.saveWork(workId, { content: '# Blocked' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    await expect(works.saveWork(workId, { title: 'Blocked' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    await expect(works.agentSaveWork(workId, { content: '# Blocked agent' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    await expect(works.revertWork(workId)).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    expect(await workSync.publishWork(workId, { force: true })).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
+    expect(upstream.lastPatch).toBeNull()
+    expect((await works.loadWork(workId))?.content).toBe('# Before linking')
+
+    const localComments = await import('@solus/server/folio/work-annotations')
+    await localComments.saveWorkAnnotations({ version: 1, updatedAt: Date.now(), workId, comments: [{ id: 'private', comment: 'Keep commenting', author: 'you', createdAt: Date.now() }] })
+    upstream.markdown = '# Edited in Google'
+    upstream.title = 'Google title'
+    expect((await workSync.pullWorkUpstream(workId)).ok).toBe(true)
+    expect((await works.loadWork(workId))?.content).toBe(upstream.markdown)
+    expect((await localComments.loadWorkAnnotations(workId))?.comments).toHaveLength(1)
+    await workSync.unlinkWork(workId)
+    await works.saveWork(workId, { content: '# Editable again' })
+    expect((await works.loadWork(workId))?.content).toBe('# Editable again')
   })
 })

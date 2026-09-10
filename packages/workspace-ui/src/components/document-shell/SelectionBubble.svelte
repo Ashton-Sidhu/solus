@@ -17,6 +17,7 @@
 
   interface Props {
     editor: Editor | null;
+    readOnly?: boolean;
     /** Opens the link popover on the current selection (owned by the editor). */
     onLink: () => void;
     /** Provided only when the surface has comments *and* the current selection
@@ -26,7 +27,7 @@
     onAskSolus?: () => void;
   }
 
-  let { editor, onLink, onComment, onAskSolus }: Props = $props();
+  let { editor, readOnly = false, onLink, onComment, onAskSolus }: Props = $props();
 
   // Roughly the widest the bubble gets — only used to keep it on screen, so an
   // approximation is fine and avoids measuring before the first paint.
@@ -137,7 +138,7 @@
     transition:fly={{ y: 4, duration: 120, opacity: 0 }}
     class:doc-bubble--touch={usesTouchSelection}
   >
-    {#if usesTouchSelection}
+    {#if usesTouchSelection || readOnly}
       {#if onComment}
         <Button
           variant="ghost"

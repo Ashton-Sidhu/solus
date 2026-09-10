@@ -1,4 +1,5 @@
-import { SvelteMap } from 'svelte/reactivity'
+import { isServerUpdateActive, type ServerUpdateOperation } from '@solus/contracts/server-update'
+import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { onServerRemoving } from '@solus/client-core/server-registry'
@@ -10,12 +11,15 @@ export interface HostUpdateNotice { target: 'solus' | SetupAgent; version: strin
 type ManualOutcome = 'up-to-date' | 'error'
 
 type UpdateConnections = Pick<typeof serverConnections, 'resolveId' | 'statusFor' | 'capabilitiesFor' | 'connectedServerIds' | 'onConnectionCreated' | 'onStatusChange'> & {
-  apiFor(serverId: string): Pick<SolusAPI, 'hostUpdateStatus' | 'hostCheckForUpdates'>
+  apiFor(serverId: string): Pick<SolusAPI, 'hostUpdateStatus' | 'hostCheckForUpdates' | 'hostInstallUpdate' | 'hostCancelUpdate'>
 }
 
 export class HostUpdatesStore {
   constructor(private readonly connections: UpdateConnections = serverConnections) {}
   readonly statuses = new SvelteMap<string, HostUpdateStatus>()
+  readonly operations = new SvelteMap<string, ServerUpdateOperation>()
+  readonly updateErrors = new SvelteMap<string, string>()
+  readonly updateRequests = new SvelteSet<string>()
   readonly errors = new SvelteMap<string, string>()
   private readonly epochs = new Map<string, number>()
   private readonly generations = new Map<string, number>()
@@ -36,6 +40,7 @@ export class HostUpdatesStore {
     onServerRemoving((server) => {
       const serverId = server.id
       this.clear(serverId)
+      this.operations.delete(serverId)
       for (const key of this.notices.keys()) if (key.startsWith(`${serverId}:`)) this.notices.delete(key)
     })
     for (const serverId of this.connections.connectedServerIds()) void this.load(serverId)
@@ -44,8 +49,40 @@ export class HostUpdatesStore {
   applyStatus(serverId: string, status: HostUpdateStatus): void {
     if (this.connections.statusFor(serverId) !== 'connected') return
     this.invalidate(serverId)
-    this.statuses.set(serverId, status)
+    this.saveStatus(serverId, status)
     this.errors.delete(serverId)
+  }
+
+  private saveStatus(serverId: string, status: HostUpdateStatus): void {
+    this.statuses.set(serverId, status)
+    const operation = status.serverUpdate?.operation
+    if (operation) this.operations.set(serverId, operation)
+    else this.operations.delete(serverId)
+  }
+
+  async install(serverId: string): Promise<void> { await this.update(serverId, 'hostInstallUpdate') }
+  async cancelUpdate(serverId: string): Promise<void> { await this.update(serverId, 'hostCancelUpdate') }
+
+  private async update(serverId: string, method: 'hostInstallUpdate' | 'hostCancelUpdate'): Promise<void> {
+    serverId = this.connections.resolveId(serverId)
+    if (this.updateRequests.has(serverId) || this.connections.statusFor(serverId) !== 'connected') return
+    if (!this.hostUpdateFor(serverId)?.serverUpdate?.supported) return
+    this.updateErrors.delete(serverId)
+    this.updateRequests.add(serverId)
+    this.errors.delete(serverId)
+    const epoch = this.epochs.get(serverId) ?? 0
+    const generation = this.generations.get(serverId)
+    try {
+      const status = await this.connections.apiFor(serverId)[method]()
+      if ((this.epochs.get(serverId) ?? 0) === epoch && this.connections.statusFor(serverId) === 'connected'
+        && this.generations.get(serverId) === generation) this.saveStatus(serverId, status)
+    } catch (error) {
+      if ((this.epochs.get(serverId) ?? 0) === epoch) {
+        const message = error instanceof Error ? error.message : String(error)
+        this.errors.set(serverId, message)
+        this.updateErrors.set(serverId, message)
+      }
+    } finally { this.updateRequests.delete(serverId) }
   }
 
   private invalidate(serverId: string): number {
@@ -72,7 +109,7 @@ export class HostUpdatesStore {
         if (!capabilities.hostUpdates) return
         const status = await this.connections.apiFor(serverId).hostUpdateStatus()
         if (this.generations.get(serverId) === generation && this.connections.statusFor(serverId) === 'connected') {
-          this.statuses.set(serverId, status)
+          this.saveStatus(serverId, status)
           this.errors.delete(serverId)
         }
       } catch (error) {
@@ -100,7 +137,7 @@ export class HostUpdatesStore {
 
   pendingNoticeFor(serverId: string): HostUpdateNotice | null {
     const status = this.hostUpdateFor(serverId)
-    if (!status) return null
+    if (!status || isServerUpdateActive(this.operations.get(serverId))) return null
     const targets = [{ target: 'solus' as const, check: status.check }, ...status.providers.map((p) => ({ target: p.agent, check: p.check }))]
     for (const { target, check } of targets) {
       if (check.kind === 'available' && this.notices.get(`${serverId}:${target}`) !== check.latestVersion) return { target, version: check.latestVersion }
@@ -123,7 +160,7 @@ export class HostUpdatesStore {
       const generation = this.generations.get(serverId)
       const status = await this.connections.apiFor(serverId).hostCheckForUpdates()
       if ((this.epochs.get(serverId) ?? 0) !== epoch || this.connections.statusFor(serverId) !== 'connected') return
-      if (this.generations.get(serverId) === generation) this.statuses.set(serverId, status)
+      if (this.generations.get(serverId) === generation) this.saveStatus(serverId, status)
       this.errors.delete(serverId)
       const current = this.statuses.get(serverId) ?? status
       const checks = [current.check, ...current.providers.map((p) => p.check)]

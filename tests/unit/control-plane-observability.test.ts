@@ -153,6 +153,35 @@ function turnRows(sessionId: string): Array<{ status: string; origin: string; at
 }
 
 describe.serial('ControlPlane observability hooks', () => {
+  test('confirms a fresh turn to the sender even if it submitted a steer', async () => {
+    const backend = new Backend()
+    const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const confirmations: Array<{ event: NormalizedEvent; to?: { only?: string; except?: string } }> = []
+    plane.on('event', (_sessionId, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+      if (event.type === 'user_message') confirmations.push({ event, to })
+    })
+    try {
+      // The client still shows busy, but the host has no active provider turn.
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'session', sessionId: 'solus-prompt-confirmation' },
+        sessionId: 'solus-prompt-confirmation', input: input(null), tools: [],
+        sourceClientId: 'sender',
+        options: { prompt: 'Change direction', clientPromptId: 'prompt-1', delivery: 'steer', promptSource: 'typed', skipTaskCreation: true },
+      })
+      await lifecycle.agentSessionId
+      expect(lifecycle.disposition).toBe('started')
+      expect(confirmations).toHaveLength(1)
+      expect(confirmations[0].event).toMatchObject({ type: 'user_message', clientPromptId: 'prompt-1', text: 'Change direction' })
+      expect(confirmations[0].to?.except).toBeUndefined()
+      expect(confirmations[0].to?.only).toBeUndefined()
+      backend.complete('thread-1', 0)
+      await lifecycle.done
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   test('buffers Codex prose through item completion and preserves tool updates', async () => {
     const backend = new Backend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
@@ -231,6 +260,56 @@ describe.serial('ControlPlane observability hooks', () => {
     expect(JSON.parse(recorded.find((row) => row.kind === 'tool_call')!.attrs))
       .toMatchObject({ input: 'patch update' })
     plane.shutdown()
+  })
+
+  test('an update rejects a new automation before it creates a run record', async () => {
+    const { createAutomation, listRuns } = await import('@solus/server/automations/automations-store')
+    const { setAutomationUpdatesPaused, triggerAutomationRun, hasAutomationWork } = await import('@solus/server/automations/automation-runner')
+    const automation = await createAutomation('Update guard', {
+      prompt: 'Run checks', agentProvider: 'codex', modelId: null, reasoningEffort: 'medium', cwd: dataDir,
+    }, { kind: 'user' })
+    setAutomationUpdatesPaused(true)
+    try {
+      await expect(triggerAutomationRun(automation)).rejects.toThrow('waiting to update')
+      expect(await listRuns(automation.id)).toEqual([])
+      expect(hasAutomationWork()).toBe(false)
+    } finally { setAutomationUpdatesPaused(false) }
+  })
+
+  test('an update drains accepted turns and rejects new Claude, Codex, and utility work', async () => {
+    const backend = new Backend()
+    const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    try {
+      const request = {
+        target: { kind: 'new-session' as const }, sessionId: 'solus-update', input: input(null), tools: [],
+        options: { prompt: 'first', skipTaskCreation: true },
+      }
+      const first = await plane.runTurn(request)
+      await first.agentSessionId
+      const queued = await plane.runTurn({ ...request,
+        target: { kind: 'session', sessionId: 'solus-update' }, input: input('thread-1'),
+        options: { prompt: 'second', delivery: 'queue', skipTaskCreation: true },
+      })
+      plane.setUpdatePending(true)
+      expect(plane.hasWorkForUpdate()).toBe(true)
+      for (const provider of ['codex', 'claude-code'] as const) {
+        await expect(plane.runTurn({ ...request, input: { ...request.input, provider } })).rejects.toThrow('waiting to update')
+      }
+      const secondStarted = new Promise<void>((resolve) => { backend.onStart = resolve })
+      backend.complete('thread-1', 0)
+      await first.done
+      await secondStarted
+      await Promise.resolve()
+      expect(plane.hasWorkForUpdate()).toBe(true)
+      backend.complete('thread-1', 0)
+      await queued.done
+      await Promise.resolve()
+      expect(plane.hasWorkForUpdate()).toBe(false)
+      expect(() => plane.runAgent({ provider: 'codex', prompt: 'utility', cwd: '/tmp', tools: [], permissionMode: 'plan', persistence: 'ephemeral' })).toThrow('waiting to update')
+      plane.setUpdatePending(false)
+      expect(() => plane.assertNewWorkAllowed()).not.toThrow()
+    } finally { plane.shutdown() }
   })
 
   test('threads enqueuedAt through queue drain into queue_wait', async () => {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import PrPagination from "./PrPagination.svelte";
   import { localApi } from "@solus/client-core/local-api";
   import { tick, untrack } from "svelte";
   import { fly } from "svelte/transition";
@@ -290,6 +291,10 @@
   const aggregateStackParentOf = $derived(qualifiedStackParentOf(stacks, qualified.byPr));
   const inboxHasMore = $derived(store.all.some((project) => project.hasMore));
   const inboxLoadingMore = $derived(store.all.some((project) => project.loadingMore));
+  const hasMorePullRequests = $derived(isInboxView ? inboxHasMore : !!shown?.hasMore);
+  const loadingMorePullRequests = $derived(isInboxView ? inboxLoadingMore : !!shown?.loadingMore);
+  const showPagination = $derived(activeItems.length > 0 && (hasMorePullRequests || loadingMorePullRequests));
+  const listViewportHeight = $derived(Math.max(0, contentHeight - (showPagination ? 56 : 0)));
   const inboxLoading = $derived(store.all.some((project) => project.loading));
   const activeRefreshing = $derived(isInboxView ? inboxLoading : (shown?.loading ?? false));
 
@@ -338,6 +343,20 @@
       ? prInboxFailure(store.all, activeItems.length > 0)
       : ({ kind: "none", placement: "none" } satisfies PrInboxFailure),
   );
+
+  $effect(() => {
+    if (!open) return;
+    const requests = activeItems.map((pr) => ({ pr, target: targetFor(pr) }));
+    let cancelled = false;
+    void untrack(async () => {
+      for (let index = 0; index < requests.length && !cancelled; index += 4) {
+        await Promise.all(requests.slice(index, index + 4).map(({ pr, target }) => target
+          ? pullRequests.guides.loadMetadata(target.api, target.serverId, target.ctx, pr)
+          : Promise.resolve()));
+      }
+    });
+    return () => { cancelled = true; };
+  });
 
   // ── The shared row grammar's view of a PR ──
   // `isMine` needs the connected viewer's login; until `loadViewer` lands it
@@ -393,7 +412,12 @@
     return filterPrFacets(
       searched.filter((pr) => statuses.has(prStatusOf(pr))),
       listView,
-      { viewerLogin: viewerLoginFor, checksState: currentChecksState },
+      { viewerLogin: viewerLoginFor, checksState: currentChecksState,
+        hasGuide: (pr) => {
+          const target = targetFor(pr);
+          return !!target && !!pullRequests.guides.metadataFor(target.serverId, target.ctx, pr.number)?.generatedAt;
+        },
+      },
     );
   });
   const showPageSkeleton = $derived(
@@ -577,6 +601,13 @@
         { value: "failing", label: "Failing", icon: FailureIcon },
       ],
       select: (value) => (listView.checks = value as typeof listView.checks),
+    },
+    {
+      key: "guide", label: "Review guide", icon: BookOpenTextIcon,
+      value: listView.guide ?? "all", valueLabel: listView.guide === "has-guide" ? "Has guide" : "All",
+      active: listView.guide === "has-guide",
+      options: [{ value: "all", label: "All pull requests" }, { value: "has-guide", label: "Has review guide" }],
+      select: (value) => { listView.guide = value === "has-guide" ? "has-guide" : "all"; },
     },
   ]);
 
@@ -1031,12 +1062,7 @@
             );
             return;
           }
-          toasts.success(
-            total === 1
-              ? `Review guide for PR #${numbers[0]} is ready.`
-              : `${total} review guides are ready. Open a pull request to start reviewing.`,
-            toastOptions,
-          );
+          // The host-ready event owns the completion toast and its direct guide action.
         },
       })
       .catch((error) => {
@@ -1130,7 +1156,7 @@
       (entries) => {
         if (!entries.some((entry) => entry.isIntersecting)) return;
         for (const scope of paginating) {
-          if (scope.hasMore && !scope.loading) {
+          if (scope.hasMore && !scope.loading && !scope.loadingMore) {
             void loadMore(scope);
           }
         }
@@ -1281,7 +1307,8 @@
       bind:contentHeight
     >
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div bind:this={listEl} onkeydown={onListKeydown} role="presentation">
+      <div bind:this={listEl} onkeydown={onListKeydown} role="presentation" class="flex h-full min-h-0 flex-col">
+        <div class="min-h-0 flex-1 overflow-hidden">
         {#if inboxFailure.placement === "banner"}
           <!-- Partial failure: the rows that did load stay, and this line
                carries the part that didn't. -->
@@ -1400,7 +1427,7 @@
           {:else}
             <VirtualList
               items={inboxVirtualItems}
-              height={contentHeight}
+              height={listViewportHeight}
               itemSize={(index) =>
                 inboxVirtualItems[index].kind === "header"
                   ? LIST_GROUP_HEADER_HEIGHT
@@ -1468,6 +1495,7 @@
                   listView.draft = "all";
                   listView.review = "all";
                   listView.checks = "all";
+                  listView.guide = "all";
                   onStatusChange([...OPEN_PR_STATUS_KEYS]);
                 }}
               >
@@ -1478,7 +1506,7 @@
         {:else}
           <VirtualList
             items={globalVirtualItems}
-            height={contentHeight}
+            height={listViewportHeight}
             itemSize={(index) =>
               globalVirtualItems[index].kind === "header"
                 ? LIST_GROUP_HEADER_HEIGHT
@@ -1560,24 +1588,19 @@
               </div>
             {/snippet}
             {#snippet footer()}
-              {#if isInboxView ? (inboxHasMore || inboxLoadingMore) : (shown?.hasMore || shown?.loadingMore)}
-                <div use:loadMoreSentinel class="flex items-center justify-center py-3">
-                  <Button
-                    type="button"
-                    class="inline-flex h-8 cursor-pointer items-center rounded-lg border-0 bg-muted px-3 text-workspace-chrome font-medium text-muted-foreground transition-colors hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-                    disabled={isInboxView ? inboxLoadingMore : (shown?.loadingMore ?? false)}
-                    onclick={() => {
-                      for (const scope of paginating) {
-                        if (scope.hasMore) void loadMore(scope);
-                      }
-                    }}
-                  >
-                    {(isInboxView ? inboxLoadingMore : (shown?.loadingMore ?? false)) ? "Loading…" : "Load more pull requests"}
-                  </Button>
-                </div>
+              {#if hasMorePullRequests}
+                <div use:loadMoreSentinel class="h-px" aria-hidden="true"></div>
               {/if}
             {/snippet}
           </VirtualList>
+        {/if}
+        </div>
+        {#if showPagination}
+          <PrPagination loading={loadingMorePullRequests} onLoad={() => {
+            for (const scope of paginating) {
+              if (scope.hasMore && !scope.loading && !scope.loadingMore) void loadMore(scope);
+            }
+          }} />
         {/if}
       </div>
     </ListPage>

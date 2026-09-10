@@ -1,7 +1,5 @@
 import { createHash } from 'crypto'
-import { readFileSync, renameSync } from 'fs'
-
-export { isBrewManaged, isTarballInstall } from '@solus/contracts/host-install'
+import { readFileSync } from 'fs'
 
 export function verifyArchiveSha256(file: string, sums: string, artifactName: string): void {
   const expected = sums.split(/\r?\n/)
@@ -13,14 +11,3 @@ export function verifyArchiveSha256(file: string, sums: string, artifactName: st
 }
 
 export { normalizeVersion, compareVersions } from '@solus/contracts/version'
-
-/** Swap two sibling directories and restore the old install if activation fails. */
-export function replaceInstallDirectory(installDir: string, nextDir: string, backupDir: string): void {
-  renameSync(installDir, backupDir)
-  try {
-    renameSync(nextDir, installDir)
-  } catch (error) {
-    renameSync(backupDir, installDir)
-    throw error
-  }
-}

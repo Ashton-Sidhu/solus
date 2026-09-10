@@ -112,3 +112,21 @@ describe('long-form voice HTTP transport', () => {
     expect((await first).status).toBe(200)
   })
 })
+
+test('a candidate server refuses HTTP mutations until its update is committed', async () => {
+  const { buildHttpServer } = await import('@solus/server/server/http')
+  dataDir = mkdtempSync(join(tmpdir(), 'solus-update-http-'))
+  process.env.SOLUS_DATA_DIR = dataDir
+  resetAuthStateForTests()
+  let trial = true
+  const built = buildHttpServer({ isVerifyingUpdate: () => trial })
+  http = built.server
+  await new Promise<void>((resolve) => http!.listen(0, '127.0.0.1', resolve))
+  const address = http.address()
+  if (!address || typeof address === 'string') throw new Error('expected TCP address')
+  const url = `http://127.0.0.1:${address.port}`
+  expect((await fetch(`${url}/pair/open`, { method: 'POST' })).status).toBe(503)
+  expect((await fetch(`${url}/health`)).status).toBe(503)
+  trial = false
+  expect((await fetch(`${url}/health`)).status).toBe(200)
+})

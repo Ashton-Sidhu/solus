@@ -12,5 +12,6 @@ export const workExternalLinkSchema = z.object({
   upstreamContentHash: z.string().optional(),
   syncState: z.enum(['ok', 'dirty', 'upstream_changed', 'conflict', 'error', 'auth_error']),
   syncError: z.string().optional(),
+  googleImages: z.array(z.object({ workId: z.string(), title: z.string(), objectId: z.string(), tabId: z.string(), sourceUri: z.string(), contentHash: z.string() })).optional(),
   diagrams: z.array(z.object({ workId: z.string(), title: z.string() })).optional(),
 })

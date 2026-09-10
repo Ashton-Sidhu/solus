@@ -19,6 +19,12 @@ export const INTERNAL_HANDLER_CTX: HandlerCtx = { clientId: 'internal', principa
  * their wire format into method+args.
  */
 export class SolusServer {
+  private updateTrial = false
+
+  get isVerifyingUpdate(): boolean { return this.updateTrial }
+
+  setUpdateTrial(active: boolean): void { this.updateTrial = active }
+
   private handlers = new Map<RpcMethod, Handler>()
 
   register<M extends RpcMethod>(method: M, handler: RpcHandler<M>): void {
@@ -34,6 +40,7 @@ export class SolusServer {
     // Fail closed: a call that names no principal is refused before any handler runs.
     if (!ctx?.principal) throw new Error(`SolusServer: "${method}" was called without a principal`)
     assertRpcAccess(method, ctx.principal)
+    if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
       if (method === 'publishWork') {
         // SAFETY: Runtime dispatch pairs this method with publishWork's tuple.

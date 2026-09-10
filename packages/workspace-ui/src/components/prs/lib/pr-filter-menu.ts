@@ -11,7 +11,7 @@ export interface PrFilterOption {
 
 /** One visible row and its radio submenu in the PR Filters menu. */
 export interface PrFilterGroup {
-  key: 'state' | 'involvement' | 'author' | 'labels' | 'draft' | 'review' | 'checks'
+  key: 'state' | 'involvement' | 'author' | 'labels' | 'draft' | 'review' | 'checks' | 'guide'
   label: string
   icon: ListIcon
   value: string

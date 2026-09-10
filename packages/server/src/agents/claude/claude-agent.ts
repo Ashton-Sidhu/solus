@@ -97,18 +97,16 @@ const BLOCKED_TOOLS = [
   'Skill(schedule)',
 ]
 
-// Resolved off the boot path: the synchronous alternative (`which` through an
-// interactive login shell) stalls the main process for up to several seconds at
-// import. Until the warm PATH resolves, runs pass `undefined` and the SDK falls
-// back to its bundled CLI — the same state as a machine with no global install.
-let claudeExecutablePath: string | undefined
-void warmCliPath().then((path) => {
-  claudeExecutablePath = findOnPath('claude', path) ?? undefined
-  if (claudeExecutablePath) log.info('claude_executable_found', { path: claudeExecutablePath })
-  else log.warn('claude_executable_not_found')
-}).catch(() => {
-  log.warn('claude_executable_not_found')
-})
+// Setup installs Claude on the host; the app does not ship the SDK's CLI.
+// Wait for PATH discovery before querying, and check the file on every request
+// so an install or removal after boot is visible without restarting Solus.
+async function resolveClaudeExecutable(): Promise<string> {
+  const executable = findOnPath('claude', await warmCliPath())
+  if (!executable) {
+    throw new Error('Claude Code was not found on this host. Install it through Solus setup, then try again.')
+  }
+  return executable
+}
 
 export type CanUseTool = (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any>
 
@@ -190,7 +188,6 @@ export class ClaudeAgent {
       includePartialMessages: true,
       settingSources: ['user', 'project'],
       canUseTool: opts.canUseTool ?? autoAllow,
-      pathToClaudeCodeExecutable: claudeExecutablePath,
       permissionMode: sdkPermissionMode,
       fastMode: opts.fastMode ?? false,
       enableFileCheckpointing: opts.enableFileCheckpointing ?? false,
@@ -236,7 +233,12 @@ export class ClaudeAgent {
       // counter drains ahead of the real work and closes the stream mid-turn.
       const backgroundTasks = new Set<string>()
       try {
-        const cquery = query({ prompt: promptInput, options: claudeOptions })
+        const executable = await resolveClaudeExecutable()
+        abortController.signal.throwIfAborted()
+        const cquery = query({
+          prompt: promptInput,
+          options: { ...claudeOptions, pathToClaudeCodeExecutable: executable },
+        })
 
         for await (const msg of cquery) {
           const initMessage = initMessageSchema.safeParse(msg)
@@ -361,7 +363,7 @@ export class ClaudeAgent {
         model: opts.model ?? undefined,
         abortController,
         settingSources: ['user', 'project'],
-        pathToClaudeCodeExecutable: claudeExecutablePath,
+        pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
         plugins: [{type: 'local', path: SOLUS_PLUGINS_DIR}],
         env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
       },
@@ -395,7 +397,7 @@ export class ClaudeAgent {
         // no project settings, no session file, nothing to leak into a transcript.
         cwd: homedir(),
         settingSources: [],
-        pathToClaudeCodeExecutable: claudeExecutablePath,
+        pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
         extraArgs: { 'no-session-persistence': null },
         env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
       },
@@ -426,7 +428,7 @@ export class ClaudeAgent {
         enableFileCheckpointing: true,
         resume: sessionId,
         cwd: resolveHomePath(projectPath),
-        pathToClaudeCodeExecutable: claudeExecutablePath,
+        pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
         extraArgs: { 'replay-user-messages': null },
         permissionMode: 'acceptEdits',
       },

@@ -32,16 +32,10 @@ const codexSubagentFields = {
     .describe(
       "Match to task difficulty: 'low' for mechanical edits and lookups, 'medium' for typical coding tasks, 'high'+ only for hard debugging or design. Omit to use the model's default.",
     ),
-  read_only: z
-    .boolean()
-    .optional()
-    .describe(
-      'Run under the read-only sandbox — the subagent can explore but not write. Use for research/review tasks.',
-    ),
 }
 
 const CODEX_SUBAGENT_DESC =
-  "Delegate a task to a Codex subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts); set read_only for tasks that must not modify files. The result is the subagent's final text — it has no memory between calls."
+  "Delegate a task to a Codex subagent that runs headlessly in this session's working directory and returns its final answer. Runs unattended (no permission prompts). The result is the subagent's final text — it has no memory between calls."
 
 export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): AgentTool {
   return {
@@ -68,7 +62,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
         ],
         model,
         reasoningEffort: args.reasoning_effort,
-        permissionMode: args.read_only === true ? 'plan' : 'auto',
+        permissionMode: 'auto',
         persistence: 'ephemeral',
         service: SPAN_SERVICES.subagents,
         systemPrompt: buildSystemPrompt(hostInstructionsFor(model)) || undefined,

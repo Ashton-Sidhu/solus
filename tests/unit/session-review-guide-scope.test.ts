@@ -171,6 +171,44 @@ function reviewContext(cwd: string, sessionId: string): IpcContext {
 }
 
 describe('session review guide scope', () => {
+  test('PR guides use the prepared base when local main is behind', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'solus-pr-guide-base-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'solus-pr-guide-data-'))
+    temporaryDirectories.push(cwd, dataDir)
+    process.env.SOLUS_DATA_DIR = dataDir
+    git(cwd, ['init', '-b', 'main'])
+    git(cwd, ['config', 'user.email', 'test@example.com'])
+    git(cwd, ['config', 'user.name', 'Test'])
+    writeFileSync(join(cwd, 'base.txt'), 'old main\n')
+    git(cwd, ['add', '.'])
+    git(cwd, ['commit', '-m', 'old main'])
+    git(cwd, ['checkout', '-b', 'solus/pr-7'])
+    writeFileSync(join(cwd, 'unrelated.txt'), 'upstream changes outside the PR\n')
+    git(cwd, ['add', '.'])
+    git(cwd, ['commit', '-m', 'new upstream base'])
+    const baseSha = git(cwd, ['rev-parse', 'HEAD'])
+    writeFileSync(join(cwd, 'fix.txt'), 'the PR fix\n')
+    git(cwd, ['add', '.'])
+    git(cwd, ['commit', '-m', 'PR fix'])
+    const ctx = reviewContext(cwd, 'pr-guide')
+    ctx.session.prReview = {
+      host: 'github.com', owner: 'acme', repo: 'app', number: 7,
+      title: 'PR fix', baseRef: 'main', headRef: 'fix', baseSha,
+      headSha: git(cwd, ['rev-parse', 'HEAD']),
+      headRepo: { owner: 'contributor', repo: 'app', isFork: true },
+      worktreePath: cwd, branch: 'solus/pr-7',
+    }
+    const dispatcher = new CapturingDispatcher()
+    const generated = await generateGuide(dispatcher, ctx, { scope: 'branch', agent: 'codex' })
+
+    expect(generated?.guide.baseSha).toBe(baseSha)
+    expect(generated?.key).toBe('solus__pr-7')
+    expect(dispatcher.request?.prompt).toContain('the PR fix')
+    expect(dispatcher.request?.prompt).not.toContain('upstream changes outside the PR')
+    expect(generated?.guide.sections.flatMap(section => section.files.map(file => file.path)))
+      .toEqual(['fix.txt'])
+  })
+
   test('can regenerate from the previous guide head and keeps that guide current', async () => {
     const cwd = mkdtempSync(join(tmpdir(), 'solus-incremental-guide-'))
     const dataDir = mkdtempSync(join(tmpdir(), 'solus-incremental-guide-data-'))

@@ -1,3 +1,4 @@
+import { SERVER_UPDATE_PROTOCOL, SERVER_STORAGE_EPOCH } from '../packages/contracts/src/server-update'
 import { createHash } from 'crypto'
 import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import { dirname, join, resolve } from 'path'
@@ -39,6 +40,11 @@ async function main(): Promise<void> {
     copyPreviewBrowserDriver(staging)
     writeLaunchers(staging)
     writeNativeNote(staging)
+    writeFileSync(join(staging, 'server-release.json'), JSON.stringify({
+      version: JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version,
+      protocol: SERVER_UPDATE_PROTOCOL,
+      storage: createHash('sha256').update(String(SERVER_STORAGE_EPOCH)).update(readFileSync(join(repoRoot, 'packages/server/src/db/migrations.ts'))).digest('hex'),
+    }))
 
     const out = join(releaseDir, `solus-server-${targetName}.tar.gz`)
     rmSync(out, { force: true })
@@ -224,7 +230,10 @@ done
 SELF_DIR=$(CDPATH= cd "$(dirname "$SELF")" && pwd)
 ROOT=$(CDPATH= cd "$SELF_DIR/.." && pwd)
 export SOLUS_INSTALL_DIR="$ROOT"
-exec "$ROOT/bin/node" "$ROOT/libexec/server/standalone.js" "$@"
+case "\${1-}" in
+  auth|git-credential) exec "$ROOT/bin/node" "$ROOT/libexec/server/standalone.js" "$@" ;;
+  *) exec "$ROOT/bin/node" "$ROOT/libexec/cli/solus.js" start "$@" ;;
+esac
 `)
 }
 

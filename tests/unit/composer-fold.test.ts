@@ -43,7 +43,7 @@ describe('what moves inside the card', () => {
     expect(promptSlideOffset(null, 160)).toBeNull()
   })
 
-  test('the toolbar arrives through the second half of an unfold, and just leaves on a fold', () => {
+  test('the toolbar arrival is delayed on expand and is not used on collapse', () => {
     // WHY: on expand the row returns to the space the prompt line still
     // occupies while the card is short. Fading it in early paints the pickers
     // through the text.
@@ -59,6 +59,7 @@ describe('the card during the tween', () => {
         <div id="bar">
           <div id="well" data-composer-prompt><div class="cm-content" id="line"></div></div>
           <div id="toolbar" data-composer-toolbar></div>
+          <div id="actions" data-composer-actions></div>
         </div>
       </div></div></div>
     `)
@@ -70,6 +71,7 @@ describe('the card during the tween', () => {
     const well = doc.getElementById('well') as HTMLElement
     const line = doc.getElementById('line') as HTMLElement
     const toolbar = doc.getElementById('toolbar') as HTMLElement
+    const actions = doc.getElementById('actions') as HTMLElement
     // jsdom lays nothing out and has no animations, so the geometry and the
     // animations are stood in for.
     let cardHeight = 56
@@ -77,6 +79,8 @@ describe('the card during the tween', () => {
     card.getBoundingClientRect = () => ({ height: cardHeight }) as DOMRect
     host.getBoundingClientRect = () => ({ height: cardHeight + 24 }) as DOMRect
     line.getBoundingClientRect = () => ({ top: lineTop }) as DOMRect
+    actions.getBoundingClientRect = () => ({ top: 600 }) as DOMRect
+    toolbar.getBoundingClientRect = () => ({ top: 600, height: 0 }) as DOMRect
     const animations: Array<{
       target: string
       cancelled: number
@@ -84,7 +88,7 @@ describe('the card during the tween', () => {
       options: KeyframeAnimationOptions
       finish: () => void
     }> = []
-    for (const el of [card, well, toolbar]) {
+    for (const el of [card, well, toolbar, actions]) {
       el.animate = ((keyframes: Keyframe[], options: KeyframeAnimationOptions) => {
         let finish: () => void = () => {}
         const finished = new Promise<void>((resolve) => {
@@ -107,13 +111,14 @@ describe('the card during the tween', () => {
     }
     Object.defineProperty(globalThis, 'window', { value: window, configurable: true })
     Object.defineProperty(globalThis, 'getComputedStyle', {
-      value: () => ({ position: 'static' }),
+      value: () => ({ position: 'static', opacity: '1' }),
       configurable: true,
     })
     return {
       host,
       card,
       bar,
+      toolbar,
       animations,
       setGeometry: (height: number, top: number) => {
         cardHeight = height
@@ -125,7 +130,7 @@ describe('the card during the tween', () => {
   test('the bar finds its card through the surface mark, and reads the line inside the well', () => {
     const { card, bar } = mountCard()
     expect(composerSurfaceOf(bar)).toBe(card)
-    expect(measureFold(card)).toEqual({ height: 56, promptTop: 600 })
+    expect(measureFold(card)).toEqual({ height: 56, promptTop: 600, actionsTop: 600, toolbar: null })
   })
 
   test('the host holds its height and the card leaves flow, then both return', async () => {
@@ -134,7 +139,7 @@ describe('the card during the tween', () => {
     // and the card is anchored to its bottom edge. When the tween ends every
     // inline style goes, so a card that grows later lays out naturally.
     const { host, card, animations } = mountCard()
-    const tween = tweenComposerFold(card, { height: 104, promptTop: 560 }, true)
+    const tween = tweenComposerFold(card, { height: 40, promptTop: 620 }, false)
     expect(tween).not.toBeNull()
     expect(host.style.height).toBe('80px')
     expect(host.style.position).toBe('relative')
@@ -142,7 +147,7 @@ describe('the card during the tween', () => {
     expect(card.style.bottom).toBe('0px')
     expect(card.style.overflow).toBe('clip')
     expect(animations[0]!.target).toBe('card')
-    expect(animations[0]!.keyframes).toEqual([{ height: '104px' }, { height: '56px' }])
+    expect(animations[0]!.keyframes).toEqual([{ height: '40px' }, { height: '56px' }])
     expect(animations[0]!.options).toEqual({
       duration: COMPOSER_FOLD_DURATION_MS,
       easing: COMPOSER_FOLD_EASING,
@@ -157,11 +162,44 @@ describe('the card during the tween', () => {
     expect(animations.every((animation) => animation.cancelled === 1)).toBe(true)
   })
 
-  test('a fold slides the prompt line and lets the toolbar leave', () => {
-    const { card, animations } = mountCard()
-    tweenComposerFold(card, { height: 104, promptTop: 560 }, true)
-    expect(animations.map((animation) => animation.target)).toEqual(['card', 'well'])
-    expect(animations[1]!.keyframes).toEqual([{ transform: 'translateY(-40px)' }, { transform: 'none' }])
+  test('collapse keeps the buttons in place and fades the toolbar as the card shrinks', async () => {
+    const { host, card, toolbar, animations } = mountCard()
+    toolbar.setAttribute('style', '--custom: 1;')
+    const previousStyle = toolbar.getAttribute('style')
+    tweenComposerFold(card, {
+      height: 104, promptTop: 560, actionsTop: 648,
+      toolbar: { top: 648, height: 32, opacity: 1 },
+    }, true)
+    expect(animations.map((animation) => animation.target)).toEqual(['card', 'well', 'actions', 'toolbar', 'toolbar'])
+    expect(animations[0]!.keyframes).toEqual([{ height: '104px' }, { height: '56px' }])
+    expect(animations[2]!.keyframes).toEqual([{ transform: 'translateY(48px)' }, { transform: 'none' }])
+    expect(animations[2]!.options).toEqual(animations[0]!.options)
+    expect(toolbar.style.position).toBe('absolute')
+    expect(toolbar.style.visibility).toBe('visible')
+    expect(animations[4]!.keyframes).toEqual([{ opacity: 1 }, { opacity: 0 }])
+    expect(animations[4]!.options.duration).toBe(COMPOSER_FOLD_DURATION_MS / 2)
+    animations[0]!.finish()
+    await Promise.resolve()
+    expect(toolbar.getAttribute('style')).toBe(previousStyle)
+    expect(host.style.height).toBe('')
+  })
+
+  test('interrupting collapse restores the toolbar before expand starts', async () => {
+    const { card, toolbar, animations } = mountCard()
+    toolbar.inert = true
+    const collapse = tweenComposerFold(card, {
+      height: 104, promptTop: 560, actionsTop: 648,
+      toolbar: { top: 648, height: 32, opacity: 0.6 },
+    }, true)!
+    expect(toolbar.inert).toBe(true)
+    expect(animations[4]!.keyframes[0]).toEqual({ opacity: 0.6 })
+    collapse.cancel()
+    expect(toolbar.getAttribute('style')).toBeNull()
+    const expand = tweenComposerFold(card, { height: 40, promptTop: 620 }, false)!
+    animations[0]!.finish()
+    await Promise.resolve()
+    expect(card.style.position).toBe('absolute')
+    expand.cancel()
   })
 
   test('an unfold slides the prompt line and brings the toolbar in late', () => {
@@ -181,7 +219,7 @@ describe('the card during the tween', () => {
     // layout to measure from. A finish arriving after the cancel must not
     // strip styles a newer tween has since set.
     const { host, card, animations, setGeometry } = mountCard()
-    const first = tweenComposerFold(card, { height: 104, promptTop: 560 }, true)!
+    const first = tweenComposerFold(card, { height: 40, promptTop: 620 }, false)!
     first.cancel()
     expect(host.style.height).toBe('')
     expect(animations[0]!.cancelled).toBe(1)
@@ -197,7 +235,7 @@ describe('the card during the tween', () => {
 
   test('nothing is pinned when there is nothing to tween', () => {
     const { host, card } = mountCard()
-    expect(tweenComposerFold(card, null, true)).toBeNull()
+    expect(tweenComposerFold(card, null, false)).toBeNull()
     expect(host.style.height).toBe('')
     expect(card.style.position).toBe('')
   })

@@ -42,7 +42,7 @@
     getCurrentContent?: () => string;
     /** Every file the shell can write this work out as, in menu order. */
     exportFormats?: WorkExportFormat[];
-    /** Clipboard variants beyond the inline Copy verb. */
+    /** Additional clipboard formats in the overflow menu. */
     copyFormats?: WorkCopyFormat[];
     /**
      * Opens the save picker on the chosen format. Absent when the work has no
@@ -148,14 +148,6 @@
   });
 
   const hasChanges = $derived(!!previous && previous.content !== currentContent);
-  const hasOverflow = $derived(
-    !!onStartRename ||
-      !!onDuplicate ||
-      canSave ||
-      canDownload ||
-      copyFormats.length > 0 ||
-      !!onDelete,
-  );
   const hasOutput = $derived(canSave || canDownload || copyFormats.length > 0);
 </script>
 
@@ -207,11 +199,6 @@
   </button>
 {/if}
 
-<!-- Copy stays inline: the most-used action. -->
-<button type="button" class="wha-verb" onclick={copy} title="Copy to clipboard" aria-label="Copy to clipboard">
-  {copied ? "Copied!" : "Copy"}
-</button>
-
 <!-- The upstream mirror, inline rather than in the overflow: once a document is
      linked, its sync state is something the reader has to be able to see, not
      something to go looking for. Renders only for docs (2a scope). -->
@@ -220,7 +207,6 @@
 {/if}
 
 <!-- Layout, integration & destructive actions collapse into a single overflow menu. -->
-{#if hasOverflow}
   <DropdownMenu.Root bind:open={overflowOpen}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
@@ -231,6 +217,9 @@
     </DropdownMenu.Trigger>
     <DropdownMenu.Content side="bottom" align="end" sideOffset={6} collisionPadding={8} class="w-auto min-w-56 whitespace-nowrap">
       <DropdownMenu.Label>Document actions</DropdownMenu.Label>
+      <DropdownMenu.Item data-testid="copy-work" onSelect={copy}>
+        <CopyIcon size={14} /><span class="flex-1 text-left">{copied ? "Copied!" : "Copy"}</span>
+      </DropdownMenu.Item>
       {#if onStartRename}
         <DropdownMenu.Item data-testid="rename-work" onSelect={() => onStartRename?.()}>
           <PencilSimpleIcon size={14} /><span class="flex-1 text-left">Rename</span>
@@ -281,7 +270,6 @@
       {/if}
     </DropdownMenu.Content>
   </DropdownMenu.Root>
-{/if}
 
 <!-- How to reach Solus — the one filled surface in the header, and a pill so it
      is the only rounded-full thing on the page. -->

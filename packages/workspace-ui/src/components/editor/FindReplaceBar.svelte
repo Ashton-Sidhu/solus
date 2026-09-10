@@ -6,11 +6,12 @@
 
   interface Props {
     editor: Editor;
+    readOnly?: boolean;
     scrollContainer?: HTMLDivElement | null;
     onClose: () => void;
   }
 
-  let { editor, scrollContainer = null, onClose }: Props = $props();
+  let { editor, readOnly = false, scrollContainer = null, onClose }: Props = $props();
 
   const initialQuery = untrack(() => {
     const selection = editor.state.selection;
@@ -80,11 +81,13 @@
   }
 
   function replaceOne() {
+    if (readOnly) return;
     editor.commands.replaceCurrentMatch();
     refresh();
   }
 
   function replaceAll() {
+    if (readOnly) return;
     editor.commands.replaceAllMatches();
     refresh();
   }
@@ -135,6 +138,6 @@
     replacement = value;
     editor.commands.setReplaceTerm(value);
   }}
-  onReplace={replaceOne}
-  onReplaceAll={replaceAll}
+  onReplace={readOnly ? undefined : replaceOne}
+  onReplaceAll={readOnly ? undefined : replaceAll}
 />

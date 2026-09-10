@@ -67,7 +67,9 @@ export interface QueuedCaption {
 
 export interface QueuedCaptionInput {
   isRateLimited: boolean
-  resetsAt?: number
+  /** Epoch seconds. Null when the usage store has no reset for the window that
+   *  stopped the run — nothing will release the queue on its own. */
+  resetsAt?: number | null
   /** The provider's raw name for the window that ran out ("Codex 5h",
    *  "five_hour"). Reduced by `formatLimitWindow` and named in the caption, so
    *  the wait reads as a known quantity rather than an unexplained pause. */
@@ -102,6 +104,19 @@ export function queuedCaption(
       label,
       detail: `${window ? `${window} ` : ''}rate limit resets ${formatReleaseTime(resetsAt)}`,
       clock: formatClock(secondsLeft),
+      canSendNow: true,
+    }
+  }
+
+  // Still limited, but no window reset is known, so there is no moment to count
+  // to and nothing will release the queue on a timer. Say what is true and keep
+  // the escape, which is now the only way these go out.
+  if (isRateLimited && heldByLimit) {
+    const window = formatLimitWindow(rateLimitType)
+    return {
+      label,
+      detail: `${window ? `${window} ` : ''}rate limit active — reset time unknown`,
+      clock: '',
       canSendNow: true,
     }
   }

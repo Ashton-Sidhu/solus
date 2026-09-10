@@ -52,6 +52,11 @@ const OAUTH_SCOPES = [
   'read:space:confluence',
   'read:page:confluence',
   'write:page:confluence',
+  'read:comment:confluence',
+  'write:comment:confluence',
+  'delete:comment:confluence',
+  'read:user:confluence',
+  'read:confluence-user',
   // A published diagram is an attachment on its page: the only picture a
   // Confluence page can show that Solus can put there. Uploading one has no v2
   // endpoint, so it runs on v1 and takes v1's classic file scope — the

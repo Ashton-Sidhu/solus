@@ -9,7 +9,7 @@ beforeEach(() => { globalThis.$state = <T>(value: T): T => value })
 afterEach(() => { globalThis.$state = originalState })
 
 function status(version: string | null): HostUpdateStatus {
-  return { currentVersion: '1.0.0', install: 'tarball', remediation: null, releaseUrl: null,
+  return { currentVersion: '1.0.0', install: 'managed', remediation: null, releaseUrl: null,
     check: version ? { kind: 'available', latestVersion: version, checkedAt: 0 } : { kind: 'up-to-date', checkedAt: 0 }, providers: [] }
 }
 
@@ -22,7 +22,7 @@ async function fixture() {
   let read = async () => current
   const store = new HostUpdatesStore({
     resolveId: (id) => id, statusFor: () => connected, capabilitiesFor: async () => ({ hostUpdates: supports }),
-    apiFor: () => ({ hostUpdateStatus: () => read(), hostCheckForUpdates: () => read() }),
+    apiFor: () => ({ hostUpdateStatus: () => read(), hostCheckForUpdates: () => read(), hostInstallUpdate: () => read(), hostCancelUpdate: () => read() }),
     connectedServerIds: () => ['host'], onConnectionCreated: () => () => {},
     onStatusChange: (callback) => { listener = callback; return () => {} },
   })
@@ -112,4 +112,41 @@ test('a manual response cannot restore an update removed by a newer event', asyn
   await checking
   expect(f.store.pendingCountFor('host')).toBe(0)
   expect(f.store.manualCheckOutcomeFor('host')).toBe('up-to-date')
+})
+
+test('restart progress survives disconnect and settles only from the new host snapshot', async () => {
+  const f = await fixture()
+  f.store.start()
+  await f.store.load('host')
+  const updating = status('2.0.0')
+  updating.serverUpdate = { supported: true, reason: null, operation: { operationId: 'op', version: '2.0.0', phase: 'restarting' } }
+  f.store.applyStatus('host', updating)
+  f.disconnect()
+  expect(f.store.hostUpdateFor('host')).toBeUndefined()
+  expect(f.store.operations.get('host')?.phase).toBe('restarting')
+  const updated = status(null)
+  updated.currentVersion = '2.0.0'
+  updated.serverUpdate = { ...updating.serverUpdate, operation: { ...updating.serverUpdate.operation!, phase: 'succeeded' } }
+  f.set(updated)
+  f.reconnect()
+  await f.store.load('host')
+  expect(f.store.operations.get('host')?.phase).toBe('succeeded')
+  expect(f.store.hostUpdateFor('host')?.currentVersion).toBe('2.0.0')
+})
+
+test('a late install acknowledgement cannot overwrite restart progress', async () => {
+  const f = await fixture()
+  const available = status('2.0.0')
+  available.serverUpdate = { supported: true, reason: null, operation: null }
+  f.store.applyStatus('host', available)
+  let resolve!: (value: HostUpdateStatus) => void
+  f.read(() => new Promise((done) => { resolve = done }))
+  const installing = f.store.install('host')
+  const restarting = structuredClone(available)
+  restarting.serverUpdate!.operation = { operationId: 'op', version: '2.0.0', phase: 'restarting' }
+  f.store.applyStatus('host', restarting)
+  resolve(available)
+  await installing
+  expect(f.store.operations.get('host')?.phase).toBe('restarting')
+  expect(f.store.pendingNoticeFor('host')).toBeNull()
 })

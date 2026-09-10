@@ -325,16 +325,30 @@ async function snapshotPreviousProjectContent(id: string, found: FoundWork): Pro
   }
 }
 
+export const GOOGLE_WORK_READ_ONLY = 'This work is linked to Google Docs and is read-only in Solus. Edit it in Google Docs, then Pull latest. Comments remain available.'
+
+export function assertWorkEditable(meta: WorkMeta): void {
+  if (meta.mirroredDoc?.provider === 'gdrive') throw new Error(GOOGLE_WORK_READ_ONLY)
+}
+
+/** Provider reads are the only body writes allowed for a Google-linked work. */
+export async function savePulledWork(id: string, updates: Pick<Work, 'title' | 'preview' | 'content'>, cwd?: string): Promise<Work> {
+  return saveWorkRevision(id, updates, cwd, true)
+}
+
 /** Save driven by the agent — snapshots the prior content first so the user can
  * review "what the agent changed". User-initiated saves go through saveWork and
  * stay snapshot-free. */
-export async function agentSaveWork(
+async function saveWorkRevision(
   id: string,
   updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>,
-  cwd?: string
+  cwd?: string,
+  upstreamRead = false,
 ): Promise<Work> {
   const found = await findWork(id, cwd)
   if (!found) throw new Error(`Work not found: ${id}`)
+
+  if (!upstreamRead) assertWorkEditable(found.meta)
 
   if (found.locator.storage.kind === 'local') {
     return withTx(() => {
@@ -344,6 +358,7 @@ export async function agentSaveWork(
       )
       if (!row) throw new Error(`Work not found: ${id}`)
       const meta = metaFromRow(row)
+      if (!upstreamRead) assertWorkEditable(meta)
       if (updates.content !== undefined) insertRevision(db, id, row.content ?? '', meta.updatedAt)
       return saveLocalWork(db, id, meta, row.content ?? '', updates)
     })
@@ -353,6 +368,13 @@ export async function agentSaveWork(
   return saveProjectWork(id, found, updates)
 }
 
+export async function agentSaveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, cwd?: string): Promise<Work> {
+  const found = await findWork(id, cwd)
+  if (!found) throw new Error(`Work not found: ${id}`)
+  assertWorkEditable(found.meta)
+  return saveWorkRevision(id, updates, cwd)
+}
+
 /** Restore the single previous snapshot as the current content. The swap is
  * re-invertable: the content being replaced becomes the new snapshot, so a
  * second revert undoes the first. Returns null when there is nothing to revert
@@ -360,6 +382,7 @@ export async function agentSaveWork(
 export async function revertWork(id: string, cwd?: string): Promise<Work | null> {
   const found = await findWork(id, cwd)
   if (!found) return null
+  assertWorkEditable(found.meta)
 
   if (found.locator.storage.kind === 'local') {
     return withTx(() => {
@@ -369,6 +392,7 @@ export async function revertWork(id: string, cwd?: string): Promise<Work | null>
       )
       if (!row) return null
       const meta = metaFromRow(row)
+      assertWorkEditable(meta)
       const previous = latestRevision(db, id)
       if (!previous) return null
 
@@ -522,6 +546,7 @@ export async function saveWork(
 ): Promise<Work> {
   const found = await findWork(id, cwd)
   if (!found) throw new Error(`Work not found: ${id}`)
+  assertWorkEditable(found.meta)
   if (found.locator.storage.kind === 'local') {
     return withTx(() => {
       const db = database()
@@ -529,6 +554,7 @@ export async function saveWork(
         db.prepare("SELECT * FROM works WHERE id = ? AND storage = 'local'").get(id),
       )
       if (!row) throw new Error(`Work not found: ${id}`)
+      assertWorkEditable(metaFromRow(row))
       return saveLocalWork(db, id, metaFromRow(row), row.content ?? '', updates)
     })
   }

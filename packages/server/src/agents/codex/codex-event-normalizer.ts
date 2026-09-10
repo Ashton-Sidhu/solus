@@ -1,6 +1,7 @@
 import { z } from 'zod'
-import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData } from '@solus/contracts/types'
-import { findResetTimestamp } from '../../rate-limits'
+import { codexSubagentTurnResult } from './codex-subagent-history'
+import type { ContextUsage, NormalizedEvent, ThreadGoal, UsageData, UsageWindowUpdate } from '@solus/contracts/types'
+import { normalizeResetNumber } from '../../rate-limits'
 import {
   codexImageArtifactPath,
   codexSpawnedThreadLinks,
@@ -14,8 +15,6 @@ import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
 import type {
   JsonRpcId,
 } from './codex-protocol'
-
-const CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS = 2 * 60
 
 const stringValueSchema = z.string()
 const finiteNumberSchema = z.number().finite()
@@ -50,16 +49,22 @@ const tokenBreakdownSchema = z.object({
   reasoningOutputTokens: finiteNumberSchema.optional(),
   reasoning_output_tokens: finiteNumberSchema.optional(),
 })
+// Every one of these is `nullish`, not `optional`. Codex sends JSON null for an
+// absent window and an unreached limit — `"secondary": null`,
+// `"rateLimitReachedType": null` — and `.optional()` rejects null, so the whole
+// snapshot failed to parse and this normalizer returned nothing for every real
+// notification. That is why a spent window never reached the transcript and the
+// terminal error's guess was the only limit anything ever saw.
 const rateLimitWindowSchema = z.object({
-  usedPercent: finiteNumberSchema.optional(),
-  resetsAt: z.union([z.string(), finiteNumberSchema]).optional(),
-  windowDurationMins: finiteNumberSchema.optional(),
+  usedPercent: finiteNumberSchema.nullish(),
+  resetsAt: z.union([z.string(), finiteNumberSchema]).nullish(),
+  windowDurationMins: finiteNumberSchema.nullish(),
 })
 const rateLimitsSchema = z.object({
-  rateLimitReachedType: z.string().optional(),
-  primary: rateLimitWindowSchema.optional(),
-  secondary: rateLimitWindowSchema.optional(),
-  credits: z.object({ hasCredits: z.boolean().optional() }).optional(),
+  rateLimitReachedType: z.string().nullish(),
+  primary: rateLimitWindowSchema.nullish(),
+  secondary: rateLimitWindowSchema.nullish(),
+  credits: z.object({ hasCredits: z.boolean().nullish() }).nullish(),
 })
 const contentPartSchema = z.union([
   z.string(),
@@ -211,6 +216,11 @@ function normalizeCodexNotification(method: string, params: any, opts?: { planMo
       return todos.length > 0
         ? [{ type: 'progress', todos, parentToolUseId: codexParentToolUseId(params) }]
         : []
+    }
+
+    case 'turn/started': {
+      const toolUseId = codexParentToolUseId(params)
+      return toolUseId ? [{ type: 'subagent_running', toolUseId }] : []
     }
 
     case 'turn/completed':
@@ -518,6 +528,7 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
   const reachedType = rateLimits.rateLimitReachedType?.toLowerCase() ?? null
 
   const events: NormalizedEvent[] = []
+  const windows: UsageWindowUpdate[] = []
   for (const [key, window] of [
     ['primary', rateLimits.primary],
     ['secondary', rateLimits.secondary],
@@ -525,9 +536,17 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
     if (!window) continue
 
     const usedPercent = window.usedPercent ?? null
-    const resetsAt = findResetTimestamp(window.resetsAt)
+    // Codex states the epoch in seconds. This is the reset every surface ends
+    // up reading, by way of the usage store — nothing re-derives it later.
+    const resetsAt = normalizeResetNumber(Number(window.resetsAt))
     const windowDurationMins = window.windowDurationMins ?? null
     if (!resetsAt || !windowDurationMins) continue
+
+    windows.push({
+      windowDurationMins,
+      usedPercent,
+      resetsAt: resetsAt * 1000,
+    })
 
     // Only a spent window reaches the transcript. A window that is filling up
     // is what the sidebar usage meters are for; Codex reports every update, so
@@ -564,15 +583,17 @@ function normalizeCodexRateLimitsUpdated(params: any): NormalizedEvent[] {
     events.push({
       type: 'rate_limit',
       status,
-      resetsAt: resetsAt + CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS,
+      // Preserve the provider timestamp, including windows outside the usage meters.
+      resetsAt,
       rateLimitType: `Codex ${windowDurationMins === 300 || windowDurationMins === 10_080 ? durationLabel : `${key} ${durationLabel}`}`,
       windowDurationMins,
-      isUsingOverage: rateLimits.credits?.hasCredits,
+      isUsingOverage: rateLimits.credits?.hasCredits ?? undefined,
       deferCurrentRun: true,
     })
   }
 
-  return events
+  // Update the cache for later terminal errors that omit a reset.
+  return windows.length > 0 ? [{ type: 'usage_limits', windows }, ...events] : events
 }
 
 function normalizePlanItemStatus(status: string | undefined): 'completed' | 'in_progress' | 'pending' {
@@ -940,34 +961,15 @@ function normalizeTurnCompleted(params: any): NormalizedEvent[] {
   const turn = params?.turn || {}
   const parentToolUseId = codexParentToolUseId(params)
   if (parentToolUseId) {
-    if (turn.status === 'failed') {
-      const parsedError = codexErrorPayload(turn.error)
-      const message = parsedError?.message
-      return [{
-        type: 'tool_result',
-        toolUseId: parentToolUseId,
-        content: message || 'Codex subagent failed',
-        isError: true,
-        parentToolUseId,
-        isSubagentReport: true,
-      }]
-    }
-    if (
-      turn.status === 'interrupted' ||
-      turn.status === 'cancelled' ||
-      turn.status === 'canceled' ||
-      turn.status === 'aborted'
-    ) {
-      return [{
-        type: 'tool_result',
-        toolUseId: parentToolUseId,
-        content: 'Interrupted',
-        isError: true,
-        parentToolUseId,
-        isSubagentReport: true,
-      }]
-    }
-    return []
+    const result = codexSubagentTurnResult(turn)
+    return result ? [{
+      type: 'tool_result',
+      toolUseId: parentToolUseId,
+      content: result.text,
+      isError: result.status === 'error',
+      parentToolUseId,
+      isSubagentReport: true,
+    }] : []
   }
   if (turn.status === 'interrupted' || turn.status === 'cancelled' || turn.status === 'canceled' || turn.status === 'aborted') return []
   if (turn.status === 'failed') {
@@ -1013,14 +1015,14 @@ function codexRateLimitEvent<ErrorValue>(error: ErrorValue): NormalizedEvent | n
     (!!payload.message && /\b(usage limit|rate limit|429)\b/i.test(payload.message))
   if (!isRateLimit) return null
 
-  const reset = findResetTimestamp(payload.additionalDetails) ||
-    findResetTimestamp(payload.message) ||
-    Math.ceil(Date.now() / 1000) + 5 * 60
-
+  // The error names the failure, never a window, and its "try again at Sep 15th,
+  // 2026 12:26 AM" is prose no parser here reads. The control plane resolves the
+  // reset from the usage store, which holds what the stream already reported —
+  // with one window open, that is unambiguous.
   return {
     type: 'rate_limit',
     status: 'limited',
-    resetsAt: reset + CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS,
+    resetsAt: null,
     rateLimitType: rateLimitKind?.trim()
       ? rateLimitKind.trim()
       : httpStatusCode ? `HTTP ${httpStatusCode}` : 'Codex',

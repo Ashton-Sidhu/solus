@@ -1,21 +1,21 @@
 /**
- * The fold's tween.
+ * The fold and expand animation.
  *
  * The fold flips the layout in one step (ADR-0027): the toolbar row folds to
  * nothing, the text well tightens, and the card takes its new height. Nothing
- * inside the card transitions in CSS. Tweening the card's height in flow laid
- * out the whole conversation column on every frame, and the transcript's
- * resize observer re-pinned the scroll on every one of them, so the fold read
- * as laggy on a long session.
+ * inside the card transitions in CSS. The conversation is out of reach either
+ * way — the dock floats over it and reserves a band that a fold does not
+ * change (`resolveComposerInset`) — but a card tweened in flow would still
+ * relayout its own host on every frame.
  *
- * Instead the motion is a FLIP on the flipped layout, run through the Web
+ * So the motion is a FLIP on the flipped layout, run through the Web
  * Animations API. For the length of the tween the card's host holds its
  * destination height and the card is lifted out of flow, anchored to the
  * host's bottom edge, with its height tweened from where it was. The prompt
  * line slides from its old position to its new one so the text settles rather
  * than jumps, and on expand the toolbar row arrives through the second half
  * of the tween with a fade and a short drift, once the card has grown room
- * for it. The column moves once per fold; the card catches up over the tween.
+ * for it. The host moves once per fold; the card catches up over the tween.
  * Every inline style is removed when the tween ends, so anything that resizes
  * the card afterwards lays out naturally.
  *
@@ -36,6 +36,13 @@ export const COMPOSER_SURFACE_ATTRIBUTE = 'data-composer-surface'
 export const COMPOSER_PROMPT_ATTRIBUTE = 'data-composer-prompt'
 /** The toolbar row that folds away and arrives again. */
 export const COMPOSER_TOOLBAR_ATTRIBUTE = 'data-composer-toolbar'
+export const COMPOSER_ACTIONS_ATTRIBUTE = 'data-composer-actions'
+/**
+ * Whether the card stands folded. Published on the surface for the dock that
+ * reserves room for it: a folded measurement may hold that reservation, never
+ * shrink it (`resolveComposerInset`).
+ */
+export const COMPOSER_COLLAPSED_ATTRIBUTE = 'data-composer-collapsed'
 
 export function composerSurfaceOf(node: Element): HTMLElement | null {
   // The mark is only ever placed on an element with a style, so the typed
@@ -48,6 +55,8 @@ export interface FoldGeometry {
   height: number
   /** Where the prompt line stands in the viewport, when the well is on screen. */
   promptTop: number | null
+  actionsTop?: number | null
+  toolbar?: { top: number; height: number; opacity: number } | null
 }
 
 /**
@@ -59,9 +68,16 @@ export interface FoldGeometry {
 export function measureFold(surface: HTMLElement): FoldGeometry {
   const well = surface.querySelector<HTMLElement>(`[${COMPOSER_PROMPT_ATTRIBUTE}]`)
   const line = well?.querySelector<HTMLElement>('.cm-content') ?? well
+  const actions = surface.querySelector<HTMLElement>(`[${COMPOSER_ACTIONS_ATTRIBUTE}]`)
+  const toolbar = surface.querySelector<HTMLElement>(`[${COMPOSER_TOOLBAR_ATTRIBUTE}]`)
+  const toolbarRect = toolbar?.getBoundingClientRect()
   return {
     height: surface.getBoundingClientRect().height,
     promptTop: line ? line.getBoundingClientRect().top : null,
+    actionsTop: actions?.getBoundingClientRect().top ?? null,
+    toolbar: toolbar && toolbarRect && toolbarRect.height > 0
+      ? { top: toolbarRect.top, height: toolbarRect.height, opacity: Number(getComputedStyle(toolbar).opacity) }
+      : null,
   }
 }
 
@@ -94,8 +110,8 @@ export function promptSlideOffset(previousTop: number | null, nextTop: number | 
 }
 
 /**
- * When the toolbar row fades in. A folding row has nowhere to go and simply
- * leaves; an unfolding row returns to the space the prompt line still occupies
+ * When the toolbar row fades in. Collapse has its own departure animation;
+ * an unfolding row returns to the space the prompt line still occupies
  * while the card is short, so it waits out the first half of the tween and
  * arrives once the geometry has mostly settled.
  */
@@ -175,12 +191,17 @@ export function tweenComposerFold(
     )
   }
 
+  const restoreToolbar = collapsed
+    ? animateCollapseContents(surface, previous, animations)
+    : null
+
   let settled = false
   const settle = () => {
     if (settled) return
     settled = true
     clearTimeout(fallback)
     for (const animation of animations) animation.cancel()
+    restoreToolbar?.()
     host.style.removeProperty('height')
     if (hostWasStatic) host.style.removeProperty('position')
     surface.style.removeProperty('position')
@@ -192,4 +213,52 @@ export function tweenComposerFold(
   const fallback = setTimeout(settle, duration + CLEANUP_BUFFER_MS)
   animations[0]!.finished.then(settle, () => undefined)
   return { cancel: settle }
+}
+
+/** Animate controls after collapse has changed their containing block. */
+function animateCollapseContents(
+  surface: HTMLElement,
+  previous: FoldGeometry | null,
+  animations: Animation[],
+): (() => void) | null {
+  const duration = COMPOSER_FOLD_DURATION_MS
+  const easing = COMPOSER_FOLD_EASING
+  // The buttons are positioned against the inner content, which has already
+  // collapsed. Compensate for that jump while the outer card catches up.
+  const actions = surface.querySelector<HTMLElement>(`[${COMPOSER_ACTIONS_ATTRIBUTE}]`)
+  if (actions) {
+    const offset = promptSlideOffset(previous?.actionsTop ?? null, actions.getBoundingClientRect().top)
+    if (offset !== null) {
+      animations.push(actions.animate(
+        [{ transform: `translateY(${offset}px)` }, { transform: 'none' }],
+        { duration, easing },
+      ))
+    }
+  }
+
+  const toolbar = surface.querySelector<HTMLElement>(`[${COMPOSER_TOOLBAR_ATTRIBUTE}]`)
+  // Keep the departing row at its old height, outside layout, while it fades.
+  // It is already inert, so visible controls cannot take focus during the exit.
+  const toolbarStyle = toolbar?.getAttribute('style') ?? null
+  const geometry = previous?.toolbar
+  if (!toolbar || !geometry) return null
+  Object.assign(toolbar.style, {
+    position: 'absolute', left: '0', right: '0', bottom: '0',
+    height: `${geometry.height}px`, visibility: 'visible',
+    gridTemplateRows: '1fr',
+  })
+  const offset = geometry.top - toolbar.getBoundingClientRect().top
+  animations.push(toolbar.animate(
+    [{ transform: `translateY(${offset}px)` }, { transform: 'none' }],
+    { duration, easing },
+  ))
+  animations.push(toolbar.animate(
+    [{ opacity: geometry.opacity }, { opacity: 0 }],
+    { duration: duration / 2, easing, fill: 'forwards' },
+  ))
+
+  return () => {
+    if (toolbarStyle === null) toolbar.removeAttribute('style')
+    else toolbar.setAttribute('style', toolbarStyle)
+  }
 }

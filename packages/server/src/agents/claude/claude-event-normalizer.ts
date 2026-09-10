@@ -1,7 +1,7 @@
-import type { ContextUsage, NormalizedEvent, UsageData } from '@solus/contracts/types'
+import { FIVE_HOUR_WINDOW_MINS, WEEKLY_WINDOW_MINS, type ContextUsage, type NormalizedEvent, type UsageData } from '@solus/contracts/types'
 import type { ClaudeEvent, StreamEvent, InitEvent, StatusEvent, CompactBoundaryEvent, AssistantEvent, UserEvent, ResultEvent, RateLimitEvent, PermissionEvent, ContentBlock, ContentDelta, ClaudeUsageData } from '@solus/contracts/claude-types'
 import type { TurnNormalizer, TurnSummary } from '../turn-normalizer'
-import { normalizeResetNumber, rateLimitEventFromMessage } from '../../rate-limits'
+import { isRateLimitMessage, normalizeResetNumber } from '../../rate-limits'
 import { parentSubagentEvent, type SubagentTranscriptEvent } from '../subagent-events'
 import { claudeToolResultText } from './claude-subagent-protocol'
 import { z } from 'zod'
@@ -534,8 +534,12 @@ function normalizeResult(event: ResultEvent): NormalizedEvent[] {
 
   if (event.is_error || event.subtype !== 'success') {
     const message = resultErrorMessage(event)
-    const rateLimit = rateLimitEventFromMessage(message)
-    if (rateLimit) return [rateLimit]
+    // Some Claude versions report a spent window only as a terminal error. Its
+    // wording carries no year, so it says that a limit was hit and nothing
+    // more; the reset comes from the usage store, which the stream fills.
+    if (isRateLimitMessage(message)) {
+      return [{ type: 'rate_limit', status: 'limited', resetsAt: null, rateLimitType: 'Claude', isUsingOverage: false }]
+    }
     return [{
       type: 'error',
       message,
@@ -591,26 +595,48 @@ function normalizeClaudeUsage(usage: ClaudeUsageData | undefined): UsageData {
   }
 }
 
+/** Claude names its windows; the store keys them by duration, which is the one
+ *  identity both providers share. Null for a window name we don't know. */
+function claudeWindowDurationMins(rateLimitType: string): number | null {
+  const name = rateLimitType.replace(/[\s_-]/g, '').toLowerCase()
+  if (name === 'fivehour' || name === 'session' || name === '5h') return FIVE_HOUR_WINDOW_MINS
+  if (name === 'sevenday' || name === 'weekly' || name === 'week' || name === '7d') return WEEKLY_WINDOW_MINS
+  return null
+}
+
 function normalizeRateLimit(event: RateLimitEvent): NormalizedEvent[] {
   const info = event.rate_limit_info
   if (!info) return []
   const resetsAt = normalizeResetNumber(info.resetsAt)
   if (!resetsAt) return []
 
+  const windowDurationMins = claudeWindowDurationMins(info.rateLimitType)
+  // Claude reports the window it is talking about on nearly every turn,
+  // whatever its status. That stream is what keeps the usage store able to
+  // answer the moment a limit lands, so it is recorded before the status is
+  // weighed at all.
+  const events: NormalizedEvent[] = windowDurationMins === null ? [] : [{
+    type: 'usage_limits',
+    windows: [{ windowDurationMins, usedPercent: null, resetsAt: resetsAt * 1000 }],
+  }]
+
   // A window that is merely filling up is the sidebar usage meters' job, not
   // the transcript's. Claude marks one `allowed_warning` from about a quarter
   // spent and repeats it every turn, so the conversation collected the same
   // card over and over to say nothing had happened yet. Only a limit that
   // actually stops a run is worth interrupting the reader.
-  if (info.status === 'allowed_warning') return []
+  if (info.status === 'allowed_warning') return events
 
-  return [{
+  events.push({
     type: 'rate_limit',
     status: info.status,
+    // Preserve the reset even when the window name is not recognized.
     resetsAt,
     rateLimitType: info.rateLimitType,
+    windowDurationMins: windowDurationMins ?? undefined,
     isUsingOverage: info.isUsingOverage,
-  }]
+  })
+  return events
 }
 
 function normalizePermission(event: PermissionEvent): NormalizedEvent[] {

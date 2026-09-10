@@ -62,7 +62,6 @@ A typical loop: summon Solus, describe the change, review the plan it drafts, wa
 
 ```bash
 brew install --cask Ashton-Sidhu/tap/solus          # macOS desktop app
-brew install Ashton-Sidhu/tap/solus-server          # headless server — see below
 ```
 
 **Direct download** — a signed and notarized `.dmg` from [solus.sh](https://solus.sh), or from the [releases page](https://github.com/Ashton-Sidhu/solus/releases). Drag `Solus.app` to `/Applications`. The app updates itself in place from there.
@@ -97,40 +96,75 @@ Global shortcuts use `⌥⇧`, sub-page shortcuts use `⌥`. These are the ones 
 
 ## Headless server
 
-You don't need the Mac app. Solus ships a standalone server you can run on a home server, a VPS, or any always-on box and drive entirely from the browser — it serves the same web client and speaks the same RPC protocol as the desktop app.
+Run Solus on Linux x64/arm64 or an Apple Silicon Mac. The server includes Node,
+the CLI, and the web client. Homebrew and a separate Node installation are not required.
 
-```bash
-brew install Ashton-Sidhu/tap/solus-server   # CLI + vendored Node runtime
+Download `install.sh` from a [server release](https://github.com/Ashton-Sidhu/solus/releases)
+that includes the installer, then run:
 
-brew services start solus-server             # run the daemon in the background
-solus claim                                  # take ownership from this machine
+```sh
+sh install.sh
+export PATH="$HOME/.local/bin:$PATH"
+solus setup
+solus pair
 ```
 
-`solus claim` prints a link, a 6-digit code, and a QR — open any of them in a browser to claim the server. After that, [pair devices](https://solus.sh/docs#connections) normally: your phone, a tablet, another laptop.
+`solus setup` installs and starts a user service. On Linux it uses systemd and
+checks lingering so the server can run after logout and at boot. If permission
+is needed, it prints the command to enable lingering. On macOS it uses a
+LaunchAgent: keep the Mac logged in and awake for remote access.
 
-| Command | |
+`solus pair` prints a temporary link, code, and QR for desktop, web, or mobile.
+Use `solus connect` instead to link the running host to Solus Cloud.
+
+| Command | Purpose |
 |---|---|
-| `solus start` | Run the server in the foreground (`--host`, `--port`, `--data-dir`) |
-| `solus logs` | Tail the daemon log (`--lines N`) |
-| `solus claim` | Claim a fresh server |
-| `solus connect` | Link the running host to Solus Cloud with a browser approval code |
-| `solus connect status` | Show the cloud link and tunnel state (`--json` for scripts) |
-| `solus connect unlink` | Remove the host from Solus Cloud and stop its tunnel |
-| `solus update` | Update a tarball install in place (Homebrew installs defer to `brew upgrade`) |
+| `solus setup` | Install/start the background service and check health |
+| `solus start` | Run in the foreground (`--host`, `--port`, `--data-dir`) |
+| `solus status` | Show installed/running versions, service state, and provider versions |
+| `solus service start`, `stop`, `restart` | Control the background service |
+| `solus service uninstall` | Remove background startup; keep user data |
+| `solus logs` | Follow the server log (`--lines N`) |
+| `solus pair` | Create another temporary client pairing link |
+| `solus connect`, `connect status`, `connect unlink` | Manage the Solus Cloud link |
+| `solus update` | Check and update the running host through its shared update service |
 
-Data lives in `~/.solus`, overridable with `--data-dir` or `SOLUS_DATA_DIR`; `SOLUS_HOST` and `SOLUS_PORT` mirror the flags. The server listens on port 3000 by default.
+Versions live under `~/.local/share/solus/versions`; `current` selects the active
+version. The launcher lives at `~/.local/bin/solus`. Set `SOLUS_RUNTIME_DIR` and
+`SOLUS_BIN_DIR` before installation to change these paths. Data lives in
+`~/.solus`; use `--data-dir` or `SOLUS_DATA_DIR` consistently for another data
+location. The data and runtime directories must be separate. Setup saves its
+data path and `SOLUS_HOST`/`SOLUS_PORT` values in the service configuration.
+The default port is 3000.
 
-A running desktop app is itself a server on the same port — so you can reach your Mac's sessions from a browser on your phone without setting any of this up. And once a standalone server is claimed, add it as a **host** in the desktop app to choose, per session, which machine the agent actually runs on.
+Update from any connected client's **Update Solus** action or run `solus update`
+on the host. Both download and verify the release, wait for accepted work to
+finish, then restart. You can cancel while waiting. The updater backs up the
+host data after shutdown and restores it with the previous version if the new
+server cannot start. Requests remain blocked during candidate verification.
+Checks are automatic; installation requires an action. Project files and
+provider-owned data outside the Solus data directory are not part of rollback.
+The CLI can time out while the host is still waiting; `solus status` shows its state.
 
-Not on Homebrew? Each [release](https://github.com/Ashton-Sidhu/solus/releases) attaches a `solus-server-<platform>-<arch>.tar.gz` for `darwin-arm64`, `linux-x64`, and `linux-arm64` — a self-contained bundle with a pinned Node runtime, the server, the CLI, and the web client. Extract it anywhere and run `bin/solus`. To build one yourself:
+For startup failures, use `solus logs`. Linux also records process output in
+`journalctl --user -u solus.service`; macOS records it in the data directory's
+`logs/solus.log`. Run `solus setup` to restore a missing service definition.
+Keep older version directories until the running supervisor has stopped.
 
-```bash
-bun run build                                              # dist/main/standalone.js + dist/client
-bun scripts/package-server.ts                              # package for this platform
-bun scripts/package-server.ts --platform linux --arch x64  # or a specific target
+The desktop app can also host Solus and uses its own desktop updater.
+
+To build a server release from this checkout:
+
+```sh
+bun run build
+bun scripts/package-server.ts --platform linux --arch x64
+SOLUS_VERSION=<package-version> \
+SOLUS_INSTALL_ARCHIVE="$PWD/release/solus-server-linux-x64.tar.gz" \
+SOLUS_INSTALL_SHA256SUMS="$PWD/release/SHA256SUMS" sh scripts/install.sh
 ```
 
-To iterate on server code without repackaging, re-run `bun run build` and launch `bin/solus-server` from an existing bundle — or run `bun run dev` and point the web client (`client/`) at the dev server.
+The release workflow attaches the installer to new server releases. These
+source changes do not publish or replace an existing release.
 
 ## Build from source
 

@@ -8,19 +8,22 @@ const path = require('path')
 const ARCH_NAMES = ['ia32', 'x64', 'armv7l', 'arm64', 'universal']
 
 const PROBE_TIMEOUT_MS = 30_000
+const MAX_MAC_ARM64_APP_BYTES = 600_000_000
 
 /**
- * Runs inside the packaged app in node mode. `argv[1]` is the fff entry point
- * inside app.asar; `argv[2]` is a scratch directory to index.
+ * Runs inside the packaged app in node mode. Arguments are the fff entry point,
+ * a scratch directory, the ONNX entry point, and the Claude SDK entry point.
  *
  * `findBinary()` is the function our fff-node patch rewrites: unpatched, it
  * hands back the path inside app.asar, which cannot be dlopen'd. Asserting the
  * path *and* constructing a finder covers both halves — a wrong path and a
  * right path whose native library was never unpacked.
  */
-const FFF_PROBE_SOURCE = `
+const RUNTIME_PROBE_SOURCE = `
 const { pathToFileURL } = await import('node:url')
-const { sep } = await import('node:path')
+const { sep, dirname, join } = await import('node:path')
+const { readdirSync } = await import('node:fs')
+const { createRequire } = await import('node:module')
 const fff = await import(pathToFileURL(process.argv[1]).href)
 const binaryPath = fff.findBinary()
 if (!binaryPath) throw new Error('findBinary() resolved nothing inside the packaged app')
@@ -35,10 +38,31 @@ const created = fff.FileFinder.create({
 if (!created.ok) throw new Error('FileFinder.create failed: ' + String(created.error))
 created.value.destroy()
 console.log('fff-probe-ok ' + binaryPath)
+
+// A float[1] Identity graph, ONNX IR 8 / opset 13. Exercise real inference
+// without downloading a speech model or reading the user's model cache.
+const model = Buffer.from('CAg6VwoZCgVpbnB1dBIGb3V0cHV0IghJZGVudGl0eRIPcGFja2FnaW5nLXByb2JlWhMKBWlucHV0EgoKCAgBEgQKAggBYhQKBm91dHB1dBIKCggIARIECgIIAUICEA0=', 'base64')
+const require = createRequire(process.argv[3])
+const ort = require(process.argv[3])
+const session = await ort.InferenceSession.create(model, { executionProviders: ['cpu'] })
+try {
+  const result = await session.run({ input: new ort.Tensor('float32', Float32Array.of(42), [1]) })
+  if (result.output.data[0] !== 42) throw new Error('Packaged ONNX inference returned the wrong value')
+} finally {
+  await session.release()
+}
+console.log('onnx-probe-ok')
+
+const sdk = await import(pathToFileURL(process.argv[4]).href)
+if (typeof sdk.query !== 'function') throw new Error('Packaged Claude SDK could not load')
+const anthropicPackages = readdirSync(join(dirname(process.argv[4]), '..'))
+if (anthropicPackages.some(name => name.startsWith('claude-agent-sdk-')))
+  throw new Error('Bundled Claude executable packages must not ship; setup installs Claude on the host')
+console.log('claude-sdk-probe-ok')
 `
 
 /**
- * Fails the build when the packaged app cannot load fff's native library.
+ * Fails the build when the packaged native libraries or Claude SDK cannot load.
  *
  * The library lives in app.asar.unpacked, but fff resolves it from its own
  * location inside app.asar; `patches/@ff-labs%2Ffff-node@0.9.6.patch` redirects
@@ -50,10 +74,10 @@ console.log('fff-probe-ok ' + binaryPath)
  * Must run before `flipFuses`: the RunAsNode fuse we disable below is what
  * `ELECTRON_RUN_AS_NODE` needs, so afterwards the app can only boot its GUI.
  */
-function probePackagedFff(context, appPath) {
+function probePackagedRuntime(context, appPath) {
   const archName = ARCH_NAMES[context.arch]
   if (context.electronPlatformName !== process.platform || archName !== process.arch) {
-    console.log(`[afterPack] fff probe skipped: cannot run ${context.electronPlatformName}/${archName} on this host`)
+    console.log(`[afterPack] runtime probe skipped: cannot run ${context.electronPlatformName}/${archName} on this host`)
     return
   }
 
@@ -71,27 +95,39 @@ function probePackagedFff(context, appPath) {
 
   const executable = path.join(appPath, 'Contents', 'MacOS', context.packager.appInfo.productFilename)
   const fffEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@ff-labs', 'fff-node', 'dist', 'src', 'index.js')
-  const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'solus-fff-probe-'))
+  const onnxEntry = path.join(resourcesDir, 'app.asar', 'node_modules', 'onnxruntime-node', 'dist', 'index.js')
+  const claudeEntry = path.join(resourcesDir, 'app.asar', 'node_modules', '@anthropic-ai', 'claude-agent-sdk', 'sdk.mjs')
+  const probeRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'solus-runtime-probe-'))
 
   // ELECTRON_NO_ASAR would let the probe read straight through the archive and
   // mask the very resolution bug it exists to catch.
-  const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '' }
+  const env = { ...process.env, ELECTRON_RUN_AS_NODE: '1', NODE_PATH: '', SOLUS_DATA_DIR: probeRoot }
   delete env.ELECTRON_NO_ASAR
   delete env.NODE_OPTIONS
 
   try {
     const output = execFileSync(
       executable,
-      ['--no-global-search-paths', '--input-type=module', '--eval', FFF_PROBE_SOURCE, fffEntry, probeRoot],
+      ['--no-global-search-paths', '--input-type=module', '--eval', RUNTIME_PROBE_SOURCE, fffEntry, probeRoot, onnxEntry, claudeEntry],
       { env, timeout: PROBE_TIMEOUT_MS, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }
     )
     console.log(`[afterPack] ${output.trim()}`)
   } catch (err) {
     const detail = [err.stdout, err.stderr].filter(Boolean).join('\n').trim()
-    throw new Error(`[afterPack] the packaged app could not load fff from app.asar. The fff-node patch is likely stale — see patches/@ff-labs%2Ffff-node@0.9.6.patch.\n${detail || err.message}`)
+    throw new Error(`[afterPack] packaged runtime validation failed. Check the native file filters, asarUnpack, and fff-node patch.\n${detail || err.message}`)
   } finally {
     fs.rmSync(probeRoot, { recursive: true, force: true })
   }
+}
+
+function directoryBytes(directory) {
+  let bytes = 0
+  for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+    const entryPath = path.join(directory, entry.name)
+    if (entry.isDirectory()) bytes += directoryBytes(entryPath)
+    else if (entry.isFile()) bytes += fs.statSync(entryPath).size
+  }
+  return bytes
 }
 
 module.exports = async function afterPack(context) {
@@ -99,7 +135,12 @@ module.exports = async function afterPack(context) {
     context.appOutDir,
     `${context.packager.appInfo.productFilename}.app`
   )
-  probePackagedFff(context, appPath)
+  const bytes = directoryBytes(appPath)
+  console.log(`[afterPack] app size: ${(bytes / 1_000_000).toFixed(1)} MB`)
+  if (context.electronPlatformName === 'darwin' && ARCH_NAMES[context.arch] === 'arm64' && bytes > MAX_MAC_ARM64_APP_BYTES) {
+    throw new Error('[afterPack] Mac ARM64 app exceeds 600 MB. Check for bundled CLIs, duplicate renderer packages, or non-target native libraries.')
+  }
+  probePackagedRuntime(context, appPath)
   await flipFuses(appPath, {
     version: FuseVersion.V1,
     [FuseV1Options.RunAsNode]: false,

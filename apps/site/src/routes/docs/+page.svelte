@@ -247,7 +247,7 @@
 				How to get work done with Solus: summon an agent, shape its plan, review the diff,
 				ship the PR. Each section is a short recipe; the full keybinding reference is at the end.
 			</p>
-			<p class="text-[12px] text-[#B0A499] mt-3">Updated August 28, 2026</p>
+			<p class="text-[12px] text-[#B0A499] mt-3">Updated September 9, 2026</p>
 		</div>
 
 		<div class="flex flex-col text-base/7 sm:text-[15px] sm:leading-[1.8] max-[1440px]:sm:text-[14px] text-[#6B6158]">
@@ -818,7 +818,7 @@
 						['Agent & model', 'Which agent, model, and reasoning effort. Runs execute headless in Auto permission mode.'],
 						['Working directory', "Defaults to your active project's root, even when the session you created it from runs in a worktree."],
 						['Max turns', 'An optional cap per run, as a guardrail.'],
-						['Enabled / paused', 'Paused automations never fire on schedule.'],
+						['Enabled, paused, or archived', 'Paused automations never fire on schedule. Archiving retires one without losing it: its prompt and run history stay under the Archived filter.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -846,6 +846,7 @@
 						['Run history', 'Each automation logs past runs with status, tool-call count, and output or error.'],
 						['Open a run', 'Open a completed run as a full session to see exactly what the agent did.'],
 						['Created by agents', 'Agents can create, edit, and trigger automations for you; theirs are tagged in the list.'],
+						['Archived automations', 'Archived records drop out of the All, Active, and Paused filters and stay under <strong class="text-[#1A1714] font-medium">Archived</strong> with their prompt and run history. <strong class="text-[#1A1714] font-medium">Schedule again</strong> reopens the editor and brings one back, paused. Solus deletes an archive — and its run history — after the period set by <strong class="text-[#1A1714] font-medium">Settings → General → Delete archived automations after</strong>, 30 days by default. Session conversations are kept.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -925,7 +926,7 @@
 				</p>
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
-						['Pair over SSH', `Point Solus at <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">user@host</code> and it connects, installs the Solus server, and pairs automatically. No SSH? Enter the server's address and pair code by hand.`],
+						['Pair over SSH', `Point Solus at <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">user@host</code> and it pairs with the Solus server already installed on that host. No SSH? Enter the server's address and pair code by hand.`],
 						['Pair with a server', `A server you installed yourself prints a pair link and code at startup. Run <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus pair</code> to create another link and QR for any client.`],
 						['Automatic setup', `Once paired, Solus provisions git credentials from your GitHub connection, installs the agent CLIs, and walks you through signing into them.`],
 						['Readiness at a glance', `The host directory shows what's installed and signed in, with one-click repairs for anything missing.`],
@@ -972,6 +973,7 @@
 						['Connected devices', 'The Connections panel lists every paired device with its label and last-connected time.'],
 						['Revoke access', 'Revoking a device invalidates its token immediately; it must re-pair to reconnect.'],
 						['Multiple servers', 'The web app remembers every server you\'ve paired with; remove one with its ✕.'],
+						['Versions and updates', 'A host\'s detail page shows its Solus version and the Claude Code and Codex versions installed on it, each with its check state. An accent dot marks a host with something to update. <strong class="text-[#1A1714] font-medium">Update</strong> on a provider row installs the latest release on that host; Update Solus installs a server update on a supported host without leaving the current page.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -999,16 +1001,18 @@
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Self-hosted server</h3>
 				<p class="text-base/7 sm:text-[14px]">
 					Run the standalone server on any macOS or Linux box and reach it entirely from the
-					browser. Install through Homebrew:
+					browser. Download install.sh from a server release, then run:
 				</p>
-				<div class="mt-4 p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)] font-mono text-[13px] text-[#6B6158] whitespace-pre-wrap">brew install Ashton-Sidhu/tap/solus   # CLI + vendored server runtime
-brew services start solus             # run the daemon in the background
-solus pair                            # create a one-time client pairing link</div>
+				<div class="mt-4 p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)] font-mono text-[13px] text-[#6B6158] whitespace-pre-wrap">sh install.sh
+export PATH="$HOME/.local/bin:$PATH"
+solus setup
+solus pair</div>
 				<ul class="mt-4 flex flex-col gap-3 list-none p-0">
 					{#each [
 						['Manage from the CLI', `<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus start</code>, <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus logs</code>, and <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus update</code> run, tail, and upgrade the daemon. Data lives under <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">~/.solus</code>.`],
 						['Pair every client', `<code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus pair</code> prints a one-time link, code, and QR. Run it again for each additional client.`],
-						['Stays updated', 'Upgrade with <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">brew upgrade solus</code>, or <code class="text-[12px] font-mono bg-[rgba(0,0,0,0.04)] px-1.5 py-0.5 rounded">solus update</code> for tarball installs.'],
+						['Stays updated', 'Choose Update Solus from a connected client, or run solus update on the host. Both download and verify the release, wait for active work, and restart. If startup fails, Solus restores its previous version and host data.'],
+						['Background operation', 'solus setup manages a systemd user service on Linux or a LaunchAgent on macOS. Linux needs lingering to run after logout; setup prints any required command. Keep a Mac logged in and awake. solus status reports service state; solus service uninstall removes startup without deleting your data.'],
 					] as [title, desc]}
 						<li class="flex gap-3">
 							<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
@@ -1122,6 +1126,26 @@ solus pair                            # create a one-time client pairing link</d
 						</div>
 					{/each}
 				</div>
+
+				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Updates</h3>
+				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
+					{#each [
+						['About Solus', 'The running version, a line for the current update state, and the one action for it: <strong class="text-[#1A1714] font-medium">Check for updates</strong>, <strong class="text-[#1A1714] font-medium">Download</strong>, or <strong class="text-[#1A1714] font-medium">Restart to update</strong>. Release notes for a pending release render below it. The same action sits in the Settings header, so you never have to find this row.'],
+						['Download updates automatically', 'Fetch a new release as soon as a check finds one. On by default — you still choose when to restart.'],
+						['Coding providers', 'A summary of the Claude Code and Codex versions on this computer, linking to their rows under <a href="#connections" class="text-[#C4973A] no-underline hover:underline">Connections</a>.'],
+					] as [key, val], i}
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 2 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
+							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
+						</div>
+					{/each}
+				</div>
+				<p class="mt-3 text-[14px] text-[#A09488]">
+					Solus never restarts itself, and it never interrupts a turn: a ready update waits for
+					every session on that host to go idle before it offers the restart. Installing an
+					update is a desktop capability — the web and mobile clients show the version only, and
+					their update action checks the hosts they are connected to.
+				</p>
 
 				<p class="mt-6 text-[14px] text-[#A09488]">Settings are persisted on the host and apply immediately on every connected client. No restart required.</p>
 			</section>

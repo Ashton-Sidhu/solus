@@ -1,3 +1,4 @@
+import { refreshWorkExternalComments } from './work-comments'
 import type { DocDestination, DocDiagramAsset, WorkExternalLink, WorkPublishResult, WorkPullResult } from '@solus/contracts/docs'
 import type { AgentId, Work } from '@solus/contracts/types'
 import { workPreview } from '@solus/contracts/work-preview'
@@ -6,7 +7,7 @@ import { resolveDocUrl } from '../docs/registry'
 import { DocProviderUnavailableError } from '../docs/types'
 import { documentContentHash } from '../docs/content-hash'
 import { publishMirror, pullMirror, refreshMirror } from '../docs/mirror'
-import { agentSaveWork, createWork, loadWork, setWorkMirroredDoc } from './works'
+import { assertWorkEditable, savePulledWork, createWork, loadWork, setWorkMirroredDoc } from './works'
 
 const log = createLogger('folio', 'work-sync.ts')
 
@@ -57,6 +58,7 @@ export async function publishWork(workId: string, options: PublishWorkOptions = 
   const { cwd, destination, diagramAssets, force } = options
   try {
     const work = publishableWork(await loadWork(workId, cwd), workId)
+    assertWorkEditable(work)
     const result = await publishMirror({
       title: work.title,
       content: work.content,
@@ -88,7 +90,7 @@ export async function pullWorkUpstream(workId: string, cwd?: string): Promise<Wo
 
   try {
     const pulled = await pullMirror(link)
-    const saved = await agentSaveWork(
+    const saved = await savePulledWork(
       workId,
       {
         content: pulled.doc.markdown,
@@ -171,10 +173,12 @@ export async function importDocFromUrl(
     ...doc.ref,
     scope: doc.ref.externalKey.split('/').pop() ?? doc.ref.externalKey,
     lastPushedContentHash: documentContentHash(doc.markdown),
+    upstreamContentHash: documentContentHash(doc.markdown),
     syncState: 'ok',
   }
   if (doc.version !== undefined) link.upstreamVersion = doc.version
   await setWorkMirroredDoc(work.id, link, options.cwd)
+  if (resolved.adapter.comments) await refreshWorkExternalComments(work.id)
 
   log.info('doc_imported', { workId: work.id, provider: doc.ref.provider })
   const result: ImportedDoc = { work: { ...work, mirroredDoc: link }, link }

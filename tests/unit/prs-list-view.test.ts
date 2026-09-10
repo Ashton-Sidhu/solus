@@ -104,6 +104,22 @@ describe('PR row slots', () => {
     expect(row.reveal?.title).toBe('solus/look-at-git-commits-f-7jgnb')
   })
 
+  test('saved guides remain visible as accessible icons in the PR list', () => {
+    for (const status of ['ready', 'outdated', 'failed', 'cancelled', 'queued'] as const) {
+      const row = prRow(pullRequest, { ...context, guideStatus: () => status }, NOW);
+      expect(row.chips.some((chip) => chip.iconOnly && chip.icon && chip.label.includes('guide'))).toBe(true);
+    }
+  });
+
+  test('guide badge color conveys lifecycle instead of the application accent', () => {
+    const expected = { ready: 'success', outdated: 'warning', generating: 'info', failed: 'failure', queued: 'neutral', cancelled: 'neutral' } as const;
+    for (const status of Object.keys(expected) as Array<keyof typeof expected>) {
+      const chip = prRow(pullRequest, { ...context, guideStatus: () => status }, NOW).chips.find((chip) => chip.iconOnly);
+      expect(chip?.tint).toBe(expected[status]);
+    }
+    expect(chipSkin('info').color).not.toContain('--primary');
+  });
+
   test('shows background guide generation on the pull request row', () => {
     // WHY: guide generation can start from the Git section or an open review.
     // The PR page must still show that shared work instead of looking idle.
@@ -112,7 +128,7 @@ describe('PR row slots', () => {
       { ...context, guideStatus: () => 'generating' },
       NOW,
     )
-    expect(row.chips).toContainEqual({ label: 'Generating guide', tint: 'running' })
+    expect(row.chips).toContainEqual(expect.objectContaining({ label: 'Generating review guide', iconOnly: true, spinning: true }))
   })
 
   test('every row leads with its lifecycle, because sorted rows have no group to say it', () => {

@@ -74,6 +74,7 @@
     scope: Scope;
     bindings: { close: BindingId; save: BindingId; copy: BindingId; find?: BindingId; pinOutline?: BindingId };
 
+    readOnly?: boolean;
     onSave: (md: string) => void | Promise<void>;
     /** Fires true when there are unsaved edits, false once saved. Lets the host
         decide whether an agent update can safely refresh the editor. */
@@ -152,6 +153,7 @@
     extraExtensions = [],
     scope,
     bindings,
+    readOnly = false,
     onSave,
     onDirtyChange,
     onClose,
@@ -561,7 +563,7 @@
   // (debounced, serialized) save arrives via handleEditorChange.
   function handleEditorInput() {
     if (keyboardInset > 0) requestAnimationFrame(ensureCaretVisible);
-    if (suppressSave) return;
+    if (suppressSave || readOnly) return;
     if (!hasPendingSave) {
       hasPendingSave = true;
       onDirtyChange?.(true);
@@ -570,7 +572,7 @@
 
   function handleEditorChange(md: string) {
     // Already debounced inside the editor (off the keystroke hot path).
-    if (suppressSave) return;
+    if (suppressSave || readOnly) return;
     void saveContent(md);
   }
 
@@ -602,6 +604,7 @@
   }
 
   async function saveContent(md: string) {
+    if (readOnly) return;
     hasPendingSave = false;
     isSaving = true;
     try {
@@ -717,7 +720,7 @@
   <EditorVoiceControl
     onTranscript={(transcript) => editorRef?.insertTranscript(transcript)}
     focused={editorFocused}
-    disabled={editorMode !== "rich"}
+    disabled={readOnly || editorMode !== "rich"}
   />
 {/snippet}
 
@@ -812,7 +815,7 @@
         {#if renaming}
         {@render renameField()}
         {:else}
-        <button type="button" class="doc-shell-toolbar-btn" class:active={overflowOpen} aria-pressed={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)} title="Formatting" aria-label="Formatting"><TextAaIcon size={14} /></button>
+        <button type="button" disabled={readOnly} class="doc-shell-toolbar-btn" class:active={overflowOpen} aria-pressed={overflowOpen} onclick={() => (overflowOpen = !overflowOpen)} title="Formatting" aria-label="Formatting"><TextAaIcon size={14} /></button>
 
         <div class="min-w-2 flex-auto"></div>
 
@@ -826,7 +829,7 @@
         {@render toolbarActions()}
       </div>
 
-      {#if overflowOpen}
+      {#if overflowOpen && !readOnly}
         <button type="button" class="doc-shell-overflow-backdrop" aria-label="Close menu" onclick={() => (overflowOpen = false)}></button>
         <div class="doc-shell-overflow-menu menu-surface" transition:fly={{ y: -6, duration: 130, opacity: 0 }}>
           <button type="button" class="doc-shell-toolbar-btn" class:active={isActive(tiptapEditor, stateVersion, "bold")} onclick={() => { cmd(tiptapEditor, (c) => c.toggleBold()); overflowOpen = false; }} title="Bold" aria-label="Bold"><TextBIcon size={14} weight="bold" /></button>
@@ -933,7 +936,7 @@
     <div class="relative flex flex-1 min-h-0">
       {#if findOpen && tiptapEditor}
         <div class="doc-find-sleeve" transition:fly={{ y: -6, duration: 140, opacity: 0 }}>
-          <FindReplaceBar editor={tiptapEditor} {scrollContainer} onClose={() => (findOpen = false)} />
+          <FindReplaceBar {readOnly} editor={tiptapEditor} {scrollContainer} onClose={() => (findOpen = false)} />
         </div>
       {/if}
       {#if showTocRail}
@@ -982,6 +985,7 @@
         <DocumentEditor
           bind:this={editorRef}
           value={content}
+          {readOnly}
           onValueChange={handleEditorChange}
           onInput={handleEditorInput}
           onFocus={() => (editorFocused = true)}
@@ -1003,12 +1007,12 @@
       </div>
     </div>
 
-    <!-- Formatting lives at the selection, not in a bar. Desktop only: touch
-         has no hover and the OS owns the selection menu there, so the mobile
-         header keeps its own scrollable strip instead. -->
-    {#if !isMobile}
+    <!-- Comment surfaces need selection actions on touch too. The bubble uses
+         its compact touch controls instead of desktop formatting actions. -->
+    {#if !isMobile || onCommentSelection}
       <SelectionBubble
         editor={tiptapEditor}
+        {readOnly}
         onLink={() => editorRef?.openLinkPopover()}
         onComment={onCommentSelection && canCommentSelection ? onCommentSelection : undefined}
         onAskSolus={onAskSolus ? handleAskSolus : undefined}

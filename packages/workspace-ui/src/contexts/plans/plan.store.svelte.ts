@@ -326,7 +326,7 @@ export class PlanStore {
 
   async publish(
     planId: string,
-    options: { content: string; destination?: DocDestination; diagramAssets?: DocDiagramAsset[]; force?: boolean },
+    options: { allowCommentAnchorLoss?: boolean; content: string; destination?: DocDestination; diagramAssets?: DocDiagramAsset[]; force?: boolean },
   ): Promise<WorkPublishResult> {
     const plan = this.plans[planId]
     if (!plan) return { ok: false, error: 'The plan is no longer available.' }
@@ -340,6 +340,7 @@ export class PlanStore {
       destination: options.destination,
       diagramAssets: options.diagramAssets,
       force: options.force,
+      allowCommentAnchorLoss: options.allowCommentAnchorLoss,
     }
     const result = await this.apiForPlan(planId).publishPlan(request)
     if (result.link) {

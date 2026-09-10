@@ -71,7 +71,7 @@ async function cleanLegacyReviewArtifacts(checkoutPath: string): Promise<void> {
  * The initial clone and both exact revision fetches stay shallow. Review agents
  * need the two trees, not the repository's full history.
  */
-export async function ensureManagedPrCheckout(
+async function materializeManagedPrCheckout(
   repo: RepoRef,
   target: PrTarget,
   options: ManagedPrCheckoutOptions = {},
@@ -98,46 +98,80 @@ export async function ensureManagedPrCheckout(
 
   const cloneUrl = options.cloneUrl ?? githubCloneUrl(repo)
   const isHttps = cloneUrl.startsWith('https://')
-  const token = isHttps ? (await githubCredentialChain(repo.host))[0]?.token ?? null : null
-  const askpass = token ? await createGitAskpassHelper() : null
-  const env = gitAuthEnv({ isHttps, token, askpassPath: askpass?.path ?? null })
-  try {
-    await runAsync(
-      'git',
-      ['clone', '--no-checkout', '--depth=1', cloneUrl, checkoutPath],
-      dirname(checkoutPath),
-      { env, timeout: 120_000 },
-    )
-    await runAsync(
-      'git',
-      ['fetch', '--depth=1', '--force', 'origin', `${target.baseSha}:refs/solus/review/base`],
-      checkoutPath,
-      { env, timeout: 120_000 },
-    )
-    await runAsync(
-      'git',
-      ['fetch', '--depth=1', '--force', 'origin', `${target.headSha}:refs/solus/review/head`],
-      checkoutPath,
-      { env, timeout: 120_000 },
-    )
-    const branch = `solus/review/pr-${target.number}`
-    await runAsync('git', ['checkout', '-B', branch, 'refs/solus/review/head'], checkoutPath, { env })
+  const credentials = isHttps ? await githubCredentialChain(repo.host) : []
+  for (let attempt = 0; ; attempt++) {
+    const credential = credentials[attempt]
+    const token = credential?.token ?? null
+    const askpass = token ? await createGitAskpassHelper() : null
+    const env = gitAuthEnv({ isHttps, token, askpassPath: askpass?.path ?? null })
+    // Prevent a configured credential helper from overriding the selected token.
+    const authArgs = token ? ['-c', 'credential.helper='] : []
+    try {
+      await runAsync(
+        'git',
+        [...authArgs, 'clone', '--no-checkout', '--depth=1', cloneUrl, checkoutPath],
+        dirname(checkoutPath),
+        { env, timeout: 120_000 },
+      )
+      await runAsync(
+        'git',
+        [...authArgs, 'fetch', '--depth=1', '--force', 'origin', `${target.baseSha}:refs/solus/review/base`],
+        checkoutPath,
+        { env, timeout: 120_000 },
+      )
+      await runAsync(
+        'git',
+        [...authArgs, 'fetch', '--depth=1', '--force', 'origin', `${target.headSha}:refs/solus/review/head`],
+        checkoutPath,
+        { env, timeout: 120_000 },
+      )
+      const branch = `solus/review/pr-${target.number}`
+      await runAsync('git', ['checkout', '-B', branch, 'refs/solus/review/head'], checkoutPath, { env })
 
-    const prepared = await reusableCheckout(checkoutPath, target)
-    if (!prepared) throw new Error('The managed checkout did not match the requested pull request revision.')
-    log.info('managed_pr_checkout_created', {
-      host: repo.host,
-      owner: repo.owner,
-      repo: repo.repo,
-      prNumber: target.number,
-      headSha: target.headSha,
-      checkoutPath,
-    })
-    return prepared
-  } catch (error) {
-    await rm(checkoutPath, { recursive: true, force: true }).catch(() => {})
-    throw error
-  } finally {
-    if (askpass) await rm(askpass.directory, { recursive: true, force: true }).catch(() => {})
+      const prepared = await reusableCheckout(checkoutPath, target)
+      if (!prepared) throw new Error('The managed checkout did not match the requested pull request revision.')
+      log.info('managed_pr_checkout_created', {
+        host: repo.host,
+        owner: repo.owner,
+        repo: repo.repo,
+        prNumber: target.number,
+        headSha: target.headSha,
+        checkoutPath,
+      })
+      return prepared
+    } catch (error) {
+      await rm(checkoutPath, { recursive: true, force: true }).catch(() => {})
+      const next = credentials[attempt + 1]
+      const message = error instanceof Error ? error.message : String(error)
+      const accessDenied = /authentication failed|repository not found|repository .+ not found|requested URL returned error: (401|403|404)|could not read (Username|Password)|invalid username or (password|token)/i.test(message)
+      if (!next || !accessDenied) throw error
+      log.info('managed_pr_checkout_credential_fallback_started', {
+        host: repo.host,
+        owner: repo.owner,
+        repo: repo.repo,
+        prNumber: target.number,
+        failedSource: credential?.source,
+        nextSource: next.source,
+      })
+    } finally {
+      if (askpass) await rm(askpass.directory, { recursive: true, force: true }).catch(() => {})
+    }
   }
+}
+
+const preparations = new Map<string, Promise<PrCheckoutContext>>()
+
+/** Concurrent guide and recorded-diff reads share checkout preparation. */
+export function ensureManagedPrCheckout(
+  repo: RepoRef,
+  target: PrTarget,
+  options: ManagedPrCheckoutOptions = {},
+): Promise<PrCheckoutContext> {
+  const key = managedPrCheckoutPath(repo, target, options.root)
+  const current = preparations.get(key)
+  if (current) return current
+  const pending = materializeManagedPrCheckout(repo, target, options)
+    .finally(() => { if (preparations.get(key) === pending) preparations.delete(key) })
+  preparations.set(key, pending)
+  return pending
 }

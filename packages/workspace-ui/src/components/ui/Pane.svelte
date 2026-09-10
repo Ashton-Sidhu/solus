@@ -19,10 +19,10 @@
   import DocumentModalSkeleton from "../document-modal/DocumentModalSkeleton.svelte";
   import DiagramShellSkeleton from "../diagram/DiagramShellSkeleton.svelte";
   import FilesRouteSkeleton from "../files/FilesRouteSkeleton.svelte";
-  // The draft composer is the primary creation path, not a data-backed page.
-  // Keep it in the shell chunk so opening a draft never crosses an async
-  // boundary or flashes a loading surface before the input is ready.
+  // Keep both sides of the draft-to-chat transition in the shell chunk so
+  // opening a draft or sending it never flashes a route-loading skeleton.
   import SessionDraftPane from "../session-draft/SessionDraftPane.svelte";
+  import ConversationPane from "../conversation/ConversationPane.svelte";
   // The PR page's own loading state, drawn while its module loads. Eagerly
   // importing the page itself to avoid a second loading state cost the whole
   // review stack — PrDetailPanel -> PrReviewPane -> DiffPanel + DocumentEditor,
@@ -36,10 +36,8 @@
   import { paneActions } from "./lib/pane-actions.svelte";
 
   /**
-   * The route outlet: one pane, whatever route it currently shows. It knows
-   * nothing about any destination — the registry says which module to load and
-   * the surface owns its own chrome, so adding a destination touches no file
-   * but the registry.
+   * The route outlet: drafts and chats mount directly; other destinations load
+   * through the registry. Each surface owns its own chrome.
    */
   interface Props extends Omit<PaneSurfaceProps, "paneId"> {
     pane: PaneEntry;
@@ -67,6 +65,15 @@
 {#snippet surface()}
   {#if ref?.name === "draft"}
     <SessionDraftPane
+      params={ref.params}
+      paneId={pane.id}
+      {surfaceVisible}
+      {onAttachFile}
+      {onScreenshot}
+      {onDesignMode}
+    />
+  {:else if ref?.name === "chat"}
+    <ConversationPane
       params={ref.params}
       paneId={pane.id}
       {surfaceVisible}
@@ -152,8 +159,6 @@
             />
           {/if}
         </div>
-      {:else if ref.name === "chat"}
-        <ConversationPaneSkeleton />
       {:else}
         <div class="relative h-full min-h-0 w-full">
           <ConversationPaneSkeleton />

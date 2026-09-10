@@ -44,7 +44,17 @@ export interface DocSummary {
  * is the provider's concurrency token — a Confluence version number or a Drive
  * version counter — and is the value a later write must still match.
  */
+export interface GoogleDocImage {
+  workId: string
+  title: string
+  objectId: string
+  tabId: string
+  sourceUri: string
+  contentHash: string
+}
+
 export interface NormalizedDoc {
+  googleImages?: GoogleDocImage[]
   ref: DocRef
   title: string
   markdown: string
@@ -70,6 +80,7 @@ export interface DocDiagramAsset {
 /** What Solus last published to a doc, handed back to a read so a provider
  *  can recognize its own embeds on the way in instead of reporting them lost. */
 export interface DocReadHints {
+  googleImages?: GoogleDocImage[]
   diagrams?: DiagramEmbedReference[]
 }
 
@@ -80,6 +91,7 @@ export interface DocDraft {
 }
 
 export interface DocPatch {
+  googleImages?: GoogleDocImage[]
   title?: string
   markdown: string
   diagramAssets?: DocDiagramAsset[]
@@ -107,6 +119,7 @@ export type DocSyncState = 'ok' | 'dirty' | 'upstream_changed' | 'conflict' | 'e
  * carries its link in the manifest and a local work in its meta row.
  */
 export interface WorkExternalLink extends DocRef {
+  googleImages?: GoogleDocImage[]
   /** The place the doc was created in, kept so every later publish is one
   *  keystroke and the picker is never shown twice for one work. */
   scope: DocScope

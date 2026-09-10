@@ -32,6 +32,8 @@ export interface GeneratedGuide {
    * this the status mapping reads every unpersisted guide as `failed`, and
    * editing a file mid-run tells the user the review crashed. */
   outdated?: boolean
+  /** A validated model guide, ready for the PR job owner to commit. */
+  authored?: boolean
 }
 
 export type GenerateGuideOptions = ReviewGuideRequestOptions
@@ -69,6 +71,17 @@ function resolveSessionGuideTarget(
   }
 }
 
+function branchGuideBase(ctx: IpcContext, review: ReviewContext, target: ReviewTarget): string {
+  // PR panes and the batch queue retain branch cache keys. Their prepared PR
+  // base is authoritative; local main can be months behind the pull request.
+  const prReview = ctx.session.prReview
+  if (target.kind === 'branch' && !target.targetBranch
+    && prReview?.worktreePath === reviewCheckout(ctx) && prReview.headSha === review.headSha) {
+    return prReview.baseSha
+  }
+  return review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD'
+}
+
 /** Resolve the target before dedupe/progress so concurrent base variants key
  * apart instead of coalescing onto one run. Session fallback keeps its requested
  * key; stacked generation resolves the parent/child merge-base once, up front. */
@@ -81,7 +94,7 @@ async function resolveTargetBase(ctx: IpcContext, review: ReviewContext, opts: G
     ? 'HEAD'
     : target.kind === 'pr' && target.baseSha
       ? target.baseSha
-      : review.baseSha && review.baseSha !== 'unknown' ? review.baseSha : 'HEAD')
+      : branchGuideBase(ctx, review, target))
   if (target.kind === 'branch' && target.targetBranch && !opts.regenerationBaseSha) {
     const workTree = reviewCheckout(ctx) ?? review.repoRoot
     // A target branch the user names is not guaranteed to exist locally — it may
@@ -95,6 +108,7 @@ async function resolveTargetBase(ctx: IpcContext, review: ReviewContext, opts: G
     }
   }
   const baseKey = guideKeyForTarget(review, target, sessionId ?? null)
+  if (target.kind === 'pr') return { guideKey: baseKey, scope: 'pr', target, base: branchBase, head: target.headSha ?? null, sessionId: null }
   if (!opts.ownDeltaBase) return { guideKey: baseKey, scope: target.kind, target, base: branchBase, head: null, sessionId: null }
   if (opts.regenerationBaseSha) {
     return {
@@ -131,10 +145,12 @@ async function resolveTargetBase(ctx: IpcContext, review: ReviewContext, opts: G
 async function changeSnapshotFor(
   workTree: string,
   review: ReviewContext,
-  target: Pick<GuideTarget, 'base' | 'guideKey' | 'scope' | 'sessionId'>,
+  target: Pick<GuideTarget, 'base' | 'guideKey' | 'scope' | 'sessionId' | 'head'>,
 ): Promise<{ patch: string | null; changeFingerprint: string }> {
   try {
-    const diff = target.scope === 'session' && target.sessionId
+    const diff = target.scope === 'pr' && target.head
+      ? { patch: await runAsync('git', ['-c', 'core.quotepath=false', 'diff', '--no-ext-diff', target.base, target.head, '--'], workTree, { maxBuffer: 50 * 1024 * 1024 }) }
+      : target.scope === 'session' && target.sessionId
       ? await getDiff(null, review.repoRoot, { kind: 'session' }, target.sessionId, [])
       : await getEpisodeDiff(workTree, review.repoRoot, target.base)
     if (!diff) throw new Error('Session snapshot is unavailable.')
@@ -406,6 +422,21 @@ export async function cancelGenerateGuide(
   return true
 }
 
+/** PR jobs own queueing, cancellation, freshness, and the atomic commit. */
+export async function authorPrGuide(
+  dispatcher: AgentDispatcher,
+  ctx: IpcContext,
+  opts: GenerateGuideOptions,
+  signal: AbortSignal,
+  emit: EmitProgress,
+): Promise<GeneratedGuide | null> {
+  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  if (!review || signal.aborted) return null
+  const target = await resolveTarget(ctx, review, opts)
+  if (signal.aborted) return null
+  return produceGuide(dispatcher, ctx, opts, review, target, signal, emit, false)
+}
+
 async function produceGuide(
   dispatcher: AgentDispatcher,
   ctx: IpcContext,
@@ -414,6 +445,7 @@ async function produceGuide(
   target: GuideTarget,
   abortSignal: AbortSignal,
   emit?: EmitProgress,
+  persist = true,
 ): Promise<GeneratedGuide | null> {
   emit?.('preparing')
   // Gate on whether the target has anything to review. Branch-like targets use
@@ -490,6 +522,15 @@ async function produceGuide(
       changedFiles: changedFilesFromPatch(patch),
       ledgerIds: (ledger?.records ?? []).map((r) => r.id),
     }),
+  }
+
+  return finishGuide(workTree, review, target, guide, persist)
+}
+
+async function finishGuide(workTree: string, review: ReviewContext, target: GuideTarget, guide: ReviewGuide, persist: boolean): Promise<GeneratedGuide> {
+  if (!persist) {
+    guide.target = target.target
+    return { key: target.guideKey, guide, persisted: false, authored: true }
   }
 
   // A slow author must not overwrite a guide for newer live content. The base is

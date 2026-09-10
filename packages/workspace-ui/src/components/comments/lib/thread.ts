@@ -1,4 +1,22 @@
 import type { CommentAuthor, PlanComment, PlanCommentReply } from '@solus/contracts/types'
+import type { DocCommentThread } from '@solus/contracts/work-comments'
+
+/**
+ * One card in the comments rail. A document with a linked external copy has
+ * two kinds of conversation on it — the private Solus threads and the ones
+ * that live in the provider — and they share the single margin, so the rail
+ * places both the same way and each card says where it lives.
+ */
+export type RailThread =
+  | { kind: 'local'; id: string; comment: PlanComment }
+  | { kind: 'external'; id: string; thread: DocCommentThread }
+
+export function railThreads(comments: PlanComment[], external: DocCommentThread[]): RailThread[] {
+  return [
+    ...comments.map((comment) => ({ kind: 'local' as const, id: comment.id, comment })),
+    ...external.map((thread) => ({ kind: 'external' as const, id: thread.id, thread })),
+  ]
+}
 
 /** Every author read goes through here: comments written before threads had
  *  authors have no field, and they were all written by the person reading. */

@@ -31,6 +31,7 @@ import {
   type InstallablePackage,
   isValidCloneHost,
   parseCloneUrlParts,
+  resolveAgentOwnership,
   resolveCloneDestination,
   validateCloneUrl,
 } from './setup-commands'
@@ -109,6 +110,8 @@ export interface SetupHandlerDeps extends AgentAuthProbeDeps {
   loadGithubToken?: typeof loadGithubToken
   registerProject?: (path: string) => Promise<string>
   projectsRoot?: () => string
+  assertNewWorkAllowed?: () => void
+  onActiveStepsChanged?: (count: number) => void
   onProviderInstalled?: (agent: SetupAgent) => Promise<void>
 }
 
@@ -305,6 +308,11 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
       try {
         const compatibilityError = agentInstallCompatibilityError(setupAgent)
         if (compatibilityError) throw new Error(compatibilityError)
+        const ownership = resolveAgentOwnership(setupAgent)
+        if (ownership.kind === 'unmanaged') {
+          const label = setupAgent === 'claude' ? 'Claude' : 'Codex'
+          throw new Error(`${label} is already installed at ${ownership.resolvedPath}, outside Solus's installer. Update it there, then check again.`)
+        }
         const spec = buildAgentInstallCommand(setupAgent, { hasCommand })
         emitLog({ step, line: `Running ${spec.display}` })
         const result = await runSetupProcess({ step, spec, spawnProcess, emitStatus, emitLog })
@@ -742,12 +750,15 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   })
 
   async function runExclusive<T>(step: SetupStreamStep, task: () => Promise<T>): Promise<T> {
+    deps.assertNewWorkAllowed?.()
     if (activeSteps.has(step)) throw new Error(`Setup step "${step}" is already running.`)
     activeSteps.add(step)
+    deps.onActiveStepsChanged?.(activeSteps.size)
     try {
       return await task()
     } finally {
       activeSteps.delete(step)
+      deps.onActiveStepsChanged?.(activeSteps.size)
     }
   }
 

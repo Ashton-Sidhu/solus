@@ -5,6 +5,7 @@ import type {
   DocDiagramAsset,
   DocPatch,
   DocRef,
+  DocReadHints,
   NormalizedDoc,
   WorkExternalLink,
   WorkPullResult,
@@ -30,13 +31,13 @@ interface PreparedDocument {
  * publishing a render as a picture is out of scope; what matters here is that
  * a `work://` link never reaches a page, where it would read as a broken link.
  */
-function prepareDocument(content: string, diagramAssets?: DocDiagramAsset[]): PreparedDocument {
+function prepareDocument(content: string, diagramAssets?: DocDiagramAsset[], existingImages: DiagramEmbedReference[] = []): PreparedDocument {
   const hasAssets = !!diagramAssets?.length
   const lossyParts: string[] = []
   const lines = content.split(/\r?\n/).map((line) => {
     const embed = parseWorkEmbed(line)
     if (!embed) return line
-    if (embed.type === 'diagram' && hasAssets) return line
+    if (embed.type === 'diagram' && (hasAssets || existingImages.some(image => image.workId === embed.workId))) return line
     lossyParts.push(`${embed.type}: ${embed.title}`)
     const label = embed.type === 'diagram' ? 'Diagram' : 'Artifact'
     return `_${label}: ${embed.title} — view it in Solus._`
@@ -60,6 +61,7 @@ function publishedDiagrams(prepared: PreparedDocument): DiagramEmbedReference[] 
 function linkFrom(doc: NormalizedDoc, destination: DocDestination, content: string, prepared: PreparedDocument): WorkExternalLink {
   const link: WorkExternalLink = {
     ...doc.ref,
+    googleImages: doc.googleImages,
     scope: destination.scope,
     lastPushedContentHash: documentContentHash(content),
     syncState: 'ok',
@@ -104,10 +106,15 @@ export interface PublishMirrorInput {
   force?: boolean
 }
 
+function existingGoogleDiagrams(link: WorkExternalLink | undefined): DiagramEmbedReference[] | undefined {
+  if (link?.provider !== 'gdrive') return undefined
+  return link.googleImages ?? link.diagrams
+}
+
 export async function publishMirror(input: PublishMirrorInput): Promise<WorkPublishResult> {
   const provider = input.link?.provider ?? input.destination?.provider
   if (!provider) return { ok: false, error: 'Choose a space or folder to publish this document to.' }
-  const prepared = prepareDocument(input.content, input.diagramAssets)
+  const prepared = prepareDocument(input.content, input.diagramAssets, existingGoogleDiagrams(input.link))
 
   try {
     const adapter = docProviderAdapter(provider)
@@ -125,19 +132,24 @@ export async function publishMirror(input: PublishMirrorInput): Promise<WorkPubl
       return result
     }
 
+    // Google can advance Drive versions for comments or deferred revisions.
+    // Compare the saved content baseline before treating that as a conflict.
+    const currentLink = provider === 'gdrive' && !input.force ? await refreshMirror(input.link) : input.link
     const patch: DocPatch = {
       title: input.title,
       markdown: prepared.markdown,
       diagramAssets: prepared.diagramAssets,
+      googleImages: input.link.googleImages,
     }
-    if (!input.force && input.link.upstreamVersion !== undefined) {
-      patch.expectedVersion = input.link.upstreamVersion
+    if (!input.force && currentLink.upstreamVersion !== undefined) {
+      patch.expectedVersion = currentLink.upstreamVersion
     }
     const updated = await adapter.update(input.link, patch)
-    const diagrams = publishedDiagrams(prepared)
+    const diagrams = updated.googleImages?.map(image => ({ workId: image.workId, title: image.title })) ?? publishedDiagrams(prepared)
     const link: WorkExternalLink = {
       ...input.link,
       ...updated.ref,
+      googleImages: updated.googleImages,
       lastPushedContentHash: documentContentHash(input.content),
       syncState: 'ok',
       syncError: undefined,
@@ -149,23 +161,26 @@ export async function publishMirror(input: PublishMirrorInput): Promise<WorkPubl
     if (prepared.lossyParts.length) result.lossyParts = prepared.lossyParts
     return result
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error))
-    if (err instanceof DocVersionConflictError && input.link) {
-      const link = { ...input.link, syncState: 'conflict' as const, syncError: err.message }
-      const result: WorkPublishResult = { ok: false, conflict: true, link }
-      if (err.upstreamUpdatedAt) result.upstreamUpdatedAt = err.upstreamUpdatedAt
-      return result
-    }
-    if (input.link) {
-      const link: WorkExternalLink = {
-        ...input.link,
-        syncState: err instanceof DocProviderUnavailableError ? 'auth_error' : 'error',
-        syncError: err.message,
-      }
-      return { ok: false, error: err.message, link }
-    }
-    return { ok: false, error: err.message }
+    return publishFailure(error instanceof Error ? error : new Error(String(error)), input.link)
   }
+}
+
+function publishFailure(err: Error, previousLink: WorkExternalLink | undefined): WorkPublishResult {
+  if (err instanceof DocVersionConflictError && previousLink) {
+    const link = { ...previousLink, syncState: 'conflict' as const, syncError: err.message }
+    const result: WorkPublishResult = { ok: false, conflict: true, link }
+    if (err.upstreamUpdatedAt) result.upstreamUpdatedAt = err.upstreamUpdatedAt
+    return result
+  }
+  if (previousLink) {
+    const link: WorkExternalLink = {
+      ...previousLink,
+      syncState: err instanceof DocProviderUnavailableError ? 'auth_error' : 'error',
+      syncError: err.message,
+    }
+    return { ok: false, error: err.message, link }
+  }
+  return { ok: false, error: err.message }
 }
 
 export interface PulledMirror {
@@ -175,9 +190,11 @@ export interface PulledMirror {
 }
 
 export async function pullMirror(link: WorkExternalLink): Promise<PulledMirror> {
-  const doc = await docProviderAdapter(link.provider).read(link, { diagrams: link.diagrams })
+  const doc = await docProviderAdapter(link.provider).read(link, mirrorReadHints(link))
   const refreshed: WorkExternalLink = {
     ...link,
+    googleImages: doc.googleImages ?? link.googleImages,
+    diagrams: doc.googleImages?.map(image => ({ workId: image.workId, title: image.title })) ?? link.diagrams,
     lastPushedContentHash: documentContentHash(doc.markdown),
     upstreamContentHash: documentContentHash(doc.markdown),
     upstreamVersion: doc.version,
@@ -206,10 +223,23 @@ export async function pullMirror(link: WorkExternalLink): Promise<PulledMirror> 
  * refreshed value is stored whenever the content matches, so an unchanged doc
  * is not re-examined on every poll.
  */
+function mirrorReadHints(link: WorkExternalLink): DocReadHints | undefined {
+  if (!link.diagrams?.length && !link.googleImages?.length) return undefined
+  const hints: DocReadHints = { diagrams: link.diagrams }
+  if (link.googleImages?.length) hints.googleImages = link.googleImages
+  return hints
+}
+
+function googleImagesChanged(link: WorkExternalLink, doc: NormalizedDoc): boolean {
+  if (!link.googleImages?.length || !doc.googleImages) return false
+  return link.googleImages.length !== doc.googleImages.length || link.googleImages.some(image => !doc.googleImages?.some(current => current.objectId === image.objectId && current.sourceUri === image.sourceUri))
+}
+
 export async function refreshMirror(link: WorkExternalLink): Promise<WorkExternalLink> {
   try {
-    const hints = link.diagrams?.length ? { diagrams: link.diagrams } : undefined
+    const hints = mirrorReadHints(link)
     const doc = await docProviderAdapter(link.provider).read(link, hints)
+    if (googleImagesChanged(link, doc)) return { ...link, syncState: 'upstream_changed', syncError: undefined }
     if (doc.version === undefined || doc.version === link.upstreamVersion) return link
 
     const upstreamContentHash = documentContentHash(doc.markdown)

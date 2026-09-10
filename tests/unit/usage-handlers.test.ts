@@ -3,6 +3,7 @@ import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import type { AgentUsageLimits } from '@solus/contracts/types'
 import { registerUsageHandlers } from '@solus/server/server/handlers/usage-handlers'
 import { SolusServer } from '@solus/server/server/server'
+import { UsageLimitsStore } from '@solus/server/usage/usage-store'
 
 describe('usage handlers', () => {
   test('one shared refresh emits one limits event for concurrent callers', async () => {
@@ -17,6 +18,7 @@ describe('usage handlers', () => {
       controlPlane: {
         usageCapableAgents: () => ['claude-code'],
         readUsageLimits: () => read,
+        usageLimits: new UsageLimitsStore(),
       } as never,
       events: {
         broadcast: (_type: string, payload: { snapshots: AgentUsageLimits[] }) => {
@@ -47,6 +49,7 @@ describe('usage handlers', () => {
       controlPlane: {
         usageCapableAgents: () => ['claude-code'],
         readUsageLimits: async () => null,
+        usageLimits: new UsageLimitsStore(),
       } as never,
       events: { broadcast: () => 1 } as never,
     })

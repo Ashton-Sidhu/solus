@@ -24,6 +24,22 @@
     --orb-gap: calc(0.2813rem * var(--orb-scale));
 
     width: min(calc(100% - 2rem), var(--solus-reading-max));
+
+    /* The row rides on the composer's live top edge, so a fold moves it. The
+       bar's own tween is a WAAPI height animation on the card, which the dock
+       reports at its destination height from the first frame — so without this
+       the row would jump the whole fold distance while the bar was still
+       travelling. Same duration and easing, published by WorkspaceBody from
+       the fold's constants, so the two edges stay together frame for frame. */
+    transition: bottom var(--solus-composer-fold-duration, 0ms)
+      var(--solus-composer-fold-easing, linear);
+  }
+
+  /* The fold is a cut under reduced motion, so the row cuts with it. */
+  @media (prefers-reduced-motion: reduce) {
+    .action-orb-root {
+      transition: none;
+    }
   }
 
   /* At laptop widths the labeled dock stays visually proportional to the two
