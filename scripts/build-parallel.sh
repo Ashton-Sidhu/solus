@@ -10,6 +10,8 @@
 set -uo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "$repo_root"
+bun scripts/qa/build-identity-cli.ts begin || exit 1
 desktop_log="$(mktemp)"
 client_log="$(mktemp)"
 trap 'rm -f "$desktop_log" "$client_log"' EXIT
@@ -34,3 +36,5 @@ if [ "$desktop_status" -ne 0 ] || [ "$client_status" -ne 0 ]; then
   echo "build failed (desktop=$desktop_status client=$client_status)" >&2
   exit 1
 fi
+
+bun scripts/qa/build-identity-cli.ts finish

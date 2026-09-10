@@ -4,6 +4,7 @@ import type { Prompt } from "@solus/contracts/types";
 import type PromptEditor from "../../ui/PromptEditor.svelte";
 import { localApi } from "@solus/client-core/local-api";
 import { FOCUS_INPUT_EVENT, requestInputFocus } from "../../../lib/inputFocus";
+import { shouldFocusReadyComposer } from "./connection-focus";
 import { quotedReplyDraft } from "../../../lib/quoted-reply";
 
 interface ComposerFocusOptions {
@@ -52,12 +53,16 @@ export function useComposerFocus(options: ComposerFocusOptions) {
     });
   });
 
-  let prevFocusable = untrack(() => options.active() && !session.unifiedPickerOpen);
+  let wasConnecting = untrack(() => options.session()?.status === "connecting");
+  let prevFocusable = untrack(() => options.active() && !session.unifiedPickerOpen && !wasConnecting);
   $effect(() => {
     if (!options.isPrimary()) return;
     void options.session()?.run.workingDirectory;
     void options.session()?.readOnlyReason;
-    const isFocusable = options.active() && !session.unifiedPickerOpen;
+    const isConnecting = options.session()?.status === "connecting";
+    const connectionBecameReady = wasConnecting && !isConnecting;
+    wasConnecting = isConnecting;
+    const isFocusable = options.active() && !session.unifiedPickerOpen && !isConnecting;
     const justBecameFocusable = isFocusable && !prevFocusable;
     prevFocusable = isFocusable;
 
@@ -66,7 +71,9 @@ export function useComposerFocus(options: ComposerFocusOptions) {
     if (justBecameFocusable) {
       // rAF ensures focus lands after display:none → visible transitions
       requestAnimationFrame(() => {
-        if (options.active() && !session.unifiedPickerOpen && !options.isReadOnly()) {
+        if (options.active() && !session.unifiedPickerOpen && options.session()?.status !== "connecting" && !options.isReadOnly()) {
+          const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+          if (connectionBecameReady && !shouldFocusReadyComposer(options.isFocusedPaneComposer(), activeElement)) return;
           options.editor()?.focus();
         }
       });

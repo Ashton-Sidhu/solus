@@ -2056,8 +2056,10 @@ export class ControlPlane extends EventEmitter {
       if (cancelled) {
         this.sessionEmitter.recordTerminal(sessionId, 'interrupted')
         this._setStatus(sessionId, 'interrupted')
+        return true
       }
-      return cancelled
+      // Resumed sessions already have a provider id while their next handle
+      // is still pending. A miss in the active map must try that handle too.
     }
 
     // Fall back to pre-session_init handles owned by any backend.

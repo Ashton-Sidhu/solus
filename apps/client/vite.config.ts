@@ -18,7 +18,8 @@ const geistFontsDir = resolve(dirname(require.resolve('geist/font/sans')), 'font
 
 export default defineConfig({
   root: resolve(__dirname),
-  envDir: resolve(__dirname, '../..'),
+    define: process.env.BUILD_TARGET === 'test' ? { 'import.meta.env.VITE_POSTHOG_KEY': JSON.stringify('') } : {},
+  envDir: process.env.BUILD_TARGET === 'test' ? false : resolve(__dirname, '../..'),
   publicDir: resolve(__dirname, 'public'),
   resolve: {
     alias: {
@@ -50,7 +51,8 @@ export default defineConfig({
     },
   },
   build: {
-    outDir: resolve(__dirname, '../../dist/client'),
+    sourcemap: process.env.BUILD_TARGET === 'test',
+    outDir: resolve(__dirname, process.env.BUILD_TARGET === 'test' ? '../../dist/test/client' : '../../dist/client'),
     emptyOutDir: true,
     // Feature-level dynamic imports own chunk boundaries. Let Rollup follow
     // those boundaries instead of forcing shared dependencies into manual

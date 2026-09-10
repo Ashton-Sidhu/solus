@@ -1,81 +1,47 @@
 ---
 name: run-app
-description: Run this worktree's Solus app headlessly (standalone server + headless Chromium), drive it with Playwright, capture screenshots/video, read its logs. Use when asked to run, demo, screenshot, or visually verify the app.
+description: Start, reuse, inspect, and stop an isolated Solus QA run with mock agents and a standalone web client. Use when asked to run, demo, screenshot, or visually verify Solus.
 ---
 
-# Run Solus headlessly
+# Run Solus for QA
 
-Use the existing standalone server and Playwright entry points. Never launch the desktop dev app for this workflow, and never point a run at `~/.solus`.
+Read [the canonical QA runbook](../../../docs/operations/qa.md) before launching a run.
+It owns setup, isolation, identity checks, fixtures, pairing, evidence, and cleanup.
 
-## Build
-
-Choose one flavor. Both write to `dist/`, so switching flavors requires rebuilding.
-
-```bash
-bun run build       # real agent backends
-bun run build:test  # deterministic mock backends; no API keys or real sessions
-```
-
-## Launch once and reuse
-
-Start the server from the worktree root as a background Bash task. Keep the captured task/PID for the whole verification loop; do not relaunch it every turn.
+Run from the worktree containing the change:
 
 ```bash
-SOLUS_DATA_DIR="$PWD/.solus-local" SOLUS_PORT=0 SOLUS_NO_LAN_DISCOVERY=1 \
-  node dist/main/standalone.js --data-dir "$PWD/.solus-local"
+bun run qa doctor
+bun run build:test
+bun run qa start
+bun run qa status <run-id>
+bun run qa smoke
+bun run qa report <run-id>
 ```
 
-Wait for the lock, discover the OS-assigned port, and verify health:
+Run `bun run qa setup` if doctor reports missing or incompatible dependencies. The mock
+build uses `dist/test/` and cannot replace the production build. Read the returned run
+manifest for its actual URL, data directory, logs, source fingerprint, and captured PID.
+Do not start development code against live Solus state. The default project is a fresh
+Git repository in its own temporary directory, recorded as `projectDir`; use that exact
+path, not a path derived from `dataDir`. This runner
+uses mock providers only; it cannot prove a real provider integration.
 
-```bash
-until test -f .solus-local/server.lock; do sleep 0.1; done
-PORT=$(jq -r .port .solus-local/server.lock)
-curl -fs "http://127.0.0.1:$PORT/health"
-```
+Keep the healthy run and browser context for the full review loop. Check status before
+reuse. After source changes, run `bun run build:test` and `bun run qa restart <run-id>`
+to keep the sandbox and project while replacing the tested process. Read the new URL
+and repeat the affected checks; prior evidence does not cover the new build. Give helpers the existing manifest; do not launch another server per agent or turn.
+Use `browser_*` tools on the reported target or `scripts/agent/open-app.ts` for scripted
+Playwright checks. Record assertions as well as images. Phone browser emulation does not
+prove native mobile behavior.
 
-Before later verification turns, check this instance's lock PID and health and reuse it. Subagents must use the same running instance; they must not launch competing instances.
+Use `bun run qa handoff <run-id> <device-label>` and the runbook's existing Solus pairing flow when a person needs
+to connect. Probe the bare origin without consuming their single-use pairing token. Create
+separate pairing credentials for each browser or device. Do not publish a tunnel by default.
 
-## Drive with Playwright
-
-Write a short disposable TypeScript script that imports `openApp` from `scripts/agent/open-app.ts`, then run it with `bun <script>`. The helper seeds the saved loopback server before page boot so the web client connects to it immediately instead of booting hostless.
-
-```ts
-import { mkdir } from 'node:fs/promises'
-import { openApp } from './scripts/agent/open-app'
-
-const port = process.env.PORT
-if (!port) throw new Error('PORT is required')
-
-await mkdir('.solus-local/artifacts', { recursive: true })
-const { browser, page } = await openApp(`http://127.0.0.1:${port}`)
-try {
-  await page.screenshot({ path: '.solus-local/artifacts/workspace.png', fullPage: true })
-} finally {
-  await browser.close()
-}
-```
-
-Reusable selectors and interaction patterns live in `tests/e2e/helpers/*.page.ts`.
-
-For video, pass `{ videoDir: '.solus-local/artifacts/video' }`. Capture `const video = page.video()`, then `await context.close()` before calling `await video?.path()`; closing the context finalizes the WebM. Close the browser afterward. Only convert WebM to MP4/GIF when the artifact must be shared, using Playwright's bundled ffmpeg rather than a screen recorder. A headless page has no desktop screen to capture.
-
-## Logs and artifacts
-
-- Main-process NDJSON: `<worktree>/dev.log`. Query it with the `jq` recipes in `CLAUDE.md`/`AGENTS.md`.
-- Boot output: the background task's stdout.
-- Screenshots and video: `.solus-local/artifacts/`.
-- `.solus-local/` is disposable and gitignored. Never copy its SQLite files while the server is running because WAL state may be active.
-
-## Teardown
-
-When the verification work is complete, stop only the PID recorded by this instance:
-
-```bash
-kill "$(jq -r .pid .solus-local/server.lock)"
-```
-
-Wait for graceful shutdown and confirm `.solus-local/server.lock` is removed. Never use `pkill`, `killall`, or a PID discovered only by process-name matching.
-
-## Electron-only checks
-
-For window, tray, or IPC-specific behavior only, follow `tests/e2e/fixtures/electron-app.ts` with Playwright `_electron.launch`, `SOLUS_TEST_MODE=1`, a fresh `mkdtemp` `--user-data-dir`, and a `SOLUS_DATA_DIR` inside that temporary directory. Electron windows are created but never shown. Use this secondary path only when the standalone web client cannot exercise the behavior.
+When the review loop ends, run `bun run qa stop <run-id>`. This retains the project and
+evidence. Use `bun run qa dispose-project <run-id>` only when its owned temporary
+project is no longer needed; the command checks ownership and keeps run evidence. Never stop a PID
+found only by name or path. Native Electron checks use the isolated fixture in
+`tests/e2e/fixtures/electron-app.ts`; they apply to IPC and native shell behavior that the
+standalone web client cannot exercise.

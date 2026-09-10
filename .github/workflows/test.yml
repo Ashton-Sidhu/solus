@@ -20,7 +20,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: latest
+          bun-version: 1.3.14
 
       # setup-bun caches the bun binary, not the packages it downloads. Without
       # these, every run refetches the whole dependency set plus the ~100 MB
@@ -37,17 +37,68 @@ jobs:
             deps-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun run qa setup
 
-      # Runs before the build: the suite takes seconds, so failing here saves
-      # the several minutes the Electron build costs. `--parallel` (in the
-      # script) gives each file a fresh global and module registry — without it
-      # ~80 files that call `mock.module` leak their mocks into every file that
-      # runs after them, and the suite reports failures that no file actually has.
+      # A failure keeps CI red, while later QA steps still collect evidence.
+      # The unit runner gives each file a fresh process and a deadline so module
+      # mocks cannot leak between files and stalled workers cannot outlive the run.
       - name: Run unit tests
-        run: bun run test:unit
+        run: |
+          set -o pipefail
+          bun run test:unit 2>&1 | tee .solus-local/unit-tests.log
 
       - name: Build app
+        if: ${{ !cancelled() }}
         env:
           NODE_OPTIONS: --max-old-space-size=4096
         run: bun run build
+
+      - name: Check QA tooling types and lint
+        if: ${{ !cancelled() }}
+        run: |
+          bun run check:qa
+          bun run oxlint scripts/qa scripts/agent apps/standalone-server/src/index.ts packages/server/src/logger.ts
+          bun run lint:rules
+
+      # These checks expose the existing repository debt without claiming it passed.
+      # The focused QA checks above are required. Remove continue-on-error when the
+      # repository-wide baseline is fixed; its output remains an uploaded artifact.
+      - name: Report repository type and lint baseline
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: bun run qa check > .solus-local/check-output.log 2>&1
+
+      - name: Install Chromium for isolated web QA
+        if: ${{ !cancelled() }}
+        run: bun run playwright install chromium
+
+      - name: Build deterministic QA app
+        if: ${{ !cancelled() }}
+        run: bun run build:test
+
+      - name: Run bounded web, mobile, and native smoke
+        if: ${{ !cancelled() }}
+        run: bun run qa smoke
+
+      - name: Upload QA evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-evidence
+          if-no-files-found: warn
+          include-hidden-files: true
+          path: |
+            .solus-local/reports/smoke/
+            .solus-local/reports/smoke-results/
+            playwright-report/
+            test-results/
+            .solus-local/unit-tests.log
+            .solus-local/checks.json
+            .solus-local/check-output.log
+            .solus-local/runs/*/run.json
+            .solus-local/runs/*/validation.json
+            .solus-local/runs/*/report.json
+            .solus-local/runs/*/logs/**/*.log
+            .solus-local/runs/*/history/**/*.json
+            dist/build-identity.json
+            dist/test/build-identity.json

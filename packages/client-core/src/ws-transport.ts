@@ -1,4 +1,5 @@
 import { io, type Socket } from 'socket.io-client'
+import { isBrowserVisible } from './browser-visibility'
 import { RPC_INVOKE_METHODS } from '@solus/contracts/rpc'
 import type { RpcInvokeMethod } from '@solus/contracts/rpc'
 import { MAX_ATTACHMENT_UPLOAD_BYTES, MAX_ATTACHMENT_UPLOAD_COUNT } from '@solus/contracts/rpc'
@@ -211,13 +212,18 @@ export class WsTransport {
   buildSolusApi() {
     const api = {
       getPlatform: () => 'web',
+      isVisible: isBrowserVisible,
       getPathForFile: () => '',
       setQuoteContext: () => {},
       onQuoteSelection: () => () => {},
       onAskSelectionInNewSession: () => () => {},
     }
 
+    const nativeShell = globalThis.window && 'solusNative' in globalThis.window && globalThis.window.solusNative
     for (const method of RPC_INVOKE_METHODS) {
+      // Standalone hosts have no browser window. Preserve the native desktop
+      // handler when a native shell exists; web visibility is device-local.
+      if (method === 'isVisible' && !nativeShell) continue
       Reflect.set(api, method, (...args: unknown[]) => this.invoke(method, args))
     }
 

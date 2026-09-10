@@ -173,8 +173,9 @@ You'll additionally need [Bun](https://bun.sh) and the Xcode Command Line Tools.
 ```bash
 git clone https://github.com/Ashton-Sidhu/solus.git
 cd solus
-bun install
-bun run dev      # development
+bun run qa setup
+bun run qa doctor
+bun run dev      # interactive Electron development
 ```
 
 ```bash
@@ -187,21 +188,26 @@ bun run dist     # produces a Solus.app bundle in dist/
 ## How it works
 
 ```
-renderer  →  window.solus.<method>()      (src/preload — wraps as an RPC envelope)
-          →  SolusServer.handle()         (src/main/server)
-          →  handler in server/handlers/  (one file per domain)
-          →  ControlPlane / managers      (src/main/control-plane.ts)
-events    ←  broadcast back over RPC topics
+renderer  →  workspace.apiFor(tabId) / serverConnections.apiFor(serverId)
+          →  host-bound RPC over Electron IPC or WebSockets
+          →  SolusServer.handle()
+          →  domain handler → ControlPlane / focused managers
+events    ←  typed RPC topics → host-bound renderer stores
 ```
 
 | Path | Owns |
 |---|---|
-| `src/main/` | Electron main process — sessions, agents, git, RPC server |
-| `src/main/agents/` | Agent backends (`claude/`, `codex/`) and the backend registry |
-| `src/renderer/` | Svelte 5 UI — one folder per feature, stores in `contexts/` |
-| `src/shared/` | RPC method and topic definitions shared by both sides |
-| `client/` | Web client served by the headless server |
+| `apps/desktop/` | Electron main, preload, native shell, renderer bootstrap |
+| `apps/standalone-server/` | Headless server entry |
+| `apps/client/` | Web and mobile-responsive client shell |
+| `packages/server/src/` | Sessions, agents, git, RPC handlers, domain managers |
+| `packages/workspace-ui/src/` | Shared Svelte UI and feature stores |
+| `packages/client-core/src/` | Host connections and transport-neutral client logic |
+| `packages/contracts/src/` | Shared domain types, RPC methods and topics |
 | `docs/adr/` | Architecture decision records |
+
+Use the [QA runbook](docs/operations/qa.md) for isolated worktrees, mock agents,
+end-to-end checks, phone handoff, debug access, and saved evidence.
 
 Built with **Electron** + **electron-vite**, **Svelte 5**, **TypeScript**, **Tailwind CSS v4**, and the **@anthropic-ai/claude-agent-sdk**.
 

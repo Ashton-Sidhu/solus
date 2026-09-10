@@ -152,7 +152,10 @@ export function productionLogFilePath(): string {
  */
 export function logFilePath(): string {
   if (!logPath) {
-    if (isDevRuntime()) {
+    if (process.env.SOLUS_LOG_DIR) {
+      mkdirSync(process.env.SOLUS_LOG_DIR, { recursive: true })
+      logPath = join(process.env.SOLUS_LOG_DIR, 'solus.log')
+    } else if (isDevRuntime()) {
       logPath = join(process.cwd(), 'dev.log')
       try { writeFileSync(logPath, '') } catch {}
     } else {

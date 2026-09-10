@@ -162,7 +162,9 @@ Use these terms consistently in code, plans, and conversation:
     infrastructure and are auto-allowed: opening a browser page on a discovered
     dev server, resizing it, snapshotting it, and driving it are ordinary
     verification, not a surprise. Starting the dev server itself is still not —
-    Solus does not own those processes (`docs/plans/cross-platform-visual-qa.md`).
+    Solus does not own those processes. For an authorized isolated QA run, use
+    `bun run qa start` and the lifecycle in `docs/operations/qa.md`. Authorization
+    to implement and verify a change includes that requested QA run; do not ask again.
 11. **No broad unknown records.** `Record<string, unknown>` is forbidden in authored code.
     Define the exact object shape with a domain-specific type. Do not replace it with
     `object`, `unknown`, a broad index signature, a type assertion, or a renamed loose
@@ -353,7 +355,8 @@ so state survives transitions.
 - Do not assume a printed port or URL is stable. Read the current process output.
 - Use a worktree-local or temporary `SOLUS_DATA_DIR` for any standalone server you start.
 - Do not point development builds at the live desktop `userData` directory or `~/.solus`.
-- Do not open browser windows or use computer control without permission.
+- The `browser_*` tools on discovered servers are allowed. Other browser launch tools
+  and computer control require permission unless already authorized by the task.
 - For an explicitly requested isolated headless app run, follow `.claude/skills/run-app/SKILL.md`; subagents reuse the running instance rather than launching their own.
 - Do not modify generated provider types by hand. Use the generator script when the task
   explicitly requires regenerated Codex types.
@@ -379,9 +382,14 @@ Use the smallest proof that demonstrates the change:
    `bun test tests/unit/<feature>.test.ts`.
 2. Run any targeted typecheck, lint, or generator validation that owns the changed area.
 
-Do not run the full Playwright suite, start a dev server, or perform browser/computer-use
-verification unless asked. User-visible frontend changes may receive one integrated pass
-after the implementation is complete and the developer has agreed to it.
+Focused tests, static checks, and the `browser_*` tools on discovered servers are
+ordinary verification. Run `bun run qa doctor` to check setup. The full Playwright
+suite and a new interactive environment require task authorization. An explicit request
+to implement the QA workflow and verify it supplies that authorization. Do not ask again
+on later turns in the same review loop. Use `bun run qa start` for isolated mock QA,
+`bun run qa status <run-id>` before reuse, rebuild then `bun run qa restart <run-id>`
+after source changes, and `bun run qa stop <run-id>` when that loop ends.
+See [the QA runbook](docs/operations/qa.md) for evidence and client coverage.
 
 Backend behavior changes should ship with focused tests. Prefer deterministic event,
 receipt, and lifecycle assertions over sleeps or polling. A test that passes only because
@@ -389,8 +397,9 @@ of an arbitrary timeout is unreliable.
 
 ## Dev logs
 
-The running dev server writes two files at the repo root. Read them instead of starting a
-dev server of your own.
+The normal dev server writes two files at the repo root. Isolated QA runs use their
+manifest’s `logDir`; use that directory so concurrent runs cannot mix evidence. Read
+existing logs before starting another server. See [debug recipes](docs/operations/qa.md#debug-recipes).
 
 - **`dev.log`** — every main-process log entry as structured NDJSON, one JSON object per
   line: `ts`, `level`, `tag`, `file`, `msg`, plus the call's data fields. `msg` is a stable

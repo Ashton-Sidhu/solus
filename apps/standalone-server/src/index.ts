@@ -1,6 +1,7 @@
 import { supervisorMessageSchema, type SupervisorMessage } from '@solus/contracts/server-update'
 import packageJson from '../../../package.json'
 import { join } from 'path'
+import { writeFileSync, renameSync } from 'node:fs'
 import { createLogger, flushLogs } from '@solus/server/logger'
 import { shutdownAnalytics } from '@solus/server/analytics'
 import { shutdownOtel } from '@solus/server/otel'
@@ -129,6 +130,14 @@ async function main(): Promise<void> {
   const endpoint = bestEndpoint(await listReachableEndpoints(core.booted.host, core.booted.port))!
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
   process.stdout.write(`Solus server reachable at ${baseUrl}\n`)
+
+  if (process.env.SOLUS_TEST_MODE === '1' && process.env.SOLUS_QA_READY_FILE) {
+    const readyPath = process.env.SOLUS_QA_READY_FILE
+    writeFileSync(`${readyPath}.tmp`, JSON.stringify({ pid: process.pid, url: `http://127.0.0.1:${core.booted.port}` }))
+    renameSync(`${readyPath}.tmp`, readyPath)
+    installShutdownHandlers(core, closeBrowserHost)
+    return
+  }
 
   const pairToken = auth.generatePairToken()
   const pairUrl = `${baseUrl}/pair#token=${pairToken.token}`

@@ -1,0 +1,9 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "noEmit": true, "types": ["vite/client"] },
+  "include": [
+    "packages/workspace-ui/src/**/*",
+    "apps/client/src/**/*",
+    "apps/desktop/src/renderer/**/*"
+  ]
+}

@@ -52,7 +52,7 @@ export default defineConfig(({ mode }) => {
   // `process.env.*`, which Vite leaves as a runtime lookup — undefined on the
   // end-user's machine. Inline them at build time so production bundles embed
   // the real values. loadEnv merges `.env[.mode]` files with the build env.
-  const env = loadEnv(mode, process.cwd(), '')
+  const env = isTestBuild ? {} : loadEnv(mode, process.cwd(), '')
   const oauthDefines = {
     'process.env.SOLUS_GOOGLE_CLIENT_ID': JSON.stringify(env.SOLUS_GOOGLE_CLIENT_ID ?? ''),
     'process.env.SOLUS_GOOGLE_CLIENT_SECRET': JSON.stringify(env.SOLUS_GOOGLE_CLIENT_SECRET ?? ''),
@@ -66,13 +66,13 @@ export default defineConfig(({ mode }) => {
   main: {
     define: oauthDefines,
     resolve: {
-      alias: {
+      alias: [
         ...testMainAliases,
-        '@solus/contracts': resolve(__dirname, 'packages/contracts/src'),
-        '@solus/server': resolve(__dirname, 'packages/server/src'),
-        '@solus/desktop-main': resolve(__dirname, 'apps/desktop/src/main'),
-        '@solus/workspace-ui': resolve(__dirname, 'packages/workspace-ui/src'),
-      }
+        { find: '@solus/contracts', replacement: resolve(__dirname, 'packages/contracts/src') },
+        { find: '@solus/server', replacement: resolve(__dirname, 'packages/server/src') },
+        { find: '@solus/desktop-main', replacement: resolve(__dirname, 'apps/desktop/src/main') },
+        { find: '@solus/workspace-ui', replacement: resolve(__dirname, 'packages/workspace-ui/src') },
+      ]
     },
     server: {
       watch: {
@@ -80,7 +80,8 @@ export default defineConfig(({ mode }) => {
       }
     },
     build: {
-      outDir: 'dist/main',
+      sourcemap: isTestBuild,
+      outDir: isTestBuild ? 'dist/test/main' : 'dist/main',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'apps/desktop/src/main/index.ts'),
@@ -110,7 +111,8 @@ export default defineConfig(({ mode }) => {
       }
     },
     build: {
-      outDir: 'dist/preload',
+      sourcemap: isTestBuild,
+      outDir: isTestBuild ? 'dist/test/preload' : 'dist/preload',
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'apps/desktop/src/preload/index.ts')
@@ -124,6 +126,7 @@ export default defineConfig(({ mode }) => {
   },
   renderer: {
     root: resolve(__dirname, 'apps/desktop/src/renderer'),
+    define: process.env.BUILD_TARGET === 'test' ? { 'import.meta.env.VITE_POSTHOG_KEY': JSON.stringify('') } : {},
     resolve: {
       alias: {
         '@solus/client-core': resolve(__dirname, 'packages/client-core/src'),
@@ -151,7 +154,8 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [solusIconSubset(), svelte(), tailwindcss()],
     build: {
-      outDir: resolve(__dirname, 'dist/renderer'),
+      sourcemap: isTestBuild,
+      outDir: resolve(__dirname, isTestBuild ? 'dist/test/renderer' : 'dist/renderer'),
       // The renderer intentionally ships large isolated vendor chunks for the
       // diagram/icon and diff highlighter stacks. App code stays split out via
       // manualChunks above; the default 500 KB browser-site warning is too low

@@ -1,6 +1,6 @@
 # Contributing to Solus
 
-Thanks for your interest in contributing. Solus is a native macOS desktop app for working with coding agents from a keyboard-first UI.
+Thanks for your interest in contributing. Solus provides a keyboard-first workspace on desktop, web, and mobile browsers.
 
 ## Getting Started
 
@@ -12,7 +12,8 @@ Thanks for your interest in contributing. Solus is a native macOS desktop app fo
    ```
 3. Install dependencies:
    ```bash
-   bun install
+   bun run qa setup
+   bun run qa doctor
    ```
 4. Copy optional local configuration if you need analytics, Google integration, or release signing:
    ```bash
@@ -28,9 +29,10 @@ Do not commit `.env`, local worktrees, build output, or test artifacts.
 
 ## Development Tips
 
-- **Main process** changes (`src/main/`) require a full restart (`Ctrl+C` then `bun run dev`).
-- **Renderer** changes (`src/renderer/`) hot-reload automatically.
-- Set `SOLUS_DEBUG=1` to enable verbose main-process logging to `~/.solus-debug.log`.
+- **Server and Electron main** changes (`packages/server/src/`, `apps/desktop/src/main/`) require a rebuild or development restart. Stop only a process you started.
+- **Shared renderer** changes (`packages/workspace-ui/src/`) hot-reload in the development environment.
+- Read structured `dev.log` and raw `dev-console.log` for normal development. Isolated QA runs keep logs in the run manifest’s `logDir`.
+- Use the [QA runbook](docs/operations/qa.md) for worktree setup, mock fixtures, browser tests, debug recipes, and review handoff. Mock builds use `dist/test/`; production builds use the normal `dist/` entries.
 - The app creates a transparent, click-through window. Use `⌥ + Space` to toggle visibility (fallback: `Cmd+Shift+K`).
 
 ## Code Style

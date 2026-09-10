@@ -1,4 +1,5 @@
 import type { LocalApi } from './host-api'
+import { isBrowserVisible } from './browser-visibility'
 import { NATIVE_ONLY_SOLUS_METHODS } from './native-api-overlay'
 
 type GeneratedApiMethod = (() => () => void) | (() => Promise<never>)
@@ -8,6 +9,7 @@ const NATIVE_ONLY_METHODS = new Set<string>(NATIVE_ONLY_SOLUS_METHODS)
 export function createNoHostSolusApi(): LocalApi {
   const overrides: Partial<LocalApi> = {
     getPlatform: () => 'web',
+    isVisible: isBrowserVisible,
     getPathForFile: () => '',
     setQuoteContext: () => {},
     onQuoteSelection: () => () => {},

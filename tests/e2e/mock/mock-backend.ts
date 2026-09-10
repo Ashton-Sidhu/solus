@@ -1,8 +1,8 @@
 import { writeFileSync } from 'node:fs'
+import { MockHistory } from './mock-history'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BaseAgentBackend } from '@solus/server/agents/base-backend'
-import { agentSaveWork, createWork } from '@solus/server/folio/works'
 import { workPreview } from '@solus/contracts/work-preview'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
 import type {
@@ -17,7 +17,6 @@ import type {
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
 
-const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'
 const MOCK_PLAN_CONTENT = `# Implementation Plan
 
@@ -43,8 +42,9 @@ const MOCK_METADATA: AgentMetadata = {
 }
 
 export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
-  readonly id: AgentId = 'claude-code'
-  readonly metadata: AgentMetadata = MOCK_METADATA
+  readonly id: AgentId
+  readonly metadata: AgentMetadata
+  private readonly history: MockHistory
   readonly permissions: PermissionResponder
 
   private permissionSeq = 0
@@ -59,8 +59,11 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     ['', 'This is a mock response from the test agent.'],
   ])
 
-  constructor() {
+  constructor(provider: AgentId = 'claude-code', history = new MockHistory(provider)) {
     super()
+    this.id = provider
+    this.metadata = { ...MOCK_METADATA, id: provider, label: `${provider} (Mock)` }
+    this.history = history
     this.permissions = {
       getPendingInfo: (questionId) => {
         const pending = this.pendingPermissions.get(questionId)
@@ -97,7 +100,20 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     this.pendingRuns.push(handle)
 
     // Emit events asynchronously so the caller can register listeners first.
-    setImmediate(() => this._emitConversation(handle, request.prompt))
+    // Solus appends task routing instructions after the submitted text. A marker
+    // in that task's title must not retrigger an earlier fixture scenario.
+    const prompt = request.prompt.split('\n\n[Working On Task')[0]
+    const sessionId = this.history.begin({ ...request, prompt })
+    handle.agentSessionId = sessionId
+    handle.abortController.signal.addEventListener('abort', () => {
+      this.permissions.clearPendingForSession(sessionId)
+      this.activeRuns.delete(sessionId)
+      const pendingIndex = this.pendingRuns.indexOf(handle)
+      if (pendingIndex !== -1) this.pendingRuns.splice(pendingIndex, 1)
+      handle._resolveRun()
+      this.emit('exit', sessionId, null, 'SIGTERM')
+    }, { once: true })
+    setImmediate(() => this._emitConversation(handle, prompt))
 
     return handle
   }
@@ -110,19 +126,34 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     // escapes so the literal trigger strings below (and in specs) still match.
     const prompt = rawPrompt.replace(/\\/g, '')
     const responseText = this._responseFor(prompt)
+    const sessionId = handle.agentSessionId!
 
-    this.promoteToActive(handle, MOCK_SESSION_ID)
+    this.promoteToActive(handle, sessionId)
 
-    this.emit('normalized', MOCK_SESSION_ID, {
+    this.emit('normalized', sessionId, {
       type: 'session_init',
-      sessionId: MOCK_SESSION_ID,
+      sessionId: sessionId,
       model: 'mock-model',
       skills: [],
     } satisfies NormalizedEvent)
 
+    if (prompt.includes('__MOCK_ERROR__')) {
+      this.emit('normalized', sessionId, { type: 'error', message: 'QA fixture provider failure', isError: true, sessionId } satisfies NormalizedEvent)
+      this.activeRuns.delete(sessionId)
+      handle._resolveRun()
+      this.emit('exit', sessionId, 1, null)
+      return
+    }
+
+    // A deterministic busy state ends only through the real cancel command.
+    if (prompt.includes('__MOCK_HOLD__')) {
+      this.emit('normalized', sessionId, { type: 'text_chunk', text: 'Waiting for cancellation.' } satisfies NormalizedEvent)
+      return
+    }
+
     // Emit a plan event for plan-triggering prompts.
     if (prompt.includes('__MOCK_PLAN__')) {
-      this.emit('normalized', MOCK_SESSION_ID, {
+      this.emit('normalized', sessionId, {
         type: 'plan',
         planContent: MOCK_PLAN_CONTENT,
         planFilePath: '',
@@ -220,7 +251,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
         'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNk+P+/HgAFhAJ/wlseKgAAAABJRU5ErkJggg==',
         'base64',
       )
-      const filePath = join(tmpdir(), 'mock-artifact.png')
+      const filePath = join(process.env.SOLUS_DATA_DIR ?? tmpdir(), `mock-artifact-${sessionId}.png`)
       writeFileSync(filePath, pngBytes)
       void this._emitArtifact(handle, {
         kind: 'image',
@@ -235,10 +266,11 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     // revision-diff ("View changes"), mirroring the real update_work path.
     if (prompt.includes('__MOCK_WORK_UPDATE__')) {
       const content = '# Mock Test Document (updated)\n\nThe agent revised this document in place.'
-      void agentSaveWork('mock-work-001', { content, preview: workPreview('doc', content) })
+      void import('@solus/server/folio/works').then(({ agentSaveWork }) => agentSaveWork('mock-work-001', { content, preview: workPreview('doc', content) }))
         .catch(() => {})
         .then(() => {
-          this.emit('normalized', MOCK_SESSION_ID, {
+          if (handle.abortController.signal.aborted) return
+          this.emit('normalized', sessionId, {
             type: 'work_updated',
             workId: 'mock-work-001',
             title: 'Mock Test Document',
@@ -256,7 +288,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       const questionId = `mock-permission-q-${++this.permissionSeq}`
       this.pendingPermissions.set(questionId, {
         handle,
-        sessionId: MOCK_SESSION_ID,
+        sessionId: sessionId,
         workUpdate: {
           workId: 'mock-work-001',
           title: 'Mock Test Document',
@@ -264,7 +296,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
           content: '# Mock Test Document (agent-updated)\n\nApproved via permission prompt.',
         },
       })
-      this.emit('normalized', MOCK_SESSION_ID, {
+      this.emit('normalized', sessionId, {
         type: 'permission_request',
         questionId,
         toolName: 'mcp__solus-works__update_work',
@@ -280,7 +312,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
 
     // Emit a rate limit event for rate-limit-triggering prompts.
     if (prompt.includes('__MOCK_RATE_LIMIT__')) {
-      this.emit('normalized', MOCK_SESSION_ID, {
+      this.emit('normalized', sessionId, {
         type: 'rate_limit',
         status: 'paused',
         resetsAt: Math.floor(Date.now() / 1000) + 300,
@@ -288,15 +320,15 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
         isUsingOverage: false,
       } satisfies NormalizedEvent)
       // Don't emit exit — the session stays rate_limited until the user acts.
-      this.activeRuns.delete(MOCK_SESSION_ID)
+      this.activeRuns.delete(sessionId)
       return
     }
 
     // Emit a permission request for permission-triggering prompts.
     if (prompt.includes('__MOCK_PERMISSION__')) {
       const questionId = `mock-permission-q-${++this.permissionSeq}`
-      this.pendingPermissions.set(questionId, { handle, sessionId: MOCK_SESSION_ID })
-      this.emit('normalized', MOCK_SESSION_ID, {
+      this.pendingPermissions.set(questionId, { handle, sessionId: sessionId })
+      this.emit('normalized', sessionId, {
         type: 'permission_request',
         questionId,
         toolName: 'Bash',
@@ -314,7 +346,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     // Report token usage for the context meter. Real providers report window
     // occupancy and run spend as separate figures; so does this.
     if (prompt.includes('__MOCK_USAGE__')) {
-      this.emit('normalized', MOCK_SESSION_ID, {
+      this.emit('normalized', sessionId, {
         type: 'usage',
         context: {
           usedTokens: 60_000,
@@ -343,10 +375,11 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     opts: { workId: string; title: string; docType: 'doc' | 'slides' | 'diagram'; content: string; completion: string; slow?: boolean },
   ): Promise<void> {
     if (handle.abortController.signal.aborted) return
+    const sessionId = handle.agentSessionId!
     const pace = () => (opts.slow ? new Promise((r) => setTimeout(r, 100)) : Promise.resolve())
 
     const toolId = `mock-create-${opts.workId}`
-    this.emit('normalized', MOCK_SESSION_ID, {
+    this.emit('normalized', sessionId, {
       type: 'tool_call',
       toolName: 'mcp__solus-works__create_work',
       toolId,
@@ -360,13 +393,16 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       if (handle.abortController.signal.aborted) return
       await pace()
     }
-    this.emit('normalized', MOCK_SESSION_ID, { type: 'tool_call_complete', index: 0, toolId, toolInput: inputJson } satisfies NormalizedEvent)
+    if (handle.abortController.signal.aborted) return
+    this.emit('normalized', sessionId, { type: 'tool_call_complete', index: 0, toolId, toolInput: inputJson } satisfies NormalizedEvent)
     await pace()
 
     // Persist under the fixed id so later update_work calls target the same work.
-    await createWork(opts.title, opts.docType, opts.content, workPreview(opts.docType, opts.content), MOCK_SESSION_ID, 'claude-code', '~', opts.workId).catch(() => {})
+    const { createWork } = await import('@solus/server/folio/works')
+    await createWork(opts.title, opts.docType, opts.content, workPreview(opts.docType, opts.content), sessionId, this.id, '~', opts.workId).catch(() => {})
 
-    this.emit('normalized', MOCK_SESSION_ID, {
+    if (handle.abortController.signal.aborted) return
+    this.emit('normalized', sessionId, {
       type: 'work_created',
       workId: opts.workId,
       title: opts.title,
@@ -384,15 +420,17 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     opts: { kind: 'html' | 'image'; html?: string; path?: string; completion: string },
   ): Promise<void> {
     if (handle.abortController.signal.aborted) return
+    const sessionId = handle.agentSessionId!
 
-    this.emit('normalized', MOCK_SESSION_ID, {
+    this.emit('normalized', sessionId, {
       type: 'tool_call',
       toolName: 'mcp__solus__render_artifact',
       toolId: 'mock-artifact-call',
       index: 0,
     } satisfies NormalizedEvent)
 
-    this.emit('normalized', MOCK_SESSION_ID, {
+    if (handle.abortController.signal.aborted) return
+    this.emit('normalized', sessionId, {
       type: 'artifact_created',
       kind: opts.kind,
       html: opts.html,
@@ -407,7 +445,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     if (!pending) return false
 
     this.pendingPermissions.delete(questionId)
-    const sessionId = pending.sessionId ?? MOCK_SESSION_ID
+    const sessionId = pending.sessionId!
     const denied = decision === 'deny'
 
     this.emit('normalized', sessionId, {
@@ -445,7 +483,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
   ) {
     if (handle.abortController.signal.aborted) return
 
-    const sessionId = handle.agentSessionId ?? MOCK_SESSION_ID
+    const sessionId = handle.agentSessionId!
 
     // Stream the response in word-sized chunks to exercise the text_chunk path.
     const words = responseText.split(' ')
@@ -457,7 +495,9 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       } satisfies NormalizedEvent)
     }
 
-    this.emit('normalized', MOCK_SESSION_ID, {
+    if (handle.abortController.signal.aborted) return
+    this.history.append(sessionId, responseText)
+    this.emit('normalized', sessionId, {
       type: 'task_complete',
       result: responseText,
       costUsd: 0,
@@ -472,7 +512,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     this.emit('exit', sessionId, 0, null)
     this.activeRuns.delete(sessionId)
     this.finishedRuns.set(sessionId, handle)
-    setTimeout(() => this.finishedRuns.delete(sessionId), 5000)
+    setTimeout(() => this.finishedRuns.delete(sessionId), 5000).unref()
   }
 
   private _responseFor(prompt: string): string {
@@ -488,12 +528,12 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     return 'Mock error'
   }
 
-  async listSessions(_projectPath: string): Promise<SessionMeta[]> {
-    return []
+  async listSessions(projectPath: string): Promise<SessionMeta[]> {
+    return this.history.list(projectPath)
   }
 
-  async loadSession(_sessionId: string, _projectPath?: string, _limit?: number): Promise<SessionLoadMessage[]> {
-    return []
+  async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
+    return this.history.load(sessionId, limit)
   }
 
   async listPlans(_projectPath: string | undefined, _allProjects: boolean): Promise<PlanDescriptor[]> {
