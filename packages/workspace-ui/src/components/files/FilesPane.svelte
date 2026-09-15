@@ -48,6 +48,7 @@
     persistHtmlFileViewMode,
     type HtmlFileViewMode,
   } from "./lib/html-file";
+  import ImageFilePreview from "./ImageFilePreview.svelte";
   import HtmlFilePreview from "./HtmlFilePreview.svelte";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
   import FilesTreeContextMenu from "./FilesTreeContextMenu.svelte";
@@ -141,6 +142,7 @@
   let selectedReadOnly = $state(false);
   let selectedTruncated = $state(false);
   let fileLoading = $state(false);
+  let selectedImageDataUrl = $state<string | null>(null);
   let fileError = $state<string | null>(null);
   let saveState = $state<FileSaveState>("idle");
   let markdownSurfaceRef: MarkdownFileSurface | null = $state(null);
@@ -288,12 +290,14 @@
     selectedReadOnly = false;
     selectedTruncated = false;
     fileError = null;
+    selectedImageDataUrl = null;
     fileLoading = true;
     saveState = "idle";
     const result = await api.readProjectFile(ctx, { path, cwd: root || cwd });
     if (selectedPath !== path) return;
     if (result.ok) {
       selectedContents = result.contents;
+      selectedImageDataUrl = result.imageDataUrl ?? null;
       htmlContents = result.contents;
       htmlSourceMounted = htmlViewMode === "source";
       selectedSize = result.size;
@@ -797,6 +801,10 @@
           <div class="flex flex-1 items-center justify-center p-6 text-center text-xs text-(--solus-status-error)">
             {fileError}
           </div>
+        {:else if selectedPath && selectedImageDataUrl}
+          {#key selectedImageDataUrl}
+            <ImageFilePreview src={selectedImageDataUrl} title={selectedPath} />
+          {/key}
         {:else if selectedPath && selectedContents !== null}
           {#if isSelectedMarkdown}
             <MarkdownFileSurface

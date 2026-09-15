@@ -3,10 +3,11 @@ import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { execFileSync } from 'node:child_process'
 import { Database } from 'bun:sqlite'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
-import type { AgentMetadata, NormalizedEvent, SessionRunInput } from '@solus/contracts/types'
+import type { AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput, WireNormalizedEvent } from '@solus/contracts/types'
 import { CodexTurnNormalizer } from '@solus/server/agents/codex/codex-event-normalizer'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -153,6 +154,105 @@ function turnRows(sessionId: string): Array<{ status: string; origin: string; at
 }
 
 describe.serial('ControlPlane observability hooks', () => {
+  test('a failed worktree never launches in the checkout and explicit local recovery retains the full request', async () => {
+    const repository = mkdtempSync(join(dataDir, 'empty-repository-'))
+    execFileSync('git', ['init', '-b', 'main'], { cwd: repository, stdio: 'ignore' })
+    const backend = new Backend()
+    const startRun = backend.startRun.bind(backend)
+    backend.startRun = (request) => {
+      // Naming is optional setup work; this fixture has no model running it.
+      if (request.persistence === 'ephemeral') throw new Error('No naming model in this fixture')
+      return startRun(request)
+    }
+    const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    type SetupEvent = NormalizedEvent | Extract<WireNormalizedEvent, { type: 'status_card' }>
+    const events: SetupEvent[] = []
+    plane.on('event', (_sessionId, event: SetupEvent) => events.push(event))
+    const sessionId = 'solus-failed-worktree'
+    const imageAttachments = [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,dGVzdA==' }]
+    const fullPrompt = 'Inspect the attachment.\n\nAttached reference: fixture.png'
+    try {
+      await expect(plane.runTurn({
+        target: { kind: 'new-session' }, sessionId, tools: [],
+        input: { ...input(null), workingDirectory: repository, projectPath: repository, worktreeBaseBranch: 'main' },
+        options: { prompt: fullPrompt, displayPrompt: 'Inspect the attachment.', imageAttachments, skipTaskCreation: true },
+      })).rejects.toThrow('has no commit')
+      expect(backend.starts).toBe(0)
+      const cards = events.filter((event) => event.type === 'status_card')
+      expect(cards.at(-1)).toMatchObject({ type: 'status_card', card: { status: 'error', recovery: 'worktree' } })
+      expect(events.some((event) => event.type === 'session_init')).toBe(false)
+
+      // A second client need only send the visible prompt and explicit local choice.
+      // The host must supply the original expanded prompt and attachment bytes.
+      const context: IpcContext = {
+        session: {
+          sessionId, provider: 'codex', agentSessionId: null, status: 'failed',
+          workingDirectory: repository, projectPath: repository, additionalDirs: [],
+          preferredModel: 'gpt-test', reasoningEffort: 'medium', contextWindow: null,
+          fastMode: false, permissionMode: 'ask', gitContext: null, worktreeBaseBranch: null,
+          sessionChangedFiles: [], readOnlyReason: null, latestCheckpointId: null,
+        },
+        window: { viewMode: 'editor' },
+        settings: {
+          themeMode: 'system', isDark: false, soundEnabled: false, voiceModeEnabled: false,
+          vadSilenceMs: 500, defaultEditor: null, fallbackTerminal: null, activeAgent: 'codex',
+          reviewAgent: null, reviewModel: null, reviewReasoning: null, reviewGuideInstructions: '',
+          stackedPrsEnabled: false, reviewWarmingEnabled: false, rateLimitBehavior: 'ask',
+          fontFamily: 'system', fontSize: 14, codeFontFamily: 'system-mono', codeFontSize: 12,
+          extraInstructions: '', modelInstructions: {},
+        },
+        statusBar: {
+          workingDirectory: repository, activeAgent: 'codex', permissionMode: 'ask', model: 'gpt-test',
+          reasoningEffort: 'medium', defaultReasoningEffort: 'medium', reasoningLevels: ['medium'],
+          supportsFastMode: false, fastMode: false, contextWindows: [],
+        },
+      }
+      const started = new Promise<void>((resolve) => { backend.onStart = resolve })
+      const retry = plane.retry(context, { prompt: 'Inspect the attachment.' }, 'second-client')
+      await started
+      await Promise.resolve()
+      expect(backend.requests.at(-1)).toMatchObject({ cwd: repository, prompt: fullPrompt, imageAttachments })
+      backend.complete('thread-1', 0)
+      await retry
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('broadcasts a question answer only when the provider accepts it', async () => {
+    const backend = new Backend()
+    let accepted = false
+    backend.permissions.respondToQuestion = () => accepted
+    const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const receipts: Array<{ event: NormalizedEvent; to?: { only?: string; except?: string } }> = []
+    plane.on('event', (_sessionId, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+      if (event.type === 'question_answered') receipts.push({ event, to })
+    })
+    try {
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'session', sessionId: 'solus-question-receipt' },
+        sessionId: 'solus-question-receipt', input: input(null), tools: [],
+        options: { prompt: 'Choose a branch', skipTaskCreation: true },
+      })
+      await lifecycle.agentSessionId
+      const questions = [{ id: 'branch', question: 'Which branch?', options: [{ label: 'main' }], multiSelect: false }]
+      backend.send('thread-1', { type: 'question_request', questionId: 'q1', questions })
+      expect(plane.respondToQuestion('q1', { branch: 'main' })).toBe(false)
+      expect(receipts).toHaveLength(0)
+      accepted = true
+      expect(plane.respondToQuestion('q1', { branch: 'main' })).toBe(true)
+      expect(receipts).toHaveLength(1)
+      expect(receipts[0].event).toMatchObject({ type: 'question_answered', answer: { questionId: 'q1', questions, answers: { branch: 'main' } } })
+      expect(receipts[0].to).toBeUndefined()
+      backend.complete('thread-1', 0)
+      await lifecycle.done
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   test('confirms a fresh turn to the sender even if it submitted a steer', async () => {
     const backend = new Backend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
@@ -182,7 +282,7 @@ describe.serial('ControlPlane observability hooks', () => {
     }
   })
 
-  test('buffers Codex prose through item completion and preserves tool updates', async () => {
+  test('delivers finished Codex paragraphs at item completion and preserves tool updates', async () => {
     const backend = new Backend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
     plane.on('error', () => {})
@@ -205,7 +305,7 @@ describe.serial('ControlPlane observability hooks', () => {
     ]) {
       for (const event of normalizer.push(raw)) backend.send('thread-1', event)
     }
-    expect(delivered.map((event) => event.type)).toEqual(['text_pending'])
+    expect(delivered.map((event) => event.type)).toEqual(['text_pending', 'text_chunk'])
 
     for (const event of normalizer.push({
       method: 'item/started',
@@ -218,7 +318,8 @@ describe.serial('ControlPlane observability hooks', () => {
 
     expect(delivered).toMatchObject([
       { type: 'text_pending' },
-      { type: 'text_chunk', text: 'Complete Codex prose.\n\n' },
+      { type: 'text_chunk', text: 'Complete Codex prose.\n\n', streaming: true },
+      { type: 'text_chunk', text: '', streaming: false },
       { type: 'tool_call', toolId: 'edit-1' },
       { type: 'tool_call_update', toolId: 'edit-1', toolInput: 'patch update' },
     ])
@@ -230,13 +331,14 @@ describe.serial('ControlPlane observability hooks', () => {
       for (const event of normalizer.push(raw)) backend.send('thread-1', event)
     }
     const finalPendingIndex = delivered.findLastIndex((event) => event.type === 'text_pending')
-    expect(delivered.slice(finalPendingIndex).map((event) => event.type)).toEqual(['text_pending'])
+    expect(delivered.slice(finalPendingIndex).map((event) => event.type)).toEqual(['text_pending', 'text_chunk'])
 
     backend.complete('thread-1', 0)
     await lifecycle.done
-    expect(delivered.slice(finalPendingIndex, finalPendingIndex + 3)).toMatchObject([
+    expect(delivered.slice(finalPendingIndex, finalPendingIndex + 4)).toMatchObject([
       { type: 'text_pending' },
-      { type: 'text_chunk', text: 'Final answer.\n\n' },
+      { type: 'text_chunk', text: 'Final answer.\n\n', streaming: true },
+      { type: 'text_chunk', text: '', streaming: false },
       { type: 'status_change', status: 'completed' },
     ])
 

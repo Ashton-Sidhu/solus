@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack, type Snippet } from "svelte";
   import { Copy as CopyIcon, Check as CheckIcon } from "@lucide/svelte";
-  import { highlightCode } from "../../lib/highlight";
+  import { createIncrementalHighlight, loadCodeHighlighter, plainCodeLines } from "../../lib/incremental-highlight";
 
   interface Props {
     text: string;
@@ -15,30 +15,25 @@
   // Strip a single trailing newline so the block doesn't render an empty last line.
   let code = $derived(text.replace(/\n$/, ""));
 
-  // While a fenced block streams in, `code` grows every rAF frame and each grow is
-  // a highlight cache miss (full lowlight re-tokenization + whole-block innerHTML
-  // swap) at ~60Hz. Throttle: re-highlight at most every THROTTLE_MS, keeping the
-  // last highlight on screen in between, and always fire a trailing highlight so
-  // the settled text ends up fully tokenized. Static (completed) blocks highlight
-  // once at init and cache-hit thereafter — visually identical, no extra cost.
-  const THROTTLE_MS = 250;
-  let highlighted = $state(untrack(() => highlightCode(code, lang)));
-  let lastHighlightAt = 0;
+  let highlight = $state<ReturnType<typeof createIncrementalHighlight> | null>(null);
+  let highlighted = $state.raw<string[]>(untrack(() => plainCodeLines(code)));
 
   $effect(() => {
-    const c = code;
-    const l = lang;
-    const elapsed = performance.now() - lastHighlightAt;
-    if (elapsed >= THROTTLE_MS) {
-      lastHighlightAt = performance.now();
-      highlighted = highlightCode(c, l);
-      return;
+    const language = lang;
+    let active = true;
+    highlight = null;
+    if (language) {
+      void loadCodeHighlighter(language).then((loaded) => {
+        if (active && loaded) highlight = createIncrementalHighlight(loaded.highlighter, loaded.language);
+      }).catch(() => { /* Plain escaped code remains readable if loading fails. */ });
     }
-    const timer = setTimeout(() => {
-      lastHighlightAt = performance.now();
-      highlighted = highlightCode(c, l);
-    }, THROTTLE_MS - elapsed);
-    return () => clearTimeout(timer);
+    return () => { active = false; };
+  });
+
+  // Each completed line keeps its DOM. Async grammar loading and source changes
+  // invalidate only this block; theme switches use the token CSS variables.
+  $effect(() => {
+    highlighted = highlight ? highlight(code) : plainCodeLines(code);
   });
 
   let copied = $state(false);
@@ -106,6 +101,6 @@
     </button>
   </div>
   <div class="solus-code-body">
-    <pre use:edgeFade><code class={lang ? `language-${lang}` : ""}>{@html highlighted}</code></pre>
+    <pre use:edgeFade><code class="shiki {lang ? `language-${lang}` : ''}">{#each highlighted as line, index (index)}<span class="code-line">{@html line}</span>{#if index < highlighted.length - 1}{"\n"}{/if}{/each}</code></pre>
   </div>
 </div>

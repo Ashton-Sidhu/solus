@@ -1,3 +1,4 @@
+import { isQuestionTool } from '@solus/contracts/question-history'
 import type { NormalizedEvent, WireNormalizedEvent } from '@solus/contracts/types'
 import type { AgentConversationResultProjection, SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 
@@ -68,6 +69,7 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
         contentBytes: Buffer.byteLength(message.content),
       }
       if (toolResultIsError) projected.errorHead = utf8Head(message.content)
+      if (isQuestionTool(toolName) && message.content) projected.questionResult = utf8Head(message.content)
       Object.assign(projected, agentConversationProjection(toolName, message.content))
       return projected
     }
@@ -85,6 +87,7 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
       contentBytes: Buffer.byteLength(message.content),
     }
     if (message.toolStatus === 'error') projected.errorHead = utf8Head(message.content)
+    if (isQuestionTool(message.toolName)) projected.questionResult = utf8Head(message.content)
     Object.assign(projected, agentConversationProjection(message.toolName, message.content))
     return projected
   })

@@ -7,17 +7,41 @@ import { resolveHomePath } from '../../platform/paths'
 import { findOnPath, warmCliPath } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
 import { parseClaudeUsageReport } from './claude-usage'
+import { toContextBreakdown } from './claude-context-usage'
 import type { ClaudeUsageWindows } from './claude-usage'
 import type { AgentSlashCommand, ContextUsage, NormalizedEvent, ReasoningEffort } from '@solus/contracts/types'
 import type { ResultEvent } from '@solus/contracts/claude-types'
 import { z } from 'zod'
 
 const log = createLogger('ClaudeAgent', 'claude-agent.ts')
+/** A detail row keeps its own name plus wherever it came from. */
+const detailRowSchema = z.object({ name: z.string(), tokens: z.number() })
 const contextUsageReportSchema = z.object({
   totalTokens: z.number(),
   maxTokens: z.number().optional(),
   isAutoCompactEnabled: z.boolean().optional(),
   autoCompactThreshold: z.number().optional(),
+  categories: z.array(z.object({
+    name: z.string(),
+    tokens: z.number(),
+    isDeferred: z.boolean().optional(),
+  })).optional(),
+  systemPromptSections: z.array(detailRowSchema).optional(),
+  systemTools: z.array(detailRowSchema).optional(),
+  mcpTools: z.array(detailRowSchema.extend({ serverName: z.string().optional() })).optional(),
+  memoryFiles: z.array(z.object({
+    path: z.string(),
+    tokens: z.number(),
+    type: z.string().optional(),
+  })).optional(),
+  agents: z.array(z.object({
+    agentType: z.string(),
+    tokens: z.number(),
+    source: z.string().optional(),
+  })).optional(),
+  skills: z.object({
+    skillFrontmatter: z.array(detailRowSchema.extend({ source: z.string().optional() })).optional(),
+  }).optional(),
 })
 const streamingTextEventSchema = z.object({
   type: z.literal('stream_event'),
@@ -50,6 +74,9 @@ async function readContextUsage(
       compactAtTokens: report.isAutoCompactEnabled && report.autoCompactThreshold !== undefined
         ? report.autoCompactThreshold
         : undefined,
+      // The same response already carries what fills the window, so the
+      // breakdown costs nothing beyond the call this turn already makes.
+      ...toContextBreakdown(report),
     }
   } catch (e) {
     log.warn('context_usage_read_failed', { error: e instanceof Error ? e.message : String(e) })

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import type { PlanComment } from '@solus/contracts/types'
 import type { WorkExternalComments } from '@solus/contracts/work-comments'
-import { externalCommentBody, localCommentsForDisplay } from '@solus/workspace-ui/components/work/lib/external-comments-view'
+import { externalCommentBody, externalCommentQuote, localCommentsForDisplay } from '@solus/workspace-ui/components/work/lib/external-comments-view'
 
 function fixture(): { local: PlanComment; snapshot: WorkExternalComments } {
   return {
@@ -52,6 +52,11 @@ test('old quote preamble is shown once, while ordinary message text is preserved
   const thread = snapshot.threads[0]
   expect(externalCommentBody(thread)).toBe('ooga')
   expect(thread.text).toBe('Quoted text:\nSelected sentence\n\nooga')
-  expect(externalCommentBody({ ...thread, quote: '' })).toBe(thread.text)
   expect(externalCommentBody({ ...thread, text: 'Different body' })).toBe('Different body')
+  // Google drops the quote metadata once the quoted text is deleted, but the
+  // old preamble is still in the message: it becomes the caption, not the body.
+  const orphaned = { ...thread, quote: '' }
+  expect(externalCommentQuote(orphaned)).toBe('Selected sentence')
+  expect(externalCommentBody(orphaned)).toBe('ooga')
+  expect(externalCommentQuote({ ...thread, quote: '', text: 'Plain page comment' })).toBe('')
 })

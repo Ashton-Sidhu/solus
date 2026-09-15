@@ -39,7 +39,6 @@ export interface FileDeps {
   showAndFocusActiveWindow(): void
   /** Used by enterDesignMode to make the window invisible to screen capture. */
   setActiveWindowOpacity(opacity: number): void
-  /** Expands the hidden design-mode window over the captured work area. */
   expandDesignModeWindow(bounds: { x: number; y: number; width: number; height: number }): void
   /** Restores the window after design mode (opacity, alwaysOnTop, visibility, focus). */
   restoreDesignModeWindow(): void

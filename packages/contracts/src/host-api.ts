@@ -447,6 +447,10 @@ export interface SolusAPI {
 
   pinnedSessionsList(): Promise<PinnedSession[]>
   togglePinnedSession(session: PinnedSession): Promise<PinnedSession[]>
+  /** Move a session's read boundary: a timestamp records a read, null returns
+   *  it to unread. Answers with the boundary the host settled on, which can be
+   *  older than the one sent — a read never moves the boundary backward. */
+  setSessionReadState(sessionId: string, viewedAt: number | null): Promise<number | null>
   /** Foreground heartbeat: hosts skip watch-fired freshness work while no
    *  client holds a live lease (dispatch-client step 7). */
   activityLease(foreground: boolean): Promise<{ ok: boolean }>
@@ -607,6 +611,8 @@ export interface NativeSolusAPI {
   /** Re-invokes the local-connection bootstrap to pull a fresh session token over IPC. */
   refreshLocalSessionToken(): Promise<string>
   openExternal(url: string, options?: { hideAppAfterOpen?: boolean }): Promise<boolean>
+  setActivityBadge(sessionKeys: string[]): Promise<void>
+  onActivityAcknowledged(callback: () => void): () => void
   showNotification(request: ClientNotificationRequest): Promise<boolean>
   logNotificationSound(row: NotificationSoundLog): void
   rendererReady(mode: 'pill' | 'editor'): void

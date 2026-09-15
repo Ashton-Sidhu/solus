@@ -32,7 +32,7 @@ export function makeSession(
   const { run, ...rest } = overrides ?? {}
   return {
     id: uuid(),
-    run: makeRunConfig(run),
+    run: makeRunConfig({ permissionMode: settings.defaultPermissionMode ?? 'auto', ...run }),
     agentSessionId: null,
     status: 'idle',
     messages: [],

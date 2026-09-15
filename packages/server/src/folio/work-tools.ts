@@ -278,7 +278,7 @@ export async function executeWorkTool(
       const annotations = await loadWorkAnnotations(workId)
       return {
         ok: true,
-        text: `Work "${work.title}" (${work.type}, id: ${work.id})${embedTokenNote(work.id, work.title, work.type)}${work.mirroredDoc?.provider === 'gdrive' ? `\n${GOOGLE_WORK_READ_ONLY}` : ''}:\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}${formatExternalThreads(work.mirroredDoc?.provider === annotations?.externalComments?.provider && work.mirroredDoc?.externalId === annotations?.externalComments?.documentId && work.mirroredDoc?.externalKey === annotations?.externalComments?.externalKey ? annotations?.externalComments : undefined)}`,
+        text: `Work "${work.title}" (${work.type}, id: ${work.id})${embedTokenNote(work.id, work.title, work.type)}${work.mirroredDoc?.provider === 'gdrive' ? `\n${GOOGLE_WORK_READ_ONLY}` : ''}:\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}${formatExternalThreads(work.mirroredDoc?.provider === annotations?.externalComments?.provider && work.mirroredDoc?.externalId === annotations?.externalComments?.documentId && work.mirroredDoc?.externalKey === annotations?.externalComments?.externalKey ? annotations?.externalComments : undefined, work.mirroredDoc?.url)}`,
       }
     }
 

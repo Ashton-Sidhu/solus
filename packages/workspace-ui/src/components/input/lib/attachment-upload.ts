@@ -33,6 +33,45 @@ export function readFileDataUrl(file: Blob): Promise<string> {
   })
 }
 
+/**
+ * Text at or above this many bytes is filed rather than typed into the
+ * composer. A paste this large stalls the editor while it parses, and it
+ * enters the window as context whether or not the agent needs all of it —
+ * as a file the agent reads only the part it asks for.
+ */
+export const LARGE_PASTE_MIN_BYTES = 32 * 1024
+
+/**
+ * Cheap lower bound before measuring: one UTF-16 code unit encodes to at most
+ * three UTF-8 bytes, so anything shorter than this cannot reach the threshold
+ * and never pays for the encode.
+ */
+const LARGE_PASTE_MIN_CHARS = Math.ceil(LARGE_PASTE_MIN_BYTES / 3)
+
+/** Whether a pasted string is big enough to file instead of type. */
+export function isLargePaste(text: string): boolean {
+  if (text.length < LARGE_PASTE_MIN_CHARS) return false
+  return new TextEncoder().encode(text).length >= LARGE_PASTE_MIN_BYTES
+}
+
+/**
+ * The pasted text as a file the agent can open. Named for what it is, because
+ * the name is all the composer chip and the agent's directory listing show.
+ */
+export function pastedTextFile(text: string, now = new Date()): File {
+  const stamp = [
+    now.getFullYear(),
+    String(now.getMonth() + 1).padStart(2, '0'),
+    String(now.getDate()).padStart(2, '0'),
+  ].join('-')
+  const time = [
+    String(now.getHours()).padStart(2, '0'),
+    String(now.getMinutes()).padStart(2, '0'),
+    String(now.getSeconds()).padStart(2, '0'),
+  ].join('')
+  return new File([text], `pasted text ${stamp} ${time}.txt`, { type: 'text/plain' })
+}
+
 /** The part of a clipboard entry the composer reads. */
 export interface ClipboardImageItem {
   type: string

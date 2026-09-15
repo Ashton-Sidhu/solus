@@ -49,7 +49,9 @@ export interface CommentDocumentTarget {
 
 export type ExternalCommentCommand = (
   | { kind: 'share'; requestId: string; text: string; quote?: string; sourceMessageId?: string }
-  | { kind: 'reply'; requestId: string; threadId: string; text: string }
+  /** `sourceMessageId` names the local message a reply was published from, so
+   *  its card can show the receipt the way a shared thread head does. */
+  | { kind: 'reply'; requestId: string; threadId: string; text: string; sourceMessageId?: string }
   | { kind: 'resolve' | 'reopen'; requestId: string; threadId: string }
 ) & { target?: CommentDocumentTarget }
 

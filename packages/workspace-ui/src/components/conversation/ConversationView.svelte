@@ -27,6 +27,7 @@
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
   import PermissionCard from "./PermissionCard.svelte";
   import QuestionCard from "./QuestionCard.svelte";
+  import AnsweredQuestion from "./AnsweredQuestion.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
   import ConnectCard from "../connections/ConnectCard.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
@@ -63,13 +64,14 @@
   import DiffSummaryCard from "./DiffSummaryCard.svelte";
   import ConversationMinimap from "./ConversationMinimap.svelte";
   import { FindBar } from "../ui/find-bar";
-  import { previewText } from "./lib/minimap";
+  import { createNavItemBuilder } from "./lib/minimap";
   import {
     CONVERSATION_BREADCRUMB_OFFSET,
     conversationFindTopInset,
     findConversationMatches,
     type ConversationFindMatch,
   } from "./lib/find";
+  import { createResponseScroll } from "./lib/response-scroll";
   import { questionAnchorScrollTop } from "./lib/question-scroll";
   import { ConversationFindHighlighter } from "./lib/find-highlight";
   import { noticeText } from "./lib/transient";
@@ -92,7 +94,7 @@
     type Turn,
   } from "./lib/turns";
   import { SvelteMap } from "svelte/reactivity";
-  import { assistantMarkdownOptions } from "./lib/assistant-markdown";
+  import { assistantMarkdownOptions, assistantMarkdownExtensions } from "./lib/assistant-markdown";
   import ActionOrb from "../layout/ActionOrb.svelte";
   import ConversationSkeleton from "./ConversationSkeleton.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
@@ -102,7 +104,7 @@
   import { setMarkdownImageContext } from "./lib/markdown-image";
   import { setSessionLinkContext } from "./lib/session-link-context";
   import { setHtmlBlockOrigin } from "./lib/html-block-origin";
-  import { RAW_HTML_TOKEN, rawHtmlMarkedExtension } from "./lib/raw-html";
+  import { RAW_HTML_TOKEN } from "./lib/raw-html";
   import FencedBlock from "./FencedBlock.svelte";
   import HtmlBlock from "./HtmlBlock.svelte";
   import { serverConnections } from "@solus/client-core/server-connections";
@@ -118,8 +120,6 @@
     [RAW_HTML_TOKEN]: HtmlBlock,
   };
 
-  // Built once per instance: a new array on each render would rebuild the parser.
-  const markdownExtensions = [rawHtmlMarkedExtension];
 
 
   const session = getWorkspaceContext();
@@ -253,6 +253,10 @@
     const el = scrollEl;
     if (holdScroll) return;
     if (el && isVisible && isNearBottom) {
+      if (responseScroll && settings.responseStreamingMode === "paragraph" && sess?.isStreamingText) {
+        responseScroll.follow(true);
+        return;
+      }
       el.scrollTop = el.scrollHeight;
     }
     // content-visibility:auto rows (e.g. UserMessageBubble) can still report
@@ -268,6 +272,13 @@
 
   let scrollEl: HTMLDivElement | null = $state(null);
   let messagesEl: HTMLDivElement | null = $state(null);
+  let responseScroll: ReturnType<typeof createResponseScroll> | undefined;
+  $effect(() => {
+    if (!scrollEl || !isVisible) return;
+    const follower = createResponseScroll(scrollEl);
+    responseScroll = follower;
+    return () => { follower.destroy(); responseScroll = undefined; };
+  });
   let hovered = $state(false);
   let findOpen = $state(false);
   let findQuery = $state("");
@@ -369,7 +380,7 @@
   function handleScroll() {
     const el = scrollEl;
     if (!el) return;
-    isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+    if (!responseScroll?.moving) isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
     if (el.scrollTop <= NEAR_TOP_PX) void maybeLoadOlder();
   }
 
@@ -486,11 +497,10 @@
   const showMessageNavigation = $derived(shell.hasProjectPanel);
   // Gate on showMessageNavigation: without this the derived rebuilds for every mounted
   // tab on every message change even in pill/web mode where it's never rendered.
+  const buildNavItems = createNavItemBuilder();
   const navItems = $derived(
     showMessageNavigation && retainTranscriptRows
-      ? (sess?.messages ?? [])
-          .filter((m) => m.role === "user")
-          .map((m) => ({ id: m.id, preview: previewText(m.content) }))
+      ? buildNavItems(sess?.messages ?? [])
       : [],
   );
 
@@ -818,7 +828,7 @@
         return;
       }
       if (isNearBottom && isVisible && !holdScroll) {
-        el.scrollTop = el.scrollHeight;
+        responseScroll?.follow(settings.responseStreamingMode === "paragraph" && !!sess?.isStreamingText);
       }
     });
     ro.observe(el);
@@ -855,15 +865,17 @@
 
 <!-- No container: assistant prose sits directly on the canvas. Cards, code and
      tables are the only boxes it may draw. -->
-{#snippet assistantBody(displayContent: string)}
+{#snippet assistantBody(displayContent: string, streaming: boolean)}
   <div
-    class="prose-cloud prose-reading prose-transcript prose-transcript-main min-w-0"
+    class="prose-cloud prose-reading prose-transcript prose-transcript-main min-w-0 response-markdown"
+    data-streaming={streaming ? "" : undefined}
   >
     <SvelteMarkdown
       source={displayContent}
+      streaming
       options={assistantMarkdownOptions}
       renderers={markdownRenderers}
-      extensions={markdownExtensions}
+      extensions={assistantMarkdownExtensions(displayContent)}
       sanitizeUrl={markdownSanitizeUrl}
     />
   </div>
@@ -1110,7 +1122,7 @@
             {#if item.kind === "user"}
               <UserMessageBubble message={item.message} {skipMotion} {tabId} />
             {:else if item.kind === "assistant"}
-              {@const displayContent = item.message.content.trim()}
+              {@const displayContent = item.message.content}
               {#if displayContent}
                 <!-- The rail hangs in the column's left margin; its copy
                      control aligns with the first line of assistant prose. -->
@@ -1134,10 +1146,12 @@
                     data-conversation-message-content
                     data-conversation-message-id={item.message.id}
                   >
-                    {@render assistantBody(displayContent)}
+                    {@render assistantBody(displayContent, !skipMotion && !!sess?.isStreamingText)}
                   </div>
                 </div>
               {/if}
+            {:else if item.kind === "question"}
+              <AnsweredQuestion message={item.message} />
             {:else if item.kind === "tool-group"}
               <ToolGroupItem tools={item.messages} history={session.toolHistory} {skipMotion} />
             {:else if item.kind === "subagent-group"}
@@ -1355,7 +1369,7 @@
 
 
           {#if sess.statusCard}
-            <StatusCard card={sess.statusCard} />
+            <StatusCard card={sess.statusCard} onRetry={() => session.recoverWorktreeSetup(tabId, false)} onWorkLocally={() => session.recoverWorktreeSetup(tabId, true)} />
           {/if}
 
           {#if sess.permissionQueue.length > 0}

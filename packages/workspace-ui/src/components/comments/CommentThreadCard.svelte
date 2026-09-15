@@ -150,7 +150,7 @@
            rest: whether this comment reached the document is not something the
            reader should have to hover to learn. -->
       {#if externalWorkId && !editing}
-        <ExternalCommentPublish workId={externalWorkId} messageId={comment.id} text={comment.comment} quote={comment.selectedText} author={comment.author} />
+        <ExternalCommentPublish workId={externalWorkId} messageId={comment.id} text={comment.comment} quote={comment.selectedText} author={comment.author} externalThreadId={comment.externalThreadId} />
       {/if}
 
       <!-- Verbs are type, never filled buttons — a thread is a note, not a
@@ -225,7 +225,7 @@
             <CommentBody text={reply.text} />
           </div>
           {#if externalWorkId}
-            <ExternalCommentPublish workId={externalWorkId} messageId={reply.id} text={reply.text} quote={comment.selectedText} author={reply.author} />
+            <ExternalCommentPublish workId={externalWorkId} messageId={reply.id} text={reply.text} quote={comment.selectedText} author={reply.author} externalThreadId={comment.externalThreadId} />
           {/if}
         </div>
       {/each}

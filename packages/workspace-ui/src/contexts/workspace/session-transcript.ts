@@ -172,6 +172,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       // flat user/system bubble, so reloads don't re-leak sub-agent output.
       const target = m.toolResultForId ? toolById.get(m.toolResultForId) : undefined
       if (target) {
+        target.questionResult = m.questionResult
         target.report = m.report
         target.errorHead = m.errorHead
         target.contentBytes = m.contentBytes
@@ -199,6 +200,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
             content: m.content,
             toolName: m.toolName,
             toolId: m.toolId,
+            questionResult: m.questionResult,
             toolInput: m.toolInput,
             toolStatus: m.status === 'error' || m.toolStatus === 'error' ? 'error' as const : 'completed' as const,
             report: m.report,
@@ -228,6 +230,7 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
       content: m.content,
       toolName: m.toolName,
       toolId: m.toolId,
+      questionResult: m.questionResult,
       toolInput: m.toolInput,
       historyToolInput: m.toolInputKey ? {
         serverId, sessionId: args.sessionId, projectPath: args.loadPath,

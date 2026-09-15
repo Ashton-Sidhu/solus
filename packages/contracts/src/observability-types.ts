@@ -5,7 +5,6 @@
 // and the server compiles to parameterized SQL; SQL text flows through the
 // guarded read-only executor. Both return the same tabular result shape.
 
-/** One cell of a query result. */
 export type MetricsValue = string | number | boolean | null
 
 export interface MetricsTimeRange {

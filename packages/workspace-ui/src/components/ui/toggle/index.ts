@@ -8,6 +8,5 @@ export {
 
 export {
 	Root,
-	//
 	Root as Toggle,
 };

@@ -93,3 +93,55 @@ export function previewText(raw: string): string {
   const clean = raw.replace(/\s+/g, " ").trim();
   return clean || "Attachment";
 }
+
+/** The shape the rail needs off a transcript row; anything wider is the caller's. */
+interface NavSourceMessage {
+  id: string;
+  role: string;
+  content: string;
+}
+
+/**
+ * Build the rail's items, reusing both the per-message preview and the array
+ * itself whenever the user messages have not changed.
+ *
+ * Two costs hang off this. The preview is a whitespace regex over the whole
+ * message, and rebuilding it for every user message is wasted work — a sent
+ * message's text does not move. The array identity is the expensive one: the
+ * component re-indexes the transcript (`querySelectorAll` over every mounted
+ * row) whenever `items` changes, so handing back a fresh-but-equal array on
+ * each new tool row makes a long turn re-walk the DOM once per row.
+ *
+ * Returning the previous array unchanged stops that: an unchanged `$derived`
+ * value does not propagate, so the index survives the turn.
+ */
+export function createNavItemBuilder(): (messages: readonly NavSourceMessage[]) => NavItem[] {
+  // Keyed by the message object, so a row that is dropped from the transcript
+  // takes its cache entry with it. Content is stored alongside because an
+  // edited message keeps its identity but must not keep its preview.
+  const cache = new WeakMap<object, { content: string; item: NavItem }>();
+  let previous: NavItem[] = [];
+
+  return function build(messages: readonly NavSourceMessage[]): NavItem[] {
+    const next: NavItem[] = [];
+    let matchesPrevious = true;
+    for (const message of messages) {
+      if (message.role !== "user") continue;
+      const cached = cache.get(message);
+      let item: NavItem;
+      if (cached && cached.content === message.content) {
+        item = cached.item;
+      } else {
+        item = { id: message.id, preview: previewText(message.content) };
+        cache.set(message, { content: message.content, item });
+      }
+      // Cached items are identity-stable, so `!==` catches an added, removed,
+      // reordered or re-previewed row without comparing any strings.
+      if (matchesPrevious && previous[next.length] !== item) matchesPrevious = false;
+      next.push(item);
+    }
+    if (matchesPrevious && next.length === previous.length) return previous;
+    previous = next;
+    return next;
+  };
+}

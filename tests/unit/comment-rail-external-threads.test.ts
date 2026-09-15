@@ -3,7 +3,7 @@ import { JSDOM } from 'jsdom'
 import type { PlanComment } from '@solus/contracts/types'
 import type { DocCommentThread } from '@solus/contracts/work-comments'
 import { measureAnchors } from '@solus/workspace-ui/components/comments/lib/anchors'
-import { layoutThreads } from '@solus/workspace-ui/components/comments/lib/rail-layout'
+import { drawerFrame, layoutThreads } from '@solus/workspace-ui/components/comments/lib/rail-layout'
 import { railThreads } from '@solus/workspace-ui/components/comments/lib/thread'
 
 /**
@@ -92,6 +92,18 @@ test('a card the margin cannot fit is hidden and counted at its edge, not sliced
   // card the reader asked for is the one that comes back into view.
   const opened = layoutThreads(crowded, { viewport, focusedId: layout.nearestBelowId })
   expect(opened.hidden.has(layout.nearestBelowId!)).toBe(false)
+})
+
+test('the folded surface is a drawer on the reading pane, never a sheet over the foot of the window', () => {
+  // WHY: folded, the threads used to open as a sheet across the bottom of the
+  // pane, covering the text they annotate. The drawer keeps to the margin's
+  // side, is sized to the pane rather than the window, and takes the whole
+  // pane only once the pane is phone-width and a strip of text beside it
+  // would be unreadable anyway.
+  const split = drawerFrame({ left: 400, top: 40, width: 700, height: 900 })
+  expect(split).toEqual({ left: 780, top: 40, width: 320, height: 900 })
+  const phone = drawerFrame({ left: 0, top: 48, width: 390, height: 800 })
+  expect(phone).toEqual({ left: 0, top: 48, width: 390, height: 800 })
 })
 
 test('local and external cards are placed in one collision pass, so neither is buried', () => {

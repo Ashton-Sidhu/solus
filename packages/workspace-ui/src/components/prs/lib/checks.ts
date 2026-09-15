@@ -13,7 +13,7 @@ export function checksPresentation(
   summary: PrChecksSummary | undefined,
   currentHeadSha: string | null | undefined,
   loadFailed: boolean,
-): ChecksPresentation | null {
+): ChecksPresentation {
   if (loadFailed) {
     return {
       state: 'unavailable',
@@ -22,14 +22,21 @@ export function checksPresentation(
       stale: false,
     }
   }
-  if (!summary) return null
+  if (!summary) {
+    return {
+      state: 'pending',
+      label: 'Checking',
+      tooltip: 'Looking up checks for this pull request.',
+      stale: false,
+    }
+  }
 
   const stale = !!currentHeadSha && summary.headSha !== currentHeadSha
   const state = stale ? 'pending' : summary.state
   return {
     state,
-    label: stale ? 'Refreshing' : stateLabel(state),
-    tooltip: `${stale ? 'Head changed; refreshing. ' : ''}${checksCounts(summary)}`,
+    label: stale ? 'Checking' : stateLabel(state),
+    tooltip: `${stale ? 'Head changed; looking up current checks. ' : ''}${checksCounts(summary)}`,
     stale,
   }
 }
@@ -86,7 +93,7 @@ export function isFailing(item: CheckItem): boolean {
 
 function stateLabel(state: PrChecksState): string {
   switch (state) {
-    case 'pending': return 'Pending'
+    case 'pending': return 'Running'
     case 'passing': return 'Passing'
     case 'failing': return 'Failing'
     case 'none': return 'No checks'

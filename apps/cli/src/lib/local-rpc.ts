@@ -65,7 +65,6 @@ function invoke<T>(socket: Socket, method: string, args: unknown[]): Promise<T> 
   })
 }
 
-/** Opens one socket, runs `body`, and always disconnects afterward. */
 export async function withLocalRpc<T>(serverUrl: string, body: (call: <R>(method: string, args?: unknown[]) => Promise<R>) => Promise<T>): Promise<T> {
   const socket = await connectLocalSocket(serverUrl)
   try {

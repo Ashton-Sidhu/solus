@@ -123,6 +123,7 @@ Use `solus connect` instead to link the running host to Solus Cloud.
 | `solus start` | Run in the foreground (`--host`, `--port`, `--data-dir`) |
 | `solus status` | Show installed/running versions, service state, and provider versions |
 | `solus service start`, `stop`, `restart` | Control the background service |
+| `solus service status` | Show the background service state |
 | `solus service uninstall` | Remove background startup; keep user data |
 | `solus logs` | Follow the server log (`--lines N`) |
 | `solus pair` | Create another temporary client pairing link |

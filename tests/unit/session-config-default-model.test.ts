@@ -12,10 +12,12 @@ function makeSettings(defaultModels: Record<string, string>, activeAgent = 'clau
   return {
     activeAgent,
     defaultModels,
+    defaultPermissionMode: 'auto' as 'ask' | 'auto' | 'plan',
     tabGroupMode: 'flat',
-    update(patch: { activeAgent?: string; defaultModels?: Record<string, string> }) {
+    update(patch: { activeAgent?: string; defaultModels?: Record<string, string>; defaultPermissionMode?: 'ask' | 'auto' | 'plan' }) {
       if (patch.activeAgent) this.activeAgent = patch.activeAgent
       if (patch.defaultModels) this.defaultModels = patch.defaultModels
+      if (patch.defaultPermissionMode) this.defaultPermissionMode = patch.defaultPermissionMode
     },
   }
 }
@@ -281,5 +283,43 @@ describe('settings written against a draft composer', () => {
     controller.updateModelConfig({ modelId: 'claude-sonnet-5' }, draft.id)
 
     expect(draft.run).not.toBe(before)
+  })
+})
+
+
+describe('default permission preference', () => {
+  test('new composers follow saved changes without changing an open draft', async () => {
+    const settings = makeSettings({})
+    settings.defaultPermissionMode = 'ask'
+    const draft = makeDraft()
+    const controller = await makeController(settings, null, undefined, draft)
+    expect(controller.globalDefaults.permissionMode).toBe('ask')
+
+    controller.setPermissionMode('plan', draft.id)
+    settings.defaultPermissionMode = 'auto'
+    expect(controller.globalDefaults.permissionMode).toBe('auto')
+    expect(draft.run.permissionMode).toBe('plan')
+  })
+
+  test('a global mode choice is saved and follows later settings changes', async () => {
+    const settings = makeSettings({})
+    const controller = await makeController(settings)
+    controller.setPermissionMode('plan')
+    expect(controller.globalDefaults.permissionMode).toBe('plan')
+    expect(settings.defaultPermissionMode).toBe('plan')
+    settings.defaultPermissionMode = 'ask'
+    expect(controller.globalDefaults.permissionMode).toBe('ask')
+  })
+
+  test('a session choice does not change the saved default', async () => {
+    const settings = makeSettings({})
+    settings.defaultPermissionMode = 'ask'
+    const session = { run: { permissionMode: 'plan' } } as Session
+    const controller = await makeController(settings, session)
+    expect(session.run.permissionMode).toBe('plan')
+    controller.setPermissionMode('auto', 'tab-1')
+    expect(session.run.permissionMode).toBe('auto')
+    expect(controller.globalDefaults.permissionMode).toBe('ask')
+    expect(settings.defaultPermissionMode).toBe('ask')
   })
 })

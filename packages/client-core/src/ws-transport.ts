@@ -41,7 +41,6 @@ export interface WsTransportOptions {
    *  spot, so it is never kept. Null means no grant could be had right now
    *  (signed out, or the website did not answer). */
   acquireGrant?: () => Promise<string | null>
-  /** Called whenever the connection state changes. */
   onStatusChange?: (status: ConnectionStatus, attempt: number) => void
   /** Called after /auth/refresh returns a fresh token. */
   onSessionTokenRefreshed?: (sessionToken: string) => void
@@ -158,7 +157,6 @@ export class WsTransport {
     })
   }
 
-  /** The URL this transport dials. */
   get serverUrl(): string {
     return this.opts.serverUrl
   }

@@ -38,7 +38,6 @@ export function connectionStatusLabel(
 export const RECONNECT_ESCALATE_MS = 12_000
 
 export interface ConnectionFailureCopy {
-  /** Names the situation. */
   title: string
   /** Names the likely cause and what to do about it. */
   detail: string

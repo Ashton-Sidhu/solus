@@ -32,6 +32,7 @@ import type {
 import { DEFAULT_SOURCE_CONTROL_WRITING, EDITOR_IDS, TERMINAL_APP_IDS } from './types'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
+export type ResponseStreamingMode = 'buffered' | 'paragraph'
 export type RateLimitBehavior = 'ask' | 'queue' | 'continue' | 'stop'
 export type DocumentFontFamily = 'solus' | AppFontFamily
 
@@ -55,6 +56,8 @@ export interface HostConfig {
   defaultEditor: EditorId | null
   fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
+  defaultPermissionMode: 'ask' | 'auto' | 'plan'
+  backgroundActivityToasts: boolean
   /** Per-agent model for new sessions; a missing entry means that agent's built-in default. */
   defaultModels: Record<string, string>
   reviewAgent: AgentId
@@ -70,6 +73,7 @@ export interface HostConfig {
    * directories that do not exist there.
    */
   reviewWarmingByProject: Record<string, boolean>
+  responseStreamingMode: ResponseStreamingMode
   rateLimitBehavior: RateLimitBehavior
   autoRenameSessions: boolean
   showDiffSummaryAfterTurn: boolean
@@ -196,6 +200,8 @@ export const hostConfigPatchSchema = z.object({
   defaultEditor: z.enum(EDITOR_IDS).nullable().catch(null),
   fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
   activeAgent: z.enum(AGENT_IDS).catch('claude-code'),
+  defaultPermissionMode: z.enum(['ask', 'auto', 'plan']).catch('auto'),
+  backgroundActivityToasts: z.boolean().catch(false),
   defaultModels: z.record(z.string(), z.string()).catch({}),
   reviewAgent: z.enum(AGENT_IDS).catch(DEFAULT_REVIEW_AGENT),
   reviewModel: z.string().catch(DEFAULT_REVIEW_MODEL),
@@ -204,6 +210,7 @@ export const hostConfigPatchSchema = z.object({
   stackedPrsEnabled: z.boolean().catch(false),
   generatePrGuidesOnOpen: z.boolean().catch(false),
   reviewWarmingByProject: z.record(z.string(), z.boolean()).catch({}),
+  responseStreamingMode: z.enum(['buffered', 'paragraph']).catch('paragraph'),
   rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'),
   autoRenameSessions: z.boolean().catch(true),
   showDiffSummaryAfterTurn: z.boolean().catch(true),
@@ -247,6 +254,8 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
   defaultEditor: 'vim',
   fallbackTerminal: 'default-terminal',
   activeAgent: 'claude-code',
+  defaultPermissionMode: 'auto',
+  backgroundActivityToasts: false,
   defaultModels: {},
   reviewAgent: DEFAULT_REVIEW_AGENT,
   reviewModel: DEFAULT_REVIEW_MODEL,
@@ -255,6 +264,7 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
   stackedPrsEnabled: false,
   generatePrGuidesOnOpen: false,
   reviewWarmingByProject: {},
+  responseStreamingMode: 'paragraph',
   rateLimitBehavior: 'ask',
   autoRenameSessions: true,
   showDiffSummaryAfterTurn: true,
@@ -302,6 +312,8 @@ export const HOST_CONFIG_AGENT_WRITABLE = {
   defaultEditor: true,
   fallbackTerminal: true,
   activeAgent: true,
+  defaultPermissionMode: false,
+  backgroundActivityToasts: true,
   defaultModels: true,
   reviewAgent: true,
   reviewModel: true,
@@ -310,6 +322,7 @@ export const HOST_CONFIG_AGENT_WRITABLE = {
   stackedPrsEnabled: true,
   generatePrGuidesOnOpen: true,
   reviewWarmingByProject: false,
+  responseStreamingMode: true,
   rateLimitBehavior: true,
   autoRenameSessions: true,
   showDiffSummaryAfterTurn: true,

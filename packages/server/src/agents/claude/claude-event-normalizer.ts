@@ -278,10 +278,21 @@ function normalizeSystem(event: InitEvent | StatusEvent | CompactBoundaryEvent):
   if (event.subtype === 'status') {
     // SAFETY: The status subtype carries the StatusEvent contract.
     const status = event as StatusEvent
-    const uiMode = SDK_TO_UI_PERMISSION_MODE[status.permissionMode]
-    if (uiMode) {
-      return [{ type: 'permission_mode_changed', permissionMode: uiMode }]
+    const events: NormalizedEvent[] = []
+    // Claude rewriting its own context is not thinking, and it can run for
+    // minutes. Left as the generic running state it reads as a hung agent, so
+    // raise the same compaction span Codex already reports. `compact_boundary`
+    // arrives only once the rewrite is *done*, which is too late to say so.
+    if (status.status === 'compacting') {
+      events.push({ type: 'context_compaction', state: 'start', trigger: 'auto' })
+    } else if (status.compact_result) {
+      // The status carrying a result is the one that ends the compaction. The
+      // boundary event settles it too; both land on an idempotent stop.
+      events.push({ type: 'context_compaction', state: 'stop', trigger: 'auto' })
     }
+    const uiMode = SDK_TO_UI_PERMISSION_MODE[status.permissionMode]
+    if (uiMode) events.push({ type: 'permission_mode_changed', permissionMode: uiMode })
+    return events
   }
 
   if (event.subtype === 'compact_boundary') {

@@ -23,6 +23,7 @@
   import { worktreeDisplayName } from "../../lib/git-context";
   import { copyText, toasts } from "../../lib/toasts";
   import GitDropdown from "../GitDropdown.svelte";
+  import { withSelectedWorktree } from "../input/lib/worktree-destination";
   import TerminalAppLogo from "../settings/TerminalAppLogo.svelte";
   import MenuRow, { type ActionRowItem } from "./MenuRow.svelte";
   import UsageMeters from "./UsageMeters.svelte";
@@ -174,39 +175,45 @@
     environmentStore.refsFor(branchRepoRoot).worktrees,
   );
 
-  // Environment selection is navigation, not an in-place retarget of this
-  // panel's tab. Omitting tabId lets the workspace preserve a started session
-  // and create/activate a destination tab in the selected environment group.
-  async function selectBranch(branch: string) {
-    if (pendingDispatch) return;
-    // A branch already checked out somewhere *is* that worktree, so the picker's
-    // "Checked out" rows move there rather than checking it out again here.
-    const entry = worktrees.find((wt) => wt.branch === branch);
-    if (entry) {
-      await selectWorktree(entry);
-      return;
-    }
-    const ok = await session.switchToBranch(branch);
-    if (!ok) {
-      requestInputFocus();
-      return;
-    }
-    settleOnDestination();
+  // Both pickers edit a pre-flight destination. A panel on a session first
+  // opens a draft from that source, preserving its project and host.
+  function destinationDraft() {
+    return session.sessionDrafts.get(sourceId) ??
+      session.openSessionDraft({ sourceTabId: sourceId });
   }
 
-  async function selectWorktree(worktree: WorktreeEntry) {
+  async function selectBranch(branch: string) {
+    if (pendingDispatch) return;
+    const entry = worktrees.find((worktree) => worktree.branch === branch);
+    if (entry) {
+      selectWorktree(entry);
+      return;
+    }
+    const draft = destinationDraft();
+    const ok = await session.switchToBranch(branch, draft.id);
+    if (ok) settleOnDestination(draft.id);
+    else requestInputFocus();
+  }
+
+  function selectWorktree(worktree: WorktreeEntry) {
+    const projectRoot = branchRepoRoot;
+    const targetBranch = env.targetBranch;
+    const draft = destinationDraft();
     if (pendingDispatch) {
-      session.setDispatchWorktree(worktree, sourceId);
+      session.setDispatchWorktree(worktree, draft.id);
       requestInputFocus();
       return;
     }
-    await session.switchToWorktree(worktree.path);
-    settleOnDestination();
+    draft.run = withSelectedWorktree(
+      draft.run, projectRoot, worktree, targetBranch,
+    );
+    settleOnDestination(draft.id);
   }
 
   function selectNewDispatchWorktree(baseBranch?: string) {
-    if (baseBranch) session.setDispatchBaseBranch(baseBranch, sourceId);
-    else session.setDispatchWorktree(null, sourceId);
+    const draft = destinationDraft();
+    if (baseBranch) session.setDispatchBaseBranch(baseBranch, draft.id);
+    else session.setDispatchWorktree(null, draft.id);
     requestInputFocus();
   }
 
@@ -234,10 +241,11 @@
     requestInputFocus();
   }
 
-  function settleOnDestination() {
+  function settleOnDestination(draftId: string) {
+    const run = session.runFor(draftId);
     const nextCwd =
-      session.activeSession?.run.gitContext?.worktreePath ??
-      session.activeSession?.run.workingDirectory ??
+      run?.gitContext?.worktreePath ??
+      run?.workingDirectory ??
       session.globalDefaults.gitContext?.worktreePath ??
       session.globalDefaults.workingDirectory;
     if (nextCwd) void environmentStore.refresh(nextCwd, { force: true });
@@ -279,7 +287,7 @@
         type="button"
         aria-label={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
         title={pendingDispatch ? "Select a remote worktree" : "Switch branch or worktree"}
-        disabled={!currentBranch || (env.pending && !pendingDispatch)}
+        disabled={!currentBranch}
         onclick={() => (branchPickerOpen = !branchPickerOpen)}
       >
         <CaretRightIcon size={11} />
@@ -304,7 +312,7 @@
         side="left"
         triggerEl={branchTriggerEl}
         displayBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? (pendingDispatch ? "New worktree" : currentBranch)}
-        selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? currentBranch}
+        selectedBranch={selectedDispatchWorktree?.branch ?? selectedDispatchBaseBranch ?? sectionRun?.worktree?.baseBranch ?? currentBranch}
         workingDirectory={branchRepoRoot}
         run={sectionRun}
         onSelectBranch={selectBranch}

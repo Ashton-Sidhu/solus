@@ -180,6 +180,10 @@ export const RPC_INVOKE_METHODS = [
   'pinnedSessionsList',
   'togglePinnedSession',
 
+  // Read state. Server-owned so every client agrees on what has been read;
+  // the host broadcasts `session.readStateChanged` after the write.
+  'setSessionReadState',
+
   // Client activity lease: foreground heartbeat gating host freshness work
   'activityLease',
 

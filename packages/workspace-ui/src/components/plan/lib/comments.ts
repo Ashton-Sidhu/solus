@@ -46,14 +46,29 @@ export function textBetweenIdxToPos(
   return result;
 }
 
+/**
+ * Every element of a thread's highlight. A local mark is one element; an
+ * external thread's decoration is split at every node boundary it crosses,
+ * so the thread can own several.
+ */
+export function findMarkElements(
+  scrollContainer: HTMLDivElement | null,
+  commentId: string,
+): HTMLElement[] {
+  if (!scrollContainer) return [];
+  return [
+    ...scrollContainer.querySelectorAll<HTMLElement>(
+      `mark[data-plan-comment="${commentId}"], [data-external-comment="${commentId}"]`,
+    ),
+  ];
+}
+
+/** The opening element of a thread's highlight — the line its card sits on. */
 export function findMarkElement(
   scrollContainer: HTMLDivElement | null,
   commentId: string,
 ): HTMLElement | null {
-  if (!scrollContainer) return null;
-  return scrollContainer.querySelector<HTMLElement>(
-    `mark[data-plan-comment="${commentId}"]`,
-  );
+  return findMarkElements(scrollContainer, commentId)[0] ?? null;
 }
 
 export function addCommentMark(

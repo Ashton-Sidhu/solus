@@ -103,7 +103,6 @@
   </SettingsRow>
 {:else}
   <div class="flex flex-col gap-4 p-4 [.is-laptop-display_&]:gap-3 [.is-laptop-display_&]:p-3.5">
-    <!-- Code display -->
     <div class="flex items-center justify-between gap-3">
       <div class="flex items-center gap-3">
         <code
@@ -202,7 +201,6 @@
       </div>
     {/if}
 
-    <!-- Pair links per endpoint -->
     {#if connections.endpoints.length > 0}
       <div class="flex flex-col gap-1.5">
         <p class="text-[0.875em] text-(--solus-text-tertiary)">

@@ -33,6 +33,7 @@ function isBinaryBuffer(buffer: Buffer): boolean {
 
 /** Beyond this the editor is asked to tokenize and render more than it can. */
 const PREVIEW_MAX_BYTES = 1024 * 1024
+const IMAGE_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
 
 async function readFilePrefix(path: string, size: number, cap = 8000): Promise<Buffer> {
   const handle = await open(path, 'r')
@@ -67,6 +68,27 @@ export async function readFilePreview(
     const fileStat = await stat(target)
     if (!fileStat.isFile()) {
       return { ok: false, path: target, error: 'Only files can be previewed.' }
+    }
+    const mimeType = mimeTypeForExtension(extname(target).toLowerCase())
+    if (mimeType?.startsWith('image/')) {
+      if (fileStat.size > IMAGE_PREVIEW_MAX_BYTES) {
+        return { ok: false, path: target, error: 'Image exceeds the 10 MB preview limit.' }
+      }
+      // Read one extra byte so a growing file cannot exceed the RPC payload cap.
+      const buffer = await readFilePrefix(target, IMAGE_PREVIEW_MAX_BYTES + 1, IMAGE_PREVIEW_MAX_BYTES + 1)
+      if (buffer.length > IMAGE_PREVIEW_MAX_BYTES) {
+        return { ok: false, path: target, error: 'Image exceeds the 10 MB preview limit.' }
+      }
+      return {
+        ok: true,
+        path: target,
+        displayPath: root && isInsideRoot(root, target) ? relative(root, target) : target,
+        contents: '',
+        size: buffer.length,
+        isReadOnly: true,
+        mimeType,
+        imageDataUrl: `data:${mimeType};base64,${buffer.toString('base64')}`,
+      }
     }
     const sample = await readFilePrefix(target, fileStat.size)
     if (isBinaryBuffer(sample)) {

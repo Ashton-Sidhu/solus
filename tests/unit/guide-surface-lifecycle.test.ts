@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { compile } from 'svelte/compiler'
 
-test('replacement states keep the saved guide mounted and outdated visible', async () => {
+test('replacement states keep the saved guide mounted and show one notice at a time', async () => {
   const root = new URL('../../', import.meta.url)
   const directory = mkdtempSync(join(tmpdir(), 'solus-guide-surface-'))
   const client = new URL('node_modules/svelte/src/index-client.js', root).href
@@ -27,7 +27,7 @@ test('replacement states keep the saved guide mounted and outdated visible', asy
         import GuideView from ${JSON.stringify(guide)};
         import Button from ${JSON.stringify(button)};
         import Stub from ${JSON.stringify(stub)};
-        const ClockIcon = Stub, ReviewGuideGlyph = Stub, ReviewProgress = Stub;
+        const ClockIcon = Stub, InfoIcon = Stub, SpinnerIcon = Stub, CircleAlertIcon = Stub, ReviewGuideGlyph = Stub, ReviewProgress = Stub;
       `)
     const surface = component(source, 'surface')
     const harness = component(`<script>
@@ -57,11 +57,13 @@ test('replacement states keep the saved guide mounted and outdated visible', asy
         app.update(status, true);
         flushSync();
         assert.equal(document.querySelector('article'), saved);
-        assert.ok(document.body.textContent.includes('Outdated'));
         if (status === 'queued' || status === 'generating') {
-          assert.ok(document.body.textContent.includes('Generating replacement'));
-          assert.equal([...document.querySelectorAll('button')].find(b => b.textContent === 'Regenerate').disabled, true);
+          // The replacement notice supersedes Outdated: one banner, one action (Cancel).
+          assert.ok(document.body.textContent.includes('you can keep reading the saved guide'));
+          assert.ok(!document.body.textContent.includes('Outdated'));
+          assert.ok(![...document.querySelectorAll('button')].some(b => b.textContent === 'Regenerate'));
         } else {
+          assert.ok(document.body.textContent.includes('Outdated'));
           [...document.querySelectorAll('button')].find(b => b.textContent === 'Retry').click();
         }
       }
@@ -73,7 +75,7 @@ test('replacement states keep the saved guide mounted and outdated visible', asy
       app.update('ready');
       flushSync();
       assert.ok(!document.body.textContent.includes('Outdated'));
-      assert.ok(!document.body.textContent.includes('Generating replacement'));
+      assert.ok(!document.body.textContent.includes('you can keep reading the saved guide'));
       app.unknown();
       flushSync();
       assert.ok(document.body.textContent.includes('Cannot check whether this guide is current'));

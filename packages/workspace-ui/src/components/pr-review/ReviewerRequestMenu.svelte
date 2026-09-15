@@ -15,6 +15,7 @@
   let {
     open = $bindable(false),
     anchor,
+    align = "end",
     reviewers,
     candidates,
     loading = false,
@@ -26,6 +27,8 @@
     open?: boolean;
     /** The trigger the menu hangs from. */
     anchor: HTMLElement | null;
+    /** Compact facts triggers open into the detail pane; rail rows align at the end. */
+    align?: "start" | "end";
     /** Already requested or reviewed — never offered again here. */
     reviewers: PrReviewer[];
     candidates: PrReviewerCandidate[];
@@ -60,23 +63,23 @@
     data-solus-ui
     customAnchor={anchor}
     side="bottom"
-    align="end"
+    {align}
     sideOffset={6}
     collisionPadding={8}
     class="menu-surface z-[10002] w-[min(15rem,calc(100vw-2rem))] gap-0 rounded-2xl bg-(--solus-menu-bg) p-0 text-workspace-chrome lg:text-workspace-chrome shadow-[shadow:var(--solus-menu-shadow)] ring-0 [&_.menu-row]:text-workspace-chrome [&_[data-slot=command-input]]:text-workspace-chrome pointer-fine:[.is-laptop-display_&]:w-[min(13rem,calc(100vw-2rem))]"
     aria-label="Request a reviewer"
   >
-    <Command.Root shouldFilter={false}>
+    <Command.Root shouldFilter={false} class="h-auto min-h-0 [&>[data-slot=command-list]]:min-h-0 [&>div:first-child]:shrink-0">
       <MenuSearch bind:value={query} placeholder="Search reviewers" />
-      <!-- A repository routinely has fifty collaborators. The list is the
+      <!-- The list is the
            scrollport and the search field stays fixed above it — the only way
            to reach a name past the fold. The ceiling is measured against the
            window by the floating layer, less the search header.
 
-           Rows, not a virtual list: the host caps candidates at fifty, and a
-           row that is not in the DOM is one the arrow keys cannot reach. -->
+           Keep matching rows mounted so arrow keys can reach every result.
+           Search filters all collaborators loaded by the host. -->
       <Command.List
-        class="max-h-[min(17.5rem,calc(var(--bits-popover-content-available-height,20rem)-3rem))] overflow-y-auto p-1.5"
+        class="max-h-[min(17.5rem,calc(var(--bits-popover-content-available-height,20rem)-3rem))] overflow-y-auto overscroll-contain p-1.5 pointer-fine:[.is-laptop-display_&]:max-h-[min(14rem,calc(var(--bits-popover-content-available-height,17rem)-3rem))]"
       >
         {#if loading}
           <ContentSkeleton label="Loading reviewers" />

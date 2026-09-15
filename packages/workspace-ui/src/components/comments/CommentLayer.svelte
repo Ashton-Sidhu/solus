@@ -12,14 +12,15 @@
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import type { BindingId } from "../../lib/keybindings/manifest";
   import PlanCommentsRail from "../plan/PlanCommentsRail.svelte";
-  import PlanCommentPopover from "../plan/PlanCommentPopover.svelte";
   import { commentMarkPositions, measureAnchors, type MeasuredAnchor } from "./lib/anchors";
+  import { drawerFrame, type PaneBox } from "./lib/rail-layout";
   import {
     addCommentMark,
     removeCommentMark,
     restoreCommentMarks,
     prosePosToTextOffset,
     findMarkElement,
+    findMarkElements,
     scrollAndFlashMark,
     resolveHoveredComment,
   } from "../plan/lib/comments";
@@ -58,8 +59,9 @@
      *  toggle in the document header, where the design keeps it. */
     railOpen?: boolean;
     /** True once the pane is too narrow to hold a margin without eating the
-     *  measure. The rail folds away and threads open as a popover on the run
-     *  instead — the measure is protected before the margin is. */
+     *  measure. The rail folds away and the same threads open as a drawer
+     *  over the pane's edge instead — the measure is protected before the
+     *  margin is. */
     railFolded?: boolean;
     /** Document position of each thread's mark, published so the outline can
      *  say how many threads a section holds. */
@@ -107,12 +109,6 @@
     canComment = !!selectionRange && !commentFormAnchor;
   });
 
-  // Only ever open in the folded layout, where there is no margin to focus a
-  // card in. With the rail up, clicking a highlight focuses its card — one
-  // thread must never have two places it can be read.
-  let popoverComment = $state<PlanComment | null>(null);
-  let popoverAnchor = $state<{ x: number; y: number }>({ x: 0, y: 0 });
-
   let activeRailCommentId = $state<string | null>(null);
   let hoveredRailCommentId = $state<string | null>(null);
   let hoveredMarkId = $state<string | null>(null);
@@ -128,12 +124,13 @@
   const threadCount = $derived(comments.length + shownExternal.length);
 
   const railVisible = $derived(railOpen && threadCount > 0 && !railFolded);
-  // Folded there is no margin, so the same rail becomes a sheet over the foot
-  // of the reading pane — one comments surface at every width.
-  const sheetVisible = $derived(railOpen && threadCount > 0 && railFolded);
+  // Folded there is no margin, so the same rail becomes a drawer over the
+  // right edge of the reading pane — one comments surface at every width, and
+  // one thread never has two places it can be read.
+  const drawerVisible = $derived(railOpen && threadCount > 0 && railFolded);
 
-  // The margin is open by default; the sheet is not, because it covers the text
-  // it belongs to. Folding closes it, unfolding gives the margin back.
+  // The margin is open by default; the drawer is not, because it covers the
+  // text it belongs to. Folding closes it, unfolding gives the margin back.
   let lastFolded: boolean | null = null;
   $effect(() => {
     if (lastFolded === railFolded) return;
@@ -173,10 +170,10 @@
     const id = highlightedCommentId;
     if (!el) return;
     void tick().then(() => {
-      el.querySelectorAll("mark.plan-comment-active").forEach((m) =>
+      el.querySelectorAll(".plan-comment-active").forEach((m) =>
         m.classList.remove("plan-comment-active"),
       );
-      if (id) findMarkElement(el, id)?.classList.add("plan-comment-active");
+      if (id) for (const part of findMarkElements(el, id)) part.classList.add("plan-comment-active");
     });
   });
 
@@ -191,9 +188,17 @@
   const anchoredIds = $derived(new Set(anchors.map((anchor) => anchor.id)));
   const inlineExternal = $derived(shownExternal.filter((thread) => anchoredIds.has(thread.id)));
   const pageExternal = $derived(shownExternal.filter((thread) => !anchoredIds.has(thread.id)));
-  // Where the sheet sits when the rail is folded: the foot of the reading pane,
-  // which is not the foot of the window once a document is in a split.
-  let sheetBox = $state<{ left: number; width: number; bottom: number } | null>(null);
+  // The same sorting for local threads. A local thread whose quote is no longer
+  // in the text has no mark to measure, and the anchored margin used to keep
+  // it at `visibility: hidden` — counted in the header, findable nowhere. It
+  // belongs to the Page view with every other thread that has no line.
+  const inlineLocal = $derived(comments.filter((comment) => anchoredIds.has(comment.id)));
+  const pageLocal = $derived(comments.filter((comment) => !anchoredIds.has(comment.id)));
+  // Where the drawer sits when the rail is folded: over the right edge of the
+  // reading pane, which is not the edge of the window once a document is in a
+  // split.
+  let drawerBox = $state<PaneBox | null>(null);
+  let drawerEl: HTMLDivElement | null = $state(null);
   // False while the rail is moving: cards keep following their anchors, but
   // connectors are suppressed so nothing flickers across the margin.
   let settled = $state(true);
@@ -203,10 +208,21 @@
     anchors = measureAnchors(scrollContainer, comments, shownExternal.map((thread) => thread.id));
     threadAnchors = commentMarkPositions(editor);
     const rect = scrollContainer?.getBoundingClientRect();
-    sheetBox = rect
-      ? { left: rect.left, width: rect.width, bottom: window.innerHeight - rect.bottom }
+    drawerBox = rect
+      ? drawerFrame(
+          { left: rect.left, top: rect.top, width: rect.width, height: rect.height },
+          parseFloat(getComputedStyle(document.documentElement).fontSize) || 16,
+        )
       : null;
   }
+
+  // The drawer covers the text, so it takes focus when it opens: Escape then
+  // closes it from anywhere inside, and a reader on a screen reader lands on
+  // the threads rather than on the prose they cover.
+  $effect(() => {
+    if (!drawerVisible) return;
+    void tick().then(() => drawerEl?.focus({ preventScroll: true }));
+  });
 
   function markMoving() {
     settled = false;
@@ -379,38 +395,33 @@
   /**
    * Clicking a highlight focuses its thread — and does *not* scroll, because
    * the reader is already looking at the right line. Clicking bare prose lets
-   * the thread go. Folded, where there is no margin, the thread opens on the
-   * run instead.
+   * the thread go. Folded, the same click opens the drawer on that card, and
+   * bare prose closes the drawer again: the drawer covers the text, so the
+   * text is the way out of it.
    */
   function handleCommentClick(e: MouseEvent) {
     // The margin is a layer inside the same scroller, so a click on a card
     // reaches this handler too — and must not read as "clicked bare prose",
     // which would unfocus the thread the reader has just opened.
     if (e.target instanceof Element && e.target.closest(".plan-comments-rail")) return;
-    // An external highlight has no local thread behind it, so it opens the rail
-    // on its card rather than a popover — the card is where its provider
-    // actions live, and they are too many for the folded popover.
     const externalId =
       e.target instanceof Element
         ? e.target.closest("[data-external-comment]")?.getAttribute("data-external-comment")
         : null;
     if (externalId) {
-      popoverComment = null;
       railOpen = true;
       activeRailCommentId = externalId;
       return;
     }
     const resolved = resolveHoveredComment(e, comments);
     if (!resolved) {
-      popoverComment = null;
       activeRailCommentId = null;
+      if (railFolded) railOpen = false;
       return;
     }
-    if (!railFolded) railOpen = true;
+    railOpen = true;
     activeRailCommentId = resolved.comment.id;
     onRead(resolved.comment.id);
-    popoverComment = railFolded ? resolved.comment : null;
-    popoverAnchor = clampPopoverAnchor(resolved.anchor);
   }
 
   /**
@@ -424,11 +435,11 @@
   );
 
   function handleThreadKeys(e: KeyboardEvent) {
-    if (e.key === "Escape" && activeRailCommentId) {
+    if (e.key === "Escape" && (activeRailCommentId || drawerVisible)) {
       e.preventDefault();
       e.stopPropagation();
       activeRailCommentId = null;
-      popoverComment = null;
+      if (railFolded) railOpen = false;
       return;
     }
     if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
@@ -446,25 +457,7 @@
     handleScrollToComment(ids[next]);
   }
 
-  /** Keep the folded popover 12px clear of the window's right edge. */
-  function clampPopoverAnchor(anchor: { x: number; y: number }) {
-    const halfWidth = 134;
-    return { x: Math.min(anchor.x, window.innerWidth - 12 - halfWidth), y: anchor.y };
-  }
-
-  function closePopover() {
-    popoverComment = null;
-  }
-
-  function handleEditComment(comment: PlanComment) {
-    popoverComment = null;
-    railOpen = true;
-    editingCommentId = comment.id;
-    activeRailCommentId = comment.id;
-  }
-
   function handleDeleteComment(commentId: string) {
-    popoverComment = null;
     const deleted = comments.find((c) => c.id === commentId);
     onDelete(commentId);
     if (editingCommentId === commentId) editingCommentId = null;
@@ -504,7 +497,6 @@
 
 </script>
 
-<!-- Inline comment form -->
 {#if commentFormAnchor}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div
@@ -523,20 +515,6 @@
   </div>
 {/if}
 
-<!-- Folded only: with no margin to hold the thread, it opens on the run it
-     annotates. Dismissed by Escape or by clicking anywhere else in the text. -->
-{#if popoverComment}
-  <PlanCommentPopover
-    {externalWorkId}
-    comment={popoverComment}
-    anchor={popoverAnchor}
-    pinned
-    onEdit={handleEditComment}
-    onDelete={(c) => handleDeleteComment(c.id)}
-    onClose={closePopover}
-  />
-{/if}
-
 <!-- One comments surface: a line of provider chrome, then the margin, local and
      external cards alike on the lines they annotate. -->
 {#snippet threadSurface(placement: "stacked" | "anchored")}
@@ -549,9 +527,11 @@
   {/if}
   <PlanCommentsRail
   {externalWorkId}
-  {comments}
+  comments={inlineLocal}
+  pageComments={pageLocal}
   externalThreads={inlineExternal}
   pageThreads={pageExternal}
+  onClose={placement === "stacked" ? () => (railOpen = false) : undefined}
   onAskExternalPrivately={onAskExternalPrivately}
   onLocateExternalQuote={onLocateExternalQuote}
   activeCommentId={focusedCardId}
@@ -585,15 +565,27 @@
 {/if}
 
 <!-- Folded: no margin to hold cards on their lines, so the same surface becomes
-     a sheet over the foot of the reading pane. Positioned against that pane's
-     own box — a document in a split does not reach the foot of the window. -->
-{#if sheetVisible && sheetBox}
+     a drawer over the right edge of the reading pane — the side the margin
+     lives on, sized to that pane's own box rather than the window. Escape,
+     the header's close, or a click on the bare prose puts it away. -->
+{#if drawerVisible && drawerBox}
+  <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
   <div
+    bind:this={drawerEl}
     use:portal={document.body}
     data-solus-ui
-    class="cl-rail-sheet fixed flex flex-col"
-    style="left:{sheetBox.left}px;width:{sheetBox.width}px;bottom:{sheetBox.bottom}px"
-    transition:fly={{ y: 24, duration: 200, opacity: 0 }}
+    data-testid="comments-drawer"
+    class="cl-rail-drawer fixed flex flex-col outline-none"
+    style="left:{drawerBox.left}px;top:{drawerBox.top}px;width:{drawerBox.width}px;height:{drawerBox.height}px"
+    role="complementary"
+    aria-label="Comments"
+    tabindex="-1"
+    transition:fly={{ x: 24, duration: 200, opacity: 0 }}
+    onkeydown={(e) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      railOpen = false;
+    }}
   >
     {@render threadSurface("stacked")}
   </div>
@@ -628,17 +620,17 @@
   /* The provider line is one row at the head of the surface, so the margin
      below it takes the rest of the room rather than its own full height. */
   .cl-rail-sleeve :global(.plan-comments-rail),
-  .cl-rail-sheet :global(.plan-comments-rail) {
+  .cl-rail-drawer :global(.plan-comments-rail) {
     height: auto;
     flex: 1;
     min-height: 0;
   }
-  /* Folded, the same surface is a sheet on the foot of the reading pane: the
-     one place a thread can be read when there is no margin to hold it. */
-  .cl-rail-sheet {
-    max-height: 45vh;
+  /* Folded, the same surface is a drawer on the edge of the reading pane: the
+     one place a thread can be read when there is no margin to hold it. Its
+     threads stack and scroll inside it; the text under it does not move. */
+  .cl-rail-drawer {
     padding: 0.75rem 0.875rem 0.875rem;
-    border-top: 0.0625rem solid var(--solus-container-border);
+    border-left: 0.0625rem solid var(--solus-container-border);
     background: var(--solus-container-bg);
     box-shadow: var(--solus-popover-shadow);
     z-index: 10000;

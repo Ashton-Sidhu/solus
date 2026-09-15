@@ -307,11 +307,12 @@
     untrack(() => void webPushState.syncEnabled(enabled).catch((error) =>
       toasts.error(error instanceof Error ? error.message : "Notifications could not be updated"),
     ));
-    if (!enabled) {
-      notificationsStore.stop();
-      return;
-    }
+  });
+
+  $effect(() => {
     return untrack(() => notificationsStore.start({
+      nativeNotificationsEnabled: () => settings.soundEnabled,
+      backgroundActivityToastsEnabled: () => settings.backgroundActivityToasts,
       hostDisplay: (serverId) => {
         const host = serversStore.hostFor(serverId);
         const display: import("@solus/workspace-ui/contexts/notifications/notifications.store.svelte").NotificationHostDisplay = {

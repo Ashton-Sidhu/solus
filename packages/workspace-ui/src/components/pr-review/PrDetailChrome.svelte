@@ -52,8 +52,8 @@
   let menuOpen = $state(false);
 
   // The list's own order, published by PrsPage. Reading it here rather than
-  // re-deriving is what makes "the same order as the list behind it" true by
-  // construction instead of by coincidence.
+  // re-deriving is what keeps the switcher in the list's order by construction
+  // instead of by coincidence.
   const order = $derived(pullRequests.view.listOrder);
 
   const rowContext = $derived<PrRowContext>({
@@ -178,13 +178,6 @@
               </button>
             {/each}
           {/each}
-        </div>
-        <div
-          class="mt-[3px] flex items-center gap-2.5 border-t border-[var(--hairline)] px-[9px] pt-2 pb-[5px]"
-        >
-          <span class="text-xs text-muted-foreground">Same order as the list behind it</span>
-          <span class="flex-1"></span>
-          <span class="text-muted-foreground opacity-70">↑↓ move · ⏎ open</span>
         </div>
       </div>
     {/if}

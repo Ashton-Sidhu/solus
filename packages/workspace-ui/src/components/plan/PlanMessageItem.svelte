@@ -13,6 +13,7 @@
   import type { TaskLinkTarget } from "@solus/contracts/task-types";
   import TaskLinkControl from "../tasks/link-control/TaskLinkControl.svelte";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
+  import WorkPublishMenu from "../work/WorkPublishMenu.svelte";
 
   interface Props {
     ref: PlanMessageRef;
@@ -183,6 +184,9 @@
       >
         Open in split
       </button>
+      {#if ref.id}
+        <WorkPublishMenu workId={ref.id} triggerVariant="conversation-card" />
+      {/if}
       <span class="flex-1"></span>
       {@render taskLink()}
     {/snippet}

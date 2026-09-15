@@ -9,6 +9,8 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'getLocalConnection',
   'openExternal',
   'showNotification',
+  'setActivityBadge',
+  'onActivityAcknowledged',
   'logNotificationSound',
   'setQuoteContext',
   'onQuoteSelection',

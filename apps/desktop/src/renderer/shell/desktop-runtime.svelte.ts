@@ -409,12 +409,10 @@ export function installDesktopRuntime(
   });
 
   $effect(() => {
-    if (!settings.soundEnabled) {
-      notificationsStore.stop();
-      return;
-    }
     return untrack(() =>
       notificationsStore.start({
+        nativeNotificationsEnabled: () => settings.soundEnabled,
+        backgroundActivityToastsEnabled: () => settings.backgroundActivityToasts,
         hostDisplay: (serverId) => {
           const host = serversStore.hostFor(serverId);
           const display: import("@solus/workspace-ui/contexts/notifications/notifications.store.svelte").NotificationHostDisplay =

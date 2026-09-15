@@ -2152,14 +2152,12 @@ button.solus-token {
      --doc-pad-x below. */
   --solus-doc-pad-x: 3.5rem;
 }
-/* A laptop display has no spare width to give the outline, so the measure gives
-   it instead: a narrower reading column, and the margin beside it is deep
-   enough for the contents to unfold into rather than over the first lines. The
-   column still tracks the pane — this only lowers the share it takes and the
-   ceiling it stops at. Peek sets its own measure and is excluded, because a
-   19rem preview column has no margin to win back. */
+/* Keep some laptop margin for the outline, but let the document use more of the
+   pane than the large-display step. The column still tracks the pane, so a
+   narrow split remains constrained by its own width. Peek sets its own measure
+   and is excluded, because a 19rem preview column has no margin to win back. */
 html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
-  --solus-doc-measure: clamp(66ch, 48cqi, 80ch);
+  --solus-doc-measure: clamp(66ch, 56cqi, 92ch);
 }
 .doc-shell-root .solus-doc-editor .ProseMirror {
   --doc-pad-x: var(--solus-doc-pad-x);
@@ -4620,5 +4618,14 @@ html.is-mac-editor
   .onboarding-fade,
   .onboarding-caret {
     animation: none;
+  }
+}
+
+/* New response blocks enter once. Existing blocks and reopened history stay still. */
+@media (prefers-reduced-motion: no-preference) {
+  .response-markdown[data-streaming] > *,
+  .response-markdown[data-streaming] .solus-code-block {
+    transition: opacity 600ms ease-out;
+    @starting-style { opacity: 0; }
   }
 }

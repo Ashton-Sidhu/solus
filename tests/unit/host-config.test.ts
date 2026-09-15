@@ -87,6 +87,20 @@ describe('host config', () => {
     expect(parsed.fontSize).toBe(14)
   })
 
+  test('permission and background-toast defaults preserve existing behavior', () => {
+    expect(DEFAULT_HOST_CONFIG.defaultPermissionMode).toBe('auto')
+    expect(DEFAULT_HOST_CONFIG.backgroundActivityToasts).toBe(false)
+    expect(hostConfigPatchSchema.parse({ defaultPermissionMode: 'invalid' }).defaultPermissionMode).toBe('auto')
+  })
+
+  test('permission and background-toast choices are saved on the host', () => {
+    settings.setHostConfig({ defaultPermissionMode: 'plan', backgroundActivityToasts: true })
+    settings.setHostConfig({ fontSize: 14 })
+    const persisted = JSON.parse(readFileSync(join(dataDir, 'server-settings.json'), 'utf-8'))
+    expect(persisted.hostConfig.defaultPermissionMode).toBe('plan')
+    expect(persisted.hostConfig.backgroundActivityToasts).toBe(true)
+  })
+
   test('config survives a host restart', async () => {
     settings.setHostConfig({
       extraInstructions: 'Speak plainly.',

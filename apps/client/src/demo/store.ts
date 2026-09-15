@@ -25,7 +25,6 @@ import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } 
 import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '@solus/contracts/git-types'
 import { DEMO_PROJECT, DEMO_VIEWER, type DemoFixtures } from './fixtures/types'
 
-/** A unified diff the demo serves for one scope. */
 interface DemoDiff {
   patch: string
 }

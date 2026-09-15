@@ -21,6 +21,7 @@
     type ParsedToolInput,
   } from "./lib/activity-summary";
   import { waitingOnLabel } from "./agent-conversation/lib/agent-conversation";
+  import { clickEndsTextSelection } from "./lib/text-selection";
   import type { Message, TurnStartKind } from "@solus/contracts/types";
 
   interface Props {
@@ -226,7 +227,12 @@
             class:is-expanded={expandedToolId === tool.id}
             class="tool-step-text text-tool-step font-mono"
             aria-expanded={expandedToolId === tool.id}
-            onclick={() => toggleToolExpanded(tool.id)}
+            onclick={(e) => {
+              // An expanded row wraps its full command or path, which is the
+              // text worth copying. Releasing that drag must not collapse it.
+              if (clickEndsTextSelection(e.currentTarget)) return;
+              toggleToolExpanded(tool.id);
+            }}
           >
             {describe(tool, parsed)}
           </button>

@@ -2,7 +2,6 @@
 import { SWIPE_DIRECTION_LOCK_PX } from '@solus/workspace-ui/lib/swipe-actions'
 
 export interface SwipeDismissParams {
-  /** Axis the panel travels along to leave the screen. */
   axis: 'x' | 'y'
   /** Direction along that axis that dismisses: -1 = left/up, 1 = right/down. */
   sign: -1 | 1
@@ -10,7 +9,6 @@ export interface SwipeDismissParams {
   onDismiss: () => void
   /** Optional backdrop whose opacity tracks drag progress. */
   backdrop?: () => HTMLElement | null | undefined
-  /** When false the gesture is inert (e.g. non-touch pointers). */
   enabled?: boolean
   ignoreWithin?: string
 }

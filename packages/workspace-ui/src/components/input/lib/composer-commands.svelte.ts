@@ -12,7 +12,15 @@ import { toasts } from '../../../lib/toasts';
 import { LOCAL_SERVER_ID } from '@solus/client-core/server-registry';
 import { hostPolicy } from '@solus/client-core/host-policy';
 import { serverConnections } from '@solus/client-core/server-connections';
-import { clipboardImages, pastedImageAttachment, readFileDataUrl, uploadPastedImage } from './attachment-upload';
+import {
+  clipboardImages,
+  isLargePaste,
+  pastedImageAttachment,
+  pastedTextFile,
+  readFileDataUrl,
+  uploadFileObjects,
+  uploadPastedImage,
+} from './attachment-upload';
 
 interface ComposerCommandOptions {
   isReadOnly: boolean;
@@ -32,6 +40,17 @@ interface ComposerCommandOptions {
   refocusComposer: () => void;
 }
 
+/**
+ * The "paste this literally" chord. A ClipboardEvent carries no modifier
+ * state, so a paste large enough to be filed can only learn the user meant it
+ * from the keydown that produced it.
+ */
+function isPasteAsTextChord(e: KeyboardEvent): boolean {
+  if (!e.shiftKey) return false
+  if (!(e.metaKey || e.ctrlKey)) return false
+  return e.key.toLowerCase() === "v"
+}
+
 /** Owns send, slash commands, history recall, and paste for one prompt target. */
 export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   const session = getWorkspaceContext();
@@ -42,6 +61,10 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   let promptHistory = $state<string[]>(loadPromptHistory(localStorage));
   let historyIndex = $state(-1);
   let savedInput = "";
+  // Set by the paste-as-text shortcut on the keydown that precedes the paste.
+  // A ClipboardEvent carries no modifier state, so the intent has to be caught
+  // on the way in and read by the paste that follows it in the same gesture.
+  let pasteAsTextRequested = false;
 
   function resetHistoryNavigation() {
     historyIndex = -1;
@@ -292,6 +315,9 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   // Fired by the composer only when no autocomplete menu consumed the event.
   function handleKeyDown(e: KeyboardEvent) {
     const { isTouch, run, onDispatchInBackground, editor: composerEl } = getOptions();
+    // Not preventDefault'd: the browser still performs the paste, this only
+    // tells the paste handler to leave it inline.
+    if (isPasteAsTextChord(e)) pasteAsTextRequested = true;
     if (
       e.key === "ArrowUp" &&
       !e.shiftKey &&
@@ -345,13 +371,74 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
     if (historyIndex !== -1) resetHistoryNavigation();
   }
 
+  /**
+   * The pasted text when it should be filed rather than typed, else "".
+   *
+   * Always consumes the paste-as-text request, whether or not this paste turns
+   * out to be foldable — the shortcut answers for the gesture that followed it
+   * and must not carry into the next ordinary paste.
+   */
+  function foldableText(clipboard: DataTransfer, hasImages: boolean): string {
+    const wasAskedForText = pasteAsTextRequested;
+    pasteAsTextRequested = false;
+    // An image paste is already an attachment, and a clipboard carrying both is
+    // the image's paste — its text half is a fallback rendering of the same
+    // thing, so filing it too would attach the same content twice.
+    if (hasImages || wasAskedForText) return "";
+    const text = clipboard.getData("text/plain");
+    return isLargePaste(text) ? text : "";
+  }
+
+  /**
+   * File a large paste instead of typing it. Reuses the ordinary upload path,
+   * so the text lands beside any other attachment and the agent opens it on
+   * demand rather than reading all of it into the window up front.
+   *
+   * A host that cannot mint an attachment path has no fallback for a file — an
+   * image can ride along as prompt content, a `.txt` cannot — so there the
+   * paste stays inline and behaves exactly as it did before.
+   */
+  async function foldPasteIntoAttachment(text: string): Promise<void> {
+    const { run, prompt, targetTabId, draftId, editor: composerEl } = getOptions();
+    const serverId = run?.serverId ?? LOCAL_SERVER_ID;
+    const composerSourceId = targetTabId ?? draftId;
+    const ctx = composerSourceId
+      ? session.ctxFor(composerSourceId)
+      : session.ctxForDirectory(run?.workingDirectory ?? session.ctx.session.workingDirectory);
+    try {
+      const capabilities = await serverConnections.capabilitiesFor(serverId);
+      if (capabilities.attachUpload !== true) {
+        composerEl?.insertTranscript(text);
+        return;
+      }
+      const [attachment] = await uploadFileObjects(
+        session.apiForRun(run),
+        ctx,
+        serverId,
+        [pastedTextFile(text)],
+      );
+      if (attachment) prompt.attachments.push(attachment);
+      else composerEl?.insertTranscript(text);
+    } catch (error) {
+      // Never lose the paste: if filing it failed, it still belongs in the
+      // composer where the user put it.
+      composerEl?.insertTranscript(text);
+      toasts.error(error instanceof Error ? error.message : "Couldn't attach pasted text");
+    }
+  }
+
   async function handlePaste(e: ClipboardEvent) {
     const { isReadOnly, run, prompt, targetTabId, draftId } = getOptions();
-    const { attachments } = prompt;
     if (isReadOnly) return;
     const clipboard = e.clipboardData;
     if (!clipboard) return;
     const blobs = clipboardImages(clipboard);
+    const foldable = foldableText(clipboard, blobs.length > 0);
+    if (foldable) {
+      e.preventDefault();
+      await foldPasteIntoAttachment(foldable);
+      return;
+    }
     if (blobs.length === 0) return;
     e.preventDefault();
 

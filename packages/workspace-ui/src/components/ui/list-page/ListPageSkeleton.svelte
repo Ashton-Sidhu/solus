@@ -76,7 +76,6 @@
       <Skeleton class="size-[26px] rounded-[0.4375rem] opacity-40" />
     </div>
 
-    <!-- Row 2. -->
     <div
       class="box-content flex shrink-0 items-center gap-2 {toolbarFilters
         ? 'h-8 pb-[14px]'

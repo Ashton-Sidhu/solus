@@ -259,7 +259,6 @@
     aria-label="Search in project"
     aria-modal="true"
   >
-    <!-- Search -->
     <div class="flex h-[3.3125rem] shrink-0 items-center gap-3 border-b border-(--solus-menu-hairline) px-5">
       <MagnifyingGlassIcon size={16} class="shrink-0 text-(--solus-text-tertiary) opacity-65" />
       <input
@@ -281,7 +280,6 @@
       </div>
     </div>
 
-    <!-- Status -->
     {#if statusText}
       <div
         class={cn(
@@ -297,7 +295,6 @@
       </div>
     {/if}
 
-    <!-- Results -->
     {#if matches.length === 0}
       <div
         class="flex flex-1 flex-col items-center justify-center gap-2.5 px-6 text-center text-[length:calc(.8125rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
@@ -377,7 +374,6 @@
       </div>
     {/if}
 
-    <!-- Footer -->
     <div
       class="flex h-10 shrink-0 items-center gap-5 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) px-4 text-[length:calc(.75rem*var(--solus-font-scale,1))] text-(--solus-text-tertiary)"
     >

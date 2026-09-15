@@ -7,7 +7,6 @@
     ariaLabel: string;
     minWidth?: string | number;
     maxHeight?: number;
-    // The trigger button's inner icon.
     icon: Snippet;
     // Menu items. Callers compose the shared dropdown primitives directly.
     children: Snippet;

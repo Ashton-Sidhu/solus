@@ -10,11 +10,9 @@
 // The sheet is portalled to the body, so a container query would never reach it;
 // this is the boolean that stands in for one.
 
-/** One property line. */
 export const row = (sheet: boolean): string =>
   sheet ? 'flex h-[54px] items-center gap-[11px] px-3.5' : 'flex h-[34px] items-center'
 
-/** The label opposite a property's value. */
 export const rowLabel = (sheet: boolean): string =>
   sheet
     ? 'min-w-0 flex-1 text-muted-foreground'

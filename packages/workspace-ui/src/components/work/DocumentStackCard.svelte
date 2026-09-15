@@ -12,6 +12,7 @@
   } from "./lib/document-stack";
   import TaskLinkControl from "../tasks/link-control/TaskLinkControl.svelte";
   import type { TaskLinkContext } from "../tasks/link-control/lib/task-link-control";
+  import WorkPublishMenu from "./WorkPublishMenu.svelte";
 
   interface Props {
     entries: DocumentStackEntry[];
@@ -169,6 +170,10 @@
            one control for the work in front, not one per title. -->
       {#if selected && !selected.streaming}
         {#key selected.workId}
+          <WorkPublishMenu
+            workId={selected.workId}
+            triggerVariant="conversation-card"
+          />
           <TaskLinkControl
             target={{ kind: "work", targetScope: "", targetKey: selected.workId }}
             title={selected.title}

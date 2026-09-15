@@ -25,7 +25,6 @@ import { DEMO_PROJECT } from './types'
 // with absolute timestamps would fall out of the default "last 24 hours" window
 // the moment it aged, and the page would open on an empty chart.
 
-/** One recorded turn, as the fixture states it. */
 interface DemoTurn {
   /** Minutes before the visit the turn started. */
   minutesAgo: number

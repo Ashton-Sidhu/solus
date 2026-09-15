@@ -175,8 +175,12 @@ export interface PermissionEvent {
 export interface StatusEvent {
   type: 'system'
   subtype: 'status'
+  /** `'compacting'` while the provider rewrites its own context, else `'requesting'` or null. */
   status: string | null
   permissionMode: string
+  /** Present only on the status that closes a compaction, which is what ends it. */
+  compact_result?: 'success' | 'failed'
+  compact_error?: string
   uuid: string
   session_id: string
 }

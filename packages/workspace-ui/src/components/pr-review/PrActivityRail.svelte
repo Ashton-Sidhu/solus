@@ -369,7 +369,7 @@
     <!-- The status card: the rail's one bordered object, because it is the
          one thing you act on. Everything under it is reference material. -->
     <section
-      class="overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card"
+      class="shrink-0 overflow-hidden rounded-[14px] border border-[var(--hairline-strong)] bg-card"
     >
       {#if !detail || !readiness}
         <div class="flex items-center gap-3 p-3.5">
@@ -549,7 +549,6 @@
     </section>
     {/if}
 
-    <!-- Checks -->
     {#if allChecks.length > 0}
       <section class="mt-5 border-t border-[var(--hairline)] pt-3.5">
         {#snippet checksCount()}
@@ -661,7 +660,6 @@
       </section>
     {/if}
 
-    <!-- Changed files -->
     <section class="mt-5 border-t border-[var(--hairline)] pt-3.5">
       {#snippet fileCount()}
         {#if filesLoading}

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
   import {
+    Link as LinkIcon,
     ExternalLink as ArrowSquareOutIcon,
     Download as DownloadSimpleIcon,
     Link2Off as UnlinkIcon,
@@ -15,7 +16,7 @@
   import DocDestinationIcon from "./DocDestinationIcon.svelte";
   import DocProviderLogo from "./DocProviderLogo.svelte";
   import { docProviderLabel, docSyncChip, docSyncTooltip, destinationNoun } from "./lib/work-publish";
-  import { toasts } from "../../lib/toasts";
+  import { copyText, toasts } from "../../lib/toasts";
   import { buildDiagramAssets } from "../document-shell/lib/diagram-assets";
   import { renderDiagramAsAuthored, renderDiagramForPage } from "../diagram/lib/offscreen-export";
 
@@ -24,9 +25,17 @@
     planId?: string;
     getCurrentContent?: () => string;
     flushSave?: () => Promise<void>;
+    /** The document header and conversation card use different action rungs. */
+    triggerVariant?: "header" | "conversation-card";
   }
 
-  let { workId, planId, getCurrentContent, flushSave }: Props = $props();
+  let {
+    workId,
+    planId,
+    getCurrentContent,
+    flushSave,
+    triggerVariant = "header",
+  }: Props = $props();
 
   const session = getWorkspaceContext();
   const store = session.worksStore;
@@ -203,6 +212,11 @@
     void localApi.openExternal(url);
   }
 
+  async function copyUpstreamLink(url: string) {
+    await copyText(url);
+    toasts.success("Copied document link");
+  }
+
   /**
    * A provider the user could sign in to is a route, not a dead end. Settings
    * opens on its own selected host rather than this document's — there is no
@@ -236,6 +250,7 @@
                 {...props}
                 type="button"
                 class="wpm-verb"
+                class:wpm-verb--conversation-card={triggerVariant === "conversation-card"}
                 class:wpm-verb--pending={chip.tone === "pending"}
                 class:wpm-verb--warning={chip.tone === "warning"}
                 class:wpm-verb--error={chip.tone === "error"}
@@ -260,7 +275,7 @@
          names on the one line `truncate` then shortens. -->
     <DropdownMenu.Content
       side="bottom"
-      align="end"
+      align={triggerVariant === "conversation-card" ? "start" : "end"}
       sideOffset={6}
       collisionPadding={8}
       class="w-auto min-w-56 max-w-[min(22rem,calc(100vw-2rem))] whitespace-nowrap pointer-coarse:w-[calc(100vw-2rem)] pointer-coarse:max-w-[calc(100vw-2rem)] pointer-coarse:whitespace-normal"
@@ -319,6 +334,9 @@
         <DropdownMenu.Item class="text-workspace-chrome" data-testid="open-upstream" onSelect={() => openUpstream(link.url)}>
           <ArrowSquareOutIcon size={14} /><span class="flex-1 text-left">Open in {docProviderLabel(link.provider)}</span>
         </DropdownMenu.Item>
+        <DropdownMenu.Item class="text-workspace-chrome" data-testid="copy-upstream-link" onSelect={() => void copyUpstreamLink(link.url)}>
+          <LinkIcon size={14} /><span class="flex-1 text-left">Copy link</span>
+        </DropdownMenu.Item>
         <DropdownMenu.Separator />
         <DropdownMenu.Item class="text-workspace-chrome" data-testid="unlink-work" onSelect={() => void unlink()}>
           <UnlinkIcon size={14} /><span class="flex-1 text-left">Unlink</span>
@@ -351,7 +369,7 @@
                 closeOnSelect={false}
                 onSelect={() => (pickingProvider = status.provider)}
               >
-                <UploadIcon size={14} />
+                <DocProviderLogo provider={status.provider} size={16} />
                 <span class="flex-1 text-left">{docProviderLabel(status.provider)}…</span>
               </DropdownMenu.Item>
             {:else}
@@ -374,7 +392,7 @@
                       closeOnSelect={status.connectable}
                       onSelect={status.connectable ? openProviderSettings : () => {}}
                     >
-                      <UploadIcon size={14} />
+                      <DocProviderLogo provider={status.provider} size={16} />
                       <span class="min-w-0 flex-1 truncate text-left">
                         {docProviderLabel(status.provider)}
                       </span>
@@ -435,6 +453,22 @@
   }
   .wpm-verb--error {
     color: var(--solus-status-error);
+  }
+
+  /* Conversation cards have a roomier rail on large displays. The laptop
+     class changes only geometry; the transcript type token owns font scaling. */
+  .wpm-verb--conversation-card {
+    height: 1.75rem;
+    padding: 0 0.5rem;
+    font-size: var(--text-transcript-meta);
+    font-weight: 500;
+  }
+
+  @media (pointer: fine) and (min-width: 768px) {
+    :global(html.is-laptop-display) .wpm-verb--conversation-card {
+      height: 1.5rem;
+      padding: 0 0.4375rem;
+    }
   }
 
   @media (max-width: 767px) {

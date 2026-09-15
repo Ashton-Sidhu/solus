@@ -22,6 +22,33 @@ export const CONNECTOR_THRESHOLD = 24
 /** How far a stuck card sits off the edge it is holding. */
 export const STICKY_INSET = 16
 
+/** Width of the folded drawer, in rem. */
+export const DRAWER_WIDTH_REM = 20
+/** Below this pane width the drawer takes the whole pane: a 20rem drawer over
+ *  a phone-width pane leaves a strip of text too narrow to read beside it. It
+ *  is the stacked rung every pane surface folds at (`lib/pane-width.ts`). */
+export const DRAWER_FULL_BELOW_REM = 30
+
+export interface PaneBox {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/**
+ * Where the folded surface sits: over the right edge of the reading pane, the
+ * same side the margin lives on when there is room for one, and the full
+ * height of the pane so it scrolls its own threads while the text stays put.
+ * Measured against the pane's own box, not the window — a document in a split
+ * does not reach the window's edge.
+ */
+export function drawerFrame(pane: PaneBox, remPx = 16): PaneBox {
+  const width =
+    pane.width < DRAWER_FULL_BELOW_REM * remPx ? pane.width : Math.min(DRAWER_WIDTH_REM * remPx, pane.width)
+  return { left: pane.left + pane.width - width, top: pane.top, width, height: pane.height }
+}
+
 export interface ThreadAnchor {
   id: string
   /** Top of the anchor's first line, in the rail's own coordinate space. */

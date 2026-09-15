@@ -124,7 +124,6 @@
   {/if}
 {/snippet}
 
-<!-- The last reply. -->
 {#snippet lastReply(message: BoundedPreviewMessage)}
   <div class="w-full overflow-hidden whitespace-pre-wrap break-words py-2">
     <div class="prose-cloud prose-reading prose-transcript min-w-0">

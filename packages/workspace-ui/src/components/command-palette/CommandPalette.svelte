@@ -238,7 +238,6 @@
       aria-label="Command palette"
       onkeydown={onPaletteKeydown}
     >
-      <!-- Search -->
       <div
         class="flex items-center gap-3 px-5 h-[3.3125rem] flex-shrink-0 border-b border-(--solus-menu-hairline)"
       >
@@ -276,7 +275,6 @@
         {/if}
       </div>
 
-      <!-- Results -->
       <div
         id="command-palette-results"
         role="listbox"
@@ -342,7 +340,6 @@
         </div>
       </div>
 
-      <!-- Footer -->
       <div class="flex items-center gap-5 px-4 h-10 flex-shrink-0 border-t border-(--solus-menu-hairline) bg-(--solus-menu-footer-bg) text-chrome-shelf text-(--solus-text-tertiary)">
         <span class="inline-flex items-center gap-1.5">
           <Kbd variant="keycap">↑</Kbd>

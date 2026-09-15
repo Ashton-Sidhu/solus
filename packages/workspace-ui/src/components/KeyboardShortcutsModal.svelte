@@ -145,7 +145,6 @@
       aria-label="Keyboard shortcuts"
       aria-modal="true"
     >
-      <!-- Header -->
       <div class="flex shrink-0 items-center gap-2.5 px-4 pt-3.5 pb-3">
         <MagnifyingGlassIcon size={15} class="shrink-0 text-(--solus-text-tertiary)" />
         <Input
@@ -169,7 +168,6 @@
         </button>
       </div>
 
-      <!-- Scope pills -->
       <div class="flex shrink-0 flex-wrap items-center gap-1.5 px-4 pb-3">
         {#each CATEGORY_PILLS as category (category.key)}
           {@const active = !query.trim() && selectedCategory === category.key}
@@ -188,7 +186,6 @@
         {/each}
       </div>
 
-      <!-- Body -->
       <div class="flex-1 overflow-y-auto overscroll-y-contain border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] px-2 pt-1 pb-2.5">
         {#if !hasResults}
           <div class="px-3 pt-8 pb-7 text-center text-(--solus-text-tertiary)">
@@ -210,7 +207,6 @@
         {/if}
       </div>
 
-      <!-- Footer -->
       <div class="flex shrink-0 items-center gap-5 border-t border-[color-mix(in_oklch,var(--foreground)_8%,transparent)] bg-(--wash-1) px-4 py-2.5 text-muted-foreground">
         <span class="shortcuts-count font-mono tabular-nums">
           {#if hasResults}

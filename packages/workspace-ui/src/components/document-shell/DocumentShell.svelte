@@ -932,7 +932,6 @@
       </div>
     {/if}
 
-    <!-- Content area -->
     <div class="relative flex flex-1 min-h-0">
       {#if findOpen && tiptapEditor}
         <div class="doc-find-sleeve" transition:fly={{ y: -6, duration: 140, opacity: 0 }}>
@@ -981,7 +980,6 @@
              the rail then sticks to the top of the viewport so cards can hold
              their anchors' lines while the text moves under them. -->
         <div class="doc-shell-page" class:doc-shell-page-source={editorMode === "raw"} style:--doc-viewport-h="{scrollHeight}px">
-        <!-- Editor -->
         <DocumentEditor
           bind:this={editorRef}
           value={content}

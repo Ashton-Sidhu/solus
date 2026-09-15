@@ -131,7 +131,6 @@
 
 <div class="max-w-[1120px] mx-auto px-6 max-lg:px-5 pt-28 pb-24 flex gap-16 max-lg:gap-0 max-lg:flex-col">
 
-	<!-- Mobile TOC, visible below lg -->
 	<div class="lg:hidden mb-6">
 		<button
 			class="relative w-full flex items-center justify-between px-4 py-3 rounded-xl
@@ -474,7 +473,7 @@
 					</div>
 					<div class="flex gap-3">
 						<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>
-						<span><strong class="text-[#1A1714] font-medium">Queue.</strong> Silently waits for the rate limit to reset, then re-sends your message automatically.</span>
+						<span><strong class="text-[#1A1714] font-medium">Queue.</strong> Silently waits for the rate limit to reset, then re-sends your message automatically. When the provider never says when the window reopens, there is no reset to wait on — the message stays queued until you send or discard it.</span>
 					</div>
 					<div class="flex gap-3">
 						<span class="mt-[9px] w-1 h-1 rounded-full bg-[#D4AF6A] shrink-0"></span>

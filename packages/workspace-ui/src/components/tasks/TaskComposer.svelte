@@ -661,7 +661,6 @@
         </div>
       </Dropdown>
 
-      <!-- Target date -->
         <button
           type="button"
           bind:this={dueTrigger}
@@ -874,7 +873,6 @@
       {/if}
     </div>
 
-    <!-- Footer -->
     <div
       class="flex items-center justify-between gap-3 px-[1.375rem] h-[3.375rem] flex-shrink-0 relative before:content-[''] before:absolute before:left-0 before:right-0 before:top-0 before:h-[0.0625rem] before:bg-(--solus-popover-border) before:opacity-[0.35]"
     >

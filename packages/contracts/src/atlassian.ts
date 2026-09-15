@@ -13,7 +13,6 @@
  * cannot connect at all, which `oauthAvailable` reports.
  */
 
-/** An Atlassian product Solus can reach with the stored grant. */
 export type AtlassianProduct = 'confluence' | 'jira'
 
 export interface AtlassianStatus {

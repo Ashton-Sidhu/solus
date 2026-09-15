@@ -1,4 +1,5 @@
 import type { SvelteMarkdownOptions } from "@humanspeak/svelte-markdown";
+import { rawHtmlMarkedExtension } from "./raw-html";
 import { decodeHtmlEntities } from "./html-entities";
 
 export const assistantMarkdownOptions: SvelteMarkdownOptions = {};
@@ -17,4 +18,23 @@ export function codeFileLinkLabel(text: string | undefined, line?: number): stri
   return lineSuffix && label.endsWith(lineSuffix)
     ? label.slice(0, -lineSuffix.length)
     : label;
+}
+
+const rawHtmlExtensions = [rawHtmlMarkedExtension];
+const plainExtensions: typeof rawHtmlExtensions = [];
+
+/** Raw HTML can merge adjacent blocks and requires the full parser. Ordinary
+ * prose and fenced source use the library's stable-prefix incremental parser. */
+export function assistantMarkdownExtensions(source: string) {
+  let fence: string | undefined;
+  for (const line of source.split("\n")) {
+    const marker = /^ {0,3}(`{3,}|~{3,})/.exec(line)?.[1];
+    if (marker) {
+      if (!fence) fence = marker;
+      else if (marker[0] === fence[0] && marker.length >= fence.length && line.trim() === marker) fence = undefined;
+    } else if (!fence && line.includes("<")) {
+      return rawHtmlExtensions;
+    }
+  }
+  return plainExtensions;
 }

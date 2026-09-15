@@ -64,6 +64,7 @@ import { registerChecksHandlers } from './handlers/checks-handlers'
 import { registerUsageHandlers } from './handlers/usage-handlers'
 import { registerSkillsHandlers } from './handlers/skills-handlers'
 import { registerPinnedSessionsHandlers } from './handlers/pinned-sessions-handlers'
+import { registerSessionReadStateHandlers } from './handlers/session-read-state-handlers'
 import { registerSavedPromptsHandlers } from './handlers/saved-prompts-handlers'
 import { registerProjectConfigHandlers } from './handlers/project-config-handlers'
 import { registerTasksHandlers } from './handlers/tasks-handlers'
@@ -341,6 +342,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerUsageHandlers(server, { controlPlane: opts.controlPlane, events })
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
+  registerSessionReadStateHandlers(server, { events })
   registerSavedPromptsHandlers(server)
   const hostUpdates = new UpdateStatusService({
     currentVersion: packageJson.version,

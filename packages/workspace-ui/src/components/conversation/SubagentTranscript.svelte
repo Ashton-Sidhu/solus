@@ -4,6 +4,7 @@
   import { markdownSanitizeUrl } from "../../lib/markdownSanitize";
   import FencedBlock from "./FencedBlock.svelte";
   import HtmlBlock from "./HtmlBlock.svelte";
+  import { assistantMarkdownExtensions } from "./lib/assistant-markdown";
   import { RAW_HTML_TOKEN, rawHtmlMarkedExtension } from "./lib/raw-html";
   import CodeSpan from "../ui/CodeSpan.svelte";
   import MarkdownLink from "./MarkdownLink.svelte";
@@ -175,11 +176,12 @@
       {:else}
         <!-- Mid-turn prose sits in the stream at full weight: it is the agent
              talking, not a tool. -->
-        <div class="prose-cloud prose-transcript min-w-0 max-w-[41rem]">
+        <div class="prose-cloud prose-transcript min-w-0 max-w-[41rem] response-markdown" data-streaming={state === "running" ? "" : undefined}>
           <SvelteMarkdown
+            streaming
             source={entry.content}
             renderers={markdownRenderers}
-            extensions={markdownExtensions}
+            extensions={assistantMarkdownExtensions(entry.content)}
             sanitizeUrl={markdownSanitizeUrl}
           />
         </div>

@@ -253,7 +253,6 @@
 
 <div class="grain" aria-hidden="true"></div>
 
-<!-- Nav -->
 <nav
 	onfocusin={() => (navHidden = false)}
 	class="fixed top-5 max-[1400px]:top-8 inset-x-0 z-50 flex justify-center px-5 max-sm:px-4
@@ -325,7 +324,6 @@
 			Download
 		</button>
 
-		<!-- Mobile hamburger -->
 		<button
 			class="sm:hidden relative flex items-center justify-center size-9 rounded-full
 			       text-[#6B6158] hover:text-[#1A1714] transition-colors ml-auto"
@@ -374,7 +372,6 @@
 	</div>
 </nav>
 
-<!-- Mobile menu panel -->
 {#if mobileMenuOpen}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div
@@ -430,9 +427,7 @@
 	</div>
 {/if}
 
-<!-- Hero -->
 <section class="hero v2">
-	<!-- Quiet title block -->
 	<div class="v2-text">
 		<h1 class="v2-title">
 			Writing the code was never the hard part. <span class="v2-title-accent"
@@ -526,7 +521,6 @@
 	<DemoSection />
 </section>
 
-<!-- The workflow: three acts -->
 <section
 	id="workflow"
 	class="px-10 py-[160px] max-[1800px]:py-[110px] max-lg:px-6 max-lg:py-20"
@@ -594,7 +588,6 @@
 	</figure>
 {/snippet}
 
-<!-- How it works -->
 <section
 	id="how-it-works"
 	class="px-10 py-[160px] max-[1800px]:py-[110px] border-t border-black/[0.07] max-lg:px-6 max-lg:py-20"
@@ -705,7 +698,6 @@
 	</div>
 </section>
 
-<!-- Features -->
 <section
 	id="features"
 	class="px-10 py-[160px] max-[1800px]:py-[110px] border-t border-black/[0.07] max-lg:px-6 max-lg:py-20"
@@ -757,10 +749,8 @@
 	</div>
 </section>
 
-<!-- Craft details -->
 <CraftStrip />
 
-<!-- CTA -->
 <section
 	class="relative overflow-hidden px-10 py-[180px] max-[1800px]:py-[130px] border-t border-black/[0.07] max-lg:px-6 max-lg:py-24"
 >
@@ -827,7 +817,6 @@
 	</div>
 </section>
 
-<!-- Footer -->
 <footer class="border-t border-black/[0.07] px-10 py-7 max-sm:px-5 max-sm:py-8">
 	<div
 		class="max-w-[1200px] mx-auto flex items-center gap-6 max-sm:flex-col max-sm:items-start max-sm:gap-5"

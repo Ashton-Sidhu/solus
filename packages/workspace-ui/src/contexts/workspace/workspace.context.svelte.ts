@@ -349,6 +349,7 @@ export class WorkspaceContext {
       automationsStore: this.automationsStore,
       workStreamTracker: this.workStreamTracker,
       isSessionVisible: (sessionId) => this.isSessionVisible(sessionId),
+      publishSessionViewed: (sessionId) => this.publishSessionViewed(sessionId),
       addChangedFilesFromMessage: (sessionId, message) => this.lifecycle.addChangedFilesFromMessage(sessionId, message),
       refreshTurnSnapshots: (sessionId) => { void this.refreshTurnSnapshots(sessionId) },
       setGitStatus: (cwd, status) => this.environment.set(cwd, status),
@@ -554,6 +555,9 @@ export class WorkspaceContext {
         const tab = this.tabs[tabId]
         if (tab?.hasUnread && this.isSessionVisible(tab.sessionId)) {
           tab.hasUnread = false
+          // Seeing it here is what "read" means, so the host hears about it and
+          // every other device clears the same session.
+          this.publishSessionViewed(tab.sessionId)
         }
       }
     })
@@ -1108,6 +1112,40 @@ export class WorkspaceContext {
    *  resumes the parent), and naming is a paid round trip — once per tab. */
   private metadataFinalizedTabs = new Set<string>()
   readonly regeneratingTitleSessionIds = new SvelteSet<string>()
+
+  /**
+   * Adopt the host's read state for a session. The event arrives for a read
+   * made on any device, so this is what makes opening a session on the desktop
+   * clear its indicator on the phone.
+   *
+   * The host's answer is taken as-is rather than merged with a local guess:
+   * two mounted surfaces disagreeing about what has been read is the failure
+   * this replaced.
+   */
+  applySessionReadState(sessionId: string, viewedAt: number | null): void {
+    const unread = viewedAt === null
+    for (const tabId of this.tabIdsForSession(sessionId)) {
+      const tab = this.tabs[tabId]
+      // One property, never a spread: this runs on an event that can arrive
+      // during streaming, and replacing the tab invalidates every derived
+      // reading it.
+      if (tab && tab.hasUnread !== unread) tab.hasUnread = unread
+    }
+  }
+
+  /**
+   * Tell the session's host it has been read. Fire-and-forget: the indicator
+   * has already cleared locally, and the broadcast that follows is what the
+   * other clients act on. A host too old to know the method simply keeps its
+   * previous per-client behaviour.
+   */
+  private publishSessionViewed(sessionId: string): void {
+    const serverId = this.sessions[sessionId]?.run.serverId
+    if (!serverId) return
+    void serverConnections.apiFor(serverId)
+      .setSessionReadState(sessionId, Date.now())
+      .catch(() => {})
+  }
 
   applySessionTitleChanged(
     serverId: string,
@@ -3090,7 +3128,16 @@ export class WorkspaceContext {
     return this.config.refreshSessionStartTarget(sourceId, path, worktree)
   }
 
-  retryLastMessage(tabId: string): void {
+  recoverWorktreeSetup(tabId: string, workLocally: boolean): void {
+    const session = this.sessionFor(tabId)
+    if (!session || session.status !== 'failed' || session.statusCard?.recovery !== 'worktree') return
+    if (workLocally) session.run.worktree = null
+    session.statusCard = null
+    this.retryLastMessage(tabId, true)
+    requestInputFocus({ tabId })
+  }
+
+  retryLastMessage(tabId: string, recoverSetup = false): void {
     const session = this.sessionFor(tabId)
     if (!session) return
     if (session.status === 'connecting') return
@@ -3102,7 +3149,7 @@ export class WorkspaceContext {
     }
 
     const lastUserMsg = [...session.messages].reverse().find((m) => m.role === 'user')
-    if (!lastUserMsg) return
+    if (!lastUserMsg && !recoverSetup) return
 
     const lastMsg = session.messages[session.messages.length - 1]
     if (lastMsg?.role === 'system' && lastMsg.content.startsWith('Error:')) {
@@ -3119,7 +3166,7 @@ export class WorkspaceContext {
     session.retryAttempt = (session.retryAttempt ?? 1) + 1
     session.terminalFailure = null
 
-    const retry = this.apiFor(tabId).retry(this.ctxFor(tabId), { prompt: lastUserMsg.content })
+    const retry = this.apiFor(tabId).retry(this.ctxFor(tabId), { prompt: lastUserMsg?.content ?? '' })
 
     retry.catch((err: Error) => {
       this.handleError(session.id, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
@@ -3143,6 +3190,7 @@ export class WorkspaceContext {
     if (!session) return
     const idx = session.questionQueue.findIndex((q) => q.questionId === questionId)
     if (idx !== -1) session.questionQueue.splice(idx, 1)
+    requestInputFocus({ tabId })
   }
 
   // ─── Event handlers ───

@@ -35,6 +35,60 @@ export interface PullRequestAccess {
 
 const repositorySettingsByClient = new WeakMap<GitHubClient, Map<string, Promise<RepositorySettings>>>()
 
+const MERGE_METHODS_QUERY = `
+  query($owner: String!, $repo: String!) {
+    repository(owner: $owner, name: $repo) {
+      mergeCommitAllowed
+      squashMergeAllowed
+      rebaseMergeAllowed
+    }
+  }
+`
+
+interface MergeMethodsResponse {
+  repository: {
+    mergeCommitAllowed: boolean
+    squashMergeAllowed: boolean
+    rebaseMergeAllowed: boolean
+  } | null
+}
+
+/**
+ * Which merges the repository allows. REST's `allow_*_merge` fields are only
+ * filled for an admin — every other viewer reads `null`, which used to become
+ * "all three allowed" and offered a merge commit on a squash-only repository.
+ * GraphQL answers the same question for anyone who can read the repository, so
+ * it is the source here and REST is only the fallback for a host that refuses
+ * the query.
+ */
+async function mergeMethodSettings(
+  client: GitHubClient,
+  repo: RepoRef,
+  restFallback: { merge: boolean | null | undefined; squash: boolean | null | undefined; rebase: boolean | null | undefined },
+): Promise<Pick<RepositorySettings, 'allowMergeCommit' | 'allowSquashMerge' | 'allowRebaseMerge'>> {
+  try {
+    const result = await client.graphql<MergeMethodsResponse>(MERGE_METHODS_QUERY, {
+      owner: repo.owner,
+      repo: repo.repo,
+    })
+    if (result.repository) {
+      return {
+        allowMergeCommit: result.repository.mergeCommitAllowed,
+        allowSquashMerge: result.repository.squashMergeAllowed,
+        allowRebaseMerge: result.repository.rebaseMergeAllowed,
+      }
+    }
+  } catch {
+    // Fall through: a pull request that cannot name its merge methods is still
+    // worth showing, and the server re-checks the method before it merges.
+  }
+  return {
+    allowMergeCommit: restFallback.merge ?? true,
+    allowSquashMerge: restFallback.squash ?? true,
+    allowRebaseMerge: restFallback.rebase ?? true,
+  }
+}
+
 export async function githubPullRequestAccessFor(
   client: GitHubClient,
   repo: RepoRef,
@@ -50,12 +104,14 @@ export async function githubPullRequestAccessFor(
   let settings = cache.get(key)
   if (!settings) {
     settings = client.rest.repos.get({ owner: repo.owner, repo: repo.repo })
-      .then(({ data }) => ({
+      .then(async ({ data }) => ({
         canWrite: !!(data.permissions?.push || data.permissions?.maintain || data.permissions?.admin),
         canTriage: !!data.permissions?.triage,
-        allowMergeCommit: data.allow_merge_commit ?? true,
-        allowSquashMerge: data.allow_squash_merge ?? true,
-        allowRebaseMerge: data.allow_rebase_merge ?? true,
+        ...(await mergeMethodSettings(client, repo, {
+          merge: data.allow_merge_commit,
+          squash: data.allow_squash_merge,
+          rebase: data.allow_rebase_merge,
+        })),
       }))
       .catch((error) => {
         cache?.delete(key)
@@ -176,11 +232,11 @@ export async function listGithubReviewerCandidates(
   repo: RepoRef,
   author: string,
 ): Promise<PrReviewerCandidate[]> {
-  const { data: collaborators } = await client.rest.repos.listCollaborators({
+  const collaborators = await client.rest.paginate(client.rest.repos.listCollaborators, {
     owner: repo.owner,
     repo: repo.repo,
     affiliation: 'all',
-    per_page: 50,
+    per_page: 100,
   })
   return collaborators
     .filter((user) => user.login.toLowerCase() !== author.toLowerCase())

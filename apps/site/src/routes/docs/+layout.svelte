@@ -47,7 +47,6 @@
 			Download
 		</button>
 
-		<!-- Mobile hamburger -->
 		<button
 			class="sm:hidden relative flex items-center justify-center size-9 rounded-full
 			       text-[#6B6158] hover:text-[#1A1714] transition-colors ml-auto"
@@ -65,7 +64,6 @@
 	</div>
 </nav>
 
-<!-- Mobile menu panel -->
 {#if mobileMenuOpen}
 	<!-- svelte-ignore a11y_no_static_element_interactions -->
 	<div

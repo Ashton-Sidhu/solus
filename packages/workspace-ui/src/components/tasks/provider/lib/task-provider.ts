@@ -30,7 +30,6 @@ export function taskProviderLabel(provider: TaskProviderId, scopeLabel: string |
 
 /** How the header control presents itself. */
 export interface TaskProviderTriggerSpec {
-  /** The pill's text. */
   label: string
   /** Its tooltip: what this project does with its tasks today. */
   title: string

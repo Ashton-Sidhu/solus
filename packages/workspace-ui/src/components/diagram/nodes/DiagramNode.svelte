@@ -339,7 +339,6 @@
     </div>
   {/if}
 
-  <!-- Expanded content: metrics + tags + body/html -->
   {#if data.expanded}
     {#if data.metrics}
       <dl class="diagram-node__metrics">
@@ -711,7 +710,6 @@
     transform: translateX(0);
   }
 
-  /* Meta chips */
   .diagram-node__badges {
     display: flex;
     flex-wrap: wrap;
@@ -808,7 +806,6 @@
       calc(0.3125rem * var(--node-scale)) calc(1.6875rem * var(--node-scale));
   }
 
-  /* Legacy meta */
   .diagram-node__meta-list {
     display: flex;
     flex-direction: column;
@@ -827,7 +824,6 @@
     margin-right: 0.25rem;
   }
 
-  /* Metrics (description list) */
   .diagram-node__metrics {
     margin: 0;
     padding: 0.375rem 0 0;
@@ -860,7 +856,6 @@
     text-align: right;
   }
 
-  /* Tags */
   .diagram-node__tags {
     display: flex;
     flex-wrap: wrap;
@@ -876,7 +871,6 @@
     border: 0.0625rem solid color-mix(in srgb, var(--solus-text-tertiary) 20%, transparent);
   }
 
-  /* Expanded body/custom html */
   .diagram-node__body {
     font-size: var(--node-meta-size);
     color: var(--solus-text-secondary);
@@ -899,7 +893,6 @@
     word-break: break-word;
   }
 
-  /* Focus ring */
   .diagram-node:focus-visible {
     outline: 0.125rem solid var(--solus-accent);
     outline-offset: 0.125rem;

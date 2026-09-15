@@ -278,47 +278,76 @@ export async function createWorktree(
     },
   )
   const startPointMs = Date.now() - startPointStartedAt
+  let startCommit: string
+  try {
+    startCommit = await runAsync('git', ['rev-parse', '--verify', `${startPoint}^{commit}`], projectPath, { signal: options.signal })
+  } catch (error) {
+    throwIfAborted(options.signal)
+    throw new Error(`Cannot create a worktree: ${startPoint} has no commit. Create an initial commit or select an existing branch.`, { cause: error })
+  }
   const branch = worktreeBranchName(prompt, options.generatedName)
   const worktreePath = worktreePathFor(projectPath, branch.replace(/\//g, '-'))
 
   log.info('worktree_creating', { branch, worktreePath, startPoint })
   const checkoutStartedAt = Date.now()
-  const checkoutArgs = ['worktree', 'add', '-b', branch, worktreePath, startPoint]
-  await dispatchStep<string>(
-    'git_worktree_add',
-    {
-      argv: `git ${checkoutArgs.join(' ')}`,
-      cwd: projectPath,
+  // Reserving the branch is atomic: a collision fails before we own anything.
+  throwIfAborted(options.signal)
+  // Do not cancel the atomic reservation: observe its outcome before rollback.
+  await runAsync('git', ['branch', branch, startCommit], projectPath)
+  try {
+    throwIfAborted(options.signal)
+    const checkoutArgs = ['worktree', 'add', worktreePath, branch]
+    await dispatchStep<string>(
+      'git_worktree_add',
+      {
+        argv: `git ${checkoutArgs.join(' ')}`,
+        cwd: projectPath,
+        branch,
+        worktreePath,
+        startPoint,
+        fn: 'runAsync',
+        file: 'worktree-manager.ts',
+      },
+      () => runAsync('git', checkoutArgs, projectPath, { signal: options.signal }),
+    )
+    const checkoutMs = Date.now() - checkoutStartedAt
+    const copyStartedAt = Date.now()
+    await dispatchStep<void>(
+      'copy_included_files',
+      { projectPath, worktreePath, fn: 'copyIncludedWorktreeFiles', file: 'worktree-manager.ts' },
+      async (annotate) => {
+        annotate({ copiedFileCount: await copyIncludedWorktreeFiles(projectPath, worktreePath, options.signal) })
+      },
+    )
+    const copyMs = Date.now() - copyStartedAt
+
+    log.info('worktree_create_completed', {
       branch,
       worktreePath,
-      startPoint,
-      fn: 'runAsync',
-      file: 'worktree-manager.ts',
-    },
-    () => runAsync('git', checkoutArgs, projectPath, { signal: options.signal }),
-  )
-  const checkoutMs = Date.now() - checkoutStartedAt
-  const copyStartedAt = Date.now()
-  await dispatchStep<void>(
-    'copy_included_files',
-    { projectPath, worktreePath, fn: 'copyIncludedWorktreeFiles', file: 'worktree-manager.ts' },
-    async (annotate) => {
-      annotate({ copiedFileCount: await copyIncludedWorktreeFiles(projectPath, worktreePath, options.signal) })
-    },
-  )
-  const copyMs = Date.now() - copyStartedAt
+      targetBranchMs,
+      startPointMs,
+      checkoutMs,
+      copyMs,
+      totalMs: Date.now() - startedAt,
+    })
 
-  log.info('worktree_create_completed', {
-    branch,
-    worktreePath,
-    targetBranchMs,
-    startPointMs,
-    checkoutMs,
-    copyMs,
-    totalMs: Date.now() - startedAt,
-  })
-
-  return { branch, targetBranch, worktreePath, repoRoot: projectPath }
+    throwIfAborted(options.signal)
+    return { branch, targetBranch, worktreePath, repoRoot: projectPath }
+  } catch (error) {
+    // This attempt owns the reserved branch. Never remove an unrelated path.
+    try {
+      const owned = listProjectWorktrees(projectPath).find((entry) =>
+        entry.branch === branch && existsSync(worktreePath) && realpathSync(entry.path) === realpathSync(worktreePath),
+      )
+      if (owned) await runAsync('git', ['worktree', 'remove', '--force', worktreePath], projectPath)
+      if (!listProjectWorktrees(projectPath).some((entry) => entry.branch === branch)) {
+        await runAsync('git', ['update-ref', '-d', `refs/heads/${branch}`, startCommit], projectPath)
+      }
+    } catch (cleanupError) {
+      log.warn('worktree_setup_cleanup_failed', { worktreePath, branch, error: String(cleanupError) })
+    }
+    throw error
+  }
 }
 
 /** Returns how many files were copied — the one fact that explains why this

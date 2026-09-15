@@ -6,14 +6,18 @@
   import { ensureIconCollections } from '../diagram/iconify'
   import * as TooltipUI from '../ui/tooltip'
   import { docProviderLogo, docProviderLabel } from './lib/work-publish'
-  import { outboundText, publishState, shareOperation } from './lib/external-comments-view'
+  import { outboundText, publishState, publishOperation } from './lib/external-comments-view'
 
-  let { workId, messageId, text, quote, author }: {
+  let { workId, messageId, text, quote, author, externalThreadId }: {
     workId: string
     messageId: string
     text: string
     quote: string
     author?: 'you' | 'solus'
+    /** The provider thread this message's local thread answers. Set, the
+     *  message is published as a reply in that thread rather than as a new
+     *  comment beside it. */
+    externalThreadId?: string
   } = $props()
   const store = getWorkspaceContext().worksStore.externalComments
   const workspace = getWorkspaceContext()
@@ -21,21 +25,25 @@
   const providerLabel = $derived(provider === 'gdrive' ? 'Google Docs' : docProviderLabel(provider))
   const message = $derived(outboundText(text, author))
   const busy = $derived(store.busy.get(workId) ?? false)
-  const operation = $derived(shareOperation(store.stateFor(workId)?.operations, messageId, message, quote))
-  const state = $derived(publishState(operation, busy, message, providerLabel))
-  const canCreate = $derived(store.stateFor(workId)?.capabilities?.actions.includes('create') ?? false)
-  const label = $derived(canCreate || operation ? state.label : 'Comment publishing is unavailable. Refresh comments to check provider support.')
+  const operation = $derived(publishOperation(store.stateFor(workId)?.operations, messageId, message, quote, externalThreadId))
+  const state = $derived(publishState(operation, busy, message, providerLabel, !!externalThreadId))
+  const action = $derived(externalThreadId ? 'reply' : 'create')
+  const canSend = $derived(store.stateFor(workId)?.capabilities?.actions.includes(action) ?? false)
+  const label = $derived(canSend || operation ? state.label : 'Comment publishing is unavailable. Refresh comments to check provider support.')
   let requestId = uuid()
 
   ensureIconCollections()
 
   async function publish() {
-    if (!state.canPublish || !canCreate) return
+    if (!state.canPublish || !canSend) return
     // A definite rejection may be retried under its own receipt; anything else
     // that has already been attempted is blocked upstream of this click.
     requestId = operation?.requestId ?? uuid()
-    if (await store.send(workId, { kind: 'share', requestId, sourceMessageId: messageId, text: message, quote: quote.trim() })) {
-      toasts.success(`Comment published to ${providerLabel}`)
+    const command = externalThreadId
+      ? { kind: 'reply' as const, requestId, threadId: externalThreadId, sourceMessageId: messageId, text: message }
+      : { kind: 'share' as const, requestId, sourceMessageId: messageId, text: message, quote: quote.trim() }
+    if (await store.send(workId, command)) {
+      toasts.success(externalThreadId ? `Reply sent to ${providerLabel}` : `Comment published to ${providerLabel}`)
     } else {
       toasts.error(`Couldn't publish this comment to ${providerLabel}`, { description: store.errors.get(workId) })
     }
@@ -56,7 +64,7 @@
         class="gcp"
         data-state={state.kind}
         data-testid="publish-comment"
-        aria-disabled={!state.canPublish || !canCreate}
+        aria-disabled={!state.canPublish || !canSend}
         aria-label={label}
         onclick={event => { event.stopPropagation(); void publish() }}
         onkeydown={event => event.stopPropagation()}

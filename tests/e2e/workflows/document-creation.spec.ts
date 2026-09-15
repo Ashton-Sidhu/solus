@@ -20,6 +20,15 @@ test.describe('Document creation workflow', () => {
 
     // The card should display the document title
     await expect(documentCard).toContainText('Mock Test Document')
+
+    // Publishing is a card action, so the user does not need to open the
+    // document before choosing Google Drive or Confluence.
+    const publishButton = documentCard.getByTestId('work-publish-menu')
+    await expect(publishButton).toHaveText('Publish')
+    await publishButton.click()
+    const publishMenu = page.getByRole('menu')
+    await expect(publishMenu).toContainText('Google Drive')
+    await expect(publishMenu).toContainText('Confluence')
   })
 
   test('clicking document card opens the document modal', async ({ page }) => {

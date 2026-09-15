@@ -205,8 +205,6 @@ function resolveActiveSavedServer(servers: SavedServer[]): SavedServer | null {
   }
 }
 
-// Boot
-
 installWindowSolusApi(createNoHostSolusApi())
 
 async function pairFromLocation(pairToken: string): Promise<void> {

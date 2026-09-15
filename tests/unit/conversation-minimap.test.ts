@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { JSDOM } from 'jsdom'
-import { indexMinimapNodes, pickActiveIndex } from '@solus/workspace-ui/components/conversation/lib/minimap'
+import { createNavItemBuilder, indexMinimapNodes, pickActiveIndex } from '@solus/workspace-ui/components/conversation/lib/minimap'
 
 describe('conversation minimap active marker', () => {
   test('moves through mounted rows after an unmounted transcript prefix', () => {
@@ -45,5 +45,57 @@ describe('conversation minimap active marker', () => {
     expect(after.firstMountedIndex).toBe(0)
     expect(after.nodes.get('older')?.isConnected).toBe(true)
     dom.window.close()
+  })
+})
+
+describe('minimap nav item builder', () => {
+  const userMessage = (id: string, content: string) => ({ id, role: 'user', content })
+
+  test('hands back the same array when only non-user rows arrive', () => {
+    // WHY: the component re-indexes every mounted transcript row whenever
+    // `items` changes identity. A turn appends a tool row per call, so a
+    // fresh-but-equal array makes a long turn re-walk the DOM once per row.
+    const build = createNavItemBuilder()
+    const first = userMessage('u1', 'do the thing')
+    const before = build([first])
+    const after = build([first, { id: 't1', role: 'tool', content: 'ran' }])
+    expect(after).toBe(before)
+  })
+
+  test('reuses a preview rather than re-deriving it per rebuild', () => {
+    const build = createNavItemBuilder()
+    const first = userMessage('u1', '  spread   out  ')
+    const before = build([first])
+    const after = build([first, userMessage('u2', 'second')])
+    expect(after[0]).toBe(before[0])
+    expect(after[0]?.preview).toBe('spread out')
+  })
+
+  test('rebuilds when a user row is added', () => {
+    const build = createNavItemBuilder()
+    const first = userMessage('u1', 'one')
+    const before = build([first])
+    const after = build([first, userMessage('u2', 'two')])
+    expect(after).not.toBe(before)
+    expect(after.map((item) => item.id)).toEqual(['u1', 'u2'])
+  })
+
+  test('rebuilds when a user row is removed', () => {
+    const build = createNavItemBuilder()
+    const first = userMessage('u1', 'one')
+    const second = userMessage('u2', 'two')
+    const before = build([first, second])
+    const after = build([first])
+    expect(after).not.toBe(before)
+    expect(after).toHaveLength(1)
+  })
+
+  test('re-derives the preview when an existing message is edited', () => {
+    // An edit keeps the row's identity, so identity alone cannot decide this.
+    const build = createNavItemBuilder()
+    const message = { id: 'u1', role: 'user', content: 'before' }
+    expect(build([message])[0]?.preview).toBe('before')
+    message.content = 'after'
+    expect(build([message])[0]?.preview).toBe('after')
   })
 })

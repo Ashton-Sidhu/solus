@@ -155,7 +155,6 @@
   class:is-subrow={hasHostHeaderRow}
   data-testid="diff-toolbar"
 >
-  <!-- Left section -->
   <div class="toolbar-section toolbar-left">
     {#if commitSha}
       <TooltipUI.Root>
@@ -222,7 +221,6 @@
     {/if}
   </div>
 
-  <!-- Center section: turn pills / stepper -->
   {#if showTurns}
     <div class="toolbar-section toolbar-center">
       {#if compactTurns}
@@ -378,7 +376,6 @@
     <div class="flex-1 desktop-only"></div>
   {/if}
 
-  <!-- Right section -->
   <div class="toolbar-section toolbar-right">
     {#if filesCount > 0}
       <Button

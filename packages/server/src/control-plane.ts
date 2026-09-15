@@ -31,6 +31,7 @@ import type { AttentionKind } from '@solus/contracts/attention-types'
 import { prepareSessionTask, rekeyTaskSessionLinks, tasksForSession } from './tasks/task-sessions'
 import { Task, taskSnapshot } from './tasks/task'
 import { formatTaskContext } from './tasks/task-context'
+import { ResponseTextBuffer } from './sessions/response-text-buffer'
 import { getHostConfig } from './server/settings'
 import { clearForeignTaskSnapshot, foreignTaskFor, setForeignTaskSnapshot } from './tasks/foreign-tasks'
 import type { TaskSnapshot } from '@solus/contracts/task-types'
@@ -293,6 +294,8 @@ export class ControlPlane extends EventEmitter {
   /** Worktree setup begins before an agent RunHandle exists, so it needs its
    *  own cancellation path for Stop/Ctrl-C. */
   private pendingSetupControllers = new Map<string, AbortController>()
+  /** Full prompt retained until a failed setup is retried or cancelled on any client. */
+  private failedSetupPrompts = new Map<string, PromptOptions>()
   private pendingHandoffs = new Map<string, PendingSessionHandoff>()
   private backends: Map<AgentId, AgentBackend>
   private agentRunner: AgentRunner
@@ -301,14 +304,7 @@ export class ControlPlane extends EventEmitter {
   private readonly claudeGoals = new ClaudeGoalStore()
   private readonly sessionEmitter = new SessionEmitter()
 
-  /**
-   * Per-session pending buffer of main-thread assistant text (sessionId →
-   * buffered text). The complete prose run is emitted before the next event for
-   * that session. Plain `+=` is fine here: nothing reads the string between
-   * appends, so engine rope strings keep accumulation O(1) per token (measured
-   * in scripts/perf-benchmark.ts before choosing this shape).
-   */
-  private pendingFlush = new Map<string, string>()
+  private readonly responseText = new ResponseTextBuffer()
   /**
    * Every event the in-flight turn has broadcast, in order, per session. Replayed
    * by bindRuntimeSession so a client that opens a running session mid-turn is
@@ -376,7 +372,7 @@ export class ControlPlane extends EventEmitter {
     // A session is addressable from the moment anything is happening on its
     // behalf — a client watching it, or a worktree being prepared for it — not
     // only once it has a record and a provider thread.
-    if (this.activeSessions.has(id) || this.watches.has(id) || this.pendingSetupControllers.has(id)) return id
+    if (this.activeSessions.has(id) || this.watches.has(id) || this.pendingSetupControllers.has(id) || this.failedSetupPrompts.has(id)) return id
     return undefined
   }
 
@@ -722,13 +718,10 @@ export class ControlPlane extends EventEmitter {
       // set is an ordinary count, and the buffering and turn accumulation below
       // still have to happen so a client that joins later sees the turn.
 
-      if (event.type === 'text_chunk' && !event.parentToolUseId) {
-        // Hold a complete main-thread prose run until the next provider event.
-        // Child text keeps streaming with its parent id so the renderer nests it
-        // in the spawning sub-agent card instead of the main assistant reply.
-        const isFirstChunk = !this.pendingFlush.has(sessionId)
-        this.pendingFlush.set(sessionId, (this.pendingFlush.get(sessionId) ?? '') + event.text)
-        if (isFirstChunk) this._emit(sessionId, { type: 'text_pending' })
+      if (event.type === 'text_chunk') {
+        for (const delivered of this.responseText.append(sessionId, event, getHostConfig().config.responseStreamingMode, Date.now())) {
+          this._emit(sessionId, delivered)
+        }
         return
       }
 
@@ -917,10 +910,9 @@ export class ControlPlane extends EventEmitter {
     } else if (input.agentSessionId) this.agentSessionToSession.set(input.agentSessionId, sessionId)
 
     // Drain what is already buffered to the clients that were here first: the
-    // buffer is per-session, so a late joiner would otherwise receive the
-    // pending tail on the next flush *and* the same text again from
-    // bindRuntimeSession's replay. Drain, then join, then replay.
-    this._flushPendingSession(sessionId)
+    // Buffered mode drains before joining. Paragraph mode leaves its unfinished
+    // tail on the host and replays only blocks that have already been published.
+    this._flushPendingSession(sessionId, true)
 
     let clients = this.watches.get(sessionId)
     if (!clients) {
@@ -954,8 +946,7 @@ export class ControlPlane extends EventEmitter {
     if (!clients?.delete(clientId)) return
     if (clients.size) return
     this.watches.delete(sessionId)
-    // Nothing is listening, so nothing is buffering for it either.
-    this.pendingFlush.delete(sessionId)
+    // Keep pending text for clients that reconnect during this turn.
     log.info('session_unwatched', { sessionId, clientId })
   }
 
@@ -1001,9 +992,9 @@ export class ControlPlane extends EventEmitter {
     if (!pendingRateLimitEvent) this._processQueueForSession(sessionId)
 
     // The joining client alone needs the turn so far; everyone else already has it.
-    // Drain buffered text into the log first, so replay ends at the current
-    // boundary and the client cannot miss the events in between.
-    this._flushPendingSession(sessionId)
+    // Buffered delivery drains first. Paragraph delivery replays only published
+    // blocks; its pending tail is sent once when complete.
+    this._flushPendingSession(sessionId, true)
     const replayed = new Set<NormalizedEvent>()
     for (const event of this.turnLog.get(sessionId) ?? []) {
       replayed.add(event)
@@ -2038,6 +2029,7 @@ export class ControlPlane extends EventEmitter {
     if (!sessionId) return false
 
     this._drainQueue(sessionId)
+    this.failedSetupPrompts.delete(sessionId)
 
     // Worktree creation happens before a backend RunHandle exists. Cancel it
     // first or Stop would report failure while setup continued into a new run.
@@ -2606,6 +2598,7 @@ export class ControlPlane extends EventEmitter {
 
   private async _launchRun(request: SessionRunRequest): Promise<StartedRun> {
     const { input, target, options, sessionId, sourceClientId } = request
+    this.failedSetupPrompts.delete(sessionId)
     const pendingHandoff = this._pendingHandoffFor(sessionId)
     if (pendingHandoff) {
       const activeMember = resolveSessionLineageById(sessionId)?.active
@@ -2665,8 +2658,8 @@ export class ControlPlane extends EventEmitter {
 
     const worktreeBaseBranch = input.worktreeBaseBranch
     // Inline status card mirroring the pre-run worktree setup. The renderer
-    // clears it once the session leaves 'connecting'; a failed card is kept so
-    // the (otherwise swallowed) error stays visible.
+    // clears it once the session leaves 'connecting'; a failed card is kept
+    // until the user retries setup or explicitly chooses the project directory.
     let worktreeCardActive = false
     const buildWorktreeCard = (activeIndex: number, errored = false): StatusCardState => ({
       id: `worktree-${sessionId}`,
@@ -2730,7 +2723,13 @@ export class ControlPlane extends EventEmitter {
             : new Error('Interrupted')
         }
         log.error('worktree_creation_failed', { sessionId, error: String(e) })
-        this._emit(sessionId, { type: 'status_card', card: buildWorktreeCard(0, true) })
+        const card = buildWorktreeCard(0, true)
+        card.steps[0].detail = e instanceof Error ? e.message : String(e)
+        card.recovery = 'worktree'
+        this.failedSetupPrompts.set(sessionId, options)
+        this._setStatus(sessionId, 'failed')
+        this._emit(sessionId, { type: 'status_card', card })
+        throw e
       } finally {
         if (this.pendingSetupControllers.get(sessionId) === setupController) {
           this.pendingSetupControllers.delete(sessionId)
@@ -3188,6 +3187,7 @@ export class ControlPlane extends EventEmitter {
   async retry(ctx: IpcContext, options: PromptOptions, clientId?: string): Promise<void> {
     const sessionId = this._sessionIdForCtx(ctx)
     if (!sessionId) throw new Error('No session to retry')
+    options = this.failedSetupPrompts.get(sessionId) ?? options
     const session = this.activeSessions.get(sessionId)
     const sourceClientId = clientId
     options = {
@@ -3279,9 +3279,21 @@ export class ControlPlane extends EventEmitter {
     const backend = this._backendForQuestion(questionId)
     const backends = backend ? [backend] : Array.from(this.backends.values())
     for (const b of backends) {
+      const sessionId = this.questionIdToSession.get(questionId)
+      const question = sessionId ? this.activeSessions.get(sessionId)?.pendingInputEvents.find(
+        (event) => event.type === 'question_request' && event.questionId === questionId,
+      ) : undefined
       if (b.permissions.respondToQuestion(questionId, answers)) {
-        const sessionId = this.questionIdToSession.get(questionId)
-        if (sessionId) this.sessionEmitter.resolveQuestion(sessionId, questionId)
+        if (sessionId) {
+          this.sessionEmitter.resolveQuestion(sessionId, questionId)
+          if (question?.type === 'question_request' && (!question.kind || question.kind === 'standard')) {
+            this._emit(sessionId, {
+              type: 'question_answered',
+              answer: { questionId, questions: question.questions, answers },
+              timestamp: Date.now(),
+            })
+          }
+        }
         this._clearPendingInputEvent(questionId)
         this.questionIdToSession.delete(questionId)
         return true
@@ -3987,6 +3999,7 @@ export class ControlPlane extends EventEmitter {
   }
 
   shutdown(): void {
+    this.failedSetupPrompts.clear()
     log.info('control_plane_shutdown')
     if (this.runWatchdogTimer) {
       clearInterval(this.runWatchdogTimer)
@@ -4029,11 +4042,8 @@ export class ControlPlane extends EventEmitter {
    * that asked (a reattach replay, or a sender's own withheld echo).
    */
   private _emit(sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }): void {
-    // `text_pending` describes the buffer itself. Every other non-text event is
-    // a boundary and must follow the complete prose run already accumulated for
-    // this session. The generated text_chunk re-enters here without recursion.
-    if (event.type !== 'text_chunk' && event.type !== 'text_pending') {
-      this._flushPendingSession(sessionId)
+    if (!to) {
+      for (const chunk of this.responseText.beforeEvent(sessionId, event)) this._emit(sessionId, chunk)
     }
     // A targeted emit is a replay or an echo to one client; logging it would
     // duplicate it for the next joiner. Only the broadcast stream is the turn.
@@ -4092,10 +4102,7 @@ export class ControlPlane extends EventEmitter {
   }
 
   /** Drain a session's complete buffered prose run before its boundary event. */
-  private _flushPendingSession(sessionId: string): void {
-    const text = this.pendingFlush.get(sessionId)
-    if (text === undefined) return
-    this.pendingFlush.delete(sessionId)
-    if (text) this._emit(sessionId, { type: 'text_chunk', text })
+  private _flushPendingSession(sessionId: string, bufferedOnly = false): void {
+    for (const event of this.responseText.flush(sessionId, bufferedOnly)) this._emit(sessionId, event)
   }
 }

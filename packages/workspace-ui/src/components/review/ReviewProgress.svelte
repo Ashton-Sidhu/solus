@@ -1,64 +1,87 @@
 <script lang="ts">
-  import { Check as CheckIcon, Circle as CircleIcon, LoaderCircle as SpinnerGapIcon } from "@lucide/svelte";
+  import { Check as CheckIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
   import {
     REVIEW_PROGRESS_STEPS,
     type ReviewProgressStep,
   } from "@solus/contracts/review";
 
   import { Button } from "../ui/button";
+  import ReviewGuideGlyph from "./ReviewGuideGlyph.svelte";
 
   // Stepped indicator shown while a review companion generates, in place of the
-  // bare spinner. `step` drives which row is active.
+  // bare spinner. `step` drives which row is active. It stands in the same
+  // canvas as the guide's empty offer, so it wears the same shape: one
+  // medallion, one headline, one line of copy, one action.
   let { step, queued = false, onCancel }: { step: ReviewProgressStep; queued?: boolean; onCancel?: () => void } = $props();
 
   const steps = REVIEW_PROGRESS_STEPS;
   const activeIndex = $derived(Math.max(0, steps.findIndex((s) => s.id === step)));
-
 </script>
 
-<div class="flex h-full items-center justify-center px-6">
-  <div class="prog-card w-full max-w-[17rem]">
-    <p role="status" class="mb-5 text-sm font-medium">{queued ? "Guide queued" : steps[activeIndex].label}</p>
-    {#if queued}
-      <p class="text-sm text-muted-foreground">Generation will start when the review companion is available.</p>
-    {:else}
-    <ul class="prog-steps flex flex-col gap-3" role="list">
-      {#each steps as s, i (s.id)}
-        {@const state = i < activeIndex ? "done" : i === activeIndex ? "active" : "pending"}
-        <li class="flex items-start gap-2.5" style="--row: {i}">
-          <span
-            class="mt-px flex size-4 shrink-0 items-center justify-center {state ===
-            'pending'
-              ? 'text-(--solus-text-tertiary)'
-              : 'text-(--solus-accent)'}"
-          >
-            {#if state === "done"}
-              <CheckIcon size={14} weight="bold" />
-            {:else if state === "active"}
-              <span class="animate-spin motion-reduce:animate-none">
-                <SpinnerGapIcon size={14} weight="bold" />
-              </span>
-            {:else}
-              <CircleIcon size={7} weight="fill" class="opacity-40" />
-            {/if}
-          </span>
+<!-- The chrome rung, not the surface's prose size: this is a state screen, and
+     it steps down with the rail and the notices on a laptop display. -->
+<div class="flex min-h-0 flex-1 items-center justify-center overflow-auto px-[clamp(20px,2.6cqi,56px)] py-10 text-workspace-chrome">
+  <div class="prog-card flex max-w-[520px] flex-col items-center text-center">
+    <!-- The same neutral medallion the empty offer uses, so generating reads as
+         the next beat of that state rather than a different screen. -->
+    <span
+      class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground [.is-laptop-display_&]:size-10"
+      aria-hidden="true"
+    >
+      <ReviewGuideGlyph size={20} />
+    </span>
 
-          <div class="flex min-w-0 flex-col">
+    <h2 role="status" class="mt-4 font-medium">
+      {queued ? "Guide queued" : steps[activeIndex].label}
+    </h2>
+
+    <p class="mt-2 leading-[1.7] text-pretty text-muted-foreground">
+      {queued
+        ? "Generation will start when the review companion is available."
+        : "The review companion is reading the diff and writing the guide."}
+    </p>
+
+    {#if !queued}
+      <ul class="prog-steps mt-5 flex flex-col items-start gap-2.5 text-left" role="list">
+        {#each steps as s, i (s.id)}
+          {@const state = i < activeIndex ? "done" : i === activeIndex ? "active" : "pending"}
+          <li class="flex items-center gap-2.5" style="--row: {i}">
+            <span class="flex size-4 shrink-0 items-center justify-center">
+              {#if state === "done"}
+                <CheckIcon size={14} class="text-muted-foreground" />
+              {:else if state === "active"}
+                <SpinnerIcon
+                  size={14}
+                  class="animate-spin text-(--solus-accent) motion-reduce:animate-none"
+                />
+              {:else}
+                <span class="size-1.5 rounded-full bg-current text-muted-foreground opacity-40"></span>
+              {/if}
+            </span>
+
             <span
-              class="text-sm leading-4 transition-colors {state === 'active'
-                ? 'font-medium text-(--solus-text-primary)'
+              class="transition-colors {state === 'active'
+                ? 'font-medium text-foreground'
                 : state === 'done'
-                  ? 'font-secondary text-(--solus-text-secondary)'
-                  : 'text-(--solus-text-tertiary)'}"
+                  ? 'text-muted-foreground'
+                  : 'text-muted-foreground/60'}"
             >
               {s.label}
             </span>
-          </div>
-        </li>
-      {/each}
-    </ul>
+          </li>
+        {/each}
+      </ul>
     {/if}
-    {#if onCancel}<Button variant="ghost" class="mt-5" onclick={onCancel}>Cancel generation</Button>{/if}
+
+    {#if onCancel}
+      <Button
+        type="button"
+        class="mt-5 inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3 font-medium text-muted-foreground transition-colors hover:text-foreground pointer-fine:[.is-laptop-display_&]:h-[30px]"
+        onclick={onCancel}
+      >
+        Cancel generation
+      </Button>
+    {/if}
   </div>
 </div>
 

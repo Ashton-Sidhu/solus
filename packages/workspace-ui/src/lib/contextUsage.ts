@@ -35,6 +35,35 @@ export function contextUsedFraction(used: number, limit: number): number {
   return Math.min(1, Math.max(0, used / limit))
 }
 
+/** A category row with its share of the window worked out for display. */
+export interface ContextCategoryRow {
+  name: string
+  tokens: number
+  /** Share of the window, or null for a deferred row that occupies none of it. */
+  pct: number | null
+  deferred: boolean
+}
+
+/**
+ * The window-by-content rows, in the order the provider reported them — it
+ * orders by size already, and re-sorting here would fight a later change to
+ * that. A deferred row is a tool schema loaded on demand: it is listed so the
+ * user knows it exists, but it holds no window, so it gets no percentage.
+ */
+export function contextCategoryRows(
+  session: Session | null | undefined,
+  limit: number,
+): ContextCategoryRow[] {
+  const categories = session?.contextUsage?.categories
+  if (!categories?.length) return []
+  return categories.map((category) => ({
+    name: category.name,
+    tokens: category.tokens,
+    pct: category.deferred || limit <= 0 ? null : Math.round((category.tokens / limit) * 100),
+    deferred: category.deferred === true,
+  }))
+}
+
 /** Compact token count: 980, 60K, 1.2M. */
 export function formatTokens(n: number): string {
   if (n < 1000) return String(Math.round(n))

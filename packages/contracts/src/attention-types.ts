@@ -10,7 +10,6 @@ export interface AttentionEntry {
   kind: AttentionKind
   /** Epoch ms when this attention state began (stable while the kind persists). */
   since: number
-  /** Short human-readable summary of what needs attention. */
   summary: string
   /** Best-effort project/repo the session belongs to (for grouping/notifications). */
   projectKey?: string

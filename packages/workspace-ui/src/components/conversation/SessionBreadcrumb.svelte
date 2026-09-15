@@ -477,7 +477,7 @@
                 aria-expanded={menu === "project"}
                 onclick={() => toggleMenu("project")}
               >
-                <ProjectFavicon projectRoot={projectKey} class="size-4" />
+                <ProjectFavicon projectRoot={projectKey} class="size-4 pointer-fine:[.is-laptop-display_&]:[&_.lucide-folder]:size-3" />
                 <span class="whitespace-nowrap text-muted-foreground"
                   >{projectLabel}</span
                 >
@@ -849,7 +849,7 @@
       {@const record = taskRecord}
       <button
         type="button"
-        class="flex h-[1.875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
+        class="flex h-[1.875rem] [.is-laptop-display_&]:h-[1.6875rem] shrink-0 cursor-pointer items-center gap-1.5 rounded px-[0.4375rem] transition-[background] duration-150 hover:bg-accent {taskDone
  ? 'bg-[color-mix(in_oklch,var(--chart-3)_12%,transparent)]'
  : ''}"
         title="Task actions"

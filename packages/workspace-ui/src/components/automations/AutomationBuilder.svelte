@@ -770,7 +770,6 @@
   <div
     class="flex flex-col gap-6.5 rounded-2xl border border-border/55 bg-card p-5 [.is-laptop-display_&]:gap-5 [.is-laptop-display_&]:p-4 @max-[65rem]:flex-row @max-[65rem]:flex-wrap @max-[65rem]:gap-x-10 @max-[65rem]:gap-y-6.5"
   >
-    <!-- Schedule -->
     <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <AutomationScheduleFields
         {schedule}
@@ -780,7 +779,6 @@
       />
     </div>
 
-    <!-- Setup -->
     <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <span class={EYEBROW}>Setup</span>
       <div class="flex flex-col">
@@ -888,7 +886,6 @@
       </div>
     </div>
 
-    <!-- History -->
     <div class="flex min-w-0 flex-col gap-3 [.is-laptop-display_&]:gap-2.5 @max-[65rem]:min-w-[14.375rem] @max-[65rem]:flex-1 @max-[65rem]:basis-[15.625rem]">
       <AutomationRunHistory
         {runs}

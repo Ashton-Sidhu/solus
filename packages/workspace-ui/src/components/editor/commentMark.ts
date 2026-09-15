@@ -15,10 +15,22 @@ const MARK_CLASS = {
 export const CommentMark = Mark.create({
   name: 'planComment',
 
+  // Each attribute reads back the data attribute it renders. ProseMirror
+  // re-parses a mark from its own DOM whenever something outside the editor
+  // touches that DOM — the rail toggling the active or flash class on a
+  // highlight is exactly that — and the default parser looks for an attribute
+  // named `commentId`, which is never there. A highlight that re-parses
+  // without its id is a thread the rail can no longer find in the text.
   addAttributes() {
     return {
-      commentId: { default: null },
-      type: { default: 'saved' },
+      commentId: {
+        default: null,
+        parseHTML: (element) => element.getAttribute('data-plan-comment'),
+      },
+      type: {
+        default: 'saved',
+        parseHTML: (element) => element.getAttribute('data-comment-type') ?? 'saved',
+      },
     }
   },
 

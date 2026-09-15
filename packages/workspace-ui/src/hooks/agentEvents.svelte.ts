@@ -23,11 +23,18 @@ export function bindAgentEventSubscriptions(session: WorkspaceContext): () => vo
   const unsubSessionTitle = subscribeAllHosts('session.titleChanged', (serverId, event: SessionTitleChangedEvent) => {
     session.applySessionTitleChanged(serverId, event)
   })
+  // Read state is the host's, so this arrives for a read that happened on
+  // another device as readily as for one made here. Applying it unconditionally
+  // is what keeps the desktop, the web client and the phone in agreement.
+  const unsubReadState = subscribeAllHosts('session.readStateChanged', (serverId, { sessionId, viewedAt }) => {
+    if (isOwnHost(serverId, sessionId)) session.applySessionReadState(sessionId, viewedAt)
+  })
 
   return () => {
     unsubEvent()
     unsubError()
     unsubSessionTitle()
+    unsubReadState()
   }
 }
 
@@ -35,8 +42,8 @@ export function bindAgentEventSubscriptions(session: WorkspaceContext): () => vo
  * Bridges ControlPlane IPC events into the session context. Call from App.svelte's top-level script,
  * not inside $effect — the unsubscribes are tied to the component's lifetime.
  *
- * `text_chunk` volume is already tamed upstream: ControlPlane coalesces chunks into
- * ~300ms batches before broadcasting, so no renderer-side batching is needed here.
+ * The host delivers buffered response segments or paced paragraphs, according
+ * to its response-streaming setting. The client applies each delivery once.
  */
 export function setupAgentEvents(session: WorkspaceContext): void {
   const unsubscribeEvents = bindAgentEventSubscriptions(session)

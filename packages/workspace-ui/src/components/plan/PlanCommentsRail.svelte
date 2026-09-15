@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte'
+  import { X as CloseIcon } from '@lucide/svelte'
   import type { CommentAuthor, PlanComment } from '@solus/contracts/types'
   import type { DocCommentThread } from '@solus/contracts/work-comments'
   import CommentThreadCard from '../comments/CommentThreadCard.svelte'
@@ -11,6 +12,10 @@
   interface Props {
     externalWorkId?: string
     comments: PlanComment[]
+    /** Local threads whose highlight is not in this text any more — the quote
+     *  was edited away, or never anchored. They have no line, so they belong
+     *  to the Page view with the external threads that have none. */
+    pageComments?: PlanComment[]
     /** External threads the highlight plugin placed in this text. They share
      *  the margin with the local ones, each on the line it annotates. */
     externalThreads?: DocCommentThread[]
@@ -47,11 +52,16 @@
     onReply?: (commentId: string, text: string) => void
     /** Optional action bar pinned below the thread list. */
     footer?: Snippet
+    /** Set when the rail is a drawer over the text rather than a margin beside
+     *  it: the header then carries the way out, because the drawer covers the
+     *  control that opened it on a phone-width pane. */
+    onClose?: () => void
   }
 
   let {
     externalWorkId,
     comments,
+    pageComments = [],
     externalThreads = [],
     pageThreads = [],
     onAskExternalPrivately,
@@ -71,6 +81,7 @@
     onResolve,
     onReply,
     footer,
+    onClose,
   }: Props = $props()
 
   const anchorById = $derived(new Map(anchors.map((a) => [a.id, a])))
@@ -82,28 +93,28 @@
   // end of it. The toggle only appears when there is a second view to show.
   let view = $state<'inline' | 'page'>('inline')
   const inline = $derived(railThreads(comments, externalThreads))
+  const page = $derived(railThreads(pageComments, pageThreads))
   // Never show an empty view while the other one holds the threads: a document
   // whose only comments are on the page as a whole opens on them.
   const activeView = $derived(
     view === 'page'
-      ? pageThreads.length > 0
+      ? page.length > 0
         ? 'page'
         : 'inline'
-      : inline.length > 0 || pageThreads.length === 0
+      : inline.length > 0 || page.length === 0
         ? 'inline'
         : 'page',
   )
-  const threads = $derived(activeView === 'page' ? railThreads([], pageThreads) : inline)
+  const threads = $derived(activeView === 'page' ? page : inline)
   const anchored = $derived(placement === 'anchored' && activeView === 'inline')
 
-  const shown = $derived(activeView === 'page' ? pageThreads : externalThreads)
+  const shownLocal = $derived(activeView === 'page' ? pageComments : comments)
+  const shownExternal = $derived(activeView === 'page' ? pageThreads : externalThreads)
   const open = $derived(
-    (activeView === 'page' ? 0 : openThreads(comments).length) +
-      shown.filter((thread) => !thread.resolved).length,
+    openThreads(shownLocal).length + shownExternal.filter((thread) => !thread.resolved).length,
   )
   const resolved = $derived(
-    (activeView === 'page' ? 0 : resolvedThreads(comments).length) +
-      shown.filter((thread) => thread.resolved).length,
+    resolvedThreads(shownLocal).length + shownExternal.filter((thread) => thread.resolved).length,
   )
 
   // One clock for the whole rail rather than a timer per card.
@@ -219,6 +230,9 @@
     <ExternalCommentCard
       workId={externalWorkId}
       thread={thread.thread}
+      focused={activeCommentId === thread.id}
+      moving={placement === 'anchored' && !settled}
+      onFocus={() => onScrollTo(thread.id)}
       onAskPrivately={onAskExternalPrivately ?? (() => {})}
       onLocateQuote={onLocateExternalQuote ?? (() => false)}
     />
@@ -241,7 +255,7 @@
     >
     <!-- Only when the document has threads of both kinds: with one kind there
          is nothing to switch between, and the count says what you are reading. -->
-    {#if pageThreads.length > 0}
+    {#if page.length > 0}
       <div class="plan-comments-rail__views" role="group" aria-label="Which comments">
         <button
           type="button"
@@ -258,12 +272,24 @@
           class="plan-comments-rail__view"
           class:plan-comments-rail__view--on={activeView === 'page'}
           aria-pressed={activeView === 'page'}
-          title={`Comments on the document rather than a passage (${pageThreads.length})`}
+          title={`Comments on the document rather than a passage (${page.length})`}
           onclick={() => (view = 'page')}
         >
           Page
         </button>
       </div>
+    {/if}
+    {#if onClose}
+      <button
+        type="button"
+        class="plan-comments-rail__close"
+        class:plan-comments-rail__close--alone={page.length === 0}
+        onclick={onClose}
+        title="Hide comments"
+        aria-label="Hide comments"
+      >
+        <CloseIcon size={14} aria-hidden="true" />
+      </button>
     {/if}
   </div>
 
@@ -450,6 +476,44 @@
   .plan-comments-rail__view:focus-visible {
     outline: 0.125rem solid var(--solus-accent-border);
     outline-offset: 0.125rem;
+  }
+  /* The drawer's way out: the same weight as the view toggle beside it, and
+     a thumb-sized target on touch, where it is the only way to close. */
+  .plan-comments-rail__close {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    margin: -0.25rem -0.25rem -0.25rem 0;
+    padding: 0;
+    border: none;
+    border-radius: 0.375rem;
+    background: transparent;
+    color: var(--solus-text-tertiary);
+    cursor: pointer;
+    transition:
+      background var(--duration-quick) var(--ease-premium),
+      color var(--duration-quick) var(--ease-premium);
+  }
+  .plan-comments-rail__close--alone {
+    margin-left: auto;
+  }
+  .plan-comments-rail__close:hover {
+    background: color-mix(in srgb, var(--solus-text-tertiary) 12%, transparent);
+    color: var(--solus-text-primary);
+  }
+  .plan-comments-rail__close:focus-visible {
+    outline: 0.125rem solid var(--solus-accent-border);
+    outline-offset: 0.125rem;
+  }
+  @media (pointer: coarse) {
+    .plan-comments-rail__close {
+      width: 2.5rem;
+      height: 2.5rem;
+      margin: -0.75rem -0.5rem -0.75rem 0;
+    }
   }
   .plan-comments-rail__body {
     flex: 1;

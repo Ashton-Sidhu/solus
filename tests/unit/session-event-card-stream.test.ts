@@ -50,6 +50,7 @@ async function createReducer(
     onTurnSettled: () => {},
     refreshTurnSnapshots: () => {},
     isSessionVisible: () => isSessionVisible,
+    publishSessionViewed: () => {},
     closePlanModal: () => {},
     playNotificationIfHidden: () => {},
     log: () => {},
@@ -58,6 +59,19 @@ async function createReducer(
 }
 
 describe('SessionEventReducer card stream boundaries', () => {
+  test('an accepted question becomes one visible receipt and clears pending input on each client', async () => {
+    const { reducer, session } = await createReducer([])
+    const questions = [{ id: 'scope', question: 'Which branch?', options: [], multiSelect: false }]
+    reducer.apply('session-1', { type: 'question_request', questionId: 'q1', questions })
+    expect(session.questionQueue).toHaveLength(1)
+    const event = { type: 'question_answered' as const, answer: { questionId: 'q1', questions, answers: { scope: 'main' } }, timestamp: 10 }
+    reducer.apply('session-1', event)
+    reducer.apply('session-1', event)
+    expect(session.questionQueue).toHaveLength(0)
+    expect(session.messages.filter((message) => message.questionAnswer)).toHaveLength(1)
+    expect(session.messages[0].questionAnswer?.answers).toEqual({ scope: 'main' })
+  })
+
   test('keeps provisional task ownership until the durable session link hydrates', async () => {
     let tracked: [string, string] | null = null
     let finishHydration!: (value: object) => void

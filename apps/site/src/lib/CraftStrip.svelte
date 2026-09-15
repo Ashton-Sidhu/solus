@@ -1,4 +1,3 @@
-<!-- Craft -->
 <section
 	class="border-t border-black/[0.07] px-6 py-16 lg:px-10 lg:py-[80px]"
 >

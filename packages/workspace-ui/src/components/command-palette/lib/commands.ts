@@ -1,10 +1,8 @@
 import type { Component } from 'svelte'
 
-/** A single actionable entry in the command palette. */
 export interface Command {
   /** Stable identifier (used as the Svelte keyed-each key). */
   id: string
-  /** Primary text shown in the row. */
   label: string
   /** Section heading the command is grouped under. */
   group: string

@@ -1,3 +1,4 @@
+import { recordQuestionAnswer } from './question-history'
 import type { EnrichedError, GitState, Message, Session, ThreadGoal, WireNormalizedEvent } from '@solus/contracts/types'
 import { existingTaskId, taskBindingSessionId } from './session-draft.svelte'
 import { encodePathAsFolder } from '@solus/contracts/types'
@@ -27,6 +28,7 @@ export interface SessionEventReducerDeps {
    *  into a companion pane? Several tabs may watch one session; one of them
    *  being visible is what makes the session read. */
   isSessionVisible(sessionId: string): boolean
+  publishSessionViewed(sessionId: string): void
   addChangedFilesFromMessage(sessionId: string, message: Message): void
   refreshTurnSnapshots(sessionId: string): void
   setGitStatus(cwd: string, status: GitState | null): void
@@ -100,6 +102,9 @@ export class SessionEventReducer {
       const tab = this.deps.registry.tabs[tabId]
       if (tab) tab.hasUnread = !isVisible
     }
+    // The visibility effect only runs for unread tabs. A completion seen here
+    // keeps that flag false, so it must publish its read state directly.
+    if (isVisible) this.deps.publishSessionViewed(sessionId)
   }
 
   apply(sessionId: string, event: WireNormalizedEvent): void {
@@ -137,6 +142,16 @@ export class SessionEventReducer {
     // thread, so they render inside the sub-agent card.
     const parentToolUseId = 'parentToolUseId' in event ? event.parentToolUseId : undefined
 
+    // Compacting is not thinking. It can run for minutes with no output, and
+    // showing the generic running state through it reads as a hung agent —
+    // people cancel turns over it. Both providers report the span; this is
+    // where either one becomes visible.
+    if (event.type === 'context_compaction') {
+      if (parentToolUseId) return
+      session.currentActivity = event.state === 'start' ? 'Compacting...' : 'Thinking...'
+      return
+    }
+
     if (event.type === 'thinking') {
       // A sub-agent card carries no duration rail, so its thinking is dropped
       // rather than folded into the parent's summary.
@@ -164,7 +179,7 @@ export class SessionEventReducer {
 
     if (event.type === 'text_chunk') {
       this.appendAssistantText(sessionId, session, event.text)
-      session.isStreamingText = false
+      session.isStreamingText = event.streaming === true
       return
     }
 
@@ -506,6 +521,13 @@ export class SessionEventReducer {
         session.questionQueue.push(toQuestionRequest(event))
         this.deps.playNotificationIfHidden(sessionId, 'question_request')
         break
+
+      case 'question_answered': {
+        recordQuestionAnswer(session.messages, event.answer, event.timestamp)
+        const index = session.questionQueue.findIndex((question) => question.questionId === event.answer.questionId)
+        if (index !== -1) session.questionQueue.splice(index, 1)
+        break
+      }
 
       case 'pending_input_sync':
         this.deps.handlePendingInputSync(session, event.pendingInputEvents)

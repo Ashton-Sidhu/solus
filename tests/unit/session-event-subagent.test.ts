@@ -271,7 +271,7 @@ const taskCompleteEvent = () => ({
   permissionDenials: [] as { toolName: string; toolUseId: string }[],
 })
 
-async function createNotifyReducer() {
+async function createNotifyReducer(isVisible = false) {
   ;(globalThis as unknown as { $state: unknown }).$state = <T>(value: T) => value
   const { SessionEventReducer } = await import('@solus/workspace-ui/contexts/workspace/session-event-reducer.svelte')
   const session = {
@@ -289,6 +289,7 @@ async function createNotifyReducer() {
   let notifyCount = 0
   const notificationTriggers: Array<[string, string]> = []
   let sweepCount = 0
+  const viewedSessions: string[] = []
   const reducer = new SessionEventReducer({
     registry: {
       tabs: { 'tab-1': tab },
@@ -297,7 +298,8 @@ async function createNotifyReducer() {
       tabIdsBySession: new Map([['session-1', ['tab-1']]]),
     },
     settings: { rateLimitBehavior: 'ask' },
-    isSessionVisible: () => false,
+    isSessionVisible: () => isVisible,
+    publishSessionViewed: (sessionId: string) => { viewedSessions.push(sessionId) },
     onTurnSettled: () => {},
     refreshTurnSnapshots: () => {},
     workStreamTracker: { sweep: () => { sweepCount++ } },
@@ -313,11 +315,33 @@ async function createNotifyReducer() {
     reducer,
     notifyCount: () => notifyCount,
     notificationTriggers,
+    viewedSessions,
     sweepCount: () => sweepCount,
   }
 }
 
 describe('SessionEventReducer turn-done notification timing', () => {
+  test.each(['completed', 'failed'] as const)('persists a visible %s turn as read once', async (outcome) => {
+    const { reducer, tab, viewedSessions } = await createNotifyReducer(true)
+    const event = { type: 'turn_settled' as const, turnId: 'visible-turn', outcome, settledAt: 456 }
+
+    reducer.apply('session-1', event)
+    expect(tab.hasUnread).toBe(false)
+    expect(viewedSessions).toEqual(['session-1'])
+
+    reducer.apply('session-1', event)
+    expect(viewedSessions).toEqual(['session-1'])
+  })
+
+  test('does not mark a hidden completion as read on the host', async () => {
+    const { reducer, tab, viewedSessions } = await createNotifyReducer()
+    reducer.apply('session-1', {
+      type: 'turn_settled', turnId: 'hidden-turn', outcome: 'completed', settledAt: 456,
+    })
+    expect(tab.hasUnread).toBe(true)
+    expect(viewedSessions).toEqual([])
+  })
+
   test('finalizes only on the authoritative turn settlement', async () => {
     const { session, tab, reducer, notifyCount, notificationTriggers, sweepCount } = await createNotifyReducer()
 

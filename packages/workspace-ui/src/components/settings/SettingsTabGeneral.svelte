@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
   import { untrack } from "svelte";
+  import type { ResponseStreamingMode } from "@solus/contracts/host-config";
   import type { HostApi } from "@solus/client-core/host-api";
   import { Input } from "../ui/input";
   import * as DropdownMenu from "../ui/dropdown-menu";
@@ -52,6 +53,15 @@
 
   let { searchQuery = "", serverId, api, hostLabel }: Props = $props();
 
+  const permissionModes = [
+    { value: "ask", label: "Ask" },
+    { value: "auto", label: "Auto" },
+    { value: "plan", label: "Plan" },
+  ] satisfies Array<{ value: "ask" | "auto" | "plan"; label: string }>;
+  const responseStreamingModes = [
+    { value: "buffered", label: "Buffered" },
+    { value: "paragraph", label: "Streaming" },
+  ] satisfies Array<{ value: ResponseStreamingMode; label: string }>;
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const session = getWorkspaceContext();
@@ -366,6 +376,18 @@
         "writing",
         "prose",
       ],
+    },
+    {
+      id: "default-permission",
+      keywords: ["default", "permission", "ask", "auto", "plan", "mode"],
+    },
+    {
+      id: "background-activity",
+      keywords: ["background", "activity", "toast", "notification", "session"],
+    },
+    {
+      id: "response-streaming",
+      keywords: ["response", "streaming", "paragraph", "buffered", "text"],
     },
     {
       id: "ratelimit",
@@ -767,6 +789,9 @@
   label="Agents & sessions"
   visible={[
     "agent-model",
+    "default-permission",
+    "background-activity",
+    "response-streaming",
     "ratelimit",
     "task-lifecycle",
     "completed-retention",
@@ -897,6 +922,50 @@
           >+</button
         >
       </div>
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Default permission mode"
+    description="The mode for new sessions. Existing sessions and choices in open drafts stay the same."
+    visible={isVisible("default-permission")}
+  >
+    {#snippet control()}
+      <SegmentedControl
+        options={permissionModes}
+        isActive={(value) => theme.defaultPermissionMode === value}
+        onSelect={(value) => theme.update({ defaultPermissionMode: value })}
+        ariaLabel="Default permission mode"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Background activity toasts"
+    description="Show updates from other sessions with an Open session action."
+    visible={isVisible("background-activity")}
+  >
+    {#snippet control()}
+      <Switch
+        checked={theme.backgroundActivityToasts}
+        onCheckedChange={(checked) => theme.update({ backgroundActivityToasts: checked })}
+        aria-label="Background activity toasts"
+      />
+    {/snippet}
+  </SettingsRow>
+
+  <SettingsRow
+    label="Response streaming"
+    description="Show finished paragraphs and code blocks as they arrive, or wait for the current response segment."
+    visible={isVisible("response-streaming")}
+  >
+    {#snippet control()}
+      <SegmentedControl
+        options={responseStreamingModes}
+        isActive={(value) => theme.responseStreamingMode === value}
+        onSelect={(value) => theme.update({ responseStreamingMode: value })}
+        ariaLabel="Response streaming"
+      />
     {/snippet}
   </SettingsRow>
 

@@ -38,6 +38,7 @@
     persistHtmlFileViewMode,
     type HtmlFileViewMode,
   } from "./lib/html-file";
+  import ImageFilePreview from "./ImageFilePreview.svelte";
   import HtmlFilePreview from "./HtmlFilePreview.svelte";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
   import CodeIntelPopover from "../code-intel/CodeIntelPopover.svelte";
@@ -132,6 +133,7 @@
   }
 
   let loading = $state(false);
+  let imageDataUrl = $state<string | null>(null);
   let fileError = $state<string | null>(null);
   let filePath = $state("");
   let displayPath = $state("");
@@ -207,6 +209,7 @@
     const generation = ++loadGeneration;
     loading = true;
     fileError = null;
+    imageDataUrl = null;
     contents = null;
     size = null;
     isReadOnly = false;
@@ -219,6 +222,7 @@
       filePath = result.path;
       displayPath = result.displayPath;
       contents = result.contents;
+      imageDataUrl = result.imageDataUrl ?? null;
       htmlContents = result.contents;
       htmlSourceMounted = htmlViewMode === "source";
       size = result.size;
@@ -354,6 +358,10 @@
       <WarningCircleIcon size={14} weight="fill" class="shrink-0" />
       <span>{fileError}</span>
     </div>
+  {:else if imageDataUrl}
+    {#key imageDataUrl}
+      <ImageFilePreview src={imageDataUrl} title={headerPath} />
+    {/key}
   {:else if contents !== null}
     {#if isMarkdown}
       <MarkdownFileSurface

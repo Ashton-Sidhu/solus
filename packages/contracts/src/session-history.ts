@@ -38,6 +38,8 @@ export interface AgentConversationResultProjection {
 
 /** History row shape allowed across the host-to-client boundary. */
 export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolResultIsError'> {
+  /** Existing question-tool output, retained for answer details on reload. */
+  questionResult?: string
   /** Content key for a tool input left on the host until its summary is opened. */
   toolInputKey?: string
   /** A subagent's answer, separated from ordinary tool output. */

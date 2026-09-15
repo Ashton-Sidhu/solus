@@ -209,12 +209,14 @@
 
   /* A card that opens something answers the pointer by rising, not by washing:
      the fill stays paper so the body text underneath never shifts value. */
-  :global(.conversation-ref-card):hover {
+  :global(.conversation-ref-card:hover:not(:has(:is(a, button, input, textarea, select, [role="button"]):hover))) {
     box-shadow: var(--solus-tx-card-shadow-hover);
     transform: translateY(-0.0625rem);
   }
 
-  :global(.conversation-ref-card):active {
+  /* :active also matches ancestors of a pressed button. Keep the card still
+     when one of its controls is pressed, just as handleClick ignores it. */
+  :global(.conversation-ref-card:active:not(:has(:is(a, button, input, textarea, select, [role="button"]):active))) {
     transform: scale(0.996);
   }
 

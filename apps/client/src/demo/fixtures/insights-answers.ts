@@ -15,7 +15,6 @@ const round2 = (value: number): number => Math.round(value * 100) / 100
 /** The window a shipped statement constrains `started_at` to. Both forms the
  *  page emits are read: a relative window is written against the database
  *  clock, an absolute one against two instants. */
-/** The `started_at` bounds a shipped statement constrains its rows to. */
 export interface SqlWindow {
   from?: number
   to?: number
@@ -29,12 +28,10 @@ export function sqlWindow(sql: string, now: number): SqlWindow {
   return {}
 }
 
-/** The session a drill-in statement names, if it names one. */
 export function sqlSessionId(sql: string): string | null {
   return sql.match(/session_id\s*=\s*'([^']*)'/i)?.[1] ?? null
 }
 
-/** The task a drill-in statement names, if it names one. */
 export function sqlTaskId(sql: string): string | null {
   return sql.match(/task_id\s*=\s*'([^']*)'/i)?.[1] ?? null
 }
@@ -73,11 +70,8 @@ function ranked(
 
 interface DemoAnswer {
   id: string
-  /** True when this is the statement being run. */
   matches(sql: string): boolean
-  /** True when this is what an NL question is asking for. */
   answers(question: string): boolean
-  /** The statement an NL question compiles to. */
   sql: string
   result(turns: DemoTurnRecord[]): MetricsQueryResult
 }

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
 
-  // Simulate a realistic mixed conversation layout
   type SkeletonRow =
     | { kind: "user"; width: number }
     | { kind: "assistant"; lines: number[] }

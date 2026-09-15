@@ -1,3 +1,4 @@
+import { DesktopActivityBadges } from './activity-badges'
 // Electron's bundled Node.js doesn't use the macOS system keychain for TLS.
 // Point it at the macOS root CA bundle so the Anthropic SDK can verify certs.
 if (!process.env.NODE_EXTRA_CA_CERTS) {
@@ -1016,6 +1017,27 @@ ipcMain.handle('solus:open-external', async (_event, input, options?: { hideAppA
   }
 })
 
+const activityBadges = new DesktopActivityBadges()
+const activityBadgeSenders = new Set<number>()
+const activityBadgeSchema = z.array(z.string().max(1024)).max(100000)
+ipcMain.handle('solus:set-activity-badge', (event, input) => {
+  const parsed = activityBadgeSchema.safeParse(input)
+  if (!parsed.success) return
+  if (parsed.data.length > 0 && allWindows().some((window) => window.isFocused())) {
+    event.sender.send('solus:activity-acknowledged')
+    return
+  }
+  if (!activityBadgeSenders.has(event.sender.id)) {
+    const senderId = event.sender.id
+    activityBadgeSenders.add(senderId)
+    event.sender.once('destroyed', () => {
+      activityBadgeSenders.delete(senderId)
+      app.setBadgeCount(activityBadges.remove(senderId))
+    })
+  }
+  app.setBadgeCount(activityBadges.update(event.sender.id, parsed.data))
+})
+
 ipcMain.handle('solus:show-notification', (_event, request) => {
   const parsed = clientNotificationRequestSchema.safeParse(request)
   if (!parsed.success) return false
@@ -1360,6 +1382,9 @@ if (isPairUrl) {
       // tray "Show Solus" and dock-activate follow the surface last touched.
       app.on('browser-window-focus', (_e, win) => {
         if (!allWindows().includes(win)) return
+        activityBadges.acknowledge()
+        app.setBadgeCount(0)
+        broadcastNativeEvent('solus:activity-acknowledged')
         lastFocusedWindow = win
         currentViewMode = win === editorWindow ? 'editor' : 'pill'
       })

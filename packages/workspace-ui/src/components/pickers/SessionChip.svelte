@@ -103,7 +103,6 @@
     return Object.fromEntries(entries);
   });
 
-  // Model
   const modelMeta = $derived(
     metadata[activeAgent] ?? (detached ? null : agentContext.activeMetadata),
   );

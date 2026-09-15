@@ -91,23 +91,30 @@ export interface SessionConfigControllerDeps {
 }
 
 export class SessionConfigController {
-  globalDefaults = $state<{
+  globalDefaults: {
     permissionMode: 'ask' | 'auto' | 'plan'
     workingDirectory: string
     gitContext: GitCheckout | null
     modelConfig: ModelConfig
-  }>({
-    permissionMode: 'auto',
-    workingDirectory: '~',
-    gitContext: null,
-    modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false },
-  })
+  }
   tabGroupMode = $state<TabGroupMode>('flat')
   handoffInProgress = $state(false)
   private switchingBranch = false
   private sessionStartTargetResolutions = new Map<string, Promise<void>>()
 
   constructor(private deps: SessionConfigControllerDeps) {
+    const defaults = $state({
+      get permissionMode(): 'ask' | 'auto' | 'plan' {
+        return deps.settings.defaultPermissionMode ?? 'auto'
+      },
+      set permissionMode(mode: 'ask' | 'auto' | 'plan') {
+        deps.settings.update({ defaultPermissionMode: mode })
+      },
+      workingDirectory: '~',
+      gitContext: null as GitCheckout | null,
+      modelConfig: { modelId: null, reasoningEffort: 'high', contextWindow: null, fastMode: false } as ModelConfig,
+    })
+    this.globalDefaults = defaults
     this.globalDefaults.modelConfig = this.defaultModelConfigFor(deps.settings.activeAgent)
     this.tabGroupMode = deps.settings.tabGroupMode
   }

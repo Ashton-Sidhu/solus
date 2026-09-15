@@ -324,6 +324,36 @@ export interface ContextUsage {
   cacheReadTokens?: number
   cacheCreationTokens?: number
   outputTokens?: number
+  /** What fills the window, by content. Absent on providers with no such report. */
+  categories?: ContextUsageCategory[]
+  /** Per-item detail behind the categories — which MCP tool, which memory file. */
+  groups?: ContextUsageGroup[]
+}
+
+/** One row of the window-by-content breakdown, as the provider accounts for it. */
+export interface ContextUsageCategory {
+  name: string
+  tokens: number
+  /**
+   * An out-of-window tool schema the provider loads on demand. It is reported
+   * for awareness and excluded from the usage total, so the meter shows the
+   * count without a share of the window.
+   */
+  deferred?: boolean
+}
+
+export interface ContextUsageDetailItem {
+  name: string
+  tokens: number
+  /** Where it came from — MCP server, memory scope, skill or agent source. */
+  detail?: string
+}
+
+/** An expandable section under the categories, such as every MCP tool. */
+export interface ContextUsageGroup {
+  label: string
+  tokens: number
+  items: ContextUsageDetailItem[]
 }
 
 /** A selectable response for a permission or plan prompt (main→renderer form). */
@@ -489,6 +519,12 @@ export interface QuestionItem {
   multiSelect: boolean
 }
 
+export interface QuestionAnswer {
+  questionId: string
+  questions: QuestionItem[]
+  answers: Record<string, string>
+}
+
 export interface QuestionRequest {
   questionId: string
   questions: QuestionItem[]
@@ -542,7 +578,6 @@ export interface Attachment {
   dataUrl?: string
   /** File size in bytes */
   size?: number
-  /** Rich metadata for design mode selections */
   designData?: DesignModeSelection
 }
 
@@ -595,11 +630,8 @@ export interface DesignModeSelection {
   componentName?: string
   /** Source file path from source maps */
   componentFile?: string
-  /** Page URL where element was selected */
   pageURL?: string
-  /** Viewport dimensions */
   viewport?: { width: number; height: number }
-  /** User-drawn annotations */
   annotations?: DesignAnnotation[]
   /** Complete agent-facing context for a browser annotation attachment.
    *
@@ -1066,6 +1098,9 @@ export interface PrConflictResolutionResult {
 }
 
 export interface Message {
+  /** In-memory answer receipt; reload uses only existing provider history. */
+  questionAnswer?: QuestionAnswer
+  questionResult?: string
   id: string
   role: 'user' | 'assistant' | 'tool' | 'system' | 'plan'
   content: string
@@ -1125,7 +1160,6 @@ export interface Message {
   planId?: string
   /** Stable ExitPlanMode tool_use id — used for scroll-to-plan targeting */
   planToolUseId?: string
-  /** Reference to a Work (folio document) */
   workRef?: { workId: string; title: string; workType?: WorkType }
   /** A rendered visual artifact (render_artifact tool) shown flush in the
    *  conversation. `pending` is true while the tool call is still in flight.
@@ -1451,6 +1485,8 @@ export interface StatusCardState {
   icon?: 'git-branch' | 'server'
   status: 'active' | 'done' | 'error'
   steps: StatusCardStep[]
+  /** Explicit recovery choices after an isolated checkout fails to prepare. */
+  recovery?: 'worktree'
 }
 
 // ─── Agent conversations (one agent talking to another agent) ───
@@ -1527,7 +1563,7 @@ export type AgentConversationUpdate =
 export type NormalizedEvent =
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_pending' }
-  | { type: 'text_chunk'; text: string; parentToolUseId?: string }
+  | { type: 'text_chunk'; text: string; parentToolUseId?: string; streaming?: boolean }
   /** Extended-thinking span boundaries. The transcript never renders the thought
    *  itself — only how long it took, folded into the following activity block. */
   | { type: 'thinking'; state: 'start' | 'stop'; parentToolUseId?: string }
@@ -1566,6 +1602,7 @@ export type NormalizedEvent =
   /** `kind` rides along from Codex's MCP elicitation normalizer — an elicitation
    *  form is answered with an extra `__action` entry, so anything answering this
    *  request has to be able to tell the two apart. */
+  | { type: 'question_answered'; answer: QuestionAnswer; timestamp: number }
   | { type: 'question_request'; questionId: string; questions: QuestionItem[]; kind?: 'standard' | 'mcp_form' | 'mcp_url' }
   /** Provider context compaction. Claude can report one completed interval by
    *  duration; Codex can report start and stop item boundaries. */
@@ -2546,6 +2583,8 @@ export type FilePreviewResult =
       /** `contents` holds only the first slice of the file. Editing is disabled
        *  in this state — saving would write the truncation back to disk. */
       truncated?: boolean
+      /** Image bytes transported to all clients; contents is empty for images. */
+      imageDataUrl?: string
       mimeType?: string
     }
   | {
@@ -2765,7 +2804,6 @@ export interface AutomationAction {
   /** null → the agent's default model. */
   modelId: string | null
   reasoningEffort: ReasoningEffort
-  /** Working directory the run executes in. */
   cwd: string
   /**
    * When set, the run is dispatched *into this existing agent session* — it

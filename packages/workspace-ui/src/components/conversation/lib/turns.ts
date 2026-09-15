@@ -1,7 +1,9 @@
+import { isQuestionTool } from '@solus/contracts/question-history'
 import type { Message, SessionStatus } from '@solus/contracts/types'
 import { isAgentNotice, isNoReplyNotice } from '../../../contexts/workspace/session.utils'
 
 export type GroupedItem =
+  | { kind: 'question'; message: Message }
   | { kind: 'user'; message: Message }
   | { kind: 'assistant'; message: Message }
   | { kind: 'system'; message: Message }
@@ -65,7 +67,14 @@ export function groupMessages(messages: Message[]): GroupedItem[] {
     }
   }
   for (const msg of messages) {
-    if (msg.role === 'tool' && msg.subMessages) {
+    if (msg.questionAnswer || (msg.role === 'tool' && isQuestionTool(msg.toolName) && msg.toolStatus !== 'running')) {
+      flushTools()
+      flushSubagents()
+      agentConversationGroup = null
+      snapshotPlate = null
+      documentStack = null
+      result.push({ kind: 'question', message: msg })
+    } else if (msg.role === 'tool' && msg.subMessages) {
       // Consecutive sub-agents share one compact surface instead of repeating
       // card chrome for every member of an orchestrated batch.
       flushTools()
@@ -248,6 +257,7 @@ function isDivider(item: GroupedItem): boolean {
 
 const OUTPUT_KINDS = new Set<GroupedItem['kind']>(['assistant'])
 const COLLAPSE_EXCLUDED_KINDS = new Set<GroupedItem['kind']>([
+  'question',
   'artifact',
   'automation',
   'document',

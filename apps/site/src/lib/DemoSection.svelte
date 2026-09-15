@@ -196,12 +196,10 @@
 
 <div class="w-full max-w-[1600px]">
 	<div class="hidden lg:block">
-		<!-- Desktop scene: wallpaper + menu bar, with the Solus window floating on top -->
 		<div
 			class="relative overflow-hidden rounded-[20px] shadow-[0_0_0_1px_rgba(0,0,0,0.14),0_8px_16px_-4px_rgba(70,55,35,0.12),0_24px_56px_-12px_rgba(70,55,35,0.20),0_48px_100px_-24px_rgba(70,55,35,0.24)]"
 			style="background-image: radial-gradient(85% 65% at 82% -5%, rgba(224,136,104,0.42), transparent 58%), radial-gradient(95% 75% at 8% 105%, rgba(212,175,106,0.30), transparent 60%), linear-gradient(152deg, #3B2F26 0%, #262019 55%, #17130F 100%);"
 		>
-			<!-- macOS menu bar -->
 			<div class="relative flex h-8 items-center gap-5 bg-black/25 px-5 text-[12px] font-medium text-white/80">
 				<svg width="12" height="14" viewBox="0 0 814 1000" fill="currentColor" class="text-white/90" aria-hidden="true">
 					<path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.3-165-39.3c-76.5 0-103.7 40.8-165 40.8s-105-42.7-147.8-103.6c-49-68.9-90.6-176.5-90.6-279C0 469.8 166.4 265 348.6 265 407.5 265 458 304.5 490 304.5c29.8 0 88.8-44.5 163.7-44.5 26.6 0 108.2 2.6 168.6 74.9zm-237.6-74.9c31.8-37.7 54.6-90.1 54.6-142.5 0-7.1-.6-14.3-1.9-20.1-51.9 2-112.3 34.8-149.1 75.5-29.2 32.6-55.1 84.4-55.1 139.8 0 7.7 1.3 15.5 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 46.5 0 102.3-31.2 136-72.1z" />
@@ -227,7 +225,6 @@
 				</div>
 			</div>
 
-			<!-- Desktop surface -->
 			<div class="relative px-10 pt-7 pb-11">
 				<!-- No title bar: Solus runs its content to the top of the window and
 				     puts the window's controls in the session sidebar, so the demo

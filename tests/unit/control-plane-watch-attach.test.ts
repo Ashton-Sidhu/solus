@@ -159,4 +159,35 @@ describe.serial('ControlPlane watchSession runtime attach', () => {
     expect(afterExit.runtime).toBeNull()
     plane.shutdown()
   })
+  test('reconnect replays delivered blocks without flushing or duplicating a partial paragraph', async () => {
+    const backend = new Backend()
+    const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
+    plane.on('error', () => {})
+    const events: Array<{ event: NormalizedEvent; only?: string }> = []
+    plane.on('event', (_sessionId, event: NormalizedEvent, options?: { only?: string }) => {
+      events.push({ event, only: options?.only })
+    })
+    try {
+      const lifecycle = await plane.runTurn({
+        target: { kind: 'new-session' }, sessionId: 'reconnect-text', input: input(), tools: [],
+        options: { prompt: 'inspect it', promptSource: 'typed', skipTaskCreation: true },
+      })
+      await lifecycle.agentSessionId
+      plane.watchSession({ sessionId: 'reconnect-text' }, 'first')
+      backend.emit('normalized', 'thread-1', { type: 'text_chunk', text: 'Complete.\n\nPartial' })
+      plane.unwatchSession('reconnect-text', 'first')
+      events.length = 0
+      plane.watchSession({ sessionId: 'reconnect-text', agentSessionId: 'thread-1', attachRuntime: true }, 'second')
+      expect(events.filter(item => item.event.type === 'text_chunk')).toEqual([
+        { event: { type: 'text_chunk', text: 'Complete.\n\n', streaming: true }, only: 'second' },
+      ])
+      events.length = 0
+      backend.complete('thread-1')
+      await lifecycle.done
+      expect(events.filter(item => item.event.type === 'text_chunk')).toEqual([
+        { event: { type: 'text_chunk', text: 'Partial', streaming: false }, only: undefined },
+      ])
+    } finally { plane.shutdown() }
+  })
+
 })

@@ -46,3 +46,56 @@ describe('AttentionNotificationTracker', () => {
     ].map((candidate) => candidate.serverId)).toEqual(['host-a', 'host-b'])
   })
 })
+
+import { BackgroundActivityTracker } from '@solus/workspace-ui/contexts/notifications/notifications-core'
+
+describe('background activity acknowledgement', () => {
+  test('counts each host/session once across approval, question, failure and completion', () => {
+    const tracker = new BackgroundActivityTracker()
+    tracker.applySnapshot('a', [], () => false)
+    tracker.applySnapshot('b', [], () => false)
+    tracker.applySnapshot('a', [entry('same', 'needs_approval'), entry('same', 'question')], () => false)
+    tracker.applySnapshot('b', [entry('same', 'failed'), entry('complete', 'finished')], () => false)
+    expect(tracker.count).toBe(3)
+    tracker.applySnapshot('a', [entry('same', 'finished')], () => false)
+    expect(tracker.count).toBe(3)
+  })
+
+  test('focus clears only the client count; replay cannot recreate an acknowledged approval', () => {
+    const tracker = new BackgroundActivityTracker()
+    const pending = [entry('approval', 'needs_approval')]
+    tracker.applySnapshot('a', [], () => false)
+    tracker.applySnapshot('a', pending, () => false)
+    tracker.acknowledge()
+    expect(tracker.count).toBe(0)
+    expect(pending[0]?.kind).toBe('needs_approval')
+    expect(tracker.applySnapshot('a', pending, () => false)).toEqual([])
+    expect(tracker.count).toBe(0)
+    tracker.prepareForReconnect('a')
+    expect(tracker.applySnapshot('a', pending, () => false)).toEqual([])
+    expect(tracker.count).toBe(0)
+    tracker.applySnapshot('a', [entry('approval', 'finished')], () => false)
+    expect(tracker.count).toBe(1)
+  })
+
+  test('recovery is quiet, focused sessions are excluded, resolution and host removal clear counts', () => {
+    const tracker = new BackgroundActivityTracker()
+    expect(tracker.applySnapshot('a', [entry('old')], () => false)).toEqual([])
+    expect(tracker.count).toBe(0)
+    tracker.applySnapshot('a', [entry('focused')], () => true)
+    expect(tracker.count).toBe(0)
+    tracker.applySnapshot('a', [entry('new')], () => false)
+    expect(tracker.count).toBe(1)
+    tracker.applySnapshot('a', [], () => false)
+    expect(tracker.count).toBe(0)
+    tracker.applySnapshot('a', [entry('new')], () => false)
+    tracker.dropHost('a')
+    expect(tracker.count).toBe(0)
+  })
+
+  test('native notifications continue to exclude completions', () => {
+    const tracker = new AttentionNotificationTracker()
+    tracker.applySnapshot('a', [], () => false)
+    expect(tracker.applySnapshot('a', [entry('done', 'finished')], () => false)).toEqual([])
+  })
+})

@@ -34,7 +34,6 @@
     title?: string;
     /** Tighter vertical padding for pill-mode surfaces. */
     compact?: boolean;
-    /** Description content. */
     children?: Snippet;
     /** Action buttons (PAGE_PRIMARY_BTN / PAGE_SECONDARY_BTN). */
     actions?: Snippet;

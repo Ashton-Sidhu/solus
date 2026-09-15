@@ -892,6 +892,14 @@ CREATE TABLE session_thread_aliases (
 CREATE INDEX session_thread_aliases_session ON session_thread_aliases(session_id);
 `,
 
+  // When this session was last read, so every client agrees. Read state used to
+  // live in each renderer's tab, so opening a session on the desktop left it
+  // unread on the phone. Null means never read — the session is unread as soon
+  // as it completes anything.
+  `
+ALTER TABLE sessions ADD COLUMN viewed_at INTEGER;
+`,
+
 ]
 
 export function runMigrations(db: DatabaseSync): void {

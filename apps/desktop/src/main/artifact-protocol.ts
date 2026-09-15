@@ -18,7 +18,6 @@ const ARTIFACT_MIME = new Map([
   ['.svg', 'image/svg+xml'],
 ])
 
-/** Decode and stream an image file requested through solus-artifact://. */
 export async function handleArtifactRequest(request: Request): Promise<Response> {
   try {
     if (request.method !== 'GET' && request.method !== 'HEAD') {

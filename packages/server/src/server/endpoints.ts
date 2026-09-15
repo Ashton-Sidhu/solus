@@ -18,7 +18,6 @@ let tailscaleStatusCache: { value: TailscaleStatus | null; expiresAt: number } |
 let tailscaleStatusPending: Promise<TailscaleStatus | null> | null = null
 
 export interface ReachableEndpoint {
-  /** "loopback" | "lan" | "tailnet" */
   kind: 'loopback' | 'lan' | 'tailnet'
   /** Human-readable label, e.g. "Localhost", "Wi-Fi (192.168.1.42)", "Tailnet (100.x.y.z)". */
   label: string

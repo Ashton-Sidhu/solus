@@ -37,6 +37,10 @@ export interface HostEventMap {
   'session.scanProgressed': SessionScanEvent
   'session.indexChanged': SessionIndexUpdatedEvent
   'session.titleChanged': SessionTitleChangedEvent
+  /** This session was read, or returned to unread, on some client. Every other
+   *  mounted surface adopts the boundary so reading on one device clears the
+   *  indicator on the rest. `viewedAt` is null when the session is unread. */
+  'session.readStateChanged': { sessionId: string; viewedAt: number | null }
   /** `agentSessionId` is a correlation attribute, not a second address: the
    *  picker and agent-conversation cards hold only a provider thread id. */
   'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number }
@@ -110,6 +114,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
   'session.statusChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session changed live status.' },
+  'session.readStateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was read or returned to unread on some client.' },
   'setup.statusChanged': { owner: 'setup', category: 'targeted', recovery: 'reset', description: 'A host setup step changed status.' },
   'setup.logAppended': { owner: 'setup', category: 'stream', recovery: 'reset', description: 'A host setup step appended output.' },
   'voice.modelStatusChanged': { owner: 'voice', category: 'snapshot', recovery: 'reload', description: 'The host voice model changed status.' },

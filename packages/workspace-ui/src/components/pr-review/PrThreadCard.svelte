@@ -256,7 +256,6 @@
     >
       {#each thread.comments as comment, ci (comment.id)}
         <div class="flex gap-2.5">
-          <!-- Avatar + connector line linking stacked replies together -->
           <div class="flex flex-col items-center">
             <PrAvatar
               name={comment.author}

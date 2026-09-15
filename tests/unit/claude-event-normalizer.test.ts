@@ -83,6 +83,56 @@ describe('ClaudeTurnNormalizer', () => {
     }])
   })
 
+  test('opens a compaction span while Claude compacts on its own', () => {
+    // `compact_boundary` only lands once the rewrite is finished. Without this
+    // the whole multi-minute rewrite renders as the generic running state.
+    const normalizer = new ClaudeTurnNormalizer()
+
+    expect(normalizer.push({
+      type: 'system',
+      subtype: 'status',
+      status: 'compacting',
+      permissionMode: 'default',
+      uuid: 'status-1',
+      session_id: 'claude-session-1',
+    })).toEqual([
+      { type: 'context_compaction', state: 'start', trigger: 'auto' },
+      { type: 'permission_mode_changed', permissionMode: 'ask' },
+    ])
+  })
+
+  test('closes the compaction span on the status carrying its result', () => {
+    const normalizer = new ClaudeTurnNormalizer()
+
+    expect(normalizer.push({
+      type: 'system',
+      subtype: 'status',
+      status: null,
+      compact_result: 'success',
+      permissionMode: 'default',
+      uuid: 'status-2',
+      session_id: 'claude-session-1',
+    })).toEqual([
+      { type: 'context_compaction', state: 'stop', trigger: 'auto' },
+      { type: 'permission_mode_changed', permissionMode: 'ask' },
+    ])
+  })
+
+  test('an ordinary status still reports only its permission mode', () => {
+    // Every turn emits these; raising a compaction span on one would strand the
+    // session in a state nothing clears.
+    const normalizer = new ClaudeTurnNormalizer()
+
+    expect(normalizer.push({
+      type: 'system',
+      subtype: 'status',
+      status: 'requesting',
+      permissionMode: 'default',
+      uuid: 'status-3',
+      session_id: 'claude-session-1',
+    })).toEqual([{ type: 'permission_mode_changed', permissionMode: 'ask' }])
+  })
+
   test('streams parented text into the subagent transcript', () => {
     const normalizer = new ClaudeTurnNormalizer()
 

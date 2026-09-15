@@ -237,6 +237,36 @@ describe('replies and resolution round-trip through both stores', () => {
     expect(saved!.comments).toHaveLength(1)
   })
 
+  test('a reply to a provider thread id lands on a private linked thread, never in the provider', async () => {
+    // WHY: read_work serves Google Docs threads by their provider id. An agent
+    // answering one used to get "no thread" and fall back to a new comment,
+    // which the user then published beside the thread instead of into it. The
+    // answer belongs on a local thread linked to the provider thread, so the
+    // rail can publish it as a reply — and nothing may be sent from here.
+    const work = await works.createWork('Spec', 'doc', 'The launch date is Friday.', '', 'peer-1', 'claude-code', CWD)
+    await works.setWorkMirroredDoc(work.id, { provider: 'gdrive', externalId: 'doc-1', externalKey: 'root', scope: 'root', url: 'https://docs.google.com/document/d/doc-1/edit', syncState: 'ok' })
+    workAnnotations.saveExternalComments(work.id, {
+      provider: 'gdrive', externalKey: 'root', documentId: 'doc-1', operations: [],
+      threads: [{ id: 'AAAA', text: 'Is Friday right?', quote: 'launch date is Friday', author: { name: 'Reviewer', isMe: false }, createdAt: '', modifiedAt: '', resolved: false, deleted: false, replies: [] }],
+    })
+
+    const first = await run('reply_comment', { target_id: work.id, comment_id: 'AAAA', text: 'Yes, confirmed.' })
+    expect(first.ok).toBe(true)
+    expect(first.text).toContain('private')
+    let threads = (await workAnnotations.loadWorkAnnotations(work.id))!.comments
+    expect(threads).toHaveLength(1)
+    expect(threads[0]).toMatchObject({ externalThreadId: 'AAAA', selectedText: 'launch date is Friday', comment: 'Yes, confirmed.', author: 'solus' })
+    expect(typeof threads[0].textOffset).toBe('number')
+
+    // A second answer joins the same linked thread rather than opening another.
+    expect((await run('reply_comment', { target_id: work.id, comment_id: 'AAAA', text: 'And Monday is the backup.' })).ok).toBe(true)
+    threads = (await workAnnotations.loadWorkAnnotations(work.id))!.comments
+    expect(threads).toHaveLength(1)
+    expect(threads[0].replies).toMatchObject([{ author: 'solus', text: 'And Monday is the backup.' }])
+    // The provider snapshot is untouched: publishing is the user's call.
+    expect((await workAnnotations.loadWorkAnnotations(work.id))!.externalComments?.operations).toEqual([])
+  })
+
   test('an unknown target and an unknown thread are both refused by name', async () => {
     expect((await run('comment_document', { target_id: 'nope', comments: [{ quote: 'a', comment: 'b' }] })).ok).toBe(false)
     expect((await run('reply_comment', { target_id: PLAN_ID, comment_id: 'missing', text: 'x' })).ok).toBe(false)

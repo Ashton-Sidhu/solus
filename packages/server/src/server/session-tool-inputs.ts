@@ -6,6 +6,7 @@ import type { SessionLoadMessage, WireSessionLoadMessage, SessionToolInput } fro
 const CARD_INPUT_TOOLS = [
   'create_work', 'render_artifact', 'create_automation', 'update_automation',
   'create_session', 'prompt_session', 'wait_for_session', 'stop_session',
+  'AskUserQuestion', 'request_user_input',
   'claude_subagent', 'codex_subagent', 'spawnAgent',
 ]
 

@@ -34,7 +34,6 @@ export function currentMobileSection(routeName: string | null | undefined): Mobi
   }
 }
 
-/** The signal one section carries, or null when it has nothing to say. */
 export function mobileSectionSignal(
   id: MobileSectionId,
   signals: MobileSectionSignals,

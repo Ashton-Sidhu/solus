@@ -51,7 +51,6 @@ export function seedColumnSize<TData extends RowData>(
   table.setColumnSizing((sizing) => ({ ...sizing, [columnId]: seeded }))
 }
 
-/** Hand the column back to its default width. */
 export function resetColumnSize<TData extends RowData>(
   table: InsightsTable<TData>,
   columnId: string,

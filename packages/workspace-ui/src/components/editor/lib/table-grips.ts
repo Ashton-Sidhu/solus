@@ -61,7 +61,6 @@ export function measureTableGrips(table: HTMLTableElement | null): TableGripGeom
   return { table: tableRect, rows: rowGrips, columns: columnGrips }
 }
 
-/** A 4px ink bar. */
 const GRIP_THICKNESS = 4
 /**
  * The gutter each grip stands in. The column gutter clears the table's top rule

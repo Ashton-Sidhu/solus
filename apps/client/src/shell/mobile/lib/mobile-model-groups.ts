@@ -14,7 +14,6 @@ export interface MobileModelGroup {
   models: MobileModelEntry[]
 }
 
-/** Heading over everything that is not the model already in use. */
 export const ALL_MODELS_LABEL = 'All models'
 
 /** "1M context" / "200k context" — the window, in the units people say it in. */

@@ -21,7 +21,7 @@ import {
 } from '@solus/contracts/host-config'
 import type { HostConfig } from '@solus/contracts/host-config'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import type { DocumentFontFamily, RateLimitBehavior, TabGroupMode, ThemeMode } from '@solus/contracts/host-config'
+import type { DocumentFontFamily, RateLimitBehavior, ResponseStreamingMode, TabGroupMode, ThemeMode } from '@solus/contracts/host-config'
 
 // Host-config vocabulary lives in the contract, because the host validates the
 // same values. Re-exported so renderer call sites keep one import.
@@ -58,6 +58,8 @@ export type SettingsFields = {
   defaultEditor: EditorId | null
   fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
+  defaultPermissionMode: HostConfig['defaultPermissionMode']
+  backgroundActivityToasts: boolean
   defaultModels: Record<string, string>  // per-agent model for new sessions; missing → that agent's built-in default
   reviewAgent: AgentId
   reviewModel: string
@@ -66,6 +68,7 @@ export type SettingsFields = {
   stackedPrsEnabled: boolean
   generatePrGuidesOnOpen: boolean
   reviewWarmingByProject: Record<string, boolean>
+  responseStreamingMode: ResponseStreamingMode
   rateLimitBehavior: RateLimitBehavior
   autoRenameSessions: boolean
   showDiffSummaryAfterTurn: boolean
@@ -267,10 +270,11 @@ const HOST_PUSH_DEBOUNCE_MS = 400
 const HOST_CONFIG_KEY_MAP = {
   themeMode: true, soundEnabled: true, voiceModeEnabled: true, autoSendVoiceTranscripts: true,
   vadSilenceMs: true, defaultEditor: true, fallbackTerminal: true, activeAgent: true,
+  defaultPermissionMode: true, backgroundActivityToasts: true,
   defaultModels: true, reviewAgent: true, reviewModel: true, reviewReasoning: true,
   reviewGuideInstructions: true,
   stackedPrsEnabled: true, generatePrGuidesOnOpen: true, reviewWarmingByProject: true,
-  rateLimitBehavior: true, autoRenameSessions: true, showDiffSummaryAfterTurn: true,
+  responseStreamingMode: true, rateLimitBehavior: true, autoRenameSessions: true, showDiffSummaryAfterTurn: true,
   collapseComposerWhenIdle: true,
   fontFamily: true, fontSize: true, codeFontFamily: true, codeFontSize: true,
   documentFontFamily: true, documentFontSize: true, extraInstructions: true,
@@ -325,6 +329,8 @@ const savedSettingsSchema = z.object({
   defaultEditor: z.enum(EDITOR_IDS).nullable().catch(null),
   fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
   activeAgent: z.enum(VALID_AGENTS).catch('claude-code'),
+  defaultPermissionMode: z.enum(['ask', 'auto', 'plan']).catch('auto'),
+  backgroundActivityToasts: z.boolean().catch(false),
   defaultModels: z.record(z.string(), z.string()).catch({}),
   reviewAgent: z.enum(VALID_AGENTS).catch(DEFAULT_REVIEW_AGENT),
   reviewModel: z.string().catch(DEFAULT_REVIEW_MODEL),
@@ -333,6 +339,7 @@ const savedSettingsSchema = z.object({
   stackedPrsEnabled: z.boolean().catch(false),
   generatePrGuidesOnOpen: z.boolean().catch(false),
   reviewWarmingByProject: z.record(z.string(), z.boolean()).catch({}),
+  responseStreamingMode: z.enum(['buffered', 'paragraph']).catch('paragraph'),
   rateLimitBehavior: z.enum(['ask', 'queue', 'continue', 'stop']).catch('ask'),
   autoRenameSessions: z.boolean().catch(true),
   showDiffSummaryAfterTurn: z.boolean().catch(true),
@@ -394,6 +401,8 @@ function loadSettings(): SettingsFields {
     defaultEditor: 'vim',
     fallbackTerminal: 'default-terminal',
     activeAgent: 'claude-code',
+    defaultPermissionMode: 'auto',
+    backgroundActivityToasts: false,
     defaultModels: {},
     reviewAgent: DEFAULT_REVIEW_AGENT,
     reviewModel: DEFAULT_REVIEW_MODEL,
@@ -402,6 +411,7 @@ function loadSettings(): SettingsFields {
     stackedPrsEnabled: false,
     generatePrGuidesOnOpen: false,
     reviewWarmingByProject: {},
+    responseStreamingMode: 'paragraph',
     rateLimitBehavior: 'ask',
     autoRenameSessions: true,
     showDiffSummaryAfterTurn: true,
@@ -440,6 +450,8 @@ export class SettingsContext {
   defaultEditor = $state<EditorId | null>(null)
   fallbackTerminal = $state<TerminalAppId | null>(null)
   activeAgent = $state<AgentId>('claude-code')
+  defaultPermissionMode = $state<HostConfig['defaultPermissionMode']>('auto')
+  backgroundActivityToasts = $state(false)
   defaultModels = $state<Record<string, string>>({})
   reviewAgent = $state<AgentId>(DEFAULT_REVIEW_AGENT)
   reviewModel = $state(DEFAULT_REVIEW_MODEL)
@@ -448,6 +460,7 @@ export class SettingsContext {
   stackedPrsEnabled = $state(false)
   generatePrGuidesOnOpen = $state(false)
   reviewWarmingByProject = $state<Record<string, boolean>>({})
+  responseStreamingMode = $state<ResponseStreamingMode>('paragraph')
   rateLimitBehavior = $state<RateLimitBehavior>('ask')
   autoRenameSessions = $state(true)
   showDiffSummaryAfterTurn = $state(true)
@@ -495,6 +508,8 @@ export class SettingsContext {
     this.defaultEditor = saved.defaultEditor
     this.fallbackTerminal = saved.fallbackTerminal
     this.activeAgent = saved.activeAgent
+    this.defaultPermissionMode = saved.defaultPermissionMode
+    this.backgroundActivityToasts = saved.backgroundActivityToasts
     this.defaultModels = saved.defaultModels
     this.reviewAgent = saved.reviewAgent
     this.reviewModel = saved.reviewModel
@@ -503,6 +518,7 @@ export class SettingsContext {
     this.stackedPrsEnabled = saved.stackedPrsEnabled
     this.generatePrGuidesOnOpen = saved.generatePrGuidesOnOpen
     this.reviewWarmingByProject = saved.reviewWarmingByProject
+    this.responseStreamingMode = saved.responseStreamingMode
     this.rateLimitBehavior = saved.rateLimitBehavior
     this.autoRenameSessions = saved.autoRenameSessions
     this.showDiffSummaryAfterTurn = saved.showDiffSummaryAfterTurn
@@ -623,6 +639,8 @@ export class SettingsContext {
     if (patch.defaultEditor !== undefined) this.defaultEditor = patch.defaultEditor
     if (patch.fallbackTerminal !== undefined) this.fallbackTerminal = patch.fallbackTerminal
     if (patch.activeAgent !== undefined) this.activeAgent = patch.activeAgent
+    if (patch.defaultPermissionMode !== undefined) this.defaultPermissionMode = patch.defaultPermissionMode
+    if (patch.backgroundActivityToasts !== undefined) this.backgroundActivityToasts = patch.backgroundActivityToasts
     if (patch.defaultModels !== undefined) this.defaultModels = patch.defaultModels
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
     if (patch.reviewModel !== undefined) this.reviewModel = patch.reviewModel
@@ -631,6 +649,7 @@ export class SettingsContext {
     if (patch.stackedPrsEnabled !== undefined) this.stackedPrsEnabled = patch.stackedPrsEnabled
     if (patch.generatePrGuidesOnOpen !== undefined) this.generatePrGuidesOnOpen = patch.generatePrGuidesOnOpen
     if (patch.reviewWarmingByProject !== undefined) this.reviewWarmingByProject = patch.reviewWarmingByProject
+    if (patch.responseStreamingMode !== undefined) this.responseStreamingMode = patch.responseStreamingMode
     if (patch.rateLimitBehavior !== undefined) this.rateLimitBehavior = patch.rateLimitBehavior
     if (patch.autoRenameSessions !== undefined) this.autoRenameSessions = patch.autoRenameSessions
     if (patch.showDiffSummaryAfterTurn !== undefined)
@@ -748,6 +767,9 @@ export class SettingsContext {
       reviewGuideInstructions: this.reviewGuideInstructions,
       stackedPrsEnabled: this.stackedPrsEnabled,
       generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
+      defaultPermissionMode: this.defaultPermissionMode,
+      backgroundActivityToasts: this.backgroundActivityToasts,
+      responseStreamingMode: this.responseStreamingMode,
       rateLimitBehavior: this.rateLimitBehavior,
       autoRenameSessions: this.autoRenameSessions,
       showDiffSummaryAfterTurn: this.showDiffSummaryAfterTurn,
@@ -867,6 +889,9 @@ export class SettingsContext {
         stackedPrsEnabled: this.stackedPrsEnabled,
         generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
         reviewWarmingByProject: this.reviewWarmingByProject,
+        defaultPermissionMode: this.defaultPermissionMode,
+        backgroundActivityToasts: this.backgroundActivityToasts,
+        responseStreamingMode: this.responseStreamingMode,
         rateLimitBehavior: this.rateLimitBehavior,
         autoRenameSessions: this.autoRenameSessions,
         showDiffSummaryAfterTurn: this.showDiffSummaryAfterTurn,

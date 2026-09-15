@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Clock as ClockIcon } from "@lucide/svelte";
+  import { CircleAlert as CircleAlertIcon, Clock as ClockIcon, Info as InfoIcon, LoaderCircle as SpinnerIcon } from "@lucide/svelte";
   import type { ReviewGuideStatus, ReviewGuideStatusEvent } from "@solus/contracts/review";
   import type { DiffComment } from "@solus/contracts/types";
   import type { GuideDiffCommentSave } from "../pr-review/guide/lib/guide-data";
@@ -64,30 +64,46 @@
 </script>
 
 <div class="text-sm flex min-h-0 flex-1 flex-col overflow-hidden">
+  <!-- Notices above the guide: a hairline band on the faintest wash rather than
+       a filled grey slab, led by the glyph for its state and closed by the one
+       move that answers it. They sit at the chrome rung, so a notice never
+       competes with the guide's own prose for the eye. -->
   {#if unavailable}
-    <div role="status" class="shrink-0 border-b border-border bg-muted px-4 py-3 text-muted-foreground">
-      Guide status unavailable. Reconnect or reopen this view to check again.
+    <div role="status" class="flex shrink-0 items-center gap-2.5 border-b border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2 text-workspace-chrome text-muted-foreground">
+      <InfoIcon size={14} class="shrink-0 opacity-70" aria-hidden="true" />
+      <span class="min-w-0 flex-1">Guide status unavailable. Reconnect or reopen this view to check again.</span>
     </div>
   {:else if generationInProgress && hasGuide}
-    <div role="status" class="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-muted px-4 py-3">
-      <span class="flex-1">Generating replacement · {phase}. You can keep reading the saved guide.</span>
-      {#if onCancel}<Button variant="ghost" onclick={onCancel}>Cancel</Button>{/if}
+    <div role="status" class="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2 text-workspace-chrome text-muted-foreground">
+      {#if status === "queued"}
+        <ClockIcon size={14} class="shrink-0 opacity-70" aria-hidden="true" />
+      {:else}
+        <SpinnerIcon size={14} class="shrink-0 animate-spin text-(--solus-accent) motion-reduce:animate-none" aria-hidden="true" />
+      {/if}
+      <span class="min-w-0 flex-1">{phase} · you can keep reading the saved guide.</span>
+      {#if onCancel}<Button variant="ghost" size="xs" class="-my-0.5 shrink-0" onclick={onCancel}>Cancel</Button>{/if}
     </div>
   {:else if (failed || status === "cancelled") && hasGuide}
-    <div role="status" class="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-muted px-4 py-3">
-      <span class="min-w-0 flex-1 break-words">{failed ? `Guide generation failed${failure ? `: ${failure}` : "."}` : "Guide generation cancelled."} The saved guide is still available.</span>
-      <Button variant="ghost" onclick={() => onGenerate ? onGenerate() : loader.refresh()}>Retry</Button>
+    <div role="status" class="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2 text-workspace-chrome text-muted-foreground">
+      <CircleAlertIcon size={14} class="shrink-0 {failed ? 'text-(--solus-art-negative)' : 'opacity-70'}" aria-hidden="true" />
+      <span class="min-w-0 flex-1 break-words">{failed ? `Guide generation failed${failure ? `: ${failure}` : ""}` : "Guide generation cancelled"} · the saved guide is still available.</span>
+      <Button variant="ghost" size="xs" class="-my-0.5 shrink-0" onclick={() => onGenerate ? onGenerate() : loader.refresh()}>Retry</Button>
     </div>
   {/if}
   {#if loader.freshnessUnknown && hasGuide && !unavailable && !stale}
-    <div role="status" class="shrink-0 border-b border-border bg-muted px-4 py-3 text-muted-foreground">
-      Cannot check whether this guide is current. Refresh this view to check again.
+    <div role="status" class="flex shrink-0 items-center gap-2.5 border-b border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2 text-workspace-chrome text-muted-foreground">
+      <InfoIcon size={14} class="shrink-0 opacity-70" aria-hidden="true" />
+      <span class="min-w-0 flex-1">Cannot check whether this guide is current. Refresh this view to check again.</span>
     </div>
   {/if}
-  {#if stale && hasGuide}
-    <div role="status" class="flex shrink-0 flex-wrap items-center gap-3 border-b border-border bg-muted px-4 py-3">
-      <span class="flex-1"><strong>Outdated</strong> — the changes differ from this guide.</span>
-      <Button variant="ghost" disabled={generationInProgress || unavailable} onclick={() => onGenerate ? onGenerate() : loader.refresh()}>Regenerate</Button>
+  <!-- Not while a replacement is generating: that notice already says the
+       saved guide is being superseded, and its Cancel is the only move that
+       makes sense then. Outdated returns if the run fails or is cancelled. -->
+  {#if stale && hasGuide && !generationInProgress}
+    <div role="status" class="flex shrink-0 flex-wrap items-center gap-x-2.5 gap-y-1.5 border-b border-[var(--hairline)] bg-[var(--wash-1)] px-4 py-2 text-workspace-chrome text-muted-foreground">
+      <CircleAlertIcon size={14} class="shrink-0 opacity-70" aria-hidden="true" />
+      <span class="min-w-0 flex-1"><strong class="font-medium text-foreground">Outdated</strong> — the changes differ from this guide.</span>
+      <Button variant="ghost" size="xs" class="-my-0.5 shrink-0" disabled={generationInProgress || unavailable} onclick={() => onGenerate ? onGenerate() : loader.refresh()}>Regenerate</Button>
     </div>
   {/if}
   {#if !hasGuide && !unavailable && (loader.loading || generationInProgress)}
@@ -108,12 +124,12 @@
     <!-- Guides are opt-in, so this is a real offer, not an error. Center it in
          the available guide canvas so returning to an empty tab has one clear
          focal point. -->
-    <div class="flex min-h-0 flex-1 items-center justify-center overflow-auto px-[clamp(20px,2.6cqi,56px)] py-10">
+    <div class="flex min-h-0 flex-1 items-center justify-center overflow-auto px-[clamp(20px,2.6cqi,56px)] py-10 text-workspace-chrome">
       <div class="flex max-w-[520px] flex-col items-center text-center">
         <!-- A neutral medallion, not an accent one: the accent belongs to the
              Generate button below, which is the actual offer. -->
         <span
-          class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground"
+          class="flex size-[44px] shrink-0 items-center justify-center rounded-2xl bg-[color:color-mix(in_oklab,var(--muted)_70%,transparent)] text-muted-foreground [.is-laptop-display_&]:size-10"
           aria-hidden="true"
         >
           <ReviewGuideGlyph size={20} />
@@ -133,7 +149,7 @@
         <div class="mt-5 flex flex-wrap items-center justify-center gap-2.5">
           <Button
             type="button"
-            class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3.5  font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07]"
+            class="inline-flex h-[34px] cursor-pointer items-center gap-2 rounded-lg border-0 bg-primary px-3.5  font-medium text-primary-foreground transition-[filter] duration-100 hover:brightness-[1.07] pointer-fine:[.is-laptop-display_&]:h-[30px]"
             disabled={generationInProgress || unavailable}
             onclick={() => (onGenerate ? onGenerate() : loader.refresh())}
           >
@@ -142,7 +158,7 @@
           {#if onAlwaysGenerate}
             <Button
               type="button"
-              class="inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3  font-medium text-muted-foreground transition-colors hover:text-foreground"
+              class="inline-flex h-[34px] cursor-pointer items-center rounded-lg border-0 bg-muted px-3  font-medium text-muted-foreground transition-colors hover:text-foreground pointer-fine:[.is-laptop-display_&]:h-[30px]"
               disabled={unavailable}
               onclick={onAlwaysGenerate}
             >

@@ -7,9 +7,11 @@
   interface Props {
     card: StatusCardState;
     skipMotion?: boolean;
+    onRetry?: () => void;
+    onWorkLocally?: () => void;
   }
 
-  let { card, skipMotion = false }: Props = $props();
+  let { card, skipMotion = false, onRetry, onWorkLocally }: Props = $props();
 
   const timing = new SetupStepTiming();
   // Transitions can only be observed as they arrive; nothing about "how long did
@@ -147,6 +149,12 @@
           {/if}
         {/each}
       </ul>
+      {#if isError && card.recovery === "worktree"}
+        <div class="flex gap-3 px-4 pb-3 text-workspace-chrome">
+          {#if onRetry}<button type="button" class="rounded px-2 py-1 hover:bg-accent focus-visible:outline" onclick={onRetry}>Retry setup</button>{/if}
+          {#if onWorkLocally}<button type="button" class="rounded px-2 py-1 hover:bg-accent focus-visible:outline" onclick={onWorkLocally}>Work locally</button>{/if}
+        </div>
+      {/if}
     {/if}
   </div>
 </div>

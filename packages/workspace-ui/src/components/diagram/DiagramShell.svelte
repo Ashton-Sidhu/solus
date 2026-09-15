@@ -144,7 +144,6 @@
     onExport?: (request: WorkExportRequest) => void;
     /** The save picker's filesystem is not this device's — see WorkHeaderActions. */
     hostIsRemote?: boolean;
-    /** Rename the work title. */
     onRename?: (title: string) => void;
     /** Leave the diagram for the Workspace page it lives in. */
     onOpenWorkspace?: () => void;

@@ -2,7 +2,6 @@ import { toast, type ExternalToast } from "svelte-sonner"
 
 export type ToastId = string | number
 
-/** Visual tone of a toast. */
 export type ToastVariant = "info" | "success" | "error" | "undo"
 
 /** Optional action button shown on the trailing edge of a toast. */

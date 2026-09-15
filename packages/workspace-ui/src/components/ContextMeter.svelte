@@ -6,10 +6,13 @@
   import * as Popover from "./ui/popover";
   import {
     contextTokensUsed,
+    contextCategoryRows,
     contextLimit,
     contextUsedFraction,
     formatTokens,
   } from "../lib/contextUsage";
+  import { ChevronRight as ChevronRightIcon } from "@lucide/svelte";
+  import { SvelteSet } from "svelte/reactivity";
 
   let { tabId }: { tabId: string } = $props();
 
@@ -57,6 +60,18 @@
       { label: "Reasoning output", value: runUsage?.reasoningTokens ?? 0 },
     ].filter((row) => row.value > 0),
   );
+
+  // What fills the window, by content. Only Claude reports it; the section is
+  // absent rather than empty on a provider that doesn't.
+  const categoryRows = $derived(contextCategoryRows(session, limit));
+  const groups = $derived(context?.groups ?? []);
+  // Expanded groups are named, not indexed: a turn can add a group and shift
+  // every index under it, which would silently move the disclosure.
+  const expanded = new SvelteSet<string>();
+  function toggleGroup(label: string) {
+    if (expanded.has(label)) expanded.delete(label);
+    else expanded.add(label);
+  }
 </script>
 
 <!-- Status, not action: a rule that stays monochrome until the window is
@@ -136,7 +151,7 @@
         role="dialog"
         aria-label="Context usage details"
         data-testid="context-meter-popover"
-        class="z-[10002] w-[min(17rem,calc(100vw-2rem))] gap-0 overflow-hidden rounded-2xl border-[0.0313rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 text-xs lg:text-xs text-(--solus-text-secondary) shadow-[shadow:var(--solus-popover-shadow)] ring-0"
+        class="z-[10002] w-[min(20rem,calc(100vw-2rem))] gap-0 overflow-hidden rounded-2xl border-[0.0313rem] border-(--solus-popover-border) bg-(--solus-popover-bg) p-0 text-xs lg:text-xs text-(--solus-text-secondary) shadow-[shadow:var(--solus-popover-shadow)] ring-0"
       >
         <Popover.Header
           class="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3.5 border-b border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-3.5 text-xs lg:text-xs"
@@ -200,6 +215,80 @@
             {#each windowRows as row (row.label)}
               {@render statRow(row.label, row.value.toLocaleString())}
             {/each}
+          </div>
+        {/if}
+
+        <!-- What fills the window, as the provider accounts for it. The rows
+             above split the same total by *how it was billed*; these split it by
+             *what it is*, which is the half that names an offender you can act
+             on. Scrolls on its own so the meter and headline stay put. -->
+        {#if categoryRows.length > 0 || groups.length > 0}
+          <div
+            class="max-h-64 overflow-y-auto border-t border-[color-mix(in_srgb,var(--solus-container-border)_32%,transparent)] px-4 py-2.5"
+          >
+            <span class="mb-1.5 block font-medium text-(--solus-text-secondary)"
+              >What's in the window</span
+            >
+            <div class="flex flex-col gap-1">
+              {#each categoryRows as row (row.name)}
+                {@render statRow(
+                  row.name,
+                  row.pct === null
+                    ? `${formatTokens(row.tokens)} deferred`
+                    : `${formatTokens(row.tokens)} · ${row.pct}%`,
+                )}
+              {/each}
+            </div>
+
+            {#if groups.length > 0}
+              <div class="mt-1.5 flex flex-col">
+                {#each groups as group (group.label)}
+                  {@const isOpen = expanded.has(group.label)}
+                  <button
+                    type="button"
+                    onclick={() => toggleGroup(group.label)}
+                    aria-expanded={isOpen}
+                    class="flex min-h-6 w-full min-w-0 cursor-pointer items-center gap-1 overflow-hidden rounded-md px-1 -mx-1 text-left transition-colors hover:bg-(--solus-surface-hover) focus-visible:outline-none focus-visible:bg-(--solus-accent-light)"
+                  >
+                    <ChevronRightIcon
+                      size={12}
+                      class="shrink-0 text-(--solus-text-tertiary) transition-transform duration-150 {isOpen
+                        ? 'rotate-90'
+                        : ''}"
+                    />
+                    <span class="min-w-0 flex-1 truncate text-(--solus-text-tertiary)"
+                      >{group.label}</span
+                    >
+                    <span
+                      class="shrink-0 font-secondary text-(--solus-text-primary) tabular-nums"
+                      >{formatTokens(group.tokens)}</span
+                    >
+                  </button>
+                  {#if isOpen}
+                    <!-- Indented under its group, and the detail column carries
+                         the source so two tools with the same bare name stay
+                         distinguishable. -->
+                    <div class="mb-1 flex flex-col gap-0.5 pl-4">
+                      {#each group.items as item (item.name + (item.detail ?? ""))}
+                        <div class="flex min-h-5 items-center justify-between gap-3">
+                          <span class="min-w-0 truncate text-(--solus-text-tertiary)">
+                            {item.name}{#if item.detail}<span
+                                class="opacity-60"
+                              >
+                                · {item.detail}</span
+                              >{/if}
+                          </span>
+                          <span
+                            class="shrink-0 font-secondary text-(--solus-text-secondary) tabular-nums"
+                            >{formatTokens(item.tokens)}</span
+                          >
+                        </div>
+                      {/each}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+            {/if}
           </div>
         {/if}
 

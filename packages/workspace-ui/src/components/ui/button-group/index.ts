@@ -8,7 +8,6 @@ export {
 	Separator,
 	buttonGroupVariants,
 	type ButtonGroupOrientation,
-	//
 	Root as ButtonGroup,
 	Text as ButtonGroupText,
 	Separator as ButtonGroupSeparator,

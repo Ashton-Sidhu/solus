@@ -2,11 +2,9 @@
 // read in a single pass, so their chrome is declared once here instead of being
 // restated on every crumb, row, and action in the markup.
 
-/** A crumb in the band. */
 export const CRUMB_BUTTON =
   'flex h-[1.875rem] cursor-pointer items-center rounded px-[0.46875rem] transition-[background] duration-150 hover:bg-accent'
 
-/** A plain row in any of the band's menus. */
 export const MENU_ROW =
   'flex h-[2.125rem] [.is-laptop-display_&]:h-[1.75rem] w-full cursor-pointer items-center gap-[0.5625rem] [.is-laptop-display_&]:gap-2 rounded-md px-[0.5625rem] text-left transition-[background] duration-150 hover:bg-accent'
 
@@ -31,13 +29,11 @@ export const MENU_ROW_CLOSABLE = `${MENU_ROW} pr-7 group-hover/row:bg-accent`
  *  size above their own headings. */
 export const TASK_MENU_ROW = `${MENU_ROW_CLOSABLE} text-chrome-dense`
 
-/** The short state word at the end of a row. */
 export const ROW_STATUS = 'shrink-0 text-xs font-medium whitespace-nowrap'
 
 /** The X that closes a row, revealed by the row's own hover. */
 export const ROW_CLOSE =
   'absolute top-1/2 right-[0.4375rem] flex size-[1.125rem] -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-[opacity,background,color] duration-150 hover:bg-accent hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100 pointer-coarse:opacity-100'
 
-/** A trailing action on the band itself. */
 export const BAND_ACTION =
   'flex size-[1.875rem] shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground transition-[background,color] duration-150 hover:bg-accent hover:text-foreground'

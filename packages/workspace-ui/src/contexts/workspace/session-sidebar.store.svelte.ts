@@ -1352,9 +1352,22 @@ export class SessionSidebarStore {
     const rootTaskId = task?.parentId ?? taskId
     const tabIds = this.catalogTasks.find((row) => row.taskId === rootTaskId)?.tabIds ?? []
     await this.session.tasksStore.get(taskId).markRead(false)
+    const notifiedSessions = new Set<string>()
     for (const tabId of tabIds) {
       const tab = this.session.tabs[tabId]
-      if (tab) tab.hasUnread = true
+      if (!tab) continue
+      tab.hasUnread = true
+      // Marking unread is an explicit choice, so it belongs to the session on
+      // its host rather than to this client — otherwise the phone still shows
+      // the session as read. Once per session: several tabs can share one.
+      if (notifiedSessions.has(tab.sessionId)) continue
+      notifiedSessions.add(tab.sessionId)
+      // A row can name a session the workspace no longer holds — a tab closing
+      // while its task row is still on screen. The flag above is still correct
+      // for that tab; there is just no host left to tell.
+      const serverId = this.session.sessions?.[tab.sessionId]?.run.serverId
+      if (!serverId) continue
+      void serverConnections.apiFor(serverId).setSessionReadState(tab.sessionId, null).catch(() => {})
     }
   }
 
@@ -1758,18 +1771,51 @@ export class SessionSidebarStore {
     if (!tab || !session?.agentSessionId) return
 
     const pinServerId = serverConnections.resolveId(session.run.serverId)
+    // Captured before the toggle: the list orders by `pinnedAt`, so restoring a
+    // pin with a fresh timestamp would put it back at the top rather than where
+    // the user had it. Undo has to return the row to its own place.
+    const existing = this.pinnedSessions.find((row) =>
+      row.sessionId === session.agentSessionId && row.serverId === pinServerId,
+    )
     const pin: PinnedSession = {
       sessionId: session.agentSessionId,
       serverId: pinServerId,
       provider: session.run.provider ?? this.settings.activeAgent,
       title: sessionTitle(session),
       cwd: session.run.gitContext?.worktreePath ?? session.run.workingDirectory,
-      pinnedAt: Date.now(),
+      pinnedAt: existing?.pinnedAt ?? Date.now(),
     }
     // The pin lives on the session's own host; the host's answer is only that
     // host's manifest, so the federated list reloads rather than adopting it.
     await serverConnections.apiFor(pinServerId).togglePinnedSession(pin)
     await this.loadPinnedSessions()
+    if (existing) void this.offerUnpinUndo(pin, pinServerId)
+  }
+
+  /**
+   * Offer to put a just-unpinned session back. Unpinning is one keystroke and
+   * drops the row out of the pinned list entirely, so without this the only way
+   * back is to find the session again in history and pin it a second time.
+   */
+  private async offerUnpinUndo(pin: PinnedSession, serverId: string): Promise<void> {
+    // Imported here rather than at module scope: this store is the sidebar's
+    // model and is loaded headlessly by tests that never render a toast, and a
+    // static import would pull the toast renderer into every one of them. The
+    // module is already resolved by the time an unpin can happen.
+    const { toasts } = await import('../../lib/toasts')
+    toasts.undo(`Unpinned ${pin.title || 'session'}`, () => {
+      void (async () => {
+        // A newer pin or unpin for the same session has already answered this
+        // question; re-pinning now would contradict it.
+        if (this.isPinned(pin.sessionId, serverId)) return
+        try {
+          await serverConnections.apiFor(serverId).togglePinnedSession(pin)
+          await this.loadPinnedSessions()
+        } catch {
+          toasts.error("Couldn't restore the pin")
+        }
+      })()
+    })
   }
 
   /** Rename from a sidebar row. Pins carry their own label, so a pinned session

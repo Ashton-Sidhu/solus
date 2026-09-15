@@ -52,6 +52,8 @@ const nativeApi: NativeSolusAPI = {
     ipcRenderer.invoke(LOCAL_CONNECTION_CHANNEL).then((info: LocalConnectionInfo) => info.token),
   openExternal: (url: string, options?: { hideAppAfterOpen?: boolean }) =>
     ipcRenderer.invoke('solus:open-external', url, options),
+  setActivityBadge: (sessionKeys: string[]) => ipcRenderer.invoke('solus:set-activity-badge', sessionKeys),
+  onActivityAcknowledged: channelFanOut<[]>('solus:activity-acknowledged'),
   showNotification: (request: ClientNotificationRequest) =>
     ipcRenderer.invoke('solus:show-notification', request),
   logNotificationSound: (row: NotificationSoundLog) =>

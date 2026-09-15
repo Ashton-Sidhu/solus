@@ -10,6 +10,7 @@ import { findSession, getSessionController, type SessionToolCtx } from '../sessi
 import { foreignLinkedItemsFor } from '../tasks/foreign-tasks'
 import { notifyAnnotationsChanged } from './annotation-events'
 import type { CommentAgentAuthor, PlanAnnotations, PlanComment, SessionMeta } from '@solus/contracts/types'
+import type { DocCommentThread } from '@solus/contracts/work-comments'
 
 const log = createLogger('annotations', 'comment-tools.ts')
 
@@ -34,6 +35,10 @@ function isPlanTarget(targetId: string): boolean {
 interface TargetThreads {
   label: string
   comments: PlanComment[]
+  /** Threads that live in a linked external document (a work only). An agent
+   *  answers one of these through a private local thread linked to it. */
+  externalThreads: DocCommentThread[]
+  externalLabel: string
   save: (comments: PlanComment[]) => Promise<void>
 }
 
@@ -46,10 +51,17 @@ async function resolveTarget(targetId: string): Promise<(TargetThreads & { conte
   const work = await loadWork(targetId)
   if (!work) return null
   const existing = await loadWorkAnnotations(targetId)
+  // Only the snapshot of the document the work is linked to right now: a
+  // relinked work must not answer threads of the document it used to mirror.
+  const link = work.mirroredDoc
+  const snapshot = existing?.externalComments
+  const linked = link && snapshot && snapshot.provider === link.provider && snapshot.documentId === link.externalId && snapshot.externalKey === link.externalKey
   return {
     label: `work "${work.title}"`,
     content: work.content,
     comments: existing?.comments ?? [],
+    externalThreads: linked ? snapshot.threads.filter((thread) => !thread.deleted) : [],
+    externalLabel: link?.provider === 'confluence' ? 'Confluence' : 'Google Docs',
     save: async (comments) => {
       await saveWorkAnnotations({ version: 1, workId: targetId, comments, updatedAt: Date.now() })
       notifyAnnotationsChanged({ kind: 'work', targetId })
@@ -86,6 +98,8 @@ async function resolvePlanTarget(targetId: string): Promise<(TargetThreads & { c
     label: `plan "${base.title}"`,
     content,
     comments: base.comments ?? [],
+    externalThreads: [],
+    externalLabel: '',
     save: async (comments) => {
       await saveAnnotations({ ...base, comments, updatedAt: Date.now() })
       controller.invalidatePlanCaches(sessionId)
@@ -226,7 +240,7 @@ const READ_PLAN_DESC =
 const COMMENT_DOCUMENT_DESC =
   "Leave anchored comment threads on a plan or a work, exactly where the user leaves theirs — they appear in the document's margin, attributed to you. Anchor each one by quoting the passage verbatim as it reads on screen; a quote that is not found, or found more than once, is refused rather than left floating. Use this to review a document instead of describing your notes in chat."
 const REPLY_COMMENT_DESC =
-  'Reply in an existing comment thread on a plan or a work. Use it to answer a thread the user opened rather than opening a new one beside it.'
+  'Reply in an existing comment thread on a plan or a work. Use it to answer a thread the user opened rather than opening a new one beside it. The thread id may also be a Google Docs or Confluence thread shown by read_work: the reply then stays private in Solus, on a local thread linked to it, until the user publishes it as a reply in that thread.'
 const RESOLVE_COMMENT_DESC =
   'Resolve a comment thread on a plan or a work, once you have actually acted on it. A resolved thread stops being served back by read_work / read_plan.'
 
@@ -402,9 +416,6 @@ async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promi
 
   const target = await resolveTarget(targetId)
   if (!target) return { ok: false, text: `No plan or work found with id "${targetId}".` }
-  const thread = target.comments.find((c) => c.id === commentId)
-  if (!thread) return { ok: false, text: `No thread "${commentId}" on ${target.label}.` }
-
   const author = await callerAgent(deps.ctx)
   const reply: NonNullable<PlanComment['replies']>[number] = {
     id: randomUUID(),
@@ -413,9 +424,44 @@ async function replyComment(args: CommentToolArgs, deps: CommentToolDeps): Promi
     createdAt: Date.now(),
   }
   if (author) reply.authorAgent = author
-  const replies = [...(thread.replies ?? []), reply]
-  await target.save(target.comments.map((c) => (c.id === commentId ? { ...c, replies } : c)))
-  return { ok: true, text: `Replied in thread "${thread.selectedText}" on ${target.label}.` }
+
+  const thread = target.comments.find((c) => c.id === commentId)
+  if (thread) {
+    const replies = [...(thread.replies ?? []), reply]
+    await target.save(target.comments.map((c) => (c.id === commentId ? { ...c, replies } : c)))
+    return { ok: true, text: `Replied in thread "${thread.selectedText}" on ${target.label}.` }
+  }
+
+  // A provider thread. The answer never leaves Solus from here: it goes on the
+  // local thread linked to that provider thread — the one "Ask agent
+  // privately" opens, or a fresh one — and the user publishes it from the
+  // rail, where it posts as a reply in the same thread rather than as a new
+  // comment beside it.
+  const external = target.externalThreads.find((t) => t.id === commentId)
+  if (!external) return { ok: false, text: `No thread "${commentId}" on ${target.label}.` }
+  const where = external.quote ? `on "${external.quote}"` : 'on the document'
+  const outcome = `It stays private in Solus until the user publishes it from the comments rail, which posts it as a reply in that ${target.externalLabel} thread. Nothing was sent to ${target.externalLabel}.`
+  const linked = target.comments.find((c) => c.externalThreadId === commentId)
+  if (linked) {
+    const replies = [...(linked.replies ?? []), reply]
+    await target.save(target.comments.map((c) => (c.id === linked.id ? { ...c, replies } : c)))
+    return { ok: true, text: `Replied privately to the ${target.externalLabel} thread ${where} on ${target.label}. ${outcome}` }
+  }
+  const created: PlanComment = {
+    id: randomUUID(),
+    externalThreadId: commentId,
+    selectedText: external.quote,
+    comment: text,
+    author: 'solus',
+    createdAt: Date.now(),
+  }
+  if (author) created.authorAgent = author
+  if (external.quote && target.content !== null) {
+    const anchor = anchorQuote(target.content, external.quote)
+    if (anchor.ok) created.textOffset = anchor.textOffset
+  }
+  await target.save([...target.comments, created])
+  return { ok: true, text: `Replied privately to the ${target.externalLabel} thread ${where} on ${target.label}. ${outcome}` }
 }
 
 async function resolveComment(args: CommentToolArgs): Promise<CommentToolResult> {

@@ -1,10 +1,13 @@
 import { expect, test } from 'bun:test'
 import type { GoogleCommentOperation } from '@solus/contracts/work-comments'
 import type { DocCommentThread } from '@solus/contracts/work-comments'
-import { formatExternalThreadsForAgent, outboundText, publishState, shareOperation } from '../../packages/workspace-ui/src/components/work/lib/external-comments-view'
+import { formatExternalThreadsForAgent, outboundText, publishState, publishOperation } from '../../packages/workspace-ui/src/components/work/lib/external-comments-view'
 
 function sent(sourceMessageId: string, text: string, quote?: string): GoogleCommentOperation {
   return { requestId: `req-${sourceMessageId}`, status: 'sent', command: { kind: 'share', requestId: `req-${sourceMessageId}`, sourceMessageId, text, quote } }
+}
+function repliedIn(threadId: string, sourceMessageId: string, text: string): GoogleCommentOperation {
+  return { requestId: `req-${sourceMessageId}`, status: 'sent', command: { kind: 'reply', requestId: `req-${sourceMessageId}`, threadId, sourceMessageId, text } }
 }
 function receipt(status: GoogleCommentOperation['status'], error?: string): GoogleCommentOperation {
   return { requestId: 'req', status, error, command: { kind: 'share', requestId: 'req', sourceMessageId: 'note', text: 'Publish me' } }
@@ -12,17 +15,31 @@ function receipt(status: GoogleCommentOperation['status'], error?: string): Goog
 
 test('a shared receipt belongs to one message, so an identical sibling still reads as local', () => {
   const operations = [sent('first', 'Looks good', 'the quote')]
-  expect(shareOperation(operations, 'first', 'Looks good', 'the quote')?.status).toBe('sent')
+  expect(publishOperation(operations, 'first', 'Looks good', 'the quote')?.status).toBe('sent')
   // Same words, different message: this one has never left Solus.
-  expect(shareOperation(operations, 'second', 'Looks good', 'the quote')).toBeUndefined()
+  expect(publishOperation(operations, 'second', 'Looks good', 'the quote')).toBeUndefined()
   // Same message, edited since it was shared: the sent state does not carry over.
-  expect(shareOperation(operations, 'first', 'Looks good now', 'the quote')).toBeUndefined()
-  expect(shareOperation(undefined, 'first', 'Looks good', 'the quote')).toBeUndefined()
+  expect(publishOperation(operations, 'first', 'Looks good now', 'the quote')).toBeUndefined()
+  expect(publishOperation(undefined, 'first', 'Looks good', 'the quote')).toBeUndefined()
 })
 
 test('a retry matches its own receipt through the trimming the card applies before sending', () => {
   const operations = [sent('note', 'Solus: needs a source', 'quote')]
-  expect(shareOperation(operations, 'note', outboundText('needs a source  ', 'solus'), ' quote ')?.status).toBe('sent')
+  expect(publishOperation(operations, 'note', outboundText('needs a source  ', 'solus'), ' quote ')?.status).toBe('sent')
+})
+
+test('a message answering a provider thread is receipted as a reply in that thread, never as a new comment', () => {
+  // WHY: the bug this pins — an agent's answer to a Google Docs thread was
+  // published as a fresh comment beside it. The receipt has to be a reply into
+  // the thread the local conversation is linked to, and nothing else may claim it.
+  const operations = [repliedIn('AAAA', 'answer', 'Solus: Done.'), sent('answer', 'Solus: Done.', 'the quote')]
+  expect(publishOperation(operations, 'answer', 'Solus: Done.', 'the quote', 'AAAA')?.command.kind).toBe('reply')
+  // Linked to a different provider thread: that receipt is not this message's.
+  expect(publishOperation(operations, 'answer', 'Solus: Done.', 'the quote', 'BBBB')).toBeUndefined()
+  // Not linked at all: only the share receipt counts, so the two never cross.
+  expect(publishOperation(operations, 'answer', 'Solus: Done.', 'the quote')?.command.kind).toBe('share')
+  expect(publishState(undefined, false, 'Done.', 'Google Docs', true).label).toMatch(/^Reply in the Google Docs thread/)
+  expect(publishState(repliedIn('AAAA', 'answer', 'Done.'), false, 'Done.', 'Google Docs', true).label).toBe('Replied in Google Docs')
 })
 
 test('an agent message names itself, because Google credits the connected account', () => {
@@ -84,6 +101,8 @@ test('the rail hands provider threads to the agent as review content it may not 
   expect(text).toContain('Ashton: Agreed.')
   // The guard is the point: a reviewer's words are not an instruction to post back.
   expect(text).toContain('Do not post to Google Docs')
+  // And an answer goes into the thread, by id — a new comment beside it is the bug.
+  expect(text).toContain('reply_comment')
 })
 
 test('a settled provider thread is not re-sent, and a work with none adds nothing to the prompt', () => {
