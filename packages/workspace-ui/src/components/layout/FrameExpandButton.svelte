@@ -6,8 +6,8 @@
 
   // `sidebar` expands the collapsed session sidebar; `projectPanel` expands the
   // dev-only project panel. Each renders only when its panel is collapsed and a
-  // toggle has been registered by EditorLayout (so it stays hidden in pill mode
-  // and on views that don't host the frame chrome).
+  // toggle has been registered by the workspace layout, so it stays hidden on
+  // views that do not host the frame chrome.
   //
   // The button renders inline so page headers can align it with their content
   // gutters and keep the adjacent title/actions in the same visual column.

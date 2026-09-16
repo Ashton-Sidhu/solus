@@ -3,7 +3,7 @@ import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 import { WorkspacePage } from '../helpers/workspace.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 test.describe('Document creation workflow', () => {

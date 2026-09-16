@@ -114,6 +114,7 @@ class ServersStore {
   readonly toastSnoozedInstallationIds = new SvelteSet<string>()
 
   private initialized = false
+  private connectionsTracked = false
   private discoveryTimer: ReturnType<typeof setInterval> | null = null
   private scanInFlight = false
   private lastHostProbeAt = 0
@@ -225,6 +226,36 @@ class ServersStore {
       .sort(compareNearbyHosts)
   }
 
+  /**
+   * Mirror every host's transport status and supervisor phase into this store,
+   * which is what `statusFor` and the transcript's reachability row read. Part of
+   * `init()`; the guest shell (docs/plans/multiplayer-sharing.md §4.2) calls it
+   * alone, because it has one host and no catalog, discovery, or directory.
+   */
+  trackConnections(onActiveChange?: () => void): void {
+    if (this.connectionsTracked) return
+    this.connectionsTracked = true
+
+    subscribe(({ status, attempt, target }) => {
+      if (target) {
+        this.activeServerId = target.id
+        this.setConnectionStatus(target.id, status, attempt)
+      }
+      onActiveChange?.()
+    })
+
+    serverConnections.onStatusChange((serverId, status, attempt) => {
+      this.setConnectionStatus(serverId, status, attempt)
+    })
+
+    // The supervisor's phase outranks the transport status: it is the one
+    // owner of the retry ladder, and `offline` is a phase it can actually
+    // reach — the transport only ever said "reconnecting" forever.
+    serverConnections.onPhaseChange((serverId, phase) => {
+      this.connectionStateFor(serverId).phase = phase
+    })
+  }
+
   init(): void {
     if (this.initialized) return
     this.initialized = true
@@ -249,24 +280,7 @@ class ServersStore {
       })
     }
 
-    subscribe(({ status, attempt, target }) => {
-      if (target) {
-        this.activeServerId = target.id
-        this.setConnectionStatus(target.id, status, attempt)
-      }
-      this.updateAutoDiscovery()
-    })
-
-    serverConnections.onStatusChange((serverId, status, attempt) => {
-      this.setConnectionStatus(serverId, status, attempt)
-    })
-
-    // The supervisor's phase outranks the transport status: it is the one
-    // owner of the retry ladder, and `offline` is a phase it can actually
-    // reach — the transport only ever said "reconnecting" forever.
-    serverConnections.onPhaseChange((serverId, phase) => {
-      this.connectionStateFor(serverId).phase = phase
-    })
+    this.trackConnections(updateAutoDiscovery)
 
     // Forgetting a host is total: its skew dismissals and queued sends leave
     // with it (the session snapshot cache purges itself the same way).

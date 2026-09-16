@@ -77,9 +77,6 @@
   const theme = getSettingsContext();
   const agentContext = getAgentContext();
   const shell = getClientShellContext();
-  const isOverlayWindow = $derived(
-    shell.isOverlayWindow,
-  );
   const tab = $derived(session.tabs[tabId]);
   const sess = $derived(session.sessionFor(tabId));
 
@@ -127,7 +124,7 @@
   const showOpenFiles = $derived(
     showNativeDesktopActions && hasUncommittedChanges && hasSessionChanges,
   );
-  const showOpenTerminal = $derived(showNativeDesktopActions && isOverlayWindow);
+  const showOpenTerminal = false;
   const remoteHost = $derived.by(() => {
     if (hostPolicy.isClientMachine(sess?.run.serverId)) return null;
     const host = serversStore.hostFor(sess?.run.serverId);
@@ -350,7 +347,7 @@
     const updateDensity = () => {
       // The root tracks the conversation reading column (capped at
       // --solus-reading-max, ≤1088px), so width is our proxy for "how big is
-      // the conversation view": wide in editor mode, narrow in the pill window.
+      // the conversation view": wide in a full pane, narrow in a split pane.
       const w = rootEl?.clientWidth ?? 0;
       // Measure the labeled row while it is visible, then retain that width
       // while compact. This avoids a feedback loop where hiding labels makes
@@ -361,9 +358,8 @@
         expandedPanelWidth,
         leftReservedWidth,
       );
-      // Continuous size bump tied to the column width — so the orb is larger in
-      // editor mode than in the pill window on the same screen. Ramps from 1.0
-      // at the editor min column (~640px) to 1.12 at the max (~1152px).
+      // Continuous size bump tied to the column width. It ramps from 1.0 at the
+      // minimum column (~640px) to 1.12 at the maximum (~1152px).
       const t = Math.max(0, Math.min(1, (w - 640) / 512));
       const scale = (1 - t * 0.05).toFixed(3);
       // Skip the style write (and the restyle it triggers) when the rounded
@@ -605,7 +601,6 @@
 <div
   bind:this={rootEl}
   class="action-orb-root pointer-events-none absolute inset-x-0 top-0 bottom-[var(--solus-composer-height,0px)] z-[6] mx-auto [contain:layout]"
-  class:pill-mode={isOverlayWindow}
   class:compact
   class:orb-streaming={isRunning}
 >

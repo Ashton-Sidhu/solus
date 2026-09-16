@@ -67,8 +67,8 @@
   );
 
   const open = $derived(session.router.at("automations"));
-  // Editor mode opens the builder in the side panel; pill mode has no pane, so it
-  // keeps editing inline within this overlay.
+  // The wide layout opens the builder in a side pane. The mobile layout keeps
+  // editing inline because it has no companion pane.
   const canShowBuilderPane = $derived(shell.hasCompanionPanes);
 
   // view: the list, or the create/edit builder.

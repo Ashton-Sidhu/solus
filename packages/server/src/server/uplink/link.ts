@@ -9,6 +9,7 @@ import {
   uplinkErrorBodySchema,
   uplinkLinkConfigSchema,
   type EnrollHostRequest,
+  type EnrollHostResponse,
   type UplinkLinkConfig,
   type UplinkLinkRequest,
   type UplinkLinkState,
@@ -65,6 +66,8 @@ export interface UplinkLinkDeps {
   /** The current link, or null once unlinked — the grant verifier follows it. */
   onLinkChanged?: (link: UplinkLinkConfig | null) => void
   fetchImpl?: FetchLike
+  /** Managed mode (managed-hosts.md §2): the link the control plane put in the environment; null on a personal host. */
+  managedLink?: () => EnrollHostResponse | null
 }
 
 export class UplinkLinkError extends Error {
@@ -124,7 +127,11 @@ export class UplinkLinkManager {
       const detail = uplinkErrorBodySchema.safeParse(await response.json().catch(() => ({})))
       throw new UplinkLinkError('enroll-rejected', enrollRejectionMessage(response.status, detail.data?.error, detail.data?.message))
     }
-    const enrolled = enrollHostResponseSchema.parse(await response.json())
+    return this.storeEnrollment(enrollHostResponseSchema.parse(await response.json()), 'uplink_linked')
+  }
+
+  /** What every enrollment ends with: tokens to the secret store, the record to disk, the connector up. */
+  private storeEnrollment(enrolled: EnrollHostResponse, event: 'uplink_linked' | 'managed_link_adopted'): UplinkStatus {
     // The host will trust this issuer's keys and call this directory with its own
     // token: only a private-network origin may be plain http.
     for (const url of [enrolled.link.issuer, enrolled.link.jwksUrl, enrolled.link.directoryUrl]) {
@@ -134,7 +141,7 @@ export class UplinkLinkManager {
     this.setPersisted({ version: 1, desired: 'linked', link: enrolled.link })
     this.setObservation({ observed: 'offline' })
     this.deps.connector.start(enrolled.connectorToken)
-    log.info('uplink_linked', { hostId: enrolled.link.hostId, hostname: enrolled.link.hostname, generation: enrolled.link.connectionGeneration })
+    log.info(event, { hostId: enrolled.link.hostId, hostname: enrolled.link.hostname, generation: enrolled.link.connectionGeneration })
     return this.status()
   }
 
@@ -158,6 +165,15 @@ export class UplinkLinkManager {
   }
 
   private async resumeLink(): Promise<void> {
+    // A managed host stores the link its environment carries (managed-hosts.md §2): at
+    // first boot, and again whenever the control plane hands it a newer generation
+    // (a recreated machine). A record at the same or a later generation wins; the
+    // environment is then the stale copy.
+    const envLink = this.deps.managedLink?.()
+    if (envLink && (!this.persisted || envLink.link.connectionGeneration > this.persisted.link.connectionGeneration)) {
+      this.storeEnrollment(envLink, 'managed_link_adopted')
+      return
+    }
     if (!this.persisted) return
     if (this.persisted.desired === 'unlinked') {
       await this.completeUnlink()

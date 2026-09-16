@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
 import { dialableRoutes, loadServers, nextRouteUrl, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
-import { mergeDirectoryIntoSaved, savedServerFromDirectory } from '@solus/client-core/uplink-session'
+import { mergeDirectoryIntoSaved, organizationIdFor, savedServerFromDirectory } from '@solus/client-core/uplink-session'
 
 // docs/plans/personal-uplink.md C1: the account's directory is a fourth source of
 // hosts, merged by installation id into what this device already saved. A pairing
@@ -107,6 +107,37 @@ describe('merging the directory into saved hosts', () => {
 
     const directoryOnly = mergeDirectoryIntoSaved([], [listed()], DIRECTORY, 10)
     expect(mergeDirectoryIntoSaved(directoryOnly, [], DIRECTORY, 11)).toEqual([])
+  })
+
+  test('the organization and owner of a shared host ride the merge, so the owner\'s share dialog can add people', () => {
+    // WHY: docs/plans/multiplayer-sharing.md §4.1 — the owner connects as `local-owner`
+    // and the host never names an organization; the directory row is the only place
+    // the client learns which organization the host is shared with.
+    const shared = listed({ organizationId: 'org-1', ownerName: 'Alice' })
+    const merged = mergeDirectoryIntoSaved([paired()], [shared], DIRECTORY, 10)
+    expect(merged[0].uplink).toEqual({ hostId: 'abcdefghijklmnop', directoryUrl: DIRECTORY, organizationId: 'org-1', ownerName: 'Alice' })
+    expect(savedServerFromDirectory(shared, DIRECTORY, 10).uplink?.organizationId).toBe('org-1')
+    // Stop sharing on the website: the next merge forgets the organization.
+    expect(mergeDirectoryIntoSaved(merged, [listed()], DIRECTORY, 11)[0].uplink?.organizationId).toBeUndefined()
+
+    expect(organizationIdFor(null, merged[0].uplink)).toBe('org-1')
+    expect(organizationIdFor('org-from-host', merged[0].uplink)).toBe('org-from-host')
+    expect(organizationIdFor(null, undefined)).toBeNull()
+  })
+
+  test('a managed host carries its kind and lifecycle through the merge, and the next directory read updates them', () => {
+    // WHY: docs/plans/managed-hosts.md — the row is the client's only view of the
+    // compute; a `stopped` host must read as stopped, not as an offline machine.
+    const managed = listed({ installationId: 'managed:h1', hostId: 'managedhost000001', kind: 'managed', organizationId: 'org-1', managedState: 'provisioning' })
+    const merged = mergeDirectoryIntoSaved([], [managed], DIRECTORY, 10)
+    expect(merged[0].uplink).toEqual({ hostId: 'managedhost000001', directoryUrl: DIRECTORY, organizationId: 'org-1', kind: 'managed', managedState: 'provisioning' })
+    const ready = mergeDirectoryIntoSaved(merged, [listed({ ...managed, managedState: 'ready' })], DIRECTORY, 11)
+    expect(ready[0].uplink?.managedState).toBe('ready')
+    // Saved and reloaded, the fields survive; a value this build does not know is dropped, not fatal.
+    store.set(KEY, JSON.stringify([...ready, { ...ready[0], id: 'x', installationId: 'x', uplink: { ...ready[0].uplink, managedState: 'hibernating' } }]))
+    const reloaded = loadServers()
+    expect(reloaded[0].uplink?.kind).toBe('managed')
+    expect(reloaded[1].uplink?.managedState).toBeUndefined()
   })
 
   test('hosts from another directory origin are left alone', () => {

@@ -43,6 +43,7 @@ describe('remote access settings', () => {
           allowLan: false,
           requireAuth: false,
           trustLocalNetwork: false,
+          hostKind: 'personal',
         }),
         connectionsListEndpoints: async () => [],
         connectionsListSessions: async () => [],
@@ -58,6 +59,7 @@ describe('remote access settings', () => {
       allowLan: true,
       requireAuth: true,
       trustLocalNetwork: false,
+      hostKind: 'personal',
     }
 
     const update = store.setRemoteAccess('local', false)

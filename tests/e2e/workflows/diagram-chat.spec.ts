@@ -2,7 +2,7 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 /**
@@ -15,7 +15,7 @@ test.describe('Diagram chat workflow', () => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await conversation.typeAndSend('__MOCK_DIAGRAM__ sketch the system')
     const card = page.locator(`${ACTIVE_TAB} [data-testid="diagram-card"]`)
@@ -36,7 +36,7 @@ test.describe('Diagram chat workflow', () => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await conversation.typeAndSend('__MOCK_DIAGRAM__ sketch the system')
     const card = page.locator(`${ACTIVE_TAB} [data-testid="diagram-card"]`)

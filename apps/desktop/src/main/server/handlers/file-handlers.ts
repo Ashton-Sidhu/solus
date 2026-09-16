@@ -31,16 +31,15 @@ import { allowClientAttachmentReads } from '@solus/desktop-main/client-attachmen
 const log = createLogger('main', 'file-handlers')
 
 export interface FileDeps {
-  /** The focused Solus window, falling back to the last-focused live one —
-   *  dialogs, screenshots, and design mode target the window the user is in. */
-  getActiveWindow(): BrowserWindow | null
+  /** The desktop workspace window used by dialogs, screenshots, and design mode. */
+  getWorkspaceWindow(): BrowserWindow | null
   hideAppWindow(): void
   /** Used by takeScreenshot to restore + focus the window after capturing. */
-  showAndFocusActiveWindow(): void
+  showAndFocusWorkspaceWindow(): void
   /** Used by enterDesignMode to make the window invisible to screen capture. */
-  setActiveWindowOpacity(opacity: number): void
+  setWorkspaceWindowOpacity(opacity: number): void
   expandDesignModeWindow(bounds: { x: number; y: number; width: number; height: number }): void
-  /** Restores the window after design mode (opacity, alwaysOnTop, visibility, focus). */
+  /** Restores the window after design mode. */
   restoreDesignModeWindow(): void
   /** Leaves design mode and restores the window's original bounds. */
   exitDesignModeWindow(): void
@@ -116,7 +115,7 @@ function buildAgentTerminalCommand(agentId: AgentId, agentBin: string, sessionId
 export function registerFileHandlers(server: SolusServer, deps: FileDeps): void {
   server.register('saveFileDialog', async (args) => {
     const [defaultName, content] = args
-    const win = deps.getActiveWindow()
+    const win = deps.getWorkspaceWindow()
     if (!win) return null
     const result = await dialog.showSaveDialog(win, { defaultPath: defaultName })
     if (result.canceled || !result.filePath) return null
@@ -154,7 +153,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('attachFiles', async () => {
-    const win = deps.getActiveWindow()
+    const win = deps.getWorkspaceWindow()
     if (!win) return null
     const options: OpenDialogOptions = {
       properties: ['openFile', 'multiSelections'],
@@ -177,7 +176,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
   })
 
   server.register('takeScreenshot', async () => {
-    const win = deps.getActiveWindow()
+    const win = deps.getWorkspaceWindow()
     if (!win) return null
 
     win.hide()
@@ -202,17 +201,17 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     } catch {
       return null
     } finally {
-      deps.showAndFocusActiveWindow()
+      deps.showAndFocusWorkspaceWindow()
     }
   })
 
   server.register('enterDesignMode', async () => {
-    const win = deps.getActiveWindow()
+    const win = deps.getWorkspaceWindow()
     if (!win) return null
 
     const { x: wx, y: wy, width: ww, height: wh } = deps.designModeCaptureRegion()
 
-    deps.setActiveWindowOpacity(0)
+    deps.setWorkspaceWindowOpacity(0)
     // One compositor frame is enough for the transparent window to disappear.
     // Keeping this short makes the captured desktop and the overlay read as one
     // continuous surface instead of exposing the desktop for 300ms.

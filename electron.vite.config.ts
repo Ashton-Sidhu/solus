@@ -20,33 +20,6 @@ const testMainAliases = isTestBuild
     ]
   : []
 
-function rendererManualChunks(id: string): string | undefined {
-  // A tiny module shared across vendors is the trap here: whichever large
-  // manual chunk Rollup files it under becomes a blocking bootstrap dependency,
-  // because the entry has to load that whole chunk to reach two kilobytes.
-  // Vite's dynamic-import preload helper did it via the 10 MB diff stack;
-  // `w3c-keyname` — keyboard-name lookup that CodeMirror and ProseMirror both
-  // depend on — did it via vendor-editor, so the composer's CodeMirror dragged
-  // all 1.4 MB of Tiptap onto every launch. Park both in `runtime`, which no
-  // vendor owns.
-  if (id.includes('w3c-keyname')) return 'runtime'
-  if (id.includes('vite/preload-helper')) return 'runtime'
-  if (!id.includes('node_modules')) return undefined
-  if (id.includes('@tiptap') || id.includes('prosemirror')) return 'vendor-editor'
-  // Highlighting is its own chunk, not part of vendor-editor: the transcript's
-  // code blocks need lowlight on the first frame, and grouping the two made the
-  // editor a boot dependency for a package the boot path never touches.
-  if (id.includes('lowlight') || id.includes('highlight.js')) return 'vendor-highlight'
-  if (id.includes('@xyflow') || id.includes('@dagrejs')) return 'vendor-diagram'
-  if (id.includes('@iconify')) return 'vendor-iconify'
-  // Deliberately broad. Narrowing this to the Svelte runtime scattered the
-  // svelte-named UI libraries across 60 more chunks and re-formed the very
-  // cross-vendor edges the two rules above exist to break, which measured
-  // slower — the per-chunk instantiation cost outweighs the bytes saved.
-  if (id.includes('svelte')) return 'vendor-svelte'
-  return undefined
-}
-
 export default defineConfig(({ mode }) => {
   // The OAuth client id/secrets are read in the main process via bare
   // `process.env.*`, which Vite leaves as a runtime lookup — undefined on the
@@ -66,13 +39,16 @@ export default defineConfig(({ mode }) => {
   main: {
     define: oauthDefines,
     resolve: {
-      alias: {
+      // An array, not an object: the test aliases are `{ find, replacement }`
+      // entries, and spreading them into an object keyed them "0" and "1", so
+      // the mock backends never reached a test bundle.
+      alias: [
         ...testMainAliases,
-        '@solus/contracts': resolve(__dirname, 'packages/contracts/src'),
-        '@solus/server': resolve(__dirname, 'packages/server/src'),
-        '@solus/desktop-main': resolve(__dirname, 'apps/desktop/src/main'),
-        '@solus/workspace-ui': resolve(__dirname, 'packages/workspace-ui/src'),
-      }
+        { find: '@solus/contracts', replacement: resolve(__dirname, 'packages/contracts/src') },
+        { find: '@solus/server', replacement: resolve(__dirname, 'packages/server/src') },
+        { find: '@solus/desktop-main', replacement: resolve(__dirname, 'apps/desktop/src/main') },
+        { find: '@solus/workspace-ui', replacement: resolve(__dirname, 'packages/workspace-ui/src') },
+      ]
     },
     server: {
       watch: {
@@ -152,10 +128,9 @@ export default defineConfig(({ mode }) => {
     plugins: [solusIconSubset(), svelte(), tailwindcss()],
     build: {
       outDir: resolve(__dirname, 'dist/renderer'),
-      // The renderer intentionally ships large isolated vendor chunks for the
-      // diagram/icon and diff highlighter stacks. App code stays split out via
-      // manualChunks above; the default 500 KB browser-site warning is too low
-      // for this desktop bundle shape.
+      // Let feature imports own chunk boundaries, as in the web client. Manual
+      // vendor groups formed a Svelte/diagram cycle that called from_html before
+      // Svelte's TEMPLATE_FRAGMENT constant was initialized.
       chunkSizeWarningLimit: 13000,
       // Gzipping every emitted chunk only to print a size column costs seconds
       // on a 30 MB renderer bundle. The desktop bundle ships from disk, so the
@@ -164,9 +139,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'apps/desktop/src/renderer/index.html')
-        },
-        output: {
-          manualChunks: rendererManualChunks
         }
       }
     }

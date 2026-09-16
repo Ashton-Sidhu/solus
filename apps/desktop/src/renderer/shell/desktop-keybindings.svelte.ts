@@ -1,3 +1,4 @@
+import { activeSessionShareTarget, sharesStore } from "@solus/workspace-ui/contexts";
 import { checkAllUpdates } from "@solus/workspace-ui/contexts/updates/check-all-updates";
 import type { ProjectRef } from "@solus/workspace-ui/contexts/projects/project-catalog";
 
@@ -21,7 +22,6 @@ import {
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 import type { DesktopDialogs } from "./desktop-dialogs.svelte";
-import type { DesktopWindow } from "./desktop-window.svelte";
 interface DesktopKeyboardActions {
   startOpenProject(options?: { sourceId?: string }): void;
   handleScreenshot(tabId?: string): Promise<void>;
@@ -31,7 +31,6 @@ interface DesktopKeyboardActions {
 
 export function installDesktopKeybindings(
   core: DesktopAppCore,
-  windowCtx: DesktopWindow,
   ui: DesktopDialogs,
   actions: DesktopKeyboardActions,
 ) {
@@ -43,8 +42,6 @@ export function installDesktopKeybindings(
     handleAttachFile,
     handleDesignMode,
   } = actions;
-  const viewMode = $derived(windowCtx.viewMode);
-  const isEditorMode = $derived(viewMode === "editor");
   const activeTabId = $derived(session.activeTabId);
   const keyboardTabId = $derived(session.focusedChatTabId ?? activeTabId);
   const desktopHandlersAvailable = $derived(
@@ -159,22 +156,17 @@ export function installDesktopKeybindings(
     // or the shortcut jumps to a tab that isn't visually adjacent. Computed lazily
     // here (only on keypress) rather than as a $derived that recomputes on every
     // backend tick.
-    const order = isEditorMode
-      ? visualBranchTabOrder()
-      : visualTabOrder(visibleTabOrder);
+    const order = visualBranchTabOrder();
     const activeKey = branchKeyFor(session.sessionFor(activeTabId));
-    const idx = isEditorMode
-      ? order.findIndex(
-          (id) => branchKeyFor(session.sessionFor(id)) === activeKey,
-        )
-      : order.indexOf(activeTabId);
+    const idx = order.findIndex(
+      (id) => branchKeyFor(session.sessionFor(id)) === activeKey,
+    );
     if (idx === -1) return;
     const nextId = order[(idx + delta + order.length) % order.length];
-    const target = isEditorMode
-      ? (session.lastActiveTabForBranch(
-          branchKeyFor(session.sessionFor(nextId)),
-        ) ?? nextId)
-      : nextId;
+    const target =
+      session.lastActiveTabForBranch(
+        branchKeyFor(session.sessionFor(nextId)),
+      ) ?? nextId;
     session.selectTab(target, "keybinding");
     requestInputFocus();
   }
@@ -182,8 +174,6 @@ export function installDesktopKeybindings(
   useKeybinding("global.next-tab", () => navigateTab(1));
   useKeybinding("global.prev-tab", () => navigateTab(-1));
   useKeybinding("global.next-session", () => {
-    // Pill mode has no branch/session split — fall back to cycling tabs.
-    if (!isEditorMode) return navigateTab(1);
     const order = scopedSessionTabOrder();
     const idx = order.indexOf(activeTabId);
     if (idx !== -1) {
@@ -192,7 +182,6 @@ export function installDesktopKeybindings(
     }
   });
   useKeybinding("global.prev-session", () => {
-    if (!isEditorMode) return navigateTab(-1);
     const order = scopedSessionTabOrder();
     const idx = order.indexOf(activeTabId);
     if (idx !== -1) {
@@ -206,7 +195,6 @@ export function installDesktopKeybindings(
   useKeybinding("global.screenshot", () => handleScreenshot(keyboardTabId), {
     enabled: () => desktopHandlersAvailable,
   });
-  useKeybinding("global.continue-in-mode", () => session.continueInOtherMode());
   useKeybinding(
     "global.session-picker",
     () =>
@@ -222,9 +210,6 @@ export function installDesktopKeybindings(
   // one lands somewhere correct.
   useKeybinding("global.task-picker", () => {
     session.unifiedPickerOpen = !session.unifiedPickerOpen;
-  });
-  useKeybinding("global.toggle-expanded", () => session.toggleExpanded(), {
-    enabled: () => viewMode === "pill",
   });
   useKeybinding("global.close-tab", () => {
     if (activeTabId) session.closeTab(activeTabId, "keybinding");
@@ -270,7 +255,7 @@ export function installDesktopKeybindings(
         }),
       ),
     {
-      enabled: () => viewMode === "editor",
+      enabled: () => true,
     },
   );
   useKeybinding("global.toggle-workspace", () =>
@@ -280,6 +265,10 @@ export function installDesktopKeybindings(
     session.toggleAutomations("keybinding"),
   );
   useKeybinding("global.toggle-tasks", () => session.toggleTasks("keybinding"));
+  useKeybinding("global.share", () => {
+    const target = activeSessionShareTarget(session);
+    if (target) sharesStore.open(target);
+  });
   useKeybinding("global.toggle-insights", () =>
     session.toggleInsights("keybinding"),
   );
@@ -354,13 +343,12 @@ export function installDesktopKeybindings(
       ui.commandPaletteOpen = true;
     },
     {
-      enabled: () => viewMode === "editor",
+      enabled: () => true,
     },
   );
-  // Both need a project to search, and the pill has nowhere to show results.
+  // Both need a project to search.
   const canSearchProject = $derived(
-    viewMode === "editor" &&
-      !!sessionEnvironmentStore.environmentFor(
+    !!sessionEnvironmentStore.environmentFor(
         session.sessionFor(keyboardTabId)?.run,
       ).cwd,
   );
@@ -395,7 +383,7 @@ export function installDesktopKeybindings(
     ui.commandPaletteOpen = true;
   }
 
-  const paletteAvailable = $derived(viewMode === "editor");
+  const paletteAvailable = true;
   // The git sub-pages only exist while a session sits in a repository, matching
   // the condition that builds those commands.
   const hasGitContext = $derived(
@@ -436,8 +424,7 @@ export function installDesktopKeybindings(
         }),
       );
     },
-    // Same gate as the diff-panel toggle: the pill has nowhere to show a diff.
-    { enabled: () => viewMode === "editor" },
+    { enabled: () => true },
   );
   useKeybinding("global.open-prs", () => session.openPrs(null, "keybinding"));
   useKeybinding(

@@ -30,9 +30,7 @@
 
 Coding agents live in the terminal, and the terminal is a bad place to supervise them. You lose the thread when you switch windows, plans and diffs scroll away, and running two agents at once means juggling panes.
 
-Solus puts agents in a glass overlay that floats above whatever you're doing. Sessions are tabs, plans are reviewable documents, diffs are commentable, and everything has a keybinding. Summon it with `⌥Space`, dismiss it when you're back in flow.
-
-Two layouts, one keystroke apart (`⌥⇧E`): **pill mode** is a compact strip for firing off prompts while you work elsewhere; **editor mode** is a full workspace for reading plans, reviewing diffs, and driving a session with full attention.
+Solus puts agents in a focused workspace above whatever you are doing. Sessions are tabs, plans are reviewable documents, diffs are commentable, and everything has a keybinding. Show it with `⌥Space`, then hide it when you are back in flow.
 
 ## Features
 
@@ -89,7 +87,6 @@ Global shortcuts use `⌥⇧`, sub-page shortcuts use `⌥`. These are the ones 
 | `⌘O` | Open a project on the current host |
 | `⌘⇧O` | Open or clone a project on any host |
 | `⌘T` | New tab |
-| `⌥⇧E` | Toggle editor / pill mode |
 | `⌥⇧Tab` | Cycle permission mode (Ask → Auto → Plan) |
 | `⌥⇧D` | Toggle diff panel |
 | `⌥⇧B` | Toggle worktree mode |

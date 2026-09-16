@@ -121,9 +121,9 @@
   project and branch chips readable a rung longer.
 
   Every rung hides; none unmounts. A control that unmounts loses its state and
-  pays a re-mount on every frame of a pane drag. The same ladder serves Editor
-  mode, Pill mode and the phone unchanged, because a container query does not
-  care why it got narrow.
+  pays a re-mount on every frame of a pane drag. The same ladder serves wide,
+  split-pane, and phone layouts because a container query does not care why it
+  got narrow.
 -->
 <div
   class="flex flex-1 min-w-0 items-center gap-2 {spacious
@@ -142,7 +142,7 @@
   <SessionChip {tabId} {isPrimary} bind:selection returnFocusOnClose />
   <!-- Rung 1. Wrapped rather than hidden in place: the control is a snippet the
        bar owns, so the rung has to live on a box this row controls. `contents`
-       generates no box of its own, so Pill mode — which passes no snippet — does
+       generates no box of its own, so a caller that passes no snippet does
        not pay an empty flex item and its `gap-2` here. -->
   <div class="contents @max-[38rem]/composer:hidden">
     {@render savedPromptsControl?.()}

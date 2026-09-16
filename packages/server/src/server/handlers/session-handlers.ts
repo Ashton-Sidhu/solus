@@ -15,7 +15,9 @@ import { appVersion, solusDir } from '../../platform/paths'
 import { warmFinder } from '../file-finder'
 import type { SolusServer } from '../server'
 import type { HandlerCtx } from '../server'
-import { setupProjectsRoot } from './setup-handlers'
+import type { ShareManager } from '../../sharing/share-manager'
+import { turnActorFor } from '../../seats/seat-manager'
+import { projectsRootFor } from './setup-handlers'
 
 const log = createLogger('main', 'session-handlers')
 const execFileAsync = promisify(execFile)
@@ -23,6 +25,8 @@ const execFileAsync = promisify(execFile)
 export interface SessionDeps {
   controlPlane: ControlPlane
   agentIdFromContext(ctx?: IpcContext): AgentId
+  /** Records who started a session; the first caller to name a new session owns it. */
+  shares?: ShareManager
 }
 
 const _agentBinaryCache = new Map<AgentId, string | null>()
@@ -136,7 +140,7 @@ export async function enrichAgentMetadata(metadata: AgentMetadata): Promise<Agen
 export function registerSessionHandlers(server: SolusServer, deps: SessionDeps): void {
   const { controlPlane, agentIdFromContext } = deps
 
-  server.register('start', async (_args, _handlerCtx) => {
+  server.register('start', async (_args, handlerCtx) => {
     log.info('rpc_start')
     // No seq-reset here: `start` runs only at boot, when the renderer is already
     // performing a full bootstrapRuntimeTabs (createTab + bindRuntimeSession per
@@ -157,7 +161,10 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
         .filter((metadata): metadata is AgentMetadata => metadata !== undefined)
         .map(enrichAgentMetadata),
     )
-    return { projectPath: setupProjectsRoot(), homePath: homedir(), workspacePath: WORKSPACE_DIR, version: appVersion(), agents }
+    // A member's home on a shared host is their workspace (managed-hosts.md §3).
+    const projectPath = projectsRootFor(handlerCtx.principal)
+    const homePath = handlerCtx.principal.kind === 'org-member' ? projectPath : homedir()
+    return { projectPath, homePath, workspacePath: WORKSPACE_DIR, version: appVersion(), agents }
   })
 
   function requireClientId(handlerCtx: HandlerCtx): string {
@@ -165,10 +172,18 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     return handlerCtx.clientId
   }
 
+  /** The person who started the session owns it (docs/plans/multiplayer-sharing.md §3.4). */
+  function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx): void {
+    if (sessionId) deps.shares?.claimOwner({ kind: 'session', id: sessionId }, handlerCtx.principal)
+  }
+
   server.register('watchSession', (args, handlerCtx) => {
     const [input] = args
     const resolved = controlPlane.watchSession(input ?? {}, requireClientId(handlerCtx))
     log.info('rpc_watch_session', { sessionId: resolved.sessionId, requested: input?.sessionId ?? null })
+    // A guest or member can only watch a session that was shared with them, so a
+    // claim here never gives them one; it records the owner of a brand-new session.
+    claimSession(resolved.sessionId, handlerCtx)
     return resolved
   })
 
@@ -178,10 +193,12 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     controlPlane.unwatchSession(sessionId, requireClientId(handlerCtx))
   })
 
-  server.register('createHeadlessSession', (args) => {
+  server.register('createHeadlessSession', async (args, handlerCtx) => {
     const [request] = args
     log.info('rpc_create_headless_session', { provider: request.provider })
-    return controlPlane.createSession(request)
+    const created = await controlPlane.createSession(request, turnActorFor(handlerCtx.principal))
+    claimSession(created.agentSessionId, handlerCtx)
+    return created
   })
 
   server.register('bindRuntimeSession', (args, handlerCtx) => {
@@ -190,6 +207,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
       sessionId: ctx.session.sessionId,
       agentSessionId: ctx.session.agentSessionId,
     })
+    claimSession(ctx.session.sessionId, handlerCtx)
     return controlPlane.bindRuntimeSession(ctx, requireClientId(handlerCtx))
   })
 
@@ -217,10 +235,13 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const sessionId = ctx.session.sessionId
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
+    claimSession(sessionId, handlerCtx)
     try {
+      // The turn runs on its author's provider seat (Step 2 plan §3.3).
       return await controlPlane.submitPrompt(ctx, options, {
         clientId: handlerCtx.clientId,
         deviceId: handlerCtx.deviceId,
+        actor: turnActorFor(handlerCtx.principal),
       })
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err)
@@ -242,7 +263,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   server.register('retry', async (args, handlerCtx) => {
     const [ctx, options] = args
     log.info('rpc_retry', { sessionId: ctx.session.sessionId })
-    return controlPlane.retry(ctx, options, handlerCtx.clientId)
+    return controlPlane.retry(ctx, options, handlerCtx.clientId, turnActorFor(handlerCtx.principal))
   })
 
   server.register('respondPermission', (args) => {

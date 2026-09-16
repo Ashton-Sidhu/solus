@@ -7,9 +7,9 @@ import { serverConnections } from '@solus/client-core/server-connections'
  * Renderer-side cache + RPC wrapper for saved prompts, keyed by host and project root.
  *
  * Every mutation returns the authoritative list from the server, so there is no
- * push topic: two windows can drift for as long as one of them keeps a stale
- * sheet open, and the composer control refreshes on open and on window-shown to
- * close that window. Delete is idempotent server-side, so a stale click heals
+ * push topic: two clients can drift for as long as one keeps a stale sheet
+ * open, and the composer control refreshes on open and on window-shown to close
+ * that gap. Delete is idempotent server-side, so a stale click heals
  * itself rather than erroring.
  */
 export class SavedPromptsStore {

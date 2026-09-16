@@ -2,6 +2,8 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { z } from 'zod'
+import { hostKindSchema, organizationRoleSchema, type HostKind } from '@solus/contracts/uplink'
+import { shareResourceSchema, shareRoleSchema, type ShareResource, type ShareRole } from '@solus/contracts/sharing'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
 import { clearDelegation } from '../providers/github/delegation-store'
@@ -241,7 +243,17 @@ export interface PairingWsTicket {
   jti: string
 }
 
-/** A ticket derived from a control-plane grant: the owner arriving remotely. */
+/** The organization facts a member's grant carried (docs/plans/multiplayer-sharing.md §3.2). */
+export interface GrantMembership {
+  organizationId: string
+  organizationRole: 'owner' | 'member'
+  teamIds: string[]
+  hostKind: HostKind
+  displayName: string
+  picture?: string
+}
+
+/** A ticket derived from a control-plane grant: the owner, or an organization member, arriving remotely. */
 export interface GrantWsTicket {
   kind: 'grant'
   userId: string
@@ -251,9 +263,39 @@ export interface GrantWsTicket {
   expiresAt: number
   issuedAt: number
   jti: string
+  /** Absent for the personal host's owner; present for an organization member. */
+  membership?: GrantMembership
+  /** The owner's account name, when the grant carried one. */
+  displayName?: string
 }
 
-export type VerifiedWsTicket = PairingWsTicket | GrantWsTicket
+/** A ticket for a visitor who presented a guest grant and a share secret: one resource, one role. */
+export interface GuestWsTicket {
+  kind: 'guest'
+  guestId: string
+  displayName: string
+  share: {
+    resource: ShareResource
+    role: ShareRole
+    sharedByUserId: string
+    /** Re-checked on every call, so a regenerated link ends the visit. */
+    linkSecretHash: string
+  }
+  expiresAt: number
+  issuedAt: number
+  jti: string
+}
+
+export type VerifiedWsTicket = PairingWsTicket | GrantWsTicket | GuestWsTicket
+
+const grantMembershipSchema = z.object({
+  organizationId: z.string().min(1),
+  organizationRole: organizationRoleSchema,
+  teamIds: z.array(z.string().min(1)),
+  hostKind: hostKindSchema,
+  displayName: z.string().min(1),
+  picture: z.string().min(1).optional(),
+}).strict()
 
 const wsTicketPayloadSchema = z.discriminatedUnion('kind', [
   z.object({
@@ -267,6 +309,22 @@ const wsTicketPayloadSchema = z.discriminatedUnion('kind', [
     kind: z.literal('grant'),
     userId: z.string().min(1),
     deviceId: z.string().min(1),
+    expiresAt: z.number(),
+    issuedAt: z.number(),
+    jti: z.string().min(1),
+    membership: grantMembershipSchema.optional(),
+    displayName: z.string().min(1).optional(),
+  }).strict(),
+  z.object({
+    kind: z.literal('guest'),
+    guestId: z.string().min(1),
+    displayName: z.string().min(1),
+    share: z.object({
+      resource: shareResourceSchema,
+      role: shareRoleSchema,
+      sharedByUserId: z.string().min(1),
+      linkSecretHash: z.string().min(1),
+    }).strict(),
     expiresAt: z.number(),
     issuedAt: z.number(),
     jti: z.string().min(1),
@@ -305,11 +363,20 @@ export interface GrantTicketSubject {
   userId: string
   deviceId: string
   expiresAt: number
+  membership?: GrantMembership
+  displayName?: string
 }
 
 /** The same door for a verified control-plane grant (docs/plans/personal-uplink.md, H1). */
 export function issueGrantWsTicket(grant: GrantTicketSubject, now = Date.now()): string {
   return signWsTicket({ kind: 'grant', ...grant, issuedAt: now, jti: randomBytes(12).toString('hex') })
+}
+
+export type GuestTicketSubject = Omit<GuestWsTicket, 'kind' | 'issuedAt' | 'jti'>
+
+/** A guest grant plus a matching share secret earn a ticket bound to that one resource (§3.4). */
+export function issueGuestWsTicket(guest: GuestTicketSubject, now = Date.now()): string {
+  return signWsTicket({ kind: 'guest', ...guest, issuedAt: now, jti: randomBytes(12).toString('hex') })
 }
 
 /** Checks a ticket without spending it. Admission uses `consumeWsTicket`. */
@@ -337,8 +404,8 @@ export function verifyWsTicket(ticket: string, now = Date.now()): VerifiedWsTick
   // process started is refused outright: a restart must not reopen a spent one.
   if (payload.issuedAt < PROCESS_STARTED_AT) return null
   // Revoking a device on the Access tab ends both a paired device and a cloud session.
-  if (_revokedDevices.has(payload.deviceId)) return null
-  if (payload.kind === 'grant' && payload.expiresAt <= now) return null
+  if (payload.kind !== 'guest' && _revokedDevices.has(payload.deviceId)) return null
+  if (payload.kind !== 'pairing' && payload.expiresAt <= now) return null
   return payload
 }
 

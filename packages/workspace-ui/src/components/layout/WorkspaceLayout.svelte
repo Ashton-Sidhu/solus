@@ -8,12 +8,11 @@
   } from "../../lib/filePreview";
   import type { DiffScope } from "@solus/contracts/types";
   interface Props {
-    active?: boolean;
     onAttachFile: (tabId?: string) => void | Promise<void>;
     onScreenshot?: ((tabId?: string) => void | Promise<void>) | null;
     onDesignMode?: ((tabId?: string) => void | Promise<void>) | null;
   }
-  let { active = true, onAttachFile, onScreenshot, onDesignMode }: Props = $props();
+  let { onAttachFile, onScreenshot, onDesignMode }: Props = $props();
 
   const session = getWorkspaceContext();
   const router = session.router;
@@ -64,10 +63,10 @@
   });
 </script>
 
-<div class="editor-shell flex flex-col h-full w-full overflow-hidden">
+<div class="workspace-layout flex flex-col h-full w-full overflow-hidden">
   <div class="flex flex-1 min-h-0">
     <WorkspaceBody
-      {active}
+      active
       enableProjectPanel
       {onAttachFile}
       {onScreenshot}
@@ -75,7 +74,7 @@
     >
       {#snippet inputRow()}
         <EditorInputCard
-          {active}
+          active
           class="mx-auto max-w-(--solus-reading-max)"
           onAttachFile={() => onAttachFile()}
           onScreenshot={onScreenshot ? () => onScreenshot() : null}
@@ -87,7 +86,7 @@
 </div>
 
 <style>
-  .editor-shell {
+  .workspace-layout {
     position: relative;
     background: var(--solus-container-bg);
   }

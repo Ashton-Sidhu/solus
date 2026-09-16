@@ -96,7 +96,7 @@
 
   function closeModal() {
     // When a pane hosts this shell it owns the close policy (including the
-    // preview cases); pill mode has no pane, so resolve the dismissal here.
+    // preview cases); an inline mobile view has no pane, so resolve dismissal here.
     if (onClose) onClose();
     else if (isPreview) session.closePlanPreview();
     else session.closePlanModal();

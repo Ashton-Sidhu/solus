@@ -182,11 +182,12 @@ test('revealing a conversation clears unread across its tabs without selecting i
     import { flushSync } from 'svelte';
     const visibleRef = pane => pane.overlay ?? pane.base;
     class Workspace {
-      shell = $state({ visible: false, conversationVisible: true, hasCompanionPanes: false });
+      shell = $state({ visible: false, hasCompanionPanes: false });
       tabs = $state({ first: { sessionId: 'one', hasUnread: true }, duplicate: { sessionId: 'one', hasUnread: true }, second: { sessionId: 'two', hasUnread: true } });
       tabOrder = $state(['first', 'duplicate', 'second']);
       activeTabId = $state('first');
       router = $state({ leadingPane: { base: { name: 'chat' }, overlay: null }, asidePanes: [], chatSessionIn(id) { return id; } });
+      publishSessionViewed() {}
       ${methods.map(node => node.getText(ast)).join('\n')}
     }
     const workspace = new Workspace();
@@ -201,11 +202,6 @@ test('revealing a conversation clears unread across its tabs without selecting i
     workspace.tabs.first.hasUnread = true; flushSync();
     assert.equal(workspace.tabs.first.hasUnread, true);
     workspace.router.leadingPane.overlay = null; flushSync();
-    assert.equal(workspace.tabs.first.hasUnread, false);
-    workspace.shell.conversationVisible = false;
-    workspace.tabs.first.hasUnread = true; flushSync();
-    assert.equal(workspace.tabs.first.hasUnread, true);
-    workspace.shell.conversationVisible = true; flushSync();
     assert.equal(workspace.tabs.first.hasUnread, false);
     workspace.router.asidePanes.push({ id: 'two' }); flushSync();
     assert.equal(workspace.tabs.second.hasUnread, true);

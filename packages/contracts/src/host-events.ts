@@ -25,6 +25,8 @@ import type { GitActionProgressEvent } from './git-types'
 import type { BrowserPage, BrowserProfileSet } from './browser-types'
 import type { CodeIntelStatus } from './code-intel'
 import type { HostUpdateStatus } from './host-update-types'
+import type { ShareChangedEvent } from './sharing'
+import type { SeatChangedEvent } from './seats'
 import { z } from 'zod'
 
 /**
@@ -89,6 +91,12 @@ export interface HostEventMap {
   /** This host's Solus or provider update check changed. The whole status: it
    *  is a handful of fields, and a diff would be more code than the payload. */
   'host.updateStatusChanged': HostUpdateStatus
+  /** A session's or work's owner or share list changed. Sent to everyone who could
+   *  see it before or after; the list itself is re-read with `shareGet`. */
+  'share.changed': ShareChangedEvent
+  /** One member's seat for one provider changed state. Delivered to that member's
+   *  clients only; the list is re-read with `seatList`. */
+  'host.seatChanged': SeatChangedEvent
 }
 
 export type HostEventName = keyof HostEventMap
@@ -142,6 +150,8 @@ export const HOST_EVENT_DEFINITIONS = {
   'config.changed': { owner: 'config', category: 'snapshot', recovery: 'reload', description: 'This host config changed; every mounted client adopts the snapshot.' },
   'codeIntel.statusChanged': { owner: 'code-intel', category: 'snapshot', recovery: 'reload', description: 'A project code-intelligence index started, finished, failed, or went stale.' },
   'host.updateStatusChanged': { owner: 'updates', category: 'snapshot', recovery: 'reload', description: 'The host Solus release check or a provider release check changed state.' },
+  'share.changed': { owner: 'sharing', category: 'delta', recovery: 'reload', description: "A session's or work's owner or share list changed." },
+  'host.seatChanged': { owner: 'seats', category: 'delta', recovery: 'reload', description: "A member's provider seat on this host changed state." },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 const hostEventEnvelopeSchema = z.object({

@@ -32,7 +32,7 @@ export interface TaskPrRow {
 
 /** The PR reference has its own column, so discard only an identical leading
  * prefix that a link source included in its title. */
-function titleWithoutPrRef(title: string, ref: string): string {
+export function titleWithoutPrRef(title: string, ref: string): string {
   if (!title.startsWith(ref)) return title
   const remainder = title.slice(ref.length)
   if (!remainder || /^[-\s:–—]/.test(remainder)) {

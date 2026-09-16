@@ -1,34 +1,19 @@
 import type { AgentId, Message, ContextUsage, GitCheckout, ModelConfig, SessionHandoffLineage, SessionSpec, SessionStatus, StartInfo } from '@solus/contracts/types'
-import { localApi } from '@solus/client-core/local-api'
 import { z } from 'zod'
 
 // Tab state is client-scoped (dispatch-client step 5): the workspace is one
-// tab set spanning hosts, and each persisted tab names its own host — so the
-// namespace is keyed only by Electron window mode.
+// tab set spanning hosts, and each persisted tab names its own host.
 const TABS_KEY = 'solus-open-tabs'
 const DRAFTS_KEY = 'solus-tab-drafts'
 const DISMISSED_SIDEBAR_TASKS_KEY = 'solus-dismissed-sidebar-tasks'
 const OPEN_SIDEBAR_TASKS_KEY = 'solus-open-sidebar-tasks'
 const SIDEBAR_ROW_SNOOZES_KEY = 'solus-sidebar-row-snoozes'
-// Last successful start() payload, scoped to the server installation (+ window
-// mode) exactly like the tab snapshot so a different server never reads a stale
+// Last successful start() payload, scoped to the server installation exactly
+// like the tab snapshot so a different server never reads a stale
 // environment. Applied optimistically on boot, then reconciled with fresh data.
 const START_CACHE_KEY = 'solus-start-cache'
 /** Prompts written but not yet sent, with the target they would run against. */
 const SESSION_DRAFTS_KEY = 'solus-session-drafts'
-
-function modeSuffix(): string {
-  try {
-    if (localApi.getPlatform() === 'web') return ''
-    return new URLSearchParams(window.location.search).get('mode') === 'editor' ? ':editor' : ':pill'
-  } catch {
-    return ''
-  }
-}
-
-function storageKey(base: string): string {
-  return base + modeSuffix()
-}
 
 export interface PersistedTab {
   tabId: string
@@ -108,7 +93,7 @@ const persistedTabsSchema = z.object({
 
 export function loadPersistedTabs(): PersistedTabs | null {
   try {
-    const raw = localStorage.getItem(storageKey(TABS_KEY))
+    const raw = localStorage.getItem(TABS_KEY)
     if (!raw) return null
     const result = persistedTabsSchema.safeParse(JSON.parse(raw))
     if (!result.success) return null
@@ -121,7 +106,7 @@ export function loadPersistedTabs(): PersistedTabs | null {
 
 export function savePersistedTabs(snapshot: PersistedTabs): void {
   try {
-    localStorage.setItem(storageKey(TABS_KEY), JSON.stringify(snapshot))
+    localStorage.setItem(TABS_KEY, JSON.stringify(snapshot))
   } catch {}
 }
 
@@ -145,7 +130,7 @@ const persistedSessionDraftsSchema = z.object({
 
 export function loadPersistedSessionDrafts(): PersistedSessionDrafts | null {
   try {
-    const raw = localStorage.getItem(storageKey(SESSION_DRAFTS_KEY))
+    const raw = localStorage.getItem(SESSION_DRAFTS_KEY)
     if (!raw) return null
     const parsed = persistedSessionDraftsSchema.safeParse(JSON.parse(raw))
     if (!parsed.success) return null
@@ -165,7 +150,7 @@ let pendingSessionDraftsKey: string | null = null
 
 export function savePersistedSessionDraftsDebounced(snapshot: PersistedSessionDrafts): void {
   pendingSessionDrafts = snapshot
-  pendingSessionDraftsKey = storageKey(SESSION_DRAFTS_KEY)
+  pendingSessionDraftsKey = SESSION_DRAFTS_KEY
   if (draftsTimer) return
   draftsTimer = setTimeout(flushPersistedSessionDrafts, 400)
 }
@@ -190,7 +175,7 @@ export function flushPersistedSessionDrafts(): void {
 
 export function loadCachedStart(): StartInfo | null {
   try {
-    const raw = localStorage.getItem(storageKey(START_CACHE_KEY))
+    const raw = localStorage.getItem(START_CACHE_KEY)
     if (!raw) return null
     const parsed = z.object({ version: z.string(), agents: z.array(z.object({}).passthrough()) }).passthrough().safeParse(JSON.parse(raw))
     if (!parsed.success) return null
@@ -203,7 +188,7 @@ export function loadCachedStart(): StartInfo | null {
 
 export function saveCachedStart(info: StartInfo): void {
   try {
-    localStorage.setItem(storageKey(START_CACHE_KEY), JSON.stringify(info))
+    localStorage.setItem(START_CACHE_KEY, JSON.stringify(info))
   } catch {}
 }
 
@@ -217,7 +202,7 @@ let pendingTabsKey: string | null = null
 
 export function savePersistedTabsDebounced(snapshot: PersistedTabs): void {
   pendingTabs = snapshot
-  pendingTabsKey = storageKey(TABS_KEY)
+  pendingTabsKey = TABS_KEY
   if (tabsTimer) return
   tabsTimer = setTimeout(flushPersistedTabs, 400)
 }
@@ -240,7 +225,7 @@ export function flushPersistedTabs(): void {
  *  Closing is destructive UI state: if the renderer refreshes before the
  *  structural persistence effect runs, the tab must not be restored. */
 export function removePersistedTab(tabId: string, activeTabId: string): void {
-  const key = storageKey(TABS_KEY)
+  const key = TABS_KEY
   const remove = (snapshot: PersistedTabs): PersistedTabs => ({
     ...snapshot,
     activeTabId,
@@ -269,7 +254,7 @@ export function removePersistedTab(tabId: string, activeTabId: string): void {
  *  view-state marker or the task and its linked child sessions return on refresh. */
 export function loadDismissedSidebarRowKeys(): string[] {
   try {
-    const raw = localStorage.getItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY))
+    const raw = localStorage.getItem(DISMISSED_SIDEBAR_TASKS_KEY)
     if (!raw) return []
     const parsed = z.array(z.string()).safeParse(JSON.parse(raw))
     return parsed.success ? parsed.data : []
@@ -284,7 +269,7 @@ export function persistDismissedSidebarRow(rowKey: string): void {
   try {
     const rowKeys = new Set(loadDismissedSidebarRowKeys())
     rowKeys.add(rowKey)
-    localStorage.setItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY), JSON.stringify([...rowKeys]))
+    localStorage.setItem(DISMISSED_SIDEBAR_TASKS_KEY, JSON.stringify([...rowKeys]))
   } catch {}
 }
 
@@ -293,13 +278,13 @@ export function removeDismissedSidebarRows(rowKeys: Iterable<string>): void {
   try {
     const dismissed = new Set(loadDismissedSidebarRowKeys())
     for (const rowKey of rowKeys) dismissed.delete(rowKey)
-    localStorage.setItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY), JSON.stringify([...dismissed]))
+    localStorage.setItem(DISMISSED_SIDEBAR_TASKS_KEY, JSON.stringify([...dismissed]))
   } catch {}
 }
 
 export function clearDismissedSidebarRowKeys(): void {
   try {
-    localStorage.removeItem(storageKey(DISMISSED_SIDEBAR_TASKS_KEY))
+    localStorage.removeItem(DISMISSED_SIDEBAR_TASKS_KEY)
   } catch {}
 }
 
@@ -326,7 +311,7 @@ const sidebarRowSnoozesSchema = z.record(
 export function loadSidebarRowSnoozes(now = Date.now()): Map<string, SidebarRowSnooze> {
   const live = new Map<string, SidebarRowSnooze>()
   try {
-    const raw = localStorage.getItem(storageKey(SIDEBAR_ROW_SNOOZES_KEY))
+    const raw = localStorage.getItem(SIDEBAR_ROW_SNOOZES_KEY)
     if (!raw) return live
     const parsed = sidebarRowSnoozesSchema.safeParse(JSON.parse(raw))
     if (!parsed.success) return live
@@ -342,7 +327,7 @@ export function loadSidebarRowSnoozes(now = Date.now()): Map<string, SidebarRowS
 export function persistSidebarRowSnoozes(snoozes: Map<string, SidebarRowSnooze>): void {
   try {
     localStorage.setItem(
-      storageKey(SIDEBAR_ROW_SNOOZES_KEY),
+      SIDEBAR_ROW_SNOOZES_KEY,
       JSON.stringify(Object.fromEntries(snoozes)),
     )
   } catch {}
@@ -353,7 +338,7 @@ export function persistSidebarRowSnoozes(snoozes: Map<string, SidebarRowSnooze>)
  * has not seeded its migration snapshot yet. */
 export function loadOpenSidebarTaskIds(): string[] | null {
   try {
-    const raw = localStorage.getItem(storageKey(OPEN_SIDEBAR_TASKS_KEY))
+    const raw = localStorage.getItem(OPEN_SIDEBAR_TASKS_KEY)
     if (!raw) return null
     const parsed = z.array(z.string()).safeParse(JSON.parse(raw))
     return parsed.success ? parsed.data : null
@@ -364,7 +349,7 @@ export function loadOpenSidebarTaskIds(): string[] | null {
 
 export function persistOpenSidebarTaskIds(taskIds: Iterable<string>): void {
   try {
-    localStorage.setItem(storageKey(OPEN_SIDEBAR_TASKS_KEY), JSON.stringify([...taskIds]))
+    localStorage.setItem(OPEN_SIDEBAR_TASKS_KEY, JSON.stringify([...taskIds]))
   } catch {}
 }
 
@@ -383,7 +368,7 @@ const tabDraftsSchema = z.object({
 
 export function loadDrafts(): TabDrafts | null {
   try {
-    const raw = localStorage.getItem(storageKey(DRAFTS_KEY))
+    const raw = localStorage.getItem(DRAFTS_KEY)
     if (!raw) return null
     const parsed = tabDraftsSchema.safeParse(JSON.parse(raw))
     return parsed.success ? parsed.data : null
@@ -401,7 +386,7 @@ let draftsDirty = false
 let liveDraftsKey: string | null = null
 
 export function initDraftState(initial: TabDrafts | null): void {
-  liveDraftsKey = storageKey(DRAFTS_KEY)
+  liveDraftsKey = DRAFTS_KEY
   liveDraftTabs = new Map(Object.entries(initial?.tabs ?? {}))
   liveActiveInputText = initial?.activeInputText ?? ''
 }
@@ -433,7 +418,7 @@ function scheduleDraftFlush() {
 // Keep the old signature so existing callers compile without change, but
 // prefer patchActiveDraft for per-keystroke updates.
 export function saveDraftsDebounced(drafts: TabDrafts): void {
-  liveDraftsKey = storageKey(DRAFTS_KEY)
+  liveDraftsKey = DRAFTS_KEY
   liveDraftTabs = new Map(Object.entries(drafts.tabs))
   liveActiveInputText = drafts.activeInputText
   draftsDirty = true
@@ -448,7 +433,7 @@ export function flushDrafts(): void {
   }
   if (!draftsDirty) return
   try {
-    localStorage.setItem(liveDraftsKey ?? storageKey(DRAFTS_KEY), JSON.stringify({
+    localStorage.setItem(liveDraftsKey ?? DRAFTS_KEY, JSON.stringify({
       activeInputText: liveActiveInputText,
       tabs: Object.fromEntries(liveDraftTabs),
     }))

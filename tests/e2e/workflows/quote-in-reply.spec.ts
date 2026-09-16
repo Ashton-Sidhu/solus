@@ -6,7 +6,7 @@ import { ConversationPage } from '../helpers/conversation.page'
 // select text from. (Same trigger streaming-text.spec relies on.)
 const ASSISTANT_PROMPT = 'MOCKMARKDOWN'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 const ASSISTANT_MSG = `${ACTIVE_TAB} [data-testid="assistant-message"]`
 const MESSAGE_INPUT = `${ACTIVE_SHELL} [data-testid="message-input"]`

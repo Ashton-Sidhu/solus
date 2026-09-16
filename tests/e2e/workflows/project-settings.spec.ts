@@ -3,16 +3,15 @@ import { AppPage } from '../helpers/app.page'
 
 // The settings page has a permanent "Projects" tab listing projects; selecting one
 // edits its config. The project panel gear deep-links into that tab with the current
-// project preselected. Both view modes keep their settings page mounted (hidden via
-// display:none), so locators are scoped to the visible tablist.
+// project preselected, so locators are scoped to the visible tablist.
 test.describe('Projects settings tab', () => {
   test('gear opens the Projects tab with project config shown', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     // The gear lives in the project panel; open the panel first if collapsed.
-    if (await page.locator('.editor-shell .workspace-body.project-panel-collapsed').count()) {
+    if (await page.locator('.workspace-layout .workspace-body.project-panel-collapsed').count()) {
       await page.keyboard.press('Alt+m')
     }
     const gear = page.locator('button[aria-label="Project settings"]:visible').first()
@@ -28,7 +27,7 @@ test.describe('Projects settings tab', () => {
   test('run commands editor supports multiple rows', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     // Reach the Projects tab via the keyboard path: open settings, click the tab.
     await page.keyboard.press('ControlOrMeta+Comma')
@@ -55,7 +54,7 @@ test.describe('Projects settings tab', () => {
   test('Projects is one tab among the standard settings tabs', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await page.keyboard.press('ControlOrMeta+Comma')
 

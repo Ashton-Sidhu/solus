@@ -94,7 +94,6 @@ export const AGENT_PRESENTATION = {
  */
 export const ONBOARDING_KEYS: Array<{ id: BindingId; label: string; hint: string }> = [
   { id: 'global.command-palette', label: 'Command palette', hint: 'Everything, from anywhere' },
-  { id: 'global.continue-in-mode', label: 'Editor mode', hint: 'Swap the pill for the full workspace' },
   { id: 'global.new-task', label: 'New task', hint: 'Starts in a fresh worktree' },
   { id: 'global.session-picker', label: 'Session picker', hint: 'Jump between sessions' },
   { id: 'global.toggle-diff-panel', label: 'Toggle diff panel', hint: 'The diff for this session' },
@@ -103,9 +102,9 @@ export const ONBOARDING_KEYS: Array<{ id: BindingId; label: string; hint: string
 ]
 
 /**
- * The web shell has no Pill mode or desktop command palette. Teach only actions
- * that its root client registers, and prefer the task/session workflow a user
- * needs before the less important workspace controls.
+ * The web shell has no desktop command palette. Teach only actions that its
+ * root client registers, and prefer the task/session workflow a user needs
+ * before the less important workspace controls.
  */
 export const WEB_ONBOARDING_KEYS: typeof ONBOARDING_KEYS = [
   { id: 'global.new-task', label: 'New task', hint: 'Start work with a clean task' },

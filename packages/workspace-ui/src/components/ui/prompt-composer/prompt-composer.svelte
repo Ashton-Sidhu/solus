@@ -38,7 +38,7 @@
     disabled?: boolean;
     /** Whether autocomplete + picker menus grow upward or downward. */
     menuPlacement?: "up" | "down";
-    /** Offers the collapse toggle that minimises the pill to a caret button. */
+    /** Offers a collapse toggle that minimizes the composer to a caret button. */
     collapsible?: boolean;
     /** Bindable so hosts can drive it from a keybinding and adapt the actions
      *  they put in `trailing` (nothing is unmounted — the editor is hidden, so
@@ -226,7 +226,7 @@
      plan/work refs all survive the round trip.
 
      `@container/composer` because this is the fourth composer card, alongside
-     EditorInputCard, PillLayout and SessionDraftPane. Without the declaration
+     EditorInputCard, action composers, and SessionDraftPane. Without the declaration
      the disclosure rungs the controls already carry — SessionChip's
      `@max-[22rem]/composer:hidden`, for one — query a container nobody declared
      and never fire, so the row overflows in a narrow pane instead of shedding

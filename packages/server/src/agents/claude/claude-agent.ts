@@ -137,6 +137,32 @@ async function resolveClaudeExecutable(): Promise<string> {
 
 export type CanUseTool = (toolName: string, input: any, options?: { toolUseID?: string }) => Promise<any>
 
+/** The Claude login a turn runs on: a config directory and, for a pasted setup-token, the token. */
+export interface ClaudeSeat {
+  home: string
+  /** The host's own login: the CLI stays on its defaults and the host process env passes through. */
+  isHostLogin?: boolean
+  envToken?: string
+}
+
+/**
+ * The child environment. The host login is the host process env as it stands:
+ * the CLI reads its own defaults, and an API key the host runs on still applies.
+ * A member's seat runs on the member's login and on nothing the host process
+ * carries: an API key or token in the server's env would otherwise answer for them.
+ */
+export function claudeEnv(seat?: ClaudeSeat): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' }
+  if (!seat) return env
+  if (!seat.isHostLogin) {
+    delete env.ANTHROPIC_API_KEY
+    delete env.CLAUDE_CODE_OAUTH_TOKEN
+    env.CLAUDE_CONFIG_DIR = seat.home
+  }
+  if (seat.envToken) env.CLAUDE_CODE_OAUTH_TOKEN = seat.envToken
+  return env
+}
+
 export interface ClaudeRunOptions {
   /** A plain string for a one-shot turn (background/utility runs), or a
    *  TurnInputChannel (streaming input mode) for session turns, whose stream is
@@ -167,6 +193,8 @@ export interface ClaudeRunOptions {
   forkSession?: boolean
   /** Assistant message UUID through which the resumed fork includes history. */
   resumeSessionAt?: string
+  /** Run on this member's login instead of the host's. */
+  seat?: ClaudeSeat
 }
 
 export interface ClaudeRunResult {
@@ -220,7 +248,7 @@ export class ClaudeAgent {
       enableFileCheckpointing: opts.enableFileCheckpointing ?? false,
       persistSession: opts.persistSession ?? true,
       extraArgs: { 'replay-user-messages': null },
-      env: {...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
+      env: claudeEnv(opts.seat),
     }
     if (opts.mcpServers) claudeOptions.mcpServers = opts.mcpServers
     if (!opts.disableReasoning) claudeOptions.effort = opts.reasoningEffort ?? 'high'
@@ -392,7 +420,7 @@ export class ClaudeAgent {
         settingSources: ['user', 'project'],
         pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
         plugins: [{type: 'local', path: SOLUS_PLUGINS_DIR}],
-        env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
+        env: claudeEnv(),
       },
     })
     // Drive the subprocess so the init handshake completes; messages are ignored.
@@ -414,24 +442,31 @@ export class ClaudeAgent {
   /**
    * Read the subscription quota windows by running `/usage` headless. The slash
    * command costs $0 and zero turns — it never reaches the model — so this is
-   * cheap enough to poll. Returns null when the report doesn't parse.
+   * cheap enough to poll. Returns null when the report doesn't parse. Under a
+   * pasted setup-token the command degrades to a cost report with no windows
+   * (proof of 2026-09-04), so a token seat is not probed at all.
    */
-  async readUsageReport(): Promise<ClaudeUsageWindows | null> {
+  async readUsageReport(seat?: ClaudeSeat): Promise<ClaudeUsageWindows | null> {
+    if (seat?.envToken) return null
     const usageQuery = query({
       prompt: '/usage',
       options: {
         // Quota is account-wide, so this deliberately runs outside any project:
         // no project settings, no session file, nothing to leak into a transcript.
-        cwd: homedir(),
+        cwd: resolveHomePath(homedir()),
         settingSources: [],
         pathToClaudeCodeExecutable: await resolveClaudeExecutable(),
         extraArgs: { 'no-session-persistence': null },
-        env: { ...process.env, CLAUDE_CODE_ENABLE_TASKS: '0' },
+        env: claudeEnv(seat),
       },
     })
     for await (const message of usageQuery) {
       if (message.type !== 'result') continue
-      if (message.subtype !== 'success') return null
+      if (message.subtype !== 'success') {
+        // Silent before: a meter that stays empty had nothing in the log to explain it.
+        log.warn('usage_report_failed', { subtype: message.subtype, seat: seat?.home ?? null })
+        return null
+      }
       const windows = parseClaudeUsageReport(message.result)
       // A half-read report is the signature of a wording change, and the
       // missing window silently disappears from the panel. Keep the text that

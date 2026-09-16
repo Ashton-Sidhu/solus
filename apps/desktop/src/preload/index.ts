@@ -40,7 +40,7 @@ const subscribeAskSelectionInNewSession
   = channelFanOut<[text: string, sourceTabId: string]>('solus:ask-selection-in-new-session')
 const subscribeOpenRoute = channelFanOut<[route: string]>('solus:open-route')
 const subscribeThemeChange = channelFanOut<[isDark: boolean]>('solus:theme-changed')
-const subscribeWindowShown = channelFanOut<[cursorPos: { x: number; y: number } | null]>('solus:window-shown')
+const subscribeWindowShown = channelFanOut<[]>('solus:window-shown')
 const subscribeWindowHidden = channelFanOut<[]>('solus:window-hidden')
 const subscribeAccountStateChange = channelFanOut<[state: AccountState]>('solus:account-state-changed')
 const subscribeUpdateStatusChange = channelFanOut<[status: DesktopUpdateStatus]>('solus:update-status-changed')
@@ -58,13 +58,11 @@ const nativeApi: NativeSolusAPI = {
     ipcRenderer.invoke('solus:show-notification', request),
   logNotificationSound: (row: NotificationSoundLog) =>
     ipcRenderer.send('solus:log-notification-sound', row),
-  rendererReady: (mode: 'pill' | 'editor') => ipcRenderer.send('solus:renderer-ready', mode),
-  rendererMounted: (mode: 'pill' | 'editor') => ipcRenderer.send('solus:renderer-mounted', mode),
+  rendererReady: () => ipcRenderer.send('solus:renderer-ready'),
+  rendererMounted: () => ipcRenderer.send('solus:renderer-mounted'),
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   readAttachmentBytes: (path: string, mime: string) =>
     ipcRenderer.invoke('solus:read-attachment-bytes', path, mime),
-  setIgnoreMouseEvents: (ignore: boolean, options?: { forward?: boolean; focus?: boolean }) =>
-    ipcRenderer.send('solus:set-ignore-mouse-events', ignore, options || {}),
   setZoomFactor: (factor: number) =>
     ipcRenderer.send('solus:set-zoom-factor', factor),
   setQuoteContext: (tabId: string | null) =>
@@ -86,6 +84,7 @@ const nativeApi: NativeSolusAPI = {
   uplinkListDirectoryHosts: () => ipcRenderer.invoke('solus:uplink-directory'),
   uplinkAcquireHostGrant: (hostId: string) => ipcRenderer.invoke('solus:uplink-grant', hostId),
   uplinkIssueEnrollmentTicket: () => ipcRenderer.invoke('solus:uplink-enrollment-ticket'),
+  uplinkOrganizationDirectory: (organizationId: string) => ipcRenderer.invoke('solus:uplink-organization-directory', organizationId),
   updateStatus: () => ipcRenderer.invoke('solus:update-status'),
   checkForUpdate: () => ipcRenderer.invoke('solus:update-check'),
   downloadUpdate: () => ipcRenderer.invoke('solus:update-download'),

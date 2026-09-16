@@ -48,7 +48,6 @@ export const RPC_INVOKE_METHODS = [
   // Lifecycle / window
   'start',
   'isVisible',
-  'switchMode',
   'getAppGlobalShortcuts',
   'setAppGlobalShortcuts',
   'restartApp',
@@ -211,6 +210,19 @@ export const RPC_INVOKE_METHODS = [
   'uplinkLink',
   'uplinkUnlink',
   'uplinkStatus',
+  // Sharing: who may open one session or work on this host
+  'shareGet',
+  'shareSet',
+  'shareSetLink',
+  'shareTransfer',
+  // Provider seats: a member's own Claude or Codex login on this host
+  'seatList',
+  'seatConnectStart',
+  'seatConnectSubmitCode',
+  'seatConnectCancel',
+  'seatConnectToken',
+  'seatDisconnect',
+  'seatRemove',
   'setAnalyticsConsent',
 
   // Host config — the tier that follows a user between clients
@@ -224,9 +236,6 @@ export const RPC_INVOKE_METHODS = [
   'setProjectsBaseDirectory',
   'setupInstallAgentCli',
   'setupCheckAgentAuth',
-  'setupAgentSignIn',
-  'setupSubmitAgentSignInCode',
-  'setupCancelAgentSignIn',
   'setupListGithubRepos',
   'setupPrepareProject',
   'setupCloneProject',

@@ -33,11 +33,11 @@
 <div>
   <ProviderChoiceCard {rows} label="Coding providers" />
   {#each SETUP_PROVIDERS as { id: provider, label } (provider)}
-    {@const verification = setup.verifications[provider]}
+    {@const verification = setup.verificationFor(provider)}
     {#if verification}
       <DevicePrompt
-        url={verification.url}
-        code={verification.code}
+        url={verification.verificationUrl}
+        code={verification.userCode}
         {label}
         requiresCodeInput={verification.requiresCodeInput}
         why={why(label, verification.requiresCodeInput)}

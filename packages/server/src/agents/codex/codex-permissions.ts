@@ -87,11 +87,13 @@ function parsedString<Value>(value: Value): string | undefined {
 }
 
 export class CodexPermissionResponder implements PermissionResponder {
-  private client: CodexAppServerClient
   private pending = new Map<string, CodexPendingServerRequest>()
 
-  constructor(client: CodexAppServerClient) {
-    this.client = client
+  /** A request is answered on the app-server that asked: with seats there is one per member. */
+  constructor(private readonly clientFor: (sessionId: string | null) => CodexAppServerClient) {}
+
+  private client(req: CodexPendingServerRequest): CodexAppServerClient {
+    return this.clientFor(req.sessionId)
   }
 
   add(questionId: string, req: CodexPendingServerRequest): void {
@@ -127,7 +129,7 @@ export class CodexPermissionResponder implements PermissionResponder {
 
     if (req.method === 'item/permissions/requestApproval') {
       const normalized = normalizeDecision(decision)
-      this.client.respond(req.id, {
+      this.client(req).respond(req.id, {
         permissions: isAllowDecision(normalized) ? grantedRequestedPermissions(req.params?.permissions) : {},
         scope: normalized === 'acceptForSession' ? 'session' : 'turn',
       })
@@ -135,7 +137,7 @@ export class CodexPermissionResponder implements PermissionResponder {
     }
 
     const normalized = normalizeDecision(decision)
-    this.client.respond(req.id, commandOrFileApprovalResponse(normalized, req.params))
+    this.client(req).respond(req.id, commandOrFileApprovalResponse(normalized, req.params))
     return true
   }
 
@@ -144,14 +146,14 @@ export class CodexPermissionResponder implements PermissionResponder {
     if (!req) return false
     this.pending.delete(questionId)
     if (req.method === 'mcpServer/elicitation/request') {
-      this.client.respond(req.id, mcpElicitationResponse(req.params, answers))
+      this.client(req).respond(req.id, mcpElicitationResponse(req.params, answers))
       return true
     }
     const mapped: Record<string, { answers: string[] }> = {}
     for (const [key, value] of Object.entries(answers)) {
       mapped[key] = { answers: [value] }
     }
-    this.client.respond(req.id, { answers: mapped })
+    this.client(req).respond(req.id, { answers: mapped })
     return true
   }
 
@@ -160,7 +162,7 @@ export class CodexPermissionResponder implements PermissionResponder {
       if (req.sessionId === sessionId) {
         this.pending.delete(questionId)
         if (req.execute) { void req.execute(false); continue }
-        this.client.respond(req.id, cancellationResponse(req.method))
+        this.client(req).respond(req.id, cancellationResponse(req.method))
       }
     }
   }

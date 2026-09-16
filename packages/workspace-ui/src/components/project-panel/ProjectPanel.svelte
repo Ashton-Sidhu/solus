@@ -71,7 +71,7 @@
     workspaceWidth: number;
     /** Temporarily minimize without changing the role's persisted preference. */
     minimized?: boolean;
-    /** False while the owning Editor/web surface is mounted but hidden. */
+    /** False while the owning workspace surface is mounted but hidden. */
     active?: boolean;
     /** Collapse the rail through its owning conversation so transient and
      *  persisted open state stay in sync. */

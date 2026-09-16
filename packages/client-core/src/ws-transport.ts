@@ -6,6 +6,7 @@ import { uuid } from '@solus/contracts/uuid'
 import type { Attachment, IpcContext } from '@solus/contracts/types'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import { HostEventSubscriber } from './host-event-subscriber'
+import { HostRpcError } from './rpc-error'
 import { BrowserFrameSubscriber } from './browser-frame-subscriber'
 import { isHostEvent, type HostEvent } from '@solus/contracts/host-events'
 import {
@@ -41,6 +42,9 @@ export interface WsTransportOptions {
    *  spot, so it is never kept. Null means no grant could be had right now
    *  (signed out, or the website did not answer). */
   acquireGrant?: () => Promise<string | null>
+  /** A guest's link secret, presented with every grant: the host admits the pair
+   *  to one resource (docs/plans/multiplayer-sharing.md §3.4). */
+  shareSecret?: string
   onStatusChange?: (status: ConnectionStatus, attempt: number) => void
   /** Called after /auth/refresh returns a fresh token. */
   onSessionTokenRefreshed?: (sessionToken: string) => void
@@ -71,15 +75,19 @@ interface RequestEntry {
 
 interface RpcResponse {
   result?: RpcInvocationResult
-  error?: { message: string }
+  error?: { message: string; code?: string }
 }
 
 // The ack envelope is wire input: parse it before touching `error`/`result`.
 // Tolerant on purpose — an unreadable error message degrades to the generic
-// one, and only a non-object ack fails the parse outright.
+// one, and only a non-object ack fails the parse outright. The code is kept:
+// a refusal a surface has to act on (`SEAT_REQUIRED`) is named by it.
 const rpcResponseEnvelopeSchema = z.object({
   result: z.unknown().optional(),
-  error: z.object({ message: z.string().optional().catch(undefined) }).optional().catch(undefined),
+  error: z.object({
+    message: z.string().optional().catch(undefined),
+    code: z.string().optional().catch(undefined),
+  }).optional().catch(undefined),
 })
 
 type RpcInvocationResult = Awaited<ReturnType<SolusAPI[RpcInvokeMethod]>>
@@ -278,7 +286,10 @@ export class WsTransport {
     try {
       const response = await fetch(`${this.opts.serverUrl}/auth/ws-ticket`, {
         method: 'POST',
-        headers: { authorization: `Bearer ${credential}` },
+        headers: this.opts.shareSecret
+          ? { authorization: `Bearer ${credential}`, 'content-type': 'application/json' }
+          : { authorization: `Bearer ${credential}` },
+        body: this.opts.shareSecret ? JSON.stringify({ shareSecret: this.opts.shareSecret }) : undefined,
         signal: AbortSignal.timeout(3_000),
       })
       if (!response.ok) {
@@ -513,7 +524,7 @@ export class WsTransport {
         return
       }
       if (envelope.data.error) {
-        current.reject?.(new Error(envelope.data.error.message ?? 'rpc error'))
+        current.reject?.(new HostRpcError(envelope.data.error.message ?? 'rpc error', envelope.data.error.code))
       } else {
         // SAFETY: The result carries the invoked method's return type, which
         // the wire cannot prove and callers' TS types already assumed pre-parse.

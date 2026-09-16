@@ -27,7 +27,7 @@ Key facts (frequently gotten wrong elsewhere):
 - Design mode: screenshot any window, annotate it with rectangles, arrows, numbered pins, and text, and send the composited image to the agent.
 - Rate-limit queueing: hit a provider limit mid-task and Solus queues the message and re-sends when the window resets — per tab or globally.
 - Hosts & dispatch: add other machines (or a headless server) as hosts and choose, per session, which machine actually runs the agent. Push notifications reach paired phones and browsers.
-- Keyboard-first: two layouts — a compact summonable pill and a full editor workspace — toggled system-wide with Option+Space; roughly 150 rebindable shortcuts, a command palette, and an in-app cheat sheet that rebinds shortcuts in place.
+- Keyboard-first: a full workspace shown or hidden system-wide with Option+Space; roughly 150 rebindable shortcuts, a command palette, and an in-app cheat sheet that rebinds shortcuts in place.
 - Also: inline HTML artifact rendering, a skills marketplace, saved prompts, per-project instructions, settings that sync across every connected device, live context/usage meters, and native + web push notifications.
 
 ## Links

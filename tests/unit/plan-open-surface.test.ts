@@ -21,7 +21,6 @@ function openContext(diskContent: string | null) {
     activeSession: { run: { workingDirectory: '/repo', provider: 'claude-code' } },
     globalDefaults: { workingDirectory: '/repo' },
     ctx: undefined,
-    isExpanded: false,
     planStore: {
       plans,
       cachedDescriptors: [],

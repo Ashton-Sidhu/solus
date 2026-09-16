@@ -8,8 +8,7 @@
       Resolve the persisted theme before any module loads so the boot shell (and
       the app that replaces it) paints in the right mode with no light/dark flash.
       Mirrors settings.context's resolution: themeMode 'system' (default) | 'light' |
-      'dark'. Only toggles the class — never sets an opaque html/body background,
-      which would break the transparent pill window.
+      'dark'. It only toggles the class so theme colors stay owned by the app.
     -->
     <script>
       (function () {
@@ -44,8 +43,8 @@
         JS bundle evaluates and mounts the app — matching the "instant" feel of a
         pre-rendered splash. main.ts leaves it in place for the local path and
         removes it on mount (root.innerHTML = ''); remote/error states replace it
-        with the connecting card. Background lives on the shell (not html/body) so
-        the transparent pill window keeps its transparency.
+        with the connecting card. The background lives on the shell so the app
+        owns the complete first paint.
       */
       /*
         Background and mark geometry are the handoff contract with boot-scene.ts:

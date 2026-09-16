@@ -46,10 +46,10 @@ export interface AppCore {
  * Constructs every shared context/store, registers them on the Svelte context,
  * and wires the cross-store bindings. The single source of truth shared by the
  * Electron renderer (`src/renderer/App.svelte`) and the web client
- * (`client/src/App.svelte`) so a new store added here lands in both shells.
+ * (`client/src/App.svelte`) so a new store added here lands in both clients.
  *
- * Platform-specific setup (analytics, root scaling, design mode, click-through,
- * view modes) stays in each App.svelte — only what's identical lives here.
+ * Platform-specific setup (analytics, root scaling, and design mode) stays in
+ * each App.svelte — only what is identical lives here.
  */
 export function createAppCore(shell: ClientShellContext): AppCore {
   const settings = new SettingsContext()
@@ -105,7 +105,6 @@ export function createAppCore(shell: ClientShellContext): AppCore {
         onAction: () => {
           if (!session.tabs[tabId]) return
           if (session.activeTabId !== tabId) session.selectTab(tabId)
-          session.isExpanded = true
           session.enterReview('session', tabId)
         },
       },

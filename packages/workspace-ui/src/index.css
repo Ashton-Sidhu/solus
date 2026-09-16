@@ -152,7 +152,7 @@
   --solus-font-weight-secondary: 400;
   --solus-font-weight-user-content: 400;
   /* macOS traffic-light safe area. These values stay at zero on web, Windows,
-     Linux, and the frameless Pill window. */
+     and Linux. */
   --solus-titlebar-height: 0px;
   --solus-traffic-light-inset: 0px;
   --solus-chrome-row-h: 2.5rem;
@@ -203,7 +203,6 @@
   --solus-input-focus-border: rgba(217, 119, 87, 0.45);
   --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
   --solus-input-pill-bg: rgba(255, 255, 255, 0.99);
-  --solus-pill-opaque-bg: #ffffff;
   /* Text — darker than original for better contrast */
   --solus-text-primary: #2a2618;
   --solus-text-secondary: #484538;
@@ -303,10 +302,8 @@
      the branch/project/model pickers). Deliberately separate from the popover
      tokens above: a menu draws its edge as a hairline *inside* the shadow
      stack, where a modal or toast still wants a real border. */
-  /* Fully opaque. A menu floats over whatever the app happens to sit on — in
-     pill mode that's a transparent window, so even a sliver of alpha lets the
-     desktop bleed through and the surface stops reading as a solid object.
-     Derived, not hard-coded, so dark mode needs no second value. */
+  /* Fully opaque so a menu stays readable over any app surface. Derived, not
+     hard-coded, so dark mode needs no second value. */
   --solus-menu-bg: var(--solus-popover-bg);
   /* Four layers, no border. The ring is a spread-only hairline, so it adds
      nothing to the box and doesn't harden the corner radius; being foreground
@@ -515,7 +512,6 @@
   --solus-input-focus-border: rgba(217, 119, 87, 0.45);
   --solus-input-focus-ring: rgba(217, 119, 87, 0.12);
   --solus-input-pill-bg: #222120fa;
-  --solus-pill-opaque-bg: #222120;
   /* Text */
   --solus-text-primary: #f0ede5;
   --solus-text-secondary: #bdbab3;
@@ -2660,13 +2656,13 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 }
 
 /* ─── Mode shell enter animation ─── */
-.mode-shell {
+.workspace-shell {
   transition: opacity 0.15s cubic-bezier(0.16, 1, 0.3, 1);
   opacity: 1;
 }
 
 @starting-style {
-  .mode-shell {
+  .workspace-shell {
     opacity: 0;
   }
 }
@@ -3119,13 +3115,6 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
    the transcript's reading ladder. Inherit the responsive workspace rung so the
    guide steps down with the rest of the review surface on a laptop. */
 .prose-reading.prose-review-guide { font-size: inherit; }
-
-/* Pill mode keeps the same readable body rung as Editor mode. The shell's
-   display zoom already makes this about 14px on a laptop; stepping it down
-   again made the primary conversation text read closer to 12px. */
-.pill-shell .prose-reading {
-  font-size: var(--text-body);
-}
 
 /* ─── Transcript prose (the "Conversation assets" spec, §4 · §5 · §14) ───
    Applied alongside `.prose-cloud .prose-reading` on assistant turns only —
@@ -3868,8 +3857,11 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) em { font-style: italic; color: var(--solus-text-primary); }
 
 /* PR and task inline code uses the assistant message's bordered card shell.
-   File references produced from backticks use the same shell. */
-:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) :is(code, .solus-token) {
+   Restrict the shell to inline children. A fenced block also contains a
+   `<code>` element, and decorating that inline box clones the rounded shell
+   around every visual line. File references produced from backticks use the
+   same shell. */
+:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) :not(pre) > :is(code, .solus-token) {
   padding: 0.15625rem 0.40625rem;
   border: 0.0625rem solid
     color-mix(in oklch, var(--foreground) 11%, transparent);
@@ -3993,9 +3985,24 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote > :first-child { margin-top: 0; }
 :is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) blockquote > :last-child { margin-bottom: 0; }
 
-/* Callouts earn a tinted card instead of a bare left rule — they're for the
-   one caveat that changes what the reviewer should do. */
-:is(.prose-pr, .task-description-prose .solus-doc-editor .ProseMirror) .markdown-alert {
+/* GitHub alerts in PR prose use the same quiet left rule as GitHub and
+   t3code. A review bot can put several paragraphs and details inside an
+   alert, so a second full card around that body makes the whole comment look
+   selected. */
+.prose-pr .markdown-alert {
+  margin: 0.25rem 0;
+  padding: 0 0 0 0.75rem;
+  border: 0;
+  border-left: 0.125rem solid color-mix(in srgb, var(--markdown-alert-color) 70%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--solus-text-secondary);
+  font-size: var(--prose-pr-size);
+  line-height: 1.7;
+}
+
+/* The editable task surface keeps its existing tinted callout treatment. */
+.task-description-prose .solus-doc-editor .ProseMirror .markdown-alert {
   margin: 1rem 0;
   padding: 0.75rem 1rem;
   border: 0.0625rem solid color-mix(in srgb, var(--markdown-alert-color) 28%, transparent);
@@ -4311,19 +4318,19 @@ html.is-laptop-display .doc-shell-root:not(.doc-peek) .doc-shell-column {
   -webkit-app-region: no-drag;
 }
 
-/* The macOS editor keeps edge-to-edge content under native traffic lights. */
-html.is-mac-editor {
+/* The macOS workspace keeps edge-to-edge content under native traffic lights. */
+html.is-mac-workspace {
   --solus-titlebar-height: 3.25rem;
   --solus-traffic-light-inset: 5.625rem;
   --solus-chrome-row-h: var(--solus-titlebar-height);
 }
 
-/* One titlebar contract for every real Editor header: the row owns window
+/* One titlebar contract for every workspace header: the row owns window
    movement and its controls opt out. */
-html.is-mac-editor .workspace-titlebar {
+html.is-mac-workspace .workspace-titlebar {
   -webkit-app-region: drag;
 }
-html.is-mac-editor
+html.is-mac-workspace
   .workspace-titlebar
   :where(button, input, textarea, select, a, [contenteditable="true"]) {
   -webkit-app-region: no-drag;

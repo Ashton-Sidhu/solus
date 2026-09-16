@@ -13,8 +13,10 @@
     hostStatusLabel,
     routeBadges,
     serversStore,
+    sharesStore,
     type ServerItem,
   } from "../../contexts";
+  import { managedHostSubtitle } from "./lib/managed-host";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -34,10 +36,15 @@
     );
   });
 
-  /** The one line under a host name: where it answers, how, and what it can do. */
+  /** The one line under a host name: where it answers, how, what it is, and what it can do. */
   function hostMeta(server: ServerItem): string {
     const status = hostStatusLabel(serversStore.statusFor(server.id));
-    const parts = [server.url || server.routes[0]?.url, status, ...routeBadges(server.routes)];
+    const parts = [
+      server.url || server.routes[0]?.url,
+      status,
+      ...routeBadges(server.routes),
+      managedHostSubtitle(server.uplink, sharesStore.directories.get(server.id)?.name),
+    ];
     if (hostSetupStore.hasProbed(server.id)) {
       const summary = hostReadinessSummary(hostSetupStore.stepsFor(server.id));
       parts.push(summary.ready ? "Ready" : "Needs setup");

@@ -28,7 +28,7 @@
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import { comboHint } from "../../lib/keybindings/manifest";
-  import { getAttentionIcon, hasSessionStarted } from "../../lib/sessionUtils";
+  import { getAttentionIcon, hasSessionStarted, sessionTitle } from "../../lib/sessionUtils";
   import { homeGitDetails } from "../../lib/git-context";
   import { projectDirLabel } from "../../lib/paths";
   import { withCheckout } from "../../contexts/workspace/run-config";
@@ -42,6 +42,7 @@
   import { MenuSearch } from "../ui/menu";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
+  import ShareButton from "../sharing/ShareButton.svelte";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
   import { taskStatusFor, type SidebarTask } from "../session/lib/task-list";
@@ -94,6 +95,8 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  /** The band draws the leaf session; its share badge names it. */
+  const bandSession = $derived(session.sessionFor(tabId));
   const sidebarStore = getSessionSidebarStore();
   let taskQuery = $state("");
 
@@ -182,7 +185,7 @@
   const currentStatusColor = $derived(statusColor(currentStatus));
 
   // Every crumb is a click, not a hover: a menu that opens on the way past
-  // fights the click that would toggle it, and on the mac editor the drag
+  // fights the click that would toggle it, and on the mac workspace the drag
   // region between crumbs swallows the pointer, so hover could not even be
   // trusted to close it. One menu at a time; a click elsewhere or Esc closes it.
   let menu = $state<"project" | "task" | "session" | null>(null);
@@ -439,7 +442,7 @@
 
   <!-- One band across the top of the window: traffic lights and the panel toggle
        on the left (owned by the frame), the crumb continuing across it. On the
-       mac editor its height matches the native titlebar band so both rows share
+       mac workspace its height matches the native titlebar band so both rows share
        a centreline. The crumb has no container of its own — it is plain text on
        the band, and the only affordance is the hover wash under each part. -->
   <div
@@ -452,7 +455,7 @@
       ? "padding-left:max(1.125rem, var(--solus-chrome-lead-inset, 0px))"
       : undefined}
   >
-    <!-- no-drag on the whole crumb, not only its buttons: on the mac editor the
+    <!-- no-drag on the whole crumb, not only its buttons: on the mac workspace the
          band is a window-drag region, and the separators, the gaps, and the
          edges of each item would otherwise belong to the window rather than
          to the pointer — dead spots a click could land on and lose. The empty
@@ -896,13 +899,26 @@
       >
         <ArrowSquareOutIcon size={14} />
       </button>
+    {/if}
 
-      {#if hasTrailingActions}
-        <span
-          class="mx-[0.4375rem] h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)]"
-          aria-hidden="true"
-        ></span>
-      {/if}
+    <!-- Share is one of the glyph actions on this side of the divider, beside
+         the task's own, and the last of them: what the session is, before the
+         verbs that make or arrange things. -->
+    {#if bandSession?.id}
+      <ShareButton
+        serverId={session.serverIdFor(tabId)}
+        resource={{ kind: "session", id: bandSession.id }}
+        title={sessionTitle(bandSession)}
+        appearance="glyph"
+        class="{BAND_ACTION} @max-[36rem]:hidden"
+      />
+    {/if}
+
+    {#if (taskRecord || bandSession?.id) && hasTrailingActions}
+      <span
+        class="mx-[0.4375rem] h-4 w-px shrink-0 bg-[color-mix(in_oklch,var(--foreground)_12%,transparent)] @max-[36rem]:hidden"
+        aria-hidden="true"
+      ></span>
     {/if}
 
     {#if showNewSessionAction}
@@ -1027,7 +1043,7 @@
     animation: crumb-enter 0.18s ease-out;
   }
 
-  :global(html.is-mac-editor) .crumb-band:not(.crumb-band--inline) {
+  :global(html.is-mac-workspace) .crumb-band:not(.crumb-band--inline) {
     top: 0;
     height: var(--solus-titlebar-height);
   }

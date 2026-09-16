@@ -404,23 +404,19 @@
     color: var(--solus-text-secondary);
   }
   :global(.compact) .pt-fill,
-  :global(.pill-mode) .pt-fill,
-  :global(.compact) .pt-text,
-  :global(.pill-mode) .pt-text {
+  :global(.compact) .pt-text {
     display: none;
   }
   /* Circle form: the dial fills the whole button so the ring reads as a border
      hugging the edge, rather than a small disc floating inside. */
-  :global(.compact) .pt-dial,
-  :global(.pill-mode) .pt-dial {
+  :global(.compact) .pt-dial {
     display: block;
     position: absolute;
     inset: 0;
     width: auto;
     height: auto;
   }
-  :global(.compact) .progress-toggle,
-  :global(.pill-mode) .progress-toggle {
+  :global(.compact) .progress-toggle {
     width: var(--orb-btn-min);
     height: var(--orb-btn-min);
     padding: 0;

@@ -751,7 +751,7 @@
 {/snippet}
 
 {#snippet actionButtons()}
-  <!-- The pill-mode bar has no toolbar row to seat it in, so it keeps the saved
+  <!-- The compact bar has no toolbar row to seat it in, so it keeps the saved
        control out here with the mic and send. -->
   {#if !leadingActions}
     {@render savedPromptsControl()}

@@ -561,10 +561,9 @@ export class SettingsContext {
     // pixels, so a later boot would read the widened value and undo the seed.
     if (!hasStoredSettings) this.saveSettings()
 
-    // Zoom applies per-webContents but is one user preference. The pill and
-    // editor windows share this origin's localStorage, so when the other
-    // window changes zoom, re-apply here rather than showing a stale scale
-    // until the next boot.
+    // Zoom applies per-webContents but is one user preference. Renderers share
+    // this origin's localStorage, so re-apply a change here rather than showing
+    // a stale scale until the next boot.
     window.addEventListener('storage', (e) => {
       if (e.key !== SETTINGS_KEY || !e.newValue) return
       try {

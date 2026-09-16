@@ -3,7 +3,7 @@ export const RESPONSE_RECEIPT_MAX_ENTRIES = 100
 export const RESPONSE_RECEIPT_MAX_BYTES = 16 * 1024 * 1024
 export const RESPONSE_RECEIPT_MAX_ENTRY_BYTES = 4 * 1024 * 1024
 export const RESPONSE_RECEIPT_MAX_IN_FLIGHT = 1_024
-// Editor, Pill, web, and mobile clients can issue independent boot reads at the
+// Desktop, web, and mobile clients can issue independent boot reads at the
 // same time. Keep a high last-resort per-client guard without letting one busy
 // client consume the whole host budget.
 export const RESPONSE_RECEIPT_GLOBAL_MAX_IN_FLIGHT = RESPONSE_RECEIPT_MAX_IN_FLIGHT * 4

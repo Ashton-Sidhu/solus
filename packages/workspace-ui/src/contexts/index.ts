@@ -73,6 +73,9 @@ export {
 } from './connections/host-affinity'
 /** Personal Uplink: a host's link to the owner's Solus cloud account, and how hosts are reached. */
 export { uplinkStore } from './connections/uplink.store.svelte'
+export { sharesStore } from './sharing/shares.store.svelte'
+export { activeSessionShareTarget } from './sharing/share-target'
+export type { ShareDialogTarget } from './sharing/shares.store.svelte'
 export { routeBadges, uplinkStatusDescription } from './connections/host-routes'
 
 /** Cloudflare deployment profile: status, connect/disconnect, connect requests. */
@@ -92,6 +95,9 @@ export { updatesStore } from './updates/updates.store.svelte'
 export { atlassianStore, ATLASSIAN_SIGNUP_URL } from './atlassian/atlassian.store.svelte'
 export { connectRequestStore } from './connections/connect-request.store.svelte'
 export type { ConnectRequest } from './connections/connect-request.store.svelte'
+/** Provider seats: a member's own Claude and Codex logins on a shared host. */
+export { seatsStore, seatProviderOf, SeatConnectCancelled } from './seats/seats.store.svelte'
+export type { SeatRequest } from './seats/seats.store.svelte'
 
 /** Session sidebar navigation and historical-session loading. */
 export { getSessionSidebarStore } from './workspace/session-sidebar.store.svelte'

@@ -14,7 +14,7 @@
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import CommentLayer from "../comments/CommentLayer.svelte";
   import { CommentMark } from "../editor/commentMark";
-  import { getClientShellContext, getWorkspaceContext } from "../../contexts";
+  import { getClientShellContext, getWorkspaceContext, sharesStore } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -97,7 +97,20 @@
   // The threads' own visibility. Its toggle lives in the header, because the
   // count is one of the few things the design keeps on screen at every width.
   let railOpen = $state(true);
-  const readOnly = $derived(workId ? session.worksStore.get(workId)?.mirroredDoc?.provider === "gdrive" : false);
+  const mirroredReadOnly = $derived(workId ? session.worksStore.get(workId)?.mirroredDoc?.provider === "gdrive" : false);
+  // A viewer on the share list (docs/plans/multiplayer-sharing.md §3.4) reads; the
+  // host would refuse the save anyway, so the editor says so before a keystroke.
+  const viewerReadOnly = $derived.by(() => {
+    if (!workId) return false;
+    const serverId = session.worksStore.hostFor(workId);
+    return !!serverId && sharesStore.listFor(serverId, { kind: "work", id: workId })?.callerRole === "viewer";
+  });
+  const readOnly = $derived(mirroredReadOnly || viewerReadOnly);
+  const readOnlyReason = $derived(
+    mirroredReadOnly
+      ? "Edit in Google Docs, then Pull latest. Comments remain available."
+      : "Shared with you to view.",
+  );
   const hasExternalDoc = $derived(workId ? !!session.worksStore.get(workId)?.mirroredDoc : false);
   const externalSnapshot = $derived(workId && hasExternalDoc ? session.worksStore.externalComments.stateFor(workId) : undefined);
   // Deleted threads are the provider's own tombstones; nothing reads them here.
@@ -295,7 +308,7 @@
          shell and cannot reach markup passed in from here. Mobile puts the same
          snippet in the compact toolbar row, whose buttons are 40px, and those
          are keyed to the shell's own 767px query, so this matches it. -->
-    {#if readOnly}<span class="text-[length:var(--text-chrome-dense)] text-(--solus-text-tertiary)" title="Edit in Google Docs, then Pull latest. Comments remain available.">Read-only</span>{/if}
+    {#if readOnly}<span class="whitespace-nowrap text-[length:var(--text-chrome-dense)] text-(--solus-text-tertiary)" title={readOnlyReason}>Read-only</span>{/if}
     <!-- One of the meta line's own words, not a chip on top of it: the glyph
          says what the number counts, so the count needs no unit spelled out and
          no surface of its own. The rail appearing beside the page is the state;

@@ -1,0 +1,16 @@
+# Build context for packaging/managed-host/Dockerfile (BuildKit reads this file
+# because it sits beside the Dockerfile). Only sources reach the builder.
+.git
+**/node_modules
+dist
+out
+build
+release
+.solus-local
+dev.log
+dev-console.log
+*.log
+.env
+.env.*
+!.env.example
+.DS_Store

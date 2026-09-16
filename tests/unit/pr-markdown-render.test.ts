@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test'
+import { readFileSync } from 'node:fs'
 import { svelte } from '@sveltejs/vite-plugin-svelte'
 import { createServer, type Plugin, type ViteDevServer } from 'vite'
 
@@ -178,5 +179,42 @@ describe('PR markdown rendering', () => {
     expect(imageCard).not.toContain('real t3 code compaction e2e')
     expect(inline).not.toContain('Watch on GitHub')
     expect(inline).toContain(url)
+  })
+
+  it('keeps fenced code as one block instead of inline-code lines', async () => {
+    // WHY: the inline code shell uses box-decoration-break. If its selector
+    // also reaches the code element inside a pre, the browser clones a rounded
+    // backtick-style box around every rendered line of the fenced block.
+    const [{ default: SvelteMarkdown }, { render }] = await Promise.all([
+      server.ssrLoadModule('@humanspeak/svelte-markdown'),
+      server.ssrLoadModule('svelte/server'),
+    ])
+    const source = ['```go', 'type DownloadRepository interface {', '  Find()', '}', '```'].join('\n')
+    const { body } = render(SvelteMarkdown, { props: { source } })
+    const css = readFileSync(
+      new URL('../../packages/workspace-ui/src/index.css', import.meta.url),
+      'utf8',
+    )
+
+    expect(body.match(/<pre/g)).toHaveLength(1)
+    expect(body.match(/<code/g)).toHaveLength(1)
+    expect(css).toContain(':not(pre) > :is(code, .solus-token)')
+  })
+
+  it('presents GitHub alerts as a left-rule callout', () => {
+    // WHY: bot alerts often contain details and several paragraphs. A full
+    // border and tint wraps that whole comment in a second card, unlike the
+    // compact GitHub/t3code callout that the marker requests.
+    const css = readFileSync(
+      new URL('../../packages/workspace-ui/src/index.css', import.meta.url),
+      'utf8',
+    )
+    const alertRule = css.match(
+      /\.prose-pr \.markdown-alert \{(?<body>[^}]+)\}/s,
+    )?.groups?.body
+
+    expect(alertRule).toContain('border-left: 0.125rem solid')
+    expect(alertRule).toContain('background: transparent')
+    expect(alertRule).not.toContain('border-radius: 0.5rem')
   })
 })

@@ -85,7 +85,7 @@
   const hint = $derived(submitOn === "enter" ? "↵ to save" : "⌘↵ to save");
   const resolvedSurface = $derived(surface ?? (framed === false ? "embedded" : "floating"));
   // The recorder belongs on the same line as Cancel and the submit button, where
-  // it stays level with them however tall the field grows. A compact composer
+  // it stays level with them however tall the field grows. A narrow composer
   // hides that line until there is content, so its mic stays in the field —
   // otherwise there is no way to dictate the first word.
   const micInField = $derived(resolvedSurface === "compact");

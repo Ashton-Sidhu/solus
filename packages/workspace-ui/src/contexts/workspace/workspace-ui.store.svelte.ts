@@ -6,20 +6,18 @@ import type { TaskCreationContext } from '../../components/tasks/lib/task-creati
 import type { ProjectPageScope } from '../projects/project-catalog'
 
 /**
- * Shell state that isn't a location: whether the pill is expanded, which
- * transient dialogs are up, and which tabs are mid-setup. Everything that used
+ * Shell state that is not a location: which transient dialogs are open and
+ * which tabs are in setup. Everything that used
  * to live here as a page flag or a focus-id mailbox is a route now — see
  * `routing/route-registry.ts`.
  */
 export class WorkspaceUiStore {
-  isExpanded = $state(false)
   /** The one picker over tasks and their sessions. Tasks and sessions were two
    *  overlays with two flags until they became one list; a caller that used to
    *  want "the session picker" or "the task picker" wants this. */
   unifiedPickerOpen = $state(false)
   /** What project that picker is scoped to. Lives here, not in the component,
-   *  because the picker is mounted separately per layout and per surface — a
-   *  scope the editor changed must not read differently in the pill. */
+   *  because the picker is mounted separately per layout and per surface. */
   pickerScope = $state<PickerScope>({ kind: 'current' })
   /** How that picker orders a query's hits, and what it matches them against.
    *  Held with the scope for the same reason: one picker, many mounts. */

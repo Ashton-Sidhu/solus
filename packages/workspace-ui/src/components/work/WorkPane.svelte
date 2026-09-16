@@ -244,8 +244,8 @@
                 shellDirty = d;
               }}
               onClose={handleClose}
-              onOpenWorkspace={openWorkspacePage}
-              onOpenChat={handleOpenChat}
+              onOpenWorkspace={shell.hasWorkspace ? openWorkspacePage : undefined}
+              onOpenChat={shell.hasWorkspace ? handleOpenChat : undefined}
               {originalSessionMeta}
               onRename={handleRename}
               onRevert={handleRevert}
@@ -268,8 +268,8 @@
             title={work.title}
             workId={work.id}
             onClose={handleClose}
-            onOpenWorkspace={openWorkspacePage}
-            onOpenChat={handleOpenChat}
+            onOpenWorkspace={shell.hasWorkspace ? openWorkspacePage : undefined}
+            onOpenChat={shell.hasWorkspace ? handleOpenChat : undefined}
             {originalSessionMeta}
             onRename={handleRename}
             onRevert={handleRevert}
@@ -300,10 +300,10 @@
                 shellDirty = d;
               }}
               onClose={handleClose}
-              onOpenWorkspace={openWorkspacePage}
+              onOpenWorkspace={shell.hasWorkspace ? openWorkspacePage : undefined}
               inline
               minimizeOutline={!pane.isLeading}
-              onOpenChat={handleOpenChat}
+              onOpenChat={shell.hasWorkspace ? handleOpenChat : undefined}
               {originalSessionMeta}
               onRename={handleRename}
               onRevert={handleRevert}
@@ -325,20 +325,22 @@
     {/key}
     <!-- After the content: the shell toolbars above are window drag regions,
          and a drag rect later in the DOM would re-cover this cluster's no-drag
-         holes. -->
-    <PaneChrome
-      onClose={handleClose}
-      onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
-      onToggleMaximize={shell.hasCompanionPanes ? pane.toggleMaximize : null}
-      maximized={pane.maximized}
-      isLeading={pane.isLeading}
-      closeLabel={work.type === "diagram"
-        ? "Close diagram"
-        : work.type === "artifact"
-          ? "Close artifact"
-          : "Close document"}
-      closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
-    />
+         holes. A guest shell has no pane row to close into, so it gets none. -->
+    {#if shell.hasWorkspace}
+      <PaneChrome
+        onClose={handleClose}
+        onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
+        onToggleMaximize={shell.hasCompanionPanes && workMetadata?.type !== "artifact" ? pane.toggleMaximize : null}
+        maximized={pane.maximized}
+        isLeading={pane.isLeading}
+        closeLabel={work.type === "diagram"
+          ? "Close diagram"
+          : work.type === "artifact"
+            ? "Close artifact"
+            : "Close document"}
+        closeTestId={work.type === "doc" || work.type === "slides" ? "document-modal-close" : undefined}
+      />
+    {/if}
   </div>
 {:else if workLoadError}
   <RouteLoadError
@@ -358,7 +360,7 @@
   <PaneChrome
     onClose={handleClose}
     onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}
-    onToggleMaximize={shell.hasCompanionPanes ? pane.toggleMaximize : null}
+    onToggleMaximize={shell.hasCompanionPanes && workMetadata?.type !== "artifact" ? pane.toggleMaximize : null}
     maximized={pane.maximized}
     isLeading={pane.isLeading}
     closeLabel="Close loading work"

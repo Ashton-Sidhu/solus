@@ -1,5 +1,5 @@
 // Pure helpers for the conversation message navigator (the user-message rail
-// that lives in the editor-mode reading gutter). Kept out of the .svelte file so
+// that lives in the workspace reading gutter). Kept out of the .svelte file so
 // the component holds only markup + thin handlers.
 
 const REM = 16;

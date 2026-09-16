@@ -2,7 +2,9 @@ import {
   directoryResponseSchema,
   enrollmentTicketResponseSchema,
   hostGrantResponseSchema,
+  organizationDirectorySchema,
   type HostGrantResponse,
+  type OrganizationDirectory,
   type UplinkDirectory,
   type UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
@@ -43,6 +45,14 @@ export async function acquireHostGrant(client: CloudRequester, hostId: string): 
   const response = await client.cloudRequest(`/v1/hosts/${encodeURIComponent(hostId)}/grant`, { method: 'POST' })
   if (!response?.ok) return null
   const parsed = hostGrantResponseSchema.safeParse(await response.json().catch(() => null))
+  return parsed.success ? parsed.data : null
+}
+
+/** The share dialog's people and teams; null when signed out, not a member, or the website did not answer. */
+export async function loadOrganizationDirectory(client: CloudRequester, organizationId: string): Promise<OrganizationDirectory | null> {
+  const response = await client.cloudRequest(`/v1/orgs/${encodeURIComponent(organizationId)}/directory`)
+  if (!response?.ok) return null
+  const parsed = organizationDirectorySchema.safeParse(await response.json().catch(() => null))
   return parsed.success ? parsed.data : null
 }
 

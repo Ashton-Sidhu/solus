@@ -10,14 +10,16 @@
     Trash2 as TrashIcon,
     X as XIcon,
     Ellipsis as DotsThreeIcon,
+    Users as UsersIcon,
   } from "@lucide/svelte";
   import WorkChatMenu from "./WorkChatMenu.svelte";
   import WorkPublishMenu from "./WorkPublishMenu.svelte";
+  import ShareButton from "../sharing/ShareButton.svelte";
   import Diff from "../diff/Diff.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getClientShellContext, getWorkspaceContext, sharesStore } from "../../contexts";
   import type { SessionMeta, WorkStorage } from "@solus/contracts/types";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import {
@@ -87,6 +89,7 @@
   }: Props = $props();
 
   const session = getWorkspaceContext();
+  const shell = getClientShellContext();
 
   let chatMenuOpen = $state(false);
   let chatButtonEl: HTMLDivElement | null = $state(null);
@@ -149,6 +152,15 @@
 
   const hasChanges = $derived(!!previous && previous.content !== currentContent);
   const hasOutput = $derived(canSave || canDownload || copyFormats.length > 0);
+
+  // Sharing (docs/plans/multiplayer-sharing.md §4.1): the work's host owns its share
+  // list; the dialog is one per app, opened from here.
+  const shareServerId = $derived(workId ? session.worksStore.hostFor(workId) ?? null : null);
+  const shareResource = $derived(workId ? ({ kind: "work", id: workId } as const) : null);
+  function openShare() {
+    if (!shareServerId || !shareResource) return;
+    sharesStore.open({ serverId: shareServerId, resource: shareResource, title });
+  }
 </script>
 
 <!-- Save and Download offer the same list of formats and differ only in where
@@ -202,8 +214,11 @@
 <!-- The upstream mirror, inline rather than in the overflow: once a document is
      linked, its sync state is something the reader has to be able to see, not
      something to go looking for. Renders only for docs (2a scope). -->
-{#if workId}
+{#if workId && shell.hasWorkspace}
   <WorkPublishMenu {workId} {getCurrentContent} {flushSave} />
+  <!-- A word beside Markdown and Publish. A scoped class would not reach the child,
+       so the verb's geometry is restated as utilities. -->
+  <ShareButton serverId={shareServerId} resource={shareResource} {title} appearance="word" class="inline-flex h-[1.625rem] shrink-0 items-center rounded-md px-[0.4375rem] text-workspace-chrome whitespace-nowrap text-(--solus-text-tertiary) hover:bg-(--solus-surface-hover) hover:text-(--solus-text-primary) pointer-coarse:h-10" />
 {/if}
 
 <!-- Layout, integration & destructive actions collapse into a single overflow menu. -->
@@ -228,6 +243,11 @@
       {#if onDuplicate}
         <DropdownMenu.Item data-testid="duplicate-work" onSelect={() => onDuplicate?.()}>
           <CopyIcon size={14} /><span class="flex-1 text-left">Duplicate</span>
+        </DropdownMenu.Item>
+      {/if}
+      {#if shareServerId && shareResource}
+        <DropdownMenu.Item data-testid="share-work" onSelect={openShare}>
+          <UsersIcon size={14} /><span class="flex-1 text-left">Share…</span>
         </DropdownMenu.Item>
       {/if}
 
@@ -349,19 +369,15 @@
      (Markdown/Editor) buttons, so the whole cluster reads as one row of words
      with a single filled surface at the end of it.
 
-     The dense chrome rung, not the standard one: this is a row of secondary
-     verbs over a reading surface, and at the standard rung's 14px they matched
-     the document's own type and read as loud as the prose they sit above. Dense
-     is 12px wherever the pointer is precise — laptop and desktop alike — and
-     returns to 14px on a touch client, so the row does not need a width query
-     of its own to stay right on a laptop. */
+     Use the shared workspace rung so these actions match the shell title
+     and controls on desktop, laptop, and touch clients. */
   .wha-verb {
     flex-shrink: 0;
     height: 1.625rem;
     padding: 0 0.4375rem;
     border-radius: 0.375rem;
     font-family: inherit;
-    font-size: var(--text-chrome-dense);
+    font-size: var(--text-workspace-chrome);
     font-weight: 400;
     color: var(--solus-text-tertiary);
     background: transparent;
@@ -420,7 +436,7 @@
     gap: 0.3125rem;
     padding: 0 0.4375rem 0 0.5625rem;
     font-family: inherit;
-    font-size: var(--text-chrome-dense);
+    font-size: var(--text-workspace-chrome);
     font-weight: 500;
     background: transparent;
     color: inherit;

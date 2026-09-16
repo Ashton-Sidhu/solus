@@ -430,7 +430,6 @@
     >
       <InputBar
         active={runtime.isMobileViewport}
-        onSent={() => (session.isExpanded = true)}
         sessionId={session.activeSession?.id ?? null}
         tabId={session.activeTabId}
         isPrimary

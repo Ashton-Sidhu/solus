@@ -89,7 +89,7 @@ export function useComposerFocus(options: ComposerFocusOptions) {
   // "Quote in reply": main sends the selected conversation text when the user
   // picks it from the native right-click menu. Prepend it as a markdown
   // blockquote so they can type their message addressing that snippet. Only the
-  // active-mode bar subscribes (both pill+editor instances stay mounted).
+  // visible composer subscribes when several conversation surfaces are mounted.
   function insertQuote(text: string) {
     const quoted = quotedReplyDraft(text);
     if (!quoted) return;

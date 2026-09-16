@@ -270,23 +270,14 @@ async function snapshotTurnQueued(
     return null
   }
 
-  ensureSolusDirs(repoRoot)
-  const tmpIndex = tmpIndexPath(repoRoot)
-  const indexEnv: NodeJS.ProcessEnv = { GIT_INDEX_FILE: tmpIndex }
-  const treeArgs = [`--git-dir=${join(repoRoot, '.git')}`, `--work-tree=${workTree}`]
-
   try {
-    await runAsync('git', [...treeArgs, 'read-tree', prev.tree], repoRoot, { env: indexEnv })
-
-    if (opts.sessionChangedFiles) {
-      await stageLivePaths(treeArgs, opts.sessionChangedFiles, repoRoot, indexEnv)
-    } else {
-      await runAsync('git', [...treeArgs, 'add', '-A'], repoRoot, { env: indexEnv })
-    }
-
-    const treeSha = await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
     const turnFrom = sidecar.pendingTurnTreeSha
     const turnTo = await captureTurnEnd(workTree, repoRoot, turnFrom, opts.sessionChangedFiles)
+    // Reuse the complete turn endpoint in an owned worktree, including changes
+    // the provider did not report. Shared checkouts retain their path filter.
+    const treeSha = ownsWorkTree(workTree, repoRoot)
+      ? turnTo
+      : await writeTreeForPaths(workTree, repoRoot, prev.tree, opts.sessionChangedFiles)
     const turnStats = await diffStats(repoRoot, turnFrom, turnTo)
     await Promise.all([
       runAsync('git', ['update-ref', refForTurnRange(sessionId, turnIndex, 'from'), turnFrom], repoRoot),
@@ -295,21 +286,8 @@ async function snapshotTurnQueued(
     delete sidecar.pendingTurnTreeSha
     if (treeSha === prev.tree) {
       let sessionChangedFiles: string[] | null = sidecar.sessionChangedFiles ?? null
-      if (!sessionChangedFiles && prev.commit === sidecar.baseSha) {
-        sessionChangedFiles = []
-      } else if (!sessionChangedFiles) {
-        try {
-          sessionChangedFiles = parseChangedFileStats(await runAsync('git', [
-            '-c',
-            'core.quotepath=false',
-            'diff',
-            sidecar.baseSha,
-            prev.commit,
-            '--numstat',
-          ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER })).map((file) => file.path)
-        } catch (err) {
-          log.warn('session_path_reconciliation_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
-        }
+      if (!sessionChangedFiles) {
+        sessionChangedFiles = await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, prev.commit)
       }
       const snap: TurnSnapshot = {
         index: turnIndex,
@@ -331,7 +309,6 @@ async function snapshotTurnQueued(
     }
 
     const commitEnv: NodeJS.ProcessEnv = {
-      ...indexEnv,
       GIT_AUTHOR_NAME: SNAPSHOT_AUTHOR_NAME,
       GIT_AUTHOR_EMAIL: SNAPSHOT_AUTHOR_EMAIL,
       GIT_COMMITTER_NAME: SNAPSHOT_AUTHOR_NAME,
@@ -339,7 +316,7 @@ async function snapshotTurnQueued(
     }
     const message = `solus-snapshot sid=${sessionId} turn=${turnIndex}${opts.partial ? ' partial' : ''}`
     const commitSha = await runAsync('git', 
-      [...treeArgs, 'commit-tree', treeSha, '-p', prev.commit, '-m', message],
+      ['commit-tree', treeSha, '-p', prev.commit, '-m', message],
       repoRoot,
       { env: commitEnv },
     )
@@ -358,22 +335,7 @@ async function snapshotTurnQueued(
       deletions: turnStats.deletions,
     }
     sidecar.turns.push(snap)
-    let sessionChangedFiles: string[] | null = null
-    try {
-      const sessionStats = sidecar.baseSha === commitSha
-        ? []
-        : parseChangedFileStats(await runAsync('git', [
-          '-c',
-          'core.quotepath=false',
-          'diff',
-          sidecar.baseSha,
-          commitSha,
-          '--numstat',
-        ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER }))
-      sessionChangedFiles = sessionStats.map((file) => file.path)
-    } catch (err) {
-      log.warn('session_path_reconciliation_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
-    }
+    const sessionChangedFiles = await reconcileSessionPaths(repoRoot, sessionId, turnIndex, sidecar.baseSha, commitSha)
     sidecar.latestTreeSha = treeSha
     if (sessionChangedFiles) sidecar.sessionChangedFiles = sessionChangedFiles
     writeSidecar(repoRoot, sessionId, sidecar)
@@ -381,8 +343,24 @@ async function snapshotTurnQueued(
   } catch (err) {
     log.error('snapshot_turn_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
     return null
-  } finally {
-    try { unlinkSync(tmpIndex) } catch { /* best-effort */ }
+  }
+}
+
+async function reconcileSessionPaths(
+  repoRoot: string,
+  sessionId: string,
+  turnIndex: number,
+  baseSha: string,
+  headSha: string,
+): Promise<string[] | null> {
+  if (baseSha === headSha) return []
+  try {
+    return parseChangedFileStats(await runAsync('git', [
+      '-c', 'core.quotepath=false', 'diff', baseSha, headSha, '--numstat',
+    ], repoRoot, { maxBuffer: COMBINED_DIFF_MAX_BUFFER })).map((file) => file.path)
+  } catch (err) {
+    log.warn('session_path_reconciliation_failed', { sessionId, turnIndex, error: err instanceof Error ? err.message : String(err) })
+    return null
   }
 }
 
@@ -472,7 +450,7 @@ async function writeTreeForPaths(
   workTree: string,
   repoRoot: string,
   baseTreeish: string,
-  paths: string[],
+  paths: string[] | undefined,
 ): Promise<string> {
   ensureSolusDirs(repoRoot)
   const indexPath = tmpIndexPath(repoRoot)
@@ -480,7 +458,11 @@ async function writeTreeForPaths(
   const treeArgs = [`--git-dir=${join(repoRoot, '.git')}`, `--work-tree=${workTree}`]
   try {
     await runAsync('git', [...treeArgs, 'read-tree', baseTreeish], repoRoot, { env: indexEnv })
-    await stageLivePaths(treeArgs, paths, repoRoot, indexEnv)
+    if (paths) {
+      await stageLivePaths(treeArgs, paths, repoRoot, indexEnv)
+    } else {
+      await runAsync('git', [...treeArgs, 'add', '-A'], repoRoot, { env: indexEnv })
+    }
     return await runAsync('git', [...treeArgs, 'write-tree'], repoRoot, { env: indexEnv })
   } finally {
     try { unlinkSync(indexPath) } catch { /* best-effort */ }

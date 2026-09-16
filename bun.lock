@@ -209,6 +209,17 @@
         "typescript": "^5.9.3",
       },
     },
+    "packages/lab": {
+      "name": "@solus/lab",
+      "dependencies": {
+        "@solus/contracts": "workspace:*",
+        "socket.io-client": "^4.8.1",
+        "zod": "^4.5.4",
+      },
+      "devDependencies": {
+        "typescript": "^5.9.3",
+      },
+    },
     "packages/server": {
       "name": "@solus/server",
       "dependencies": {
@@ -880,6 +891,8 @@
     "@solus/contracts": ["@solus/contracts@workspace:packages/contracts"],
 
     "@solus/desktop": ["@solus/desktop@workspace:apps/desktop"],
+
+    "@solus/lab": ["@solus/lab@workspace:packages/lab"],
 
     "@solus/server": ["@solus/server@workspace:packages/server"],
 

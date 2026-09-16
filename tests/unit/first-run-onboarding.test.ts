@@ -77,7 +77,7 @@ describe('the shortcuts stage', () => {
 
   test('web teaches browser-safe task and session actions it implements', () => {
     // WHY: first-run web users need the actual task workflow, not desktop-only
-    // Pill mode or command-palette guidance.
+    // mobile layout or command-palette guidance.
     const keys = onboardingKeysFor(true)
     expect(keys.length).toBeGreaterThan(0)
 

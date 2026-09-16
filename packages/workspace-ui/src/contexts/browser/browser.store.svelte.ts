@@ -74,9 +74,9 @@ export class BrowserStore {
    *  subscription, but keeping this one JPEG lets the next selection paint at
    *  once instead of replacing a useful picture with a loading skeleton. */
   private cachedFrames = new Map<string, CachedBrowserFrame>()
-  /** One host-side watch per page on this client. Editor and Pill can both show
+  /** One host-side watch per page on this client. Multiple mounted views can show
    *  the page, but the binary subscriber already fans one incoming frame out to
-   *  both canvases. Keeping the remote watch singular also lets reconnect reset
+   *  each canvas. Keeping the remote watch singular also lets reconnect reset
    *  it without leaking a second server-side reference. */
   private activeFrameSubscriptions = new Map<string, ActiveFrameSubscription>()
   /**

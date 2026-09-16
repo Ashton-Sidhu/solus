@@ -92,6 +92,9 @@ import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
 import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
+import { SeatRequiredError, type SeatManager, type TurnSeat } from './seats/seat-manager'
+import { type TurnActor, type TurnLedger } from './sessions/turn-ledger'
+import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { SPAN_SERVICES } from './observability/registries'
 
 const CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS = 2 * 60
@@ -233,7 +236,13 @@ export interface SessionRunRequest {
   /** Agent exchanges waiting on this exact run. Routes move with a queued retry
    *  and settle before this request is released. */
   completionRoutes?: AgentCompletionRoute[]
+  /** Who asked and whose provider seat the turn runs on (Step 2 plan §3.3). Unset
+   *  for the host's own work: automations, agent follow-ups, and local prompts. */
+  actor?: TurnActor
 }
+
+/** The host's own work: the owner asked, and the host's login runs it. */
+const HOST_ACTOR: TurnActor = { userId: HOST_OWNER_USER_ID, seatUserId: HOST_OWNER_USER_ID }
 
 interface StartedRun {
   handle: RunHandle
@@ -343,6 +352,9 @@ export class ControlPlane extends EventEmitter {
   private deferredGitWatchCwds = new Set<string>()
   private readonly handoffBuilder: typeof buildHandoff
   private readonly sessionTaskPreparer: typeof prepareSessionTask
+  /** Provider seats and the turn ledger, once the host has opened its database. */
+  private seats: SeatManager | null = null
+  private turnLedger: TurnLedger | null = null
 
   constructor(backends: Map<AgentId, AgentBackend>, opts: ControlPlaneOptions = {}) {
     super()
@@ -356,6 +368,11 @@ export class ControlPlane extends EventEmitter {
     this.gitWatcher = new GitWatcher((repoRoot) => { void this._onGitWatchFire(repoRoot) })
     this.runWatchdogTimer = setInterval(() => this._checkActiveRuns(), RUN_WATCHDOG_INTERVAL_MS)
     this.runWatchdogTimer.unref?.()
+  }
+
+  /** The stable id a share list is keyed on, for a session named by either id space. */
+  canonicalSessionId(id: string): string {
+    return this._sessionIdFor(id) ?? id
   }
 
   /** Solus's id for a session named by either id space. The provider-id arm is
@@ -1596,10 +1613,25 @@ export class ControlPlane extends EventEmitter {
       .map(([agentId]) => agentId)
   }
 
-  /** Null when the provider exposes no quota, or its report didn't parse. */
-  readUsageLimits(agentId: AgentId): Promise<AgentUsageLimits | null> {
+  /** Null when the provider exposes no quota, or its report didn't parse. With a seat, that member's quota. */
+  readUsageLimits(agentId: AgentId, seat?: TurnSeat): Promise<AgentUsageLimits | null> {
     const backend = this._backendFor(agentId)
-    return backend.readUsageLimits?.() ?? Promise.resolve(null)
+    return backend.readUsageLimits?.(seat) ?? Promise.resolve(null)
+  }
+
+  /**
+   * Provider seats (Step 2 plan §3.3). Every turn with an actor resolves its seat
+   * before anything is spawned; the host's own work runs on the host's login.
+   */
+  useSeats(seats: SeatManager, turnLedger: TurnLedger): void {
+    this.seats = seats
+    this.turnLedger = turnLedger
+  }
+
+  /** The seat a turn runs under, or null for the host's login. Throws `SeatRequiredError` when the author has none. */
+  seatForTurn(actor: TurnActor | undefined, provider: AgentId): TurnSeat | null {
+    if (!this.seats || !actor) return null
+    return this.seats.resolveForTurn(actor.seatUserId, provider)
   }
 
   /** Attention entries are keyed by the provider's thread id (seam (b)). */
@@ -1789,13 +1821,17 @@ export class ControlPlane extends EventEmitter {
   async submitPrompt(
     ctx: IpcContext,
     options: PromptOptions,
-    origin?: { clientId?: string; deviceId?: string },
+    origin?: { clientId?: string; deviceId?: string; actor?: TurnActor },
   ): Promise<PromptDispatchResult> {
     this.assertNewWorkAllowed()
     const proposedSessionId = ctx.session.sessionId
     if (!proposedSessionId) {
       throw new Error('No sessionId provided — rejecting to prevent misrouting')
     }
+    // No seat, no turn: refused here, before the prompt is echoed or queued, so the
+    // client can show the connect card instead of a bubble that never answers.
+    const provider = ctx.session.provider ?? resolveSessionLineageById(proposedSessionId)?.active.provider
+    if (provider) this.seatForTurn(origin?.actor, provider)
     if (options.clientPromptId) {
       const dedupeKey = `${proposedSessionId}:${options.clientPromptId}`
       if (this.acceptedClientPromptIds.has(dedupeKey)) {
@@ -1831,6 +1867,7 @@ export class ControlPlane extends EventEmitter {
       target,
       sessionId,
       sourceClientId: origin?.clientId,
+      actor: origin?.actor,
       options: {
         ...options,
         promptSource: ctx.session.origin === 'dispatch' ? 'dispatch' : 'typed',
@@ -1948,9 +1985,11 @@ export class ControlPlane extends EventEmitter {
        *  is makes Claude plan again and makes Codex refuse to touch anything, so
        *  approving a plan by prompt has to take it out of plan mode. */
       permissionMode?: SessionRunInput['permissionMode']
+      /** The person behind an agent-card prompt; an agent's own follow-up has none. */
+      actor?: TurnActor
     },
   ): Promise<{ disposition: SessionRunLifecycle['disposition']; queueId?: string }> {
-    const { permissionMode, ...promptOrigin } = origin ?? {}
+    const { permissionMode, actor, ...promptOrigin } = origin ?? {}
     const requestedMeta = getIndexedSession(agentSessionId)
     const handoff = resolveSessionLineageById(agentSessionId) ?? (requestedMeta
       ? resolveSessionLineage(requestedMeta.provider, agentSessionId)
@@ -1996,11 +2035,13 @@ export class ControlPlane extends EventEmitter {
       }
     }
     if (permissionMode) input.permissionMode = permissionMode
+    this.seatForTurn(actor, input.provider)
 
     const lifecycle = await this.runTurn({
       input,
       target: { kind: 'session', sessionId },
       sessionId,
+      actor,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,
@@ -2077,7 +2118,9 @@ export class ControlPlane extends EventEmitter {
    * session has initialized and returning its id. The caller renders a card,
    * which watches the session when a user opens it.
    */
-  async createSession(req: CreateSessionRequest): Promise<{ agentSessionId: string; taskId?: string }> {
+  async createSession(req: CreateSessionRequest, actor?: TurnActor): Promise<{ agentSessionId: string; taskId?: string }> {
+    // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
+    this.seatForTurn(actor, req.provider)
     const model = req.modelId ?? ''
     const input: SessionRunInput = {
       provider: req.provider,
@@ -2102,6 +2145,7 @@ export class ControlPlane extends EventEmitter {
       input,
       target: { kind: 'new-session' },
       sessionId: crypto.randomUUID(),
+      actor,
       tools: selectAgentTools(
         solusToolbox.works,
         solusToolbox.docs,
@@ -2235,6 +2279,14 @@ export class ControlPlane extends EventEmitter {
       throw error
     }
     const { handle, run } = startedRun
+    this.turnLedger?.start({
+      turnId: turnTraceId,
+      promptId: run.options.clientPromptId ?? request.servedQueueId ?? crypto.randomUUID(),
+      sessionId: request.sessionId,
+      actor: run.actor ?? HOST_ACTOR,
+      provider: run.input.provider,
+      startedAt: runStartedAt,
+    })
     // Its own scope: this runs after `launch_run` resolved, so there is no
     // ambient step left to nest under — but it is still inside the setup
     // window, being awaited before setup is closed below.
@@ -2307,6 +2359,7 @@ export class ControlPlane extends EventEmitter {
       () => {
         const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'completed' as const
         const status = this.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
+        this.turnLedger?.settle(turnTraceId, status, Date.now())
         captureSettledRun(status)
         void this._settleCompletionRoutes(request, status, handle.resultText, {
           durationMs: Date.now() - runStartedAt,
@@ -2317,6 +2370,7 @@ export class ControlPlane extends EventEmitter {
       (error) => {
         const fallback = handle.abortController.signal.aborted ? 'interrupted' as const : 'failed' as const
         const status = this.sessionEmitter.finishTurn(settledSessionId, fallback, Date.now(), turnTraceId)
+        this.turnLedger?.settle(turnTraceId, status, Date.now())
         captureSettledRun(status)
         // A provider limit rejects this attempt, but the prompt is still owned
         // by Solus while it waits for a reset or a user decision. Do not tell a
@@ -2946,6 +3000,9 @@ export class ControlPlane extends EventEmitter {
       // only the refs, so the transcript event and the queue preview never hold
       // base64. Must be awaited before the synchronous launch step below.
       const promptImages = await resolvePromptImages(options)
+      // Resolved again here, not only at submit: a queued prompt drains later, and
+      // the author's seat may have been removed or expired in between.
+      const seat = this.seatForTurn(request.actor, provider)
       // Spawning the provider is where the run input, the tool list, and the
       // transport are assembled — the last thing the turn does before it stops
       // being Solus's time and starts being the agent's. Timed without an
@@ -2989,6 +3046,7 @@ export class ControlPlane extends EventEmitter {
         systemPrompt,
         maxTurns: options.maxTurns,
         maxBudgetUsd: options.maxBudgetUsd,
+        seat: seat ?? undefined,
       }, {
         changedFiles: effectiveInput.sessionChangedFiles,
       }))
@@ -2998,6 +3056,13 @@ export class ControlPlane extends EventEmitter {
       this.activeRunRequests.delete(sessionId)
       this._setStatus(sessionId, 'failed')
       this.activeSessions.delete(sessionId)
+      // A drained queue entry has no RPC caller to reject to: the refusal reaches
+      // the transcript as an error so the connect card can stand in for the turn.
+      if (err instanceof SeatRequiredError && request.servedQueueId) {
+        const enriched = backend.getEnrichedError(dispatchAgentSessionId ?? null, null)
+        enriched.message = err.message
+        this._emitError(sessionId, enriched)
+      }
       throw err
     }
 
@@ -3184,7 +3249,7 @@ export class ControlPlane extends EventEmitter {
 
   /** Re-submit the same prompt. If the session is dead, drop its provider
    *  thread so a fresh one starts. */
-  async retry(ctx: IpcContext, options: PromptOptions, clientId?: string): Promise<void> {
+  async retry(ctx: IpcContext, options: PromptOptions, clientId?: string, actor?: TurnActor): Promise<void> {
     const sessionId = this._sessionIdForCtx(ctx)
     if (!sessionId) throw new Error('No session to retry')
     options = this.failedSetupPrompts.get(sessionId) ?? options
@@ -3219,12 +3284,13 @@ export class ControlPlane extends EventEmitter {
         sourceClientId,
         options,
         tools,
+        actor,
       }
     } else {
       const agentSessionId = session?.agentSessionId ?? ctx.session.agentSessionId
       request = !input.forked && agentSessionId
-        ? { input, target: { kind: 'session', sessionId }, sessionId, sourceClientId, options, tools }
-        : { input, target: { kind: 'new-session' }, sessionId, sourceClientId, options, tools }
+        ? { input, target: { kind: 'session', sessionId }, sessionId, sourceClientId, options, tools, actor }
+        : { input, target: { kind: 'new-session' }, sessionId, sourceClientId, options, tools, actor }
     }
 
     const lifecycle = await this.runTurn(request)

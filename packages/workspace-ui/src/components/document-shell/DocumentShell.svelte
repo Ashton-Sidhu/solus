@@ -62,7 +62,7 @@
     /** Markdown content rendered in the editor (also the source for Copy). */
     content: string;
     placeholder?: string;
-    /** Renders full-pane (editor mode) vs floating modal + backdrop (pill mode). */
+    /** Renders as a full pane or as a floating modal with a backdrop. */
     inline?: boolean;
     /** Split-pane documents keep the outline folded until it is needed. */
     minimizeOutline?: boolean;
@@ -744,7 +744,7 @@
     class:doc-shell-root--inline={inline}
   >
     <!-- Pane-level chrome lives in the floating PaneChrome cluster; the floating
-         (pill) modal has no pane around it, so it keeps its own corner close. -->
+         floating modal has no pane around it, so it keeps its own corner close. -->
     {#if !inline}
       <button
         type="button"
@@ -1424,7 +1424,7 @@
      The header is the strip here: no title cluster (the pane tab already shows
      it), just the row — but it keeps the standard chrome row's height rather
      than sizing itself off that row. `height: auto` made the compact header 42px
-     against the standard row's 40px, and against the mac editor's 52px titlebar,
+     against the standard row's 40px, and against the mac workspace's 52px titlebar,
      so crossing the rung while dragging a pane narrower jumped the whole
      document 10px. The header is one height at every width now, and only the
      row inside it changes. */

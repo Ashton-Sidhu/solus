@@ -7,7 +7,7 @@ import { ConversationPage } from '../helpers/conversation.page'
 // which would stop the typed prompt from matching the mock's trigger key.
 const MARKDOWN_PROMPT = 'MOCKMARKDOWN'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 test.describe('Streaming text rendering', () => {

@@ -19,8 +19,8 @@ export const SESSION_LIST_FORCE_RESCAN_MS = 300_000
 export const _sessionListCache = new MemoryCache<string, SessionListCacheEntry>({ ttlMs: SESSION_LIST_FORCE_RESCAN_MS, maxEntries: 64 })
 
 /**
- * In-flight cold scans keyed by session-list cache key. At launch the pill and
- * editor windows can both request history and each fire a full `listSessions`;
+ * In-flight cold scans keyed by session-list cache key. At launch, clients can
+ * request history at once and each fire a full `listSessions`;
  * without deduping they run two ~N-file scans concurrently, doubling disk/CPU
  * contention. Sharing one scan lets the second caller await the same promise.
  * Entries are removed as soon as the scan settles.

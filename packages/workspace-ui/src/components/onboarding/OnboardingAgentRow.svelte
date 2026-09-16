@@ -21,7 +21,7 @@
   let { agent, row, delay = 0 }: Props = $props();
 
   const setup = $derived(store.setup);
-  const verification = $derived(setup.verifications[agent]);
+  const verification = $derived(setup.verificationFor(agent));
   const failure = $derived(
     setup.stepError?.provider === agent ? setup.stepError.message : null,
   );
@@ -63,8 +63,8 @@
       <!-- The same prompt Settings shows: the one-time code some CLIs want
            entered on the page, or the field for a code the page hands back. -->
       <DevicePrompt
-        url={verification.url}
-        code={verification.code}
+        url={verification.verificationUrl}
+        code={verification.userCode}
         label={row.label}
         requiresCodeInput={verification.requiresCodeInput}
         {why}

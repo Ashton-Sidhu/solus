@@ -3,11 +3,10 @@ import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
 const TAB_ITEM = '[data-testid="tab-item"]'
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .cm-line`
-// Both the editor and pill shells stay mounted (one hidden), so each renders its
-// own TabStrip. Scope tab lookups to the visible shell to count logical tabs.
+// Scope tab lookups to the workspace shell to count logical tabs.
 const VISIBLE_TAB_ITEM = `${ACTIVE_SHELL} ${TAB_ITEM}`
 
 async function setInput(page: import('@playwright/test').Page, text: string) {

@@ -16,6 +16,7 @@ import {
   type SpanStatus,
 } from '../observability/registries'
 import { endSolusSpan, startSolusSpan } from '../observability/tracer'
+import type { TurnSeat } from '../seats/seat-manager'
 
 const log = createLogger('AgentRunner', 'agent-runner.ts')
 
@@ -53,6 +54,8 @@ export interface AgentRunRequest {
   maxTurns?: number
   maxBudgetUsd?: number
   timeoutMs?: number
+  /** The member's own provider login this run must use; absent for the host's login (Step 2 plan §3.3). */
+  seat?: TurnSeat
   onEvent?: (event: NormalizedEvent) => void
 }
 

@@ -69,17 +69,13 @@
   // once the RPC resolves. Without the seed a slow/failed fetch would hide the
   // whole section and the summon shortcut would look uneditable.
   const DEFAULT_APP_SHORTCUTS: AppGlobalShortcuts = {
-    primary: { alt: true, code: "Space" },
-    secondary: { mod: true, shift: true, code: "KeyK" },
+    toggle: { alt: true, code: "Space" },
   };
 
   let appShortcuts = $state<AppGlobalShortcuts>(DEFAULT_APP_SHORTCUTS);
-  let appFailed = $state<{ primary: boolean; secondary: boolean }>({ primary: false, secondary: false });
+  let appFailed = $state(false);
 
-  const APP_ROWS: { key: "primary" | "secondary"; label: string }[] = [
-    { key: "primary", label: "Summon assistant (pill)" },
-    { key: "secondary", label: "Show / hide editor" },
-  ];
+  const APP_SHORTCUT_LABEL = "Show / hide Solus";
 
   $effect(() => {
     if (!shell.supportsNativeSettings) return;
@@ -92,20 +88,20 @@
     return () => { alive = false; };
   });
 
-  async function commitAppShortcut(key: "primary" | "secondary", combo: AppShortcutCombo): Promise<void> {
+  async function commitAppShortcut(combo: AppShortcutCombo): Promise<void> {
     // The OS shortcuts are this machine's; a web client has no local app to set.
     const localHostApi = serverConnections.localHostApi();
     if (!localHostApi) return;
-    const next: AppGlobalShortcuts = { ...appShortcuts, [key]: combo };
+    const next: AppGlobalShortcuts = { toggle: combo };
     appShortcuts = next;
     try {
-      // Snapshot before IPC: the spread keeps the untouched slot as a Svelte
-      // $state proxy, which structured-clone can't serialize (silent reject).
+      // Snapshot before IPC because a Svelte $state proxy cannot be cloned by
+      // the native transport.
       const result = await localHostApi.setAppGlobalShortcuts($state.snapshot(next));
       // The slot failed if its accelerator is in the returned failure list.
       const accel = comboToAccelerator(combo);
       const failed = !!accel && result.failed.includes(accel);
-      appFailed = { ...appFailed, [key]: failed };
+      appFailed = failed;
       if (failed) {
         toasts.show({
           message: "Couldn't apply the shortcut without a restart",
@@ -114,7 +110,7 @@
         });
       }
     } catch (error) {
-      appFailed = { ...appFailed, [key]: true };
+      appFailed = true;
       toasts.error("Couldn't apply the shortcut", {
         description: error instanceof Error ? error.message : String(error),
         action: { label: "Restart", onAction: restart },
@@ -122,9 +118,9 @@
     }
   }
 
-  function startAppCapture(key: "primary" | "secondary"): void {
-    bindingCapture.start(`app:${key}`, (combo) => {
-      void commitAppShortcut(key, combo);
+  function startAppCapture(): void {
+    bindingCapture.start("app:toggle", (combo) => {
+      void commitAppShortcut(combo);
       requestInputFocus();
     });
   }
@@ -150,7 +146,7 @@
       return { key, label, total: all.length, matchCount };
     });
     if (shell.supportsNativeSettings) {
-      items.push({ key: "system", label: "System", total: APP_ROWS.length, matchCount: APP_ROWS.length });
+      items.push({ key: "system", label: "System", total: 1, matchCount: 1 });
     }
     return items;
   });
@@ -166,7 +162,7 @@
     if (category.scopes.length > 1) {
       return category.scopes
         .map((scope) => ({
-          key: scope as string,
+          key: scope,
           label: scopeLabel(scope),
           rows: bindingsForScope(scope).map(([id, def]) => ({ id, def })),
         }))
@@ -182,7 +178,7 @@
     const overrides = settings.keybindings;
     return ALL_LISTED_SCOPES
       .map((scope) => ({
-        key: scope as string,
+        key: scope,
         label: scopeLabel(scope),
         rows: bindingsForScope(scope)
           .map(([id, def]) => ({ id, def }))
@@ -278,13 +274,13 @@
   </div>
 {/snippet}
 
-{#snippet appBindingRow(key: "primary" | "secondary", label: string)}
-  {@const combo = appShortcuts[key]}
-  {@const recording = bindingCapture.id === `app:${key}`}
-  {@const failed = appFailed[key]}
+{#snippet appBindingRow()}
+  {@const combo = appShortcuts.toggle}
+  {@const recording = bindingCapture.id === "app:toggle"}
+  {@const failed = appFailed}
   <div class="kb-row flex min-h-10 items-center justify-between gap-4 border-t border-border px-4 py-[0.3125rem] text-xs first:border-t-0 [.is-laptop-display_&]:min-h-[2.125rem]
  {recording ? 'bg-(--solus-accent)/8' : ''}">
-    <span class="min-w-0 truncate text-workspace-chrome font-medium tracking-[-0.005em] text-(--solus-text-primary)">{label}</span>
+    <span class="min-w-0 truncate text-workspace-chrome font-medium tracking-[-0.005em] text-(--solus-text-primary)">{APP_SHORTCUT_LABEL}</span>
     <div class="flex shrink-0 items-center gap-1.5">
       {#if recording}
         {@render captureChip()}
@@ -302,8 +298,8 @@
         <button
           type="button"
           class="inline-flex items-center gap-1 rounded-md border border-transparent px-1.5 py-1 [transition:border-color_var(--duration-base)_var(--ease-premium),background_var(--duration-base)_var(--ease-premium)] hover:border-(--solus-container-border) hover:bg-(--solus-surface-hover)"
-          aria-label={`Rebind ${label}`}
-          onclick={() => startAppCapture(key)}
+          aria-label={`Rebind ${APP_SHORTCUT_LABEL}`}
+          onclick={startAppCapture}
         >
           {#each formatCombo(combo) as k}
             <Kbd variant="keycap">{k}</Kbd>
@@ -379,9 +375,7 @@
         <div class="flex flex-col gap-[0.4375rem]">
           <p class="px-0.5 pb-0.5 text-(--solus-text-tertiary)">Global shortcuts that summon Solus from anywhere on your computer.</p>
           <SettingsSection>
-            {#each APP_ROWS as appRow (appRow.key)}
-              {@render appBindingRow(appRow.key, appRow.label)}
-            {/each}
+            {@render appBindingRow()}
           </SettingsSection>
         </div>
       {:else}

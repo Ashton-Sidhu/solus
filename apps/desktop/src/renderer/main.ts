@@ -22,12 +22,6 @@ const root = document.getElementById('root')!
  */
 let bootTarget: SolusServerTarget | null = null
 
-function currentRendererMode(): 'editor' | 'pill' {
-  return new URLSearchParams(window.location.search).get('mode') === 'editor'
-    ? 'editor'
-    : 'pill'
-}
-
 function renderBootError(err: Parameters<typeof String>[0]): void {
   renderFatal(root, {
     hostLabel: bootTarget?.label ?? 'Solus',
@@ -35,7 +29,7 @@ function renderBootError(err: Parameters<typeof String>[0]): void {
     error: err,
   })
   requestAnimationFrame(() => {
-    window.solusNative?.rendererReady(currentRendererMode())
+    window.solusNative?.rendererReady()
   })
 }
 
@@ -55,7 +49,6 @@ async function boot(): Promise<void> {
   performance.mark('solus.boot.start')
   const nativeApi = window.solusNative
   if (!nativeApi) throw new Error('Native Solus bootstrap bridge is unavailable')
-  const rendererMode = currentRendererMode()
   const local = await getLocalConnection(nativeApi)
   performance.mark('solus.boot.connection')
   const target = resolveActiveServerTarget(local)
@@ -99,18 +92,16 @@ async function boot(): Promise<void> {
   // RPC calls made before the socket opens queue and flush automatically
   // (see WsTransport.invoke/send), so mount as soon as the app bundle is
   // ready instead of blocking first paint on the WebSocket handshake.
-  const [{ mount }, { default: App }, editorLayoutModule] = await Promise.all([
+  const [{ mount }, { default: App }, workspaceLayoutModule] = await Promise.all([
     import('svelte'),
     import('./App.svelte'),
-    rendererMode === 'editor'
-      ? import('@solus/workspace-ui/components/layout/EditorLayout.svelte')
-      : Promise.resolve(null),
+    import('@solus/workspace-ui/components/layout/WorkspaceLayout.svelte'),
   ])
   performance.mark('solus.boot.modules')
   root.innerHTML = ''
   mount(App, {
     target: root,
-    props: { initialEditorLayout: editorLayoutModule?.default },
+    props: { initialWorkspaceLayout: workspaceLayoutModule?.default },
   })
   appMounted = true
   performance.mark('solus.boot.mounted')
@@ -118,12 +109,11 @@ async function boot(): Promise<void> {
   // Main starts the disk-heavy transcript index only after the renderer has had
   // a genuine idle window. The timeout still guarantees indexing eventually on
   // a continuously busy client.
-  const notifyRendererIdle = () => nativeApi.rendererMounted(rendererMode)
+  const notifyRendererIdle = () => nativeApi.rendererMounted()
   requestAnimationFrame(() => requestAnimationFrame(() => {
-    // Keep the native editor window hidden through the first committed app
-    // frame so its static boot shell is never surfaced. PillLayout owns its
-    // readiness signal because its layout is still loaded lazily.
-    if (rendererMode === 'editor') nativeApi.rendererReady(rendererMode)
+    // Keep the native window hidden through the first committed app frame so
+    // its static boot shell is never surfaced.
+    nativeApi.rendererReady()
     if ('requestIdleCallback' in window) {
       window.requestIdleCallback(notifyRendererIdle, { timeout: 5_000 })
     } else {

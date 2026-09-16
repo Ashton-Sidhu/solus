@@ -20,7 +20,7 @@ function heldModifiers(e: KeyboardEvent): string[] {
  * rule, and there is never more than one window listener consuming the press.
  */
 class BindingCapture {
-  /** A `BindingId`, or `app:primary` / `app:secondary` for the OS summon rows. */
+  /** A `BindingId`, or `app:toggle` for the OS summon row. */
   id = $state<string | null>(null)
   private held = $state<string[]>([])
   private commit: ((combo: KeyCombo) => void) | null = null

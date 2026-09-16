@@ -1,7 +1,8 @@
-import { writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BaseAgentBackend } from '@solus/server/agents/base-backend'
+import { solusDir } from '@solus/server/platform/paths'
 import { agentSaveWork, createWork } from '@solus/server/folio/works'
 import { workPreview } from '@solus/contracts/work-preview'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
@@ -19,6 +20,29 @@ import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
 
 const MOCK_SESSION_ID = 'mock-session-001'
 const MOCK_PLAN_TOOL_USE_ID = 'mock-plan-tool-001'
+/**
+ * Every run this backend is handed, one JSON line each, under the host's data
+ * directory. The Lab runs the host in another process, so this file is how a
+ * scenario proves what the provider would have been spawned with: the prompt and
+ * the seat (Step 2 plan §5). Nothing else about the request is recorded.
+ */
+const MOCK_RUNS_FILE = join(solusDir(), 'lab', 'mock-runs.ndjson')
+
+export interface MockRunRecord {
+  at: number
+  prompt: string
+  seat: AgentRunRequest['seat'] | null
+}
+
+function recordRun(request: AgentRunRequest): void {
+  const record: MockRunRecord = { at: Date.now(), prompt: request.prompt, seat: request.seat ?? null }
+  try {
+    mkdirSync(join(solusDir(), 'lab'), { recursive: true })
+    appendFileSync(MOCK_RUNS_FILE, `${JSON.stringify(record)}\n`)
+  } catch {
+    // A host with no writable data directory still runs; only the Lab reads this.
+  }
+}
 const MOCK_PLAN_CONTENT = `# Implementation Plan
 
 ## Overview
@@ -78,6 +102,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   startRun(request: AgentRunRequest): RunHandle {
+    recordRun(request)
     let _resolveRun!: () => void
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })

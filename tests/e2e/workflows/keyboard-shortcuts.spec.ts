@@ -91,8 +91,8 @@ test.describe('Keybindings editor', () => {
     const app = new AppPage(page)
     const shortcuts = new KeyboardShortcutsPage(page)
     await app.waitForAppReady()
-    // The tabbed settings page (vs. the pill-mode popover) shows in editor mode.
-    await app.switchToEditorMode()
+    // The workspace opens the full tabbed settings page.
+    await app.waitForWorkspace()
 
     // Open Settings → Keybindings tab.
     await page.keyboard.press('ControlOrMeta+Comma')
@@ -116,7 +116,7 @@ test.describe('Keybindings editor', () => {
 
     // The recorded shortcut must change the sidebar, not only its displayed chip.
     await page.keyboard.press('Escape')
-    const expandSidebar = page.locator('.editor-shell .tab-chrome-lead[aria-label="Expand sidebar"]')
+    const expandSidebar = page.locator('.workspace-layout .tab-chrome-lead[aria-label="Expand sidebar"]')
     await expect(expandSidebar).not.toBeVisible()
     await page.keyboard.press('Alt+y')
     await expect(expandSidebar).toBeVisible()

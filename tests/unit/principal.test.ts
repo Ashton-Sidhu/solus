@@ -99,7 +99,7 @@ describe('the local-only guard', () => {
     const expected: Array<Parameters<SolusServer['hasHandler']>[0]> = [
       'connectionsSetRemoteAccess', 'connectionsSetTrustLocalNetwork', 'connectionsGeneratePairToken',
       'connectionsBootstrapDiscoveredServer', 'uplinkLink', 'uplinkUnlink',
-      'isVisible', 'switchMode', 'getAppGlobalShortcuts', 'setAppGlobalShortcuts', 'restartApp',
+      'isVisible', 'getAppGlobalShortcuts', 'setAppGlobalShortcuts', 'restartApp',
     ]
     for (const method of expected) expect(LOCAL_ONLY_RPC_METHODS.has(method as never)).toBe(true)
     expect(LOCAL_ONLY_RPC_METHODS.has('prompt')).toBe(false)

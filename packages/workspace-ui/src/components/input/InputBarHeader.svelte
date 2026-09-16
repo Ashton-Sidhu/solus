@@ -157,8 +157,7 @@
     environmentStore.refsFor(gitHome.projectRoot ?? env.repoRoot).worktrees,
   );
   const worktreeBaseBranch = $derived(run?.worktree?.baseBranch ?? null);
-  // Editor mode had no live branch data before this: the equivalent refresh on
-  // the status row is gated to pill mode.
+  // Keep branch data live for the header even when the status row is hidden.
   $effect(() => {
     const cwd = gitStatusCwd;
     if (!cwd || cwd === "~") return;

@@ -1,9 +1,7 @@
 import type { Page } from '@playwright/test'
 
-// Targets elements only in the currently active (non-hidden) mode shell.
-// Both EditorLayout and PillLayout share the same session data, so we scope
-// to the visible container to avoid ambiguous locators.
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+// Scope interactions to the workspace shell to avoid ambiguous portalled controls.
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 /** Interactions with the message input and conversation thread. */

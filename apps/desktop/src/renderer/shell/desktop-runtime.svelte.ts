@@ -6,6 +6,7 @@ import {
   serversStore,
   atlassianStore,
   connectRequestStore,
+  seatsStore,
   parseRoute,
   runtime,
 } from "@solus/workspace-ui/contexts";
@@ -14,7 +15,6 @@ import { snapshotPersistedTabs } from "@solus/workspace-ui/contexts/workspace/ta
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 
 import { projectScopeOf } from "@solus/contracts/types";
-import type { AgentId } from "@solus/contracts/types";
 
 import { setupAgentEvents } from "@solus/workspace-ui/hooks/agentEvents.svelte";
 import { materializeTabs } from "@solus/workspace-ui/contexts/workspace/session-bootstrap";
@@ -42,7 +42,6 @@ import {
   flushDrafts,
   type PersistedTabs,
 } from "@solus/workspace-ui/contexts/workspace/tab-persistence";
-import { consumeSessionHandoff } from "@solus/workspace-ui/contexts/workspace/active-session-pointer";
 
 import { KEYBINDINGS } from "@solus/workspace-ui/lib/keybindings/manifest";
 import {
@@ -63,12 +62,7 @@ import {
 } from "@solus/workspace-ui/lib/analytics";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 type DesktopAppCore = ReturnType<typeof createAppCore>;
-import type { DesktopWindow } from "./desktop-window.svelte";
-
-export function installDesktopRuntime(
-  core: DesktopAppCore,
-  windowCtx: DesktopWindow,
-) {
+export function installDesktopRuntime(core: DesktopAppCore) {
   const {
     settings,
     sessionEnvironmentStore,
@@ -78,8 +72,6 @@ export function installDesktopRuntime(
     sessionSidebarStore,
     agent,
   } = core;
-  const viewMode = $derived(windowCtx.viewMode);
-  const isEditorMode = $derived(viewMode === "editor");
   function activePrScope() {
     const api = session.apiFor(session.activeTabId);
     return {
@@ -98,14 +90,13 @@ export function installDesktopRuntime(
   session.hydrateStaticInfoFromCache();
   materializeTabs(session);
 
-  // Electron-only: analytics is desktop-side. The editor is the sole boot
-  // window; the pill is created lazily, so count the open from the editor only.
+  // Electron-only: analytics is desktop-side.
   initAnalytics({
     enabled: settings.analyticsEnabled,
     platform: "desktop",
-    viewMode: windowCtx.viewMode,
+    viewMode: "wide",
   });
-  if (windowCtx.viewMode === "editor") track("app_opened", {});
+  track("app_opened", {});
 
   $effect(() => {
     const installationId = connectionState.target?.installationId;
@@ -175,56 +166,6 @@ export function installDesktopRuntime(
     };
   });
 
-  /** Focus (or attach) the session a pointer/handoff names. Reuses the resume
-   *  path, which loads history and splices the live stream if a run is going. */
-  function openSessionFromPointer(ptr: {
-    sessionId: string;
-    serverId: string;
-    provider: AgentId;
-    cwd: string;
-    title: string | null;
-  }) {
-    // A session already open in this window is just a location — the same
-    // `chat/@<sessionId>` route a notification click carries. Only a session
-    // this window has never seen needs the handoff's resume metadata, which is
-    // why the handoff still carries more than a route. Same-id sessions on two
-    // hosts are distinct, so the match requires the handoff's host too.
-    const isOpenHere = session.tabOrder.some((id) => {
-      const sess = session.sessionFor(id);
-      return (
-        sess?.agentSessionId === ptr.sessionId &&
-        sess.run.serverId === ptr.serverId
-      );
-    });
-    if (isOpenHere) {
-      session.openRoute({
-        name: "chat",
-        params: { sessionId: ptr.sessionId, serverId: ptr.serverId },
-      });
-      return;
-    }
-    void session.resumeSession({
-      provider: ptr.provider,
-      sessionId: ptr.sessionId,
-      serverId: ptr.serverId,
-      slug: ptr.title,
-      firstMessage: ptr.title,
-      lastTimestamp: "",
-      size: 0,
-      cwd: ptr.cwd,
-      projectPath: "",
-    });
-  }
-
-  // Both windows: consume a "continue in the other mode" (⌥⇧E) handoff
-  // addressed to this window's mode — one stashed before this window existed
-  // and any that arrive while it's open. Gated on hydration so a boot-time
-  // handoff doesn't race the tab bootstrap.
-  $effect(() => {
-    if (session.hydrating) return;
-    return consumeSessionHandoff(viewMode, openSessionFromPointer);
-  });
-
   // Slash command discovery is backend-scoped, so refresh when the active agent changes.
   // Keep the whole refresh outside tracking: the command loader reads more session
   // state synchronously before its first await, but only an agent change belongs here.
@@ -291,110 +232,6 @@ export function installDesktopRuntime(
         refreshRuntime(session, sessionSidebarStore);
       }
     });
-  });
-
-  $effect(() => {
-    // Click-through only applies to the pill window's transparent canvas; the
-    // editor is an opaque, normal OS window.
-    if (isEditorMode) return;
-    if (!localApi.setIgnoreMouseEvents) return;
-    let lastIgnored: boolean = true;
-    localApi.setIgnoreMouseEvents(true, { forward: true });
-
-    const setIgnore = (shouldIgnore: boolean) => {
-      if (shouldIgnore === lastIgnored) return;
-      lastIgnored = shouldIgnore;
-      if (shouldIgnore) localApi.setIgnoreMouseEvents(true, { forward: true });
-      else localApi.setIgnoreMouseEvents(false, { focus: true });
-    };
-
-    // Cached bounding rects of the pill's interactive regions. Measured on a short
-    // interval while moving (and on resize / window-shown), so the per-move
-    // pre-check below is pure math — no forced layout, no elementFromPoint —
-    // until the pointer is actually over a UI region. A small edge tolerance
-    // keeps entry prompt even if a child overflows its region's box.
-    const EDGE = 4;
-    const RECT_TTL = 200;
-    let cachedRects: DOMRect[] = [];
-    let rectsAt = 0;
-    const recomputeRects = () => {
-      const rects: DOMRect[] = [];
-      for (const el of document.querySelectorAll("[data-solus-ui]")) {
-        // The full-screen click-through overlay is pointer-events:none — only its
-        // portaled popover children actually capture the mouse, so measure those.
-        if (el.classList.contains("click-through-shell")) {
-          for (const child of el.children)
-            rects.push(child.getBoundingClientRect());
-        } else {
-          rects.push(el.getBoundingClientRect());
-        }
-      }
-      cachedRects = rects;
-      rectsAt = performance.now();
-    };
-    const pointOverUiRegion = (x: number, y: number) =>
-      cachedRects.some(
-        (r) =>
-          x >= r.left - EDGE &&
-          x <= r.right + EDGE &&
-          y >= r.top - EDGE &&
-          y <= r.bottom + EDGE,
-      );
-
-    // The real hit-test (forced sync elementFromPoint) only runs when the cheap
-    // rect pre-check says the point might be over UI; outside every region the
-    // window is definitively click-through, so we update promptly on leave.
-    const applyAt = (x: number, y: number) => {
-      if (!pointOverUiRegion(x, y)) {
-        setIgnore(true);
-        return;
-      }
-      const el = document.elementFromPoint(x, y);
-      setIgnore(!(el && el.closest("[data-solus-ui]")));
-    };
-
-    // Coalesce to at most one hit-test per animation frame — the transparent
-    // pill canvas fires mousemove on all screen movement, and a sync hit-test
-    // per event stutters worst while streaming dirties the DOM.
-    let pendingX = 0;
-    let pendingY = 0;
-    let rafId = 0;
-    const flush = () => {
-      rafId = 0;
-      if (performance.now() - rectsAt > RECT_TTL) recomputeRects();
-      applyAt(pendingX, pendingY);
-    };
-    const onMouseMove = (e: MouseEvent) => {
-      pendingX = e.clientX;
-      pendingY = e.clientY;
-      if (!rafId) rafId = requestAnimationFrame(flush);
-    };
-    const onMouseLeave = () => {
-      // Drop any queued hit-test so a stale in-flight frame can't re-enable
-      // capture just after the pointer has left the window.
-      if (rafId) {
-        cancelAnimationFrame(rafId);
-        rafId = 0;
-      }
-      setIgnore(true);
-    };
-    const onResize = () => recomputeRects();
-    const unsubShown = window.solusNative.onWindowShown((pos) => {
-      if (pos) {
-        recomputeRects();
-        applyAt(pos.x, pos.y);
-      }
-    });
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseleave", onMouseLeave);
-    window.addEventListener("resize", onResize);
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      unsubShown();
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseleave", onMouseLeave);
-      window.removeEventListener("resize", onResize);
-    };
   });
 
   // A notification click (or any other outside-the-renderer request) arrives as
@@ -507,6 +344,9 @@ export function installDesktopRuntime(
       // An agent can need an account before any surface that would show its
       // status has been opened, so the request is heard app-wide, not by the card.
       const unsubConnectRequests = connectRequestStore.listen();
+      // A member's provider seat changes on the host, at a turn's end or in the
+      // browser; the settings row and the connect card both read the store.
+      const unsubSeats = seatsStore.listen();
       // The Atlassian sign-in finishes in a browser and lands on the host, not
       // on the tab that opened it — so the completion is heard app-wide too.
       const unsubAtlassian = atlassianStore.listenForOAuthCompletion();
@@ -538,6 +378,7 @@ export function installDesktopRuntime(
         unsubPullRequestChanges();
         unsubNeedsReview();
         unsubConnectRequests();
+        unsubSeats();
         unsubHostConfig();
         unsubAtlassian();
         unsubShown();

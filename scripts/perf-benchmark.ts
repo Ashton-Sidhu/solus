@@ -6,8 +6,8 @@
  * source) against the shipped implementation on the same representative data.
  * Run with: bun scripts/perf-benchmark.ts
  *
- * DOM-bound changes from the same pass (PillLayout pool retention, rAF
- * coalescing in OuterScrollbar/DiffStream) are structural and cannot be
+ * DOM-bound changes from the same pass (rAF coalescing in
+ * OuterScrollbar/DiffStream) are structural and cannot be
  * measured in a headless bun process; they are reported separately.
  */
 import { inspect } from 'node:util'

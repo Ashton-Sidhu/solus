@@ -6,10 +6,6 @@
   import { connectionOverlayMode } from "./lib/connection-overlay";
   import { liveActivityClock } from "../../lib/shared-clock";
 
-  /**
-   * The pill window is a transparent, click-through canvas over the desktop, so
-   * a stale scrim there would wash out whatever the user is actually looking at.
-   */
   let { dimBackdrop = false }: { dimBackdrop?: boolean } = $props();
 
   const reduceMotion = window.matchMedia(
@@ -54,7 +50,7 @@
   );
 
   /**
-   * Confirming recovery closes the loop the pill opened. Leaving it up would
+   * Confirming recovery closes the loop the status card opened. Leaving it up would
    * turn a resolved problem into permanent chrome, so it retires itself.
    */
   let confirmingReconnect = $state(false);

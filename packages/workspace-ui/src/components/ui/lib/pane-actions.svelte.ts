@@ -16,7 +16,7 @@ export function paneActions(readPaneId: () => PaneId | undefined) {
   const router = session.router
 
   return {
-    /** Whether this surface sits in a pane at all. Pill mode renders the pages
+    /** Whether this surface sits in a pane at all. The mobile layout renders pages
      *  inline with no pane of their own, so every positional control below is
      *  meaningless there and must not be offered. */
     get inPane(): boolean {

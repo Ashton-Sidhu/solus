@@ -193,7 +193,6 @@ describe.serial('ControlPlane observability hooks', () => {
           fastMode: false, permissionMode: 'ask', gitContext: null, worktreeBaseBranch: null,
           sessionChangedFiles: [], readOnlyReason: null, latestCheckpointId: null,
         },
-        window: { viewMode: 'editor' },
         settings: {
           themeMode: 'system', isDark: false, soundEnabled: false, voiceModeEnabled: false,
           vadSilenceMs: 500, defaultEditor: null, fallbackTerminal: null, activeAgent: 'codex',

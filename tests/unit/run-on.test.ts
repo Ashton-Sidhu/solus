@@ -14,6 +14,7 @@ import {
 } from '@solus/workspace-ui/components/servers/run-on'
 import type { RunConfig } from '@solus/contracts/types'
 import { runTarget } from '@solus/workspace-ui/components/servers/lib/run-target'
+import { canRunOnHost, managedHostSubtitle } from '@solus/workspace-ui/components/servers/lib/managed-host'
 import { startsWorktree, withDispatchBaseBranch, withDispatchWorktree, withWorktreeToggled } from '@solus/workspace-ui/contexts/workspace/run-config'
 
 type VisibilityInput = Parameters<typeof shouldShowRunOnPicker>[0]
@@ -58,6 +59,36 @@ describe('run-on host selection', () => {
     // selected destination, so its default worktree must not show a second check.
     expect(isNewWorktreeStartSelected(true, true)).toBe(false)
     expect(isNewWorktreeStartSelected(false, true)).toBe(true)
+  })
+})
+
+describe('managed hosts in the picker', () => {
+  // WHY: docs/plans/managed-hosts.md — a managed host has no owner person, so its
+  // row names the team instead, and while its compute is not ready it is listed
+  // (the state is the information) but takes no work.
+  const managed = { hostId: 'h', directoryUrl: 'https://app.example.test', kind: 'managed' as const }
+
+  test('a ready managed host reads as the team host and takes work', () => {
+    expect(managedHostSubtitle({ ...managed, managedState: 'ready' }, 'Acme')).toBe('Managed · Acme')
+    expect(managedHostSubtitle({ ...managed, managedState: 'ready' }, null)).toBe('Managed · Team host')
+    // An older control plane names no state: treated as ready rather than hidden.
+    expect(managedHostSubtitle(managed, undefined)).toBe('Managed · Team host')
+    expect(canRunOnHost({ ...managed, managedState: 'ready' })).toBe(true)
+    expect(canRunOnHost(managed)).toBe(true)
+  })
+
+  test('a managed host that is not ready shows its state and is disabled for dispatch', () => {
+    for (const state of ['provisioning', 'starting', 'stopping', 'stopped', 'failed', 'deleting'] as const) {
+      expect(managedHostSubtitle({ ...managed, managedState: state }, 'Acme')).toBe(`Managed · ${state[0]!.toUpperCase()}${state.slice(1)}`)
+      expect(canRunOnHost({ ...managed, managedState: state })).toBe(false)
+    }
+  })
+
+  test('a personal host is untouched: no managed line, always dispatchable', () => {
+    expect(managedHostSubtitle({ hostId: 'h', directoryUrl: 'x', ownerName: 'Alice' }, 'Acme')).toBeNull()
+    expect(managedHostSubtitle(undefined, 'Acme')).toBeNull()
+    expect(canRunOnHost(undefined)).toBe(true)
+    expect(canRunOnHost({ hostId: 'h', directoryUrl: 'x', kind: 'personal' })).toBe(true)
   })
 })
 

@@ -21,7 +21,7 @@ const fixtureCode = new Bun.Transpiler({ loader: 'ts' }).transformSync(`class Vi
 }`)
 
 interface VisibilityFixture {
-  shell: Pick<ClientShellContext, 'visible' | 'hasCompanionPanes' | 'conversationVisible'>
+  shell: Pick<ClientShellContext, 'visible' | 'hasCompanionPanes'>
   tabs: Record<string, { sessionId: string }>
   sessions: Record<string, { agentSessionId: string; run: { serverId: string } }>
   tabOrder: string[]
@@ -41,7 +41,7 @@ const Visibility: new () => VisibilityFixture = new Function('findOpenTabForSess
 
 function fixture(hasCompanionPanes = false): VisibilityFixture {
   const view = new Visibility()
-  view.shell = { visible: true, hasCompanionPanes, conversationVisible: true }
+  view.shell = { visible: true, hasCompanionPanes }
   view.tabs = { primary: { sessionId: 'first' }, companion: { sessionId: 'second' } }
   view.sessions = {
     first: { agentSessionId: 'provider-first', run: { serverId: 'host-a' } },
@@ -96,12 +96,5 @@ describe('which mounted conversations are visible', () => {
     expect(view.visibleSession('second')).toBe(false)
     expect(view.isSessionVisibleOnHost('host-a', 'first')).toBe(false)
     expect(view.isSessionVisibleOnHost('host-b', 'second')).toBe(false)
-  })
-
-  test('a collapsed native conversation does not count as visible', () => {
-    const view = fixture()
-    view.shell = { ...view.shell, conversationVisible: false }
-    expect(view.visibleSession('first')).toBe(false)
-    expect(view.isSessionVisibleOnHost('host-a', 'first')).toBe(false)
   })
 })

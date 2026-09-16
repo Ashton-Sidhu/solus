@@ -2,9 +2,9 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 
-// SessionSidebar is exclusive to editor mode — this test drives the editor shell.
+// SessionSidebar belongs to the wide workspace layout.
 
 test.describe('Sidebar task navigation', () => {
   test('expanding a task shows its sessions and clicking a session activates its tab', async ({
@@ -16,7 +16,7 @@ test.describe('Sidebar task navigation', () => {
 
     await conversation.typeAndSend('First session in task')
     await conversation.waitForResponse()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     // Cmd+T creates another draft under the active task.
     await page.keyboard.press('ControlOrMeta+t')

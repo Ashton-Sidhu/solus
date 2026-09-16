@@ -55,6 +55,9 @@ export interface CreateSolusConnectionOptions {
   onAuthFailed?: () => void
   verifyConnectedHost?: () => Promise<boolean>
   refreshLocalSessionToken?: () => Promise<string>
+  /** A guest link (docs/plans/multiplayer-sharing.md §4.2): each dial mints a guest
+   *  grant and presents the link secret with it. No account, no saved host. */
+  guest?: { acquireGrant: () => Promise<string | null>; shareSecret: string }
 }
 
 export type InstallSolusConnectionOptions = Omit<CreateSolusConnectionOptions, 'refreshLocalSessionToken'>
@@ -129,13 +132,17 @@ export function createSolusConnection(
   // on the spot, so there is nothing to keep or replay.
   const uplinkHostId = !target.sessionToken && target.uplink ? target.uplink.hostId : null
   const account = uplinkHostId ? uplinkAccountSource() : null
+  const guest = options.guest
   const transport = new WsTransport({
     serverUrl: target.url,
     serverId: target.id,
     sessionToken: target.sessionToken,
-    acquireGrant: uplinkHostId && account
-      ? async () => (await account.acquireHostGrant(uplinkHostId))?.grant ?? null
-      : undefined,
+    acquireGrant: guest
+      ? guest.acquireGrant
+      : uplinkHostId && account
+        ? async () => (await account.acquireHostGrant(uplinkHostId))?.grant ?? null
+        : undefined,
+    shareSecret: guest?.shareSecret,
     onStatusChange: options.onStatusChange,
     onAuthFailed: options.onAuthFailed,
     verifyConnectedHost: options.verifyConnectedHost,

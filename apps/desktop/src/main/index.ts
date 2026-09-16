@@ -43,7 +43,6 @@ import { z } from 'zod'
 // module-graph cost — the first item on the startup critical path.
 markStartup('main.evaluated')
 
-const SPACES_DEBUG = process.env.SOLUS_DEBUG === '1' || process.env.SOLUS_SPACES_DEBUG === '1'
 const isHeadless = process.argv.includes('--headless')
 const isPairUrl = process.argv.includes('pair-url')
 const isDevMode = Boolean(process.env.ELECTRON_RENDERER_URL)
@@ -73,16 +72,7 @@ protocol.registerSchemesAsPrivileged([
 
 let forceQuit = false
 
-// The pill window is created lazily on first summon so its hidden renderer does
-// not compete with the editor's first paint. The editor is the default boot
-// surface; once mounted, both are clients of the same server broadcast stream.
 let mainWindow: BrowserWindow | null = null
-let editorWindow: BrowserWindow | null = null
-// Last Solus window the user focused — the target for dialogs, screenshots,
-// and design mode when no window currently holds focus (e.g. mid-capture).
-let lastFocusedWindow: BrowserWindow | null = null
-// Window whose opacity design mode zeroed, so restore hits the same one.
-let designModeWindow: BrowserWindow | null = null
 let designModeWindowBounds: Electron.Rectangle | null = null
 let powerSaveBlockerId: number | null = null
 
@@ -110,8 +100,6 @@ let readyUpdateVersion: string | null = null
 let screenshotCounter = 0
 let designModeCounter = 0
 let pasteCounter = 0
-let toggleSequence = 0
-let currentViewMode: 'pill' | 'editor' = 'editor'
 let core: BootCore | null = null
 // Resolves with the booted core once bootCore finishes; rejects if boot fails.
 // The renderer's first IPC (getLocalConnection) awaits this instead of racing
@@ -127,7 +115,6 @@ const bootPromise = new Promise<BootCore>((resolve, reject) => {
 // on selectionchange so native context-menu actions keep their exact source.
 let quoteContextTabId: string | null = null
 let hiddenUntilTrayShow = false
-let pendingPillShowSource: string | null = null
 let sessionIndexerStarted = false
 let sessionIndexerStartTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -189,8 +176,7 @@ let localSessionToken: string | null = null
 // can be re-registered live. Persisted as plain JSON in userData.
 
 const DEFAULT_APP_SHORTCUTS: AppGlobalShortcuts = {
-  primary: { alt: true, code: 'Space' },
-  secondary: { mod: true, shift: true, code: 'KeyK' },
+  toggle: { alt: true, code: 'Space' },
 }
 
 let currentAppShortcuts: AppGlobalShortcuts = DEFAULT_APP_SHORTCUTS
@@ -209,8 +195,7 @@ const appShortcutComboSchema = z.object({
 })
 
 const appGlobalShortcutsSchema = z.object({
-  primary: appShortcutComboSchema,
-  secondary: appShortcutComboSchema,
+  toggle: appShortcutComboSchema,
 })
 
 function loadAppShortcuts(): AppGlobalShortcuts {
@@ -233,29 +218,21 @@ function saveAppShortcuts(shortcuts: AppGlobalShortcuts): void {
 /**
  * Unregister the previous summon accelerators and register the new ones.
  * Returns the accelerators that failed to register (caller offers a restart).
- * Only the two summon accelerators are touched — no other globalShortcut state.
- *
- * Each key has a dedicated window: primary always toggles the pill (the
- * assistant summon), secondary always toggles the editor. Deterministic —
- * what a key does never depends on which window the user last touched.
+ * Only the summon accelerator is touched — no other globalShortcut state.
  */
 interface AppliedAppGlobalShortcuts {
   failed: string[]
 }
 
 function applyAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): AppliedAppGlobalShortcuts {
-  const prevAccels = [
-    comboToAccelerator(currentAppShortcuts.primary),
-    comboToAccelerator(currentAppShortcuts.secondary),
-  ]
+  const prevAccels = [comboToAccelerator(currentAppShortcuts.toggle)]
   for (const accel of prevAccels) {
     if (accel && globalShortcut.isRegistered(accel)) globalShortcut.unregister(accel)
   }
 
   const failed: string[] = []
   const bindings: Array<[AppShortcutCombo, (accel: string) => void]> = [
-    [shortcuts.primary, (accel) => togglePillWindow(`shortcut ${accel}`)],
-    [shortcuts.secondary, (accel) => toggleEditorWindow(`shortcut ${accel}`)],
+    [shortcuts.toggle, () => toggleMainWindow()],
   ]
   for (const [combo, handler] of bindings) {
     const accel = comboToAccelerator(combo)
@@ -292,14 +269,7 @@ const quoteInReplyIcon = createTemplateMenuIcon(
 
 const isTestMode = process.env.SOLUS_TEST_MODE === '1'
 
-// ─── Window registry + view-mode geometry ───
-// The pill window fills the cursor display's work area: a transparent canvas
-// with the pill UI positioned by CSS. It floats while active so the summon
-// shortcut can surface Solus above a full-screen Space, then drops regular
-// always-on-top behavior on blur so outside clicks let the clicked app cover
-// it normally. The editor window is a standard OS window (native frame
-// behavior, Dock/alt-tab presence, normal Spaces membership) — none of the
-// pill's level/workspace juggling applies to it.
+// ─── Window geometry ───
 
 function workAreaBoundsForCursor(): Electron.Rectangle {
   const cursor = screen.getCursorScreenPoint()
@@ -312,18 +282,14 @@ function isLive(win: BrowserWindow | null): win is BrowserWindow {
   return !!win && !win.isDestroyed()
 }
 
-function allWindows(): BrowserWindow[] {
-  return [mainWindow, editorWindow].filter(isLive)
-}
-
-function broadcastNativeEvent(channel: string, ...payload: unknown[]): void {
-  for (const win of allWindows()) win.webContents.send(channel, ...payload)
+function sendNativeEvent(channel: string, ...payload: unknown[]): void {
+  if (isLive(mainWindow)) mainWindow.webContents.send(channel, ...payload)
 }
 
 /** Rebuilt whenever a downloaded update starts or stops waiting for a restart. */
 function buildTrayMenu(restartToUpdate: () => void): Menu {
   const template: Electron.MenuItemConstructorOptions[] = [
-    { label: 'Show Solus', click: () => showCurrentModeWindow('tray menu', { fromTrayShow: true }) },
+    { label: 'Show Solus', click: () => showMainWindow({ fromTrayShow: true }) },
   ]
   if (isDevMode) {
     template.push({ label: 'Hide Solus Until Shown', click: hideUntilTrayShow })
@@ -336,190 +302,35 @@ function buildTrayMenu(restartToUpdate: () => void): Menu {
   return Menu.buildFromTemplate(template)
 }
 
-/** The window the user is in: focused, else last-focused live, else the pill. */
-function activeWindow(): BrowserWindow | null {
-  const focused = BrowserWindow.getFocusedWindow()
-  if (focused && allWindows().includes(focused)) return focused
-  if (isLive(lastFocusedWindow)) return lastFocusedWindow
+/** The live workspace window, when the desktop client has one. */
+function workspaceWindow(): BrowserWindow | null {
   return isLive(mainWindow) ? mainWindow : null
 }
 
 function isAppVisible(): boolean {
-  return allWindows().some((win) => win.isVisible())
+  return isLive(mainWindow) && mainWindow.isVisible()
 }
 
-function setPillWindowLevel(active: boolean): void {
+function focusMainWindow(): void {
   if (!isLive(mainWindow)) return
-
-  if (active) {
-    // The pill floats while active, including over macOS full-screen Spaces,
-    // then drops back on blur so outside clicks can put the clicked app above it.
-    mainWindow.setAlwaysOnTop(true, 'floating')
-  } else {
-    mainWindow.setAlwaysOnTop(false)
-  }
-}
-
-function focusPillWindow(): void {
-  if (!isLive(mainWindow)) return
-  setPillWindowLevel(true)
-  mainWindow.moveTop()
   if (process.platform === 'darwin') app.focus({ steal: true })
   mainWindow.focus()
   mainWindow.webContents.focus()
-  broadcastNativeEvent('solus:window-shown', windowCursorRelative())
-}
-
-function focusEditorWindow(): void {
-  if (!isLive(editorWindow)) return
-  if (process.platform === 'darwin') app.focus({ steal: true })
-  editorWindow.focus()
-  editorWindow.webContents.focus()
-  broadcastNativeEvent('solus:window-shown', null)
-}
-
-// Cursor position relative to the window's content area, in DIPs (matches CSS px).
-// Returned alongside window-shown so the renderer can seed the click-through
-// state from the actual cursor location — otherwise a first click on the pill
-// races mousemove and passes through to whatever's behind Solus.
-function windowCursorRelative(): { x: number; y: number } | null {
-  if (!mainWindow || mainWindow.isDestroyed()) return null
-  const cursor = screen.getCursorScreenPoint()
-  const bounds = mainWindow.getContentBounds()
-  return { x: cursor.x - bounds.x, y: cursor.y - bounds.y }
-}
-
-function snapshotWindowState(reason: string): void {
-  if (!SPACES_DEBUG) return
-  if (!mainWindow || mainWindow.isDestroyed()) {
-    log.debug('spaces_snapshot', { reason, window: 'none' })
-    return
-  }
-
-  const b = mainWindow.getBounds()
-  const cursor = screen.getCursorScreenPoint()
-  const display = screen.getDisplayNearestPoint(cursor)
-  const visibleOnAll = mainWindow.isVisibleOnAllWorkspaces()
-  const wcFocused = mainWindow.webContents.isFocused()
-
-  log.info('spaces_snapshot', {
-    reason,
-    visible: mainWindow.isVisible(),
-    focused: mainWindow.isFocused(),
-    wcFocused,
-    alwaysOnTop: mainWindow.isAlwaysOnTop(),
-    visibleOnAllWorkspaces: visibleOnAll,
-    bounds: `${b.x},${b.y},${b.width}x${b.height}`,
-    cursor: `${cursor.x},${cursor.y}`,
-    displayId: display.id,
-    workArea: `${display.workArea.x},${display.workArea.y},${display.workArea.width}x${display.workArea.height}`,
-  })
-}
-
-function scheduleToggleSnapshots(toggleId: number, phase: 'show' | 'hide'): void {
-  if (!SPACES_DEBUG) return
-  const probes = [0, 100, 400, 1200]
-  for (const delay of probes) {
-    setTimeout(() => {
-      snapshotWindowState(`toggle#${toggleId} ${phase} +${delay}ms`)
-    }, delay)
-  }
+  sendNativeEvent('solus:window-shown')
 }
 
 // ─── Window Creation ───
 
-/** Load the renderer with the window's mode in the URL. The renderer reads
- *  `?mode=` at bootstrap so each window mounts exactly one layout. */
-function loadRenderer(win: BrowserWindow, mode: 'pill' | 'editor'): void {
+function loadRenderer(win: BrowserWindow): void {
   if (process.env.ELECTRON_RENDERER_URL) {
-    const url = new URL(process.env.ELECTRON_RENDERER_URL)
-    url.searchParams.set('mode', mode)
-    win.loadURL(url.toString())
+    win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    win.loadFile(join(__dirname, '../renderer/index.html'), { query: { mode } })
+    win.loadFile(join(__dirname, '../renderer/index.html'))
   }
 }
 
-function createPillWindow(options: { showWhenReady?: boolean; source?: string } = {}): BrowserWindow {
-  const bounds = workAreaBoundsForCursor()
-
-  const windowOptions: Electron.BrowserWindowConstructorOptions = {
-    ...bounds,
-    frame: false,
-    transparent: true,
-    resizable: false,
-    movable: false,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    hasShadow: false,
-    roundedCorners: false,
-    backgroundColor: '#00000000',
-    show: false,
-    icon: join(__dirname, '../../resources/icon.icns'),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      contextIsolation: true,
-      nodeIntegration: false,
-    },
-  }
-  // NSPanel — non-activating, joins all spaces.
-  if (process.platform === 'darwin') windowOptions.type = 'panel'
-  mainWindow = new BrowserWindow(windowOptions)
-
-  if (!isTestMode) {
-    mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    mainWindow.setAlwaysOnTop(true, 'floating')
-
-    const handleDisplayChange = () => {
-      if (!mainWindow || mainWindow.isDestroyed()) return
-      const windowBounds = mainWindow.getBounds()
-      const currentDisplay = screen.getDisplayNearestPoint({ x: windowBounds.x, y: windowBounds.y })
-      const { x, y, width, height } = currentDisplay.workArea
-      if (windowBounds.x === x && windowBounds.y === y && windowBounds.width === width && windowBounds.height === height) return
-      mainWindow.setBounds({ x, y, width, height }, false)
-    }
-    screen.on('display-metrics-changed', handleDisplayChange)
-    screen.on('display-added', handleDisplayChange)
-    screen.on('display-removed', handleDisplayChange)
-  }
-
-  if (options.showWhenReady) pendingPillShowSource = options.source ?? 'pill ready'
-
-  mainWindow.once('ready-to-show', () => {
-    if (!mainWindow?.isVisible()) broadcastNativeEvent('solus:window-hidden')
-    if (!isTestMode && process.env.ELECTRON_RENDERER_URL) {
-      mainWindow?.webContents.openDevTools({ mode: 'detach' })
-    }
-  })
-
-  mainWindow.on('close', (e) => {
-    if (!forceQuit) {
-      e.preventDefault()
-      mainWindow?.hide()
-    }
-  })
-  mainWindow.on('blur', () => {
-    setPillWindowLevel(false)
-  })
-  mainWindow.on('hide', () => broadcastNativeEvent('solus:window-hidden'))
-  attachContextMenu(mainWindow)
-
-  if (SPACES_DEBUG) {
-    mainWindow.on('show', () => snapshotWindowState('event window show'))
-    mainWindow.on('hide', () => snapshotWindowState('event window hide'))
-    mainWindow.on('focus', () => snapshotWindowState('event window focus'))
-    mainWindow.on('blur', () => snapshotWindowState('event window blur'))
-    mainWindow.webContents.on('focus', () => snapshotWindowState('event webContents focus'))
-    mainWindow.webContents.on('blur', () => snapshotWindowState('event webContents blur'))
-  }
-
-  loadRenderer(mainWindow, 'pill')
-  return mainWindow
-}
-
-/** Default editor bounds: a centered card on the cursor display, matching the
- *  92% × 90% the in-window editor shell used before the split. */
-function editorDefaultBounds(): Electron.Rectangle {
+/** Default bounds: a centered card on the cursor display. */
+function defaultWindowBounds(): Electron.Rectangle {
   const { x, y, width, height } = workAreaBoundsForCursor()
   const w = Math.round(width * 0.92)
   const h = Math.round(height * 0.9)
@@ -531,13 +342,11 @@ function editorDefaultBounds(): Electron.Rectangle {
   }
 }
 
-/** Create the editor window: a standard OS window (resizable, Dock/alt-tab
- *  presence, native shadow), lazily on first switch to editor mode. Closing it
- *  hides it — the window (and its bounds) live for the rest of the app run,
- *  so reopening is instant; a fresh launch starts at the default bounds. */
-function createEditorWindow(): BrowserWindow {
+/** Create the standard desktop window. Closing it hides it so reopening is
+ * instant; a fresh launch starts at the default bounds. */
+function createMainWindow(): BrowserWindow {
   const windowOptions: Electron.BrowserWindowConstructorOptions = {
-    ...editorDefaultBounds(),
+    ...defaultWindowBounds(),
     minWidth: 640,
     minHeight: 480,
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#18181b' : '#fafafa',
@@ -547,9 +356,8 @@ function createEditorWindow(): BrowserWindow {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      // The browser pane's native surface. Enabled on the editor window only —
-      // the pill has no browser pane, and `webviewTag` widens a window's
-      // attack surface, so it is granted where the feature actually lives.
+      // The browser pane's native surface. `webviewTag` widens a window's
+      // attack surface, so it is enabled only in this desktop window.
       // `WebContentsView` is Electron's preferred replacement but composites
       // above the DOM, which would put every modal, palette, and toast behind
       // the guest; `<webview>` stays in the page's own z-order.
@@ -561,56 +369,56 @@ function createEditorWindow(): BrowserWindow {
     windowOptions.titleBarStyle = 'hiddenInset'
     windowOptions.trafficLightPosition = { x: 16, y: 18 }
   }
-  editorWindow = new BrowserWindow(windowOptions)
-  const editorContents = editorWindow.webContents
-  editorContents.once('dom-ready', () => markStartup('renderer.domReady'))
-  editorContents.once('did-finish-load', () => markStartup('renderer.didFinishLoad'))
+  mainWindow = new BrowserWindow(windowOptions)
+  const mainContents = mainWindow.webContents
+  mainContents.once('dom-ready', () => markStartup('renderer.domReady'))
+  mainContents.once('did-finish-load', () => markStartup('renderer.didFinishLoad'))
 
-  const reloadEditor = (): void => {
-    if (editorContents.isDestroyed()) return
+  const reloadMain = (): void => {
+    if (mainContents.isDestroyed()) return
     log.info('application_reload_shortcut')
-    editorContents.reload()
+    mainContents.reload()
   }
 
   // Do not depend on Electron's default application menu for a development
   // reload. It is not present in every menu shape.
-  preserveApplicationReloadShortcut(editorContents, reloadEditor)
+  preserveApplicationReloadShortcut(mainContents, reloadMain)
 
   // A browser guest is untrusted page content: it renders whatever the dev
   // server serves. Strip any preload or Node access the tag asked for, whatever
   // the renderer wrote on the element.
-  editorContents.on('will-attach-webview', (_event, webPreferences) => {
+  mainContents.on('will-attach-webview', (_event, webPreferences) => {
     delete webPreferences.preload
     webPreferences.nodeIntegration = false
     webPreferences.contextIsolation = true
   })
-  editorContents.on('did-attach-webview', (_event, browserContents) => {
+  mainContents.on('did-attach-webview', (_event, browserContents) => {
     // Electron applies menu shortcuts to the focused WebContents. A browser
-    // guest therefore steals Cmd/Ctrl+R from the editor while it has focus.
-    preserveApplicationReloadShortcut(browserContents, reloadEditor)
+    // guest therefore steals Cmd/Ctrl+R from the workspace while it has focus.
+    preserveApplicationReloadShortcut(browserContents, reloadMain)
   })
 
-  editorWindow.on('close', (e) => {
+  mainWindow.on('close', (e) => {
     if (!forceQuit) {
       e.preventDefault()
-      editorWindow?.hide()
+      mainWindow?.hide()
     }
   })
-  editorWindow.on('hide', () => {
-    broadcastNativeEvent('solus:window-hidden')
+  mainWindow.on('hide', () => {
+    sendNativeEvent('solus:window-hidden')
   })
 
-  attachContextMenu(editorWindow)
+  attachContextMenu(mainWindow)
 
-  editorWindow.once('ready-to-show', () => {
+  mainWindow.once('ready-to-show', () => {
     if (!isTestMode && process.env.ELECTRON_RENDERER_URL) {
-      editorWindow?.webContents.openDevTools({ mode: 'detach' })
+      mainWindow?.webContents.openDevTools({ mode: 'detach' })
     }
   })
 
-  loadRenderer(editorWindow, 'editor')
+  loadRenderer(mainWindow)
   armBootShellDeadline()
-  return editorWindow
+  return mainWindow
 }
 
 /**
@@ -635,11 +443,11 @@ function armBootShellDeadline(): void {
   clearBootShellDeadline()
   bootShellDeadline = setTimeout(() => {
     bootShellDeadline = null
-    if (!isLive(editorWindow) || editorWindow.isVisible()) return
+    if (!isLive(mainWindow) || mainWindow.isVisible()) return
     log.info('boot_shell_deadline_reached', { deadlineMs: BOOT_SHELL_DEADLINE_MS })
     markStartup('window.shownOnDeadline')
-    editorWindow.show()
-    focusEditorWindow()
+    mainWindow.show()
+    focusMainWindow()
   }, BOOT_SHELL_DEADLINE_MS)
   bootShellDeadline.unref?.()
 }
@@ -650,194 +458,69 @@ function clearBootShellDeadline(): void {
   bootShellDeadline = null
 }
 
-function showPillWindow(source = 'unknown', options: { fromTrayShow?: boolean } = {}): void {
+function showMainWindow(options: { fromTrayShow?: boolean } = {}): void {
   if (isTestMode) return
   if (hiddenUntilTrayShow && !options.fromTrayShow) return
   if (options.fromTrayShow) hiddenUntilTrayShow = false
   if (!isLive(mainWindow)) {
-    createPillWindow({ showWhenReady: true, source })
+    createMainWindow()
     return
   }
-  // A first-summon pill exists but is still mounting. Its renderer-ready IPC
-  // will complete the show with the real interactive UI.
-  if (pendingPillShowSource) {
-    pendingPillShowSource = source
-    return
-  }
-
-  const toggleId = ++toggleSequence
-
-  mainWindow.setBounds(workAreaBoundsForCursor(), false)
-
-  if (SPACES_DEBUG) {
-    const cursor = screen.getCursorScreenPoint()
-    const display = screen.getDisplayNearestPoint(cursor)
-    log.debug('spaces_show_window', { toggleId, source, alwaysOnTop: mainWindow.isAlwaysOnTop(), displayId: display.id })
-  }
-
-  mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-
-  if (SPACES_DEBUG) snapshotWindowState(`showWindow#${toggleId} pre-show`)
-
   mainWindow.show()
-  focusPillWindow()
-  if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'show')
+  focusMainWindow()
 }
 
-/** On macOS, `app.hide()` returns focus to the previous app — but it hides
- *  every Solus window, so only do it when no other window stays visible. */
-function hidePillWindow(_source = 'unknown'): void {
-  if (!mainWindow) return
+function hideMainWindow(): void {
+  if (!isLive(mainWindow)) return
   mainWindow.hide()
-  if (process.platform === 'darwin' && !isAppVisible()) app.hide()
+  if (process.platform === 'darwin') app.hide()
 }
 
-function showEditorWindow(): void {
-  if (isTestMode) return
-  if (!isLive(editorWindow)) {
-    createEditorWindow() // shows + focuses when the renderer is ready
-    return
-  }
-  editorWindow.show()
-  focusEditorWindow()
-}
-
-function hideEditorWindow(): void {
-  if (!isLive(editorWindow)) return
-  editorWindow.hide()
-  if (process.platform === 'darwin' && !isAppVisible()) app.hide()
-}
-
-/** Primary summon key: always the pill. Summoning over a visible editor works —
- *  the pill floats above it, which is the assistant-over-workspace flow. */
-function togglePillWindow(source = 'unknown'): void {
-  if (hiddenUntilTrayShow) return
-  if (!isLive(mainWindow)) {
-    showPillWindow(source)
-    return
-  }
-
-  const toggleId = ++toggleSequence
-  if (SPACES_DEBUG) {
-    log.debug('spaces_toggle_start', { toggleId, source })
-    snapshotWindowState(`toggle#${toggleId} pre`)
-  }
-
-  if (mainWindow.isVisible()) {
-    hidePillWindow(source)
-    if (SPACES_DEBUG) scheduleToggleSnapshots(toggleId, 'hide')
-  } else {
-    showPillWindow(source)
-  }
-}
-
-/** Secondary summon key: always the editor, creating it on first use.
- *  Visible-but-unfocused means focus it, not hide it. */
-function toggleEditorWindow(_source = 'unknown'): void {
+/** Show, focus, or hide the desktop workspace. */
+function toggleMainWindow(): void {
   if (hiddenUntilTrayShow || isTestMode) return
-  if (!isLive(editorWindow)) {
-    createEditorWindow() // shows + focuses when the renderer is ready
+  if (!isLive(mainWindow)) {
+    createMainWindow()
     return
   }
   const shouldHide =
-    editorWindow.isVisible() && (editorWindow.isFocused() || editorWindow.webContents.isFocused())
-  if (shouldHide) hideEditorWindow()
-  else showEditorWindow()
-}
-
-/** Tray "Show Solus" / app activate: surface the current mode's window. */
-function showCurrentModeWindow(source: string, options: { fromTrayShow?: boolean } = {}): void {
-  if (currentViewMode === 'editor') {
-    if (hiddenUntilTrayShow && !options.fromTrayShow) return
-    if (options.fromTrayShow) hiddenUntilTrayShow = false
-    showEditorWindow()
-    return
-  }
-  showPillWindow(source, options)
-}
-
-/** Switch to the given mode's window (toggles when omitted). Shows/creates the
- *  target and hides the window being left. Asymmetric when both are visible:
- *  entering the editor always hides the pill (promotion is substitutive — a
- *  pill lingering over the workspace is clutter), while entering the pill
- *  leaves the editor visible (it's a place; the pill floats above it). */
-function switchMode(target?: 'pill' | 'editor'): void {
-  const next = target ?? (currentViewMode === 'pill' ? 'editor' : 'pill')
-  const leaving = next === 'editor' ? mainWindow : editorWindow
-  const entering = next === 'editor' ? editorWindow : mainWindow
-  const bothVisible = isLive(leaving) && leaving.isVisible() && isLive(entering) && entering.isVisible()
-  // Direct hide, not hidePill/hideEditorWindow: the entering window keeps (or
-  // is about to take) focus, so no app.hide() focus-return is wanted here.
-  const hideLeaving = () => {
-    if ((next === 'editor' || !bothVisible) && isLive(leaving) && leaving.isVisible()) leaving.hide()
-  }
-
-  currentViewMode = next
-
-  if (next === 'editor' && !isLive(editorWindow)) {
-    // First switch: don't blank the screen while the editor window boots —
-    // hide the pill only once the editor has actually shown.
-    createEditorWindow().once('show', hideLeaving)
-    return
-  }
-
-  if (next === 'pill' && !isLive(mainWindow)) {
-    // Keep the editor visible until the lazily-created pill has painted.
-    createPillWindow({ showWhenReady: true, source: 'switch-mode' }).once('show', hideLeaving)
-    return
-  }
-
-  if (next === 'editor') showEditorWindow()
-  else showPillWindow('switch-mode')
-  hideLeaving()
+    mainWindow.isVisible() && (mainWindow.isFocused() || mainWindow.webContents.isFocused())
+  if (shouldHide) hideMainWindow()
+  else showMainWindow()
 }
 
 function hideAppWindow(): void {
   mainWindow?.hide()
-  editorWindow?.hide()
   if (process.platform === 'darwin') app.hide()
 }
 
 function hideUntilTrayShow(): void {
   hiddenUntilTrayShow = true
-  hidePillWindow('tray dev hide until shown')
-  hideEditorWindow()
+  hideMainWindow()
 }
 
-/** Restore + focus the window a capture flow hid (screenshot). */
-function showAndFocusActiveWindow(): void {
+/** Restore + focus the workspace after a capture flow hid it. */
+function showAndFocusWorkspaceWindow(): void {
   if (isTestMode) return
-  const win = activeWindow()
-  if (!isLive(win)) return
-  if (win === mainWindow) {
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    win.show()
-    focusPillWindow()
-  } else {
-    win.show()
-    focusEditorWindow()
-  }
+  if (!isLive(mainWindow)) return
+  mainWindow.show()
+  focusMainWindow()
 }
 
-/** Design mode zeroes the active window's opacity for capture; remember which
- *  one so `restoreDesignModeWindow` restores the same window. */
-function setActiveWindowOpacity(o: number): void {
-  const win = o < 1 ? activeWindow() : (designModeWindow ?? activeWindow())
-  if (!isLive(win)) return
-  if (o < 1) designModeWindow = win
-  win.setOpacity(o)
+function setWorkspaceWindowOpacity(opacity: number): void {
+  if (!isLive(mainWindow)) return
+  mainWindow.setOpacity(opacity)
 }
 
 function expandDesignModeWindow(bounds: Electron.Rectangle): void {
-  if (!isLive(designModeWindow)) return
-  if (!designModeWindowBounds) designModeWindowBounds = designModeWindow.getBounds()
-  designModeWindow.setBounds(bounds, false)
+  if (!isLive(mainWindow)) return
+  if (!designModeWindowBounds) designModeWindowBounds = mainWindow.getBounds()
+  mainWindow.setBounds(bounds, false)
 }
 
 function designModeCaptureRegion(): Electron.Rectangle {
-  const win = activeWindow()
-  if (!isLive(win)) return { x: 0, y: 0, width: 0, height: 0 }
-  const windowBounds = win.getBounds()
+  if (!isLive(mainWindow)) return { x: 0, y: 0, width: 0, height: 0 }
+  const windowBounds = mainWindow.getBounds()
   const display = screen.getDisplayNearestPoint({ x: windowBounds.x, y: windowBounds.y })
   return display.workArea
 }
@@ -853,7 +536,7 @@ function isSafeExternalUrl(url: string): boolean {
   }
 }
 
-/** Native context menu (spellcheck, link/image, clipboard + "Quote in reply"), attached to each window. */
+/** Native context menu for the workspace window. */
 function attachContextMenu(win: BrowserWindow): void {
   win.webContents.on('context-menu', (_event, params) => {
     const menuItems: Electron.MenuItemConstructorOptions[] = []
@@ -982,10 +665,10 @@ function getLocalSessionToken(): string {
 }
 
 // The Solus account lives in main: the session token is keychain-encrypted here and
-// every window receives only the account state. Re-verified on boot and on focus.
+// the renderer receives only the account state. Re-verified on boot and on focus.
 let accountSession: AccountSession | null = null
 if (!isHeadless && !isPairUrl) {
-  accountSession = registerAccountIpc(broadcastNativeEvent)
+  accountSession = registerAccountIpc(sendNativeEvent)
   app.on('browser-window-focus', () => void accountSession?.verify('focus'))
 }
 
@@ -1003,7 +686,6 @@ ipcMain.handle(LOCAL_CONNECTION_CHANNEL, async () => {
 
 const externalUrlSchema = z.string().regex(/^https?:\/\//i)
 const attachmentReadSchema = z.tuple([z.string(), z.string()])
-const viewModeSchema = z.enum(['pill', 'editor'])
 
 ipcMain.handle('solus:open-external', async (_event, input, options?: { hideAppAfterOpen?: boolean }) => {
   const parsedUrl = externalUrlSchema.safeParse(input)
@@ -1023,7 +705,7 @@ const activityBadgeSchema = z.array(z.string().max(1024)).max(100000)
 ipcMain.handle('solus:set-activity-badge', (event, input) => {
   const parsed = activityBadgeSchema.safeParse(input)
   if (!parsed.success) return
-  if (parsed.data.length > 0 && allWindows().some((window) => window.isFocused())) {
+  if (parsed.data.length > 0 && isLive(mainWindow) && mainWindow.isFocused()) {
     event.sender.send('solus:activity-acknowledged')
     return
   }
@@ -1042,8 +724,8 @@ ipcMain.handle('solus:show-notification', (_event, request) => {
   const parsed = clientNotificationRequestSchema.safeParse(request)
   if (!parsed.success) return false
   return showDesktopNotification(parsed.data, (route) => {
-    showCurrentModeWindow('notification click', { fromTrayShow: true })
-    broadcastNativeEvent('solus:open-route', route)
+    showMainWindow({ fromTrayShow: true })
+    sendNativeEvent('solus:open-route', route)
   })
 })
 
@@ -1105,52 +787,24 @@ function scheduleSessionIndexer(): void {
   sessionIndexerStartTimer.unref?.()
 }
 
-ipcMain.on('solus:renderer-mounted', (_event, rawMode) => {
-  if (!viewModeSchema.safeParse(rawMode).success) return
+ipcMain.on('solus:renderer-mounted', () => {
   markStartup('renderer.mounted')
   scheduleSessionIndexer()
 })
 
-ipcMain.on('solus:renderer-ready', (event, rawMode) => {
-  const parsedMode = viewModeSchema.safeParse(rawMode)
-  if (!parsedMode.success) return
-  const mode = parsedMode.data
-  if (mode === 'editor') {
-    if (!isLive(editorWindow) || editorWindow.webContents !== event.sender) return
-    markStartup('renderer.ready')
-    traceRendererMarks(editorWindow.webContents)
-    clearBootShellDeadline()
-    // Already visible when the deadline beat the app here; show() is a no-op
-    // then, and re-focusing a window the user has been looking at is not.
-    if (!isTestMode && !editorWindow.isVisible()) {
-      editorWindow.show()
-      focusEditorWindow()
-    }
-    return
-  }
-  if (mode !== 'pill' || !pendingPillShowSource) return
+ipcMain.on('solus:renderer-ready', (event) => {
   if (!isLive(mainWindow) || mainWindow.webContents !== event.sender) return
-  const source = pendingPillShowSource
-  pendingPillShowSource = null
-  showPillWindow(source)
+  markStartup('renderer.ready')
+  traceRendererMarks(mainWindow.webContents)
+  clearBootShellDeadline()
+  if (!isTestMode && !mainWindow.isVisible()) {
+    mainWindow.show()
+    focusMainWindow()
+  }
 })
 
-// OS-level click-through is preload-only — it operates on the Electron window
-// directly and isn't relevant for browser clients.
 ipcMain.on('solus:set-quote-context', (_event, tabId: string | null) => {
   quoteContextTabId = tabId || null
-})
-
-ipcMain.on('solus:set-ignore-mouse-events', (event, ignore: boolean, options?: { forward?: boolean; focus?: boolean }) => {
-  const win = BrowserWindow.fromWebContents(event.sender)
-  if (win && !win.isDestroyed()) {
-    win.setIgnoreMouseEvents(ignore, options || {})
-    if (options?.focus && !ignore && !win.isAlwaysOnTop() && !win.webContents.isFocused()) {
-      if (process.platform === 'darwin') app.focus({ steal: true })
-      win.focus()
-      win.webContents.focus()
-    }
-  }
 })
 
 ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {
@@ -1160,33 +814,17 @@ ipcMain.on('solus:set-zoom-factor', (event, rawFactor) => {
 })
 
 function restoreDesignModeWindow(): void {
-  const win = designModeWindow ?? mainWindow
-  if (!isLive(win)) return
-  if (win === mainWindow) {
-    // Pill-only level/workspace juggling; the editor is a normal window.
-    win.setAlwaysOnTop(true, 'floating')
-    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    win.setOpacity(1)
-    focusPillWindow()
-  } else {
-    win.setOpacity(1)
-    focusEditorWindow()
-  }
-  if (SPACES_DEBUG) {
-    log.info('spaces_design_mode_overlay_ready')
-    snapshotWindowState('design-mode restore')
-  }
+  if (!isLive(mainWindow)) return
+  mainWindow.setOpacity(1)
+  focusMainWindow()
 }
 
 function exitDesignModeWindow(): void {
-  const win = designModeWindow
   const bounds = designModeWindowBounds
-  designModeWindow = null
   designModeWindowBounds = null
-  if (!isLive(win)) return
-  if (bounds) win.setBounds(bounds, false)
-  if (win === mainWindow) focusPillWindow()
-  else focusEditorWindow()
+  if (!isLive(mainWindow)) return
+  if (bounds) mainWindow.setBounds(bounds, false)
+  focusMainWindow()
 }
 
 // ─── Permission preflight (macOS) ───
@@ -1277,7 +915,6 @@ if (isPairUrl) {
 
     const windowDeps: WindowDeps | undefined = isHeadless ? undefined : {
       isAppVisible,
-      switchMode,
       getAppGlobalShortcuts: () => currentAppShortcuts,
       setAppGlobalShortcuts: (shortcuts) => {
         const result = applyAppGlobalShortcuts(shortcuts)
@@ -1291,10 +928,10 @@ if (isPairUrl) {
     }
 
     const fileDeps: FileDeps | undefined = isHeadless ? undefined : {
-      getActiveWindow: activeWindow,
+      getWorkspaceWindow: workspaceWindow,
       hideAppWindow,
-      showAndFocusActiveWindow,
-      setActiveWindowOpacity,
+      showAndFocusWorkspaceWindow,
+      setWorkspaceWindowOpacity,
       expandDesignModeWindow,
       restoreDesignModeWindow,
       exitDesignModeWindow,
@@ -1309,13 +946,8 @@ if (isPairUrl) {
     // boot. The renderer's first IPC (getLocalConnection) awaits bootPromise, so
     // it blocks only until the server is actually ready.
     if (!isHeadless) {
-      // The editor is the only production renderer loaded at boot. The hidden
-      // pill is created on first summon so it contributes no startup work.
-      // E2E mode retains its historical hidden pill test surface.
-      if (isTestMode) createPillWindow()
-      else if (currentViewMode === 'editor') createEditorWindow()
+      createMainWindow()
       markStartup('window.created')
-      snapshotWindowState('after createWindow')
     }
 
     // Loaded here rather than at module scope, and deliberately after the
@@ -1363,9 +995,6 @@ if (isPairUrl) {
     resolveBoot(bootedCore)
     bootedCore.controlPlane.on('active-work-changed', syncPowerSaveBlocker)
     syncPowerSaveBlocker()
-    // Independent of which window (if any) boots first — the editor is now the
-    // default boot surface and the pill is created lazily on first summon, so
-    // this can no longer live on the pill window's ready-to-show.
     if (!isTestMode) void prepareTranscriptionModel()
     if (isHeadless) {
       sessionIndexerStarted = true
@@ -1374,23 +1003,18 @@ if (isPairUrl) {
 
     if (!isHeadless) {
       nativeTheme.on('updated', () => {
-        broadcastNativeEvent('solus:theme-changed', nativeTheme.shouldUseDarkColors)
+        sendNativeEvent('solus:theme-changed', nativeTheme.shouldUseDarkColors)
       })
 
-      // Track the last-focused Solus window for dialog/capture targeting.
-      // Each window is mode-locked (?mode= at load), so focus is the mode:
-      // tray "Show Solus" and dock-activate follow the surface last touched.
       app.on('browser-window-focus', (_e, win) => {
-        if (!allWindows().includes(win)) return
+        if (!isLive(mainWindow) || win !== mainWindow) return
         activityBadges.acknowledge()
         app.setBadgeCount(0)
-        broadcastNativeEvent('solus:activity-acknowledged')
-        lastFocusedWindow = win
-        currentViewMode = win === editorWindow ? 'editor' : 'pill'
+        sendNativeEvent('solus:activity-acknowledged')
       })
 
       const updates = registerUpdateIpc({
-        broadcast: broadcastNativeEvent,
+        broadcast: sendNativeEvent,
         onBeforeQuitAndInstall: () => {
           forceQuit = true
           void core?.shutdown()
@@ -1405,24 +1029,6 @@ if (isPairUrl) {
 
       if (!isTestMode) requestPermissions().catch((err: Error) => log.error('permission_preflight_failed', { error: err.message }))
 
-      if (SPACES_DEBUG) {
-        app.on('browser-window-focus', () => snapshotWindowState('event app browser-window-focus'))
-        app.on('browser-window-blur', () => snapshotWindowState('event app browser-window-blur'))
-
-        screen.on('display-added', (_e, display) => {
-          log.debug('spaces_display_added', { displayId: display.id })
-          snapshotWindowState('event display-added')
-        })
-        screen.on('display-removed', (_e, display) => {
-          log.debug('spaces_display_removed', { displayId: display.id })
-          snapshotWindowState('event display-removed')
-        })
-        screen.on('display-metrics-changed', (_e, display, changedMetrics) => {
-          log.debug('spaces_display_metrics_changed', { displayId: display.id, changed: changedMetrics.join(',') })
-          snapshotWindowState('event display-metrics-changed')
-        })
-      }
-
       if (!isTestMode) {
         currentAppShortcuts = loadAppShortcuts()
         applyAppGlobalShortcuts(currentAppShortcuts)
@@ -1436,7 +1042,7 @@ if (isPairUrl) {
         void tray // keep alive for lifetime of the app
 
         app.on('activate', () => {
-          showCurrentModeWindow('app activate')
+          showMainWindow()
         })
       }
     }

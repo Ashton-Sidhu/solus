@@ -38,7 +38,6 @@ export async function openPlanModal(ctx: WorkspaceContext, planId: string, ref?:
   // "pop out to side" action); otherwise it takes the focused pane.
   const reveal = (id: string) => {
     ctx.openPlan(id, opts.secondary ? 'aside' : 'focused')
-    ctx.isExpanded = true
   }
 
   const plan = ctx.planStore.plans[targetPlanId]
@@ -347,7 +346,6 @@ export async function openPlanFromDescriptor(ctx: WorkspaceContext, d: PlanDescr
     ctx.router.close('folio')
     ctx.selectTab(existing)
     ctx.openPlan(planId)
-    ctx.isExpanded = true
     await loadDescriptorPlan(ctx, d)
     // Reveal (already done) plus annotation hydration, and the retract if the
     // descriptor pointed at a plan that is no longer on disk.

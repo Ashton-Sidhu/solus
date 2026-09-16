@@ -9,9 +9,11 @@
     Pen as PencilSimpleIcon,
     RefreshCw as ArrowsClockwiseIcon,
     CircleStop as StopCircleIcon,
+    Users as UsersIcon,
     X as XIcon,
   } from "@lucide/svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getWorkspaceContext, sharesStore } from "../../contexts";
+  import { sessionTitle } from "../../lib/sessionUtils";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import * as ContextMenu from "../ui/context-menu";
@@ -26,7 +28,7 @@
     /** Session id to copy when the target has no resolvable session (e.g. a
      *  pinned session that isn't currently open as a tab). */
     sessionId?: string | null;
-    /** Editor variant surfaces split-pane actions; pill/sidebar can too. */
+    /** The workspace variant surfaces split-pane actions; the sidebar can too. */
     showSplit?: boolean;
     /** Override for "Open in split" — pinned sessions resume before splitting. */
     onOpenInSplit?: () => void;
@@ -36,7 +38,7 @@
     /** Closed pinned sessions regenerate through their owning sidebar store. */
     onRegenerateTitle?: () => Promise<void> | void;
     /** What the sidebar's rows moved off themselves and into this menu. Omitted
-     *  everywhere else: a pill-mode tab has no user-set "done". */
+     *  everywhere else: a compact tab has no user-set "done". */
     rowActions?: {
       /** Present only while something in the row is still working. */
       onStop?: () => void;
@@ -187,6 +189,21 @@
     if (onCloseTab) onCloseTab(targetTabId);
     else session.closeTab(targetTabId);
   }
+
+  /** Sharing needs the session's host, which only an open tab names. */
+  const canShare = $derived(!!tabId && !!sess?.id);
+
+  function share() {
+    const targetTabId = tabId;
+    const current = sess;
+    onClose();
+    if (!targetTabId || !current?.id) return;
+    sharesStore.open({
+      serverId: session.serverIdFor(targetTabId),
+      resource: { kind: "session", id: current.id },
+      title: sessionTitle(current),
+    });
+  }
 </script>
 
 <ContextMenu.Root
@@ -268,6 +285,13 @@
       <ContextMenu.Item onSelect={openInInsights}>
         <ChartBarIcon />
         Open in Insights
+      </ContextMenu.Item>
+    {/if}
+    {#if canShare}
+      <ContextMenu.Item onSelect={share}>
+        <UsersIcon />
+        Share…
+        <ContextMenu.Shortcut>⌥⇧.</ContextMenu.Shortcut>
       </ContextMenu.Item>
     {/if}
     {#if canSplit}

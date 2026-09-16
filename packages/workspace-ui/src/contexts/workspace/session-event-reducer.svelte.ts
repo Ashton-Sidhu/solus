@@ -622,7 +622,7 @@ export class SessionEventReducer {
 
       case 'git_status':
         // Pushed live from the main-process git watcher — lands in the same
-        // store the Environment panel and pill already read by cwd.
+        // store the environment views already read by cwd.
         this.deps.setGitStatus(event.cwd, event.state)
         break
 

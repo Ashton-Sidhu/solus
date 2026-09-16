@@ -17,11 +17,13 @@ function detectSource(): UplinkAccountSource | null {
   // an older preload without the Uplink methods reads as no bridge below.
   const native = (globalThis as { window?: { solusNative?: Partial<NativeSolusAPI> } }).window?.solusNative
   if (!native?.uplinkListDirectoryHosts || !native.uplinkAcquireHostGrant || !native.uplinkIssueEnrollmentTicket) return null
-  const { uplinkListDirectoryHosts, uplinkAcquireHostGrant, uplinkIssueEnrollmentTicket } = native
+  const { uplinkListDirectoryHosts, uplinkAcquireHostGrant, uplinkIssueEnrollmentTicket, uplinkOrganizationDirectory } = native
   return {
     listDirectory: () => uplinkListDirectoryHosts(),
     acquireHostGrant: (hostId) => uplinkAcquireHostGrant(hostId),
     issueEnrollmentTicket: () => uplinkIssueEnrollmentTicket(),
+    // An older preload without the directory method: the dialog offers the link only.
+    loadOrganizationDirectory: (organizationId) => uplinkOrganizationDirectory ? uplinkOrganizationDirectory(organizationId) : Promise.resolve(null),
   }
 }
 

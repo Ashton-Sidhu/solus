@@ -1,5 +1,6 @@
 import { isLoopbackAddress } from '../transports/websocket'
 import { tailnetAddresses } from './endpoints'
+import { isManagedHost } from './managed-mode'
 import { getServerSettings } from './settings'
 
 /**
@@ -13,9 +14,12 @@ import { getServerSettings } from './settings'
  * - The local network, only when the owner opted in via the
  *   "trust my local network" server setting: a shared network is not an
  *   identity, so this is never the default.
+ *
+ * On a managed host (docs/plans/managed-hosts.md §1) nobody is trusted by network
+ * position: loopback, tailnet, and LAN are all strangers, and the setting is ignored.
  */
 export async function isTrustedRequesterAddress(address: string | undefined): Promise<boolean> {
-  if (!address) return false
+  if (!address || isManagedHost()) return false
   if (isLoopbackAddress(address)) return true
   const normalized = address.startsWith('::ffff:') ? address.slice(7) : address
   if (getServerSettings().trustLocalNetwork && isPrivateLanAddress(normalized)) return true

@@ -5,7 +5,7 @@ import { z } from 'zod'
 import type { AccountState } from '@solus/contracts/account-types'
 import { AccountStore } from './account-store'
 import { AccountSession } from './account-session'
-import { acquireHostGrant, issueEnrollmentTicket, listDirectory } from './uplink-client'
+import { acquireHostGrant, issueEnrollmentTicket, listDirectory, loadOrganizationDirectory } from './uplink-client'
 
 export const ACCOUNT_CHANNELS = {
   state: 'solus:account-state',
@@ -17,9 +17,11 @@ export const ACCOUNT_CHANNELS = {
   uplinkDirectory: 'solus:uplink-directory',
   uplinkGrant: 'solus:uplink-grant',
   uplinkTicket: 'solus:uplink-enrollment-ticket',
+  uplinkOrganizationDirectory: 'solus:uplink-organization-directory',
 } as const
 
 const hostIdSchema = z.string().min(1).max(64)
+const organizationIdSchema = z.string().min(1).max(128)
 
 /** Production origin; `SOLUS_CLOUD_URL` overrides it for development and staging. */
 export const DEFAULT_CLOUD_ORIGIN = 'https://app.solus.sh'
@@ -81,6 +83,10 @@ export function registerAccountIpc(broadcast: (channel: string, state: AccountSt
     return hostId.success ? acquireHostGrant(session, hostId.data) : null
   })
   ipcMain.handle(ACCOUNT_CHANNELS.uplinkTicket, () => issueEnrollmentTicket(session))
+  ipcMain.handle(ACCOUNT_CHANNELS.uplinkOrganizationDirectory, (_event, rawOrganizationId) => {
+    const organizationId = organizationIdSchema.safeParse(rawOrganizationId)
+    return organizationId.success ? loadOrganizationDirectory(session, organizationId.data) : null
+  })
 
   // The keychain is not reliably readable before `ready`, and this module is
   // evaluated earlier: load the stored account when it is, then confirm it.

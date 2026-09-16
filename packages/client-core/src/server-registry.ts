@@ -4,7 +4,7 @@
  */
 
 import type { HostOperatingSystem } from '@solus/contracts/types'
-import { hostRouteSchema, type HostRoute } from '@solus/contracts/uplink'
+import { hostKindSchema, hostRouteSchema, managedHostLifecycleSchema, type HostKind, type HostRoute, type ManagedHostLifecycle } from '@solus/contracts/uplink'
 import { z } from 'zod'
 import { forwardCompatibleArray } from './forward-compat'
 
@@ -18,6 +18,16 @@ export interface SavedServerUplink {
   hostId: string
   /** The account origin whose directory named it, e.g. `https://app.solus.sh`. */
   directoryUrl: string
+  /** The organization the host is shared with, as the directory last said. The
+   *  share dialog reads its people from here when the host itself names none:
+   *  the owner connects as `local-owner` and the host never learns the organization. */
+  organizationId?: string
+  /** Whose machine this is, for a host shared with the account rather than linked by it. */
+  ownerName?: string
+  /** `managed` for a host Solus cloud provisioned for an organization (managed-hosts.md); absent is personal. */
+  kind?: HostKind
+  /** Managed hosts only: what the control plane last said of the compute. Only a `ready` host is dialed. */
+  managedState?: ManagedHostLifecycle
 }
 
 export interface SavedServer {
@@ -109,7 +119,14 @@ const savedServerSchema = z.looseObject({
   lastConnected: z.number().catch(0),
   // Written by Uplink-aware builds; an older record simply has neither.
   routes: z.array(hostRouteSchema).optional().catch(undefined),
-  uplink: z.object({ hostId: z.string().min(1), directoryUrl: z.string().min(1) }).optional().catch(undefined),
+  uplink: z.object({
+    hostId: z.string().min(1),
+    directoryUrl: z.string().min(1),
+    organizationId: z.string().min(1).optional().catch(undefined),
+    ownerName: z.string().min(1).optional().catch(undefined),
+    kind: hostKindSchema.optional().catch(undefined),
+    managedState: managedHostLifecycleSchema.optional().catch(undefined),
+  }).optional().catch(undefined),
 })
 const savedServersSchema = forwardCompatibleArray(savedServerSchema)
 

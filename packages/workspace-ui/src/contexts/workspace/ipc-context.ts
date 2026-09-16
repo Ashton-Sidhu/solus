@@ -23,7 +23,6 @@ export interface IpcContextBuilderDeps {
     }
   }
   staticInfo(): StaticInfo | null
-  rpcWindow(): IpcContext['window']
   settings: SettingsContext
   statusBar: StatusBarContext
 }
@@ -39,7 +38,6 @@ export class IpcContextBuilder {
     const session = this.sessionCtx(tabId)
     return {
       session,
-      window: this.deps.rpcWindow(),
       settings: this.deps.settings.ctxForProject?.(session.projectPath) ?? this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctxFor(tabId),
     }
@@ -49,7 +47,6 @@ export class IpcContextBuilder {
     const base = this.sessionCtx(tabId)
     return {
       session: { ...base, workingDirectory, projectPath: worktreeProjectRoot(workingDirectory) },
-      window: this.deps.rpcWindow(),
       settings: this.deps.settings.ctxForProject?.(worktreeProjectRoot(workingDirectory)) ?? this.deps.settings.ctx,
       statusBar: this.deps.statusBar.ctx,
     }

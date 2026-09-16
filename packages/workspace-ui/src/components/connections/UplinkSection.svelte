@@ -3,8 +3,11 @@
    *  Shown to a local owner whenever this client can hold an account: signed out
    *  it offers sign-in, signed in it links. Unlinking needs no account — the host
    *  holds its own token for that — so a linked host always offers it. A device
-   *  arriving through the tunnel never sees it: linking changes how the host is reached. */
+   *  arriving through the tunnel never sees it: linking changes how the host is reached.
+   *  A managed host never shows it either: its link is system-owned (managed-hosts.md §1). */
+  import { localApi } from "@solus/client-core/local-api";
   import { accountStore, connectionsStore, uplinkStatusDescription, uplinkStore } from "../../contexts";
+  import { hostWebsiteUrl } from "../../contexts/connections/host-routes";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
@@ -16,7 +19,9 @@
   let { serverId }: Props = $props();
 
   const showSection = $derived(
-    connectionsStore.serverInfo?.principal === "local-owner" && uplinkStore.accountAvailable,
+    connectionsStore.serverInfo?.principal === "local-owner" &&
+      connectionsStore.serverInfo.hostKind !== "managed" &&
+      uplinkStore.accountAvailable,
   );
   const uplink = $derived(uplinkStore.statusFor(serverId));
   const uplinkBusy = $derived(uplinkStore.busyServerId === serverId);
@@ -27,6 +32,11 @@
   });
 
   const linked = $derived(uplink?.linked === true);
+  // Sharing with a team is done on the website, not here: the site owns
+  // organizations and their membership (plan Step 1.4).
+  const websiteUrl = $derived(
+    uplink?.linked ? hostWebsiteUrl(uplink.link.directoryUrl, uplink.link.hostId) : null,
+  );
   const rowLabel = $derived(
     linked
       ? "Linked to your account"
@@ -85,5 +95,21 @@
         {/if}
       {/snippet}
     </SettingsRow>
+    {#if websiteUrl}
+      <SettingsRow
+        label="Team access"
+        description="Share this host with a team, or stop sharing it, on the Solus cloud website."
+      >
+        {#snippet control()}
+          <Button
+            variant="outline"
+            size="sm"
+            onclick={() => void localApi.openExternal(websiteUrl)}
+          >
+            Manage on website
+          </Button>
+        {/snippet}
+      </SettingsRow>
+    {/if}
   </SettingsSection>
 {/if}

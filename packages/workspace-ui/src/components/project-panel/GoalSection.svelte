@@ -24,8 +24,8 @@
     collapsed: boolean;
     onToggle: () => void;
     onResizePointerDown?: (event: PointerEvent) => void;
-    /** The rail simply stops rendering the section once the goal is gone; a host
-     *  that gave the card a surface of its own (the pill body) has to close it. */
+    /** The panel stops rendering the section once the goal is gone. A dedicated
+     *  mobile surface must also close its route. */
     onCleared?: () => void;
   }
   let { sessionId, collapsed, onToggle, onResizePointerDown, onCleared }: Props = $props();

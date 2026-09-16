@@ -13,9 +13,11 @@ import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, isAbsolute } from 'path'
 import { tmpdir } from 'os'
 import { z } from 'zod'
-import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, isDeviceRevoked, issueGrantWsTicket, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken } from './auth'
+import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, isDeviceRevoked, issueGrantWsTicket, issueGuestWsTicket, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken, type GrantMembership } from './auth'
 import { listReachableEndpoints } from './endpoints'
 import type { GrantVerdict } from './host-grants'
+import type { ResolvedLinkShare } from '../sharing/share-manager'
+import { normalizeDisplayName, parseGrantSubject, type HostGrantClaims } from '@solus/contracts/uplink'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
@@ -55,9 +57,13 @@ export interface HttpServerOptions {
   /** True for a request that arrived through the tunnel's proxied listener. It is
    *  loopback on the wire and must never be trusted for it; pairing is not offered there. */
   isTunnelRequest?: (incoming: IncomingMessage) => boolean
+  /** Managed mode (docs/plans/managed-hosts.md §1): pairing does not exist, on either listener. */
+  isManagedHost?: boolean
   /** Verifies (and consumes) a control-plane grant presented at `/auth/ws-ticket`.
    *  Absent on a host that is not linked: grants are then simply not a credential here. */
   verifyHostGrant?: (grant: string) => Promise<GrantVerdict>
+  /** A guest grant is worth nothing without the share secret naming one resource (§3.4). */
+  resolveShareSecret?: (secret: string) => ResolvedLinkShare | null
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
@@ -137,6 +143,12 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.notFound((c) => c.json({ error: 'not found' }, 404))
 
   const viaTunnel = (c: Ctx): boolean => opts.isTunnelRequest?.(c.env.incoming) ?? false
+  // A managed host has no pairing door at all: a grant is the only credential, so
+  // the routes answer as if they were never there.
+  if (opts.isManagedHost) {
+    app.all('/pair', (c) => c.notFound())
+    app.all('/pair/*', (c) => c.notFound())
+  }
   // The tunnel is a public URL. Only what a grant-holding client needs exists there:
   // the health probe, the ticket exchange, and signed assets. Pairing is local
   // authorization and has no meaning there; the LAN endpoints, uploads, and the
@@ -318,18 +330,12 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     let ticket = issueWsTicket(bearer)
     if (!ticket && bearer && opts.verifyHostGrant) {
       const verdict = await opts.verifyHostGrant(bearer)
-      if (verdict.ok && isDeviceRevoked(verdict.claims.deviceId)) {
-        // The owner revoked this account session on the Access tab: the host's own
-        // kill switch, independent of the control plane.
-        log.info('host_grant_rejected', { reason: 'device-revoked' })
-      } else if (verdict.ok) {
-        ticket = issueGrantWsTicket({
-          userId: verdict.claims.sub,
-          deviceId: verdict.claims.deviceId,
-          expiresAt: verdict.claims.exp * 1000,
-        })
-      } else {
+      if (!verdict.ok) {
         log.info('host_grant_rejected', { reason: verdict.reason })
+      } else {
+        const outcome = await ticketForGrant(verdict.claims, await readJson(c, wsTicketRequestSchema), opts.resolveShareSecret)
+        if (outcome.ok) ticket = outcome.ticket
+        else log.info('host_grant_rejected', { reason: outcome.reason })
       }
     }
     if (!ticket) return c.json({ error: 'Unauthorized' }, 401)
@@ -366,6 +372,55 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   const requestListener = getRequestListener(app.fetch, { overrideGlobalObjects: false })
   const server = createServer(requestListener)
   return { server, host, port, requestListener }
+}
+
+const wsTicketRequestSchema = z.object({ shareSecret: z.string().min(1).max(256).optional() })
+
+type GrantTicketOutcome =
+  | { ok: true; ticket: string }
+  | { ok: false; reason: 'device-revoked' | 'guest-needs-secret' | 'not-shared' | 'guest-name' }
+
+/**
+ * One door, three key types (docs/plans/personal-uplink.md H1; multiplayer-sharing §3.2–3.4).
+ * An owner grant and a member grant become a grant ticket; a guest grant becomes a
+ * guest ticket only together with a share secret the host recognizes.
+ */
+export async function ticketForGrant(
+  claims: HostGrantClaims,
+  body: { shareSecret?: string } | null,
+  resolveShareSecret: HttpServerOptions['resolveShareSecret'],
+): Promise<GrantTicketOutcome> {
+  const subject = parseGrantSubject(claims.sub)
+  const expiresAt = claims.exp * 1000
+  if (claims.access === 'guest' || subject.kind === 'guest') {
+    if (!body?.shareSecret || !resolveShareSecret) return { ok: false, reason: 'guest-needs-secret' }
+    const share = resolveShareSecret(body.shareSecret)
+    if (!share) return { ok: false, reason: 'not-shared' }
+    const displayName = normalizeDisplayName(claims.displayName) ?? 'Guest'
+    return {
+      ok: true,
+      ticket: issueGuestWsTicket({ guestId: subject.id, displayName, share, expiresAt }),
+    }
+  }
+  // The owner revoked this account session on the Access tab: the host's own
+  // kill switch, independent of the control plane.
+  if (isDeviceRevoked(claims.deviceId)) return { ok: false, reason: 'device-revoked' }
+  let membership: GrantMembership | undefined
+  if (claims.access === 'org-member' && claims.organizationId && claims.organizationRole) {
+    membership = {
+      organizationId: claims.organizationId,
+      organizationRole: claims.organizationRole,
+      teamIds: claims.teamIds ?? [],
+      hostKind: claims.hostKind ?? 'personal',
+      displayName: normalizeDisplayName(claims.displayName) ?? 'Member',
+    }
+    if (claims.picture) membership.picture = claims.picture
+  }
+  const displayName = normalizeDisplayName(claims.displayName) ?? undefined
+  return {
+    ok: true,
+    ticket: issueGrantWsTicket({ userId: subject.id, deviceId: claims.deviceId, expiresAt, membership, displayName }),
+  }
 }
 
 /** A request for a build file (`/assets/index-lLoEVyX3.js`), not a client route. */

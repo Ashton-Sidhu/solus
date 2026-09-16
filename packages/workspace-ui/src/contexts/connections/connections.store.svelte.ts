@@ -11,17 +11,8 @@ export interface PairToken {
   expiresAt: number
 }
 
-export interface ConnectionsServerInfo {
-  host: string
-  port: number
-  allowLan: boolean
-  installationId: string
-  remoteAccess: boolean
-  requireAuth: boolean
-  trustLocalNetwork: boolean
-  /** How this client was admitted; only a `local-owner` may change how the host is reached. */
-  principal: 'local-owner' | 'remote-owner' | 'system'
-}
+export type { ConnectionsServerInfo } from '@solus/contracts/host-api'
+import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 
 export interface ConnectionEndpoint {
   kind: 'loopback' | 'lan' | 'tailnet'

@@ -3,15 +3,15 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 
 // The grouped sidebar view lives in SessionSidebar, which is exclusive to
-// editor mode. The grouped view replaced the old three-level indented tree
+// the workspace. The grouped view replaced the old three-level indented tree
 // (project ▸ branch ▸ session) with a flush "project › branch" breadcrumb so
 // session titles reclaim the horizontal space the indentation used to eat.
 test.describe('Grouped sidebar — breadcrumb hierarchy', () => {
   // Alt+Shift+U cycles default → status → grouped. Press until the breadcrumb
-  // header appears so the test doesn't depend on the starting view mode.
+  // header appears so the test doesn't depend on the starting sidebar style.
   async function cycleToGrouped(page: Page) {
     const crumb = page.locator(`${ACTIVE_SHELL} .crumb-header`).first()
     for (let i = 0; i < 3; i++) {
@@ -31,7 +31,7 @@ test.describe('Grouped sidebar — breadcrumb hierarchy', () => {
 
     await conversation.typeAndSend('Group me under a breadcrumb')
     await conversation.waitForResponse()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await cycleToGrouped(page)
 
@@ -62,7 +62,7 @@ test.describe('Grouped sidebar — breadcrumb hierarchy', () => {
 
     await conversation.typeAndSend('Collapse me')
     await conversation.waitForResponse()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await cycleToGrouped(page)
 

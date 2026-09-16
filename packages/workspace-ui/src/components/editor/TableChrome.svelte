@@ -378,9 +378,8 @@
     class:doc-table-chrome--dragging={!!drag}
     style="--pointer-x:{pointer?.x ?? 0};--pointer-y:{pointer?.y ?? 0}"
   >
-    <!-- One ring for whatever is selected. Extents animate rather than redraw,
-         so growing a selection reads as the same ring moving. A dragged band
-         carries its cells out from under it, so it goes quiet for the drag. -->
+    <!-- Keep the ring attached to the cells without animation during scrolling
+         or selection changes. Hide it while a band is dragged. -->
     {#if ring && !drag}
       <span
         class="doc-table-selection"
@@ -442,11 +441,6 @@
     border: 0.0625rem solid var(--solus-accent);
     border-radius: 0.3125rem;
     pointer-events: none;
-    transition:
-      left var(--duration-quick) var(--ease-premium),
-      top var(--duration-quick) var(--ease-premium),
-      width var(--duration-quick) var(--ease-premium),
-      height var(--duration-quick) var(--ease-premium);
   }
   /* 4px ink bars in the table's own gutters, and two tabs on the outer border.
      Every box is positioned and sized from the geometry module, so the chrome
@@ -567,7 +561,6 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .doc-table-selection,
     .doc-table-grip,
     .doc-table-insert {
       transition: none !important;

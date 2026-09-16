@@ -287,7 +287,7 @@ export function useComposerCommands(getOptions: () => ComposerCommandOptions) {
   function navigateHistory(delta: -1 | 1) {
     const { prompt, editor: composerEl } = getOptions();
     const inputText = prompt.text;
-    // Editor mode, Pill mode, and split panes keep separate composers mounted.
+    // The workspace, action surfaces, and split panes keep separate composers mounted.
     // Ctrl+C can refocus a composer other than the one that sent the prompt, so
     // refresh from the shared durable history before recall.
     if (historyIndex === -1) {

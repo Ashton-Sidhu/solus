@@ -18,7 +18,6 @@
   import {
     getWorkspaceContext,
     getPlanStore,
-    getClientShellContext,
     runtime,
     projectsStore,
     mergeProjectOptions,
@@ -79,15 +78,11 @@
 
   const session = getWorkspaceContext();
   const planStore = getPlanStore();
-  const shell = getClientShellContext();
 
   const PINNED_PREVIEW = 6;
   const RENDER_PAGE = 80;
   const PINNED_COLLAPSED_KEY = "solus.workspace.pinned-collapsed";
 
-  const fillsPane = $derived(
-    !shell.isOverlayWindow,
-  );
   const open = $derived(session.router.at("folio"));
 
   // ── Data ──
@@ -947,7 +942,6 @@
   <div
     bind:this={rootEl}
     class="workspace-root relative flex min-h-0 flex-1 flex-col bg-background text-workspace-chrome text-foreground"
-    style={fillsPane ? "" : "max-height:var(--pill-body-max)"}
     role="dialog"
     aria-label="Workspace"
     tabindex="-1"
@@ -1307,7 +1301,7 @@
   .workspace-root {
     overflow: hidden;
     /* Query container so the head and filter row respond to the pane's own
-       width (a split pane, the pill, mobile web), not the viewport. */
+       width (a split pane or mobile web), not the viewport. */
     container: workspace-page / inline-size;
   }
 

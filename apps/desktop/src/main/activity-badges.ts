@@ -1,23 +1,23 @@
-/** Editor and Pill can recover at different times. Union their session keys,
- * so shared activity counts once and activity seen by either window survives. */
+/** Union session keys from live renderer senders so shared activity counts once
+ * and a renderer reload cannot leave a stale badge contribution behind. */
 export class DesktopActivityBadges {
-  private readonly windows = new Map<number, Set<string>>()
+  private readonly senders = new Map<number, Set<string>>()
 
-  update(windowId: number, sessionKeys: string[]): number {
-    this.windows.set(windowId, new Set(sessionKeys))
+  update(senderId: number, sessionKeys: string[]): number {
+    this.senders.set(senderId, new Set(sessionKeys))
     return this.count
   }
 
-  remove(windowId: number): number {
-    this.windows.delete(windowId)
+  remove(senderId: number): number {
+    this.senders.delete(senderId)
     return this.count
   }
 
-  acknowledge(): void { this.windows.clear() }
+  acknowledge(): void { this.senders.clear() }
 
   get count(): number {
     const sessions = new Set<string>()
-    for (const keys of this.windows.values()) for (const key of keys) sessions.add(key)
+    for (const keys of this.senders.values()) for (const key of keys) sessions.add(key)
     return sessions.size
   }
 }

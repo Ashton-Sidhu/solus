@@ -5,7 +5,6 @@ import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
 import { updatesStore } from "@solus/workspace-ui/contexts";
 import { toasts } from "@solus/workspace-ui/lib/toasts";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
-import type { DesktopWindow } from "./desktop-window.svelte";
 
 type DesktopAppCore = ReturnType<typeof createAppCore>;
 
@@ -13,17 +12,15 @@ const UPDATE_TOAST_ID = "desktop-update";
 
 /**
  * The shell's side of desktop updates: the toasts. The store says which prompt
- * is owed; this decides when it is safe to show and shows it. Editor mode only —
- * the pill is a summon-and-go surface and gets no toast. A restart prompt waits
- * until no session on the local host is busy, so an update never interrupts a
- * turn. `docs/plans/desktop-updates.md`.
+ * is owed; this decides when it is safe to show and shows it. A restart prompt
+ * waits until no session on the local host is busy, so an update never
+ * interrupts a turn. `docs/plans/desktop-updates.md`.
  */
-export function installDesktopUpdates(core: DesktopAppCore, windowCtx: DesktopWindow): void {
+export function installDesktopUpdates(core: DesktopAppCore): void {
   const { session } = core;
   if (!updatesStore.isAvailable) return;
   updatesStore.start();
 
-  const isEditorMode = $derived(windowCtx.viewMode === "editor");
   const isLocalHostBusy = $derived(
     Object.values(session.sessions).some(
       (item) => item.run.serverId === LOCAL_SERVER_ID && isSessionBusyStatus(item.status),
@@ -59,7 +56,6 @@ export function installDesktopUpdates(core: DesktopAppCore, windowCtx: DesktopWi
   }
 
   $effect(() => {
-    if (!isEditorMode) return;
     const prompt = updatesStore.pendingPrompt;
     if (!prompt) return;
     if (prompt === "restart" && isLocalHostBusy) return;
@@ -73,7 +69,6 @@ export function installDesktopUpdates(core: DesktopAppCore, windowCtx: DesktopWi
   });
 
   $effect(() => {
-    if (!isEditorMode) return;
     const outcome = updatesStore.manualCheckOutcome;
     if (!outcome) return;
     const state = updatesStore.state;

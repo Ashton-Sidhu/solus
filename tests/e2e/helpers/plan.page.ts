@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 /** Interactions with the plan card in the conversation and the plan modal. */

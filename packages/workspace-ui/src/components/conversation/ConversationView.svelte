@@ -22,6 +22,7 @@
     getClientShellContext,
     runtime,
     connectRequestStore,
+    seatsStore,
   } from "../../contexts";
   import { useKeybinding } from "../../lib/keybindings/use-keybinding.svelte";
   import { getOuterScrollbarContext } from "../layout/lib/outer-scrollbar.context";
@@ -30,6 +31,7 @@
   import AnsweredQuestion from "./AnsweredQuestion.svelte";
   import RateLimitCard from "./RateLimitCard.svelte";
   import ConnectCard from "../connections/ConnectCard.svelte";
+  import SeatConnectCard from "../seats/SeatConnectCard.svelte";
   import QueuedPromptGroup from "./queued/QueuedPromptGroup.svelte";
   import StatusCard from "./StatusCard.svelte";
   import TranscriptDivider from "./TranscriptDivider.svelte";
@@ -129,9 +131,6 @@
   const shell = getClientShellContext();
   const sourceSessionHistory = createSessionHistoryStore();
   $effect(() => () => sourceSessionHistory.cancel());
-  const fillsPane = $derived(
-    !shell.isOverlayWindow,
-  );
   let {
     tabId,
     forceVisible = false,
@@ -221,7 +220,7 @@
   // message. Only the shell knows, so it tells us rather than us guessing from a
   // viewport width that is equally narrow in a desktop split.
   const reservesBandRoom = $derived(
-    bandAbove && fillsPane && isVisible && !forceVisible,
+    bandAbove && isVisible && !forceVisible,
   );
   // 46px of band plus the gap under it.
   const CRUMB_OFFSET = CONVERSATION_BREADCRUMB_OFFSET;
@@ -459,21 +458,6 @@
     }
   });
 
-  let prevEditorMode: boolean | undefined;
-  $effect(() => {
-    const mode = fillsPane;
-    if (prevEditorMode !== undefined && prevEditorMode !== mode) {
-      if (isVisible && scrollEl) {
-        requestAnimationFrame(() => {
-          if (scrollEl) {
-            scrollEl.scrollTop = scrollEl.scrollHeight;
-          }
-        });
-      }
-    }
-    prevEditorMode = mode;
-  });
-
   const totalCount = $derived(sess?.messages.length ?? 0);
   const startIndex = $derived(transcriptWindowStart(totalCount, renderOffset));
   const hasOlder = $derived(startIndex > 0);
@@ -492,11 +476,11 @@
 
   const grouped = $derived(groupMessages(visibleMessages));
 
-  // Message navigator (right-gutter rail) is editor-shell only — not the pill or
-  // web layouts. The rail itself hides when the gutter is too narrow.
+  // The message navigator is a right-gutter rail in wide layouts only. The rail
+  // itself hides when the gutter is too narrow.
   const showMessageNavigation = $derived(shell.hasProjectPanel);
   // Gate on showMessageNavigation: without this the derived rebuilds for every mounted
-  // tab on every message change even in pill/web mode where it's never rendered.
+  // tab on every message change in mobile layouts where it is never rendered.
   const buildNavItems = createNavItemBuilder();
   const navItems = $derived(
     showMessageNavigation && retainTranscriptRows
@@ -927,9 +911,9 @@
   <div
     onmouseenter={() => (hovered = true)}
     onmouseleave={() => (hovered = false)}
-    class={fillsPane ? "flex flex-col h-full min-h-0" : ""}
+    class="flex h-full min-h-0 flex-col"
   >
-    <div class="cv-root relative {fillsPane ? 'flex-1 min-h-0' : ''}">
+    <div class="cv-root relative min-h-0 flex-1">
       {#if findOpen}
         <div
           class="absolute right-3 z-20"
@@ -954,23 +938,16 @@
         bind:this={scrollEl}
         data-conversation-tab-id={tabId}
         class:outer-scroll-source={!!outerScrollbar}
-        class="overflow-y-auto overflow-x-hidden px-4 pt-1 pb-[var(--solus-composer-inset,0px)] conversation-selectable {fillsPane
-          ? 'h-full'
-          : ''}"
-        style="overscroll-behavior-y:contain; {fillsPane
-          ? ''
-          : 'max-height:var(--pill-body-max)'}"
+        class="conversation-selectable h-full overflow-y-auto overflow-x-hidden px-4 pt-1 pb-[var(--solus-composer-inset,0px)]"
+        style="overscroll-behavior-y:contain"
         onscroll={handleScroll}
       >
         <!-- Centered reading column: the message stream and the status strip
-             share one fluid column (scales with the conversation
-             pane via --solus-reading-max) so everything lines up. No-op in the
-             narrow pill window. -->
+             share one fluid column (scales with the conversation pane via
+             --solus-reading-max) so everything lines up. -->
         <div
           class="w-full"
-          style="{fillsPane
-            ? 'max-width:var(--solus-reading-max);margin-inline:auto'
-            : 'padding-inline:var(--cv-pill-gutter)'}{reservesBandRoom
+          style="max-width:var(--solus-reading-max);margin-inline:auto{reservesBandRoom
             ? `;padding-top:${CRUMB_OFFSET}px`
             : ''}"
         >
@@ -1400,6 +1377,11 @@
           {#if connectRequestStore.visibleFor(sess.run.serverId, sess.id)}
             <ConnectCard tabId={tab.id} />
           {/if}
+          <!-- The host refused this conversation's prompt for want of a seat; the
+               card offers the connect flow where the turn would have run. -->
+          {#if seatsStore.visibleFor(sess.run.serverId, sess.id)}
+            <SeatConnectCard />
+          {/if}
           <QueuedPromptGroup tabId={tab.id} />
 
           {#if showTurnDiffSummary && latestTurnScope}
@@ -1446,27 +1428,22 @@
            edge, so they dissolve into it. It rides that edge like the action
            row, and sits under the row: painted from the dock instead, it
            washed out the row's lower half. -->
-      {#if fillsPane}
-        <div
-          class="transcript-fade pointer-events-none absolute inset-x-0 z-5 h-5"
-          style="bottom:var(--solus-composer-height, 0px)"
-        ></div>
-      {/if}
+      <div
+        class="transcript-fade pointer-events-none absolute inset-x-0 z-5 h-5"
+        style="bottom:var(--solus-composer-height, 0px)"
+      ></div>
 
       {#if showActivityStrip}
         <div
           class="activity-strip flex items-end gap-1.5 absolute pointer-events-none"
-          class:activity-strip-editor={fillsPane}
-          class:activity-strip-pill={!fillsPane}
-          style="bottom:calc(var(--solus-composer-height, 0px) + {fillsPane
-            ? 3
-            : 16}px);height:2rem;z-index:7"
+          class:activity-strip-editor
+          style="bottom:calc(var(--solus-composer-height, 0px) + 3px);height:2rem;z-index:7"
         >
           <div
             bind:clientWidth={activityReservedWidth}
             class="flex items-center gap-1.5 text-xs pointer-events-auto"
-            class:pl-4={fillsPane}
-            class:pr-2={fillsPane}
+            class:pl-4
+            class:pr-2
           >
             <!-- Running, stopped and failed are all reported by the turn's own
                  row (§16, §17), not up here: the state belongs to the turn, not
@@ -1504,7 +1481,7 @@
   /* Skip layout/paint for messages scrolled out of the viewport. Without this,
      a window resize re-wraps and repaints every message in the conversation
      (markdown, code blocks, tool groups) on each frame — the dominant cause of
-     resize lag in editor mode where the full-height column is mounted. The
+     resize lag where the full-height workspace column is mounted. The
      `auto` keyword in contain-intrinsic-size remembers each row's last rendered
      height, so the scrollbar stays accurate and scroll position is preserved. */
   .cv-list > :global(*) {
@@ -1522,11 +1499,6 @@
   .turn-body > :global(.activity-host) {
     content-visibility: visible;
     contain-intrinsic-size: auto;
-  }
-
-  /* Pill mode provides the margin needed by the side-mounted message rails. */
-  .cv-root {
-    --cv-pill-gutter: 2.75rem;
   }
 
   /* Match the scroll area's 1rem side gutters before applying the reading
@@ -1559,12 +1531,6 @@
       var(--solus-container-bg),
       transparent
     );
-  }
-
-  .activity-strip-pill {
-    left: 0;
-    right: 0;
-    padding-inline: calc(1rem + var(--cv-pill-gutter));
   }
 
   /* The row itself cannot contain paint because its rail sits outside its

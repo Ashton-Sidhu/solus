@@ -12,7 +12,7 @@
   // place when the shell swaps in.
 
   interface Props {
-    /** Full-pane (editor mode) vs floating modal + backdrop (pill mode). */
+    /** Full-pane or floating modal with a backdrop. */
     inline?: boolean;
     /** Known before the content is, so it stays real type rather than a ghost. */
     title?: string;

@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test'
 import { DesktopActivityBadges } from '../../apps/desktop/src/main/activity-badges'
 
-test('Editor and Pill share common sessions while retaining disjoint activity', () => {
+test('renderer senders share common sessions while retaining disjoint activity', () => {
   const badges = new DesktopActivityBadges()
   expect(badges.update(1, ['host-a/session-one', 'host-a/session-two'])).toBe(2)
   expect(badges.update(2, ['host-a/session-two', 'host-b/session-one'])).toBe(3)
@@ -9,7 +9,7 @@ test('Editor and Pill share common sessions while retaining disjoint activity', 
   expect(badges.remove(2)).toBe(0)
 })
 
-test('focus acknowledges both renderer counts without retaining closed window state', () => {
+test('focus acknowledges renderer counts without retaining destroyed sender state', () => {
   const badges = new DesktopActivityBadges()
   badges.update(1, ['a'])
   badges.update(2, ['b'])

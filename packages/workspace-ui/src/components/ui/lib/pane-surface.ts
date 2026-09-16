@@ -19,9 +19,9 @@ export type RouteSurfaceProps<K extends keyof RouteParams> = PaneSurfaceProps & 
 }
 
 /**
- * What a page gets when either shell may mount it. Editor mode routes it
- * through the pane outlet, which hands over a pane id; pill mode renders the
- * same component inline, where there is no pane at all — so `paneId` is
+ * What a page gets when either client layout may mount it. The wide layout routes
+ * it through the pane outlet, which hands over a pane id; the mobile layout
+ * renders the same component inline, where there is no pane at all — so `paneId` is
  * genuinely absent rather than merely unread, and the pane controls that depend
  * on it must not be offered.
  */

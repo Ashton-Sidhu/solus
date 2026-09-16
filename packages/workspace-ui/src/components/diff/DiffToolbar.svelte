@@ -601,7 +601,7 @@
      code surface, which no longer has washes of its own to divide the two. */
   /* Height is the workspace chrome row, not intrinsic content — the diff pane
      sits beside the tab strip and the two top rows have to share a baseline.
-     Same token TabStrip.css and SidePanel.svelte use. */
+     Same token SidePanel.svelte uses. */
   .diff-toolbar {
     display: flex;
     align-items: center;

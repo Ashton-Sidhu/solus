@@ -1,7 +1,7 @@
 import { test, expect } from "../fixtures/electron-app";
 import { AppPage } from "../helpers/app.page";
 
-const ACTIVE_SHELL = ".mode-shell:not(.mode-hidden)";
+const ACTIVE_SHELL = ".workspace-shell";
 const INPUT_EDITOR = `${ACTIVE_SHELL} [data-testid="message-input"] .cm-content`;
 
 async function clearInput(page: import("@playwright/test").Page) {

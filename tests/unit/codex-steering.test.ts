@@ -70,6 +70,8 @@ describe('CodexBackend steering', () => {
     }
     ;(backend as unknown as { client: typeof client }).client = client
     ;(backend as unknown as { activeRuns: Map<string, unknown> }).activeRuns.set('thread-1', {
+      // A run is steered on the app-server it started on (one per seat).
+      client,
       threadId: 'thread-1',
       turnId: 'turn-1',
       cwd: '/tmp/project',
@@ -103,6 +105,8 @@ describe('CodexBackend steering', () => {
     }
     ;(backend as unknown as { client: typeof client }).client = client
     ;(backend as unknown as { activeRuns: Map<string, unknown> }).activeRuns.set('thread-1', {
+      // A run is steered on the app-server it started on (one per seat).
+      client,
       threadId: 'thread-1',
       turnId: 'turn-1',
       cwd: '/tmp/project',
@@ -121,6 +125,8 @@ describe('CodexBackend steering', () => {
     }
     ;(backend as unknown as { client: typeof client }).client = client
     ;(backend as unknown as { activeRuns: Map<string, unknown> }).activeRuns.set('thread-1', {
+      // A run is steered on the app-server it started on (one per seat).
+      client,
       threadId: 'thread-1',
       turnId: 'turn-1',
       cwd: '/tmp/project',

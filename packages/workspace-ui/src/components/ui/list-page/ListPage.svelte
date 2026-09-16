@@ -66,8 +66,7 @@
     /** The page's one creating action. */
     primaryAction?: { label: string; shortcut?: string; run: () => void };
     /** Move the page between the leading pane and the companion beside it.
-     *  Absent where there is no pane to move to — pill mode renders these pages
-     *  inline. */
+     *  Absent where there is no pane to move to, such as an inline mobile page. */
     onMoveAcross?: () => void;
     /** Which way `onMoveAcross` sends the page. */
     isLeading?: boolean;

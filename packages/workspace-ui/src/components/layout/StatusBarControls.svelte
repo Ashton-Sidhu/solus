@@ -107,7 +107,7 @@
   let gitTriggerEl: HTMLButtonElement | null = $state(null);
   // This cluster now lives on the full-width input toolbar row, so the old
   // width-based collapse no longer applies: dir + usage always show, and branch
-  // shows in pill mode as before. Text truncates to degrade gracefully.
+  // shows when the destination controls are enabled. Text truncates to degrade gracefully.
   const showBranch = $derived(showDestination);
   const showDirLabel = true;
   const showUsage = $derived(!showDestination);
@@ -207,9 +207,8 @@
 
 <!--
   The dir/branch + destination cluster. Rendered inline on the input toolbar
-  row (right of the mode/model pills), so it stays compact rather than spanning
-  a full-width status bar. Editor mode keeps context usage here; Pill mode puts
-  it in the tab-strip action cluster.
+  row (right of the mode/model controls), so it stays compact rather than spanning
+  a full-width status bar. The workspace keeps context usage here.
 -->
 <div class="relative flex min-w-0 items-center gap-2 text-workspace-chrome">
   <!-- Composer ladder, rung 5: the whole status cluster goes below 25rem. It is
@@ -223,8 +222,8 @@
        server, which are the only entry points to those, so a narrow composer
        must not be the thing that removes them. -->
   <div class="contents @max-[25rem]/composer:hidden">
-  <!-- Project info (dir + branch). Editor mode says this in the input bar's
-       header strip instead, where it can also be changed. -->
+  <!-- Project info (dir + branch). The input bar header also shows this data
+       where the destination can be changed. -->
   {#if showDestination}
     {@render projectInfo()}
   {/if}

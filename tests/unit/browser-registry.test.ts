@@ -619,7 +619,7 @@ describe('browser registry', () => {
   })
 
   test('two mounted surfaces on one client keep separate stream references', async () => {
-    // WHY: Editor and Pill mode can both mount the same page. Hiding one must
+    // WHY: Multiple layouts can mount the same page. Hiding one must
     // not stop the stream that the other visible surface still uses.
     const { registry, driver } = harness()
     const page = registry.open({ target: TARGET })

@@ -652,9 +652,6 @@ section[id] {
 /* Vim block cursor — opacity-only blink (GPU-friendly, reduced-motion safe) */
 /* Vim status line */
 
-/* Editor phases: full window chrome materializes */
-
-/* Drag bar collapses to zero height during pill phases */
 @media (max-width: 720px) {
   /* Dock hidden — priority is the terminal-behind + Solus-floating story. */
 }

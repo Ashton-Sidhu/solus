@@ -241,7 +241,7 @@
     {:else if isRaster && artifact.path}
       <!-- The one render that is not HTML. It reuses the frame's chrome
            (expand, overlay, action cluster) rather than growing a second one. -->
-      <SandboxFrame {fillAvailable} reloadKey={retryAttempt + reloadKey}>
+      <SandboxFrame {fillAvailable} expandable={!fillAvailable && !workRef} reloadKey={retryAttempt + reloadKey}>
         <img
           class="artifact-img"
           src={artifactUrl}
@@ -290,9 +290,7 @@
         {fillAvailable}
         reloadKey={retryAttempt + reloadKey}
         lazy={!fillAvailable}
-        onExpandOnTouch={workRef && !fillAvailable
-          ? () => session.openWork(workRef.workId, "focused")
-          : undefined}
+        expandable={!fillAvailable && !workRef}
         onError={() => (artifactError = "This artifact could not be rendered.")}
       />
     {:else}

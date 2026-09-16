@@ -199,7 +199,7 @@
     // detached new-session draft, whose model choice is local until dispatch.
     if (!isSessionSettingsShortcutTarget({ isPrimary, tabId, targetTabId })) return;
     if (isBusy || handoffInProgress) return;
-    // Both the editor- and pill-mode layouts stay mounted, so two SessionChips
+    // Multiple mounted conversation surfaces can each render a SessionChip and
     // receive this shortcut. Only the one in the visible layout should open
     // (a display:none ancestor reports offsetParent === null).
     if (triggerEl && triggerEl.offsetParent === null) return;

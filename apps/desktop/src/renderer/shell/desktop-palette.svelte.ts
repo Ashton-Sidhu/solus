@@ -25,15 +25,18 @@ import {
   GlobeIcon,
   RefreshCw as RefreshIcon,
   Download as DownloadIcon,
+  Users as UsersIcon,
 } from "@lucide/svelte";
 
 import { hostOnboardingStore } from "@solus/workspace-ui/components/servers/host-onboarding.store.svelte";
 
 import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
 import {
+  activeSessionShareTarget,
   projectsStore,
   serversStore,
   hostCapabilitiesStore,
+  sharesStore,
   updatesStore,
 } from "@solus/workspace-ui/contexts";
 
@@ -152,7 +155,21 @@ export function createDesktopPalette(
   // Seed command set for the editor command palette. Intentionally a small,
   // obviously-correct starter list — the UI is the deliverable here; richer,
   // context-aware commands get layered in later.
+  const shareTarget = $derived(activeSessionShareTarget(session));
   const baseCommands: Command[] = [
+    {
+      id: "share-session",
+      label: "Share…",
+      group: "General",
+      icon: UsersIcon,
+      hint: comboHint("global.share"),
+      keywords: ["share", "access", "link", "team", "guest", "invite"],
+      run: () => {
+        const target = shareTarget;
+        if (target) sharesStore.open(target);
+        else toasts.info("Start a session first, then share it");
+      },
+    },
     {
       id: "open-project",
       label: "Open project…",
@@ -286,8 +303,8 @@ export function createDesktopPalette(
       icon: PlugsIcon,
       keywords: ["discover", "scan", "lan", "tailscale", "nearby"],
       // Settings → Connections owns the fuller version of this: a scan button,
-      // last-seen times and connect. The switcher chip it used to open is not
-      // rendered in editor mode at all.
+      // last-seen times and connect. The old switcher chip is not rendered in
+      // the workspace.
       run: () => {
         session.showSettings("api-access", "palette");
         void serversStore.scanForServers();

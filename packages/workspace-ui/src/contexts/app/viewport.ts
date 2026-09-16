@@ -28,7 +28,7 @@ export function isMobileLayout(
  * Keyed on the physical display rather than the window, because zoom changes
  * how many CSS pixels the window reports: the old `(max-width: 1800px)` media
  * query put a 1920px monitor on the laptop branch as soon as the user zoomed to
- * 110%, so one keystroke silently resized the pill. The threshold is shared with
+ * 110%, so one keystroke silently changed responsive geometry. The threshold is shared with
  * the first-run zoom seed (ADR-0010) — one definition of "laptop" for both.
  *
  * On web the browser owns zoom and we cannot read its factor, so a

@@ -86,4 +86,34 @@ describe('UpdatesStore', () => {
     store.markManualCheckReported()
     expect(store.manualCheckOutcome).toBeNull()
   })
+
+  test.each(['error', 'up-to-date'] as const)('does not report the previous %s result while a new check starts', async (kind) => {
+    const { store, push } = await storeWithFakeShell()
+    push(status(kind === 'error'
+      ? { kind, message: 'previous failure', release: null }
+      : { kind, checkedAt: 1 }))
+
+    const checking = store.check()
+    // The shell effect can run before IPC delivers checking-for-update.
+    expect(store.manualCheckOutcome).toBeNull()
+    await checking
+    expect(store.manualCheckOutcome).toBeNull()
+    push(status({ kind: 'checking' }))
+    push(status({ kind: 'up-to-date', checkedAt: 2 }))
+    expect(store.manualCheckOutcome).toBe('up-to-date')
+  })
+
+  test('does not call a later download or background failure a manual check failure', async () => {
+    const { store, push } = await storeWithFakeShell()
+    await store.check()
+    push(status({ kind: 'checking' }))
+    push(status({ kind: 'available', release }))
+    expect(store.manualCheckOutcome).toBeNull()
+    push(status({ kind: 'downloading', release, percent: 10 }))
+    push(status({ kind: 'error', message: 'download failed', release }))
+    expect(store.manualCheckOutcome).toBeNull()
+    push(status({ kind: 'checking' }))
+    push(status({ kind: 'error', message: 'background check failed', release: null }))
+    expect(store.manualCheckOutcome).toBeNull()
+  })
 })

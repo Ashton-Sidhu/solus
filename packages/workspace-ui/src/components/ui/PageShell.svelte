@@ -40,7 +40,7 @@
 </script>
 
 {#if leading}
-  <!-- Pinned to the top-left corner, so on the mac editor window this lands
+  <!-- Pinned to the top-left corner, so on the mac workspace window this lands
        under the traffic lights whenever this page is the leftmost chrome
        (sidebar collapsed). Clear them with the shared lead inset; a no-op
        otherwise and off-mac. -->

@@ -1,11 +1,13 @@
 import { execFileSync, spawn as nodeSpawn, type ChildProcess } from 'child_process'
-import { existsSync, readdirSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync } from 'fs'
 import { mkdir, readdir, rm } from 'fs/promises'
 import { homedir } from 'os'
 import { basename, dirname, join } from 'path'
 import { z } from 'zod'
-import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep, type SetupVerification } from '@solus/contracts/types'
+import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep } from '@solus/contracts/types'
+import { providerLoginConnected } from '../../seats/seat-login'
 import type { SolusServer, HandlerCtx } from '../server'
+import type { Principal } from '../principal'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { getCliEnv } from '../../cli-env'
 import { runAsync } from '../../git/exec'
@@ -54,10 +56,6 @@ const delegatedCredentialSchema = z.object({
   login: z.string(),
 }).strict()
 const setupAgentRequestSchema = z.object({ agent: setupAgentSchema }).strict()
-const setupAgentSignInCodeSchema = z.object({
-  agent: setupAgentSchema,
-  code: z.string(),
-}).strict()
 const setupPrepareProjectSchema = z.object({
   cloneUrl: z.string(),
   credential: delegatedCredentialSchema.optional(),
@@ -80,11 +78,6 @@ const setupAdoptProjectSchema = z.object({
   path: z.string(),
   cloneUrl: z.string().optional(),
 }).strict()
-
-interface ActiveAgentSignIn {
-  child: ChildProcess | null
-  completion: Promise<void>
-}
 
 interface LineBuffer {
   write(chunk: Buffer | string): void
@@ -125,6 +118,8 @@ export interface CapabilityProbeOptions {
   headless: boolean
   desktopHandlers: boolean
   version: string
+  /** Who is asking: a member's pickers open on their own workspace (managed-hosts.md §3). */
+  principal?: Principal
 }
 
 export async function probeServerCapabilities(opts: CapabilityProbeOptions): Promise<ServerCapabilities> {
@@ -146,7 +141,8 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
     gitAuth: {
       github: hasGithubAuth(),
     },
-    projectsBaseDirectory: getServerSettings().projectsBaseDirectory,
+    // A member's pickers open on their own workspace; the owner's on the host setting.
+    projectsBaseDirectory: opts.principal?.kind === 'org-member' ? projectsRootFor(opts.principal) : getServerSettings().projectsBaseDirectory,
     agentTaskLifecyclePolicy: getHostConfig().config.agentTaskLifecyclePolicy,
     workspacePath: WORKSPACE_DIR,
   }
@@ -163,19 +159,15 @@ function whichAgentBinary(agentId: AgentId): string | null {
   }
 }
 
+/** The host login is the owner's seat: the seat module owns the one honest probe for it. */
 export function hasClaudeAuth(
-  succeeds: (command: string, args: string[]) => boolean = probeSucceeds,
+  succeeds?: (command: string, args: string[]) => boolean,
 ): boolean {
-  // `.claude.json` is durable client state, not a credential: Claude keeps it
-  // after logout with `loggedIn: false`. Let the CLI interpret every supported
-  // credential backend and answer through its documented status exit code.
-  return succeeds('claude', ['auth', 'status'])
+  return providerLoginConnected('claude-code', null, succeeds ? (command, args) => succeeds(command, args) : undefined)
 }
 
-/** Codex writes successful CLI login credentials here; checking it never reaches the network. */
 export function hasCodexAuth(): boolean {
-  const configuredHome = process.env.CODEX_HOME?.trim()
-  return existsSync(join(configuredHome || join(homedir(), '.codex'), 'auth.json'))
+  return providerLoginConnected('codex', null)
 }
 
 export function hasGithubAuth(): boolean {
@@ -194,6 +186,7 @@ export function hasGithubAuth(): boolean {
 export function probeHostReadiness(
   hasCommand: (command: string) => boolean = commandExists,
   agentDeps: AgentAuthProbeDeps = {},
+  projectsRoot: string = setupProjectsRoot(),
 ): HostReadiness {
   // The version string decides nothing; running the probe is still how "is git
   // here at all?" gets answered.
@@ -203,7 +196,7 @@ export function probeHostReadiness(
   return {
     platform: process.platform,
     home: homedir(),
-    projectsRoot: setupProjectsRoot(),
+    projectsRoot,
     git: {
       installed: gitInstalled,
       identity: readGitIdentity(),
@@ -243,16 +236,35 @@ export function coerceSetupAgent(value: string): SetupAgent {
 /**
  * Where projects land on this host — the root the "Open project" primary action
  * commits to. Settings → General owns the answer; a host that never set one
- * falls back to its own home folder rather than burying checkouts somewhere the
- * user would never think to look.
+ * falls back to `SOLUS_PROJECTS_ROOT` (the managed image's volume path,
+ * managed-hosts.md §3) and then to its own home folder rather than burying
+ * checkouts somewhere the user would never think to look.
  */
 export function setupProjectsRoot(
   settings: Pick<ReturnType<typeof getServerSettings>, 'projectsBaseDirectory'> = getServerSettings(),
   homeDirectory = homedir(),
+  env: { SOLUS_PROJECTS_ROOT?: string } = process.env,
 ): string {
-  const configured = settings.projectsBaseDirectory?.trim()
+  const configured = settings.projectsBaseDirectory?.trim() || env.SOLUS_PROJECTS_ROOT?.trim()
   if (configured) return expandHome(configured, homeDirectory)
   return homeDirectory
+}
+
+/** A Better Auth user id; nothing that could walk the filesystem. */
+const workspaceUserIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
+
+/**
+ * Where one person's projects land (managed-hosts.md §3). The host's root for its
+ * owner and for the host's own work; a member of the organization gets a directory
+ * of their own beneath it, named by their account id, so each person clones into a
+ * workspace that is theirs. It is a default, not a boundary: members see every
+ * session and work on the host (decision 2026-09-15), and may open any path.
+ */
+export function projectsRootFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
+  if (principal?.kind !== 'org-member') return hostRoot
+  const workspace = join(hostRoot, workspaceUserIdSchema.parse(principal.userId))
+  mkdirSync(workspace, { recursive: true })
+  return workspace
 }
 
 export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps = {}): void {
@@ -260,16 +272,14 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   const hasCommand = deps.hasCommand ?? commandExists
   const loadStoredGithubToken = deps.loadGithubToken ?? loadGithubToken
   const projectsRoot = deps.projectsRoot ?? setupProjectsRoot
+  /** The caller's own workspace beneath the host root (managed-hosts.md §3). */
+  const projectsRootOf = (ctx: HandlerCtx) => projectsRootFor(ctx.principal, projectsRoot())
   /** The last step of both cloning and adopting; returns the key both promise. */
   const registerProject = deps.registerProject ?? (async (path: string) => {
     await recordProject(path)
     return resolveProjectKey(path)
   })
   const activeSteps = new Set<SetupStreamStep>()
-  const activeAgentSignIns = new Map<SetupAgent, {
-    child: ChildProcess
-    completion: Promise<void>
-  }>()
   /** The one path `clean: true` is allowed to delete: what this host's last clone left behind. */
   let lastFailedCloneDestination: string | null = null
 
@@ -289,7 +299,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     if (repoKeys.length > MAX_DISPATCH_HISTORY_REPO_KEYS) {
       throw new Error(`Dispatch history is limited to ${MAX_DISPATCH_HISTORY_REPO_KEYS} repositories per request.`)
     }
-    return resolveDispatchHistoryRoots(projectsRoot(), deviceId, repoKeys)
+    return resolveDispatchHistoryRoots(projectsRootOf(ctx), deviceId, repoKeys)
   })
 
   server.register('setProjectsBaseDirectory', (args) => {
@@ -332,88 +342,8 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return checkAgentAuth(setupAgent, deps)
   })
 
-  server.register('setupAgentSignIn', async (args, ctx): Promise<SetupStepResult> => {
-    const { emitStatus, emitLog } = eventSink(ctx.clientId)
-    const [request] = args
-    const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
-    const step = signInStepForAgent(setupAgent)
-    const spec = agentSignInCommand(setupAgent)
-    let stdout = ''
-    let emittedVerification = ''
-    // A fresh attempt supersedes an abandoned device-code prompt. This also
-    // recovers after a client disappears before it can send the explicit cancel.
-    await cancelActiveAgentSignIn(setupAgent)
-
-    let settleCompletion: () => void = () => {}
-    const completion = new Promise<void>((resolve) => {
-      settleCompletion = resolve
-    })
-    const signInState: ActiveAgentSignIn = {
-      child: null,
-      completion,
-    }
-    // Browser auth can wait for 15 minutes and has its own replacement/cancel
-    // lifecycle below. It must not hold the setup lock: cloning a repository
-    // does not depend on agent auth and should remain available while the user
-    // finishes sign-in in their browser.
-    const signIn = (async () => {
-      emitLog({ step, line: `Running ${spec.display}` })
-      return await runSetupProcess({
-        step,
-        spec,
-        spawnProcess,
-        emitStatus,
-        emitLog,
-        detached: true,
-        stdin: 'pipe',
-        onSpawn(child) {
-          signInState.child = child
-          activeAgentSignIns.set(setupAgent, {
-            child,
-            completion: signInState.completion,
-          })
-        },
-        onStdoutLine(line) {
-          stdout = `${stdout}\n${line}`.slice(-8_192)
-          const verification = parseAgentSignInVerification(stdout)
-          if (!verification) return
-          const key = `${verification.url}\n${verification.code ?? ''}\n${verification.requiresCodeInput ?? false}`
-          if (key === emittedVerification) return
-          emittedVerification = key
-          emitStatus({ step, status: 'running', verification })
-        },
-        verifySuccess() {
-          const auth = checkAgentAuth(setupAgent, deps)
-          if (auth.installed && auth.authenticated === true) return null
-          const label = setupAgent === 'claude' ? 'Claude' : 'Codex'
-          return `${label} sign-in finished, but ${label} is still not signed in on this host.`
-        },
-      })
-    })()
-    void signIn.then(settleCompletion, settleCompletion)
-    try {
-      return await signIn
-    } finally {
-      if (activeAgentSignIns.get(setupAgent)?.completion === signInState.completion) {
-        activeAgentSignIns.delete(setupAgent)
-      }
-    }
-  })
-
-  server.register('setupSubmitAgentSignInCode', (args) => {
-    const [request] = args
-    const { agent: setupAgent, code } = setupAgentSignInCodeSchema.parse(request)
-    const submittedCode = coerceAgentSignInCode(code)
-    const stdin = activeAgentSignIns.get(setupAgent)?.child.stdin
-    if (!stdin?.writable) throw new Error(`${setupAgent === 'claude' ? 'Claude' : 'Codex'} sign-in is not waiting for a code.`)
-    stdin.write(`${submittedCode}\n`)
-    return { submitted: true }
-  })
-
-  server.register('setupCancelAgentSignIn', async () => {
-    return { cancelled: await cancelActiveAgentSignIn() }
-  })
-
+  // Signing an agent in is the seat connect (`seatConnectStart` and friends): the
+  // host login is the owner's seat, so the wizard and a member's row share one relay.
 
   server.register('setupListGithubRepos', async (): Promise<SetupGithubReposResult> => {
     if (!hasGithubAuth()) return { connected: false }
@@ -435,8 +365,8 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return { connected: true, repos }
   })
 
-  server.register('setupHostReadiness', (): HostReadiness => {
-    return probeHostReadiness(hasCommand, deps)
+  server.register('setupHostReadiness', (_args, ctx): HostReadiness => {
+    return probeHostReadiness(hasCommand, deps, projectsRootOf(ctx))
   })
 
   server.register('setupInstallGit', (_args, ctx) => {
@@ -549,7 +479,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const repoKey = cloneRepoKey(parsed.cloneUrl)
     if (!repoKey) throw new Error('The clone URL must name both an owner and repository.')
 
-    const checkoutPath = dispatchCheckoutPath(projectsRoot(), deviceId, repoKey)
+    const checkoutPath = dispatchCheckoutPath(projectsRootOf(ctx), deviceId, repoKey)
     if (runProbe('git', ['-C', checkoutPath, 'rev-parse', '--show-toplevel'])) {
       const result = await server.handle('setupAdoptProject', [{ path: checkoutPath, cloneUrl: parsed.cloneUrl }], ctx)
       if (credential) {
@@ -598,7 +528,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     const step: SetupStreamStep = 'clone'
 
     return runExclusive(step, async () => {
-      const hostProjectsRoot = projectsRoot()
+      const hostProjectsRoot = projectsRootOf(ctx)
       // Only a directory this host's own clone left behind can be removed, so a
       // stray `clean` can never delete a folder the user chose. It runs before the
       // destination resolves: a retry that names no destination must land back on
@@ -762,30 +692,10 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     }
   }
 
-  async function cancelActiveAgentSignIn(agent?: SetupAgent): Promise<boolean> {
-    const selectedSignIn = agent ? activeAgentSignIns.get(agent) : undefined
-    const signIns = agent
-      ? (selectedSignIn ? [selectedSignIn] : [])
-      : [...activeAgentSignIns.values()]
-    if (signIns.length === 0) return false
-    for (const signIn of signIns) terminateProcessTree(signIn.child, 'SIGTERM')
-    await Promise.all(signIns.map((signIn) => signIn.completion))
-    return true
-  }
 }
 
 function installStepForAgent(agent: SetupAgent): SetupStreamStep {
   return agent === 'claude' ? 'install-claude' : 'install-codex'
-}
-
-function signInStepForAgent(agent: SetupAgent): SetupStreamStep {
-  return agent === 'claude' ? 'signin-claude' : 'signin-codex'
-}
-
-function agentSignInCommand(agent: SetupAgent): ProcessCommandSpec {
-  return agent === 'claude'
-    ? { command: 'claude', args: ['auth', 'login'], display: 'claude auth login' }
-    : { command: 'codex', args: ['login', '--device-auth'], display: 'codex login --device-auth' }
 }
 
 /** Readiness cares only about "can this host run the agent", so an unknown auth probe reads as not signed in. */
@@ -808,30 +718,6 @@ function checkAgentAuth(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): Setup
       ? (agent === 'claude' ? checkClaudeAuth() : checkCodexAuth())
       : false,
   }
-}
-
-/**
- * Agent CLIs vary their surrounding prose, so only browser URLs, device codes
- * and Claude's explicit browser fallback are scraped. Missing or unfamiliar
- * output simply returns null while the unmodified lines keep streaming.
- */
-export function parseAgentSignInVerification(output: string): SetupVerification | null {
-  const text = output.replace(ANSI_RE, '')
-  const urls = [...text.matchAll(/https?:\/\/[^\s<>"')\]]+/gi)]
-  const url = urls.at(-1)?.[0]?.replace(/[.,;:]+$/, '')
-  const codePatterns = [
-    /enter\s+(?:this\s+)?(?:one[- ]time\s+)?code(?:[ \t]*\([^)\r\n]*\))?[ \t]*(?:is|:)?[ \t]*\r?\n[ \t]*([A-Z0-9][A-Z0-9-]{3,31})/i,
-    /(?:verification|device)\s+code\s*(?:is|:)\s*([A-Z0-9][A-Z0-9-]{3,31})/i,
-    /\bcode\s*(?:is|:)\s*([A-Z0-9][A-Z0-9-]{3,31})/i,
-  ]
-  const code = codePatterns
-    .map((pattern) => pattern.exec(text)?.[1])
-    .find((candidate): candidate is string => !!candidate)
-  if (url && code) return { url, code }
-  if (url && /browser\s+didn['’]?t\s+open,\s*visit/i.test(text)) {
-    return { url, requiresCodeInput: true }
-  }
-  return null
 }
 
 /**
@@ -867,16 +753,6 @@ function coerceConfigValue(value: string, label: string): string {
     throw new Error(`${label} contains characters git can’t store.`)
   }
   return trimmed
-}
-
-/** The CLI reads one response line; reject extra control characters and oversized input. */
-function coerceAgentSignInCode(value: string): string {
-  const code = value.trim()
-  if (!code) throw new Error('Sign-in code is required.')
-  if (code.length > 4_096 || [...code].some((character) => character === '\r' || character === '\n' || character === '\0')) {
-    throw new Error('Sign-in code is invalid.')
-  }
-  return code
 }
 
 /** `host/owner/repo`, independent of whether git stored SSH or HTTPS as origin. */
@@ -1029,11 +905,6 @@ async function runSetupProcess(opts: {
   cwd?: string
   /** Secrets belong here, never in `spec.args` — argv is world-readable. */
   env?: GitAuthEnv
-  stdin?: 'ignore' | 'pipe'
-  /** Interactive commands get their own process group so cancellation reaches CLI wrappers and children. */
-  detached?: boolean
-  onSpawn?(child: ChildProcess): void
-  onStdoutLine?(line: string): void
   /** A fallback attempt is not a failed setup step until its final attempt fails. */
   emitFailureStatus?: boolean
   /** Returns a user-facing error when a zero exit did not achieve the intended state. */
@@ -1047,10 +918,6 @@ async function runSetupProcess(opts: {
     emitLog,
     cwd,
     env,
-    stdin = 'ignore',
-    detached = false,
-    onSpawn,
-    onStdoutLine,
     emitFailureStatus = true,
     verifySuccess,
   } = opts
@@ -1058,11 +925,9 @@ async function runSetupProcess(opts: {
 
   const child = spawnProcess(spec.command, spec.args, {
     cwd,
-    stdio: [stdin, 'pipe', 'pipe'],
-    detached,
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: getCliEnv({ FORCE_COLOR: '0', ...env }),
   })
-  onSpawn?.(child)
 
   let settled = false
   const outputTail: string[] = []
@@ -1072,10 +937,7 @@ async function runSetupProcess(opts: {
     outputTail.push(line)
     if (outputTail.length > 3) outputTail.shift()
   }
-  const stdout = createLineBuffer((line) => {
-    emitOutputLine(line)
-    onStdoutLine?.(line)
-  })
+  const stdout = createLineBuffer(emitOutputLine)
   const stderr = createLineBuffer(emitOutputLine)
   child.stdout?.on('data', (chunk) => stdout.write(chunk))
   child.stderr?.on('data', (chunk) => stderr.write(chunk))
@@ -1113,18 +975,6 @@ async function runSetupProcess(opts: {
       }
     })
   })
-}
-
-function terminateProcessTree(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (process.platform !== 'win32' && child.pid) {
-    try {
-      process.kill(-child.pid, signal)
-      return
-    } catch {
-      // The wrapper may have exited between the status check and this signal.
-    }
-  }
-  child.kill(signal)
 }
 
 function createLineBuffer(onLine: (line: string) => void): LineBuffer {

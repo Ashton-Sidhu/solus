@@ -1,14 +1,4 @@
-import type { AgentId, IpcContext } from '@solus/contracts/types'
 import { createAppContext } from './create-app-context'
-
-/** The session a client shell can carry into another native window. */
-export interface ClientSessionRef {
-  sessionId: string
-  serverId: string
-  provider: AgentId
-  cwd: string
-  title: string | null
-}
 
 /** Client-owned facts. Shared features do not select a layout or read native events. */
 export interface ClientShellContext {
@@ -18,16 +8,13 @@ export interface ClientShellContext {
   readonly hasInsetTitlebar: boolean
   readonly supportsLocalAttachments: boolean
   readonly supportsNativeSettings: boolean
-  readonly isOverlayWindow: boolean
   readonly hasProjectPanel: boolean
   readonly hasCompanionPanes: boolean
-  readonly groupsTabsByBranch: boolean
-  readonly conversationVisible: boolean
   readonly deferHistoryToolInputs: boolean
-  /** Compatibility at the RPC boundary only; never used to choose shared UI. */
-  readonly rpcWindow: IpcContext['window']
-  showWorkspace?(): Promise<void>
-  continueInOtherWindow?(session?: ClientSessionRef): Promise<void>
+  /** The workspace surrounds this surface: the Workspace page, chats, publishing,
+   *  sharing. The guest shell (docs/plans/multiplayer-sharing.md §4.2) has none of
+   *  it, so a surface offers no way there. */
+  readonly hasWorkspace: boolean
 }
 
 export const [getClientShellContext, setClientShellContext] =

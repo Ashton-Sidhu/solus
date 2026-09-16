@@ -6,7 +6,7 @@
  * `SOLUS_STARTUP_TRACE=1`, reads the phase marks it writes to stdout, and
  * reports the median split of the critical path. The headline number is
  * `spawn -> window shown`: process spawn to the `solus:renderer-ready` IPC that
- * makes the editor window visible, which is the first moment a user sees Solus.
+ * makes the workspace window visible, which is the first moment a user sees Solus.
  *
  * Each run gets an isolated data directory and a free port so a bench never
  * touches — or races — the Solus the developer is actually using. The directory

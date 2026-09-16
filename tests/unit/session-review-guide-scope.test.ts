@@ -131,7 +131,6 @@ function reviewContext(cwd: string, sessionId: string): IpcContext {
       readOnlyReason: null,
       latestCheckpointId: null,
     },
-    window: { viewMode: 'editor' },
     settings: {
       themeMode: 'system',
       isDark: false,

@@ -15,8 +15,8 @@ export const _planListCache = new MemoryCache<string, PlanDescriptor[]>({ ttlMs:
 
 /**
  * In-flight cold plan scans keyed by cache key, mirroring _sessionScanInFlight.
- * At launch the pill and editor windows both fire `listPlans`; without deduping
- * they each walk every project's transcripts at once. Sharing one scan lets the
+ * Concurrent clients can both fire `listPlans`; without deduping they each walk
+ * every project's transcripts at once. Sharing one scan lets the
  * second caller await the same promise. Entries are removed when the scan settles.
  */
 export const _planScanInFlight = new Map<string, Promise<PlanDescriptor[]>>()

@@ -10,6 +10,9 @@ export type ClientEventDelivery = (event: HostEvent) => void
 export class ClientEventRegistry {
   private readonly deliveries = new Map<ClientId, ClientEventDelivery>()
 
+  /** `audience` decides per client whether an event may reach it; absent means everyone hears everything. */
+  constructor(private readonly audience?: (clientId: ClientId, event: HostEvent) => boolean) {}
+
   register(clientId: ClientId, deliver: ClientEventDelivery): () => void {
     this.deliveries.set(clientId, deliver)
     return () => {
@@ -20,6 +23,7 @@ export class ClientEventRegistry {
   deliver(clientId: ClientId, event: HostEvent): boolean {
     const delivery = this.deliveries.get(clientId)
     if (!delivery) return false
+    if (this.audience && !this.audience(clientId, event)) return false
     try {
       delivery(event)
       return true

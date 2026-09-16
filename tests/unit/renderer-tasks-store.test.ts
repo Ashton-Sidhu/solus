@@ -209,8 +209,8 @@ describe('renderer task hydration', () => {
   })
 
   test('refreshes visible task details without fanning out through the hidden cache', async () => {
-    // WHY: Editor and Pill keep hidden tabs mounted. A task invalidation must not
-    // turn every task detail ever opened in those tabs into a simultaneous RPC.
+    // WHY: Hidden tabs stay mounted. A task invalidation must not turn every task
+    // detail ever opened in those tabs into a simultaneous RPC.
     jest.useFakeTimers()
     installStateRune()
     const detailReads: string[] = []

@@ -61,7 +61,7 @@ export function buildGitWatchTargets(paths: GitWatchPaths): GitWatchTarget[] {
 /**
  * Watches a git repo's HEAD / refs/heads / index for external changes — branch
  * switch, commit, stage done in a terminal — and fires a debounced callback so
- * the Environment panel and pill can mirror reality instead of drifting.
+ * every mounted environment view can mirror reality instead of drifting.
  *
  * Keyed and ref-counted by checkout cwd so tabs on the same checkout share one
  * set of handles, while linked worktrees retain distinct HEAD/index watches.

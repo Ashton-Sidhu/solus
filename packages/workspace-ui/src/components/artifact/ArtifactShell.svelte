@@ -5,7 +5,6 @@
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import ArtifactView from "./ArtifactView.svelte";
   import CodeBlock from "../ui/CodeBlock.svelte";
-  import SegmentedControl from "../ui/SegmentedControl.svelte";
   import * as Select from "../ui/select";
   import { RotateCw as ReloadIcon } from "@lucide/svelte";
   import { ARTIFACT_WIDTH_OPTIONS, artifactWidthFor } from "./lib/artifact-viewport";
@@ -122,7 +121,7 @@
   data-testid="artifact-shell"
 >
   <!-- Same de-chromed control strip as the diagram shell: the pane's own
-       close / split / maximize live in the floating PaneChrome cluster, which
+       close / split live in the floating PaneChrome cluster, which
        this row reserves room for on its right.
 
        The chrome row is a *floor*, not a fixed height. It used to be fixed with
@@ -134,7 +133,7 @@
        a 44px back chevron. `h-auto` + `min-h` fits whichever is tallest without
        having to enumerate them. -->
   <div
-    class="workspace-titlebar flex h-auto min-h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-1.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] pr-[max(1rem,var(--solus-pane-chrome-inset,0px))] @max-[30rem]/pane:gap-1 @max-[30rem]/pane:pl-2"
+    class="workspace-titlebar flex h-auto min-h-[var(--solus-chrome-row-h,2.5rem)] shrink-0 items-center gap-1.5 pl-[max(1rem,var(--solus-chrome-lead-inset,0px))] pr-[max(1rem,var(--solus-pane-chrome-inset,0px))] @max-[30rem]/pane:flex-wrap @max-[30rem]/pane:gap-1 @max-[30rem]/pane:pl-2"
   >
     {#if onOpenWorkspace}
       <!-- The optical inset pulls a *word* back onto the row's edge. A chevron
@@ -167,14 +166,18 @@
       </button>
     {/if}
     {#if content.trim()}
-      <SegmentedControl
-        options={VIEW_OPTIONS}
-        isActive={(mode) => view === mode}
-        onSelect={(mode) => (view = mode)}
-        ariaLabel="Artifact view"
-        variant="bar"
-        compact
-      />
+      <div class="flex shrink-0 items-center gap-1" role="group" aria-label="Artifact view">
+        {#each VIEW_OPTIONS as option (option.value)}
+          <button
+            type="button"
+            class="h-[1.625rem] cursor-pointer border-0 border-b border-solid border-transparent bg-transparent px-1.5 text-workspace-chrome text-(--solus-text-tertiary) hover:text-(--solus-text-primary) focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--solus-accent) aria-pressed:border-(--solus-text-primary) aria-pressed:font-medium aria-pressed:text-(--solus-text-primary) pointer-coarse:min-h-11"
+            aria-pressed={view === option.value}
+            onclick={() => (view = option.value)}
+          >
+            {option.label}
+          </button>
+        {/each}
+      </div>
     {/if}
     {#if view === "preview"}
       <Select.Root type="single" value={widthChoice} onValueChange={(next) => (widthChoice = next)}>
@@ -188,7 +191,7 @@
         </Select.Trigger>
         <Select.Content side="bottom" align="end" sideOffset={5} class="z-[10002] max-h-72 w-52">
           {#each ARTIFACT_WIDTH_OPTIONS as option (option.value)}
-            <Select.Item value={option.value} label={option.label} />
+            <Select.Item value={option.value} label={option.label} class="text-workspace-chrome" />
           {/each}
         </Select.Content>
       </Select.Root>

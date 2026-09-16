@@ -68,6 +68,8 @@ const client = new FakeCodexClient()
 
 mock.module('@solus/server/agents/codex/codex-agent', () => ({
   CodexRpcError: FakeCodexRpcError,
+  // The backend constructs one app-server per member seat; no seat runs here, so the class is never instantiated.
+  CodexAppServerClient: FakeCodexClient,
   getCodexAppServerClient: () => client,
 }))
 

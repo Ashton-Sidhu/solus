@@ -78,7 +78,6 @@
 				<li>Conversation started</li>
 				<li>Message sent</li>
 				<li>Agent switched</li>
-				<li>Editor / pill mode toggled</li>
 				<li>Voice recording started</li>
 				<li>Plan gallery opened</li>
 				<li>Settings opened</li>

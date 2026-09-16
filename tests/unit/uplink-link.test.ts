@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { UplinkLinkError, UplinkLinkManager, SUPERSEDED_MESSAGE, type UplinkConnectorHandle } from '@solus/server/server/uplink/link'
+import { UplinkLinkError, UplinkLinkManager, SUPERSEDED_MESSAGE, type UplinkConnectorHandle, type UplinkLinkDeps } from '@solus/server/server/uplink/link'
 import type { EnrollHostResponse } from '@solus/contracts/uplink'
 import { uplinkStatusDescription } from '../../packages/workspace-ui/src/contexts/connections/host-routes'
 
@@ -68,7 +68,7 @@ describe('the host side of the link', () => {
     else process.env.SOLUS_DATA_DIR = originalDataDir
   })
 
-  function manager(plane: ReturnType<typeof fakeControlPlane>, connector = fakeConnector(), proxiedPort = 34118) {
+  function manager(plane: ReturnType<typeof fakeControlPlane>, connector = fakeConnector(), proxiedPort = 34118, extra: Partial<UplinkLinkDeps> = {}) {
     const linkChanges: Array<string | null> = []
     const instance = new UplinkLinkManager({
       installationId: () => 'install-1',
@@ -78,6 +78,7 @@ describe('the host side of the link', () => {
       connector,
       fetchImpl: plane.fetchImpl,
       onLinkChanged: (link) => linkChanges.push(link?.hostId ?? null),
+      ...extra,
     })
     return { instance, connector, linkChanges }
   }
@@ -274,5 +275,87 @@ describe('the host side of the link', () => {
     const status = instance.status()
     if (status.linked) expect(status.state.observed).toBe('online')
     expect(plane.calls.map((call) => call.method)).toEqual(['POST'])
+  })
+})
+
+// docs/plans/managed-hosts.md §2: a managed host stores the link the control plane put
+// in its environment, at first boot and again whenever a newer generation arrives;
+// a record at the same generation wins over the (stale) environment. No person, no
+// ticket, no exchange.
+describe('the managed link from the environment', () => {
+  const originalDataDir = process.env.SOLUS_DATA_DIR
+  let dataDir: string
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'solus-managed-link-test-'))
+    process.env.SOLUS_DATA_DIR = dataDir
+  })
+
+  afterEach(() => {
+    rmSync(dataDir, { recursive: true, force: true })
+    if (originalDataDir === undefined) delete process.env.SOLUS_DATA_DIR
+    else process.env.SOLUS_DATA_DIR = originalDataDir
+  })
+
+  function managedManager(plane: ReturnType<typeof fakeControlPlane>, envLink: EnrollHostResponse | null) {
+    const connector = fakeConnector()
+    const instance = new UplinkLinkManager({
+      installationId: () => 'managed:host-1',
+      hostLabel: () => 'Acme host',
+      os: () => 'linux',
+      proxiedPort: () => 34118,
+      connector,
+      fetchImpl: plane.fetchImpl,
+      managedLink: () => envLink,
+    })
+    return { instance, connector }
+  }
+
+  test('the first boot stores the environment link like an enrollment and starts the connector, with no request', async () => {
+    const plane = fakeControlPlane()
+    const { instance, connector } = managedManager(plane, plane.enrolled)
+    await instance.resume()
+    expect(plane.calls).toEqual([])
+    expect(connector.events).toEqual(['start'])
+    expect(connector.token).toBe('connector-token-1')
+    expect(readFileSync(join(dataDir, 'uplink-link.json'), 'utf8')).toContain('"desired": "linked"')
+    expect(existsSync(join(dataDir, 'secrets', 'uplink-tokens.json'))).toBe(true)
+    expect(instance.status()).toMatchObject({ linked: true, link: { connectionGeneration: 1 }, state: { observed: 'offline' } })
+  })
+
+  test('a later boot with a record at the same generation ignores the environment and takes the ordinary path', async () => {
+    // WHY: the machine keeps its env across restarts; the record on the volume is the
+    // truth, and the generation check is what tells a superseded copy to stop.
+    const plane = fakeControlPlane()
+    await managedManager(plane, plane.enrolled).instance.resume()
+    const rebooted = managedManager(plane, plane.enrolled)
+    await rebooted.instance.resume()
+    expect(plane.calls).toHaveLength(1)
+    expect(plane.calls[0]).toMatchObject({ method: 'GET', url: `${DIRECTORY}/v1/hosts/abcdefghijklmnop/link`, authorization: 'Bearer sht_host-token-1' })
+    expect(rebooted.connector.events).toEqual(['start'])
+  })
+
+  test('an environment link with a newer generation replaces the record: a recreated machine adopts it', async () => {
+    const plane = fakeControlPlane()
+    await managedManager(plane, plane.enrolled).instance.resume()
+    const newer: EnrollHostResponse = {
+      link: { ...plane.enrolled.link, connectionGeneration: 2 },
+      connectorToken: 'connector-token-2',
+      hostToken: 'sht_host-token-2',
+    }
+    const recreated = managedManager(plane, newer)
+    await recreated.instance.resume()
+    expect(plane.calls).toEqual([])
+    expect(recreated.connector.token).toBe('connector-token-2')
+    expect(recreated.instance.status()).toMatchObject({ linked: true, link: { connectionGeneration: 2 } })
+    expect(readFileSync(join(dataDir, 'secrets', 'uplink-tokens.json'), 'utf8')).toContain('sht_host-token-2')
+  })
+
+  test('a personal host with nothing in its environment does nothing at boot', async () => {
+    const plane = fakeControlPlane()
+    const { instance } = managedManager(plane, null)
+    await instance.resume()
+    expect(plane.calls).toEqual([])
+    expect(instance.status()).toEqual({ linked: false })
   })
 })

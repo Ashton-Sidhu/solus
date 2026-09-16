@@ -1547,7 +1547,7 @@ export class SessionSidebarStore {
   }
 
   selectTab(tabId: string): void {
-    // Sidebar rows are navigation, not the tab-strip's expand/collapse toggle.
+    // Sidebar rows are navigation, so selecting the active row reveals it.
     // Clicking the selected child must therefore be a no-op — unless its
     // conversation isn't what's on screen (a draft or a page owns the pane),
     // which is the one case where the row still has somewhere to take you.
@@ -1654,7 +1654,7 @@ export class SessionSidebarStore {
    *  last on screen, and its task can have finished since. Only the task store
    *  can say, so its first answer is the one chance to decide — after that,
    *  opening a completed task is deliberate. Nothing is revealed, so this never
-   *  pops the pill open on launch. */
+   *  changes the startup route. */
   private settleBootLocation(): void {
     if (this.hasSettledBootLocation || !this.session.tasksStore.loaded) return
     this.hasSettledBootLocation = true

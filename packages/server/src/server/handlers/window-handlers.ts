@@ -2,11 +2,8 @@ import type { SolusServer } from '../server'
 import type { AppGlobalShortcuts, SetAppGlobalShortcutsResult } from '@solus/contracts/types'
 
 export interface WindowDeps {
-  /** Whether any Solus window (pill or editor) is currently visible. */
+  /** Whether the Solus window is currently visible. */
   isAppVisible(): boolean
-  /** Show the given mode's window (toggles when omitted), hiding the other
-   *  unless both were already visible. */
-  switchMode(mode?: 'pill' | 'editor'): void
   /** Current OS summon shortcuts (desktop-only). */
   getAppGlobalShortcuts(): AppGlobalShortcuts
   /** Apply + persist OS summon shortcuts live; returns accelerators that failed. */
@@ -18,11 +15,6 @@ export interface WindowDeps {
 export function registerWindowHandlers(server: SolusServer, deps: WindowDeps): void {
   server.register('isVisible', () => {
     return deps.isAppVisible()
-  })
-
-  server.register('switchMode', (args) => {
-    const [mode] = args
-    deps.switchMode(mode)
   })
 
   server.register('getAppGlobalShortcuts', () => {

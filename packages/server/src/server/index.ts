@@ -15,11 +15,20 @@ import { CloudflaredConnector, resolveCloudflaredBinary } from './uplink/connect
 import { UplinkLinkManager } from './uplink/link'
 import type { UplinkLinkConfig } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './handlers/uplink-handlers'
+import { registerSharingHandlers } from './handlers/sharing-handlers'
+import { ShareManager } from '../sharing/share-manager'
+import { registerSeatHandlers } from './handlers/seat-handlers'
+import { SeatManager, seatUserFor, turnActorFor } from '../seats/seat-manager'
+import { SeatConnector } from '../seats/seat-connect'
+import { TurnLedger } from '../sessions/turn-ledger'
+import { eventVisibleTo } from '../sharing/event-audience'
+import { getDb } from '../db'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
 import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { isTrustedRequesterAddress } from './trusted-requesters'
+import { applyManagedMode, isManagedHost, readManagedLinkEnv } from './managed-mode'
 import { attachWebSocketTransport } from '../transports/websocket'
 import { ResponseReceiptBudget } from '../transports/response-receipt-cache'
 import { ClientEventRegistry } from '../events/client-event-registry'
@@ -201,15 +210,36 @@ export function acquireLock(host: string, port: number): { release(): void } | n
 }
 
 export async function bootServer(opts: BootOptions): Promise<BootedServer> {
+  // Before the database, the listeners, or any child process: the link tokens in
+  // the environment must leave it first (managed-hosts.md §1, §2).
+  applyManagedMode()
   const settings = getServerSettings()
   const initial = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess: settings.remoteAccess })
   let host = initial.host
-  let requireAuth = initial.requireAuth
+  // A managed host demands a credential on every listener, whatever the bind policy says.
+  let requireAuth = initial.requireAuth || isManagedHost()
   const port = opts.port ?? WEB_UI_PORT
   let actualPort = port
 
   const server = new SolusServer()
-  const clientEvents = new ClientEventRegistry()
+  // Ownership and share lists (docs/plans/multiplayer-sharing.md §3.4): the access
+  // policy consults them on every resource call, and the event stream is filtered
+  // to what each connected principal may see.
+  const shares = new ShareManager({
+    db: getDb(),
+    canonicalSessionId: (sessionId) => opts.controlPlane.canonicalSessionId(sessionId),
+  })
+  server.useResourceAccess(shares)
+  // Provider seats and the turn ledger (Step 2 plan): every turn runs on its
+  // author's own login, and the host records whose it was.
+  const seats = new SeatManager({ db: getDb() })
+  const turnLedger = new TurnLedger(getDb())
+  opts.controlPlane.useSeats(seats, turnLedger)
+  const seatConnector = new SeatConnector({ seats })
+  const clientEvents = new ClientEventRegistry((clientId, event) => {
+    const principal = ws?.principalOf(clientId)
+    return !principal || eventVisibleTo(principal, event, shares)
+  })
   const events = new HostEventPublisher(clientEvents)
   // Streamed browser frames bypass the typed-event envelope: the transport
   // registers a per-client binary delivery here, the browser registry publishes
@@ -240,6 +270,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const sessionDeps: SessionDeps = {
     controlPlane: opts.controlPlane,
     agentIdFromContext: opts.agentIdFromContext,
+    shares,
   }
   registerSessionHandlers(server, sessionDeps)
   registerSettingsHandlers(server, {
@@ -259,9 +290,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     controlPlane: opts.controlPlane,
     events,
     agentIdFromContext: opts.agentIdFromContext,
+    shares,
   })
   await opts.registerHostHandlers?.(server)
-  registerFolioHandlers(server)
+  registerFolioHandlers(server, { shares })
+  registerSharingHandlers(server, { shares })
+  registerSeatHandlers(server, { seats, connector: seatConnector })
   registerReviewHandlers(server, opts.controlPlane, events)
   registerAutomationHandlers(server)
   // Let session-bound automations run their prompt inside the chat thread they
@@ -302,11 +336,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     recordSessionDelegation,
   })
   // Agent-conversation cards drive sessions that have no bound tab in the renderer.
-  server.register('promptSession', async (args) => {
+  server.register('promptSession', async (args, ctx) => {
     const [sessionId, prompt, delivery] = args
     if (!sessionId.trim()) throw new Error('promptSession requires a session id')
     if (!prompt.trim()) throw new Error('promptSession requires a non-empty prompt')
-    return opts.controlPlane.promptSession(sessionId, prompt, delivery === 'steer' ? 'steer' : 'queue')
+    return opts.controlPlane.promptSession(sessionId, prompt, delivery === 'steer' ? 'steer' : 'queue', { actor: turnActorFor(ctx.principal) })
   })
   server.register('stopSession', async (args) => {
     const [sessionId] = args
@@ -339,7 +373,15 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   registerStackHandlers(server, events)
   const checksHandlers = registerChecksHandlers(server, { events })
-  registerUsageHandlers(server, { controlPlane: opts.controlPlane, events })
+  // The clients one member is connected on; a seat's facts go to them and nobody else.
+  const clientsForSeatUser = (seatUserId: string): string[] =>
+    [...ws.sessions.values()].filter((session) => seatUserFor(session.principal) === seatUserId).map((session) => session.clientId)
+  registerUsageHandlers(server, {
+    controlPlane: opts.controlPlane,
+    events,
+    seats,
+    clientsForSeatUser,
+  })
   registerSkillsHandlers(server, { controlPlane: opts.controlPlane })
   registerPinnedSessionsHandlers(server)
   registerSessionReadStateHandlers(server, { events })
@@ -385,10 +427,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // `no-surface` rather than pretending to drive one.
   const browserRegistry = registerBrowserHandlers(server, { events, frames: browserFrames })
 
-  server.register('getServerCapabilities', () => probeServerCapabilities({
+  server.register('getServerCapabilities', (_args, ctx) => probeServerCapabilities({
     headless: !opts.windowDeps,
     desktopHandlers: hasDesktopHandlers,
     version: packageJson.version,
+    principal: ctx.principal,
   }))
   registerCapabilityHandlers(server)
 
@@ -481,6 +524,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     proxiedPort: () => tunnelPort,
     connector: uplinkConnector,
     onLinkChanged: followLink,
+    managedLink: readManagedLinkEnv,
   })
   followLink(uplinkManager.currentLink())
 
@@ -495,12 +539,33 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
     isTunnelRequest,
+    isManagedHost: isManagedHost(),
     verifyHostGrant: (grant) => grantVerifier
       ? grantVerifier.verify(grant)
       : Promise.resolve({ ok: false, reason: 'not-linked' }),
+    resolveShareSecret: (secret) => shares.resolveLinkSecret(secret),
     transcribeAudio: opts.transcribeAudio,
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
+  // Everyone who can see the resource learns of the change; a removed guest link
+  // ends its sockets at once, a removed member fails on their next call (§3.4).
+  domainEventUnsubscribes.push(shares.onChanged((change) => {
+    const { guestsRevoked, ...payload } = change
+    events.broadcast('share.changed', payload)
+    if (!guestsRevoked) return
+    ws.disconnectWhere((principal) => principal.kind === 'guest'
+      && principal.share.resource.kind === change.resource.kind
+      && shares.canonical(principal.share.resource).id === change.resource.id, 'share-link-revoked')
+  }))
+  // A seat changes for one member; only that member's clients hear it.
+  domainEventUnsubscribes.push(seats.onChanged((event) => {
+    events.publish(clientsForSeatUser(event.userId), 'host.seatChanged', event)
+  }))
+  // Seats of members who ran nothing for thirty days are removed (plan §3.7).
+  const seatSweepTimer = setInterval(() => {
+    try { seats.sweep() } catch (err) { log.warn('seat_sweep_failed', { error: err instanceof Error ? err.message : String(err) }) }
+  }, 24 * 60 * 60_000)
+  seatSweepTimer.unref()
   let ws = attachWebSocketTransport(http, server, {
     clientEvents,
     browserFrames,
@@ -666,9 +731,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   async function rebind(remoteAccess: boolean): Promise<void> {
     const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess })
-    if (next.host === host && next.requireAuth === requireAuth) return
+    const nextRequireAuth = next.requireAuth || isManagedHost()
+    if (next.host === host && nextRequireAuth === requireAuth) return
     host = next.host
-    requireAuth = next.requireAuth
+    requireAuth = nextRequireAuth
     lock?.release()
     // Existing WS connections (including the one carrying this very toggle)
     // keep the plain http.close() callback from ever firing, since Node waits
@@ -701,7 +767,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   registerConnectionsHandlers(server, {
-    getServerInfo: () => ({ host, port: actualPort, allowLan: !isLoopbackHost(host), remoteAccess: getServerSettings().remoteAccess, requireAuth, trustLocalNetwork: getServerSettings().trustLocalNetwork }),
+    getServerInfo: () => ({ host, port: actualPort, allowLan: !isLoopbackHost(host), remoteAccess: getServerSettings().remoteAccess, requireAuth, trustLocalNetwork: getServerSettings().trustLocalNetwork, hostKind: isManagedHost() ? 'managed' : 'personal' }),
     getActiveSessions: () => [...ws.sessions.values()].map(s => ({
       id: s.id,
       deviceLabel: s.deviceLabel,
@@ -746,6 +812,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         for (const unsubscribe of domainEventUnsubscribes) unsubscribe()
         if (sessionIndexPollTimer) clearTimeout(sessionIndexPollTimer)
         sessionIndexPollTimer = null
+        clearInterval(seatSweepTimer)
+        await seatConnector.stopAll()
         await lanDiscovery.close()
         await uplinkConnector.stop()
         checksHandlers.handleTransportClosed()

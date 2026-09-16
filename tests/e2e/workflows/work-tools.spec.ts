@@ -3,7 +3,7 @@ import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 import { WorkspacePage } from '../helpers/workspace.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 /**
@@ -137,12 +137,12 @@ test.describe('Agent work tools — live update round-trip', () => {
   })
 })
 
-test.describe('Agent work tools — open viewer (editor mode)', () => {
+test.describe('Agent work tools — open workspace pane', () => {
   test('a clean open document live-refreshes when the agent updates it', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await conversation.typeAndSend('__MOCK_DOCUMENT__ create a brief')
     const card = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
@@ -163,7 +163,7 @@ test.describe('Agent work tools — open viewer (editor mode)', () => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await conversation.typeAndSend('__MOCK_DOCUMENT__ create a brief')
     const card = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)
@@ -192,7 +192,7 @@ test.describe('Agent work tools — open viewer (editor mode)', () => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await conversation.typeAndSend('__MOCK_DOCUMENT__ create a brief')
     const card = page.locator(`${ACTIVE_TAB} [data-testid="document-card"]`)

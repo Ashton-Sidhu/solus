@@ -23,7 +23,7 @@ function memoryStorage(): Storage {
 describe("prompt history", () => {
   test("a different mounted composer can recall the prompt after an interrupt", () => {
     // WHY: Ctrl+C refocuses the active composer, which can be a different
-    // mounted Editor/Pill instance from the composer that sent the prompt.
+    // mounted composer instance that sent the prompt.
     const storage = memoryStorage();
     const staleComposerHistory = loadPromptHistory(storage);
 

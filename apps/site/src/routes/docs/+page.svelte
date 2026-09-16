@@ -283,8 +283,8 @@
 			<section id="getting-started" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
 				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Getting Started</h2>
 				<p>
-					Press {@render kbd('⌥Space')}. The Solus panel appears above whatever you're doing;
-					press it again to dismiss it. That one shortcut is the core habit.
+					Press {@render kbd('⌥Space')}. The Solus workspace appears; press it again to
+					dismiss it. That one shortcut is the core habit.
 				</p>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Your first session</h3>
@@ -301,21 +301,6 @@
 						</li>
 					{/each}
 				</ul>
-
-				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Pill mode vs. editor mode</h3>
-				<p class="text-base/7 sm:text-[14px]">
-					Two layouts; toggle with {@render kbd('⌥⇧E')}.
-				</p>
-				<div class="mt-4 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
-					<div class="p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)]">
-						<p class="text-[12px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-2">Pill · stay in flow</p>
-						<p class="text-base/7 sm:text-[14px]">A compact strip at the bottom of your screen. Fire off a prompt, glance at progress, keep working.</p>
-					</div>
-					<div class="p-4 rounded-xl border border-[rgba(0,0,0,0.07)] bg-[rgba(0,0,0,0.015)]">
-						<p class="text-[12px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-2">Editor · go deep</p>
-						<p class="text-base/7 sm:text-[14px]">The full workspace: sidebar, panes, diff panel, project panel. Review plans and diffs here.</p>
-					</div>
-				</div>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Agents and models</h3>
 				<p class="text-base/7 sm:text-[14px]">
@@ -496,7 +481,7 @@
 			<section id="panes" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
 				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Workspace Panes</h2>
 				<p>
-					In editor mode, plans, Works, diffs, reviews, and documents open as panes over or
+					Plans, Works, diffs, reviews, and documents open as panes over or
 					beside the conversation, so you read them without losing your place.
 				</p>
 
@@ -520,7 +505,7 @@
 			<section id="diff" class="reveal py-10 border-b border-[rgba(0,0,0,0.06)]">
 				<h2 class="text-[22px] sm:text-[20px] max-[1440px]:sm:text-[19px] font-semibold tracking-[-0.025em] text-[#1A1714] mb-4">Diff Panel</h2>
 				<p>
-					When the agent says it's done, verify it. Press {@render kbd('⌥⇧D')} in editor mode to
+					When the agent says it's done, verify it. Press {@render kbd('⌥⇧D')} to
 					see every file the session touched.
 				</p>
 
@@ -569,7 +554,7 @@
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">How to use it</h3>
 				<ul class="mt-3 flex flex-col gap-3 list-none p-0">
 					{#each [
-						['Open the project panel', `Press ${kbdHtml('⌥M')} in editor mode and find the <strong class="text-[#1A1714] font-medium">Git</strong> section.`],
+						['Open the project panel', `Press ${kbdHtml('⌥M')} and find the <strong class="text-[#1A1714] font-medium">Git</strong> section.`],
 						['Generate a review', `Click <strong class="text-[#1A1714] font-medium">Review changes</strong>. The review runs in the background while you keep working.`],
 						['Open the report', `When ready, the button becomes <strong class="text-[#1A1714] font-medium">View report</strong>.`],
 						['Jump to a finding', 'Click any finding to focus that exact file and line in the diff beside it.'],
@@ -1032,11 +1017,10 @@ solus pair</div>
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">Display</h3>
 				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
 					{#each [
-						['Editor mode', `Full editor layout or the compact pill overlay. Toggle with <kbd class="inline-flex items-center px-[5px] py-[2px] rounded-[5px] text-[11px] font-mono font-medium text-[#1A1714] border border-[rgba(0,0,0,0.14)] bg-[rgba(0,0,0,0.05)] leading-none shadow-[0_1px_0_rgba(0,0,0,0.08)]">⌥⇧E</kbd>.`],
 						['Dark theme', 'Light or dark appearance, applied immediately.'],
 						['Font size', 'Base font size for messages and code blocks. Minimum 8px.'],
 					] as [key, val], i}
-						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 2 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 1 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
 							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
 						</div>
@@ -1047,10 +1031,13 @@ solus pair</div>
 				<div class="mt-3 rounded-xl border border-[rgba(0,0,0,0.07)] overflow-hidden">
 					{#each [
 						['Default agent', 'The agent for new sessions; unavailable agents are disabled.'],
+						['Default permission mode', 'Ask, Auto, or Plan for new sessions. Auto by default. Existing sessions and choices in open drafts stay the same.'],
+						['Background activity toasts', 'Show a toast when another session asks a question, needs approval, fails, or completes, with an <strong class="text-[#1A1714] font-medium">Open session</strong> action. Off by default.'],
+						['Response streaming', '<strong class="text-[#1A1714] font-medium">Streaming</strong> shows finished paragraphs and code blocks as they arrive; <strong class="text-[#1A1714] font-medium">Buffered</strong> waits for the current response segment.'],
 						['Rate limit behavior', 'Ask, Queue, Continue, or Stop. See <a href="#rate-limits" class="text-[#C4973A] no-underline hover:underline">Rate Limit Queueing</a>. Tabs can override it.'],
 						['Git worktrees', 'New sessions run in an isolated git worktree; changes merge back when the session completes.'],
 					] as [key, val], i}
-						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 2 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
+						<div class="flex flex-col sm:flex-row gap-1 sm:gap-4 px-4 py-3 {i % 2 === 0 ? 'bg-[rgba(0,0,0,0.015)]' : ''} {i < 5 ? 'border-b border-[rgba(0,0,0,0.04)]' : ''}">
 							<span class="text-base/6 sm:text-[13px] font-medium text-[#1A1714] sm:w-[148px] shrink-0">{key}</span>
 							<span class="text-base/6 sm:text-[13px] text-[#6B6158]">{@html val}</span>
 						</div>
@@ -1206,7 +1193,6 @@ solus pair</div>
 
 				<h3 class="text-[13px] font-semibold tracking-[0.05em] uppercase text-[#A09488] mb-1 mt-8">View</h3>
 				{@render kbTable([
-					['⌥⇧E', 'Toggle editor / pill mode'],
 					['⌥⇧D', 'Toggle diff panel'],
 					['⌥M', 'Toggle project panel'],
 					['⌥⇧L', 'Open workspace (plans, documents, diagrams)'],
@@ -1214,7 +1200,6 @@ solus pair</div>
 					['⌥⇧\\', 'Open pane in split'],
 					['⌥⇧V', 'Open automations'],
 					['⌘B', 'Toggle sidebar'],
-					['⌥⇧=', 'Expand / collapse input'],
 					['⌘= / ⌘- / ⌘0', 'Zoom in / out / reset (desktop only)'],
 				])}
 

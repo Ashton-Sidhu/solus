@@ -22,7 +22,32 @@ import type { InboxInvolvement, InboxUpstreamResult } from './inbox-types'
 import type { AccountState, DeviceSignInEnd } from './account-types'
 import type { DesktopUpdateStatus } from './desktop-update-types'
 import type { HostUpdateStatus } from './host-update-types'
-import type { HostGrantResponse, UplinkDirectory, UplinkEnrollmentTicket, UplinkLinkRequest, UplinkStatus } from './uplink'
+import type { HostGrantResponse, HostKind, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, UplinkLinkRequest, UplinkStatus } from './uplink'
+import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
+import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
+
+/** How this host is reached and who this client is to it. */
+export interface ConnectionsServerInfo {
+  host: string
+  port: number
+  allowLan: boolean
+  installationId: string
+  remoteAccess: boolean
+  requireAuth: boolean
+  trustLocalNetwork: boolean
+  /** `managed` when Solus cloud provisioned this host (managed-hosts.md §1): the link is system-owned and pairing does not exist. */
+  hostKind: HostKind
+  /** How this client was admitted; only a `local-owner` may change how the host is reached. */
+  principal: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'system'
+  /** The account behind a grant-admitted client; absent on a local connection. */
+  userId?: string
+  /** The organization an `org-member` reached this host through; the share dialog reads its directory. */
+  organizationId?: string
+  /** The name the host shows other people for a grant-admitted client. */
+  displayName?: string
+  /** A guest's one resource and its role there; the guest shell renders nothing else. */
+  share?: { resource: ShareResource; role: ShareRole }
+}
 
 export interface LocalConnectionInfo {
   port: number
@@ -163,7 +188,7 @@ export interface SolusAPI {
   atlassianDisconnect(): Promise<void>
   atlassianJiraProjects(): Promise<AtlassianJiraProject[]>
   /** `principal` is how this caller was admitted; only a `local-owner` may change how the host is reached. */
-  connectionsGetServerInfo(): Promise<{ host: string; port: number; allowLan: boolean; installationId: string; remoteAccess: boolean; requireAuth: boolean; trustLocalNetwork: boolean; principal: 'local-owner' | 'remote-owner' | 'system' }>
+  connectionsGetServerInfo(): Promise<ConnectionsServerInfo>
   connectionsListEndpoints(): Promise<Array<{ kind: 'loopback' | 'lan' | 'tailnet'; label: string; host: string; port: number }>>
   connectionsGeneratePairToken(): Promise<{ token: string; code: string; expiresAt: number }>
   connectionsListSessions(): Promise<Array<{ id: string; deviceLabel: string; deviceId: string | null; connectedAt: number; connectionCount: number; connectionIds: string[] }>>
@@ -175,6 +200,24 @@ export interface SolusAPI {
   uplinkLink(args: UplinkLinkRequest): Promise<UplinkStatus>
   uplinkUnlink(): Promise<UplinkStatus>
   uplinkStatus(): Promise<UplinkStatus>
+  /** Sharing (docs/plans/multiplayer-sharing.md §3–§4). Reading needs viewer access; the list is replaced whole. */
+  shareGet(request: { resource: ShareResource }): Promise<ShareList>
+  shareSet(request: ShareSetRequest): Promise<ShareList>
+  /** The secret comes back only from this call, and only when it was minted or regenerated. */
+  shareSetLink(request: ShareSetLinkRequest): Promise<ShareLink | null>
+  shareTransfer(request: ShareTransferRequest): Promise<ShareList>
+  /** Provider seats (Step 2 plan §3.2): the caller's own Claude and Codex logins on this host. */
+  seatList(): Promise<SeatStatus[]>
+  /** Starts the provider's login on the host for the caller's seat; answers once it has printed where to sign in. */
+  seatConnectStart(request: SeatProviderRequest): Promise<SeatConnectStartResult>
+  /** Hands the browser's code to the login waiting on stdin. Completion arrives as `host.seatChanged`. */
+  seatConnectSubmitCode(request: SeatConnectCodeRequest): Promise<{ submitted: true }>
+  seatConnectCancel(request: SeatProviderRequest): Promise<{ cancelled: boolean }>
+  /** A credential made elsewhere: a Claude setup-token (inference-only) or a Codex auth.json. */
+  seatConnectToken(request: SeatConnectTokenRequest): Promise<SeatStatus>
+  seatDisconnect(request: SeatProviderRequest): Promise<SeatStatus>
+  /** Host administrator: deletes a member's seat files, on removal from the team. */
+  seatRemove(request: SeatRemoveRequest): Promise<{ removed: number }>
   setAnalyticsConsent(enabled: boolean): Promise<void>
   /** This host's durable config, plus whether any client has seeded it yet. */
   configGet(): Promise<HostConfigSnapshot>
@@ -186,12 +229,6 @@ export interface SolusAPI {
   setProjectsBaseDirectory(path: string): Promise<{ projectsBaseDirectory?: string }>
   setupInstallAgentCli(args: { agent: SetupAgent }): Promise<SetupStepResult>
   setupCheckAgentAuth(args: { agent: SetupAgent }): Promise<SetupAgentAuthCheckResult>
-  /** Runs the agent CLI's browser-auth flow on the host, publishing typed setup events. */
-  setupAgentSignIn(args: { agent: SetupAgent }): Promise<SetupStepResult>
-  /** Sends a browser-returned code to an agent sign-in waiting on stdin. */
-  setupSubmitAgentSignInCode(args: { agent: SetupAgent; code: string }): Promise<{ submitted: boolean }>
-  /** Stops the host's active agent browser-auth flow, if one is waiting. */
-  setupCancelAgentSignIn(): Promise<{ cancelled: boolean }>
   setupListGithubRepos(): Promise<SetupGithubReposResult>
   setupPrepareProject(args: SetupPrepareProjectRequest): Promise<SetupPrepareProjectResult>
   setupCloneProject(args: SetupCloneProjectRequest): Promise<SetupCloneProjectResult>
@@ -489,10 +526,6 @@ export interface SolusAPI {
   resolveDispatchHistoryRoots(repoKeys: string[]): Promise<DispatchHistoryRoot[]>
   deleteProject(projectPath: string): Promise<void>
   isVisible(ctx?: IpcContext): Promise<boolean>
-  setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
-  /** Switch to the given mode's window (toggles when omitted). Shows/creates the
-   *  target window and hides the current one unless both were visible. */
-  switchMode(mode?: 'pill' | 'editor'): Promise<void>
   getAppGlobalShortcuts(): Promise<AppGlobalShortcuts>
   setAppGlobalShortcuts(shortcuts: AppGlobalShortcuts): Promise<SetAppGlobalShortcutsResult>
   restartApp(): Promise<void>
@@ -615,11 +648,10 @@ export interface NativeSolusAPI {
   onActivityAcknowledged(callback: () => void): () => void
   showNotification(request: ClientNotificationRequest): Promise<boolean>
   logNotificationSound(row: NotificationSoundLog): void
-  rendererReady(mode: 'pill' | 'editor'): void
-  rendererMounted(mode: 'pill' | 'editor'): void
+  rendererReady(): void
+  rendererMounted(): void
   getPathForFile(file: File): string
   readAttachmentBytes(path: string, mime: string): Promise<{ dataUrl: string; size: number }>
-  setIgnoreMouseEvents(ignore: boolean, options?: { forward?: boolean; focus?: boolean }): void
   /** Applies UI zoom to this window's webContents; main clamps the factor. */
   setZoomFactor(factor: number): void
   setQuoteContext(tabId: string | null): void
@@ -629,7 +661,7 @@ export interface NativeSolusAPI {
    *  notification click; the payload is a serialized route. */
   onOpenRoute(callback: (route: string) => void): () => void
   onThemeChange(callback: (isDark: boolean) => void): () => void
-  onWindowShown(callback: (cursorPos: { x: number; y: number } | null) => void): () => void
+  onWindowShown(callback: () => void): () => void
   onWindowHidden(callback: () => void): () => void
   /** The Solus account this install is signed in to. Owned by the main process;
    *  the renderer never sees the session token. */
@@ -646,6 +678,8 @@ export interface NativeSolusAPI {
   uplinkListDirectoryHosts(): Promise<UplinkDirectory | null>
   uplinkAcquireHostGrant(hostId: string): Promise<HostGrantResponse | null>
   uplinkIssueEnrollmentTicket(): Promise<UplinkEnrollmentTicket | null>
+  /** People and teams of one organization, for the share dialog. */
+  uplinkOrganizationDirectory(organizationId: string): Promise<OrganizationDirectory | null>
   /** The desktop update status. Owned by the main process, which runs the
    *  checks and holds the auto-download setting. `docs/plans/desktop-updates.md`. */
   updateStatus(): Promise<DesktopUpdateStatus>

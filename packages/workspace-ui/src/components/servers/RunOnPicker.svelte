@@ -38,8 +38,9 @@
     withProjectHost,
   } from "../../contexts/workspace/run-config";
   import { runTarget } from "./lib/run-target";
+  import { canRunOnHost, managedHostSubtitle } from "./lib/managed-host";
   import { homeGitDetails } from "../../lib/git-context";
-  import { getSessionEnvironmentStore } from "../../contexts";
+  import { getSessionEnvironmentStore, sharesStore } from "../../contexts";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
@@ -65,7 +66,7 @@
     /** Return focus to the composer once the menu closes. */
     onDismiss?: () => void;
     /**
-     * `chip` is the standalone "Run on: X" pill the pill-mode status row uses.
+     * `chip` is the standalone "Run on: X" pill the compact status row uses.
      * `header` is the input bar's "Start in" chip, which answers where the next
      * session runs *and* whether it gets its own worktree — one question to the
      * user, so one control.
@@ -244,6 +245,17 @@
     return !server || server.local ? stayLabel : server.label;
   }
 
+  /** The line under a remote host's name: the team of a managed host, or whose
+   *  machine a shared personal host is. The owner's own hosts carry none. */
+  function hostSubtitle(server: ServerItem): string | null {
+    if (server.local) return null;
+    return (
+      managedHostSubtitle(server.uplink, sharesStore.directories.get(server.id)?.name) ??
+      server.uplink?.ownerName ??
+      null
+    );
+  }
+
   /** Send *this* project's work to another machine. The repository travels as a
    *  clone; the project, and every task it files, stays here. */
   function selectTarget(server: ServerItem) {
@@ -382,11 +394,15 @@
 {#snippet serverRow(server: ServerItem)}
   {@const isSelectedHost = server.id === selectedHostId}
   {@const affinity = hostAffinityGlyph(server, server.status)}
+  {@const subtitle = hostSubtitle(server)}
   <!-- The picker only chooses the host now; which project runs there is the
        project chip's job, so every reachable host is selectable — a checkout with
-       no remote opens a project on that host instead of cloning to it. -->
+       no remote opens a project on that host instead of cloning to it. A managed
+       host whose compute is not ready stays listed, with its state, but takes
+       no work until it is. -->
   <DropdownMenu.Item
     data-menu-current={isSelectedHost ? "" : undefined}
+    disabled={!canRunOnHost(server.uplink)}
     onSelect={(event) => chooseServer(event, server)}
   >
     {#if affinity}
@@ -401,7 +417,17 @@
     {:else}
       <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     {/if}
-    <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
+    <!-- A host shared with the account says whose machine it is, and a managed
+         host says whose team it serves; the owner's own hosts carry no name, so
+         their rows stay one line. -->
+    {#if subtitle}
+      <span class="flex min-w-0 flex-1 flex-col leading-tight">
+        <span class="truncate">{hostLabel(server)}</span>
+        <span class="truncate text-xs text-(--solus-text-tertiary)">{subtitle}</span>
+      </span>
+    {:else}
+      <span class="min-w-0 flex-1 truncate">{hostLabel(server)}</span>
+    {/if}
     {#if isSelectedHost}
       <CheckIcon size={14} class="shrink-0 text-(--solus-accent)" />
     {:else if affinity && server.status !== "saved"}

@@ -3,7 +3,7 @@ import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 import { PlanPage } from '../helpers/plan.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 test.describe('Plan modal workflow', () => {
@@ -71,7 +71,7 @@ test.describe('Plan modal workflow', () => {
     }
   })
 
-  test('starting a new session is optional in desktop and compact layouts', async ({ page }) => {
+  test('starting a new session is optional in desktop and mobile layouts', async ({ page }) => {
     const app = new AppPage(page)
     const conversation = new ConversationPage(page)
     const planPage = new PlanPage(page)

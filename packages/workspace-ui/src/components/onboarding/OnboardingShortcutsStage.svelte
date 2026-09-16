@@ -22,7 +22,7 @@
 
   let pressed = $state<Partial<Record<BindingId, boolean>>>({});
 
-  // The browser has no Pill mode and no desktop command palette, so it is taught
+  // The browser has no desktop command palette, so it is taught
   // a different seven rather than cards for two commands it cannot run.
   const keys = $derived(
     onboardingKeysFor(IS_WEB).map((key) => ({

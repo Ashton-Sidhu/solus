@@ -45,6 +45,19 @@ export class CodexAppServerClient extends EventEmitter {
   private didRestart = false
   private stopped = false
 
+  /**
+   * One app-server is one login: it reads `auth.json` from its home at start. A
+   * member's seat therefore gets its own process with `CODEX_HOME` set to the
+   * seat's directory (Step 2 plan §3.3); the host's own login passes nothing.
+   */
+  constructor(private readonly options: { codexHome?: string } = {}) {
+    super()
+  }
+
+  get codexHome(): string | undefined {
+    return this.options.codexHome
+  }
+
   /** True only after an explicit Codex operation has started the runtime. */
   get hasStarted(): boolean {
     return !!this.proc || !!this.startPromise
@@ -112,6 +125,7 @@ export class CodexAppServerClient extends EventEmitter {
 
   private async start(): Promise<void> {
     this.stopped = false
+    const codexHome = this.options.codexHome
     const proc = spawn('codex', [
       'app-server',
       '--listen',
@@ -119,7 +133,7 @@ export class CodexAppServerClient extends EventEmitter {
       '--enable',
       'default_mode_request_user_input',
     ], {
-      env: getCliEnv(),
+      env: getCliEnv(codexHome ? { CODEX_HOME: codexHome } : undefined),
       stdio: ['pipe', 'pipe', 'pipe'],
     })
     this.proc = proc

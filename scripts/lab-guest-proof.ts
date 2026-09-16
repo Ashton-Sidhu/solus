@@ -1,0 +1,246 @@
+/**
+ * The guest-link proof (docs/plans/multiplayer-sharing.md §4.2): a share link opened
+ * in a browser lands a visitor with no account on the one shared resource, through a
+ * real host's ticket door, and loses it the moment the link is regenerated.
+ *
+ * The Lab issuer stands in for Solus cloud. A small origin serves the built web client
+ * under `/app/` and mints guest grants at `/v1/hosts/:id/guest-grant`, exactly as the
+ * account origin does; the host trusts the issuer's key and admits the grant only with
+ * the link secret. Nothing here touches `~/.solus`.
+ *
+ *   bun run build:test && bun scripts/lab-guest-proof.ts
+ *
+ * Screenshots land in `.solus-local/artifacts/guest-*.png`.
+ */
+import { spawnSync } from 'node:child_process'
+import { createServer, type Server } from 'node:http'
+import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { extname, join, normalize, resolve } from 'node:path'
+import { chromium, type Browser, type Page } from 'playwright'
+import { z } from 'zod'
+import { bootLabHost, type LabHost } from '@solus/lab/host'
+import { LabClient } from '@solus/lab/client'
+import { LabIssuer } from '@solus/lab/issuer'
+import { personaForHost } from '@solus/lab/personas'
+import { guestLinkFragment } from '@solus/contracts/sharing'
+
+const ROOT = resolve(import.meta.dirname, '..')
+const APP_DIR = resolve(ROOT, '.solus-local/guest-proof/app')
+const ARTIFACTS = resolve(ROOT, '.solus-local/artifacts')
+let failures = 0
+function check(name: string, ok: boolean, detail = ''): void {
+  console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${detail ? `  — ${detail}` : ''}`)
+  if (!ok) failures += 1
+}
+
+const MIME = new Map([
+  ['.html', 'text/html; charset=utf-8'], ['.js', 'text/javascript'], ['.css', 'text/css'], ['.svg', 'image/svg+xml'],
+  ['.json', 'application/json'], ['.png', 'image/png'], ['.woff2', 'font/woff2'], ['.webmanifest', 'application/manifest+json'],
+])
+const addressSchema = z.object({ port: z.number().int().positive() })
+const guestRequestSchema = z.object({ guestId: z.string().regex(/^[a-zA-Z0-9_-]{16,64}$/).optional(), displayName: z.string().max(160).optional() })
+
+/** The account origin in miniature: the bundle at `/app/`, guest grants at `/v1`. */
+function startOrigin(issuer: LabIssuer, host: LabHost): Promise<{ server: Server; origin: string }> {
+  const server = createServer((request, response) => {
+    const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+    const guestGrant = /^\/v1\/hosts\/([^/]+)\/guest-grant$/.exec(url.pathname)
+    if (request.method === 'POST' && guestGrant) {
+      let body = ''
+      request.on('data', (chunk: Buffer) => { body += chunk.toString() })
+      request.on('end', () => {
+        const parsed = guestRequestSchema.safeParse(body ? JSON.parse(body) : {})
+        if (!parsed.success || guestGrant[1] !== host.hostId) {
+          response.statusCode = parsed.success ? 404 : 400
+          response.setHeader('content-type', 'application/json')
+          response.end(JSON.stringify({ error: parsed.success ? 'host_not_found' : 'invalid_request' }))
+          return
+        }
+        const guestId = parsed.data.guestId ?? 'web-guest-0123456789abcd'
+        const displayName = parsed.data.displayName?.trim() || 'Guest'
+        const grant = issuer.mint({ id: 'web-guest', kind: 'guest', guestId, displayName }, { hostId: host.hostId, hostKind: 'personal', hostOwnerUserId: 'user-alice' })
+        response.setHeader('content-type', 'application/json')
+        response.setHeader('cache-control', 'no-store')
+        response.end(JSON.stringify({ grant, hostId: host.hostId, expiresAt: Date.now() + 600_000, guestId, displayName, routes: [{ kind: 'tunnel', url: host.tunnelUrl }] }))
+      })
+      return
+    }
+    if (url.pathname.startsWith('/v1/')) {
+      response.statusCode = 401
+      response.setHeader('content-type', 'application/json')
+      response.end('{"error":"unauthorized"}')
+      return
+    }
+    // The bundle under /app/, with the SPA fallback the account origin has.
+    const relative = normalize(url.pathname.replace(/^\/app\/?/, '')).replace(/^(\.\.[/\\])+/, '')
+    let file = join(APP_DIR, relative)
+    if (!url.pathname.startsWith('/app') || !existsSync(file) || statSync(file).isDirectory()) file = join(APP_DIR, 'index.html')
+    response.setHeader('content-type', MIME.get(extname(file)) ?? 'application/octet-stream')
+    response.setHeader('cache-control', 'no-cache')
+    response.end(readFileSync(file))
+  })
+  return new Promise((resolvePromise) => {
+    server.listen(0, '127.0.0.1', () => {
+      const address = addressSchema.safeParse(server.address())
+      resolvePromise({ server, origin: `http://127.0.0.1:${address.success ? address.data.port : 0}` })
+    })
+  })
+}
+
+async function landAsGuest(page: Page, origin: string, hostId: string, secret: string, name: string): Promise<string[]> {
+  const refused: string[] = []
+  page.on('console', (message) => {
+    const text = message.text()
+    if (/FORBIDDEN|not available to a guest|not shared with you/.test(text)) refused.push(text)
+  })
+  await page.goto(`${origin}/app/${guestLinkFragment(hostId, secret)}`)
+  await page.getByTestId('guest-name').waitFor({ timeout: 15_000 })
+  await page.getByTestId('guest-name').fill(name)
+  await page.getByTestId('guest-continue').click()
+  await page.getByTestId('guest-shell').waitFor({ timeout: 20_000 })
+  return refused
+}
+
+/** The owner's side: the header verb, and a dialog whose footer copies the current link. */
+async function proveOwnerShareDialog(browser: Browser, localUrl: string, workId: string, secret: string): Promise<void> {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+  await context.addInitScript((url: string) => {
+    localStorage.setItem('solus.servers', JSON.stringify([{ id: 'local', label: 'Lab', url, sessionToken: '', lastConnected: Date.now() }]))
+    localStorage.setItem('solus.activeServerId', 'local')
+    localStorage.setItem('solus-settings', JSON.stringify({ onboardingCompleted: true }))
+  }, localUrl)
+  const page = await context.newPage()
+  await page.goto(localUrl)
+  await page.locator('[data-testid="message-input"]').first().waitFor({ timeout: 20_000 })
+  await page.evaluate((route: string) => window.dispatchEvent(new CustomEvent('solus:open-route', { detail: route })), `/work/${workId}`)
+  const shareButton = page.getByTestId('share-button').first()
+  check('the work header always carries a Share verb', await shareButton.waitFor({ timeout: 20_000 }).then(() => true).catch(() => false))
+  check('the verb is one word, like its neighbours', (await shareButton.textContent())?.trim() === 'Share')
+  check('the state rides the tooltip, not the header', (await shareButton.getAttribute('title'))?.includes('anyone with the link') === true)
+  await shareButton.click()
+  await page.getByTestId('share-dialog').waitFor({ timeout: 10_000 })
+  // The link needs the host's answer on its cloud link first; the button enables then.
+  const copy = page.locator('[data-testid="share-copy-link"]:enabled')
+  const ready = await copy.waitFor({ timeout: 10_000 }).then(() => true).catch(() => false)
+  check('Copy link is one click away in the footer on every open, with the current link', ready && (await copy.getAttribute('data-link'))?.includes(secret) === true)
+  check('the URL itself is not spelled out in the dialog', (await page.getByTestId('share-dialog').textContent())?.includes(secret) === false)
+  // Let the dialog's entrance settle before the picture.
+  await page.waitForTimeout(400)
+  await page.screenshot({ path: join(ARTIFACTS, 'share-dialog-owner.png') })
+  await context.close()
+}
+
+async function main(): Promise<number> {
+  mkdirSync(ARTIFACTS, { recursive: true })
+  console.log('== building the web client under /app/')
+  const build = spawnSync('bun', ['run', 'build', '--base=/app/', '--outDir', APP_DIR, '--emptyOutDir'], { cwd: resolve(ROOT, 'apps/client'), stdio: 'pipe' })
+  if (build.status !== 0) {
+    console.error(build.stderr.toString())
+    throw new Error('the web client build failed')
+  }
+
+  const issuer = new LabIssuer()
+  await issuer.start()
+  const host = await bootLabHost({ flavor: 'personal', issuer })
+  console.log(`== host ${host.hostId} · data ${host.dataDir} · tunnel ${host.tunnelUrl}`)
+  const { server: originServer, origin } = await startOrigin(issuer, host)
+  console.log(`== origin ${origin}`)
+  const alice = new LabClient({ persona: personaForHost('alice', 'personal'), hostUrl: host.localUrl, issuer, hostId: host.hostId, hostKind: 'personal', credentialFree: true })
+  const browser = await chromium.launch()
+  try {
+    const dialed = await alice.connect()
+    if (!dialed.ok) throw new Error(`alice could not connect: ${JSON.stringify(dialed)}`)
+
+    console.log('== alice shares a document by a viewer link and a session by an editor link')
+    const work = await alice.rpc('createWork', 'Guest proof', 'doc', '# Hello guest\n\nA document shared by link.', '# Hello guest\n\nA document shared by link.', undefined, 'claude-code', host.dataDir)
+    const workLink = await alice.rpc('shareSetLink', { resource: { kind: 'work', id: work.id }, role: 'viewer' })
+    // A named model, so a later prompt on a settled session can rebuild its run input.
+    const created = await alice.rpc('createHeadlessSession', { prompt: 'hello from alice', provider: 'claude-code', modelId: 'mock-model', reasoningEffort: 'medium', contextWindow: null, cwd: host.dataDir, skipTaskCreation: true })
+    const sessionLink = await alice.rpc('shareSetLink', { resource: { kind: 'session', id: created.agentSessionId }, role: 'editor' })
+    check('both links minted a secret', !!workLink?.secret && !!sessionLink?.secret)
+    if (!workLink || !sessionLink) return 1
+
+    console.log('== the owner: a Share verb on the header, and the link at hand on every open')
+    await proveOwnerShareDialog(browser, host.localUrl, work.id, workLink.secret)
+
+    console.log('== the document link, on a laptop')
+    const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+    const page = await context.newPage()
+    const refusedOnWork = await landAsGuest(page, origin, host.hostId, workLink.secret, 'Maya')
+    check('the guest shell shows the document title', (await page.getByTestId('guest-title').textContent())?.includes('Guest proof') === true)
+    check('the guest is a viewer', (await page.getByTestId('guest-role').textContent())?.trim() === 'Viewer')
+    check('the guest is named', (await page.getByTestId('guest-name-label').textContent())?.includes('Maya') === true)
+    const main = page.getByTestId('guest-main')
+    await main.getByText('Hello guest').first().waitFor({ timeout: 20_000 }).catch(() => null)
+    check('the document body renders', await main.getByText('Hello guest').first().isVisible().catch(() => false))
+    check('the editor says read-only for a viewer', await main.getByText('Read-only').first().isVisible().catch(() => false))
+    check('nothing host-wide is offered: no sidebar, no project panel, no composer', (await page.locator('[data-testid="message-input"], .sidebar-header-desktop, .side-panel-root').count()) === 0)
+    check('the work header offers no way into the workspace: no crumb, no Ask Solus, no publish, no share, no close', (await page.locator('[data-testid="open-chat"], [data-testid="document-modal-close"], [data-testid="share-button"], [data-testid="work-publish-menu"]').count()) === 0 && (await main.getByRole('link', { name: 'Workspace' }).count()) === 0 && (await main.getByText('Publish', { exact: true }).count()) === 0)
+    await page.screenshot({ path: join(ARTIFACTS, 'guest-document.png'), fullPage: false })
+    check('the address bar keeps the link for a reload', page.url().includes(`/s/${workLink.secret}`))
+    check('the host registry is untouched by the visit', await page.evaluate(() => localStorage.getItem('solus.servers')) === null)
+    check('the guest identity is kept in the browser', await page.evaluate(() => JSON.parse(localStorage.getItem('solus.guest') ?? 'null')?.displayName) === 'Maya')
+
+    console.log('== the same document on a phone')
+    const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true })
+    const phonePage = await phone.newPage()
+    await landAsGuest(phonePage, origin, host.hostId, workLink.secret, 'Maya')
+    const phoneMain = phonePage.getByTestId('guest-main')
+    await phoneMain.getByText('Hello guest').first().waitFor({ timeout: 20_000 }).catch(() => null)
+    check('the document renders on a phone', await phoneMain.getByText('Hello guest').first().isVisible().catch(() => false))
+    await phonePage.screenshot({ path: join(ARTIFACTS, 'guest-document-phone.png') })
+    await phone.close()
+
+    console.log('== the session link')
+    const sessionContext = await browser.newContext({ viewport: { width: 1280, height: 800 } })
+    const sessionPage = await sessionContext.newPage()
+    const refusedOnSession = await landAsGuest(sessionPage, origin, host.hostId, sessionLink.secret, 'Maya')
+    check('the guest is an editor on the session', (await sessionPage.getByTestId('guest-role').textContent())?.trim() === 'Editor')
+    check('an editor link on a session says prompting arrives later', await sessionPage.getByTestId('guest-session-note').isVisible().catch(() => false))
+    // The mock backend keeps no transcript on disk, so history is empty here; what a
+    // guest must see is the live turn: alice prompts, the guest's transcript moves.
+    await alice.rpc('promptSession', created.agentSessionId, 'second prompt from alice, while Maya watches')
+    const sessionMain = sessionPage.getByTestId('guest-main')
+    const streamed = await sessionMain.getByText('second prompt from alice').first().waitFor({ timeout: 20_000 }).then(() => true).catch(() => false)
+    check('the guest sees the turn alice starts, live', streamed)
+    check('the guest has no composer on the session', (await sessionPage.locator('[data-testid="message-input"]').count()) === 0)
+    check('the transcript does not call a live host unreachable', (await sessionPage.locator('[data-testid="host-status-row"]').count()) === 0)
+    await sessionPage.screenshot({ path: join(ARTIFACTS, 'guest-session.png') })
+
+    console.log('== alice regenerates the session link')
+    await alice.rpc('shareSetLink', { resource: { kind: 'session', id: created.agentSessionId }, role: 'editor', regenerate: true })
+    const revokedAt = Date.now()
+    const revoked = await sessionPage.getByTestId('guest-revoked').waitFor({ timeout: 30_000 }).then(() => true).catch(() => false)
+    check('the guest is told the link no longer works', revoked, `${Date.now() - revokedAt} ms`)
+    await sessionPage.screenshot({ path: join(ARTIFACTS, 'guest-revoked.png') })
+    check('the document guest is unaffected', await page.getByTestId('guest-revoked').count() === 0)
+
+    console.log('== a stale link on a fresh visit')
+    const stalePage = await sessionContext.newPage()
+    await stalePage.goto(`${origin}/app/${guestLinkFragment(host.hostId, sessionLink.secret)}`)
+    await stalePage.getByTestId('guest-name').waitFor({ timeout: 15_000 })
+    await stalePage.getByTestId('guest-continue').click()
+    const staleOutcome = await Promise.race([
+      stalePage.getByText('This link no longer works').first().waitFor({ timeout: 30_000 }).then(() => 'revoked' as const),
+      stalePage.getByTestId('guest-shell').waitFor({ timeout: 30_000 }).then(() => 'admitted' as const),
+    ]).catch(() => 'timeout' as const)
+    check('a stale link never opens the shell', staleOutcome === 'revoked', staleOutcome)
+
+    const hostLog = existsSync(join(host.dataDir, 'dev.log')) ? readFileSync(join(host.dataDir, 'dev.log'), 'utf8') : ''
+    const refusedMethods = [...hostLog.matchAll(/"msg":"rpc_access_refused".*?"method":"([^"]+)"/g)].map((match) => match[1])
+    console.log(`== host-wide calls the guest shell made and the host refused: ${refusedMethods.length === 0 ? 'none' : [...new Set(refusedMethods)].join(', ')}`)
+    console.log(`== refusals seen in the browser console: ${[...refusedOnWork, ...refusedOnSession].length}`)
+    await context.close()
+    await sessionContext.close()
+  } finally {
+    alice.close()
+    await browser.close()
+    originServer.close()
+    await host.stop()
+    await issuer.stop()
+  }
+  console.log(`\n== ${failures === 0 ? 'PASS' : 'FAIL'}: ${failures} failed check(s)`)
+  return failures === 0 ? 0 : 1
+}
+
+process.exit(await main())

@@ -1,5 +1,4 @@
 import { requestInputFocus } from "./inputFocus";
-import { localApi } from "@solus/client-core/local-api";
 
 export const FILE_PREVIEW_EVENT = "solus:preview-file";
 
@@ -47,19 +46,7 @@ export function parseFileHref(href: string): FilePreviewRequest | null {
   return { path: rawPath, line };
 }
 
-// File previews render in the editor's pane system; the pill has no surface
-// for them, so preview requests are a no-op there.
-function isPillWindow(): boolean {
-  try {
-    if (localApi.getPlatform() === "web") return false;
-    return new URLSearchParams(window.location.search).get("mode") !== "editor";
-  } catch {
-    return false;
-  }
-}
-
 export function requestFilePreview(request: FilePreviewRequest) {
-  if (isPillWindow()) return;
   window.dispatchEvent(
     new CustomEvent<FilePreviewRequest>(FILE_PREVIEW_EVENT, {
       detail: request,

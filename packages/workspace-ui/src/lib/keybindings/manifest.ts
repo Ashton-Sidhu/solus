@@ -20,13 +20,14 @@ export const KEYBINDINGS = {
   'global.close-tab':         { combo: { mod: true, shift: true, code: 'KeyW' }, web: { alt: true, shift: true, code: 'KeyW' }, scope: 'global', label: 'Close tab',          group: 'Tabs' },
   'global.group-tabs':         { combo: { alt: true, shift: true, code: 'KeyU' },          scope: 'global',             label: 'Group tabs by status',     group: 'Tabs' },
   'global.screenshot':        { combo: { alt: true, shift: true, code: 'KeyS' },          scope: 'global',             label: 'Take screenshot',          group: 'Compose' },
+  // The letter layer is taken; period is the one punctuation key still free on both desktop and web.
+  'global.share':             { combo: { alt: true, shift: true, code: 'Period' },        scope: 'global',             label: 'Share session',            group: 'General' },
   'global.attach-file':       { combo: { alt: true, shift: true, code: 'KeyA' },          scope: 'global',             label: 'Attach file',              group: 'Compose' },
   // Insights owns ⌥⇧I. Design mode remains available from the action menu and
   // Settings → Keybindings, but ships unassigned rather than shadowing Insights.
   'global.design-mode':       { combo: null,                                                scope: 'global',             label: 'Design mode',              group: 'Compose' },
   'global.save-prompt':       { combo: { mod: true, shift: true, code: 'KeyS' }, web: { alt: true, shift: true, code: 'KeyS' }, scope: 'global', label: 'Save prompt',              group: 'Compose' },
   'global.saved-prompts':     { combo: { alt: true, shift: true, code: 'KeyK' },          scope: 'global',             label: 'Saved prompts',            group: 'Compose' },
-  'global.continue-in-mode':  { combo: { alt: true, shift: true, code: 'KeyE' },          scope: 'global',             label: 'Continue in editor / pill', group: 'View' },
   'global.toggle-diff-panel':    { combo: { alt: true, shift: true, code: 'KeyD' },        scope: 'global',             label: 'Toggle diff panel',        group: 'View' },
   // The letter layer is already occupied by other global actions. Semicolon
   // gives Files one collision-free default on desktop and web without making
@@ -46,7 +47,6 @@ export const KEYBINDINGS = {
   'global.toggle-tasks':       { combo: { alt: true, shift: true, code: 'KeyT' },          scope: 'global',             label: 'Open tasks',               group: 'View' },
   'global.toggle-insights':    { combo: { alt: true, shift: true, code: 'KeyI' },          scope: 'global',             label: 'Open insights',            group: 'View' },
   'global.toggle-sidebar':     { combo: { mod: true, code: 'KeyB' }, web: { alt: true, shift: true, code: 'BracketLeft' }, scope: 'global', label: 'Toggle sidebar',           group: 'View' },
-  'global.toggle-expanded':   { combo: { alt: true, shift: true, code: 'Equal' },         scope: 'global',             label: 'Expand / collapse input',  group: 'View' },
   // Desktop-only: on web these combos stay with the browser's own zoom (the
   // handlers register disabled there, so the dispatcher lets them fall through).
   'global.zoom-in':           { combo: { mod: true, code: 'Equal' },                      scope: 'global',             label: 'Zoom in',                  group: 'View' },

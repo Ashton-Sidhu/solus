@@ -10,13 +10,13 @@ async function openDiagramShell(page: any) {
 
   await conversation.typeAndSend('__MOCK_DIAGRAM__ show me the architecture')
 
-  const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+  const ACTIVE_SHELL = '.workspace-shell'
   const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
   const diagramCard = page.locator(`${ACTIVE_TAB} [data-testid="diagram-card"]`)
   await diagramCard.waitFor({ state: 'visible', timeout: 10_000 })
   await diagramCard.locator('.plan-card-header').first().click()
 
-  const diagramShell = page.locator('.mode-shell:not(.mode-hidden) .diagram-shell')
+  const diagramShell = page.locator('.workspace-shell .diagram-shell')
   await diagramShell.waitFor({ state: 'visible', timeout: 5_000 })
   return diagramShell
 }

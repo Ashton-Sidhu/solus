@@ -130,8 +130,7 @@ Use these terms consistently in code, plans, and conversation:
 - **work** — a durable document, slide deck, or diagram managed by Folio.
 - **pane** — a content region in the workspace; use the canonical pane/slot terminology
   from the pane model rather than inventing “viewer,” “split,” or “secondary” synonyms.
-- **Editor mode** — the focused, full-workspace interface.
-- **Pill mode** — the lightweight, summon-as-needed interface.
+- **workspace** — the focused interface where the user directs agent work.
 
 ## Rules — non-negotiable
 
@@ -209,8 +208,6 @@ applied:
 
 - **Entry points.** A behavior reachable from the conversation may also be reachable from
   Settings, the command palette, a context menu, the project panel, and a keybinding.
-- **Modes.** Editor mode and Pill mode stay mounted independently. Check both when changing
-  layout, focus, overlays, input behavior, or navigation.
 - **Clients.** Implement every UI change across mobile, desktop, and web. Desktop uses
   Electron IPC and native capabilities; web and mobile connect remotely and cannot
   assume Electron APIs. Surface-specific interaction is acceptable; missing capability
@@ -312,37 +309,6 @@ instead of replacing the transcript. Memoize expensive per-item work such as `JS
 in a `WeakMap` keyed by the item; bypass the cache while the item is still mutating
 (`toolStatus === 'running'`).
 
-Never toggle Pill and Editor modes with `{#if isEditorMode}…{:else}…`. Destroying the
-subtree forces Tiptap initialization, markdown parsing, entry animations, layout churn,
-and IPC refetches on every toggle. Lazy-mount each mode once, then hide it:
-
-```svelte
-<script lang="ts">
-  let hasMountedEditor = $state(isEditorMode)
-  let hasMountedPill = $state(!isEditorMode)
-
-  $effect(() => {
-    if (isEditorMode) hasMountedEditor = true
-    else hasMountedPill = true
-  })
-</script>
-
-{#if hasMountedEditor}
-  <div class:mode-hidden={!isEditorMode}>…</div>
-{/if}
-{#if hasMountedPill}
-  <div class:mode-hidden={isEditorMode}>…</div>
-{/if}
-```
-
-```css
-.mode-hidden {
-  display: none !important;
-}
-```
-
-`display: none` removes a mode from layout, paint, and hit testing without unmounting it,
-so state survives transitions.
 
 ## Development safety
 
@@ -529,7 +495,7 @@ use a narrow Grep.
 | `conversation/` | Message stream, permission/question/rate-limit cards, and minimap |
 | `session/` | Session sidebar, picker, and preview |
 | `input/` | Input bar, slash commands, attachments, dictation, and waveform |
-| `layout/` | Editor/Pill layouts, tab strip, action orb, side panel, workspace body, and new-tab home |
+| `layout/` | Workspace layout, tab strip, action orb, side panel, workspace body, and new-tab home |
 | `project-panel/` | Git, environment, goal, task, and automation sections plus usage meters |
 | `diff/` | Diff panel/stream, file tree, comments, and find bar |
 | `editor/` | Tiptap document editor and extensions |
@@ -560,7 +526,7 @@ Before reporting completion:
 - [ ] Exports, immediate callers, shared contracts, and relevant stores were read first.
 - [ ] The UI change is implemented across mobile, desktop, and web, or an explicit
   platform exception was approved and documented.
-- [ ] Editor/Pill, Claude/Codex, and local/remote applicability were decided.
+- [ ] Claude/Codex and local/remote applicability were decided.
 - [ ] Loading, error, reverse, reconnect, and stale states were considered.
 - [ ] No large reactive object or transcript was rebuilt for a small update.
 - [ ] No live Solus data or unrelated process was modified.

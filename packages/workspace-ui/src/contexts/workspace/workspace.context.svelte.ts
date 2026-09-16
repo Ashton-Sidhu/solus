@@ -77,6 +77,9 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { localApi } from '@solus/client-core/local-api'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { sendOutbox, classifySendFailure, type OutboxRecord } from '@solus/client-core/send-outbox'
+import { rpcErrorCode } from '@solus/client-core/rpc-error'
+import { SEAT_REQUIRED_CODE } from '@solus/contracts/seats'
+import { seatProviderOf, seatsStore } from '../seats/seats.store.svelte'
 import { hostKey } from '@solus/client-core/host-key'
 import { hasHostCapability } from '@solus/client-core/host-capabilities'
 import { prReviewGitCheckout } from './pr-review-checkout'
@@ -157,7 +160,6 @@ export type OpenProject = {
 }
 
 export type SessionFields = {
-  isExpanded: boolean
   staticInfo: StaticInfo | null
   pendingInput: string | null
 }
@@ -167,9 +169,8 @@ interface CreateTabOptions {
   /** Where a draft opens: a pane id, or `'aside'` for a new companion pane.
    *  Defaults to the focused pane. */
   target?: NavTarget
-  /** Whether selecting this tab should also open the pill onto it. True for
-   *  every tab a person asks for; false for the one the workspace seeds itself,
-   *  which must not pop the pill open on launch. */
+  /** Whether selecting this tab should also reveal its conversation. True for
+   *  every tab a person asks for; false for the tab seeded at startup. */
   reveal?: boolean
   freshTask?: boolean
   withoutTask?: boolean
@@ -382,7 +383,6 @@ export class WorkspaceContext {
       hasDraft: (sourceId) => this.sessionDrafts.has(sourceId),
       globalDefaults: this.globalDefaults,
       staticInfo: () => this.staticInfo,
-      rpcWindow: () => this.shell.rpcWindow,
       settings: this.settings,
       statusBar: this.statusBar,
     })
@@ -475,8 +475,6 @@ export class WorkspaceContext {
   get activeInput(): Prompt { return this.registry.activeInput }
   set activeInput(value: Prompt) { this.registry.activeInput = value }
   get lastActiveTabByBranch() { return this.registry.lastActiveTabByBranch }
-  get isExpanded(): boolean { return this.ui.isExpanded }
-  set isExpanded(value: boolean) { this.ui.isExpanded = value }
   get unifiedPickerOpen(): boolean { return this.ui.unifiedPickerOpen }
   set unifiedPickerOpen(value: boolean) { this.ui.unifiedPickerOpen = value }
   get pickerScope(): PickerScope { return this.ui.pickerScope }
@@ -548,7 +546,7 @@ export class WorkspaceContext {
   }
 
   /** Visibility can change without selecting a tab: window focus, closing a
-   *  page, expanding the pill, and restoring a companion all reveal chats. */
+   *  page, and restoring a companion pane all reveal chats. */
   trackVisibleConversations(): void {
     $effect(() => {
       for (const tabId of this.tabOrder) {
@@ -569,7 +567,7 @@ export class WorkspaceContext {
     if (!this.shell.visible) return false
     const hasCompanionPanes = this.shell.hasCompanionPanes
     // A chat pinned in a companion pane is on screen too — but only in
-    // editor/web, where companion panes actually render.
+    // wide layouts, where companion panes actually render.
     if (hasCompanionPanes && this.router.asidePanes.some(
       (pane) => this.router.chatSessionIn(pane.id) === sessionId,
     )) {
@@ -577,7 +575,6 @@ export class WorkspaceContext {
     }
     return this.tabs[this.activeTabId]?.sessionId === sessionId
       && this.showsConversation
-      && this.shell.conversationVisible
   }
 
   isSessionVisibleOnHost(serverId: string, sessionId: string): boolean {
@@ -601,7 +598,7 @@ export class WorkspaceContext {
     })) {
       return true
     }
-    return this.activeTabId === tabId && this.showsConversation && this.shell.conversationVisible
+    return this.activeTabId === tabId && this.showsConversation
   }
 
   /** Whether the conversation pool is what the leading pane is showing. A page,
@@ -923,7 +920,6 @@ export class WorkspaceContext {
   }
 
   update(patch: Partial<SessionFields>): void {
-    if (patch.isExpanded !== undefined) this.isExpanded = patch.isExpanded
     if (patch.staticInfo !== undefined) this.staticInfo = patch.staticInfo
     if (patch.pendingInput !== undefined) this.pendingInput = patch.pendingInput
   }
@@ -1062,9 +1058,9 @@ export class WorkspaceContext {
     return this.goalSync.clear(sessionId)
   }
 
-  /** Show the goal wherever this shell keeps it. Editor mode has a project-rail
-   *  section, so it opens that rail and expands the section; the pill and the
-   *  mobile web shell have no rail, so the goal takes the secondary pane. */
+  /** Show the goal wherever this client keeps it. The wide layout has a project
+   *  panel section, so it opens that panel and expands the section. The mobile
+   *  layout has no project panel, so the goal takes the secondary pane. */
   revealGoal(tabId: string): void {
     const sessionId = this.tabs[tabId]?.sessionId
     if (!this.shell.hasProjectPanel) {
@@ -1406,7 +1402,6 @@ export class WorkspaceContext {
     if (options.activate !== false) {
       this.setActiveTab(tabId)
       if (options.reveal !== false) {
-        this.isExpanded = true
         this.resetOverlays({ closeArtifact: true })
       }
     }
@@ -1511,9 +1506,8 @@ export class WorkspaceContext {
       { name: 'draft', params: { draftId: draft.id } },
       { via: options.via ?? 'click', target: options.target ?? this.router.focusedPaneId },
     )
-    // Boot seeds a draft so the workspace is never empty, but must not pop the
-    // pill open on launch — only a draft the user asked for reveals itself.
-    if (options.reveal !== false) this.isExpanded = true
+    // Boot seeds a draft so the workspace is never empty. Only a draft the user
+    // asked for takes focus through the caller's reveal path.
     return draft
   }
 
@@ -1540,7 +1534,6 @@ export class WorkspaceContext {
     const target = this.router.focusedPaneId
     this.releaseDraftIn(target, draftId)
     this.router.navigate({ name: 'draft', params: { draftId } }, { via, target })
-    this.isExpanded = true
   }
 
   /**
@@ -1902,17 +1895,12 @@ export class WorkspaceContext {
     const session = this.sessionFor(tabId)
     const previousTabId = this.activeTabId
     if (tabId === this.activeTabId) {
-      // Selecting the tab already active is the pill's expand/collapse toggle —
-      // unless something is covering its conversation, in which case the click
-      // is asking to see it rather than to put the pill away.
-      if (this.showsConversation) this.isExpanded = !this.isExpanded
-      else this.resetOverlays({ closeArtifact: true })
-      if (this.isExpanded && tab) {
-        tab.hasUnread = false
-      }
+      // If a page covers the active conversation, selecting its tab reveals the
+      // conversation again. Otherwise it is a no-op apart from read state.
+      if (!this.showsConversation) this.resetOverlays({ closeArtifact: true })
+      if (tab) tab.hasUnread = false
     } else {
       this.setActiveTab(tabId)
-      this.isExpanded = true
       this.resetOverlays({ closeArtifact: true })
       if (tab) {
         tab.hasUnread = false
@@ -1926,15 +1914,6 @@ export class WorkspaceContext {
     }
     if (session) void this.refreshPluginCommands(session.run.workingDirectory, tabId, { onlyIfStale: true })
     track('tab_selected', { via })
-  }
-
-  toggleExpanded(): void {
-    const willExpand = !this.isExpanded
-    const { activeTabId } = this
-    this.isExpanded = willExpand
-    if (willExpand && this.tabs[activeTabId]) {
-      this.tabs[activeTabId].hasUnread = false
-    }
   }
 
   /**
@@ -1988,7 +1967,6 @@ export class WorkspaceContext {
     if (!splitTab || !splitSession) return
 
     this.setActiveTab(splitTabId)
-    this.isExpanded = true
     splitTab.hasUnread = false
     this.closeSplitPane()
     if (splitSession.run.provider && this.settings.activeAgent !== splitSession.run.provider) {
@@ -2019,22 +1997,6 @@ export class WorkspaceContext {
   private closeSplitPane(): void {
     const paneId = this.splitChatPaneId
     if (paneId) this.router.closePane(paneId)
-  }
-
-  /** ⌥⇧E: continue the active session in the other mode's window. Writes a
-   *  handoff addressed to that mode (when a session has started — otherwise
-   *  this is a bare window switch) and surfaces its window; main hides this
-   *  one per switchMode's asymmetric visibility rules. */
-  async continueInOtherMode(): Promise<void> {
-    if (!this.shell.continueInOtherWindow) return
-    const session = this.activeSession
-    await this.shell.continueInOtherWindow(session?.agentSessionId ? {
-      sessionId: session.agentSessionId,
-      serverId: session.run.serverId,
-      provider: session.run.provider ?? this.settings.activeAgent,
-      cwd: session.run.workingDirectory,
-      title: session.title ?? null,
-    } : undefined)
   }
 
 
@@ -2083,10 +2045,9 @@ export class WorkspaceContext {
     const sessionId = tab?.sessionId
     const closedBranchKey = branchKeyFor(this.sessionFor(tabId))
     const openTabIds = this.tabOrder.filter((id) => this.tabs[id])
-    const groupsTabsByBranch = this.shell.groupsTabsByBranch
-    const displayedTabIds = groupsTabsByBranch
-      ? openTabIds.filter((id) => branchKeyFor(this.sessionFor(id)) === closedBranchKey)
-      : openTabIds
+    const displayedTabIds = openTabIds.filter(
+      (id) => branchKeyFor(this.sessionFor(id)) === closedBranchKey,
+    )
     const visualTabIds = buildTabSections(
       displayedTabIds,
       this.tabGroupMode,
@@ -2119,7 +2080,7 @@ export class WorkspaceContext {
       if (newOrder.length === 0) {
         this.activeTabId = ''
       } else {
-        // Follow the order the strip actually displayed. In editor/web this
+        // Follow the order the strip actually displayed. In wide layouts this
         // keeps navigation within the visible branch; if it was the branch's
         // final tab, fall back to the adjacent tab in the underlying order.
         const fallbackTabId = adjacentTabAfterClose(this.tabOrder, tabId) ?? newOrder[0]
@@ -2229,7 +2190,6 @@ export class WorkspaceContext {
       if (openTabId) {
         if (!background) {
           if (openTabId === this.activeTabId) {
-            this.isExpanded = true
             // Already the active tab, so nothing switches — but a draft or page
             // may still be sitting over the conversation being asked for.
             this.resetOverlays({ closeArtifact: true })
@@ -2282,7 +2242,6 @@ export class WorkspaceContext {
       session.title = title
       session.titleCustom = !!meta.customTitle
       if (shouldActivate) {
-        if (!background) this.isExpanded = true
         if (this.settings.activeAgent !== provider) {
           this.config.followActiveSessionAgent(provider)
         }
@@ -2306,7 +2265,6 @@ export class WorkspaceContext {
 
       if (!background && !intoTabId) {
         this.setActiveTab(targetTab!.id)
-        this.isExpanded = true
         if (this.settings.activeAgent !== provider) {
           this.config.followActiveSessionAgent(provider)
         }
@@ -2692,6 +2650,12 @@ export class WorkspaceContext {
         }
         if (session) {
           this.handleError(session.id, { message: err.message, stderrTail: [], exitCode: null, elapsedMs: 0, toolCallCount: 0 })
+          // No seat, no turn (Step 2 plan §3.3): the connect card stands in this
+          // conversation; the failed bubble keeps the retry.
+          const seatProvider = seatProviderOf(session.run.provider)
+          if (rpcErrorCode(err) === SEAT_REQUIRED_CODE && seatProvider && session.run.serverId) {
+            seatsStore.noteRefusal(session.run.serverId, session.id, seatProvider)
+          }
         }
       })
   }
@@ -3500,8 +3464,7 @@ export class WorkspaceContext {
   // ─── Pages ───
   //
   // A page is a route with `exclusiveGroup: 'page'`, so only one can exist.
-  // `showPage` makes an explicit destination win over that reuse rule and adds
-  // the pill expansion, which is shell state rather than a location.
+  // `showPage` makes an explicit destination win over that reuse rule.
 
   private showPage(
     ref: RouteRef,
@@ -3532,7 +3495,6 @@ export class WorkspaceContext {
       this.router.closeGroup('page')
     }
     this.router.navigate(ref, { via, target })
-    this.isExpanded = true
     track('surface_viewed', { surface, via })
   }
 
@@ -3593,10 +3555,6 @@ export class WorkspaceContext {
     if (browserPageId) params.browserPageId = browserPageId
     if (serverId) params.serverId = serverId
     this.router.navigate({ name: 'browser', params }, { target: 'aside' })
-    // Browser is an Editor-mode surface: the pill has no pane row to put a
-    // stage in, and a browser viewport inside the summon window would be
-    // smaller than the phone it is showing.
-    void this.shell.showWorkspace?.()
   }
 
   /**
@@ -3794,7 +3752,6 @@ export class WorkspaceContext {
     ctx: IpcContext = this.ctx,
     serverId = this.serverIdForContext(ctx),
   ): Promise<void> {
-    await this.shell.showWorkspace?.()
     this.pullRequests.view.beginReviewMode(items.map((item) => item.number), ctx, serverId)
     this.showPage({ name: 'reviewMode', params: {} }, 'click', 'review')
   }
@@ -3908,7 +3865,6 @@ export class WorkspaceContext {
       { name: 'automation', params },
       { target: this.paneTarget(target) },
     )
-    this.isExpanded = true
     void this.automationsStore.loadAll(serverId)
   }
 
@@ -4072,13 +4028,11 @@ export class WorkspaceContext {
         void localApi.openExternal(fallbackUrl)
         return null
       }
-      await this.shell.showWorkspace?.()
     }
     const pane = this.router.navigate(ref, {
       target: opts.target ?? this.router.leadingPane.id,
       via: opts.via,
     })
-    this.isExpanded = true
     track('surface_viewed', { surface: 'pr_review', via: opts.via })
     this.pullRequests.projects.get(api, serverId, ctx).get(number).prefetch()
     try {
@@ -4131,12 +4085,6 @@ export class WorkspaceContext {
     const externalFallbackUrl = target.url?.trim() || cachedPr?.url
     const title = target.title ?? cachedPr?.title
     const number = target.number
-    // Switch to the editor layout up front so the click registers immediately.
-    // Only a preflighting caller waits, so an inaccessible web link never
-    // causes a visible mode or pane transition before it opens the browser.
-    if (!opts.preflight) {
-      await this.shell.showWorkspace?.()
-    }
     const ctx = opts.ctx ?? this.ctx
     await this.openPrReviewRoute(number, title, ctx, {
       tab: opts.tab,
@@ -4234,7 +4182,6 @@ export class WorkspaceContext {
       { target: 'aside' },
     )
     pane.defaultSize = 50
-    this.isExpanded = true
   }
 
   closePrDiff(): void {
@@ -4351,19 +4298,16 @@ export class WorkspaceContext {
             if (meta) void this.resumeSession(meta)
           })
         }
-        this.isExpanded = true
         return
       }
       default:
         this.router.navigate(ref, { via: opts.via })
-        this.isExpanded = true
     }
   }
 
-  /** Enter a whole serialized location — reload restore and window handoff. */
+  /** Enter a complete serialized location during reload restore. */
   enterLocation(serialized: string, opts: { via?: Via } = {}): void {
     this.router.enter(serialized, opts)
-    this.isExpanded = true
   }
 
   // ─── Viewers ───

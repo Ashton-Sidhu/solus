@@ -6,6 +6,7 @@ import { importDocFromUrl, publishWork, pullWorkUpstream, refreshUpstreamState, 
 import { docProviderAdapter, docProviderStatuses } from '../../docs/registry'
 import { publishPlan, pullPlanUpstream, refreshPlanUpstream, unlinkPlanUpstream } from '../../plans/plan-sync'
 import type { Work } from '@solus/contracts/types'
+import type { ShareManager } from '../../sharing/share-manager'
 import { Task } from '../../tasks/task'
 import { createLogger } from '../../logger'
 
@@ -26,16 +27,18 @@ async function linkWorkToSessionTasks(work: Work): Promise<void> {
   })))
 }
 
-export function registerFolioHandlers(server: SolusServer): void {
+export function registerFolioHandlers(server: SolusServer, deps: { shares?: ShareManager } = {}): void {
   server.register('readWorkGoogleComments', args => readWorkExternalComments(args[0]))
   server.register('refreshWorkGoogleComments', args => refreshWorkExternalComments(args[0]))
   server.register('sendWorkGoogleComment', args => sendWorkExternalComment(args[0], args[1]))
   server.register('readWorkExternalComments', args => readWorkExternalComments(args[0]))
   server.register('refreshWorkExternalComments', args => refreshWorkExternalComments(args[0]))
   server.register('sendWorkExternalComment', args => sendWorkExternalComment(args[0], args[1]))
-  server.register('createWork', async (args) => {
+  server.register('createWork', async (args, ctx) => {
     const [title, type, content, preview, sessionId, agentProvider, cwd, id] = args
     const work = await createWork(title, type, content, preview, sessionId, agentProvider, cwd, id)
+    // The person who made the work owns it (docs/plans/multiplayer-sharing.md §3.4).
+    deps.shares?.claimOwner({ kind: 'work', id: work.id }, ctx.principal)
     await linkWorkToSessionTasks(work)
     return work
   })
@@ -52,14 +55,17 @@ export function registerFolioHandlers(server: SolusServer): void {
     return loadWork(id, cwd)
   })
 
-  server.register('listWorks', async (args) => {
+  server.register('listWorks', async (args, ctx) => {
     const [cwd] = args
-    return listWorks(cwd)
+    const works = await listWorks(cwd)
+    // A list never returns an id the caller cannot open (§3.7).
+    return deps.shares ? deps.shares.filterVisible(ctx.principal, 'work', works, (work) => work.id) : works
   })
 
   server.register('deleteWork', async (args) => {
     const [id, cwd] = args
     await deleteWork(id, cwd)
+    deps.shares?.forget({ kind: 'work', id })
   })
 
   server.register('duplicateWork', async (args) => {

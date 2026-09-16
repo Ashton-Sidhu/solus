@@ -14,13 +14,12 @@ import { AppPage } from '../helpers/app.page'
  * mangled one.
  */
 
-// Both shells (pill + editor) stay mounted, so each Settings surface renders
-// once per shell. Scope every locator to the visible shell to avoid matching
-// the hidden duplicate. The full tabbed page only opens in editor mode.
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+// Scope every locator to the workspace shell so the test does not match a
+// portalled settings control.
+const ACTIVE_SHELL = '.workspace-shell'
 
 async function openSkillsTab(app: AppPage) {
-  await app.switchToEditorMode()
+  await app.waitForWorkspace()
   await app.page.keyboard.press('ControlOrMeta+Comma')
   const skillsTab = app.page.locator(ACTIVE_SHELL).getByRole('tab', { name: 'Skills' })
   await skillsTab.waitFor({ state: 'visible', timeout: 5_000 })

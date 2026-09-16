@@ -11,17 +11,16 @@ import { serversStore } from '../connections/servers.store.svelte'
 import { hostSetupStore } from '../../components/servers/host-setup.store.svelte'
 import { toasts } from '../../lib/toasts'
 
-export function installHostUpdateNotices(session: ReturnType<typeof createAppCore>['session'], shell: ClientShellContext): void {
+export function installHostUpdateNotices(session: ReturnType<typeof createAppCore>['session'], _shell: ClientShellContext): void {
   hostUpdatesStore.start()
   const observedOperations = new Map<string, string>()
   const operationPhases = new Map<string, string>()
   $effect(() => {
     for (const serverId of observedOperations.keys()) {
-      if (shell.isOverlayWindow || hostUpdatesStore.operations.get(serverId)?.operationId !== observedOperations.get(serverId)) {
+      if (hostUpdatesStore.operations.get(serverId)?.operationId !== observedOperations.get(serverId)) {
         untrack(() => { toasts.dismiss(`server-install:${serverId}`); operationPhases.delete(serverId) })
       }
     }
-    if (shell.isOverlayWindow) return
     for (const [serverId, message] of hostUpdatesStore.updateErrors) {
       const label = serversStore.servers.find((host) => host.id === serverId)?.label ?? 'this host'
       untrack(() => {
@@ -56,11 +55,10 @@ export function installHostUpdateNotices(session: ReturnType<typeof createAppCor
     for (const [serverId, notice] of shown) {
       const status = hostUpdatesStore.hostUpdateFor(serverId)
       const check = notice.target === 'solus' ? status?.check : status?.providers.find((p) => p.agent === notice.target)?.check
-      if (shell.isOverlayWindow || busyHosts.has(serverId) || isServerUpdateActive(hostUpdatesStore.operations.get(serverId)) || check?.kind !== 'available' || check.latestVersion !== notice.version) {
+      if (busyHosts.has(serverId) || isServerUpdateActive(hostUpdatesStore.operations.get(serverId)) || check?.kind !== 'available' || check.latestVersion !== notice.version) {
         untrack(() => { toasts.dismiss(`host-update:${serverId}`); shown.delete(serverId) })
       }
     }
-    if (shell.isOverlayWindow) return
     for (const serverId of hosts) {
       if (busyHosts.has(serverId)) continue
       const notice = hostUpdatesStore.pendingNoticeFor(serverId)

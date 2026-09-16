@@ -25,7 +25,7 @@ function draft(provider: AgentId | null = null): SessionDraft {
 describe('draft model selection', () => {
   test('picking a model writes into the run the session will start with', () => {
     // WHY: a draft has no session for the model chip to edit. Both composers a
-    // draft appears in — the editor pane and the pill dock — share these
+    // draft appears in — the workspace pane and the mobile composer — share these
     // accessors, so a choice made before Send is only kept if it lands here.
     const composing = draft()
     const selection = draftModelSelection(() => composing, () => 'codex')

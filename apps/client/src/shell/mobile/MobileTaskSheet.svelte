@@ -10,6 +10,7 @@
     ListChecks as ListChecksIcon,
     Moon as MoonIcon,
     Plus as PlusIcon,
+    Users as UsersIcon,
     X as XIcon,
   } from "@lucide/svelte";
   import {
@@ -22,6 +23,7 @@
   import { parseGitHubPullRequestUrl } from "@solus/contracts/providers";
   import { projectScopeOf } from "@solus/contracts/types";
   import {
+    activeSessionShareTarget,
     getWorkspaceContext,
     getPullRequestsContext,
     getSessionEnvironmentStore,
@@ -29,6 +31,7 @@
     hostStatusDotClass,
     hostStatusLabel,
     serversStore,
+    sharesStore,
   } from "@solus/workspace-ui/contexts";
   import { projectDirLabel } from "@solus/workspace-ui/lib/paths";
   import {
@@ -70,6 +73,7 @@
   // same three things across the top of a 1440px window.
   const tabId = $derived(session.activeTabId);
   const sess = $derived(session.sessionFor(tabId));
+  const shareTarget = $derived(activeSessionShareTarget(session));
   const task = $derived(sidebar.taskForTab(tabId));
   const durableTask = $derived(
     session.tasksStore.peek(task?.taskId),
@@ -349,6 +353,25 @@
             role="img"
             aria-label={hostStatusLabel(hostStatus)}
           ></span>
+        </button>
+      {/if}
+
+      <!-- The phone has no session band, so the Share control the band carries
+           lives here: the sheet is where this session's facts and verbs are. -->
+      {#if shareTarget}
+        <div class="h-px bg-(--hairline)"></div>
+        <button
+          type="button"
+          class="flex h-[3.125rem] w-full cursor-pointer items-center gap-2.5 border-0 bg-transparent px-3.5 text-left active:bg-(--wash-1) [-webkit-tap-highlight-color:transparent]"
+          data-testid="mobile-share"
+          onclick={() => {
+            onClose();
+            sharesStore.open(shareTarget);
+          }}
+        >
+          <UsersIcon size={15} class="shrink-0 text-(--muted-foreground)" />
+          <span class="min-w-0 flex-1 truncate {SHEET_ROW_LABEL}">Share</span>
+          <CaretRightIcon size={15} class="shrink-0 text-(--muted-foreground) opacity-70" />
         </button>
       {/if}
     </div>

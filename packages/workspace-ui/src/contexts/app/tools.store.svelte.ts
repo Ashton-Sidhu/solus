@@ -13,61 +13,10 @@ function emptyDetectedTools(): DetectedTools {
 }
 
 export class ToolsStore {
-  // These legacy fields back the compact client-local settings popover. The
-  // full Settings tab reads the selected host through detectedFor().
-  detectedEditors = $state<DetectedEditor[]>([])
-  detectedTerminals = $state<DetectedTerminal[]>([])
-  detectedToolsLoaded = $state(false)
-  detectedToolsLoading = $state(false)
-
-  private detectedToolsInFlight: Promise<DetectedTools> | null = null
   private readonly detectedByHost = new SvelteMap<string, DetectedTools>()
   private readonly loadedHosts = new SvelteMap<string, boolean>()
   private readonly loadingHosts = new SvelteMap<string, boolean>()
   private readonly inFlightByHost = new Map<string, Promise<DetectedTools>>()
-
-  async loadDetectedTools(opts: { force?: boolean } = {}): Promise<DetectedTools> {
-    if (this.detectedToolsLoaded && !opts.force) {
-      return { editors: this.detectedEditors, terminals: this.detectedTerminals }
-    }
-    if (this.detectedToolsInFlight && !opts.force) return this.detectedToolsInFlight
-
-    this.detectedToolsLoading = true
-    // Editors and terminals installed on the client's own machine; a web
-    // client has no local host and reports none.
-    const serverId = serverConnections.localServerId()
-    const promise = (async () => {
-      if (!serverId) return emptyDetectedTools()
-      const capabilities = await serverConnections.capabilitiesFor(serverId)
-      if (capabilities.editors === undefined) {
-        return emptyDetectedTools()
-      }
-      const result = await serverConnections.apiFor(serverId).detectEditors()
-      return {
-        editors: result.editors.filter((editor) => capabilities.editors?.includes(editor.id)),
-        terminals: result.terminals,
-      }
-    })()
-      .then((result) => {
-        this.detectedEditors = result.editors
-        this.detectedTerminals = result.terminals
-        this.detectedToolsLoaded = true
-        return result
-      })
-      .catch(() => {
-        const empty = emptyDetectedTools()
-        this.detectedEditors = empty.editors
-        this.detectedTerminals = empty.terminals
-        this.detectedToolsLoaded = true
-        return empty
-      })
-      .finally(() => {
-        this.detectedToolsLoading = false
-        if (this.detectedToolsInFlight === promise) this.detectedToolsInFlight = null
-      })
-    this.detectedToolsInFlight = promise
-    return promise
-  }
 
   /**
    * The terminal "Open in terminal" would use right now — the one already

@@ -16,6 +16,7 @@
       "@solus/client-core/*": ["packages/client-core/src/*"],
       "@solus/server/*": ["packages/server/src/*"],
       "@solus/workspace-ui/*": ["packages/workspace-ui/src/*"],
+      "@solus/lab/*": ["packages/lab/src/*"],
       "@solus/desktop-main/*": ["apps/desktop/src/main/*"]
     }
   },

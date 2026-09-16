@@ -10,7 +10,6 @@ export interface SolusEventMap {
   message_sent: { agent: string; is_first_message: boolean; delivery?: 'steer' | 'queue' | 'immediate'; permission_mode?: string; attachment_count?: number; image_count?: number; plan_ref_count?: number; work_ref_count?: number; session_ref_count?: number; has_slash_command?: boolean; is_remote_host?: boolean }
   agent_switched: { from: string; to: string; via?: Via }
   settings_opened: { tab?: string; via?: Via }
-  mode_toggled: { mode: 'editor' | 'pill' }
   voice_recording_started: {}
   tab_created: { via?: Via; worktree?: boolean }
   tab_selected: { via?: Via }

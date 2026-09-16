@@ -2,10 +2,9 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 
-// The pinned sidebar section only exists in editor mode (SessionSidebar is
-// exclusive to EditorLayout), so every test drives the editor shell.
+// The pinned sidebar section belongs to the wide workspace sidebar.
 test.describe('Pinned sessions', () => {
   test('star action in the orb pins the active session into the sidebar', async ({ page }) => {
     const app = new AppPage(page)
@@ -15,7 +14,7 @@ test.describe('Pinned sessions', () => {
     // A live session (with an agentSessionId) is required for the pin action.
     await conversation.typeAndSend('Pin this session please')
     await conversation.waitForResponse()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     const pinBtn = page.locator(`${ACTIVE_SHELL} [data-orb-action="pin"]`).first()
     await expect(pinBtn).toBeVisible()
@@ -43,7 +42,7 @@ test.describe('Pinned sessions', () => {
 
     await conversation.typeAndSend('Hotkey pin target')
     await conversation.waitForResponse()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     // Pin via hotkey
     await page.keyboard.press('Alt+Shift+x')
@@ -62,7 +61,7 @@ test.describe('Pinned sessions', () => {
 
     await conversation.typeAndSend('Focus me from the pin')
     await conversation.waitForResponse()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await page.locator(`${ACTIVE_SHELL} [data-orb-action="pin"]`).first().click()
     const pinnedItem = page.locator(`${ACTIVE_SHELL} .pinned-item`).first()

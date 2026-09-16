@@ -1,8 +1,8 @@
 import type { Page } from '@playwright/test'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 
-/** Interactions with the two-pane layout in editor mode. */
+/** Interactions with the two-pane workspace layout. */
 export class PanePage {
   constructor(readonly page: Page) {}
 

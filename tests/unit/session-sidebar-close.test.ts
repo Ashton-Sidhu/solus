@@ -339,7 +339,7 @@ describe('session sidebar boot location', () => {
     expect(store.openedDraftCount).toBe(1)
   })
 
-  test('the boot composer never pops the pill open', () => {
+  test('the boot composer does not change the restored route', () => {
     // WHY: launch must not steal the screen. Seeding a draft on an empty
     // workspace already opens quietly; landing on one has to match.
     const store = bootStore()

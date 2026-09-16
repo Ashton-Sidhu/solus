@@ -81,10 +81,9 @@ export interface HostCapabilities {
 }
 
 export type SetupAgent = 'claude' | 'codex'
-/** `signin-*` reuse the install streaming machinery — same log/status topics. */
+/** Signing an agent in is a seat connect (`seats.ts`), not a setup step. */
 export type SetupStreamStep =
   | 'install-claude' | 'install-codex' | 'install-git' | 'install-gh' | 'clone'
-  | 'signin-claude' | 'signin-codex'
 export type SetupStepStatus = 'running' | 'done' | 'failed'
 
 export interface SetupLogEvent {
@@ -92,19 +91,10 @@ export interface SetupLogEvent {
   line: string
 }
 
-/** The browser prompt an agent sign-in is blocked on. Some CLIs require a returned code. */
-export interface SetupVerification {
-  url: string
-  code?: string
-  requiresCodeInput?: boolean
-}
-
 export interface SetupStatusEvent {
   step: SetupStreamStep
   status: SetupStepStatus
   error?: string
-  /** Present while an agent sign-in waits on the user to open the URL. */
-  verification?: SetupVerification
 }
 
 export interface SetupStepResult {
@@ -1756,10 +1746,6 @@ export interface SessionCtx {
   prReview?: PrReviewContext | null
 }
 
-export interface WindowCtx {
-  viewMode: 'pill' | 'editor'
-}
-
 export type AppFontFamily = 'inter' | 'dm-sans' | 'system' | 'geist' | 'lora' | 'sf-pro-text' | 'sf-mono'
 export type AppCodeFontFamily = 'sf-mono' | 'geist-mono' | 'fira-code' | 'cascadia-code' | 'jetbrains-mono' | 'system-mono'
 
@@ -1809,7 +1795,6 @@ export interface StatusBarCtx {
 
 export interface IpcContext {
   session: SessionCtx
-  window: WindowCtx
   settings: SettingsCtx
   statusBar: StatusBarCtx
 }
@@ -2525,10 +2510,9 @@ export interface AppShortcutCombo {
   mod?: boolean
 }
 
-/** The two OS-level "summon Solus" shortcuts (desktop-only). */
+/** The OS-level "summon Solus" shortcut (desktop-only). */
 export interface AppGlobalShortcuts {
-  primary: AppShortcutCombo
-  secondary: AppShortcutCombo
+  toggle: AppShortcutCombo
 }
 
 /** Accelerators that couldn't be live-registered (caller offers a restart). */

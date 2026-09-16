@@ -19,7 +19,7 @@ describe('isLaptopDisplay', () => {
   // WHY: the old `(max-width: 1800px)` media query measured the window, and zoom
   // changes how many CSS pixels a window reports. A 1920px monitor at 110% zoom
   // reported 1745 and silently crossed onto the laptop branch, so one zoom
-  // keystroke also resized the pill and stripped the plan modal's borders.
+  // keystroke also changed responsive geometry and stripped plan modal borders.
   test('zoom cannot move a display across the threshold', () => {
     for (const zoomFactor of [0.5, 0.8, 0.9, 1, 1.1, 1.5, 2]) {
       expect(isLaptopDisplay(asSeenAtZoom(1512, zoomFactor), zoomFactor)).toBe(true)

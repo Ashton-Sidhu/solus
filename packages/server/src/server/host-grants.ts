@@ -1,6 +1,6 @@
 import { createPublicKey, verify as verifySignature, type KeyObject } from 'crypto'
 import { z } from 'zod'
-import { HOST_GRANT_TTL_SECONDS, type HostGrantClaims, type UplinkLinkConfig } from '@solus/contracts/uplink'
+import { HOST_GRANT_TTL_SECONDS, hostGrantClaimsSchema, type HostGrantClaims, type UplinkLinkConfig } from '@solus/contracts/uplink'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'host-grants')
@@ -52,14 +52,12 @@ export const JWKS_REFRESH_MIN_INTERVAL_MS = 60_000
 const IAT_SKEW_MS = 60_000
 
 const headerSchema = z.object({ alg: z.literal('ES256'), kid: z.string().min(1) })
-const claimsSchema = z.object({
-  iss: z.string().min(1),
+// The contract's claims, with `aud` also accepted as a list. Parsing with the contract
+// schema is what keeps the membership facts (access, organization, teams) on the
+// verdict: a narrower schema here would silently strip them and admit every member
+// as the owner.
+const claimsSchema = hostGrantClaimsSchema.extend({
   aud: z.union([z.string().min(1), z.array(z.string())]),
-  sub: z.string().min(1),
-  deviceId: z.string().min(1),
-  jti: z.string().min(1),
-  iat: z.number(),
-  exp: z.number(),
 })
 const jwkSchema = z.object({
   kid: z.string().min(1),

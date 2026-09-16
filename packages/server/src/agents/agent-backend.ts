@@ -15,6 +15,7 @@ import type {
 } from '@solus/contracts/types'
 import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import type { AgentRunRequest, AgentRunSessionState } from './agent-runner'
+import type { TurnSeat } from '../seats/seat-manager'
 
 export interface PermissionResponder {
   getPendingInfo(questionId: string): { toolName: string; sessionId: string | null } | undefined
@@ -101,8 +102,8 @@ export interface AgentBackend extends EventEmitter {
   refreshPluginCommands(): Promise<void>
   /** Incrementally refreshes durable session metadata when the provider supports it. */
   refreshSessionIndex?(): Promise<void>
-  /** Subscription quota windows, when the provider exposes them. */
-  readUsageLimits?(): Promise<AgentUsageLimits | null>
+  /** Subscription quota windows, when the provider exposes them; for a member's seat when one is given. */
+  readUsageLimits?(seat?: TurnSeat): Promise<AgentUsageLimits | null>
 
   shutdown?(): void
   rewindFiles?(sessionId: string, checkpointId: string, projectPath: string): Promise<void>

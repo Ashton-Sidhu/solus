@@ -4,7 +4,8 @@ import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../
 import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { recordOtelDuration } from '../../otel'
-import type { SolusServer } from '../server'
+import type { HandlerCtx, SolusServer } from '../server'
+import type { ShareManager } from '../../sharing/share-manager'
 import { getIndexedSession, getSessionMessageWindow, searchIndexedSessions, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { generateSessionMetadata } from '../../sessions/session-title'
@@ -21,10 +22,14 @@ export interface HistoryDeps {
   controlPlane: ControlPlane
   events: HostEventPublisher
   agentIdFromContext(ctx?: IpcContext): AgentId
+  /** Listings show a member or guest only the sessions they may open. */
+  shares?: ShareManager
 }
 
 export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps): void {
   const { controlPlane, events, agentIdFromContext } = deps
+  const visibleSessions = <T>(handlerCtx: HandlerCtx, sessions: T[], sessionIdOf: (item: T) => string): T[] =>
+    deps.shares ? deps.shares.filterVisible(handlerCtx.principal, 'session', sessions, sessionIdOf) : sessions
 
   server.register('listSessions', async (args, handlerCtx) => {
     const [projectPath, , , streamId, requestedLimit] = args
@@ -41,8 +46,8 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
 
       function flushBatch() {
         if (batchBuffer.length === 0) return
-        const sessions = batchBuffer.splice(0, BATCH_SIZE)
-        if (handlerCtx.clientId) {
+        const sessions = visibleSessions(handlerCtx, batchBuffer.splice(0, BATCH_SIZE), (session) => session.sessionId)
+        if (handlerCtx.clientId && sessions.length) {
           if (streamId) {
             events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'batch', sessions } satisfies SessionScanEvent)
           }
@@ -61,7 +66,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
             }
           }
         : undefined
-      const sessions = await controlPlane.listSessionsForProviders(controlPlane.getBackendIds(), projectPath, onBatch, limitPerProvider)
+      const sessions = visibleSessions(handlerCtx, await controlPlane.listSessionsForProviders(controlPlane.getBackendIds(), projectPath, onBatch, limitPerProvider), (session) => session.sessionId)
       if (streamId) {
         while (batchBuffer.length > 0) flushBatch()
         if (handlerCtx.clientId) {
@@ -81,16 +86,16 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('searchSessions', async (args) => {
+  server.register('searchSessions', async (args, handlerCtx) => {
     const [request] = args
     try {
-      return searchIndexedSessions(request.query, {
+      return visibleSessions(handlerCtx, searchIndexedSessions(request.query, {
         projectRoot: request.projectRoot,
         providers: request.providers,
         role: request.role,
         sinceTs: request.sinceTs,
         prefixLastToken: request.prefixLastToken,
-      }, request.limit)
+      }, request.limit), (result) => result.session.sessionId)
     } catch (err) {
       log.error('search_sessions_failed', { error: String(err) })
       return []

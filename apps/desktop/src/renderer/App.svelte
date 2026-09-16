@@ -21,6 +21,7 @@
 
   import DesignAnnotation from "@solus/workspace-ui/components/artifact/DesignAnnotation.svelte";
   import RenameSessionDialog from "@solus/workspace-ui/components/session/RenameSessionDialog.svelte";
+  import ShareDialog from "@solus/workspace-ui/components/sharing/ShareDialog.svelte";
   import { Toaster } from "@solus/workspace-ui/components/ui/sonner/index.js";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
 
@@ -46,26 +47,22 @@
 
   const TOAST_HOTKEY = ["altKey", "shiftKey", "KeyT"];
 
-  type EditorLayoutModule =
-    typeof import("@solus/workspace-ui/components/layout/EditorLayout.svelte");
-  type EditorLayoutComponent = EditorLayoutModule["default"];
+  type WorkspaceLayoutModule =
+    typeof import("@solus/workspace-ui/components/layout/WorkspaceLayout.svelte");
+  type WorkspaceLayoutComponent = WorkspaceLayoutModule["default"];
   const commandPaletteModulePromise =
     import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte");
   interface Props {
-    initialEditorLayout?: EditorLayoutComponent;
+    initialWorkspaceLayout?: WorkspaceLayoutComponent;
   }
-  let { initialEditorLayout }: Props = $props();
+  let { initialWorkspaceLayout }: Props = $props();
 
   const windowCtx = new DesktopWindow();
   const core = createAppCore(windowCtx);
-  $effect(() => {
-    windowCtx.conversationVisible =
-      !windowCtx.isOverlayWindow || core.session.isExpanded;
-  });
   const { settings, projectConfigStore, session, keybindings } = core;
 
-  installDesktopRuntime(core, windowCtx);
-  installDesktopUpdates(core, windowCtx);
+  installDesktopRuntime(core);
+  installDesktopUpdates(core);
   const ui = new DesktopDialogs();
   const {
     handleScreenshot,
@@ -138,37 +135,11 @@
     void projectConfigStore.load(taskComposerHost, taskComposer.projectKey);
   });
 
-  const isExpanded = $derived(session.isExpanded);
-  // Each Electron window is mode-locked (`?mode=` in its URL), so exactly one
-  // layout mounts for the window's lifetime — no dual trees, no display:none
-  // toggling. Switching modes surfaces the other OS window via switchMode.
-  const viewMode = $derived(windowCtx.viewMode);
-  const isEditorMode = $derived(viewMode === "editor");
-  // Native hide/show leaves the mounted surface active. Electron preserves the
-  // DOM exactly, so summoning the same window causes no renderer state change.
-  // The shell passes each layout its native surface state.
-  const editorSurfaceActive = $derived(isEditorMode);
-  const pillSurfaceActive = $derived(!isEditorMode);
-  type PillLayoutModule = typeof import("./shell/PillLayout.svelte");
-  const initialViewMode = untrack(() => windowCtx.viewMode);
-  let editorLayoutComponent = $state.raw<Promise<EditorLayoutModule> | null>(
-    initialViewMode === "editor" && !untrack(() => initialEditorLayout)
-      ? import("@solus/workspace-ui/components/layout/EditorLayout.svelte")
+  let workspaceLayoutComponent = $state.raw<Promise<WorkspaceLayoutModule> | null>(
+    !untrack(() => initialWorkspaceLayout)
+      ? import("@solus/workspace-ui/components/layout/WorkspaceLayout.svelte")
       : null,
   );
-  let pillLayoutComponent = $state.raw<Promise<PillLayoutModule> | null>(
-    initialViewMode === "pill" ? import("./shell/PillLayout.svelte") : null,
-  );
-
-  // Keep the native window's layout mounted for its lifetime.
-  $effect(() => {
-    if (isEditorMode) {
-      editorLayoutComponent ??=
-        import("@solus/workspace-ui/components/layout/EditorLayout.svelte");
-    } else {
-      pillLayoutComponent ??= import("./shell/PillLayout.svelte");
-    }
-  });
 
   // These components previously stayed mounted and managed their own open
   // guards. Keep that lifetime after the first lazy load so local draft/focus
@@ -287,17 +258,11 @@
 
   // Mount global scope and the single dispatcher listener (shared with web).
   installGlobalDispatcher(keybindings, () => settings.keybindings);
-  installDesktopKeybindings(core, windowCtx, ui, {
+  installDesktopKeybindings(core, ui, {
     startOpenProject,
     handleScreenshot,
     handleAttachFile,
     handleDesignMode,
-  });
-
-  $effect(() => {
-    if (!isEditorMode && !isExpanded && session.router.at("plan")) {
-      session.closePlanModal();
-    }
   });
 
   $effect(() => {
@@ -509,30 +474,27 @@
       style="position:fixed;inset:0;z-index:10010;pointer-events:none"
     ></div>
 
-    {#if initialEditorLayout}
-      {@const EditorLayout = initialEditorLayout}
-      <div class="mode-shell h-full w-full" class:mode-hidden={!isEditorMode}>
-        <EditorLayout
-          active={editorSurfaceActive}
+    {#if initialWorkspaceLayout}
+      {@const WorkspaceLayout = initialWorkspaceLayout}
+      <div class="workspace-shell h-full w-full">
+        <WorkspaceLayout
           onAttachFile={handleAttachFile}
           onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
           onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
         />
       </div>
-    {:else if editorLayoutComponent}
-      {#await editorLayoutComponent}
+    {:else if workspaceLayoutComponent}
+      {#await workspaceLayoutComponent}
         <div
-          class="mode-shell grid h-full w-full place-items-center text-xs text-(--solus-text-tertiary)"
-          class:mode-hidden={!isEditorMode}
+          class="workspace-shell grid h-full w-full place-items-center text-xs text-(--solus-text-tertiary)"
           role="status"
         >
           Loading workspace…
         </div>
-      {:then editorLayoutModule}
-        {@const EditorLayout = editorLayoutModule.default}
-        <div class="mode-shell h-full w-full" class:mode-hidden={!isEditorMode}>
-          <EditorLayout
-            active={editorSurfaceActive}
+      {:then workspaceLayoutModule}
+        {@const WorkspaceLayout = workspaceLayoutModule.default}
+        <div class="workspace-shell h-full w-full">
+          <WorkspaceLayout
             onAttachFile={handleAttachFile}
             onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
             onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
@@ -540,38 +502,7 @@
         </div>
       {:catch}
         <div
-          class="mode-shell grid h-full w-full place-items-center text-xs text-(--solus-status-error)"
-          class:mode-hidden={!isEditorMode}
-          role="alert"
-        >
-          Couldn’t load the workspace.
-        </div>
-      {/await}
-    {/if}
-
-    {#if pillLayoutComponent}
-      {#await pillLayoutComponent}
-        <div
-          class="mode-shell grid h-full w-full place-items-center text-xs text-(--solus-text-tertiary)"
-          class:mode-hidden={isEditorMode}
-          role="status"
-        >
-          Loading workspace…
-        </div>
-      {:then pillLayoutModule}
-        {@const PillLayout = pillLayoutModule.default}
-        <div class="mode-shell" class:mode-hidden={isEditorMode}>
-          <PillLayout
-            active={pillSurfaceActive}
-            onAttachFile={handleAttachFile}
-            onScreenshot={desktopHandlersAvailable ? handleScreenshot : null}
-            onDesignMode={desktopHandlersAvailable ? handleDesignMode : null}
-          />
-        </div>
-      {:catch}
-        <div
-          class="mode-shell grid h-full w-full place-items-center text-xs text-(--solus-status-error)"
-          class:mode-hidden={isEditorMode}
+          class="workspace-shell grid h-full w-full place-items-center text-xs text-(--solus-status-error)"
           role="alert"
         >
           Couldn’t load the workspace.
@@ -667,7 +598,7 @@
       {/await}
     {/if}
 
-    <ConnectionStatusOverlay dimBackdrop={isEditorMode} />
+    <ConnectionStatusOverlay dimBackdrop />
 
     {#if ui.hasMountedAddServer}
       {#await import("@solus/workspace-ui/components/servers/AddServerModal.svelte")}
@@ -736,6 +667,8 @@
         onClose={() => (session.ui.sessionRename = null)}
       />
     {/if}
+
+    <ShareDialog />
 
     {#if taskComposer && taskComposerConfig !== undefined}
       {#await import("@solus/workspace-ui/components/tasks/TaskComposer.svelte")}
@@ -817,13 +750,9 @@
     z-index: 999999999;
   }
 
-  :global(html.is-mac-editor:has(.toaster[data-x-position="right"][data-y-position="top"] [data-sonner-toast][data-visible="true"] [data-close-button]))
+  :global(html.is-mac-workspace:has(.toaster[data-x-position="right"][data-y-position="top"] [data-sonner-toast][data-visible="true"] [data-close-button]))
     .toast-close-drag-guard {
     display: block;
-  }
-
-  .mode-hidden {
-    display: none !important;
   }
 
   .lazy-modal-loading {

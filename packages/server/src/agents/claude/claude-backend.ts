@@ -4,7 +4,8 @@ import { createReadStream, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import type { SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
-import { ClaudeAgent, SAFE_TOOLS } from './claude-agent'
+import { ClaudeAgent, SAFE_TOOLS, type ClaudeSeat } from './claude-agent'
+import type { TurnSeat } from '../../seats/seat-manager'
 import { TurnInputChannel } from './claude-turn-input'
 import { adaptClaudeTools } from './claude-tool-adapter'
 import { PermissionManager } from './claude-permissions'
@@ -132,6 +133,14 @@ function imageContent(
   }
   // Every dataUrl was malformed — fall back to the plain text turn.
   return content.some((b) => b.type === 'image') ? content : null
+}
+
+/** The Claude half of a seat: the config directory and, for a token seat, the token. */
+function claudeSeatOf(seat: TurnSeat): ClaudeSeat {
+  const claudeSeat: ClaudeSeat = { home: seat.home }
+  if (seat.isHostLogin) claudeSeat.isHostLogin = true
+  if (seat.envToken) claudeSeat.envToken = seat.envToken
+  return claudeSeat
 }
 
 interface ClaudeRunHandle extends RunHandle {
@@ -276,6 +285,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
         maxTurns: request.maxTurns,
         maxBudgetUsd: request.maxBudgetUsd,
         canUseTool,
+        seat: request.seat ? claudeSeatOf(request.seat) : undefined,
         enableFileCheckpointing: request.persistence === 'session',
         persistSession: request.persistence === 'session',
         abortController,
@@ -440,8 +450,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       return sessions
     }
 
-    // Dedup concurrent cold scans of the same project. When two callers (e.g. the
-    // pill and editor windows at launch) miss the cache at once, the first drives
+    // Dedup concurrent cold scans of the same project. When two clients miss the
+    // cache at once, the first drives
     // the scan and its streaming batches; later callers await the same promise and
     // still get the full list from its return value — the history store treats the
     // RPC result as authoritative, so they only forgo the incremental `onBatch`
@@ -601,8 +611,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     }
 
     // Dedup concurrent cold plan scans of the same scope, exactly as listSessions
-    // does: the pill and editor windows both fire listPlans at launch, and each
-    // walks every project's transcripts. Share one scan; later callers await it.
+    // does. Multiple clients can request the same scan at once. Share one scan;
+    // later callers await it.
     const inFlight = _planScanInFlight.get(cacheKey)
     if (inFlight) return inFlight
 
@@ -741,8 +751,8 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     this.commandDiscovery.clear()
   }
 
-  async readUsageLimits(): Promise<AgentUsageLimits | null> {
-    const windows = await this.agent.readUsageReport()
+  async readUsageLimits(seat?: TurnSeat): Promise<AgentUsageLimits | null> {
+    const windows = await this.agent.readUsageReport(seat ? claudeSeatOf(seat) : undefined)
     if (!windows) return null
     return {
       provider: this.id,

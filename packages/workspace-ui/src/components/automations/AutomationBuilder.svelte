@@ -551,7 +551,7 @@
       cwd: automationRunCwd(run, automationCwd, session.staticInfo?.homePath),
       projectPath: "",
     });
-    // Leave the detail: close the pane (editor) or the full-page list (pill).
+    // Leave the detail: close the pane or return to the mobile full-page list.
     if (inline) onClose?.();
     else session.router.close("automations");
   }
@@ -899,7 +899,7 @@
 
 <!-- The detail view is a reading surface, so it pins the readable chrome rung
      rather than inheriting the automations list's compact one: the same builder
-     must not change size because pill mode renders it inside that list. -->
+     must not change size because the mobile layout renders it inside that list. -->
 <div
   class="@container flex min-h-0 flex-1 flex-col text-workspace-chrome {inline
  ? `h-full ${SIDEBAR_PANEL_BG}`

@@ -2,7 +2,7 @@ import type { RpcMethod } from '@solus/contracts/rpc'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { PlanPublishRequest, WorkPublishRequest } from '@solus/contracts/docs'
 import { createLogger, isDebugEnabled } from '../logger'
-import { assertRpcAccess } from './access-policy'
+import { assertRpcAccess, type ResourceAccess } from './access-policy'
 import { INTERNAL_PRINCIPAL, type Principal } from './principal'
 
 const log = createLogger('server', 'server.ts')
@@ -26,6 +26,12 @@ export class SolusServer {
   setUpdateTrial(active: boolean): void { this.updateTrial = active }
 
   private handlers = new Map<RpcMethod, Handler>()
+  private resources: ResourceAccess | undefined
+
+  /** Ownership and share lists, once the host has opened its database. */
+  useResourceAccess(resources: ResourceAccess): void {
+    this.resources = resources
+  }
 
   register<M extends RpcMethod>(method: M, handler: RpcHandler<M>): void {
     if (this.handlers.has(method)) {
@@ -39,7 +45,7 @@ export class SolusServer {
   async handle(method: RpcMethod, args: RpcInvocationArgs, ctx: HandlerCtx): Promise<RpcInvocationResult> {
     // Fail closed: a call that names no principal is refused before any handler runs.
     if (!ctx?.principal) throw new Error(`SolusServer: "${method}" was called without a principal`)
-    assertRpcAccess(method, ctx.principal)
+    assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
       if (method === 'publishWork') {

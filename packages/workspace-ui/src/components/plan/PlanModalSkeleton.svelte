@@ -10,7 +10,7 @@
   // the shell swaps in.
 
   interface Props {
-    /** Full-pane (editor mode) vs floating modal + backdrop (pill mode). */
+    /** Full-pane or floating modal with a backdrop. */
     inline?: boolean;
   }
 

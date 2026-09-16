@@ -14,7 +14,7 @@ class RuntimeStore {
     globalThis.window?.matchMedia(TOUCH_QUERY).matches ?? false,
   ))
   // Stays false until settings reports the boot zoom factor; there is no honest
-  // answer before then, and pill geometry is the only reader.
+  // answer before then.
   isLaptopDisplay = $state(false)
   isTouchDevice = $state(globalThis.window?.matchMedia(TOUCH_QUERY).matches ?? false)
   hasKeyboardPointer = $state(globalThis.window?.matchMedia(FINE_POINTER_QUERY).matches ?? true)
@@ -65,7 +65,7 @@ class RuntimeStore {
    * every change. Only the boot push recomputes. A later push arrives before
    * Chromium has applied the new factor, so `screen.width` still carries the old
    * one and the product would be wrong by a step — long enough to flip the
-   * branch and resize the pill for a frame. Every zoom change resizes the
+   * responsive branch for a frame. Every zoom change resizes the
    * viewport, so the resize listener does the real work.
    */
   setZoomFactor(zoomFactor: number): void {

@@ -18,7 +18,6 @@ export const NATIVE_ONLY_SOLUS_METHODS = [
   'onThemeChange',
   'onWindowShown',
   'onWindowHidden',
-  'setIgnoreMouseEvents',
   'setZoomFactor',
   'rendererReady',
   'rendererMounted',

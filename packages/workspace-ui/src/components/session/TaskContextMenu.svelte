@@ -24,6 +24,7 @@
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import type { TaskPrChoice } from "./lib/task-list";
+  import { taskPrMenuTitle } from "./lib/task-pr-menu";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -293,15 +294,28 @@
             {@render prActions(prChoices[0])}
           {:else}
             {#each prChoices as choice (`${choice.targetScope}:${choice.number}`)}
-              <ContextMenu.Sub>
-                <ContextMenu.SubTrigger>
+              <div class="flex items-center">
+                <ContextMenu.Item
+                  class="min-w-0 flex-1 text-workspace-chrome"
+                  title={`Open #${choice.number} ${taskPrMenuTitle(choice)}`}
+                  onSelect={() => select(() => onOpenPr?.(choice, "activity"))}
+                >
                   <span class="shrink-0 tabular-nums text-muted-foreground">#{choice.number}</span>
-                  <span class="max-w-48 truncate">{choice.title}</span>
-                </ContextMenu.SubTrigger>
-                <ContextMenu.SubContent class="min-w-48">
-                  {@render prActions(choice)}
-                </ContextMenu.SubContent>
-              </ContextMenu.Sub>
+                  <span class="max-w-48 truncate">{taskPrMenuTitle(choice)}</span>
+                </ContextMenu.Item>
+                <ContextMenu.Sub>
+                  <ContextMenu.SubTrigger
+                    class="shrink-0 text-workspace-chrome"
+                    aria-label={`Actions for pull request #${choice.number}`}
+                    title={`Actions for #${choice.number}`}
+                  >
+                    <span aria-hidden="true">…</span>
+                  </ContextMenu.SubTrigger>
+                  <ContextMenu.SubContent class="min-w-48">
+                    {@render prActions(choice)}
+                  </ContextMenu.SubContent>
+                </ContextMenu.Sub>
+              </div>
             {/each}
           {/if}
         </ContextMenu.SubContent>

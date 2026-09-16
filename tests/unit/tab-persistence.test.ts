@@ -45,7 +45,6 @@ class MemoryStorage implements Storage {
   }
 }
 
-const originalWindow = (globalThis as any).window
 const originalLocalStorage = (globalThis as any).localStorage
 
 function sampleSnapshot(): PersistedTabs {
@@ -82,29 +81,10 @@ describe('tab persistence server scoping', () => {
   beforeEach(() => {
     storage = new MemoryStorage()
     Object.defineProperty(globalThis, 'localStorage', { value: storage, configurable: true })
-    Object.defineProperty(globalThis, 'window', {
-      value: {
-        location: { search: '?mode=editor' },
-        solus: { getPlatform: () => 'darwin' },
-      },
-      configurable: true,
-    })
   })
 
   afterEach(() => {
-    Object.defineProperty(globalThis, 'window', { value: originalWindow, configurable: true })
     Object.defineProperty(globalThis, 'localStorage', { value: originalLocalStorage, configurable: true })
-  })
-
-  test('does not adopt a retired per-installation snapshot', () => {
-    // WHY: the dispatch client has one client-wide namespace. Keeping the old
-    // host-scoped read would make the boot host ambient again.
-    const snapshot = sampleSnapshot()
-    storage.setItem('solus-open-tabs:local-install:editor', JSON.stringify(snapshot))
-
-    expect(loadPersistedTabs()).toBeNull()
-    expect(storage.getItem('solus-open-tabs:editor')).toBeNull()
-    expect(storage.getItem('solus-open-tabs:local-install:editor')).toBe(JSON.stringify(snapshot))
   })
 
   test('every boot host reads the same client-wide tab set', () => {
@@ -137,7 +117,7 @@ describe('tab persistence server scoping', () => {
   test('rejects an incomplete snapshot instead of guessing its selection', () => {
     const snapshot = sampleSnapshot()
     const { activeTabId: _activeTabId, tabOrder: _tabOrder, ...partialSnapshot } = snapshot
-    storage.setItem('solus-open-tabs:editor', JSON.stringify(partialSnapshot))
+    storage.setItem('solus-open-tabs', JSON.stringify(partialSnapshot))
 
     expect(loadPersistedTabs()).toBeNull()
   })
@@ -148,11 +128,10 @@ describe('tab persistence server scoping', () => {
     patchActiveDraft('tab-1', 'tab draft', 'active draft')
     flushDrafts()
 
-    expect(storage.getItem('solus-tab-drafts:editor')).toBe(JSON.stringify({
+    expect(storage.getItem('solus-tab-drafts')).toBe(JSON.stringify({
       activeInputText: 'active draft',
       tabs: { 'tab-1': 'tab draft' },
     }))
-    expect(storage.getItem('solus-tab-drafts:local-install:editor')).toBeNull()
   })
 
   test('removes a closed tab from the queued snapshot immediately', () => {
@@ -176,7 +155,7 @@ describe('tab persistence server scoping', () => {
     snapshot.activeTabId = 'tab-2'
     snapshot.tabOrder.push('tab-2')
     snapshot.tabs.push({ ...snapshot.tabs[0], tabId: 'tab-2', title: 'Other work' })
-    storage.setItem('solus-open-tabs:editor', JSON.stringify(snapshot))
+    storage.setItem('solus-open-tabs', JSON.stringify(snapshot))
 
     removePersistedTab('tab-1', 'tab-2')
 
@@ -187,14 +166,14 @@ describe('tab persistence server scoping', () => {
     })
   })
 
-  test('persists dismissed sidebar tasks in the client-wide window scope', () => {
+  test('persists dismissed sidebar tasks in the client-wide scope', () => {
 
     persistDismissedSidebarRow('root-task')
     persistDismissedSidebarRow('root-task')
     persistDismissedSidebarRow('task:child-task')
 
     expect(loadDismissedSidebarRowKeys()).toEqual(['root-task', 'task:child-task'])
-    expect(storage.getItem('solus-dismissed-sidebar-tasks:editor')).toBe(
+    expect(storage.getItem('solus-dismissed-sidebar-tasks')).toBe(
       JSON.stringify(['root-task', 'task:child-task']),
     )
   })

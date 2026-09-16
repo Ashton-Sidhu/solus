@@ -32,7 +32,7 @@
     /** accent = invitation (blank slate); muted = error/unavailable. */
     tone?: "accent" | "muted";
     title?: string;
-    /** Tighter vertical padding for pill-mode surfaces. */
+    /** Tighter vertical padding for compact surfaces. */
     compact?: boolean;
     children?: Snippet;
     /** Action buttons (PAGE_PRIMARY_BTN / PAGE_SECONDARY_BTN). */

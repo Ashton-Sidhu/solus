@@ -52,6 +52,8 @@
   } from "@solus/workspace-ui/lib/analytics";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
   import CommandPalette from "@solus/workspace-ui/components/command-palette/CommandPalette.svelte";
+  import ShareDialog from "@solus/workspace-ui/components/sharing/ShareDialog.svelte";
+  import { activeSessionShareTarget, seatsStore, sharesStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
@@ -293,11 +295,15 @@
         agent.applyUsage(snapshots),
       );
       void agent.refreshUsage();
+      // A member's provider seat changes on the host, at a turn's end or in the
+      // browser; the settings row and the connect card both read the store.
+      const unsubSeats = seatsStore.listen();
       return () => {
         unsubVoiceModel();
         unsubSessionStatuses();
         unsubAutomations();
         unsubUsage();
+        unsubSeats();
       };
     }),
   );
@@ -517,7 +523,15 @@
   // above. Keep this list to actions that have transport-neutral web behavior;
   // desktop-only commands remain in the desktop shell's richer palette.
   useKeybinding("global.check-for-updates", () => void hostUpdatesStore.checkAll());
+  // Sharing (docs/plans/multiplayer-sharing.md §4.1): the active session, once it has one.
+  const shareTarget = $derived(activeSessionShareTarget(session));
+  useKeybinding("global.share", () => { if (shareTarget) sharesStore.open(shareTarget); });
   const paletteCommands = $derived.by((): Command[] => [
+    ...(shareTarget ? [{
+      id: "share-session", label: "Share…", group: "General",
+      hint: comboHint("global.share"), keywords: ["share", "access", "link", "team", "guest"],
+      run: () => sharesStore.open(shareTarget),
+    }] : []),
     {
       id: 'check-for-updates', label: 'Check for updates', group: 'General',
       hint: comboHint('global.check-for-updates'), keywords: ['update', 'version', 'provider'],
@@ -687,6 +701,7 @@
 </div>
 
 <CommandPalette bind:open={commandPaletteOpen} commands={paletteCommands} />
+<ShareDialog />
 
 {#if hasMountedDirectoryPicker && projectPicker.directoryPickerApi}
   {#await import("@solus/workspace-ui/components/pickers/DirectoryPicker.svelte")}

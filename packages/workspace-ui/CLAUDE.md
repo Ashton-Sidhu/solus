@@ -32,7 +32,7 @@ Three axes exist. Two are facts, one is a lie:
 - `@media (pointer: coarse)` — the **hand**. Correct.
 - `runtime.isMobileViewport` / `isCompactViewport` / `window.innerWidth` / `vw` — the **OS window**. Correct only for portalled overlays positioned against the window (tooltip, menu, toast, command palette, orb). Anywhere else it is a bug waiting for someone to open a companion pane.
 
-Reach for `@container` + `cqi`/`cqw`. The three workspace containers are `pane` (`.primary-column`, `.secondary-pane-content`), `composer` (all three composer cards — `EditorInputCard`, the pill card body in `PillLayout`, the draft card in `SessionDraftPane`), and `rail` (`.side-panel-root`). `SessionBreadcrumb.svelte` and `ProjectPanel.svelte` are the reference implementations. Four local names predate the plan and are fine where they are: `doc-shell`, `band`, `toolbar`, `stage`.
+Reach for `@container` + `cqi`/`cqw`. The three workspace containers are `pane` (`.primary-column`, `.secondary-pane-content`), `composer` (`EditorInputCard` and the draft card in `SessionDraftPane`), and `rail` (`.side-panel-root`). `SessionBreadcrumb.svelte` and `ProjectPanel.svelte` are the reference implementations. Four local names predate the plan and are fine where they are: `doc-shell`, `band`, `toolbar`, `stage`.
 
 Two traps when you declare a container:
 
@@ -90,18 +90,3 @@ this.tabs[tabId].hasUnread = false                            // GOOD — notifi
 ```
 
 Same for arrays inside `$state`: mutate with `.push()`/`.splice()`/index, don't rebuild with `.map()`/`[...arr]`. Mutate a message in place rather than rebuilding the array. Memoize expensive per-item work (e.g. `JSON.parse`) in a `WeakMap` keyed on the item; skip the cache while the item is still mutating (`toolStatus === 'running'`).
-
-**Never toggle pill↔editor with `{#if isEditorMode}…{:else}…`.** Destroying the subtree forces Tiptap re-init, full markdown re-parse, ~20 entry animations, flip churn, and IPC refetches — eventually GC-killing the renderer. **Lazy-mount once, then hide:**
-
-```svelte
-let hasMountedEditor = $state(isEditorMode);
-let hasMountedPill = $state(!isEditorMode);
-$effect(() => { if (isEditorMode) hasMountedEditor = true; else hasMountedPill = true; });
-
-{#if hasMountedEditor}<div class:mode-hidden={!isEditorMode}>…</div>{/if}
-{#if hasMountedPill}<div class:mode-hidden={isEditorMode}>…</div>{/if}
-```
-```css
-.mode-hidden { display: none !important; }
-```
-`display:none` detaches from layout/paint/hit-testing without unmounting, preserving all state across toggles.

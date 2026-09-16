@@ -1,7 +1,10 @@
-import { mount } from 'svelte'
+import { mount, unmount } from 'svelte'
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@solus/client-core/ws-transport'
-import { createSolusConnection, savedServerTarget } from '@solus/client-core/server-connection'
+import { createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
+import { guestRouteUrl, loadGuestIdentity, mintGuestGrant, newGuestId, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
+import { parseGuestLinkFragment, type GuestLink } from '@solus/contracts/sharing'
+import { guestBoot } from './lib/guest-boot.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
 import { clearActiveServerId, getActiveServerId, loadServers, saveServers, setActiveServerId, touchLastConnected, upsertServer, type SavedServer } from '@solus/client-core/server-registry'
@@ -290,10 +293,113 @@ async function bootFromCatalog(): Promise<void> {
   tryCandidate(0)
 }
 
+// ── Guest links ───────────────────────────────────────────────────────────────
+// `#/h/<hostId>/s/<secret>` on the account origin (docs/plans/multiplayer-sharing.md
+// §4.2). The visitor has no account: the origin mints a guest grant for the host,
+// the host admits the grant only with the secret, and the shell opens the one
+// resource the host names. Nothing is saved to the host registry; the hash stays
+// in the address bar so a reload walks the same door.
+
+let guestAppImport: Promise<typeof import('./GuestApp.svelte')> | null = null
+
+function loadGuestApp(): Promise<typeof import('./GuestApp.svelte')> {
+  if (!guestAppImport) {
+    guestAppImport = import('./GuestApp.svelte').catch((error) => {
+      guestAppImport = null
+      throw error
+    })
+  }
+  return guestAppImport
+}
+
+async function bootGuest(link: GuestLink): Promise<void> {
+  guestBoot.link = link
+  guestBoot.displayName = loadGuestIdentity()?.displayName ?? ''
+  const { default: GuestLanding } = await import('./routes/GuestLanding.svelte')
+  const landing = mount(GuestLanding, {
+    target: root,
+    props: { onContinue: (displayName: string) => void connectGuest(link, displayName, () => void unmount(landing)) },
+  })
+}
+
+async function connectGuest(link: GuestLink, displayName: string, onShellMounted: () => void): Promise<void> {
+  if (guestBoot.phase === 'connecting') return
+  guestBoot.phase = 'connecting'
+  guestBoot.error = null
+  const identity: GuestIdentity = { guestId: loadGuestIdentity()?.guestId ?? newGuestId(), displayName }
+  saveGuestIdentity(identity)
+  void loadGuestApp().catch(() => {})
+
+  const first = await mintGuestGrant(location.origin, link.hostId, identity)
+  if (!first) {
+    guestBoot.fail('Solus cloud does not know this host, or the link is not complete.')
+    return
+  }
+  const url = guestRouteUrl(first.routes, location.origin)
+  if (!url) {
+    guestBoot.fail('This host has no route this page can reach.')
+    return
+  }
+  const serverId = `guest:${link.hostId}`
+  const target: SolusServerTarget = { id: serverId, label: 'Shared host', url, sessionToken: '', local: false, routes: first.routes }
+  // The grant just minted opens the first dial; every later dial mints its own.
+  let unspentGrant: string | null = first.grant
+  const generation = ++connectionGeneration
+  toasts.dismiss()
+  const { transport, api } = createSolusConnection(target, {
+    guest: {
+      shareSecret: link.secret,
+      acquireGrant: async () => {
+        if (unspentGrant) {
+          const grant = unspentGrant
+          unspentGrant = null
+          return grant
+        }
+        return (await mintGuestGrant(location.origin, link.hostId, identity))?.grant ?? null
+      },
+    },
+    onStatusChange: (status: ConnectionStatus, attempt: number) => {
+      serverConnections.updateStatus(serverId, status, attempt)
+      setConnectionState({ status, attempt, target })
+    },
+    // The host refused a fresh grant with this secret: the link is gone.
+    onAuthFailed: () => guestBoot.revoke(),
+  })
+  installWindowSolusApi(api)
+  serverConnections.registerPrimary(serverId, api, transport, target)
+  activeTransport = transport
+  transport.start()
+
+  try {
+    const info = await api.connectionsGetServerInfo()
+    if (generation !== connectionGeneration) return
+    if (info.principal !== 'guest' || !info.share) {
+      guestBoot.fail('The host did not open this link as a guest link.')
+      return
+    }
+    guestBoot.serverId = serverId
+    guestBoot.share = info.share
+    guestBoot.displayName = info.displayName ?? displayName
+    const { default: GuestApp } = await loadGuestApp()
+    if (generation !== connectionGeneration) return
+    onShellMounted()
+    guestBoot.phase = 'ready'
+    solusApp = mount(GuestApp, { target: root, props: { serverId, share: info.share, displayName: guestBoot.displayName } })
+  } catch (error) {
+    if (generation !== connectionGeneration || guestBoot.revoked) return
+    if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
+    else guestBoot.fail(error instanceof Error ? error.message : 'The host did not answer')
+  }
+}
+
 const bootPairToken = pairTokenFromLocation(location.href, BASE)
+// Only the account origin serves guest links: a host has no `/v1` to mint a grant at.
+const bootGuestLink = BASE === '/' ? null : parseGuestLinkFragment(location.hash)
 
 if (bootPairToken) {
   void pairFromLocation(bootPairToken)
+} else if (bootGuestLink) {
+  void bootGuest(bootGuestLink)
 } else {
   void bootFromCatalog()
 }

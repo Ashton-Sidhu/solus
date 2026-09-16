@@ -83,10 +83,11 @@ async function main(): Promise<void> {
     return
   }
 
-  const [{ bootCore }, auth, { listReachableEndpoints }] = await Promise.all([
+  const [{ bootCore }, auth, { listReachableEndpoints }, { isManagedHost }] = await Promise.all([
     import('@solus/server/boot-core'),
     import('@solus/server/server/auth'),
     import('@solus/server/server/endpoints'),
+    import('@solus/server/server/managed-mode'),
   ])
 
   let stopForUpdate: (() => void) | undefined
@@ -130,14 +131,18 @@ async function main(): Promise<void> {
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
   process.stdout.write(`Solus server reachable at ${baseUrl}\n`)
 
-  const pairToken = auth.generatePairToken()
-  const pairUrl = `${baseUrl}/pair#token=${pairToken.token}`
-  process.stdout.write([
-    '',
-    'Pair a client with this server.',
-    ...formatPairBlock(pairUrl, pairToken.code, pairToken.expiresAt, auth.getServerFingerprint()),
-    '',
-  ].join('\n'))
+  // A managed host has no pairing (docs/plans/managed-hosts.md §1): a grant is the
+  // only way in, so there is no code to print.
+  if (!isManagedHost()) {
+    const pairToken = auth.generatePairToken()
+    const pairUrl = `${baseUrl}/pair#token=${pairToken.token}`
+    process.stdout.write([
+      '',
+      'Pair a client with this server.',
+      ...formatPairBlock(pairUrl, pairToken.code, pairToken.expiresAt, auth.getServerFingerprint()),
+      '',
+    ].join('\n'))
+  }
 
   stopForUpdate = installShutdownHandlers(core, closeBrowserHost)
   if (updateSupervisor) {

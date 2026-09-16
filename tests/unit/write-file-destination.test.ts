@@ -51,10 +51,10 @@ describe('writeFile destinations', () => {
     registerFileHandlers(
       { register: (name: string, handler: unknown) => handlers.set(name, handler) } as never,
       {
-        getActiveWindow: () => null,
+        getWorkspaceWindow: () => null,
         hideAppWindow: () => {},
-        showAndFocusActiveWindow: () => {},
-        setActiveWindowOpacity: () => {},
+        showAndFocusWorkspaceWindow: () => {},
+        setWorkspaceWindowOpacity: () => {},
         expandDesignModeWindow: () => {},
         restoreDesignModeWindow: () => {},
         exitDesignModeWindow: () => {},

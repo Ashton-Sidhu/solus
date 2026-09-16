@@ -8,6 +8,11 @@ export function routeBadges(routes: HostRoute[]): string[] {
   return badges
 }
 
+/** The host's page on the account website, where the owner shares it with a team. */
+export function hostWebsiteUrl(directoryUrl: string, hostId: string): string {
+  return `${directoryUrl.replace(/\/$/, '')}/hosts/${encodeURIComponent(hostId)}`
+}
+
 /** The one line under the Solus cloud control on a host's Access tab. */
 export function uplinkStatusDescription(status: UplinkStatus | undefined): string {
   if (!status) return 'Checking the link…'

@@ -25,7 +25,7 @@ export interface BrowserGuestElement extends HTMLElement {
 }
 
 /** Whether this client can host a native browser surface at all. True only in
- *  the desktop editor window, where `webviewTag` is enabled. */
+ *  the desktop workspace window, where `webviewTag` is enabled. */
 export function supportsNativeBrowser(): boolean {
   if (!globalThis.document) return false
   // Electron types the tag ambiently, so the compiler believes the accessor is

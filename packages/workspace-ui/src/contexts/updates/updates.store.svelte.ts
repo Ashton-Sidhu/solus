@@ -30,7 +30,8 @@ export class UpdatesStore {
   // means a status re-broadcast for the same release never re-arms it.
   private promptedDownloadVersion = $state<string | null>(null)
   private promptedRestartVersion = $state<string | null>(null)
-  private manualCheckPending = $state(false)
+  private manualCheckPending = false
+  private manualOutcome = $state<'up-to-date' | 'error' | null>(null)
 
   constructor(api: Partial<UpdatesApi> = localApi) {
     this.api = api
@@ -43,6 +44,13 @@ export class UpdatesStore {
     this.hasStarted = true
     this.api.onUpdateStatusChange?.((status) => {
       this.status = status
+      if (!this.manualCheckPending) return
+      const kind = status.state.kind
+      if (kind === 'idle' || kind === 'checking') return
+      // Only a fresh event can finish a manual check. Finding a release also
+      // finishes it: a later download failure is not a check failure.
+      this.manualCheckPending = false
+      this.manualOutcome = kind === 'up-to-date' || kind === 'error' ? kind : null
     })
     void this.api.updateStatus?.().then((status) => {
       this.status = status
@@ -98,16 +106,15 @@ export class UpdatesStore {
    * the user started earns a toast.
    */
   get manualCheckOutcome(): 'up-to-date' | 'error' | null {
-    if (!this.manualCheckPending) return null
-    const kind = this.state.kind
-    return kind === 'up-to-date' || kind === 'error' ? kind : null
+    return this.manualOutcome
   }
 
   markManualCheckReported(): void {
-    this.manualCheckPending = false
+    this.manualOutcome = null
   }
 
   async check(): Promise<void> {
+    this.manualOutcome = null
     this.manualCheckPending = true
     await this.api.checkForUpdate?.()
   }

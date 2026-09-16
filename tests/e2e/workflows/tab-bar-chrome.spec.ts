@@ -5,11 +5,11 @@ test.describe('Editor tab bar chrome', () => {
   test('sidebar expand toggle re-expands sidebar and disappears', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     // Collapse
     await page.keyboard.press('ControlOrMeta+b')
-    const expandBtn = page.locator('.editor-shell .tab-chrome-lead[aria-label="Expand sidebar"]')
+    const expandBtn = page.locator('.workspace-layout .tab-chrome-lead[aria-label="Expand sidebar"]')
     await expect(expandBtn).toBeVisible()
 
     // Click expand
@@ -28,30 +28,30 @@ test.describe('Full-page frame chrome', () => {
   test('tab bar is swapped for the slim drag strip on the settings page', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     // Conversation view: tab bar present, drag strip absent.
-    await expect(page.locator('.editor-shell .editor-variant .tab-bar-row')).toBeVisible()
-    await expect(page.locator('.editor-shell .page-drag-strip')).not.toBeVisible()
+    await expect(page.locator('.workspace-layout .tab-bar-row')).toBeVisible()
+    await expect(page.locator('.workspace-layout .page-drag-strip')).not.toBeVisible()
 
     // Open settings — a full-page view.
     await page.keyboard.press('ControlOrMeta+Comma')
 
     // The tab strip is swapped for the slim drag strip.
-    await expect(page.locator('.editor-shell .page-drag-strip')).toBeVisible()
-    await expect(page.locator('.editor-shell .editor-variant .tab-bar-row')).not.toBeVisible()
+    await expect(page.locator('.workspace-layout .page-drag-strip')).toBeVisible()
+    await expect(page.locator('.workspace-layout .tab-bar-row')).not.toBeVisible()
   })
 
   test('sidebar expand control lives inline in the page header and re-expands', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
     await page.keyboard.press('ControlOrMeta+Comma')
 
     // The control sits inside the settings page's own <header>, not a separate
     // chrome row — confirming it is hosted inline.
     const expandBtn = page.locator(
-      '.editor-shell header .frame-expand-btn[aria-label="Expand sidebar"]',
+      '.workspace-layout header .frame-expand-btn[aria-label="Expand sidebar"]',
     )
 
     // Sidebar starts open → no inline expand control.
@@ -69,11 +69,11 @@ test.describe('Full-page frame chrome', () => {
   test('drag strip also stands in for the tab bar on the plans gallery', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
 
     await page.keyboard.press('Alt+Shift+KeyL')
 
-    await expect(page.locator('.editor-shell .page-drag-strip')).toBeVisible()
-    await expect(page.locator('.editor-shell .editor-variant .tab-bar-row')).not.toBeVisible()
+    await expect(page.locator('.workspace-layout .page-drag-strip')).toBeVisible()
+    await expect(page.locator('.workspace-layout .tab-bar-row')).not.toBeVisible()
   })
 })

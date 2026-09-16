@@ -60,7 +60,7 @@
     active: boolean;
     /** Show the right-hand ProjectPanel + its keybinding. */
     enableProjectPanel: boolean;
-    /** Action buttons + InputBar row (varies between editor and web). */
+    /** Action buttons + InputBar row (varies by client). */
     inputRow: Snippet;
     /** Tab-aware composer actions forwarded to a split conversation pane. */
     onAttachFile?: (tabId?: string) => void | Promise<void>;
@@ -416,7 +416,7 @@
   // Plans, Settings) can host them inline in their own headers instead of in a
   // separate chrome strip. Settings owns the persisted project-panel flag;
   // this body owns the transient sidebar state and mirrors both here. When
-  // this body is inactive (pill / mobile), report the panels as open so those
+  // this body is inactive on mobile, report the panels as open so those
   // headers don't offer to expand chrome that isn't on screen.
   frameChrome.expandSidebar = toggleSidebar;
   // Full-page views never host a split chat, so this only ever means the lead.
@@ -1093,7 +1093,7 @@
      lights. Publish the lead inset here (not on the whole content column, which
      also holds the right-hand secondary pane) so only the leftmost surface
      reserves the space. The secondary pane provides its own inset when
-     maximized. No-op off the mac editor window (the inset var is 0). */
+     maximized. No-op off the mac workspace window (the inset var is 0). */
   .workspace-body.sidebar-collapsed .workspace-column,
   .workspace-body.sidebar-collapsed .primary-column {
     /* The frame toggle owns the first safe app-control slot. Headers beside it

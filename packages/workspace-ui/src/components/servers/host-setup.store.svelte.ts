@@ -1,16 +1,15 @@
 import { serverConnections } from '@solus/client-core/server-connections'
-import { localApi } from '@solus/client-core/local-api'
 import type { SolusAPI } from '@solus/contracts/host-api'
+import type { SeatProvider } from '@solus/contracts/seats'
 import type {
   DeviceCodePrompt,
   GitCommitIdentity,
   HostReadiness,
   SetupAgent,
   SetupLogEvent,
-  SetupStatusEvent,
-  SetupVerification,
 } from '@solus/contracts/types'
 import type { ServerItem } from '../../contexts'
+import { SeatConnectCancelled, seatsStore } from '../../contexts/seats/seats.store.svelte'
 import {
   hostOnboardingSteps,
   providerSetupActions,
@@ -55,18 +54,11 @@ export class HostSetupSession {
   lastCheckedAt = $state<number | null>(null)
   logLines = $state<string[]>([])
 
-  /** The agent CLI's browser prompt, while a sign-in waits on the user. */
-  verifications = $state<Record<SetupAgent, SetupVerification | null>>({
-    claude: null,
-    codex: null,
-  })
   /** GitHub's own device-flow prompt, which arrives on a different channel. */
   deviceCode = $state<DeviceCodePrompt | null>(null)
 
   private holders = 0
   private unsubscribes: Array<() => void> = []
-  /** Sign-ins the user called off, so the kill they asked for isn't reported back as a failure. */
-  private readonly abandonedSignIns = new Set<SetupAgent>()
 
   constructor(
     readonly serverId: string,
@@ -90,6 +82,11 @@ export class HostSetupSession {
     return this.readiness?.installGh?.autoRunnable === true
   }
 
+  /** The agent CLI's browser prompt, while a sign-in waits on the user: the seat store's, since the host login is the owner's seat. */
+  verificationFor(provider: SetupAgent) {
+    return seatsStore.verificationFor(this.serverId, seatProviderFor(provider))
+  }
+
   /**
    * Setup events arrive on the host's own channel, so both surfaces can watch
    * one run. The subscription lasts as long as one of them still wants it.
@@ -101,24 +98,6 @@ export class HostSetupSession {
       events.subscribe('setup.logAppended', (event: SetupLogEvent) => {
         this.logLines.push(event.line)
         if (this.logLines.length > LOG_LIMIT) this.logLines.splice(0, this.logLines.length - LOG_LIMIT)
-      }),
-      events.subscribe('setup.statusChanged', (event: SetupStatusEvent) => {
-        if (event.verification) {
-          const provider = providerForSetupStep(event.step)
-          if (!provider) return
-          const isNewVerification =
-            event.verification.url !== this.verifications[provider]?.url ||
-            event.verification.code !== this.verifications[provider]?.code ||
-            event.verification.requiresCodeInput !== this.verifications[provider]?.requiresCodeInput
-          this.verifications[provider] = event.verification
-          // Authentication happens in the browser on this machine, not on the
-          // host running the CLI. Keep the rendered Open action as a fallback.
-          if (isNewVerification) void localApi.openExternal(event.verification.url)
-        }
-        if (event.status !== 'running') {
-          const provider = providerForSetupStep(event.step)
-          if (provider) this.verifications[provider] = null
-        }
       }),
       events.subscribe('provider.deviceCodeReceived', (prompt: DeviceCodePrompt) => {
         this.deviceCode = prompt
@@ -204,16 +183,12 @@ export class HostSetupSession {
       const state = this.readiness?.agents?.[provider] ?? { installed: false, signedIn: false }
       for (const action of providerSetupActions(state, opts)) {
         this.providerStages[provider] = action
+        // Signing in is the seat connect: the host login is the owner's seat, so
+        // the wizard and a member's seat row share one relay on the host.
         const succeeded =
           action === 'install'
             ? await this.run('providers', (api) => api.setupInstallAgentCli({ agent: provider }), provider)
-            : await this.run('providers', async (api) => {
-                try {
-                  await api.setupAgentSignIn({ agent: provider })
-                } finally {
-                  this.verifications[provider] = null
-                }
-              }, provider)
+            : await this.run('providers', () => seatsStore.connectAndWait(this.serverId, seatProviderFor(provider)), provider)
         // Signing in to a CLI that failed to install can only fail again, and a
         // second error would overwrite the one that explains what went wrong.
         if (!succeeded) return
@@ -242,7 +217,7 @@ export class HostSetupSession {
   async submitAgentSignInCode(provider: SetupAgent, code: string): Promise<void> {
     this.stepError = null
     try {
-      await this.store.resolveApi(this.serverId).setupSubmitAgentSignInCode({ agent: provider, code })
+      await seatsStore.submitCode(this.serverId, seatProviderFor(provider), code)
     } catch (err) {
       this.stepError = { step: 'providers', message: messageFor(err), provider }
       throw err
@@ -255,9 +230,7 @@ export class HostSetupSession {
    * nothing to press.
    */
   async cancelAgentSignIn(provider: SetupAgent): Promise<void> {
-    this.abandonedSignIns.add(provider)
-    this.verifications[provider] = null
-    await this.store.resolveApi(this.serverId).setupCancelAgentSignIn().catch(() => {})
+    await seatsStore.cancel(this.serverId, seatProviderFor(provider))
   }
 
   /**
@@ -324,9 +297,8 @@ export class HostSetupSession {
       await action(this.store.resolveApi(this.serverId))
       return true
     } catch (err) {
-      // A sign-in the user called off comes back as a killed process. That is
-      // the cancel working, not a failure to report at them.
-      if (provider && this.abandonedSignIns.delete(provider)) return false
+      // A sign-in the user called off is the cancel working, not a failure to report at them.
+      if (err instanceof SeatConnectCancelled) return false
       this.stepError = { step, message: messageFor(err) }
       if (provider) this.stepError.provider = provider
       return false
@@ -393,10 +365,9 @@ class HostSetupStore {
   }
 }
 
-function providerForSetupStep(step: SetupStatusEvent['step']): SetupAgent | null {
-  if (step === 'install-claude' || step === 'signin-claude') return 'claude'
-  if (step === 'install-codex' || step === 'signin-codex') return 'codex'
-  return null
+/** The wizard names agents by their setup id; the seat contract by provider id. */
+export function seatProviderFor(agent: SetupAgent): SeatProvider {
+  return agent === 'claude' ? 'claude-code' : 'codex'
 }
 
 export const hostSetupStore = new HostSetupStore()

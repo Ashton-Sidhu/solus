@@ -4,7 +4,7 @@ import { ConversationPage } from '../helpers/conversation.page'
 import { PlanPage } from '../helpers/plan.page'
 import { PanePage } from '../helpers/pane.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 /**
@@ -28,7 +28,7 @@ test.describe('Two-pane layout', () => {
   test('split-chat shortcut toggles the secondary chat pane', async ({ page }) => {
     const app = new AppPage(page)
     await app.waitForAppReady()
-    await app.switchToEditorMode()
+    await app.waitForWorkspace()
     const editorPage = page
     const pane = new PanePage(page)
 
@@ -41,7 +41,7 @@ test.describe('Two-pane layout', () => {
     // or bottom gutter. Both panes share one visual grid, so their conversation
     // starts and input-card baselines stay aligned.
     const primaryChrome = editorPage.locator(
-      `${ACTIVE_SHELL} .editor-variant .tab-bar-row`,
+      `${ACTIVE_SHELL} .tab-bar-row`,
     )
     const secondaryChrome = editorPage.locator(
       `${ACTIVE_SHELL} .secondary-pane-wrap .split-chat-chrome`,

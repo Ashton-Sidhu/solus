@@ -4,13 +4,14 @@ import { createLogger } from '../../logger'
 import { captureServerEvent } from '../../analytics'
 import { bootstrapDiscoveredServerOverSsh } from '../ssh-bootstrap'
 import type { DiscoveredServer } from '@solus/contracts/types'
+import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { SolusServer } from '../server'
 
 const log = createLogger('main', 'connections-handlers')
 
 export interface ConnectionsDeps {
   /** Returns the bound host/port — these change on each launch when port==0. */
-  getServerInfo(): { host: string; port: number; allowLan: boolean; remoteAccess: boolean; requireAuth: boolean; trustLocalNetwork: boolean }
+  getServerInfo(): Pick<ConnectionsServerInfo, 'host' | 'port' | 'allowLan' | 'remoteAccess' | 'requireAuth' | 'trustLocalNetwork' | 'hostKind'>
   /** Returns currently-connected WebSocket clients. */
   getActiveSessions(): ActiveConnectionSession[]
   discoverLanServers(): Promise<DiscoveredServer[]>
@@ -59,7 +60,20 @@ export function aggregateConnectionSessionsByDevice(sessions: ActiveConnectionSe
 export function registerConnectionsHandlers(server: SolusServer, deps: ConnectionsDeps): void {
   server.register('connectionsGetServerInfo', (_args, ctx) => {
     const info = deps.getServerInfo()
-    return { ...info, installationId: getInstallationId(), principal: ctx.principal.kind }
+    const principal = ctx.principal
+    const answer: ConnectionsServerInfo = { ...info, installationId: getInstallationId(), principal: principal.kind }
+    if (principal.kind === 'remote-owner') answer.userId = principal.userId
+    if (principal.kind === 'org-member') {
+      answer.userId = principal.userId
+      answer.organizationId = principal.organizationId
+      answer.displayName = principal.displayName
+    }
+    if (principal.kind === 'guest') {
+      // The one thing a guest client needs to know at boot: what it was let in to see.
+      answer.displayName = principal.displayName
+      answer.share = { resource: principal.share.resource, role: principal.share.role }
+    }
+    return answer
   })
 
   server.register('connectionsListEndpoints', async () => {

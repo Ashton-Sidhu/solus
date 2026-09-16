@@ -1,7 +1,8 @@
 import { BaseAgentBackend } from '../base-backend'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
-import { CodexRpcError, getCodexAppServerClient } from './codex-agent'
+import { CodexAppServerClient, CodexRpcError, getCodexAppServerClient } from './codex-agent'
+import type { TurnSeat } from '../../seats/seat-manager'
 import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
@@ -139,6 +140,17 @@ async function runWithConcurrency<T>(items: T[], limit: number, task: (item: T) 
 
 const codexProfiles = MODEL_PROFILES['codex'] ?? {}
 
+/** A seat's app-server is stopped after this long with no run on it (Step 2 plan §3.3). */
+const SEAT_CLIENT_IDLE_MS = 15 * 60_000
+/** App-servers for member seats at once, beyond the host's own. */
+const SEAT_CLIENT_CAP = 8
+
+interface SeatClient {
+  client: CodexAppServerClient
+  activeRuns: number
+  idleTimer: ReturnType<typeof setTimeout> | null
+}
+
 const STATIC_CODEX_METADATA: AgentMetadata = {
   id: 'codex',
   label: 'Codex',
@@ -154,6 +166,8 @@ const STATIC_CODEX_METADATA: AgentMetadata = {
 }
 
 type CodexRunHandle = RunHandle & {
+  /** The app-server this run lives on: the host's, or the member's seat's. */
+  client: CodexAppServerClient
   threadId: string | null
   turnId: string | null
   permissionMode: 'ask' | 'auto' | 'plan'
@@ -204,7 +218,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   readonly metadata: AgentMetadata = STATIC_CODEX_METADATA
   readonly permissions: PermissionResponder
 
+  /** The host's own login. Every catalog read (thread lists, skills, goals) goes here. */
   private client = getCodexAppServerClient()
+  /** One app-server per member seat, keyed by user id; started on first use, stopped when idle. */
+  private seatClients = new Map<string, SeatClient>()
   /** Maps Codex turn/item IDs → sessionId for event routing. */
   private sessionByTurn = new Map<string, string>()
   private sessionByItem = new Map<string, string>()
@@ -225,25 +242,91 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
   constructor() {
     super()
-    this.permissions = new CodexPermissionResponder(this.client)
+    // A pending request is answered on the app-server it came from.
+    this.permissions = new CodexPermissionResponder((sessionId) => this.clientForSession(sessionId))
+    this.attachClient(this.client)
+  }
 
-    this.client.on('notification', (msg: JsonRpcNotification) => this.onNotification(msg))
-    this.client.on('server-request', (msg: JsonRpcRequest) => this.onServerRequest(msg))
-    this.client.on('error', (err: Error) => {
-      for (const sessionId of this.activeRuns.keys()) this.emit('error', sessionId, err)
+  /** Every app-server, the host's and each seat's, reports through the same handlers; a failure reaches only its own runs. */
+  private attachClient(client: CodexAppServerClient): void {
+    client.on('notification', (msg: JsonRpcNotification) => this.onNotification(msg, client))
+    client.on('server-request', (msg: JsonRpcRequest) => this.onServerRequest(msg, client))
+    client.on('error', (err: Error) => {
+      for (const [sessionId, handle] of this.activeRuns) if (handle.client === client) this.emit('error', sessionId, err)
       for (const handle of this.pendingRuns) {
+        if (handle.client !== client) continue
         handle._rejectRun(err)
         this.emit('error', null, err)
       }
     })
-    this.client.on('exit', () => {
+    client.on('exit', () => {
       const exitErr = new Error('Codex app-server exited')
-      for (const sessionId of this.activeRuns.keys()) this.emit('error', sessionId, exitErr)
+      for (const [sessionId, handle] of this.activeRuns) if (handle.client === client) this.emit('error', sessionId, exitErr)
       for (const handle of this.pendingRuns) {
+        if (handle.client !== client) continue
         handle._rejectRun(exitErr)
         this.emit('error', handle.agentSessionId, exitErr)
       }
     })
+  }
+
+  private clientForSession(sessionId: string | null): CodexAppServerClient {
+    return (sessionId ? this.activeRuns.get(sessionId)?.client : undefined) ?? this.client
+  }
+
+  /**
+   * The app-server for a seat, started on first use. The pool is capped: an idle
+   * seat's server is stopped to make room, and with none idle the run is refused
+   * rather than starting a ninth process on the host.
+   */
+  private clientFor(seat: TurnSeat | undefined): CodexAppServerClient {
+    // The host login's app-server is the pool's permanent member: it also serves every catalog read.
+    if (!seat || seat.isHostLogin) return this.client
+    const existing = this.seatClients.get(seat.userId)
+    if (existing) return existing.client
+    if (this.seatClients.size >= SEAT_CLIENT_CAP) {
+      const idle = [...this.seatClients.entries()].find(([, entry]) => entry.activeRuns === 0)
+      if (!idle) throw new Error('Too many Codex seats are active on this host. Try again in a moment.')
+      this.stopSeatClient(idle[0])
+    }
+    const client = new CodexAppServerClient({ codexHome: seat.home })
+    this.attachClient(client)
+    const entry: SeatClient = { client, activeRuns: 0, idleTimer: null }
+    this.seatClients.set(seat.userId, entry)
+    this.armSeatIdle(seat.userId, entry)
+    log.info('seat_app_server_started', { userId: seat.userId, pool: this.seatClients.size })
+    return client
+  }
+
+  /** Holds a seat's app-server for the life of a run; the last release starts the idle clock. */
+  private holdSeatClient(seat: TurnSeat | undefined, runPromise: Promise<void>): void {
+    if (!seat) return
+    const entry = this.seatClients.get(seat.userId)
+    if (!entry) return
+    entry.activeRuns += 1
+    if (entry.idleTimer) { clearTimeout(entry.idleTimer); entry.idleTimer = null }
+    void runPromise.finally(() => {
+      entry.activeRuns = Math.max(0, entry.activeRuns - 1)
+      if (entry.activeRuns === 0) this.armSeatIdle(seat.userId, entry)
+    }).catch(() => {})
+  }
+
+  private armSeatIdle(userId: string, entry: SeatClient): void {
+    if (entry.idleTimer) clearTimeout(entry.idleTimer)
+    entry.idleTimer = setTimeout(() => {
+      if (entry.activeRuns > 0 || this.seatClients.get(userId) !== entry) return
+      this.stopSeatClient(userId)
+    }, SEAT_CLIENT_IDLE_MS)
+    entry.idleTimer.unref?.()
+  }
+
+  private stopSeatClient(userId: string): void {
+    const entry = this.seatClients.get(userId)
+    if (!entry) return
+    if (entry.idleTimer) clearTimeout(entry.idleTimer)
+    this.seatClients.delete(userId)
+    entry.client.shutdown()
+    log.info('seat_app_server_stopped', { userId, pool: this.seatClients.size })
   }
 
   private permissionResponder(): CodexPermissionResponder {
@@ -255,6 +338,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     const conversation = request.conversation ?? { kind: 'start' }
     const abortController = new AbortController()
     const workTree = request.cwd
+    const client = this.clientFor(request.seat)
     let handle!: CodexRunHandle
     const toolDispatcher = new CodexToolDispatcher(request.tools, {
       provider: 'codex',
@@ -274,6 +358,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       // The source is only a branch input; the fork has no provider id yet.
       agentSessionId: conversation.kind === 'resume' ? conversation.threadId : null,
       persistence: request.persistence,
+      client,
       threadId: conversation.kind === 'fork' ? conversation.sourceThreadId : conversation.kind === 'resume' ? conversation.threadId : null,
       turnId: null,
       startedAt: Date.now(),
@@ -298,6 +383,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     this.pendingRuns.push(handle)
+    this.holdSeatClient(request.seat, runPromise)
     void this.run(handle, request)
     return handle
   }
@@ -340,7 +426,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       if (conversation.kind === 'fork' && threadId) {
         let lastTurnId: string | undefined
         if (conversation.excludeLatestTurn) {
-          const source = await this.client.request<CodexThreadReadResponse>('thread/read', {
+          const source = await handle.client.request<CodexThreadReadResponse>('thread/read', {
             threadId,
             includeTurns: true,
           })
@@ -348,24 +434,24 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           const activeTurnId = this.activeRuns.get(threadId)?.turnId ?? null
           lastTurnId = codexForkCutoffTurnId(turns, activeTurnId)
         }
-        response = await this.client.request<CodexThreadStartResponse>('thread/fork', {
+        response = await handle.client.request<CodexThreadStartResponse>('thread/fork', {
           threadId,
           lastTurnId,
         })
         threadId = response.thread.id
       } else if (!threadId) {
         try {
-          response = await this.client.request<CodexThreadStartResponse>('thread/start', { ...toolsConfig, reasoning_effort: reasoningEffort })
+          response = await handle.client.request<CodexThreadStartResponse>('thread/start', { ...toolsConfig, reasoning_effort: reasoningEffort })
         } catch (err: any) {
           if (this.dynamicToolsUnavailable || !(err instanceof CodexRpcError) || err.code !== -32602) throw err
           // Retry once without dynamicTools — the agent loses work tools this run.
           log.warn('thread_start_dynamic_tools_rejected', { error: err?.message ?? String(err) })
           this.dynamicToolsUnavailable = true
-          response = await this.client.request<CodexThreadStartResponse>('thread/start', { ...threadConfig, reasoning_effort: reasoningEffort })
+          response = await handle.client.request<CodexThreadStartResponse>('thread/start', { ...threadConfig, reasoning_effort: reasoningEffort })
         }
         threadId = response.thread.id
       } else {
-        response = await this.client.request<CodexThreadStartResponse>('thread/resume', {
+        response = await handle.client.request<CodexThreadStartResponse>('thread/resume', {
           threadId,
           ...toolsConfig,
         })
@@ -412,7 +498,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           }, browserToolsAvailable),
         }}
       }
-      const turn = await this.client.request<CodexTurnStartResponse>('turn/start', turnParams)
+      const turn = await handle.client.request<CodexTurnStartResponse>('turn/start', turnParams)
 
       handle.turnId = turn.turn.id
       this.sessionByTurn.set(turn.turn.id, threadId)
@@ -450,7 +536,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     handle.interrupted = true
     handle.normalizer.interrupt()
     if (handle.threadId && handle.turnId) {
-      this.client.request('turn/interrupt', { threadId: handle.threadId, turnId: handle.turnId }, 10_000)
+      handle.client.request('turn/interrupt', { threadId: handle.threadId, turnId: handle.turnId }, 10_000)
         .catch((err) => log.warn('turn_interrupt_failed', { error: err.message }))
     }
     return true
@@ -476,7 +562,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
 
     try {
-      const response = await this.client.request<CodexTurnSteerResponse>('turn/steer', params)
+      const response = await handle.client.request<CodexTurnSteerResponse>('turn/steer', params)
       if (response.turnId !== expectedTurnId) {
         log.warn('steer_turn_mismatch', { turnId: response.turnId, expectedTurnId })
         return null
@@ -504,6 +590,8 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       clearTimeout(this.sessionIndexRefreshTimer)
       this.sessionIndexRefreshTimer = null
     }
+    // Stopping removes the entry, so iterate a copy.
+    for (const userId of Array.from(this.seatClients.keys())) this.stopSeatClient(userId)
     this.client.shutdown()
   }
 
@@ -801,8 +889,9 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     await Promise.all(watchedCwds.map((cwd) => this.listCodexSkills(cwd, true)))
   }
 
-  async readUsageLimits(): Promise<AgentUsageLimits> {
-    const account = await this.client.request('account/read', { refreshToken: false })
+  async readUsageLimits(seat?: TurnSeat): Promise<AgentUsageLimits> {
+    const client = this.clientFor(seat)
+    const account = await client.request('account/read', { refreshToken: false })
     if (account.account?.type === 'apiKey') {
       return {
         provider: this.id,
@@ -815,7 +904,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       }
     }
 
-    const response = await this.client.request('account/rateLimits/read', {})
+    const response = await client.request('account/rateLimits/read', {})
     const snapshot = response.rateLimits
     // `primary`/`secondary` carry no fixed meaning — the window duration is the
     // only reliable discriminator, and either slot may be absent entirely.
@@ -840,7 +929,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
-  private onNotification(msg: JsonRpcNotification): void {
+  private onNotification(msg: JsonRpcNotification, client: CodexAppServerClient): void {
     const params = msg.params || {}
     let sessionId = this.sessionIdFor(params)
     this.logRawProviderMessage('notification', msg, sessionId, params)
@@ -865,7 +954,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       sessionId = this.activeRuns.keys().next().value || null
     }
     if (!sessionId && msg.method === 'account/rateLimits/updated') {
-      this.emitAccountRateLimitUpdate(params)
+      this.emitAccountRateLimitUpdate(params, client)
       return
     }
     if (!sessionId) return
@@ -931,9 +1020,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     for (const event of normalized) this.emit('normalized', sessionId, event)
   }
 
-  private emitAccountRateLimitUpdate(params: any): void {
+  /** A quota update names the account of the app-server it came from: only that server's runs hear it. */
+  private emitAccountRateLimitUpdate(params: any, client: CodexAppServerClient): void {
     for (const [sessionId, handle] of this.activeRuns) {
-      if (handle.interrupted) continue
+      if (handle.interrupted || handle.client !== client) continue
       for (const event of handle.normalizer.push({ method: 'account/rateLimits/updated', params })) {
         this.emit('normalized', sessionId, event)
       }
@@ -977,13 +1067,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     }
   }
 
-  private onServerRequest(msg: JsonRpcRequest): void {
+  private onServerRequest(msg: JsonRpcRequest, client: CodexAppServerClient): void {
     const params: any = msg.params || {}
 
     const sessionId = this.sessionIdFor(params)
     this.logRawProviderMessage('server-request', msg, sessionId, params)
     if (!sessionId) {
-      this.client.respond(msg.id, denialResponse(msg.method))
+      client.respond(msg.id, denialResponse(msg.method))
       return
     }
 
@@ -998,7 +1088,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         ?? optionalString(params?.toolName)
         ?? ''
       const respondWithToolText = (text: string, success: boolean) => {
-        this.client.respond(msg.id, { success, contentItems: [{ type: 'inputText', text }] })
+        client.respond(msg.id, { success, contentItems: [{ type: 'inputText', text }] })
       }
       let args = params?.arguments ?? params?.input ?? params?.args ?? {}
       const serializedArgs = optionalString(args)
@@ -1065,13 +1155,13 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
 
     if (handle?.permissionMode === 'auto') {
       log.info('permission_auto_approved', { method: msg.method })
-      this.client.respond(msg.id, autoApprovalResponse(msg.method, params))
+      client.respond(msg.id, autoApprovalResponse(msg.method, params))
       return
     }
 
     if (handle?.permissionMode === 'plan') {
       log.info('permission_declined_plan_mode', { method: msg.method })
-      this.client.respond(msg.id, denialResponse(msg.method))
+      client.respond(msg.id, denialResponse(msg.method))
       return
     }
 

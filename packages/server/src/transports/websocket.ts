@@ -7,7 +7,8 @@ import type { ClientEventRegistry } from '../events/client-event-registry'
 import type { BrowserFrameChannel } from '../browser/browser-frame-channel'
 import { consumeWsTicket } from '../server/auth'
 import { RpcAccessError } from '../server/access-policy'
-import { principalFor, principalSchema, type AdmissionEvidence } from '../server/principal'
+import { SeatRequiredError } from '../seats/seat-manager'
+import { principalExpiresAt, principalFor, principalSchema, type AdmissionEvidence, type Principal } from '../server/principal'
 import { createLogger } from '../logger'
 import { ResponseReceiptBudget, ResponseReceiptCache } from './response-receipt-cache'
 import { z } from 'zod'
@@ -36,6 +37,10 @@ interface WebSocketTransport {
   sessions: Map<string, ClientSession>
   /** Lets a second listener (the tunnel's proxied port) hand its `/ws` upgrades to the same Socket.IO server. */
   handleUpgrade: (request: IncomingMessage, socket: Duplex, head: Buffer) => void
+  /** Ends every socket whose principal matches: a revoked guest link is gone within the second (§3.4). */
+  disconnectWhere: (predicate: (principal: Principal) => boolean, reason: string) => number
+  /** The principal behind a client id, for event audiences. */
+  principalOf: (clientId: string) => Principal | null
 }
 
 /** Set by the engine middleware from the listener the request arrived on; never by a client. */
@@ -66,6 +71,7 @@ interface ClientSession {
   socket: Socket
   deviceId: string | null
   deviceLabel: string
+  principal: Principal
   connectedAt: number
 }
 
@@ -129,12 +135,11 @@ export function attachWebSocketTransport(
   // mutating RPC from running twice when its acknowledgement is lost. See
   // docs/adr/0004-socket-io-owns-wire-recovery-solus-owns-rpc-receipts.md.
   // Engine.IO retains the initial HTTP request for the lifetime of each raw
-  // socket. Solus does not read it after authentication, so release it as
-  // recommended by Socket.IO to avoid retaining headers/request graphs per
-  // connected client.
-  io.engine.on('connection', (rawSocket) => {
-    rawSocket.request = null
-  })
+  // socket. Solus does not read it after admission, so it is released below in
+  // the `connection` handler. It must not be released earlier: Socket.IO reads
+  // `conn.request` lazily when it builds the handshake, so nulling it on the
+  // engine's own `connection` event left `handshake.headers` empty and the
+  // tunnel marker unread — every tunnel socket then looked like a loopback one.
   const sessions = new Map<string, ClientSession>()
   const responseCaches = new Map<string, ResponseReceiptCache<WsResponse>>()
   const responseBudget = opts.responseBudget ?? new ResponseReceiptBudget()
@@ -190,6 +195,8 @@ export function attachWebSocketTransport(
   })
 
   io.on('connection', (socket) => {
+    // The handshake is built by now; the request graph can go.
+    Object.assign(socket.conn, { request: null })
     const parsedClient = clientDataSchema.safeParse(socket.data)
     if (!parsedClient.success) {
       socket.disconnect(true)
@@ -221,18 +228,19 @@ export function attachWebSocketTransport(
     }
 
     const id = randomBytes(8).toString('hex')
-    const session: ClientSession = { id, clientId, socket, deviceId, deviceLabel, connectedAt: Date.now() }
+    const session: ClientSession = { id, clientId, socket, deviceId, deviceLabel, principal, connectedAt: Date.now() }
     sessions.set(id, session)
     opts.onClientConnected?.({ clientId, deviceId })
     socket.emit('hello')
 
     // A grant admits a socket for the grant's lifetime and no longer: the socket
     // ends at expiry, and the re-dial needs a grant a revoked device cannot get.
-    if (principal.kind === 'remote-owner') {
+    const expiresAt = principalExpiresAt(principal)
+    if (expiresAt !== null) {
       const grantTimer = setTimeout(() => {
         log.info('ws_session_grant_expired', { id, clientId })
         socket.disconnect(true)
-      }, Math.max(0, principal.expiresAt - Date.now()))
+      }, Math.max(0, expiresAt - Date.now()))
       grantTimer.unref?.()
       socket.once('disconnect', () => clearTimeout(grantTimer))
     }
@@ -290,6 +298,21 @@ export function attachWebSocketTransport(
   return {
     // engine.io's own `attach` routes an HTTP upgrade through this same method.
     handleUpgrade: (request, socket, head) => io.engine.handleUpgrade(request, socket, head),
+    disconnectWhere: (predicate, reason) => {
+      let count = 0
+      // A disconnect removes its session from the map, so iterate a copy.
+      for (const session of Array.from(sessions.values())) {
+        if (!predicate(session.principal)) continue
+        log.info('ws_session_ended_by_host', { id: session.id, clientId: session.clientId, reason })
+        session.socket.disconnect(true)
+        count += 1
+      }
+      return count
+    },
+    principalOf: (clientId) => {
+      for (const session of sessions.values()) if (session.clientId === clientId) return session.principal
+      return null
+    },
     close: () => {
       closing = true
       for (const timer of cleanupTimers.values()) clearTimeout(timer)
@@ -340,7 +363,14 @@ function getCachedResponse(
       }
       return { result: await server.handle(request.method, request.args ?? [], ctx) }
     } catch (err) {
-      if (err instanceof RpcAccessError) return { error: { message: err.message, code: err.code } }
+      if (err instanceof RpcAccessError) {
+        // A client surface that calls what its principal may not: the answer is the
+        // refusal, the log is how a guest shell is audited for host-wide reach.
+        log.info('rpc_access_refused', { clientId, method: request.method, principal: err.principalKind })
+        return { error: { message: err.message, code: err.code } }
+      }
+      // No seat, no turn: the code is what lets the client raise the connect card.
+      if (err instanceof SeatRequiredError) return { error: { message: err.message, code: err.code } }
       return { error: { message: err instanceof Error ? err.message : String(err) } }
     }
   })

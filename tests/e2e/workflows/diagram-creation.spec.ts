@@ -2,7 +2,7 @@ import { test, expect } from '../fixtures/electron-app'
 import { AppPage } from '../helpers/app.page'
 import { ConversationPage } from '../helpers/conversation.page'
 
-const ACTIVE_SHELL = '.mode-shell:not(.mode-hidden)'
+const ACTIVE_SHELL = '.workspace-shell'
 const ACTIVE_TAB = `${ACTIVE_SHELL} .tab-slot:not(.tab-hidden)`
 
 test.describe('Diagram creation workflow', () => {
@@ -54,7 +54,7 @@ test.describe('Diagram creation workflow', () => {
 
     // The diagram shell should mount — it contains the SvelteFlow canvas
     // This is what would break if the diagram type were mis-routed to DocumentModal
-    const diagramShell = page.locator('.mode-shell:not(.mode-hidden) .diagram-shell')
+    const diagramShell = page.locator('.workspace-shell .diagram-shell')
     await expect(diagramShell).toBeVisible({ timeout: 5_000 })
   })
 
@@ -69,7 +69,7 @@ test.describe('Diagram creation workflow', () => {
     await diagramCard.waitFor({ state: 'visible', timeout: 10_000 })
     await diagramCard.locator('.plan-card-header').first().click()
 
-    const diagramShell = page.locator('.mode-shell:not(.mode-hidden) .diagram-shell')
+    const diagramShell = page.locator('.workspace-shell .diagram-shell')
     await diagramShell.waitFor({ state: 'visible', timeout: 5_000 })
 
     // Close via Escape — this verifies the keyboard-navigation CLAUDE.md rule
@@ -88,7 +88,7 @@ test.describe('Diagram creation workflow', () => {
     await diagramCard.waitFor({ state: 'visible', timeout: 10_000 })
     await diagramCard.locator('.plan-card-header').first().click()
 
-    const diagramShell = page.locator('.mode-shell:not(.mode-hidden) .diagram-shell')
+    const diagramShell = page.locator('.workspace-shell .diagram-shell')
     await diagramShell.waitFor({ state: 'visible', timeout: 5_000 })
 
     // The floating canvas toolbar is what makes this read as a canvas (not a doc):

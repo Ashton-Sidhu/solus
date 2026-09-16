@@ -412,7 +412,7 @@ export const ROUTES: RouteTable = {
     placement: 'aside',
     defaultWeight: 0.34,
     // No component: the goal surface only exists in the shells that have no
-    // project rail to put it in (pill, mobile web), and each renders its own.
+    // project panel to put it in (mobile web), which renders its own.
   },
   review: {
     parse: (s) => {
