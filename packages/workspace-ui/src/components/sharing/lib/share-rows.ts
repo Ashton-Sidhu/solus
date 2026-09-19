@@ -252,7 +252,9 @@ export function guestLinkContext(
   saved: { hostId: string; directoryUrl: string } | undefined,
 ): GuestLinkContext {
   if (status?.linked) return { kind: 'linked', hostId: status.link.hostId, directoryUrl: status.link.directoryUrl }
-  if (saved) return { kind: 'linked', ...saved }
+  // Named fields, not a spread: the saved row is the registry's uplink record, which
+  // carries a `kind` of its own (the host kind) that must not become the context's.
+  if (saved) return { kind: 'linked', hostId: saved.hostId, directoryUrl: saved.directoryUrl }
   return status ? { kind: 'unlinked' } : { kind: 'checking' }
 }
 

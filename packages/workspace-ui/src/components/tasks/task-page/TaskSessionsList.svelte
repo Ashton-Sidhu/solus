@@ -29,7 +29,8 @@
     onOpenSplit: (sessionId: string) => void;
     onStop: (sessionId: string) => void;
     onUnlink: (sessionId: string) => void;
-    onNewSession: () => void;
+    /** Start a session on this task. Null where the task's host runs none (the workspace service). */
+    onNewSession: (() => void) | null;
     /** True where the section is a tab of its own. The wide table hides four
      *  controls behind hover and spreads the attempt across five columns;
      *  neither survives a thumb, so each attempt becomes a card that states its
@@ -211,14 +212,16 @@
       {sessions.length}
     </span>
     <span class="h-px flex-1 bg-[var(--hairline)]" aria-hidden="true"></span>
-    <button
-      type="button"
-      class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:h-[22px] [.is-laptop-display_&]:px-2"
-      onclick={onNewSession}
-    >
-      <PlusIcon size={11} weight="bold" aria-hidden="true" />
-      New session
-    </button>
+    {#if onNewSession}
+      <button
+        type="button"
+        class="flex h-6 cursor-pointer items-center gap-1.5 rounded-md px-2.5 font-medium text-muted-foreground hover:bg-[var(--wash-2)] hover:text-foreground [.is-laptop-display_&]:h-[22px] [.is-laptop-display_&]:px-2"
+        onclick={onNewSession}
+      >
+        <PlusIcon size={11} weight="bold" aria-hidden="true" />
+        New session
+      </button>
+    {/if}
   </div>
 
   <!-- Attempts are a history, so they are read down a column, not across two
@@ -229,8 +232,13 @@
        same plain line the Linked table uses, and New session above is the way in. -->
   {#if !rows.length}
     <div class="px-1 py-3.5 text-muted-foreground">
-      No session has worked on this task yet. Start one to run an agent against this task
-      with the work linked back here.
+      {#if onNewSession}
+        No session has worked on this task yet. Start one to run an agent against this task
+        with the work linked back here.
+      {:else}
+        No session has worked on this task yet. One run on a machine linked to this
+        organization is recorded here.
+      {/if}
     </div>
   {:else}
     <div

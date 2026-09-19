@@ -57,6 +57,10 @@ A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as(
 
 `scripts/lab-cloud-proof.ts` boots a host that trusts a running Solus cloud dev server instead of the Lab issuer, links it there, and proves that cloud-minted owner, member, and guest grants are admitted by the host with the right principals.
 
+## Browser proofs
+
+`scripts/lab-guest-proof.ts` walks a share link through the built web client in headless Chromium against a Lab host. `scripts/lab-cloud-page-proof.ts` (docs/plans/cloud-service-model.md, the P1 exit test) serves the built client under `/app/` from a miniature account origin, opens an organization's pages (`#/w/<orgId>/…`) against a Lab workspace service with every runner off, proves the task board and a document usable on a laptop and a phone, then boots a runner whose mock-agent task lands on the open board. Both build the client with `--base=/app/` into `.solus-local/` and put screenshots in `.solus-local/artifacts/`.
+
 ## Not yet
 
 `lab up`, `lab as <persona> …` (a daemon behind a Unix socket for a fleet of subagents), the mock Codex backend and prompt directives, the browser lane, and the convergence and presence invariants arrive with the phases that need them. The seat scenario uses pasted tokens; the relayed browser login is a real-provider proof done by hand.

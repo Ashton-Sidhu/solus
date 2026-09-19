@@ -11,6 +11,7 @@
     getClientShellContext,
     getWorkspaceContext,
     getPullRequestsContext,
+    hostRolesStore,
     sharesStore,
   } from "../../../contexts";
   import { attemptServerId, findOpenTabForSession } from "../../../lib/sessionUtils";
@@ -161,6 +162,9 @@
     shell.canOpenResource("workspace") ? (taskServerId ?? serverConnections.defaultServerId()) : null,
   );
   const canShare = $derived(!!shareServerId && sharesStore.canShareFrom(shareServerId));
+  // A session runs on the task's host. The workspace service serves collaboration
+  // only (docs/plans/cloud-service-model.md §15), so its task page offers no run.
+  const canStartSession = $derived(hostRolesStore.hasExecution(taskServerId ?? serverConnections.defaultServerId()));
   function openShare(record: Task): void {
     if (!shareServerId) return;
     sharesStore.open({ serverId: shareServerId, resource: { kind: "task", id: record.id }, title: record.title });
@@ -710,7 +714,7 @@
           placeholder={stacked ? `Comment on ${taskRef(record)}…` : undefined}
         />
       </div>
-      {#if stacked && tab === "overview"}
+      {#if stacked && tab === "overview" && canStartSession}
         <button
           type="button"
           class="mb-1 flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full border-0 bg-primary text-primary-foreground shadow-[0_1px_2px_rgba(24,20,16,.2)] [-webkit-tap-highlight-color:transparent]"
@@ -726,7 +730,7 @@
   <!-- Linked and Sessions each have one move worth a whole bar. Primary for
        Sessions, because starting a run is the page's own verb; outlined for
        Linked, because attaching something is a reference, not a commitment. -->
-  {#if bottomAction === "sessions"}
+  {#if bottomAction === "sessions" && canStartSession}
     <button
       type="button"
       class="flex h-12 w-full cursor-pointer items-center justify-center gap-[7px] rounded-lg border-0 bg-primary font-semibold tracking-[-0.006em] text-primary-foreground active:opacity-90 [-webkit-tap-highlight-color:transparent]"
@@ -954,7 +958,7 @@
               onOpenSplit={openSessionSplit}
               onStop={stopSession}
               onUnlink={unlinkSession}
-              onNewSession={() => startSession(task)}
+              onNewSession={canStartSession ? () => startSession(task) : null}
             />
           </div>
 

@@ -132,6 +132,13 @@
       ? session.projectPageScope.project
       : null,
   );
+  // A host with no project to open — the organization's workspace service — is
+  // its own scope: every task the host holds, whichever checkout filed it.
+  const pageHost = $derived(
+    session.projectPageScope.kind === "host"
+      ? session.projectPageScope.serverId
+      : null,
+  );
   const taskContext = $derived(
     pageProject
       ? taskCreationContextFor(pageProject.projectRoot, null)
@@ -186,7 +193,11 @@
             : ""))
       : "",
   );
-  const projectTasks = $derived(store.tasksForProject(cwd));
+  const projectTasks = $derived(
+    pageHost
+      ? store.tasks.filter((task) => task.serverId === pageHost)
+      : store.tasksForProject(cwd),
+  );
   const inboxTasksSource = $derived([
     ...store.tasks.filter(
       (task) => task.providerId === "local" && task.status === "inbox",
@@ -662,6 +673,12 @@
 
   // ── Data loading ──
   $effect(() => {
+    if (open && pageHost) {
+      // No project config to read: the host's own list is the whole scope.
+      configReady = true;
+      void store.load();
+      return;
+    }
     if (!open || !cwd || !projectHost) {
       configReady = false;
       return;
@@ -768,11 +785,15 @@
   let observedPageScopeKey = "";
   $effect(() => {
     if (!open) return;
-    const nextKey = pageProject ? projectRefKey(pageProject) : "all";
+    const nextKey = pageProject
+      ? projectRefKey(pageProject)
+      : pageHost
+        ? `host:${pageHost}`
+        : "all";
     if (observedPageScopeKey === nextKey) return;
     observedPageScopeKey = nextKey;
-    view = pageProject ? "global" : "inbox";
-    if (!pageProject) layout = "list";
+    view = pageProject || pageHost ? "global" : "inbox";
+    if (!pageProject && !pageHost) layout = "list";
     clearFilters();
     selection.clear();
     selectedKey = null;
@@ -796,6 +817,10 @@
     if (view === "inbox") {
       void store.load();
       void inboxStore.load();
+      return;
+    }
+    if (pageHost) {
+      void store.load();
       return;
     }
     if (!cwd) return;
@@ -1224,7 +1249,7 @@
       hideHeader={splitList}
       projects={projectOptions}
       activeProjectKey={view === "global" ? activeProjectOptionKey : ""}
-      emptyProjectLabel={view === "global" ? "No project" : "All projects"}
+      emptyProjectLabel={view === "global" && !pageHost ? "No project" : "All projects"}
       onSelectProject={selectProject}
       onSelectAllProjects={() => setView("inbox")}
       onRemoveProjectHistory={removeProjectHistory}
@@ -1260,7 +1285,7 @@
         onkeydown={onBodyKeydown}
         role="presentation"
       >
-        {#if view === "global" && !cwd}
+        {#if view === "global" && !cwd && !pageHost}
           <PageEmpty
             icon={ListChecksIcon}
             title="Open a project to see its tasks."
@@ -1294,8 +1319,13 @@
           </PageEmpty>
         {:else if view === "global" && projectTasks.length === 0}
           <PageEmpty icon={ListChecksIcon} title="No tasks yet.">
-            Create {allowEpics ? "a task or epic" : "a task"}, then start a
-            session from it to give the agent its full context.
+            {#if pageHost}
+              A task made in the workspace, or by an agent on a machine linked to
+              this organization, appears here for everyone.
+            {:else}
+              Create {allowEpics ? "a task or epic" : "a task"}, then start a
+              session from it to give the agent its full context.
+            {/if}
             {#snippet actions()}
               {#if canCreate}
                 <button

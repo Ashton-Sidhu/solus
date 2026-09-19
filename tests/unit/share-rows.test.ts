@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { OrganizationDirectory } from '@solus/contracts/uplink'
 import type { ShareList } from '@solus/contracts/sharing'
+import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import {
   grantsFor,
   guestLinkContext,
@@ -172,6 +173,18 @@ describe('the guest link', () => {
     expect(guestLinkContext({ linked: false }, undefined)).toEqual({ kind: 'unlinked' })
     // Until the host answers, the dialog must not claim the host is unlinked.
     expect(guestLinkContext(undefined, undefined)).toEqual({ kind: 'checking' })
+  })
+
+  test('a saved directory row keeps the context linked whatever host kind it carries', () => {
+    // WHY: the registry's uplink record is the saved row, and it names the host kind
+    // under `kind`. The workspace service has no link record of its own, so its
+    // answer is always "unlinked" and the cloud row is what proves it can share; a
+    // spread of that row once turned the context's kind into `cloud`, and every
+    // Share control on the organization's pages hid behind `canShareFrom`.
+    const cloudRow: SavedServerUplink = { hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh', organizationId: 'org-1', kind: 'cloud' }
+    expect(guestLinkContext({ linked: false }, cloudRow)).toEqual({ kind: 'linked', hostId: 'workspace:org-1', directoryUrl: 'https://app.solus.sh' })
+    const personalRow: SavedServerUplink = { hostId: 'abcdefghijklmnop', directoryUrl: 'https://app.solus.sh', kind: 'personal' }
+    expect(guestLinkContext(undefined, personalRow).kind).toBe('linked')
   })
 
   test('the link is always at hand for whoever may share, and only a fact for a viewer', () => {

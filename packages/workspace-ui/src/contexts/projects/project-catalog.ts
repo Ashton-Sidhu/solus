@@ -16,6 +16,8 @@ export interface ProjectRef {
 export type ProjectPageScope =
   | { kind: 'all' }
   | { kind: 'project'; project: ProjectRef }
+  /** Every task on one host: the organization's workspace service, which has no project to open. */
+  | { kind: 'host'; serverId: string }
 
 /** A project the catalog has recorded, with when it was last touched. */
 export interface ProjectCatalogEntry extends ProjectRef {

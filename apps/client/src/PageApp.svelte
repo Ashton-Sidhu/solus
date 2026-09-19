@@ -93,6 +93,8 @@
       switch (current.page) {
         case "tasks":
           session.openTasks("click");
+          // The service has no project to open: the board is every task it holds.
+          session.setProjectPageScope({ kind: "host", serverId });
           return;
         case "task":
           session.openRoute({ name: "task", params: { taskId: current.taskId, serverId } });
