@@ -1,28 +1,25 @@
 <script lang="ts">
   import { tick } from "svelte";
-  import { CloudOff as CloudOffIcon, MessageSquare as MessageSquareIcon, ArrowUp as ArrowUpIcon } from "@lucide/svelte";
+  import { CloudOff as CloudOffIcon, MessageSquare as MessageSquareIcon, Send as SendIcon } from "@lucide/svelte";
   import type { Message, SessionMeta } from "@solus/contracts/types";
   import { readSessionMeta } from "@solus/client-core/session-meta";
-  import { cloudQueueStore, getClientShellContext, getWorkspaceContext, loadSessionRecordTranscript, serversStore, sharesStore } from "../../../contexts";
+  import { getClientShellContext, getWorkspaceContext, loadSessionRecordTranscript, serversStore } from "../../../contexts";
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import { paneActions } from "../../ui/lib/pane-actions.svelte";
   import PaneChrome from "../../ui/PaneChrome.svelte";
   import * as Empty from "../../ui/empty";
   import { Skeleton } from "../../ui/skeleton";
   import { Button } from "../../ui/button";
-  import { Textarea } from "../../ui/textarea";
-  import { RUNNER_OFFLINE_NOTE } from "../lib/session-home";
-  import { canCancelQueuedPrompt } from "./lib/cloud-queue";
+  import { RUNNER_OFFLINE_REASON } from "../lib/session-home";
   import { sessionRecordHeader } from "./lib/session-record-page";
   import RecordTranscript from "./RecordTranscript.svelte";
-  import CloudQueuedPromptRow from "./CloudQueuedPromptRow.svelte";
 
   /**
    * A session whose runner is away, read from the organization's workspace
-   * service (docs/plans/cloud-service-model.md §12, P2): the record's header,
-   * the transcript the cloud mirrors, the prompts waiting on the cloud's
-   * durable queue, and a live composer that adds to that queue. The runner
-   * picks the queue up when it returns; the chip says so.
+   * service (docs/plans/cloud-service-model.md §12, §18): the record's header
+   * and the transcript the cloud mirrors. The composer is present and inert:
+   * a prompt goes to the runner that holds the session, so it can be sent
+   * once that runner is back. The chip and the composer say so.
    */
   let { params, paneId }: RouteSurfaceProps<"sessionRecord"> = $props();
 
@@ -35,7 +32,6 @@
   let loading = $state(true);
   let messages = $state<Message[] | null>(null);
   let transcriptError = $state<string | null>(null);
-  let readerUserId = $state<string | null>(null);
   let scrollEl = $state<HTMLDivElement | null>(null);
 
   $effect(() => {
@@ -45,10 +41,6 @@
     loadError = null;
     messages = null;
     transcriptError = null;
-    void cloudQueueStore.load(serverId, sessionId);
-    void sharesStore.identityFor(serverId).then((identity) => {
-      if (active) readerUserId = identity.userId;
-    }, () => {});
     void readSessionMeta(serverId, sessionId).then(
       async (loaded) => {
         if (!active) return;
@@ -83,31 +75,6 @@
   const header = $derived(meta ? sessionRecordHeader(meta) : null);
   const home = $derived(serversStore.hostFor(params.serverId));
   const homeLabel = $derived(serversStore.cloudHomeLabel(params.serverId) ?? home?.label ?? "this host");
-  const queue = $derived(cloudQueueStore.queueFor(params.serverId, params.sessionId));
-  const queueError = $derived(cloudQueueStore.errorFor(params.serverId, params.sessionId));
-
-  let draft = $state("");
-  let sending = $state(false);
-  let composerEl = $state<HTMLTextAreaElement | null>(null);
-  const canSend = $derived(!sending && draft.trim().length > 0 && !!meta);
-
-  async function send(): Promise<void> {
-    const text = draft.trim();
-    if (!text || sending || !meta) return;
-    sending = true;
-    const author = { userId: readerUserId ?? "", displayName: null };
-    const queued = await cloudQueueStore.enqueue(params.serverId, params.sessionId, text, author);
-    sending = false;
-    if (queued) draft = "";
-    await tick();
-    composerEl?.focus();
-    scrollEl?.scrollTo({ top: scrollEl.scrollHeight });
-  }
-
-  function cancel(queueId: string): void {
-    void cloudQueueStore.cancel(params.serverId, params.sessionId, queueId);
-    composerEl?.focus();
-  }
 
   function close() {
     workspace.router.closeGroup("page");
@@ -123,7 +90,7 @@
       <Skeleton class="h-3.5 w-40" />
       <span class="flex-1"></span>
     {/if}
-    <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2 text-[0.875em] text-(--solus-text-tertiary)" title={RUNNER_OFFLINE_NOTE} data-testid="session-record-state">
+    <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2 text-[0.875em] text-(--solus-text-tertiary)" title={RUNNER_OFFLINE_REASON} data-testid="session-record-state">
       <CloudOffIcon size={12} />
       Runner offline
     </span>
@@ -162,44 +129,23 @@
             <Skeleton class="h-3 w-full" />
             <Skeleton class="h-3 w-1/2" />
           </div>
-        {:else if messages.length === 0 && queue.length === 0}
+        {:else if messages.length === 0}
           <p class="text-(--solus-text-tertiary)" data-testid="session-record-transcript-empty">No transcript yet.</p>
         {:else}
           <RecordTranscript {messages} />
-        {/if}
-
-        {#if queue.length > 0}
-          <div class="flex flex-col" data-testid="cloud-queue">
-            {#each queue as prompt (prompt.queueId)}
-              <CloudQueuedPromptRow {prompt} canCancel={canCancelQueuedPrompt(prompt, readerUserId)} onCancel={() => cancel(prompt.queueId)} />
-            {/each}
-          </div>
-        {/if}
-        {#if queueError}
-          <p class="text-[0.875em] text-destructive" data-testid="cloud-queue-error">Couldn’t read the prompt queue: {queueError}</p>
         {/if}
       {/if}
     </div>
   </div>
 
-  <!-- The composer is live: a prompt lands on the cloud's queue and waits for
-       the runner. The note above it says so, in place of a lying spinner. -->
+  <!-- The composer, present and inert: the reverse state of a prompt is a bar
+       that says why it takes none, and when it will again. -->
   <div class="px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom,0px))]" data-testid="session-record-composer">
-    <p class="mx-auto max-w-(--solus-reading-max) pb-1.5 text-[0.875em] text-(--solus-text-tertiary)" data-testid="session-record-composer-note">{RUNNER_OFFLINE_NOTE}</p>
-    <div class="mx-auto flex max-w-(--solus-reading-max) items-end gap-2 rounded-2xl border border-(--solus-container-border) bg-(--solus-container-bg) px-3 py-2">
-      <Textarea
-        bind:ref={composerEl}
-        bind:value={draft}
-        class="max-h-40 min-h-0 flex-1 resize-none border-0 bg-transparent px-1 py-1.5 shadow-none focus-visible:ring-0"
-        placeholder={meta ? "Send a prompt to wait for the runner…" : "Reading the session…"}
-        disabled={!meta || sending}
-        submitOn="enter"
-        onSubmit={() => void send()}
-        aria-label="Prompt"
-        data-testid="session-record-composer-input"
-      />
-      <Button size="icon-sm" variant={canSend ? "default" : "ghost"} disabled={!canSend} onclick={() => void send()} aria-label="Send" title="Send (Enter)" data-testid="session-record-send">
-        <ArrowUpIcon size={14} />
+    <p class="mx-auto max-w-(--solus-reading-max) pb-1.5 text-[0.875em] text-(--solus-text-tertiary)" data-testid="session-record-composer-note">A prompt can be sent once the runner is back.</p>
+    <div class="mx-auto flex max-w-(--solus-reading-max) items-center gap-3 rounded-2xl border border-(--solus-container-border) bg-(--solus-container-bg) px-4 py-3 text-(--solus-text-tertiary)" aria-disabled="true">
+      <span class="min-w-0 flex-1 truncate">{RUNNER_OFFLINE_REASON}</span>
+      <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={RUNNER_OFFLINE_REASON}>
+        <SendIcon size={14} />
       </Button>
     </div>
   </div>

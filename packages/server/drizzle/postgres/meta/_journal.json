@@ -57,6 +57,13 @@
       "when": 1789841542851,
       "tag": "0007_cloud_sessions_vault",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1789845015255,
+      "tag": "0008_drop_prompt_queue",
+      "breakpoints": true
     }
   ]
 }

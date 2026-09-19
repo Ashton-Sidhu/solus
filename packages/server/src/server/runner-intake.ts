@@ -5,14 +5,12 @@ import { createLogger } from '../logger'
 import { applyOutboxOp, PermanentApplyError } from '../outbox/outbox-store'
 import { runnerCursors } from '../outbox/schema'
 import { upsertSessionRecord } from '../sessions/session-records'
-import { claimForRunner, settleForRunner } from '../sessions/prompt-queue'
 import { applyMirrorItem } from '../mirror/mirror-sinks'
 import type { ShareManager } from '../sharing/share-manager'
 import type { Principal } from './principal'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 import { acquireLock, credentialExpiresAt, isOrganizationMember, readCredential, releaseLock, vaultConfigured, writeBack } from '../vault/vault'
 import {
-  RUNNER_BATCH_LIMIT,
   type RunnerCredentialError,
   type RunnerCredentialLeaseRequest,
   type RunnerCredentialLeaseResponse,
@@ -25,10 +23,6 @@ import {
   type RunnerMirrorResponse,
   type RunnerOutboxRequest,
   type RunnerOutboxResponse,
-  type RunnerQueueClaimRequest,
-  type RunnerQueueClaimResponse,
-  type RunnerQueueSettleRequest,
-  type RunnerQueueSettleResponse,
   type RunnerSessionRecordsRequest,
   type RunnerSessionRecordsResponse,
 } from './uplink/runner-protocol'
@@ -148,25 +142,6 @@ export async function applyRunnerMirror(runner: RunnerPrincipal, request: Runner
     lastSeq = seq
   }
   return { lastSeq }
-}
-
-// ── The durable prompt queue (§4) ────────────────────────────────────────────
-
-/** The prompts this runner may dispatch now, claimed under its sessions' leases; the session ids touched are answered beside them. */
-export async function claimRunnerQueue(runner: RunnerPrincipal, request: RunnerQueueClaimRequest): Promise<{ response: RunnerQueueClaimResponse; sessionIds: string[] }> {
-  const prompts = await claimForRunner(runner.organizationId, runner.hostId, request.limit ?? RUNNER_BATCH_LIMIT)
-  if (prompts.length > 0) log.info('runner_queue_claimed', { hostId: runner.hostId, organizationId: runner.organizationId, count: prompts.length })
-  return { response: { prompts }, sessionIds: [...new Set(prompts.map((prompt) => prompt.sessionId))] }
-}
-
-/** The runner's word on one claim; refused (settled: false) when the claim is no longer this runner's under this epoch. */
-export async function settleRunnerQueue(runner: RunnerPrincipal, request: RunnerQueueSettleRequest): Promise<{ response: RunnerQueueSettleResponse; sessionIds: string[] }> {
-  const outcome = await settleForRunner(runner.organizationId, runner.hostId, request.queueId, request.epoch, request.state, request.error)
-  if (!outcome.settled) {
-    log.info('runner_queue_settle_refused', { hostId: runner.hostId, organizationId: runner.organizationId, queueId: request.queueId, epoch: request.epoch })
-    return { response: { settled: false }, sessionIds: [] }
-  }
-  return { response: { settled: true }, sessionIds: [outcome.sessionId] }
 }
 
 // ── The credential vault (§5) ────────────────────────────────────────────────

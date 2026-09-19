@@ -75,8 +75,6 @@ export interface RunnerGrantInfo {
   hostId: string
   organizationId: string
   workspaceUrl: string
-  /** The account that owns a personal runner; absent on a managed one. */
-  ownerUserId: string | null
 }
 
 interface RunnerGrant extends RunnerGrantInfo {
@@ -121,8 +119,8 @@ export class RunnerDelivery {
   /** The grant's facts while one is held; null while unlinked, unshared, or failing. */
   currentGrant(): RunnerGrantInfo | null {
     if (!this.grant) return null
-    const { hostId, organizationId, workspaceUrl, ownerUserId } = this.grant
-    return { hostId, organizationId, workspaceUrl, ownerUserId }
+    const { hostId, organizationId, workspaceUrl } = this.grant
+    return { hostId, organizationId, workspaceUrl }
   }
 
   /** Hear when the runner gains or loses a grant (organization changes included). Called at once with the current state. */
@@ -329,7 +327,6 @@ export class RunnerDelivery {
       hostId: link.hostId,
       organizationId: parsed.data.organizationId,
       workspaceUrl: new URL(route.url).origin,
-      ownerUserId: parsed.data.ownerUserId ?? null,
       expiresAt: parsed.data.expiresAt,
     })
     return 'ok'
@@ -457,7 +454,6 @@ export class RunnerDelivery {
     const organizationId = after?.organizationId ?? null
     const changed = before?.organizationId !== after?.organizationId
       || before?.workspaceUrl !== after?.workspaceUrl
-      || before?.ownerUserId !== after?.ownerUserId
     if (this.status.organizationId !== organizationId) {
       this.status.organizationId = organizationId
       setCloudOwnedOrganization(organizationId)

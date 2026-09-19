@@ -16,13 +16,10 @@ import { UplinkLinkManager } from './uplink/link'
 import { RunnerDelivery } from './uplink/runner-delivery'
 import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './runner-intake'
 import { TranscriptMirror, listOwnInterruptedSessions } from '../mirror/transcript-mirror'
-import { claimRunnerQueue, settleRunnerQueue } from './runner-intake'
 import { leaseRunnerCredential, lockRunnerCredential, unlockRunnerCredential, writebackRunnerCredential } from './runner-intake'
 import { VaultClient } from '../vault/vault-client'
 import { VaultSeatManager } from '../vault/vault-seats'
 import { touchOrganizationMember, vaultConfigured } from '../vault/vault'
-import { QueueDrain } from './uplink/queue-drain'
-import { registerPromptQueueHandlers } from './handlers/prompt-queue-handlers'
 import { applyWorkspaceMode, isWorkspaceMode, workspaceConfig } from './workspace-mode'
 import { WORKSPACE_AUDIENCE, type HostKind, type UplinkLinkConfig } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './handlers/uplink-handlers'
@@ -267,17 +264,15 @@ function seatStoreFor(workspaceMode: boolean): { seats: SeatStore; localSeats: S
 /**
  * What a host does for its organization's workspace service once it is linked
  * and shared (cloud-service-model.md §4–§6, §16): the delivery of its streams,
- * members' seats leased from the vault, the mirror of turns its previous
- * process left unsettled, and the drain of prompts that waited in the cloud.
- * Nothing starts until the delivery holds a grant.
+ * members' seats leased from the vault, and the mirror of turns its previous
+ * process left unsettled. Nothing starts until the delivery holds a grant.
  */
 function startRunnerCloud(deps: {
-  controlPlane: ControlPlane
   uplinkManager: UplinkLinkManager
   localSeats: SeatManager | null
   transcriptMirror: TranscriptMirror
   interruptSweep: Promise<unknown>
-}): { delivery: RunnerDelivery; drain: QueueDrain } {
+}): RunnerDelivery {
   const delivery = new RunnerDelivery({
     link: () => deps.uplinkManager.currentLink(),
     hostToken: () => deps.uplinkManager.hostToken(),
@@ -295,31 +290,15 @@ function startRunnerCloud(deps: {
       log.warn('transcript_mirror_interrupted_sweep_failed', { error: String(error) })
     })
   })
-  const drain = new QueueDrain({
-    delivery,
-    holdsSession: (sessionId) => deps.controlPlane.isKnownSession(sessionId),
-    promptSession: (sessionId, text, actor) => deps.controlPlane.promptSession(sessionId, text, 'queue', { actor }),
-  })
-  drain.start()
-  return { delivery, drain }
+  return delivery
 }
 
 /** The workspace service's runner routes (cloud-service-model.md §16); `buildHttpServer` mounts them in workspace mode only. */
-function runnerRoutes(shares: ShareManager, onQueueChanged: (sessionIds: string[]) => void): NonNullable<HttpServerOptions['runner']> {
+function runnerRoutes(shares: ShareManager): NonNullable<HttpServerOptions['runner']> {
   return {
     applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
     applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
     applyMirror: applyRunnerMirror,
-    claimQueue: async (runner, request) => {
-      const { response, sessionIds } = await claimRunnerQueue(runner, request)
-      onQueueChanged(sessionIds)
-      return response
-    },
-    settleQueue: async (runner, request) => {
-      const { response, sessionIds } = await settleRunnerQueue(runner, request)
-      onQueueChanged(sessionIds)
-      return response
-    },
     leaseCredential: leaseRunnerCredential,
     lockCredential: lockRunnerCredential,
     unlockCredential: unlockRunnerCredential,
@@ -493,7 +472,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     agentIdFromContext: opts.agentIdFromContext,
     shares,
   })
-  registerPromptQueueHandlers(server, { events })
   await opts.registerHostHandlers?.(server)
   phaseDone('host_handlers_registered')
   registerFolioHandlers(server, { shares })
@@ -733,7 +711,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // treats every grant as a stranger's.
   let grantVerifier: HostGrantVerifier | null = workspaceGrantVerifier(workspaceMode)
   let runnerDelivery: RunnerDelivery | null = null
-  let queueDrain: QueueDrain | null = null
   const followLink = (link: UplinkLinkConfig | null): void => {
     if (workspaceMode) return
     grantVerifier = grantVerifierForLink(link)
@@ -757,13 +734,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // A linked host shared with an organization delivers its cloud-owned writes and
   // its session records to the organization's workspace service (§16).
   if (!workspaceMode) {
-    ({ delivery: runnerDelivery, drain: queueDrain } = startRunnerCloud({
-      controlPlane: opts.controlPlane,
+    runnerDelivery = startRunnerCloud({
       uplinkManager,
       localSeats,
       transcriptMirror,
       interruptSweep,
-    }))
+    })
   }
 
   const { server: http, requestListener } = buildHttpServer({
@@ -784,9 +760,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       ? grantVerifier.verify(grant, verifyOptions)
       : Promise.resolve({ ok: false, reason: 'not-linked' }),
     resolveShareSecret: (secret) => shares.resolveLinkSecret(secret),
-    runner: runnerRoutes(shares, (sessionIds) => {
-      for (const sessionId of sessionIds) void events.broadcast('session.promptQueueChanged', { sessionId })
-    }),
+    runner: runnerRoutes(shares),
     transcribeAudio: opts.transcribeAudio,
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
@@ -1082,7 +1056,6 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
         await lanDiscovery.close()
-        queueDrain?.stop()
         transcriptMirror.dispose()
         await runnerDelivery?.stop()
         await uplinkConnector.stop()

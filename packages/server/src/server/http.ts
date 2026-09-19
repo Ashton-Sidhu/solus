@@ -20,7 +20,6 @@ import { runnerPrincipalFor, type Principal } from './principal'
 import type { ResolvedLinkShare } from '../sharing/share-manager'
 import { normalizeDisplayName, parseGrantSubject, type GrantSubject, type HostGrantClaims } from '@solus/contracts/uplink'
 import { RUNNER_OUTBOX_PATH, RUNNER_SESSION_RECORDS_PATH, runnerOutboxRequestSchema, runnerSessionRecordsRequestSchema, type RunnerOutboxRequest, type RunnerOutboxResponse, type RunnerSessionRecordsRequest, type RunnerSessionRecordsResponse } from './uplink/runner-protocol'
-import { RUNNER_QUEUE_CLAIM_PATH, RUNNER_QUEUE_SETTLE_PATH, runnerQueueClaimRequestSchema, runnerQueueSettleRequestSchema, type RunnerQueueClaimRequest, type RunnerQueueClaimResponse, type RunnerQueueSettleRequest, type RunnerQueueSettleResponse } from './uplink/runner-protocol'
 import { RUNNER_MIRROR_PATH, runnerMirrorRequestSchema, type RunnerMirrorRequest, type RunnerMirrorResponse } from './uplink/runner-protocol'
 import { RUNNER_CREDENTIAL_LEASE_PATH, RUNNER_CREDENTIAL_LOCK_PATH, RUNNER_CREDENTIAL_UNLOCK_PATH, RUNNER_CREDENTIAL_WRITEBACK_PATH, runnerCredentialLeaseRequestSchema, runnerCredentialLockRequestSchema, runnerCredentialUnlockRequestSchema, runnerCredentialWritebackRequestSchema, type RunnerCredentialLeaseRequest, type RunnerCredentialLeaseResponse, type RunnerCredentialLockRequest, type RunnerCredentialLockResponse, type RunnerCredentialUnlockRequest, type RunnerCredentialWritebackRequest, type RunnerCredentialWritebackResponse } from './uplink/runner-protocol'
 import type { RunnerCredentialOutcome } from './runner-intake'
@@ -78,9 +77,6 @@ export interface HttpServerOptions {
     applySessionRecords: (runner: RunnerPrincipal, request: RunnerSessionRecordsRequest) => Promise<RunnerSessionRecordsResponse>
     /** The mirrored domains (§6): transcript rows and insights. */
     applyMirror: (runner: RunnerPrincipal, request: RunnerMirrorRequest) => Promise<RunnerMirrorResponse>
-    /** The durable prompt queue (§4): what the runner may dispatch now, and its word on each claim. */
-    claimQueue: (runner: RunnerPrincipal, request: RunnerQueueClaimRequest) => Promise<RunnerQueueClaimResponse>
-    settleQueue: (runner: RunnerPrincipal, request: RunnerQueueSettleRequest) => Promise<RunnerQueueSettleResponse>
     /** The credential vault (§5): a runner leases, locks, unlocks, and writes back one person's credential. */
     leaseCredential: (runner: RunnerPrincipal, request: RunnerCredentialLeaseRequest) => Promise<RunnerCredentialOutcome<RunnerCredentialLeaseResponse>>
     lockCredential: (runner: RunnerPrincipal, request: RunnerCredentialLockRequest) => Promise<RunnerCredentialOutcome<RunnerCredentialLockResponse>>
@@ -412,22 +408,6 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       if (!body) return c.json({ error: 'invalid_request' }, 400)
       if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
       return c.json(await runner.applyMirror(principal, body))
-    })
-    app.post(RUNNER_QUEUE_CLAIM_PATH, async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, runnerQueueClaimRequestSchema)
-      if (!body) return c.json({ error: 'invalid_request' }, 400)
-      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
-      return c.json(await runner.claimQueue(principal, body))
-    })
-    app.post(RUNNER_QUEUE_SETTLE_PATH, async (c) => {
-      const principal = await admitRunner(c)
-      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
-      const body = await readJson(c, runnerQueueSettleRequestSchema)
-      if (!body) return c.json({ error: 'invalid_request' }, 400)
-      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
-      return c.json(await runner.settleQueue(principal, body))
     })
     // The credential routes answer a refusal with its own status and the vault's
     // error name, so the runner can tell "no credential" from "not yours".

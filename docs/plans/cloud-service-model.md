@@ -7,9 +7,9 @@ P0 lays the storage layer and ports the collaboration-plane domains — tasks,
 works, plans, sharing, and session records — as the pattern every later
 domain follows. P1 (§15–§17) boots that binary as an organization's workspace
 service and teaches a linked host to write to it. P2 (§18–§19) mirrors
-transcripts and insights to the service and gives a cloud session a durable
-prompt queue; P3 (§20) moves provider credentials into a vault every runner
-leases.
+transcripts and insights to the service; a prompt still goes to the host that
+runs the session. P3 (§20) moves provider credentials into a vault every
+runner leases.
 
 ## 1. Vocabulary
 
@@ -519,28 +519,18 @@ a session — the turn tree — with the log events it owns, after
 event id. Nothing queries them on the service yet; the tables are the durable
 copy the rollover on the runner may delete from `metrics.db`.
 
-## 19. The durable prompt queue and the runner lease (P2, §4)
+## 19. Prompts while the runner is away (P2)
 
-On the workspace service a prompt to a session whose runner is away lands in
-`session_prompt_queue` (`sessionPromptEnqueue`, an editor of the session; text
-only in this slice) as `waiting`, and every client of the organization hears
-`session.promptQueueChanged`. A runner claims the waiting prompts of the
-sessions its records name (`POST /runner/queue/claim`) under the session's
-lease in `session_runner_leases`: the same host renews, another host takes an
-expired lease at the next epoch, a live lease of another host is skipped. The
-runner dispatches each claim as an authored turn through `promptSession` — the
-author's seat, or the host login when the author is the runner's owner
-(`ownerUserId` on the runner grant answer) — and settles it
-(`POST /runner/queue/settle`) as `dispatched` or `failed` under the epoch it
-claimed. The turn itself shows in the mirrored transcript. A waiting prompt can
-be withdrawn by its author or a host administrator
-(`sessionPromptQueueCancel`); a claimed one cannot. On a host that is not the
-workspace service the enqueue is refused: the runner's own composer prompts
-live.
-
-The client's record page (`SessionRecordPage.svelte`) shows the mirrored
-transcript and the queue, and its composer enqueues; the picker's cloud row
-stays marked "runner offline" until the runner is back.
+Decision: queued prompts stay in the memory of the host that runs the session,
+as they always did. The cloud holds no prompt rows and no lease; a runner
+claims nothing from the service. A prompt to a session whose runner is away is
+refused by the client with the runner-offline state: the picker's cloud row is
+marked "runner offline", and the record page (`SessionRecordPage.svelte`)
+shows the mirrored transcript with an inert composer that says a prompt can be
+sent once the runner is back. The owner prompts the session on the runner
+itself when it returns, and the new turn's rows reach the service through the
+mirror (§18). The tables `session_prompt_queue` and `session_runner_leases`
+that migration 0007 created are dropped by 0008.
 
 ## 20. The credential vault (P3, §5)
 

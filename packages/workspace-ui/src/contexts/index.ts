@@ -75,8 +75,7 @@ export {
 /** Personal Uplink: a host's link to the owner's Solus cloud account, and how hosts are reached. */
 export { uplinkStore } from './connections/uplink.store.svelte'
 export { sharesStore } from './sharing/shares.store.svelte'
-/** A cloud session's durable prompt queue while its runner is away, and the transcript the cloud mirrors. */
-export { cloudQueueStore } from './sessions/cloud-queue.store.svelte'
+/** The transcript the cloud mirrors for a session whose runner is away. */
 export { loadSessionRecordTranscript } from './sessions/session-record-transcript'
 export { activeSessionShareTarget } from './sharing/share-target'
 export type { ShareDialogTarget } from './sharing/shares.store.svelte'

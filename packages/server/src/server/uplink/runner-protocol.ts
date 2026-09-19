@@ -4,13 +4,12 @@ import type { SessionRecordUpsert } from '@solus/contracts/types'
 
 /**
  * What a runner sends its organization's workspace service, and what comes
- * back (docs/plans/cloud-service-model.md §16, §6, §4, §5). HTTP routes on the
+ * back (docs/plans/cloud-service-model.md §16, §6, §5). HTTP routes on the
  * service, all `POST`, all under `Authorization: Bearer <runner grant>`:
  *
  * - `/runner/outbox` — outbox ops of the `tasks` and `works` domains.
  * - `/runner/session-records` — session-record reports.
  * - `/runner/mirror` — mirrored domains (§6): transcript rows and insights.
- * - `/runner/queue/claim`, `/runner/queue/settle` — the durable prompt queue (§4).
  * - `/runner/credentials/lease|lock|unlock|writeback` — the vault (§5).
  *
  * Every delivered item carries the `seq` the runner numbered it with, in one
@@ -25,8 +24,6 @@ import type { SessionRecordUpsert } from '@solus/contracts/types'
 export const RUNNER_OUTBOX_PATH = '/runner/outbox'
 export const RUNNER_SESSION_RECORDS_PATH = '/runner/session-records'
 export const RUNNER_MIRROR_PATH = '/runner/mirror'
-export const RUNNER_QUEUE_CLAIM_PATH = '/runner/queue/claim'
-export const RUNNER_QUEUE_SETTLE_PATH = '/runner/queue/settle'
 export const RUNNER_CREDENTIAL_LEASE_PATH = '/runner/credentials/lease'
 export const RUNNER_CREDENTIAL_LOCK_PATH = '/runner/credentials/lock'
 export const RUNNER_CREDENTIAL_UNLOCK_PATH = '/runner/credentials/unlock'
@@ -155,49 +152,6 @@ const logEventWireSchema = z.object({
 export const insightsMirrorPayloadSchema = z.object({ span: spanWireSchema, events: z.array(logEventWireSchema) })
 export type InsightsMirrorPayload = z.infer<typeof insightsMirrorPayloadSchema>
 
-// ── The durable prompt queue (§4) ────────────────────────────────────────────
-
-/** How long a runner's claim on a session lasts before another runner may take the lease. */
-export const RUNNER_LEASE_TTL_MS = 5 * 60_000
-
-export const runnerQueueClaimRequestSchema = z.object({
-  hostId: z.string().min(1),
-  /** At most this many prompts; the runner dispatches what it takes. */
-  limit: z.number().int().positive().max(RUNNER_BATCH_LIMIT).optional(),
-})
-export type RunnerQueueClaimRequest = z.infer<typeof runnerQueueClaimRequestSchema>
-
-export const claimedPromptSchema = z.object({
-  queueId: z.string().min(1),
-  sessionId: z.string().min(1),
-  /** The lease epoch the runner settles under; a stale epoch is refused. */
-  epoch: z.number().int().positive(),
-  text: z.string(),
-  author: z.object({ userId: z.string().min(1), displayName: z.string().optional() }),
-  createdAt: z.number(),
-})
-export type ClaimedPrompt = z.infer<typeof claimedPromptSchema>
-
-export const runnerQueueClaimResponseSchema = z.object({
-  prompts: z.array(claimedPromptSchema),
-})
-export type RunnerQueueClaimResponse = z.infer<typeof runnerQueueClaimResponseSchema>
-
-export const runnerQueueSettleRequestSchema = z.object({
-  hostId: z.string().min(1),
-  queueId: z.string().min(1),
-  epoch: z.number().int().positive(),
-  state: z.enum(['dispatched', 'failed']),
-  error: z.string().optional(),
-})
-export type RunnerQueueSettleRequest = z.infer<typeof runnerQueueSettleRequestSchema>
-
-export const runnerQueueSettleResponseSchema = z.object({
-  /** False when the claim was no longer this runner's (another epoch took the session). */
-  settled: z.boolean(),
-})
-export type RunnerQueueSettleResponse = z.infer<typeof runnerQueueSettleResponseSchema>
-
 // ── The credential vault (§5) ────────────────────────────────────────────────
 
 export const vaultProviderSchema = z.enum(['claude-code', 'codex'])
@@ -280,8 +234,6 @@ export type RunnerRequestBody =
   | RunnerOutboxRequest
   | RunnerSessionRecordsRequest
   | RunnerMirrorRequest
-  | RunnerQueueClaimRequest
-  | RunnerQueueSettleRequest
   | RunnerCredentialLeaseRequest
   | RunnerCredentialLockRequest
   | RunnerCredentialUnlockRequest

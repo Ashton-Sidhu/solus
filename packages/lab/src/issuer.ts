@@ -73,8 +73,6 @@ export class LabIssuer {
   private readonly links = new Map<string, IssuedLink>()
   /** Host id → the organization the owner shared it with. */
   private readonly hostOrganizations = new Map<string, string>()
-  /** The account that owns a personal runner, named on its runner grant answer. */
-  private readonly hostOwners = new Map<string, string>()
   private workspaceUrl: string | null = null
 
   /**
@@ -163,15 +161,9 @@ export class LabIssuer {
   }
 
   /** The owner shared a host with an organization (`POST /v1/hosts/:id/organization` on the real cloud). */
-  attachHostToOrganization(hostId: string, organizationId: string | null, ownerUserId?: string): void {
-    if (organizationId === null) {
-      this.hostOrganizations.delete(hostId)
-      this.hostOwners.delete(hostId)
-      return
-    }
-    this.hostOrganizations.set(hostId, organizationId)
-    if (ownerUserId) this.hostOwners.set(hostId, ownerUserId)
-    else this.hostOwners.delete(hostId)
+  attachHostToOrganization(hostId: string, organizationId: string | null): void {
+    if (organizationId === null) this.hostOrganizations.delete(hostId)
+    else this.hostOrganizations.set(hostId, organizationId)
   }
 
   /** Where the workspace service is; the runner-grant answer names it as the tunnel route. */
@@ -229,8 +221,6 @@ export class LabIssuer {
       }
       const { grant, expiresAt } = this.issueRunnerGrant(hostId, organizationId)
       const answer: RunnerGrantResponse = { grant, hostId: workspaceHostId(organizationId), expiresAt, organizationId, routes: [{ kind: 'tunnel', url: this.workspaceUrl }] }
-      const ownerUserId = this.hostOwners.get(hostId)
-      if (ownerUserId) answer.ownerUserId = ownerUserId
       sendJson(response, 200, answer)
       return
     }

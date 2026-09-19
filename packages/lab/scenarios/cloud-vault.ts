@@ -108,9 +108,9 @@ async function connectStep(proof: Proof): Promise<LabClient> {
 async function bootRunnersStep(proof: Proof, runners: LabHost[]): Promise<{ runnerA: LabHost; runnerB: LabHost }> {
   const { ctx, tag } = proof
   ctx.step(`${tag} two runners of the organization come up`)
-  const runnerA = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_A, runnerOf: ORGANIZATION_ID, runnerOwnerUserId: ALICE_USER_ID })
+  const runnerA = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_A, runnerOf: ORGANIZATION_ID })
   runners.push(runnerA)
-  const runnerB = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_B, runnerOf: ORGANIZATION_ID, runnerOwnerUserId: ALICE_USER_ID })
+  const runnerB = await bootLabHost({ flavor: 'personal', issuer: ctx.issuer, hostId: RUNNER_B, runnerOf: ORGANIZATION_ID })
   runners.push(runnerB)
   ctx.check(`${tag} runner A holds a grant`, await runnerHoldsGrant(runnerA, 20_000))
   ctx.check(`${tag} runner B holds a grant`, await runnerHoldsGrant(runnerB, 20_000))

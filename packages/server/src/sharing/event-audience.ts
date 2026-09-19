@@ -49,7 +49,6 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'session.readStateChanged':
     case 'session.statusChanged':
     case 'session.presenceChanged':
-    case 'session.promptQueueChanged':
       return { kind: 'session', id: event.payload.sessionId }
     case 'annotations.changed':
       return event.payload.kind === 'work'

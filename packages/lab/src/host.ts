@@ -39,8 +39,6 @@ export interface LabHostOptions {
    * flavor only; the issuer must be the Lab's own.
    */
   runnerOf?: string
-  /** With `runnerOf`: the account that owns the runner, named on its runner grant answer. */
-  runnerOwnerUserId?: string
   /**
    * Boot on an existing data directory instead of a fresh one: how a scenario
    * restarts a host it stopped and proves what survived. Must be a temp location
@@ -140,7 +138,7 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     // previous process's lock file must go so the wait below sees the new one.
     rmSync(join(dataDir, 'server.lock'), { force: true })
     if (options.runnerOf && options.issuer.attachHostToOrganization) {
-      options.issuer.attachHostToOrganization(hostId, options.runnerOf, options.runnerOwnerUserId)
+      options.issuer.attachHostToOrganization(hostId, options.runnerOf)
     }
   } else if (managedMode) {
     // No record: the host boots as a Fly machine does, in managed mode with the
@@ -159,7 +157,7 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     if (options.flavor !== 'personal') throw new Error('A runner is a personal host')
     if (!options.issuer.issueManagedLink || !options.issuer.attachHostToOrganization) throw new Error('A runner needs the Lab issuer')
     const enrolled = options.issuer.issueManagedLink(hostId, proxiedPort)
-    options.issuer.attachHostToOrganization(hostId, options.runnerOf, options.runnerOwnerUserId)
+    options.issuer.attachHostToOrganization(hostId, options.runnerOf)
     writeFileSync(linkFile, JSON.stringify({ version: 1, desired: 'linked', link: enrolled.link }, null, 2), { mode: 0o600 })
     // The standalone server keeps secrets in files under the data directory.
     const secrets = join(dataDir, 'secrets')
