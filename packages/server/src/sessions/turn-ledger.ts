@@ -48,6 +48,9 @@ export type TurnRecord = z.infer<typeof turnRecordSchema>
 export interface TurnActor {
   userId: string
   seatUserId: string
+  /** How the author is shown to other people on the transcript and in the room; absent for the host's own work. */
+  displayName?: string
+  avatarUrl?: string
 }
 
 export class TurnLedger {

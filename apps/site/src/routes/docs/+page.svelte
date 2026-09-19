@@ -336,8 +336,8 @@
 				</ul>
 				<p class="mt-5 text-[14px] text-[#A09488]">
 					The input bar does more than text: {@render kbd('@')} opens file autocomplete,
-					{@render kbd('/')} opens the slash-command menu, {@render kbd('↑')} at the start of the
-					input walks your prompt history, and {@render kbd('⌥⇧=')} expands the input for long prompts.
+					{@render kbd('/')} opens the slash-command menu, and {@render kbd('↑')} at the start of the
+					input walks your prompt history.
 				</p>
 			</section>
 

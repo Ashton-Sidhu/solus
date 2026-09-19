@@ -5,8 +5,9 @@
   import { shareSummary } from "./lib/share-rows";
 
   /**
-   * The Share control (docs/plans/multiplayer-sharing.md §4.4): always present, and
-   * shaped like the header it sits in. The session band's actions are glyphs, so
+   * The Share control (docs/plans/multiplayer-sharing.md §4.4): present wherever the
+   * host can share (`sharesStore.canShareFrom`), and shaped like the header it sits
+   * in. The session band's actions are glyphs, so
    * there it is a glyph: people at rest, a globe once a link exists. The work
    * header's actions are words, so there it is the word. The count and the state
    * ride the tooltip; the header stays as quiet as its neighbours.
@@ -27,22 +28,18 @@
 
   const list = $derived(serverId && resource ? sharesStore.listFor(serverId, resource) : undefined);
   const summary = $derived(shareSummary(list));
-  const sharedWithMe = $derived(!!list && list.callerRole !== "owner");
-  const label = $derived(
-    summary.count === 0
-      ? "Share"
-      : `${sharedWithMe ? "Shared with you" : "Shared"} · ${summary.count}${summary.hasLink ? " · anyone with the link" : ""}`,
-  );
+  const shared = $derived(summary.scope !== null && summary.scope.kind !== "private");
+  const canShare = $derived(!!serverId && sharesStore.canShareFrom(serverId));
 </script>
 
-{#if serverId && resource}
+{#if serverId && resource && canShare}
   <button
     type="button"
     class={className}
     data-testid="share-button"
-    data-shared={summary.count > 0 ? "true" : undefined}
-    title={label}
-    aria-label={label}
+    data-shared={shared ? "true" : undefined}
+    title={summary.label}
+    aria-label={summary.label}
     onclick={() => sharesStore.open({ serverId, resource, title })}
   >
     {#if appearance === "glyph"}

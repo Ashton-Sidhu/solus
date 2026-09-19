@@ -1,3 +1,4 @@
+import { afterPaint } from '../../lib/after-paint'
 import { TransportDisconnectedError, type ConnectionStatus } from '@solus/client-core/ws-transport'
 import { bootstrapRuntimeTabs } from '../workspace/session-bootstrap'
 import type { SessionSidebarStore } from '../workspace/session-sidebar.store.svelte'
@@ -24,7 +25,7 @@ export function refreshRuntime(
   session: WorkspaceContext,
   sidebarStore: SessionSidebarStore,
 ): void {
-  void session.initStaticInfo()
+  void afterPaint().then(() => session.initStaticInfo())
     .catch((error) => logConnectionReadError('static info initialization', error))
 
   void bootstrapRuntimeTabs(session)

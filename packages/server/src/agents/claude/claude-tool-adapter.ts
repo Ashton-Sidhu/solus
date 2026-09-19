@@ -1,6 +1,6 @@
 import { createSdkMcpServer, tool } from '@anthropic-ai/claude-agent-sdk'
 import type { AgentTool, AgentToolContext } from '../tools/agent-tool'
-import { assertUniqueAgentTools, executeAgentTool } from '../tools/agent-tool'
+import { assertUniqueAgentTools, executeAgentTool, enabledAgentTools } from '../tools/agent-tool'
 import { z } from 'zod'
 
 /** The CLI stamps every MCP tools/call request with the streamed tool-use id
@@ -28,6 +28,7 @@ export function adaptClaudeTools(
   permissionMode: 'ask' | 'auto' | 'plan',
 ) {
   assertUniqueAgentTools(tools)
+  tools = enabledAgentTools(tools)
   const server = createSdkMcpServer({
     name: 'solus',
     version: '1.0.0',

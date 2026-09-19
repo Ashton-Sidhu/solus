@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getTranscriptDisclosure } from "../lib/transcript-disclosure.svelte";
   import { ExternalLink as ArrowSquareOutIcon, Check as CheckIcon, Ellipsis as DotsThreeIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import ClaudeIcon from "../../ClaudeIcon.svelte";
@@ -62,8 +63,8 @@
     agentConversationStatus.statusFor(ref.agentSessionId),
   );
   let now = $state(Date.now());
-  const state = $derived(agentConversationCardState(ref, agentStatus, now));
-  const live = $derived(isLiveAgentConversationState(state));
+  const cardState = $derived(agentConversationCardState(ref, agentStatus, now));
+  const live = $derived(isLiveAgentConversationState(cardState));
   // Reloaded transcripts default the provider; the index knows the truth.
   const provider = $derived(meta?.provider ?? ref.provider);
   const agentName = $derived(agentLabel(provider));
@@ -83,12 +84,12 @@
   const messageCount = $derived(
     agentMessages(ref).filter((message) => live || !message.pending).length,
   );
-  const flow = $derived(directionFlow(state));
+  const flow = $derived(directionFlow(cardState));
   const lastExchange = $derived(ref.exchanges[ref.exchanges.length - 1]);
   // A permission or a plan can't be answered by typing at it — that one has to
   // be taken in the agent's own session.
   const answerInSessionOnly = $derived(
-    state === "waiting" &&
+    cardState === "waiting" &&
       !!lastExchange?.question &&
       lastExchange.question.kind !== "question",
   );
@@ -98,9 +99,10 @@
   // so it rests folded and the reader follows it in its own session. A card
   // blocked on a human unfolds itself — that is the one thing the header can't
   // say, and the answer field lives in the body — until the reader rules on it.
-  let openedByUser = $state<boolean | null>(null);
+  const disclosure = getTranscriptDisclosure();
+  const view = $derived(disclosure.forKey(`agent:${ref.exchanges[0]?.exchangeId ?? ref.agentSessionId}`));
   const bodyOpen = $derived(
-    openedByUser ?? (state === "waiting" || !ref.fireAndForget),
+    view.openedByUser ?? (cardState === "waiting" || !ref.fireAndForget),
   );
 
   function open(options: { split?: boolean; background?: boolean } = {}) {
@@ -135,21 +137,21 @@
     }
   }
 
-  // A state ring is a full pixel of colour where the resting card carries a
+  // A cardState ring is a full pixel of colour where the resting card carries a
   // half-pixel inset hairline. Keep both rings inset so a transcript's overflow
-  // cannot clip one edge; both sit over the same lift, so no state changes the
+  // cannot clip one edge; both sit over the same lift, so no cardState changes the
   // card's height or reads as a different object.
   const stateRing = $derived(
-    state === "waiting"
+    cardState === "waiting"
       ? "shadow-[shadow:inset_0_0_0_1px_color-mix(in_oklch,var(--chart-2)_40%,transparent),var(--solus-agent-card-lift)]"
-      : state === "failed"
+      : cardState === "failed"
         ? "shadow-[shadow:inset_0_0_0_1px_color-mix(in_oklch,var(--destructive)_32%,transparent),var(--solus-agent-card-lift)]"
         : "shadow-[shadow:var(--solus-agent-card-shadow)]",
   );
 </script>
 
 <div
-  class="text-transcript-meta group/agent-card bg-card rounded-2xl overflow-hidden {stateRing} {state ===
+  class="text-transcript-meta group/agent-card bg-card rounded-2xl overflow-hidden {stateRing} {cardState ===
  'closed'
  ? 'opacity-70'
  : ''} {skipMotion ? '' : 'animate-msg-in-side'}"
@@ -158,8 +160,8 @@
     : "var(--muted-foreground)"}
   data-testid="agent-conversation-card"
 >
-  <!-- Header — five slots, identical in every state so nothing shifts as the
-       exchange progresses. The title truncates first; the name and the state
+  <!-- Header — five slots, identical in every cardState so nothing shifts as the
+       exchange progresses. The title truncates first; the name and the cardState
        never truncate. -->
   <div
     class="flex items-center gap-2 px-3.5 py-2.5 border-b-[0.5px] transition-colors duration-200 {bodyOpen
@@ -175,7 +177,7 @@
  : 'text-muted-foreground'}"
       aria-expanded={bodyOpen}
       aria-label="{bodyOpen ? 'Collapse' : 'Expand'} {agentName} exchange"
-      onclick={() => (openedByUser = !bodyOpen)}
+      onclick={() => (view.openedByUser = !bodyOpen)}
     >
       <svg
         width="9"
@@ -252,7 +254,7 @@
           {elapsed}
         </span>
       </span>
-    {:else if state === "failed"}
+    {:else if cardState === "failed"}
       <span class="shrink-0 text-(--destructive)">
         {neverStarted ? "never started" : "stopped replying"}
       </span>
@@ -269,7 +271,7 @@
         </button>
       {/if}
     {:else}
-      {#if state === "closed"}
+      {#if cardState === "closed"}
         <span class="shrink-0 text-muted-foreground">
           closed its session · transcript kept
         </span>
@@ -350,12 +352,13 @@
 
       {#if live && !neverStarted}
         <AgentExchangeFooter
+          draftKey={ref.exchanges[0]?.exchangeId ?? ref.agentSessionId}
           {agentName}
-          needsYou={state === "waiting"}
+          needsYou={cardState === "waiting"}
           {answerInSessionOnly}
           onSend={send}
           onOpen={open}
-          onStop={state === "waiting" ? undefined : stop}
+          onStop={cardState === "waiting" ? undefined : stop}
         />
       {/if}
     </div>

@@ -1,4 +1,11 @@
-import type { OutboundPrompt } from '@solus/contracts/types'
+import type { OutboundPrompt, Session } from '@solus/contracts/types'
+
+/** A held run needs a decision until the host confirms a queued retry. */
+export function needsRateLimitDecision(session: Pick<Session, 'status' | 'rateLimitInfo' | 'outboundPrompts'> | undefined): boolean {
+  return session?.status === 'rate_limited'
+    && session.rateLimitInfo != null
+    && !session.outboundPrompts.some((prompt) => prompt.state === 'queued' && prompt.reason === 'rate_limit')
+}
 
 /** Fixed-width clock face. The countdown is set in type, not drawn, so it needs
  *  a stable glyph count rather than a prose duration. */

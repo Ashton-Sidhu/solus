@@ -34,6 +34,7 @@
     branchGuideIdentity,
     reviewGuideStore,
   } from "../review/review-guide.store.svelte";
+  import { showBranchReviewGuide } from "../review/lib/branch-guide-tracker.svelte";
   import * as Popover from "../ui/popover";
   import MenuRow, {
     type ActionRowIcon,
@@ -435,12 +436,10 @@
     const ctx = session.ctxForEnvironment(env.cwd, env.checkout, sourceId);
     const api = prApi;
     const serverId = prServerId;
-    untrack(() => {
-      void pullRequests.projects
-        .get(api, serverId, ctx)
-        .loadBranch(branch, url)
-        .catch(() => {});
-    });
+    return untrack(() => pullRequests.projects.watch(
+      pullRequests.projects.get(api, serverId, ctx),
+      { branches: [branch] },
+    ));
   });
 
   // The host caches checks per repo, so asking for this one PR warms — and reads
@@ -575,20 +574,9 @@
   // Review companion: run the producer (review the diff, enriched by the ledger
   // when present → fixed-structure HTML) for the current branch, then wait for
   // an explicit second click before opening the companion in the main pane.
-  const reviewIdentity = $derived.by(() => {
-    const identity = branchGuideIdentity(env);
-    if (!identity) return null;
-    const changes = status?.uncommittedChanges;
-    return {
-      ...identity,
-      revision: [
-        status?.headSha ?? "",
-        ...(changes?.files.map((file) => file.path) ?? []),
-        changes?.insertions ?? 0,
-        changes?.deletions ?? 0,
-      ].join("|"),
-    };
-  });
+  // Read only: `trackBranchReviewGuides` probes the host once for every shown
+  // source; this section declares its source and reads the answer.
+  const reviewIdentity = $derived(branchGuideIdentity(env));
   const reviewStatus = $derived(
     reviewGuideStore.statusFor(session.serverIdFor(sourceId), reviewIdentity),
   );
@@ -600,17 +588,7 @@
   );
   let lastReviewFailureAt = 0;
 
-  $effect(() => {
-    const identity = reviewIdentity;
-    if (!identity) return;
-    void reviewGuideStore.load(
-      session.apiFor(sourceId),
-      session.serverIdFor(sourceId),
-      session.ctxForEnvironment(env.cwd, env.checkout, sourceId),
-      identity,
-      "branch",
-    );
-  });
+  $effect(() => showBranchReviewGuide(sourceId));
 
   $effect(() => {
     if (
@@ -714,7 +692,7 @@
   function openAgentDraft(prompt: string, environment = env) {
     const draft = session.openSessionDraft(
       {
-        sourceTabId: sourceId,
+        sourceId,
         gitContext: environment.checkout,
         via: "click",
       },

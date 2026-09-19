@@ -1,5 +1,6 @@
 import type { Message, NormalizedEvent, PromptImageRef, PermissionRequest, PermissionOption, QuestionRequest, RuntimeSessionInfo, TodoItem, SessionProgress, Session, DiffComment, PlanComment } from '@solus/contracts/types'
 import { solusAgentToolName } from '@solus/contracts/agent-tools'
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { z } from 'zod'
 
 let msgCounter = 0
@@ -225,11 +226,14 @@ export function formatInlineComments(comments: PlanComment[]): string {
   return comments
     .filter((c) => !c.resolvedAt)
     .map((c) => {
-      const head = c.nodeId
-        ? `- On node "${c.selectedText}" (node id: ${c.nodeId}): ${c.comment}`
-        : `- On "${c.selectedText}": ${c.comment}`
+      const anchor = c.nodeId
+        ? `On node "${c.selectedText}" (node id: ${c.nodeId})`
+        : c.pin
+          ? `At ${Math.round(c.pin.x * 100)}% across, ${Math.round(c.pin.y * 100)}% down the render ("${c.selectedText}")`
+          : `On "${c.selectedText}"`
+      const head = `- ${anchor}${c.person ? ` — ${c.person.displayName}` : ''}: ${c.comment}`
       const replies = (c.replies ?? []).map(
-        (r) => `  - ${r.author === 'solus' ? 'Solus' : 'User'}: ${r.text}`,
+        (r) => `  - ${r.author === 'solus' ? 'Solus' : r.person?.displayName ?? 'User'}: ${r.text}`,
       )
       return [head, ...replies].join('\n')
     })
@@ -272,6 +276,21 @@ export function applyRuntimeConfig(session: Session, info: RuntimeSessionInfo): 
     session.run.modelConfig.fastMode = info.modelConfig.fastMode
   }
   if (info.permissionMode) session.run.permissionMode = info.permissionMode
+}
+
+/** Apply Auto's routed model without losing that Auto was the user's choice.
+ * `sessionModel` holds the concrete model used by this session; the run keeps
+ * the preferred-model sentinel that the next new session must inherit. */
+export function applyRoutedModelConfig(
+  session: Pick<Session, 'run' | 'sessionModel'>,
+  modelConfig: Session['run']['modelConfig'],
+): void {
+  const preferredModel = session.run.modelConfig.modelId
+  Object.assign(session.run.modelConfig, modelConfig)
+  if (preferredModel === AUTO_MODEL_ID) {
+    session.run.modelConfig.modelId = AUTO_MODEL_ID
+  }
+  session.sessionModel = modelConfig.modelId
 }
 
 /** Host-stored prompt images as message attachments. A client that did not

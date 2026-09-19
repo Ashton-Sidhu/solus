@@ -5,6 +5,7 @@
     Maximize2 as ArrowsOutSimpleIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
+  import ShareButton from "../../sharing/ShareButton.svelte";
   import { taskProviderLabel, taskRef } from "./lib/task-page";
   import { syncToneColor, type TaskUpstreamState } from "./lib/task-upstream";
   import {
@@ -40,6 +41,8 @@
     isLeading?: boolean;
     /** Replace an embedded detail panel with this task's standalone route. */
     onOpenPage?: () => void;
+    /** The host the task lives on, for the Share control; null where sharing has no home (a guest shell). */
+    shareServerId?: string | null;
     onOpenList: () => void;
     onClose: () => void;
   }
@@ -55,6 +58,7 @@
     onMoveAcross,
     isLeading = true,
     onOpenPage,
+    shareServerId = null,
     onOpenList,
     onClose,
   }: Props = $props();
@@ -113,6 +117,16 @@
       {providerLabel}
     </span>
   {/if}
+
+  <!-- Who may open this task, and with it every session and document under it:
+       the same control the session band and the work header carry. -->
+  <ShareButton
+    serverId={shareServerId}
+    resource={{ kind: "task", id: task.id }}
+    title={task.title}
+    appearance="glyph"
+    class={SUB_PAGE_ROUND_BTN}
+  />
 
   {#if onOpenPage}
     <button

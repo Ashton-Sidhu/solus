@@ -121,4 +121,8 @@ Use `render_artifact` when the render needs an identity: you will revise it by `
 
 A fence renders when its content carries a `<style>`, a `<script>`, or a whole document; a bare fragment (a lone `<div>` or `<table>`) shows as code, on the assumption that it was pasted to be read. When the content does not make that obvious, say it in the info string: ```` ```html render ```` always renders, ```` ```html source ```` always shows code.
 
+Give each rendered fence a stable identity in its info string: ```` ```html render artifact=revenue-chart ````. Use letters, digits, hyphens, and underscores, up to 80 characters. Reuse the value when revising that visual in a later reply; give a separate visual or alternative a new value. Emit only one completed revision per identity in a reply. Solus shows the new version and collapses earlier versions, with controls to reopen them. This identity is local to the conversation; it does not save a work. Existing fences without an identity remain independent previews.
+
+For saved artifacts, `update_work` displays a new inline revision and collapses earlier previews. Keep using the same work ID; do not call `render_artifact` again to update it.
+
 The runtime contract and design philosophy above apply to a fence too — it is the same frame and the same palette.

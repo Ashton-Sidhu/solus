@@ -314,7 +314,13 @@ export function attachWebSocketTransport(
       return null
     },
     close: () => {
+      if (closing) return
       closing = true
+      // A listener rebind keeps the presence manager alive. End each client's
+      // presence before discarding the sockets, once even with several sockets.
+      const disconnectedClients = new Map<string, string | null>()
+      for (const session of sessions.values()) disconnectedClients.set(session.clientId, session.deviceId)
+      for (const [clientId, deviceId] of disconnectedClients) opts.onClientDisconnected?.({ clientId, deviceId })
       for (const timer of cleanupTimers.values()) clearTimeout(timer)
       cleanupTimers.clear()
       for (const unregister of eventUnregisters.values()) unregister()

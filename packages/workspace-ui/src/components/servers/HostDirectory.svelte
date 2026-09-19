@@ -85,7 +85,7 @@
           {#if server.local}
             <DesktopTowerIcon size={15} />
           {:else}
-            <HostOperatingSystemIcon os={server.os} size={15} />
+            <HostOperatingSystemIcon os={server.os} managed={isManagedHost(server.uplink)} size={15} />
           {/if}
         </span>
         <span class="min-w-0 flex-1">

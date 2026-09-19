@@ -1,6 +1,7 @@
+import { latestPrObservation } from '../../../contexts/prs/linked-pr'
 import { parseGitHubPullRequestUrl, type PullRequest } from '@solus/contracts/providers'
 import type { Session } from '@solus/contracts/types'
-import type { Task } from '@solus/contracts/task-types'
+import type { Task, TaskPrSnapshot } from '@solus/contracts/task-types'
 import type { AttentionState } from '../../../lib/sessionUtils'
 
 /** The sidebar's state vocabulary. Narrower than `AttentionState`: the column
@@ -415,19 +416,6 @@ export function resolveTaskSidebarLifecycle(input: {
   }
 }
 
-/** A linked PR ending is authoritative completion for its task. */
-export function shouldCompleteTaskForPr(
-  task: Pick<Task, 'status' | 'updatedAt'>,
-  pr: Pick<PullRequest, 'state' | 'updatedAt'>,
-): boolean {
-  if (task.status === 'done' || (pr.state !== 'closed' && pr.state !== 'merged')) return false
-  const prUpdatedAt = Date.parse(pr.updatedAt)
-  // A task changed after the PR reached its terminal state has been explicitly
-  // reopened (or otherwise resumed). That newer task decision wins until the PR
-  // itself changes state again; merely reloading the sidebar must not re-close it.
-  return !Number.isFinite(prUpdatedAt) || task.updatedAt <= prUpdatedAt
-}
-
 /** A task appears only after this client opens it. Child tasks render under
  * their root, and a local dismissal keeps a root closed until a session reopens
  * it. Task status does not add a row by itself. */
@@ -682,7 +670,7 @@ export function projectFilterChoices(allTasks: readonly SidebarTask[]): ProjectF
   return [...choices.values()]
 }
 
-export type PrChipState = 'draft' | 'open' | 'approvalRequested' | 'closed' | 'merged'
+export type PrChipState = 'unknown' | 'draft' | 'open' | 'approvalRequested' | 'closed' | 'merged'
 
 export interface PrChip {
   number: number
@@ -706,7 +694,7 @@ export interface TaskPrChoice {
   targetScope: string
   title: string
   url: string | null
-  pullRequest: PullRequest | null
+  pullRequest: PullRequest | TaskPrSnapshot | null
 }
 
 /** The set a task's chip is built from: every pull request linked to it, plus
@@ -742,7 +730,7 @@ export function dedupePrChoices(choices: readonly TaskPrChoice[]): TaskPrChoice[
     // Take what either mention knows: the live record from whichever carried
     // one, and a URL from whichever had one. Neither is more authoritative
     // about the other's field, and the first mention keeps its title.
-    if (!existing.pullRequest && choice.pullRequest) existing.pullRequest = choice.pullRequest
+    existing.pullRequest = latestPrObservation(existing.pullRequest, choice.pullRequest)
     if (!existing.url && choice.url) existing.url = choice.url
     for (const key of keys) if (!byKey.has(key)) byKey.set(key, existing)
   }
@@ -771,7 +759,7 @@ export function samePullRequest(left: string | null | undefined, right: string |
     && parsedLeft.number === parsedRight.number
 }
 
-export function prChipState(pr: PullRequest): PrChipState {
+export function prChipState(pr: Pick<PullRequest, 'state' | 'draft'> & { needsMyReview?: boolean }): PrChipState {
   if (pr.state === 'merged') return 'merged'
   if (pr.state === 'closed') return 'closed'
   if (pr.draft) return 'draft'
@@ -782,23 +770,23 @@ export function prChipState(pr: PullRequest): PrChipState {
 /** The token represents the whole linked set. Attention leads, then active
  * work; only an entirely merged set reads as merged.
  *
- * A choice this client holds no record for reads as open. It is a pull request
- * somebody linked or pushed a branch for, and open is what one is until a host
- * says otherwise — the alternative, hiding it, is how a disconnected host used
- * to empty the column of pull requests that plainly exist. */
+ * Missing status remains unknown, so an incomplete set cannot claim all PRs
+ * are merged or closed. Known active work still determines the attention tone. */
 export function prChipForChoices(choices: readonly TaskPrChoice[]): PrChip | null {
   const first = choices[0]
   if (!first) return null
-  const states = choices.map((choice) => (choice.pullRequest ? prChipState(choice.pullRequest) : 'open'))
+  const states = choices.map((choice) => (choice.pullRequest ? prChipState(choice.pullRequest) : 'unknown'))
   const state = states.includes('approvalRequested')
     ? 'approvalRequested'
     : states.includes('open')
       ? 'open'
       : states.includes('draft')
         ? 'draft'
-        : states.every((candidate) => candidate === 'merged')
-          ? 'merged'
-          : 'closed'
+        : states.includes('unknown')
+          ? 'unknown'
+          : states.every((candidate) => candidate === 'merged')
+            ? 'merged'
+            : 'closed'
   return { number: first.number, count: choices.length, state }
 }
 

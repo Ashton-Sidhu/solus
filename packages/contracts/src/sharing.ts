@@ -7,7 +7,12 @@
 
 import { z } from 'zod'
 
-export const shareResourceKindSchema = z.enum(['session', 'work'])
+/**
+ * What can be shared. A task's share reaches everything in it: the task page and
+ * every session and work linked to it, at the task's role (§3.4). A session or a
+ * work shared on its own reaches only itself.
+ */
+export const shareResourceKindSchema = z.enum(['session', 'work', 'task'])
 export type ShareResourceKind = z.infer<typeof shareResourceKindSchema>
 
 export const shareResourceSchema = z.object({
@@ -69,6 +74,9 @@ export const shareListSchema = z.object({
   grants: z.array(shareGrantSchema),
   /** The caller's own standing, so the client can hide what it cannot do. */
   callerRole: resourceRoleSchema,
+  /** Tasks whose share this resource inherits: a session or work reached through a
+   *  shared task. Named so the dialog can say "also shared through <task>". */
+  inheritedFrom: z.array(z.object({ taskId: z.string().min(1), title: z.string() })).optional(),
   /** A link exists (an `everyone` row). Its secret is here for the owner and editors, so
    *  the link is always at hand to copy; a viewer sees only that a link exists. Absent
    *  on a row made before the host kept secrets: regenerate to get one. */

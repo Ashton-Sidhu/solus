@@ -38,11 +38,27 @@ export async function searchSkills(query: string): Promise<RemoteSkill[]> {
   return MOCK_SKILLS.filter((s) => s.name.includes(q) || s.repo.includes(q))
 }
 
+const installedIds = new Set<string>()
+
 export async function installSkill(id: string, agents: AgentId[]): Promise<SkillInstallResult> {
   // Mirror the contract the real CLI enforces: a valid target is `owner/repo@skill`.
   // This makes the e2e fail loudly if the UI ever passes a mangled id.
   const valid = /^[^/\s]+\/[^@\s]+@[^\s]+$/.test(id)
+  if (valid) installedIds.add(id)
   return valid
     ? { ok: true, agents }
     : { ok: false, agents, error: `Invalid skill id: ${id}` }
+}
+
+export async function listInstalledSkills(): Promise<import('@solus/contracts/skill-types').SkillListResult> {
+  return { ok: true, skills: MOCK_SKILLS.filter((skill) => installedIds.has(skill.id)).map((skill) => ({
+    name: skill.name, path: `/test/skills/${skill.name}`, source: skill.repo, agents: ['Claude Code', 'Codex'],
+  })) }
+}
+
+export async function removeSkill(name: string): Promise<import('@solus/contracts/skill-types').SkillRemoveResult> {
+  for (const skill of MOCK_SKILLS) {
+    if (skill.name === name) installedIds.delete(skill.id)
+  }
+  return { ok: true }
 }

@@ -17,6 +17,7 @@
     FlaskConical as FlaskIcon,
     ChevronDown as CaretDownIcon,
     GitPullRequest as GitPullRequestIcon,
+    Bell as BellIcon,
   } from "@lucide/svelte";
   import {
     getWorkspaceContext,
@@ -30,7 +31,9 @@
   import { Button } from "../ui/button";
   import { SearchField } from "../ui/search-field";
   import SettingsUpdateButton from "./SettingsUpdateButton.svelte";
+  import SettingsTabModelRouting from "./SettingsTabModelRouting.svelte";
   import SettingsTabGeneral from "./SettingsTabGeneral.svelte";
+  import SettingsTabNotifications from "./SettingsTabNotifications.svelte";
   import SettingsTabInstructions from "./SettingsTabInstructions.svelte";
   import SettingsTabReview from "./SettingsTabReview.svelte";
   import ConnectionsPanel from "../connections/ConnectionsPanel.svelte";
@@ -65,10 +68,24 @@
 
   const ALL_TABS: TabMeta[] = [
     {
+      id: "model-routing",
+      label: "Model routing",
+      description: "Choose models and provider priority for Auto sessions.",
+      icon: SparkleIcon,
+      group: "Capabilities",
+    },
+    {
       id: "general",
       label: "General",
       description: "Appearance, agent defaults, and how sessions use your disk.",
       icon: SlidersHorizontalIcon,
+      group: "Workspace",
+    },
+    {
+      id: "notifications",
+      label: "Notifications",
+      description: "How Solus gets your attention, and which events do.",
+      icon: BellIcon,
       group: "Workspace",
     },
     {
@@ -103,15 +120,14 @@
     {
       id: "tools",
       label: "Tools",
-      description: "The external apps Solus hands files and directories off to.",
+      description: "Solus agent tools, external applications, and code intelligence.",
       icon: WrenchIcon,
       group: "Capabilities",
-      desktopOnly: true,
     },
     {
       id: "skills",
       label: "Skills",
-      description: "Browse the skills.sh registry and install into your agents.",
+      description: "Find new skills and manage global skills on each host.",
       icon: SparkleIcon,
       group: "Capabilities",
       desktopOnly: true,
@@ -189,6 +205,7 @@
     ALL_TABS.find((t) => t.id === session.settingsTab) ?? tabs[0],
   );
   const hostFramedTab = $derived(
+    session.settingsTab === "model-routing" ||
     session.settingsTab === "general" ||
       session.settingsTab === "projects" ||
       session.settingsTab === "source-control" ||
@@ -320,6 +337,10 @@
       api={selectedSettingsApi}
       hostLabel={selectedSettingsHost.label}
     />
+  {:else if session.settingsTab === "model-routing" && selectedSettingsHost}
+    <SettingsTabModelRouting {searchQuery} serverId={selectedSettingsHost.serverId} />
+  {:else if session.settingsTab === "notifications"}
+    <SettingsTabNotifications {searchQuery} />
   {:else if session.settingsTab === "instructions"}
     <SettingsTabInstructions {searchQuery} />
   {:else if session.settingsTab === "review"}

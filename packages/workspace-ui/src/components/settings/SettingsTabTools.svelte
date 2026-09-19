@@ -5,6 +5,7 @@
     Download as DownloadIcon,
     LoaderCircle as LoaderIcon,
   } from "@lucide/svelte";
+  import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import {
@@ -19,6 +20,10 @@
   import { Button } from "../ui/button";
   import AppLogo from "./AppLogo.svelte";
   import { terminalRowDescription } from "./lib/terminal-summary";
+  import SolusToolSettings from "./SolusToolSettings.svelte";
+  import TypeSafeKeySetting from "./TypeSafeKeySetting.svelte";
+  import { solusToolsStore } from "./solus-tools.store.svelte";
+  import { matchingToolGroups } from "./lib/solus-tool-groups";
   import SettingsSection from "./SettingsSection.svelte";
   import SettingsRow from "./SettingsRow.svelte";
   import SettingsHostUnsupported from "./SettingsHostUnsupported.svelte";
@@ -54,6 +59,12 @@
   $effect(() => {
     void hostCapabilitiesStore.load(serverId);
     if (isSupported) void tools.loadDetectedToolsFor(serverId, api);
+  });
+
+  // One watch feeds both the TypeSafe key group and the Solus tools group.
+  $effect(() => {
+    const hostId = serverId;
+    return untrack(() => solusToolsStore.watch(hostId));
   });
 
   // Indexers live on the host, not the client: the row answers "can this
@@ -110,6 +121,7 @@
     { id: "code-editor", keywords: ["code", "editor", "vscode", "ide", "open"] },
     { id: "terminal", keywords: ["terminal", "shell", "command", "console", "tmux", "fallback"] },
     { id: "code-intel", keywords: ["code", "intelligence", "scip", "index", "definition", "references", "symbol", "navigation", "typescript", "python", "go", "rust"] },
+    { id: "typesafe", keywords: ["typesafe", "jev", "api", "key", "credential", "intelligence"] },
   ];
 
   function isVisible(id: string): boolean {
@@ -127,7 +139,8 @@
   const editorVisible = $derived(isVisible("code-editor") && detected.editors.length > 0);
   const terminalVisible = $derived(isVisible("terminal") && detected.terminals.length > 0);
   const codeIntelVisible = $derived(isVisible("code-intel") && codeIntelLanguages.length > 0);
-  const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)));
+  const typeSafeVisible = $derived(isVisible("typesafe"));
+  const anyVisible = $derived(settingItems.some((s) => isVisible(s.id)) || matchingToolGroups(searchQuery).length > 0);
 </script>
 
 {#if capabilities === undefined}
@@ -260,10 +273,15 @@
     </SettingsRow>
   {/each}
 </SettingsSection>
+{/if}
+
+<TypeSafeKeySetting {serverId} visible={typeSafeVisible} />
+
+<!-- Last on purpose: the tool catalog is the longest group on the page. -->
+<SolusToolSettings {serverId} {searchQuery} />
 
 {#if !anyVisible}
   <div class="py-8 text-center text-workspace-chrome text-(--solus-text-tertiary) [.is-laptop-display_&]:py-6">
     No settings match your search
   </div>
-{/if}
 {/if}

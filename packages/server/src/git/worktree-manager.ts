@@ -28,12 +28,11 @@ export const COMMIT_MESSAGE_SYSTEM_PROMPT = [
   'Do not wrap the response in quotes or markdown.',
 ].join('\n')
 
-export function getHeadCommit(cwd: string): string | null {
-  try {
-    return git(['rev-parse', 'HEAD'], cwd)
-  } catch {
-    return null
-  }
+/** Async on purpose: the guide status probe runs once per restored tab at
+ *  boot, and a synchronous spawn per probe stalls the event loop under the
+ *  first transcript load. */
+export function getHeadCommit(cwd: string): Promise<string | null> {
+  return runAsync('git', ['rev-parse', 'HEAD'], cwd).then((sha) => sha, () => null)
 }
 
 // The default branch is fixed for a repo's lifetime, but resolving it can hit the
@@ -95,32 +94,9 @@ export async function getDefaultBranchLocal(cwd: string): Promise<string> {
   }
 }
 
-/** Synchronous, local-only default-branch resolution for `restoreWorktree`, which
- *  returns a plain value by contract. Reuses a warm cache entry when the async
- *  resolver already ran for this cwd; otherwise reads LOCAL refs only (never the
- *  network) and falls back to main/master. */
-function getDefaultBranchLocalSync(cwd: string): string {
-  const cached = defaultBranchCache.get(cwd)
-  if (cached && !(cached instanceof Promise)) return cached
-  try {
-    const ref = git(['symbolic-ref', 'refs/remotes/origin/HEAD', '--short'], cwd)
-    return ref.replace('origin/', '')
-  } catch {}
-  try {
-    git(['rev-parse', '--verify', 'main'], cwd)
-    return 'main'
-  } catch {
-    return 'master'
-  }
-}
-
-export function getWorkingBranch(cwd: string): string | null {
-  try {
-    const branch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
-    return branch === 'HEAD' ? null : branch
-  } catch {
-    return null
-  }
+export function getWorkingBranch(cwd: string): Promise<string | null> {
+  return runAsync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], cwd)
+    .then((branch) => (branch === 'HEAD' ? null : branch), () => null)
 }
 
 
@@ -194,7 +170,7 @@ export async function ensureBranchWorktree(
   // The dispatch checkout is an internal staging checkout. If it currently
   // holds the requested branch, release that branch before assigning it to the
   // isolated worktree where the session will run.
-  if (getWorkingBranch(projectPath) === branch) {
+  if (await getWorkingBranch(projectPath) === branch) {
     await runAsync('git', ['checkout', '--detach'], projectPath)
   }
 
@@ -502,15 +478,15 @@ export function getExistingPR(branch: string, cwd: string, bypassCache = false):
   return url
 }
 
-export function restoreWorktree(worktreePath: string): GitCheckout | null {
+export async function restoreWorktree(worktreePath: string): Promise<GitCheckout | null> {
   if (!isSolusWorktreePath(worktreePath)) return null
 
   try {
-    const branch = getWorkingBranch(worktreePath)
+    const branch = await getWorkingBranch(worktreePath)
     if (!branch) return null
 
     const projectPath = worktreeProjectRoot(worktreePath)
-    const targetBranch = getDefaultBranchLocalSync(projectPath)
+    const targetBranch = await getDefaultBranchLocal(projectPath)
     log.info('worktree_restored', { branch, worktreePath })
     return { branch, targetBranch, worktreePath, repoRoot: projectPath }
   } catch (e) {
@@ -587,7 +563,7 @@ export async function fetchAndCheckoutPr(
   if (existingWorktreePath) {
     log.info('pr_worktree_reused', { branch, worktreePath: existingWorktreePath })
     const status = await runAsync('git', ['status', '--porcelain'], existingWorktreePath)
-    const existingBranch = getWorkingBranch(existingWorktreePath)
+    const existingBranch = await getWorkingBranch(existingWorktreePath)
     const existingHead = await runAsync('git', ['rev-parse', 'HEAD'], existingWorktreePath)
     resolvedBranch = existingBranch ?? branch
     // The checkout is the user's source of truth once it contains work. Do not

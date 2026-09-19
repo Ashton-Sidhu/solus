@@ -1,6 +1,7 @@
 <script lang="ts">
   import { GitBranch as GitBranchIcon, Laptop as LaptopIcon } from "@lucide/svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
+  import { hostIsManaged } from "../servers/lib/managed-host";
   import type { AttentionState } from "../../lib/sessionUtils";
   import { attentionLabel } from "../../lib/sessionUtils";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
@@ -8,7 +9,7 @@
   import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import * as TooltipUI from "../ui/tooltip";
   import { worktreeDisplayName } from "../../lib/git-context";
-  import { MODEL_PROFILES } from "@solus/contracts/types";
+  import { modelLabelFor, type AgentId } from "@solus/contracts/types";
   import type { ReviewGuideIndicatorStatus } from "./lib/task-list";
   import ProviderMark from "../ui/ProviderMark.svelte";
 
@@ -18,7 +19,7 @@
     projectLabel?: string;
     branchName?: string | null;
     serverId?: string | null;
-    provider?: string | null;
+    provider?: AgentId | null;
     modelId?: string | null;
     attention?: AttentionState;
     reviewGuideStatus?: ReviewGuideIndicatorStatus;
@@ -48,21 +49,9 @@
   // nothing here either — the tooltip reads the same slug as the row.
   const resolvedBranchLabel = $derived(branchName ? worktreeDisplayName(branchName) : "");
   const providerMark = $derived(
-    provider === "claude" || provider === "claude-code"
-      ? "claude"
-      : provider === "codex"
-        ? "codex"
-        : null,
+    provider === "claude-code" ? "claude" : provider === "codex" ? "codex" : null,
   );
-  const modelLabel = $derived.by(() => {
-    if (!modelId) return "";
-    if (provider === "claude" || provider === "claude-code") {
-      return MODEL_PROFILES["claude-code"]?.[modelId]?.label ?? modelId;
-    }
-    if (provider === "codex") return MODEL_PROFILES.codex?.[modelId]?.label ?? modelId;
-    if (provider === "opencode") return MODEL_PROFILES.opencode?.[modelId]?.label ?? modelId;
-    return modelId;
-  });
+  const modelLabel = $derived(modelLabelFor(provider, modelId) ?? "");
 </script>
 
 <TooltipUI.Content
@@ -102,6 +91,7 @@
         {#if isRemote}
           <HostOperatingSystemIcon
             os={remoteOs}
+            managed={hostIsManaged(host)}
             class="size-3.5 shrink-0 [.is-laptop-display_&]:size-3"
           />
         {:else}

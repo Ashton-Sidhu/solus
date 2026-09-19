@@ -11,7 +11,7 @@ import { hostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { PrChecksSummary } from '@solus/contracts/checks-types'
 import type { PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
-import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
+import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
 import { detached, projectPrsKey } from './project-prs.svelte'
 
@@ -73,7 +73,7 @@ export class PrChecksStore {
 
   /** Forget one project's checks. */
   forget(serverId: string, projectScope: string): void {
-    const key = hostKey(serverId, projectScope)
+    const key = hostKey(serverId, worktreeProjectRoot(projectScope))
     this.byProject.delete(key)
     this.repoByProject.delete(key)
   }

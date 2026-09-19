@@ -7,7 +7,7 @@ import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { SEAT_PROVIDERS, SEAT_REQUIRED_CODE, seatProviderSchema, type SeatChangedEvent, type SeatProvider, type SeatStatus } from '@solus/contracts/seats'
 import { createLogger } from '../logger'
 import { solusDir } from '../platform/paths'
-import { principalOwnerId, type Principal } from '../server/principal'
+import { principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
 import type { TurnActor } from '../sessions/turn-ledger'
 import { hostClaudeDir, hostCodexHome, providerLoginConnected } from './seat-login'
 
@@ -119,9 +119,12 @@ export function seatUserFor(principal: Principal): string {
   }
 }
 
-/** The ledger's view of a prompt: its author, and whose seat it runs on. */
+/** The ledger's view of a prompt: its author, whose seat it runs on, and how the author is named to others. */
 export function turnActorFor(principal: Principal): TurnActor {
-  return { userId: principalOwnerId(principal) ?? HOST_OWNER_USER_ID, seatUserId: seatUserFor(principal) }
+  const actor: TurnActor = { userId: principalOwnerId(principal) ?? HOST_OWNER_USER_ID, seatUserId: seatUserFor(principal) }
+  if (principal.kind !== 'system') actor.displayName = principalDisplayName(principal)
+  if (principal.kind === 'org-member' && principal.avatarUrl) actor.avatarUrl = principal.avatarUrl
+  return actor
 }
 
 export function isSeatProvider(provider: AgentId): provider is SeatProvider {
@@ -137,7 +140,7 @@ export interface SeatManagerDeps {
   /** The host's own Codex home: the owner's seat, and where every member seat's `sessions` link points. */
   hostCodexHome?: string
   /** Whether the host login is signed in; the CLI's own answer by default. */
-  hostLoginConnected?: (provider: SeatProvider) => boolean
+  hostLoginConnected?: (provider: SeatProvider) => Promise<boolean>
   now?: () => number
 }
 
@@ -145,7 +148,7 @@ export class SeatManager {
   readonly seatsRoot: string
   private readonly hostClaudeDir: string
   private readonly hostCodexHome: string
-  private readonly hostLoginConnected: (provider: SeatProvider) => boolean
+  private readonly hostLoginConnected: (provider: SeatProvider) => Promise<boolean>
   private readonly listeners = new Set<(event: SeatChangedEvent) => void>()
 
   constructor(private readonly deps: SeatManagerDeps) {
@@ -164,17 +167,20 @@ export class SeatManager {
   // ── Reading ─────────────────────────────────────────────────────────────
 
   /** Both providers, with `none` for a seat that has not been connected. */
-  list(userId: string): SeatStatus[] {
-    return SEAT_PROVIDERS.map((provider) => this.status(userId, provider))
+  list(userId: string): Promise<SeatStatus[]> {
+    return Promise.all(SEAT_PROVIDERS.map((provider) => this.status(userId, provider)))
   }
 
-  status(userId: string, provider: SeatProvider): SeatStatus {
+  /** Asynchronous because the host login's answer is the CLI's own status
+   *  command — a process, not a row. Everything a seat row answers is still read
+   *  from the row. */
+  async status(userId: string, provider: SeatProvider): Promise<SeatStatus> {
     const isHostLogin = userId === HOST_OWNER_USER_ID
     const row = this.row(userId, provider)
     if (!row) {
       // The owner's login is the CLI's to report: no row, no stale answer.
       const status: SeatStatus = isHostLogin
-        ? { provider, state: this.hostLoginConnected(provider) ? 'connected' : 'none', method: 'login', usageCapable: true, hostLogin: true }
+        ? { provider, state: await this.hostLoginConnected(provider) ? 'connected' : 'none', method: 'login', usageCapable: true, hostLogin: true }
         : { provider, state: 'none', usageCapable: false }
       return status
     }
@@ -245,13 +251,13 @@ export class SeatManager {
 
   // ── Writing ─────────────────────────────────────────────────────────────
 
-  markConnecting(userId: string, provider: SeatProvider): SeatStatus {
+  markConnecting(userId: string, provider: SeatProvider): Promise<SeatStatus> {
     this.upsert(userId, provider, { state: 'connecting', method: 'login', error: null })
     return this.announce(userId, provider)
   }
 
   /** The provider CLI finished its login and the credential verified in the seat's directory. */
-  markConnected(userId: string, provider: SeatProvider, method: 'login' | 'token'): SeatStatus {
+  markConnected(userId: string, provider: SeatProvider, method: 'login' | 'token'): Promise<SeatStatus> {
     if (userId === HOST_OWNER_USER_ID && method === 'login') {
       // The host login answers for itself from here on; a row would only go stale.
       this.deleteRow(userId, provider)
@@ -263,7 +269,7 @@ export class SeatManager {
   }
 
   /** A connect attempt ended without a credential: back to where it was, with the reason on the event. */
-  markFailed(userId: string, provider: SeatProvider, error: string): SeatStatus {
+  markFailed(userId: string, provider: SeatProvider, error: string): Promise<SeatStatus> {
     const row = this.row(userId, provider)
     if (row?.state === 'connected') return this.status(userId, provider)
     this.deleteRow(userId, provider)
@@ -272,7 +278,7 @@ export class SeatManager {
   }
 
   /** The provider refused the credential during a turn (plan §3.7): the next prompt asks to reconnect. */
-  markExpired(userId: string, provider: SeatProvider, error: string): SeatStatus {
+  markExpired(userId: string, provider: SeatProvider, error: string): Promise<SeatStatus> {
     const row = this.row(userId, provider)
     if (!row || row.state !== 'connected') return this.status(userId, provider)
     this.upsert(userId, provider, { state: 'expired', method: row.method ?? undefined, error })
@@ -281,7 +287,7 @@ export class SeatManager {
   }
 
   /** A credential the member made elsewhere (plan §3.2 `seatConnectToken`). */
-  storeToken(userId: string, provider: SeatProvider, token: string): SeatStatus {
+  async storeToken(userId: string, provider: SeatProvider, token: string): Promise<SeatStatus> {
     const home = this.homeFor(userId, provider)
     // The host's own provider home may not exist yet on a host that never ran the CLI.
     mkdirSync(home, { recursive: true })
@@ -300,7 +306,7 @@ export class SeatManager {
    * For the host login only a pasted token is Solus's to delete: the CLI's own
    * sign-in stays, and a different account is a new sign-in over it.
    */
-  disconnect(userId: string, provider: SeatProvider): SeatStatus {
+  disconnect(userId: string, provider: SeatProvider): Promise<SeatStatus> {
     const home = this.homeFor(userId, provider)
     const files = userId === HOST_OWNER_USER_ID ? [CLAUDE_TOKEN_FILE] : credentialFiles(provider)
     for (const file of files) rmSync(join(home, file), { force: true })
@@ -310,7 +316,7 @@ export class SeatManager {
   }
 
   /** Deletes a member's seat directories and rows: on removal from the team (plan §3.7). Never the host's own home. */
-  remove(userId: string, provider?: SeatProvider): number {
+  async remove(userId: string, provider?: SeatProvider): Promise<number> {
     if (userId === HOST_OWNER_USER_ID) throw new Error('The host login is not a seat that can be removed.')
     const providers = provider ? [provider] : SEAT_PROVIDERS
     let removed = 0
@@ -322,7 +328,7 @@ export class SeatManager {
       this.deleteRow(userId, each)
       if (hadRow) {
         removed += 1
-        this.announce(userId, each)
+        await this.announce(userId, each)
       }
     }
     if (removed) log.info('seat_removed', { userId, removed })
@@ -330,13 +336,13 @@ export class SeatManager {
   }
 
   /** Removes every member seat unused for `maxIdleMs` (default thirty days). Returns how many. */
-  sweep(maxIdleMs = SEAT_IDLE_REMOVAL_MS): number {
+  async sweep(maxIdleMs = SEAT_IDLE_REMOVAL_MS): Promise<number> {
     const cutoff = this.now() - maxIdleMs
     const idle = seatRowSchema.array().parse(
       this.deps.db.prepare('SELECT * FROM provider_seat WHERE last_used_at < ? AND user_id != ?').all(cutoff, HOST_OWNER_USER_ID),
     )
     let removed = 0
-    for (const row of idle) removed += this.remove(row.user_id, row.provider)
+    for (const row of idle) removed += await this.remove(row.user_id, row.provider)
     if (removed) log.info('seat_sweep', { removed })
     return removed
   }
@@ -395,8 +401,8 @@ export class SeatManager {
     `).run(userId, provider, next.state, next.method ?? null, next.error, next.connectedAt ?? null, now, now)
   }
 
-  private announce(userId: string, provider: SeatProvider, error?: string): SeatStatus {
-    const status = this.status(userId, provider)
+  private async announce(userId: string, provider: SeatProvider, error?: string): Promise<SeatStatus> {
+    const status = await this.status(userId, provider)
     const event: SeatChangedEvent = { userId, provider, state: status.state }
     if (error ?? status.error) event.error = error ?? status.error
     for (const listener of this.listeners) {

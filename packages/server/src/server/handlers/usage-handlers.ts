@@ -48,12 +48,15 @@ export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDep
   }
 
   /** The seat to read for one provider: `null` means nothing to read, `undefined` the host's own login. */
-  const seatFor = (seatUserId: string, agentId: Parameters<ControlPlane['readUsageLimits']>[0]): TurnSeat | null | undefined => {
+  const seatFor = async (seatUserId: string, agentId: Parameters<ControlPlane['readUsageLimits']>[0]): Promise<TurnSeat | null | undefined> => {
     const isHostLogin = seatUserId === HOST_OWNER_USER_ID
     if (!deps.seats || !isSeatProvider(agentId)) return isHostLogin ? undefined : null
     const seat = deps.seats.connectedSeat(seatUserId, agentId)
     if (!seat) return isHostLogin ? undefined : null
-    return deps.seats.status(seatUserId, agentId).usageCapable ? seat : null
+    // The host login is always usage-capable; its `status()` would only run the
+    // login probe to label it connected or not, which the meter has no use for.
+    if (seat.isHostLogin) return seat
+    return (await deps.seats.status(seatUserId, agentId)).usageCapable ? seat : null
   }
 
   const readSeat = (seatUserId: string): Promise<AgentUsageLimits[]> => {
@@ -61,7 +64,7 @@ export function registerUsageHandlers(server: SolusServer, deps: UsageHandlerDep
     const cached = reads.get(seatUserId)
     if (cached?.pending) return cached.pending
     const pending = Promise.all(deps.controlPlane.usageCapableAgents().map(async (agentId): Promise<AgentUsageLimits | null> => {
-      const seat = seatFor(seatUserId, agentId)
+      const seat = await seatFor(seatUserId, agentId)
       if (seat === null) return null
       try {
         const limits = await deps.controlPlane.readUsageLimits(agentId, seat)

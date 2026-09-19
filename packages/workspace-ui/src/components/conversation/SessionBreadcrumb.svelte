@@ -43,6 +43,7 @@
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
   import ShareButton from "../sharing/ShareButton.svelte";
+  import SessionPresence from "../presence/SessionPresence.svelte";
   import SessionNameInput from "../session/SessionNameInput.svelte";
   import TaskContextMenu from "../session/TaskContextMenu.svelte";
   import { taskStatusFor, type SidebarTask } from "../session/lib/task-list";
@@ -361,7 +362,7 @@
 
   async function newSession() {
     menu = null;
-    session.openSessionDraft({ via: "click", sourceTabId: tabId });
+    session.openSessionDraft({ via: "click", sourceId: tabId });
     requestInputFocus();
   }
 
@@ -370,7 +371,7 @@
     session.openSessionDraft({
       freshTask: true,
       via: "click",
-      sourceTabId: tabId,
+      sourceId: tabId,
     });
   }
 
@@ -905,6 +906,14 @@
          the task's own, and the last of them: what the session is, before the
          verbs that make or arrange things. -->
     {#if bandSession?.id}
+      <!-- Who else is in the room, right before the control that decides who may
+           be. The faces survive the narrow band; the verbs beside them do not. -->
+      <SessionPresence
+        serverId={session.serverIdFor(tabId)}
+        sessionId={bandSession.id}
+        title={sessionTitle(bandSession)}
+        class="mx-1"
+      />
       <ShareButton
         serverId={session.serverIdFor(tabId)}
         resource={{ kind: "session", id: bandSession.id }}

@@ -16,6 +16,7 @@ export function checkStatusLine(check: UpdateCheckState): string {
 export function hostUpdateLine(status: HostUpdateStatus | undefined): string {
   if (!status) return 'Update status not reported by this host'
   if (status.install === 'desktop') return `Solus ${status.currentVersion} · Updates with the Solus app.`
+  if (status.install === 'cloud') return `Solus ${status.currentVersion} · Kept up to date by Solus cloud.`
   return `Solus ${status.currentVersion} · ${checkStatusLine(status.check)}`
 }
 

@@ -1,3 +1,4 @@
+import { loadClaudeHistoryPage } from './claude-history-page'
 import { createInterface } from 'node:readline'
 import { open, readdir, stat as fsStat } from 'node:fs/promises'
 import { createReadStream, existsSync } from 'node:fs'
@@ -257,7 +258,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
       const prepareSnapshots = async (providerSessionId: string) => {
         const repoRoot = await resolveRepoRoot(workTree)
         if (!repoRoot) return
-        const head = getHeadCommit(workTree)
+        const head = await getHeadCommit(workTree)
         if (!head) return
         await initSessionBase(repoRoot, providerSessionId, head)
         await prepareTurnSnapshot(workTree, repoRoot, providerSessionId)
@@ -543,6 +544,12 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     } finally {
       await fh.close()
     }
+  }
+
+  async loadSessionPage(sessionId: string, projectPath: string | undefined, limit: number, before?: string) {
+    const filePath = this.sessionFilePath(sessionId, projectPath)
+    if (!filePath) return { messages: [], before: null }
+    return loadClaudeHistoryPage(filePath, limit, before)
   }
 
   async loadSessionPreview(sessionId: string, projectPath?: string): Promise<SessionPreviewResult> {

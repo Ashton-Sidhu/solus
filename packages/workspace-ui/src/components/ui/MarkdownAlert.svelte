@@ -1,6 +1,5 @@
 <script lang="ts">
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
-  import type { AlertType } from "@humanspeak/svelte-markdown/extensions/alert";
+  import type { Snippet } from 'svelte';
   import {
     Info as InfoIcon,
     Lightbulb as LightbulbIcon,
@@ -8,16 +7,15 @@
     TriangleAlert as WarningIcon,
     CircleX as XCircleIcon,
   } from "@lucide/svelte";
-  import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import CodeSpan from "./CodeSpan.svelte";
-  import MarkdownListItem from "./MarkdownListItem.svelte";
+
+  type AlertType = "note" | "tip" | "important" | "warning" | "caution";
 
   interface Props {
-    text: string;
+    content: Snippet;
     alertType: AlertType;
   }
 
-  let { text, alertType }: Props = $props();
+  let { alertType, content }: Props = $props();
 
   const titles = {
     note: "Note",
@@ -27,10 +25,6 @@
     caution: "Caution",
   } satisfies Record<AlertType, string>;
 
-  const markdownRenderers = {
-    codespan: CodeSpan,
-    listitem: MarkdownListItem,
-  };
 </script>
 
 <div class="markdown-alert markdown-alert-{alertType}" role="note">
@@ -49,10 +43,6 @@
     <span>{titles[alertType]}</span>
   </div>
   <div class="markdown-alert-body">
-    <SvelteMarkdown
-      source={text}
-      renderers={markdownRenderers}
-      sanitizeUrl={remoteMarkdownSanitizeUrl}
-    />
+    {@render content()}
   </div>
 </div>

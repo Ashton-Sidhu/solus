@@ -15,6 +15,8 @@
   import WorkChatMenu from "./WorkChatMenu.svelte";
   import WorkPublishMenu from "./WorkPublishMenu.svelte";
   import ShareButton from "../sharing/ShareButton.svelte";
+  import PresenceStack from "../presence/PresenceStack.svelte";
+  import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import Diff from "../diff/Diff.svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
@@ -157,6 +159,11 @@
   // list; the dialog is one per app, opened from here.
   const shareServerId = $derived(workId ? session.worksStore.hostFor(workId) ?? null : null);
   const shareResource = $derived(workId ? ({ kind: "work", id: workId } as const) : null);
+  const canShare = $derived(!!shareServerId && !!shareResource && sharesStore.canShareFrom(shareServerId));
+  // Teammates whose focused pane shows this work, from the host's roster.
+  const people = $derived(
+    shareServerId && workId ? presenceStore.peopleFocusedOn(shareServerId, { kind: "work", workId }) : [],
+  );
   function openShare() {
     if (!shareServerId || !shareResource) return;
     sharesStore.open({ serverId: shareServerId, resource: shareResource, title });
@@ -215,6 +222,8 @@
      linked, its sync state is something the reader has to be able to see, not
      something to go looking for. Renders only for docs (2a scope). -->
 {#if workId && shell.hasWorkspace}
+  <!-- Who else has this work open, before the verbs. -->
+  <PresenceStack {people} size={18} class="mr-1" />
   <WorkPublishMenu {workId} {getCurrentContent} {flushSave} />
   <!-- A word beside Markdown and Publish. A scoped class would not reach the child,
        so the verb's geometry is restated as utilities. -->
@@ -245,7 +254,7 @@
           <CopyIcon size={14} /><span class="flex-1 text-left">Duplicate</span>
         </DropdownMenu.Item>
       {/if}
-      {#if shareServerId && shareResource}
+      {#if canShare}
         <DropdownMenu.Item data-testid="share-work" onSelect={openShare}>
           <UsersIcon size={14} /><span class="flex-1 text-left">Share…</span>
         </DropdownMenu.Item>

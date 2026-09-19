@@ -20,6 +20,30 @@ function deferredLoad(): { load: () => Promise<string>; calls: () => number; res
 }
 
 describe('PrMirror in-flight coalescing', () => {
+  test('a late old read cannot replace a newer forced answer', async () => {
+    const mirror = new PrMirror<string>()
+    const old = deferredLoad()
+    const fresh = deferredLoad()
+    const first = mirror.read('key', false, old.load)
+    const second = mirror.read('key', true, fresh.load)
+    fresh.resolve('new')
+    await second
+    old.resolve('old')
+    await first
+    expect(mirror.fresh('key')).toBe('new')
+    expect(mirror.holds('key', 'old')).toBe(false)
+  })
+
+  test('invalidation cannot be undone by an old response', async () => {
+    const mirror = new PrMirror<string>()
+    const source = deferredLoad()
+    const pending = mirror.read('key', false, source.load)
+    mirror.delete('key')
+    source.resolve('old')
+    await pending
+    expect(mirror.fresh('key')).toBeUndefined()
+  })
+
   // The sidebar's PR poll forces a read for every task row against the same few
   // branches. If `force` refused to join a flight, ~95 rows asking about `main`
   // cost ~95 prList round trips per poll instead of one.

@@ -11,7 +11,7 @@ import type { AutomationsStore } from '../automations/automations.store.svelte'
 import type { TabRegistry } from './tab-registry.svelte'
 import type { WorkStreamTracker } from './work-stream-tracker.svelte'
 import { AgentConversationTracker } from './agent-conversation-tracker.svelte'
-import { AGENT_INTERRUPT_NOTICE, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
+import { AGENT_INTERRUPT_NOTICE, applyRoutedModelConfig, findLastUserIndex, isAgentNotice, normalizeTodoStatus, nextMsgId, imageRefAttachments, progressFromTodos, removeAssistantPlanDuplicate, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { mergeRemoteDispatchProgress } from '../../lib/remote-dispatch-card'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { NotificationSoundTrigger } from '@solus/contracts/notification-types'
@@ -183,11 +183,12 @@ export class SessionEventReducer {
       return
     }
 
-    if (session.rateLimitStrategy !== this.deps.settings.rateLimitBehavior) {
-      session.rateLimitStrategy = this.deps.settings.rateLimitBehavior
-    }
-
     switch (event.type) {
+      case 'model_routed':
+        session.run.provider = event.provider
+        applyRoutedModelConfig(session, event.modelConfig)
+        session.currentActivity = event.usedFallback ? 'Starting general fallback model...' : 'Starting selected model...'
+        break
       case 'session_init':
         session.run.provider = session.run.provider ?? this.deps.settings.activeAgent
         session.agentSessionId = event.sessionId
@@ -543,20 +544,12 @@ export class SessionEventReducer {
       }
 
       case 'rate_limit':
-        // A limit writes nothing into the transcript. Every strategy already
-        // has a surface that states it: `ask` gets the card, `queue` gets the
-        // held bubble and its countdown, `stop` gets the run's own failure, and
-        // `continue` is not stopped at all. A notice beside any of those was the
-        // same fact told twice.
-        if (event.status === 'allowed' || event.isUsingOverage) break
-        if (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue') {
-          if (!event.info) break
-          session.rateLimitInfo = event.info
-          session.permissionQueue = []
-          session.questionQueue = []
-        } else if (session.rateLimitStrategy === 'stop') {
-          session.outboundPrompts.splice(0, session.outboundPrompts.length)
-        }
+        // The host owns the held/queued state. A client's preference applies to
+        // its next dispatch, not to a run started by another client.
+        if (event.status === 'allowed' || event.isUsingOverage || !event.info) break
+        session.rateLimitInfo = event.info
+        session.permissionQueue = []
+        session.questionQueue = []
         break
 
       case 'plan': {
@@ -697,6 +690,8 @@ export class SessionEventReducer {
           message.automationId = event.automationId
           message.automationName = event.automationName
         }
+        // The host names the author; the bubble shows it when it is someone else.
+        if (event.author) message.author = event.author
         session.messages.push(message)
         break
       }
@@ -715,6 +710,7 @@ export class SessionEventReducer {
           existing.releaseAt = event.releaseAt
           existing.rateLimitType = event.rateLimitType
           existing.images = event.images
+          if (event.author) existing.author = event.author
           // Only for a client that did not queue this prompt: the sender's own
           // attachments already carry its local browsers.
           if (!existing.attachments) existing.attachments = imageRefAttachments(event.imageRefs)
@@ -730,6 +726,8 @@ export class SessionEventReducer {
             rateLimitType: event.rateLimitType,
             images: event.images,
             attachments: imageRefAttachments(event.imageRefs),
+            // The host names who is waiting, so the queue reads as a roster.
+            author: event.author,
           })
         }
         break
@@ -824,6 +822,7 @@ export class SessionEventReducer {
 
       case 'work_updated': {
         void this.deps.worksStore.applyRemoteUpdate(event.workId, event.title, event.docType, event.content, event.updatedAt, session.run.serverId)
+        this.deps.workStreamTracker.updateArtifact(session, event)
         break
       }
 
@@ -935,14 +934,9 @@ export class SessionEventReducer {
     const lastMsg = session.messages[session.messages.length - 1]
     const alreadyHasError = lastMsg?.role === 'system' && lastMsg.content.startsWith('Error:')
 
-    // A rate-limited run rejects the dispatch promise, landing here on a separate
-    // IPC path from the rate_limit event that fills in rateLimitInfo. Gating on
-    // rateLimitInfo races that event (status_change arrives first), so the error
-    // would clobber status → 'failed' and hide the card. Gate on the strategy
-    // instead — it's stable and set at session creation.
-    const keepRateLimited =
-      session.status === 'rate_limited' &&
-      (session.rateLimitStrategy === 'ask' || session.rateLimitStrategy === 'queue')
+    // Status can arrive before the rate-limit details on the dispatch error
+    // path. Preserve the host's parked state regardless of this client's settings.
+    const keepRateLimited = session.status === 'rate_limited'
     if (!keepRateLimited) session.status = 'failed'
     this.resetSessionRunState(session)
     if (keepRateLimited) {

@@ -18,12 +18,16 @@
     isActive,
     windowStart,
     prepareNavigate,
+    topForMessage,
+    geometryRevision = 0,
   }: {
     items: NavItem[];
     scrollEl: HTMLElement | null;
     isActive: boolean;
     windowStart: number;
     prepareNavigate?: (id: string) => Promise<void>;
+    topForMessage?: (id: string) => number | undefined;
+    geometryRevision?: number;
   } = $props();
 
   let paneWidth = $state(0);
@@ -61,6 +65,18 @@
     const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
     if (atBottom) {
       activeIndex = Math.max(0, items.length - 1);
+      return;
+    }
+    if (topForMessage) {
+      let low = 0;
+      let high = items.length;
+      while (low < high) {
+        const mid = (low + high) >>> 1;
+        const top = topForMessage(items[mid].id);
+        if (top !== undefined && top <= el.scrollTop + 96) low = mid + 1;
+        else high = mid;
+      }
+      activeIndex = Math.max(0, low - 1);
       return;
     }
     const containerTop = el.getBoundingClientRect().top;
@@ -113,6 +129,7 @@
     if (!isActive || !scrollEl) return;
     void items;
     void windowStart;
+    void geometryRevision;
     untrack(() => {
       rebuildNodeMap();
       recompute();

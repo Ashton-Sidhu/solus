@@ -1,7 +1,9 @@
 import { describe, expect, test } from 'bun:test'
 import type { TaskSessionLink } from '@solus/contracts/task-types'
 import type { DiffComment, Session, SessionStatus } from '@solus/contracts/types'
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import {
+  applyRoutedModelConfig,
   computeCurrentActivity,
   formatDiffInlineComments,
 } from '@solus/workspace-ui/contexts/workspace/session.utils'
@@ -11,6 +13,33 @@ import {
   getStatusLabel,
   sessionDisplayName,
 } from '@solus/workspace-ui/lib/sessionUtils'
+
+describe('routed model preference', () => {
+  test('keeps Auto as the preference and records the concrete session model', () => {
+    const session = {
+      run: {
+        modelConfig: {
+          modelId: AUTO_MODEL_ID,
+          reasoningEffort: 'medium',
+          contextWindow: null,
+          fastMode: false,
+        },
+      },
+      sessionModel: null,
+    } as Session
+
+    applyRoutedModelConfig(session, {
+      modelId: 'claude-sonnet-5',
+      reasoningEffort: 'medium',
+      contextWindow: 200_000,
+      fastMode: false,
+    })
+
+    expect(session.run.modelConfig.modelId).toBe(AUTO_MODEL_ID)
+    expect(session.sessionModel).toBe('claude-sonnet-5')
+    expect(session.run.modelConfig.contextWindow).toBe(200_000)
+  })
+})
 
 function diffComment(selectedCode: string): DiffComment {
   return {

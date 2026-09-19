@@ -44,7 +44,7 @@ function decisionsPath(repoRoot: string, key: string): string {
  * through here so the callers can't drift apart — that drift is what kept
  * keying PR companions as `main-<sha>` while the reader looked up `solus__pr-N`.
  */
-export function reviewCheckout(ctx: IpcContext): string | null {
+export function reviewCheckout(ctx: Pick<IpcContext, 'session'>): string | null {
   const dir = ctx.session.gitContext?.worktreePath || ctx.session.workingDirectory || ctx.session.projectPath
   return dir && dir !== '~' ? dir : null
 }
@@ -60,33 +60,62 @@ export async function reviewRepoRoot(ctx: IpcContext): Promise<string | null> {
   return root ? worktreeProjectRoot(root) : null
 }
 
+/** What one checkout answers the same for every session in it. A batch of
+ *  probes over many sessions of one project resolves this once instead of
+ *  spawning the same four git reads per session. */
+interface CheckoutFacts {
+  repoRoot: string
+  branch: string
+  targetBranch: string
+  headSha: string | null
+  /** Where the branch diverged from its target; null on the default branch or
+   *  when the merge-base cannot be resolved. */
+  branchBase: string | null
+}
+
+/** Shared by the callers of one batch. Keyed by checkout path; holds the
+ *  in-flight promise so concurrent probes of one checkout coalesce. */
+export type CheckoutFactsCache = Map<string, Promise<CheckoutFacts | null>>
+
+async function resolveCheckoutFacts(cwd: string): Promise<CheckoutFacts | null> {
+  const checkoutRoot = await resolveRepoRoot(cwd)
+  if (!checkoutRoot) return null
+  // The MAIN project root is the stable repository identity for project-local
+  // ledgers and host-stored guides. The branch/base, however, come from the
+  // actual checkout: for a worktree (PR review, isolation) that's the worktree's
+  // own branch (e.g. `solus/pr-7`), not whatever the main checkout happens to
+  // sit on. Resolving these from the stripped main root is what made the PR
+  // companion key as `main-<sha>` while the reader looked up `solus__pr-N` — a
+  // permanent cache miss that regenerated the report on every open.
+  const repoRoot = worktreeProjectRoot(checkoutRoot)
+  const branch = await getWorkingBranch(cwd)
+  if (!branch) return null
+  const targetBranch = await getDefaultBranch(cwd)
+  let branchBase: string | null = null
+  if (branch !== targetBranch) {
+    try {
+      branchBase = (await runAsync('git', ['merge-base', targetBranch, 'HEAD'], cwd)).trim() || null
+    } catch {
+      /* fall through to the session base */
+    }
+  }
+  return { repoRoot, branch, targetBranch, headSha: await getHeadCommit(cwd), branchBase }
+}
+
 /** Episode base SHA: where the branch diverged from its target. On the default
  *  branch there is no merge-base window, so we use the session's captured base
  *  SHA (stable across commits within the session). */
-async function resolveBaseSha(
-  checkout: string,
-  repoRoot: string,
-  branch: string,
-  targetBranch: string,
-  sessionId: string | null,
-): Promise<string> {
-  if (branch !== targetBranch) {
-    try {
-      const sha = await runAsync('git', ['merge-base', targetBranch, 'HEAD'], checkout)
-      if (sha) return sha.trim()
-    } catch {
-      /* fall through */
-    }
-  }
+async function resolveBaseSha(checkout: string, facts: CheckoutFacts, sessionId: string | null): Promise<string> {
+  if (facts.branchBase) return facts.branchBase
   // The session sidecar is stored at the main project root, not the checkout.
   if (sessionId) {
-    const sessionBase = getSessionBaseSha(repoRoot, sessionId)
+    const sessionBase = getSessionBaseSha(facts.repoRoot, sessionId)
     if (sessionBase) {
       if (await gitCommitExists(checkout, sessionBase)) return sessionBase
       log.warn('review_session_base_unavailable', { sessionId, baseSha: sessionBase })
     }
   }
-  return getHeadCommit(checkout) ?? 'unknown'
+  return facts.headSha ?? 'unknown'
 }
 
 /**
@@ -98,23 +127,18 @@ async function resolveBaseSha(
 export async function resolveReviewContext(
   cwd: string | null | undefined,
   sessionId: string | null | undefined,
+  factsCache?: CheckoutFactsCache,
 ): Promise<ReviewContext | null> {
   if (!cwd || cwd === '~') return null
-  const checkoutRoot = await resolveRepoRoot(cwd)
-  if (!checkoutRoot) return null
-
-  // The MAIN project root is the stable repository identity for project-local
-  // ledgers and host-stored guides. The branch/base, however, come from the
-  // actual checkout: for a worktree (PR review, isolation) that's the worktree's
-  // own branch (e.g. `solus/pr-7`), not whatever the main checkout happens to
-  // sit on. Resolving these from the stripped main root is what made the PR
-  // companion key as `main-<sha>` while the reader looked up `solus__pr-N` — a
-  // permanent cache miss that regenerated the report on every open.
-  const repoRoot = worktreeProjectRoot(checkoutRoot)
-  const branch = getWorkingBranch(cwd)
-  if (!branch) return null
-  const targetBranch = await getDefaultBranch(cwd)
-  const baseSha = await resolveBaseSha(cwd, repoRoot, branch, targetBranch, sessionId ?? null)
+  let pending = factsCache?.get(cwd)
+  if (!pending) {
+    pending = resolveCheckoutFacts(cwd)
+    factsCache?.set(cwd, pending)
+  }
+  const facts = await pending
+  if (!facts) return null
+  const { repoRoot, branch, targetBranch } = facts
+  const baseSha = await resolveBaseSha(cwd, facts, sessionId ?? null)
 
   const onDefault = branch === targetBranch
   const key = onDefault ? `main-${baseSha}` : sanitizeKey(branch)
@@ -132,7 +156,7 @@ export async function resolveReviewContext(
     branch,
     targetBranch,
     baseSha,
-    headSha: getHeadCommit(cwd) ?? baseSha,
+    headSha: facts.headSha ?? baseSha,
     repoRoot,
   }
 }

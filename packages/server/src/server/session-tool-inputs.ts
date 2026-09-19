@@ -4,7 +4,7 @@ import type { SessionLoadMessage, WireSessionLoadMessage, SessionToolInput } fro
 // These inputs reconstruct visible cards or subagent metadata during replay.
 // Ordinary tool rows need only their name/status until the summary is opened.
 const CARD_INPUT_TOOLS = [
-  'create_work', 'render_artifact', 'create_automation', 'update_automation',
+  'create_work', 'render_artifact', 'update_work', 'create_automation', 'update_automation',
   'create_session', 'prompt_session', 'wait_for_session', 'stop_session',
   'AskUserQuestion', 'request_user_input',
   'claude_subagent', 'codex_subagent', 'spawnAgent',

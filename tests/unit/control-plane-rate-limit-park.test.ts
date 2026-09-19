@@ -144,6 +144,7 @@ interface Parked {
   backend: Backend
   plane: InstanceType<ControlPlaneModule['ControlPlane']>
   events: NormalizedEvent[]
+  releaseDelay: number | undefined
   /** The watchdog sweep, driven to its miss limit rather than waited out. */
   sweepWatchdog(): void
   /** Run the captured release callback at its deadline without a wall-clock wait. */
@@ -156,6 +157,7 @@ interface Parked {
 async function park(
   resetsInMs: number | null,
   rateLimitBehavior: 'ask' | 'queue' = 'ask',
+  promptSource: 'typed' | 'agent' | 'automation' = 'typed',
 ): Promise<Parked> {
   const backend = new Backend()
   const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
@@ -165,7 +167,7 @@ async function park(
 
   const lifecycle = await plane.runTurn({
     target: { kind: 'new-session' }, sessionId: SESSION_ID, input: input(rateLimitBehavior), tools: [],
-    options: { prompt: 'ship it', promptSource: 'typed', skipTaskCreation: true },
+    options: { prompt: 'ship it', promptSource, skipTaskCreation: true },
   })
   lifecycle.done.catch(() => {})
   await lifecycle.agentSessionId
@@ -175,7 +177,8 @@ async function park(
   backend.reportWindow('thread-1', resetsAt)
   const timerSpy = spyOn(globalThis, 'setTimeout')
   backend.rateLimit('thread-1')
-  const releaseCallback = timerSpy.mock.calls.find(([, delay]) => typeof delay === 'number' && delay >= 120_000)?.[0]
+  const releaseTimer = timerSpy.mock.calls.find(([, delay]) => typeof delay === 'number' && delay >= 120_000)
+  const releaseCallback = releaseTimer?.[0]
   timerSpy.mockRestore()
   await Promise.resolve()
 
@@ -186,6 +189,7 @@ async function park(
     backend,
     plane,
     events,
+    releaseDelay: releaseTimer?.[1],
     sweepWatchdog: () => { watchdog._checkActiveRuns(); watchdog._checkActiveRuns() },
     settleRelease: async () => {
       if (releaseAt !== null) {
@@ -207,6 +211,122 @@ function statusOf(plane: Parked['plane'], clientId: string): string | null {
 }
 
 describe.serial('ControlPlane rate-limit park teardown', () => {
+  test('the current host queue setting overrides a user run submitted with ask', async () => {
+    const settings = await import('@solus/server/server/settings')
+    const snapshot = settings.getHostConfig()
+    const config = spyOn(settings, 'getHostConfig').mockReturnValue({
+      ...snapshot, seeded: true, config: { ...snapshot.config, rateLimitBehavior: 'queue' },
+    })
+    try {
+      const { plane, events } = await park(60_000, 'ask')
+      try {
+        const queuedIndex = events.findIndex((event) => event.type === 'prompt_queued')
+        const limitedIndex = events.findIndex((event) => event.type === 'status_change' && event.status === 'rate_limited')
+        expect(queuedIndex).toBeGreaterThanOrEqual(0)
+        expect(queuedIndex).toBeLessThan(limitedIndex)
+        expect(plane.watchSession(
+          { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'queue-client',
+        ).runtime?.queuedPrompts).toHaveLength(1)
+      } finally {
+        plane.shutdown()
+      }
+    } finally {
+      config.mockRestore()
+    }
+  })
+
+  test('the host ask setting does not override unattended queue policies', async () => {
+    const settings = await import('@solus/server/server/settings')
+    const snapshot = settings.getHostConfig()
+    const config = spyOn(settings, 'getHostConfig').mockReturnValue({
+      ...snapshot, seeded: true, config: { ...snapshot.config, rateLimitBehavior: 'ask' },
+    })
+    try {
+      for (const source of ['typed', 'agent', 'automation'] as const) {
+        const { plane, events } = await park(60_000, 'queue', source)
+        try {
+          expect(events.some((event) => event.type === 'prompt_queued')).toBe(source !== 'typed')
+        } finally {
+          plane.shutdown()
+        }
+      }
+    } finally {
+      config.mockRestore()
+    }
+  })
+
+  test('a windowless terminal limit preserves the queue deadline with both usage windows present', async () => {
+    const { backend, plane, events } = await park(60_000, 'queue')
+    try {
+      const queued = events.find((event) => event.type === 'prompt_queued')
+      const releaseAt = queued?.type === 'prompt_queued' ? queued.releaseAt : undefined
+      expect(releaseAt).toBeDefined()
+      plane.usageLimits.applyWindows('codex', [{
+        windowDurationMins: 10080, usedPercent: 43, resetsAt: Date.now() + 7 * 86400_000,
+      }])
+      backend.emit('normalized', 'thread-1', {
+        type: 'rate_limit', status: 'limited', resetsAt: null, rateLimitType: 'usageLimitExceeded',
+      } satisfies NormalizedEvent)
+      const runtime = plane.watchSession(
+        { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'terminal-client',
+      ).runtime!
+      expect(runtime.rateLimitInfo?.resetsAt).toBe(releaseAt)
+      expect(runtime.queuedPrompts).toHaveLength(1)
+      expect(runtime.queuedPrompts[0].releaseAt).toBe(releaseAt)
+      const limits = events.filter((event) => event.type === 'rate_limit')
+      expect(limits.at(-1)?.info?.resetsAt).toBe(releaseAt)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('usage-store reset drives the queue timer, countdown and reconnect snapshot', async () => {
+    setSystemTime(new Date('2026-09-16T03:00:00Z'))
+    const { backend, plane, events, releaseDelay, settleRelease } = await park(3_600_000, 'queue')
+    try {
+      const rawReset = plane.usageLimits.get('codex')!.fiveHour!.resetsAt!
+      const releaseAt = rawReset / 1000 + 120
+      expect(releaseDelay).toBe(rawReset - Date.now() + 120_000)
+      const limit = events.find((event) => event.type === 'rate_limit')
+      const queued = events.find((event) => event.type === 'prompt_queued')
+      expect(limit?.type === 'rate_limit' && limit.info?.resetsAt).toBe(releaseAt)
+      expect(queued?.type === 'prompt_queued' && queued.releaseAt).toBe(releaseAt)
+      const runtime = plane.watchSession(
+        { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, 'timer-client',
+      ).runtime!
+      expect(runtime.rateLimitInfo?.resetsAt).toBe(releaseAt)
+      expect(runtime.queuedPrompts[0].releaseAt).toBe(releaseAt)
+      expect(backend.starts).toBe(1)
+      const dispatched = backend.nextStart()
+      await settleRelease()
+      await dispatched
+      expect(backend.starts).toBe(2)
+    } finally {
+      plane.shutdown()
+    }
+  })
+
+  test('reconnecting clients receive the held decision and then the confirmed queue', async () => {
+    const { plane } = await park(null, 'ask')
+    try {
+      const watch = (clientId: string) => plane.watchSession(
+        { sessionId: SESSION_ID, agentSessionId: 'thread-1', attachRuntime: true }, clientId,
+      ).runtime!
+      const held = watch('other-client')
+      expect(held.status).toBe('rate_limited')
+      expect(held.rateLimitInfo).not.toBeNull()
+      expect(held.queuedPrompts).toHaveLength(0)
+      expect(plane.resolveRateLimit(ctx(), 'wait')).toBe(true)
+      const queued = watch('reconnected-client')
+      expect(queued.status).toBe('rate_limited')
+      expect(queued.rateLimitInfo).not.toBeNull()
+      expect(queued.queuedPrompts).toHaveLength(1)
+      expect(queued.queuedPrompts[0].reason).toBe('rate_limit')
+    } finally {
+      plane.shutdown()
+    }
+  })
+
   test('queuing an unknown reset waits for an explicit send', async () => {
     const { backend, plane, events } = await park(null)
     try {

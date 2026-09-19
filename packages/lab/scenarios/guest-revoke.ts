@@ -3,8 +3,8 @@ import { PERSONAS } from '../src/personas'
 
 /**
  * Phase 1 exit (plan §9, §3.4 revocation): a regenerated or removed link ends every
- * guest socket within a second; removing a member's named row changes nothing for
- * them, because membership alone makes them an editor (decision 2026-09-15).
+ * guest socket within a second; removing a member's named row keeps their socket
+ * but takes the resource from them (a share is a scope, decision 2026-09-16).
  */
 export default scenario('guest revoke: regenerate and remove the link; remove a member', async (ctx) => {
   const alice = await ctx.as('alice')
@@ -55,13 +55,13 @@ export default scenario('guest revoke: regenerate and remove the link; remove a 
   const noLink = ctx.client('maya', { shareSecret: rotated.secret })
   ctx.check('no secret works once the link is off', !(await noLink.connect()).ok)
 
-  ctx.step('removing bob\'s named row keeps his socket and his access: membership is the floor')
+  ctx.step('removing bob\'s named row keeps his socket but takes the work from him')
   await expectOk(ctx, 'bob edits while named', bob.rpc('saveWork', work.id, { content: 'bob was here' }, ctx.cwd))
   await alice.rpc('shareSet', { resource, grants: [] })
   const notice = await expectOk(ctx, 'bob receives the change that removed his row', bob.waitForEvent('share.changed', (event) => event.payload.resource.id === work.id && event.payload.removedUserIds.includes(bobUserId)))
   ctx.check('the notice names alice', notice?.payload.changedBy.displayName === 'Alice')
   ctx.check('bob\'s socket stays open', bob.connected)
-  await expectOk(ctx, 'bob still opens and edits the work as a member', bob.rpc('saveWork', work.id, { content: 'still bob' }, ctx.cwd))
+  await expectRefused(ctx, 'bob can no longer open the work', bob.rpc('loadWork', work.id, ctx.cwd))
   await expectOk(ctx, 'bob still uses the host', bob.rpc('listWorks', ctx.cwd))
   maya.close(); oldSecret.close(); maya2.close(); noLink.close()
 })

@@ -29,6 +29,9 @@
       ? { repoRoot: worktreeProjectRoot(root), key: ref.key, target: ref.target }
       : null;
   });
+  // Read only: the workspace's `startDirectReview` tracked this guide when it
+  // queued it, and the store keeps its status through host events and
+  // reconnects. The card never asks the host itself.
   const status = $derived(reviewGuideStore.statusFor(serverId, identity));
   const targetLabel = $derived(reviewGuideTargetLabel(ref.target));
   const presentation = $derived(reviewGuideCardPresentation(status));
@@ -40,12 +43,6 @@
   const subtitle = $derived(
     reviewGuideCardSubtitle(presentation.subtitle, modelLabel, ref.reasoningEffort),
   );
-
-  $effect(() => {
-    if (!conversation || !identity) return;
-    const api = workspace.apiFor(tabId);
-    void reviewGuideStore.load(api, serverId, workspace.ctxFor(tabId), identity, ref.target);
-  });
 
   function open() {
     if (!conversation || !identity) return;

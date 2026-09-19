@@ -139,6 +139,9 @@ export function dispatchStepSync<T>(name: string, attrs: SpanAttributes, run: ()
 export interface TurnDimensions {
   provider: string
   model: string
+  /** What the user selected: `auto`, an explicit model id, or unset for the
+   *  provider default. `model` is what ran; this is how it was chosen. */
+  requestedModel?: string
   projectRoot: string
   origin: PromptSource
   reasoningEffort?: string
@@ -320,6 +323,7 @@ export class SessionEmitter {
       state.setupEndedAt = Math.max(state.startedAt, endedAt)
       state.rootAttrs.reasoningEffort = dimensions.reasoningEffort ?? ''
       state.rootAttrs.isResume = dimensions.isResume
+      if (dimensions.requestedModel) state.rootAttrs.requestedModel = dimensions.requestedModel
       if (dimensions.taskId) state.rootAttrs.taskId = dimensions.taskId
       if (dimensions.automationId) state.rootAttrs.automationId = dimensions.automationId
       if (dimensions.automationName) state.rootAttrs.automationName = dimensions.automationName

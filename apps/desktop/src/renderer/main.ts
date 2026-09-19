@@ -1,3 +1,4 @@
+import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspace/startup-transcript'
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError, type ConnectionStatus } from '@solus/client-core/ws-transport'
 import { setConnectionState } from '@solus/client-core/connection-state'
@@ -84,24 +85,25 @@ async function boot(): Promise<void> {
   serverConnections.registerPrimary(target.id, api, transport, target)
 
   transport.start()
+  const startupTranscript = prefetchStartupTranscript()
   // Every catalog entry is eagerly desired: saved remote hosts hold live
   // supervised sockets from boot, so their rows go live instead of cached.
   serverConnections.startCatalogSupervisors()
   performance.mark('solus.boot.transport')
 
-  // RPC calls made before the socket opens queue and flush automatically
-  // (see WsTransport.invoke/send), so mount as soon as the app bundle is
-  // ready instead of blocking first paint on the WebSocket handshake.
-  const [{ mount }, { default: App }, workspaceLayoutModule] = await Promise.all([
+  // The active transcript and its renderer are the boot path. Secondary host
+  // state starts after mount; never reveal a shell with no conversation renderer.
+  const [{ mount }, { default: App }, { default: initialWorkspaceLayout }] = await Promise.all([
     import('svelte'),
     import('./App.svelte'),
     import('@solus/workspace-ui/components/layout/WorkspaceLayout.svelte'),
+    startupTranscript,
   ])
   performance.mark('solus.boot.modules')
   root.innerHTML = ''
   mount(App, {
     target: root,
-    props: { initialWorkspaceLayout: workspaceLayoutModule?.default },
+    props: { initialWorkspaceLayout },
   })
   appMounted = true
   performance.mark('solus.boot.mounted')

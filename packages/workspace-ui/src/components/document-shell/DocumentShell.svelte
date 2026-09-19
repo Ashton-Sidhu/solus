@@ -44,6 +44,7 @@
   import { createDiagramEmbedExtension } from "../editor/diagramEmbedExtension";
   import { createArtifactEmbedExtension } from "../editor/artifactEmbedExtension";
   import { createHtmlBlockExtension } from "../editor/htmlBlockExtension";
+  import { createMermaidBlockExtension } from "../editor/mermaidBlockExtension";
   import EditorVoiceControl from "../input/EditorVoiceControl.svelte";
   import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
 
@@ -198,11 +199,13 @@
     isDark: () => theme.isDark,
   });
   const htmlBlockExtension = createHtmlBlockExtension({ isDark: () => theme.isDark });
+  const mermaidBlockExtension = createMermaidBlockExtension({ isDark: () => theme.isDark });
   const editorExtensions = $derived([
     ...extraExtensions,
     diagramEmbedExtension,
     artifactEmbedExtension,
     htmlBlockExtension,
+    mermaidBlockExtension,
   ]);
   const embedChoices = $derived.by(() => {
     const works = Object.values(session.worksStore.works).sort((a, b) =>

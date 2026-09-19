@@ -23,7 +23,7 @@
 
     try {
       await webPushState.toggle();
-      settings.update({ soundEnabled: webPushState.subscribed });
+      settings.setNotificationChannel("system", webPushState.subscribed);
     } catch (error) {
       toasts.error(error instanceof Error ? error.message : "Notifications could not be updated");
     }

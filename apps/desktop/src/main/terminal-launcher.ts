@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process'
+import { execFile, execFileSync } from 'child_process'
 import { basename } from 'path'
 import { createLogger } from '@solus/server/logger'
 import type { ResolvedTerminal, TerminalAppId, TerminalLaunchRequest } from '@solus/contracts/types'
@@ -47,24 +47,28 @@ function createTmuxWindow(command: string, cwd?: string): boolean {
   }
 }
 
+/** Stdout of a short read-only probe, or null when it fails. Off the main
+ *  thread: the clients resolve the terminal at boot, beside the first
+ *  transcript page, and a synchronous spawn here held that page. */
+function probeOutput(file: string, args: string[], timeout: number): Promise<string | null> {
+  return new Promise((resolve) => {
+    execFile(file, args, { env: getCliEnv(), timeout, encoding: 'utf8' }, (error, stdout) => {
+      resolve(error ? null : stdout)
+    })
+  })
+}
+
 /**
  * Process ids of the tmux clients already attached to the shared session. An
  * empty list is the only reliable signal that nothing can show the new window.
  */
-function attachedClientPids(): number[] {
-  try {
-    const output = execFileSync(
-      'tmux',
-      ['list-clients', '-t', TMUX_SESSION_NAME, '-F', '#{client_pid}'],
-      { env: getCliEnv(), timeout: 2000, encoding: 'utf8' },
-    )
-    return output
-      .split('\n')
-      .map((line) => Number(line.trim()))
-      .filter((pid) => Number.isInteger(pid) && pid > 0)
-  } catch {
-    return []
-  }
+async function attachedClientPids(): Promise<number[]> {
+  const output = await probeOutput('tmux', ['list-clients', '-t', TMUX_SESSION_NAME, '-F', '#{client_pid}'], 2000)
+  if (output === null) return []
+  return output
+    .split('\n')
+    .map((line) => Number(line.trim()))
+    .filter((pid) => Number.isInteger(pid) && pid > 0)
 }
 
 /**
@@ -72,18 +76,12 @@ function attachedClientPids(): number[] {
  * draws its window, so any terminal the user already runs can be raised —
  * not only the two Solus knows how to launch.
  */
-function appBundleForPid(pid: number): string | null {
+async function appBundleForPid(pid: number): Promise<string | null> {
   let current = pid
   for (let depth = 0; depth < 12 && current > 1; depth++) {
-    let line: string
-    try {
-      line = execFileSync('/bin/ps', ['-o', 'ppid=,comm=', '-p', String(current)], {
-        timeout: 2000,
-        encoding: 'utf8',
-      }).trim()
-    } catch {
-      return null
-    }
+    const output = await probeOutput('/bin/ps', ['-o', 'ppid=,comm=', '-p', String(current)], 2000)
+    if (output === null) return null
+    const line = output.trim()
     const parsed = /^(\d+)\s+(.+)$/.exec(line)
     if (!parsed) return null
     const bundle = /^(.*?\.app)\//.exec(parsed[2])
@@ -94,10 +92,10 @@ function appBundleForPid(pid: number): string | null {
 }
 
 /** The application bundle of the first attached client we can identify. */
-function attachedTerminalBundle(): string | null {
+async function attachedTerminalBundle(): Promise<string | null> {
   if (process.platform !== 'darwin') return null
-  for (const clientPid of attachedClientPids()) {
-    const bundle = appBundleForPid(clientPid)
+  for (const clientPid of await attachedClientPids()) {
+    const bundle = await appBundleForPid(clientPid)
     if (bundle) return bundle
   }
   return null
@@ -108,9 +106,9 @@ function attachedTerminalBundle(): string | null {
  * name and badge the action, so it answers with what will happen rather than
  * with what is configured.
  */
-export function resolveTerminal(fallbackTerminalId: TerminalAppId): ResolvedTerminal {
-  if (attachedClientPids().length > 0) {
-    const bundle = attachedTerminalBundle()
+export async function resolveTerminal(fallbackTerminalId: TerminalAppId): Promise<ResolvedTerminal> {
+  if ((await attachedClientPids()).length > 0) {
+    const bundle = await attachedTerminalBundle()
     // Basename minus `.app` is the app's own display name, which covers the
     // terminals Solus cannot launch itself — Warp attaches like any other.
     const known = bundle
@@ -141,11 +139,11 @@ export function terminalDisplayName(app: TerminalApp): string {
  * when no client is attached, because a second client would fight the first one
  * over the session's size — the long-standing "open in terminal" breakage.
  */
-function useAttachedTerminal(): boolean {
-  const clientPids = attachedClientPids()
+async function useAttachedTerminal(): Promise<boolean> {
+  const clientPids = await attachedClientPids()
   if (clientPids.length === 0) return false
 
-  const bundle = attachedTerminalBundle()
+  const bundle = await attachedTerminalBundle()
   if (bundle) {
     try {
       execFileSync('open', [bundle], { timeout: 5000, env: getCliEnv() })
@@ -199,12 +197,12 @@ function launchTerminalApp(app: TerminalApp): boolean {
  * already working: an attached terminal is raised, and only an unattached
  * session falls back to launching the terminal chosen in Settings.
  */
-export function launchInTerminal(request: TerminalLaunchRequest): boolean {
+export async function launchInTerminal(request: TerminalLaunchRequest): Promise<boolean> {
   const { command, fallbackTerminalId, cwd } = request
   log.info('terminal_launch', { fallbackTerminalId, command })
 
   if (!createTmuxWindow(command, cwd)) return false
-  if (useAttachedTerminal()) return true
+  if (await useAttachedTerminal()) return true
 
   const app = terminalApp(fallbackTerminalId)
   if (!app) {

@@ -12,7 +12,9 @@ import {
   mergeHostConfig,
 } from '@solus/contracts/host-config'
 import type { HostConfig, HostConfigPatch, HostConfigSnapshot } from '@solus/contracts/host-config'
+import type { NotificationPreferencesPatch } from '@solus/contracts/notification-types'
 import { z } from 'zod'
+import { typeSafeKeyStatus } from '../typesafe/credentials'
 
 const log = createLogger('main', 'server-settings')
 
@@ -28,6 +30,35 @@ const legacySourceControlWritingSchema = z.object({
   customInstructions: z.string().optional(),
   followPullRequestTemplate: z.boolean().optional(),
 }).strict()
+/**
+ * The two flags `notifications` replaced. `soundEnabled` gated the sound and
+ * the system alert together; `backgroundActivityToasts` gated toasts. Read only
+ * when a stored host config predates the structured key, so a user who turned
+ * sound off keeps it off.
+ */
+const legacyNotificationFlagsSchema = z.object({
+  hostConfig: z.object({
+    soundEnabled: z.boolean().optional(),
+    backgroundActivityToasts: z.boolean().optional(),
+    /** Presence is all that matters: a config that has the key is not legacy. */
+    notifications: z.object({}).optional(),
+  }).optional(),
+})
+type LegacyNotificationFlags = z.infer<typeof legacyNotificationFlagsSchema>
+
+function notificationsFromLegacyFlags(legacy: LegacyNotificationFlags): NotificationPreferencesPatch | null {
+  const flags = legacy.hostConfig
+  if (!flags || flags.notifications !== undefined) return null
+  if (flags.soundEnabled === undefined && flags.backgroundActivityToasts === undefined) return null
+  const channels: NonNullable<NotificationPreferencesPatch['channels']> = {}
+  if (flags.soundEnabled !== undefined) {
+    channels.sound = flags.soundEnabled
+    channels.system = flags.soundEnabled
+  }
+  if (flags.backgroundActivityToasts !== undefined) channels.toast = flags.backgroundActivityToasts
+  return { channels }
+}
+
 /**
  * The legacy keys are the pre-host-config shape of this file. They are still
  * read, because an installation that set analytics consent or a text-generation
@@ -86,14 +117,21 @@ export function getServerSettings(): ServerSettings {
 
   if (existsSync(SETTINGS_FILE)) {
     try {
-      const parsed = persistedServerSettingsSchema.parse(JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8')))
+      const raw: unknown = JSON.parse(readFileSync(SETTINGS_FILE, 'utf-8'))
+      const parsed = persistedServerSettingsSchema.parse(raw)
+      // `hostConfigPatchSchema` strips the flags `notifications` replaced, so
+      // they are read from the same file through their own schema.
+      const legacyNotifications = legacyNotificationFlagsSchema.safeParse(raw)
       _legacySettings = parsed
       _settings = {
         remoteAccess: parsed?.remoteAccess === true,
         metricsRetentionDays: normalizeMetricsRetentionDays(parsed?.metricsRetentionDays),
         trustLocalNetwork: parsed?.trustLocalNetwork === true,
         projectsBaseDirectory: normalizeProjectsBaseDirectory(parsed?.projectsBaseDirectory),
-        hostConfig: loadHostConfig(parsed),
+        hostConfig: loadHostConfig(
+          parsed,
+          legacyNotifications.success ? notificationsFromLegacyFlags(legacyNotifications.data) : null,
+        ),
       }
       return _settings
     } catch (err) {
@@ -130,9 +168,14 @@ function seedHostConfig(legacy: PersistedSettings | undefined): HostConfig {
 
 /** Undefined means no client has seeded this host yet — distinct from a config
  *  that exists and happens to match the defaults. */
-function loadHostConfig(parsed: PersistedSettings): HostConfig | undefined {
+function loadHostConfig(
+  parsed: PersistedSettings,
+  legacyNotifications: NotificationPreferencesPatch | null,
+): HostConfig | undefined {
   if (!parsed.hostConfig) return undefined
-  return mergeHostConfig(seedHostConfig(parsed), parsed.hostConfig)
+  const hostConfig = mergeHostConfig(seedHostConfig(parsed), parsed.hostConfig)
+  if (!legacyNotifications) return hostConfig
+  return mergeHostConfig(hostConfig, { notifications: legacyNotifications })
 }
 
 /** The legacy top-level block, kept only to seed host config on first write. */
@@ -141,8 +184,8 @@ let _legacySettings: PersistedSettings | undefined
 export function getHostConfig(): HostConfigSnapshot {
   const settings = getServerSettings()
   return settings.hostConfig
-    ? { config: settings.hostConfig, seeded: true }
-    : { config: seedHostConfig(_legacySettings), seeded: false }
+    ? { config: settings.hostConfig, seeded: true, typeSafe: typeSafeKeyStatus() }
+    : { config: seedHostConfig(_legacySettings), seeded: false, typeSafe: typeSafeKeyStatus() }
 }
 
 /**
@@ -158,7 +201,7 @@ export function setHostConfig(patch: HostConfigPatch): HostConfigSnapshot {
   persistSettings(_settings)
   // The values are the user's; only which keys moved is logged.
   log.info('host_config_changed', { keys: Object.keys(patch).sort() })
-  return { config: hostConfig, seeded: true }
+  return getHostConfig()
 }
 
 export function setRemoteAccess(remoteAccess: boolean): ServerSettings {

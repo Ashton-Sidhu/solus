@@ -1,7 +1,15 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { IpcContext, Session, SessionProviderSwitchResult } from '@solus/contracts/types'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
+
+const toast = Object.assign(() => 1, {
+  success: () => 1,
+  error: () => 1,
+  info: () => 1,
+  dismiss: () => {},
+})
+mock.module('svelte-sonner', () => ({ toast }))
 
 afterEach(() => {
   if (previousState === undefined) delete (globalThis as unknown as { $state?: unknown }).$state
@@ -49,6 +57,7 @@ async function makeController(
   worktreeHarness?: {
     openSessionDraft?: (cwd?: string, freshTask?: boolean, gitContext?: unknown) => void
     apiForRun?: () => unknown
+    refreshGitState?: () => Promise<{ status: boolean; details: boolean; refs: boolean; registration: boolean; ok: boolean }>
   },
 ) {
   ;(globalThis as unknown as { $state: unknown }).$state = Object.assign(
@@ -70,7 +79,8 @@ async function makeController(
     refreshPluginCommands: () => {},
     rekeyTaskSessionBinding: () => {},
     refreshGitRefs: () => {},
-    refreshGitState: async () => ({ status: true, details: true, refs: true, registration: true, ok: true }),
+    refreshGitState: worktreeHarness?.refreshGitState
+      ?? (async () => ({ status: true, details: true, refs: true, registration: true, ok: true })),
   })
 }
 
@@ -105,6 +115,26 @@ describe('worktree selection', () => {
     // WHY: selecting a worktree changes the Git destination, not the project
     // identity shown in the input bar or used by project-scoped features.
     expect(openedDraft).toEqual({ cwd: '/projects/solus', gitContext: checkout })
+  })
+})
+
+describe('first-send target resolution', () => {
+  test('keeps the session gate pending until its Git target is ready', async () => {
+    let finishRefresh: (() => void) | null = null
+    const controller = await makeController(makeSettings({}), null, undefined, undefined, {
+      refreshGitState: () => new Promise((resolve) => {
+        finishRefresh = () => resolve({ status: true, details: true, refs: true, registration: true, ok: true })
+      }),
+    })
+
+    const refresh = controller.refreshSessionStartTarget('new-tab', '/chosen', true)
+    const gate = controller.pendingSessionStartTarget('new-tab')
+
+    expect(gate).not.toBeNull()
+    expect(gate).toBe(controller.pendingSessionStartTarget('new-tab'))
+    finishRefresh?.()
+    await refresh
+    expect(controller.pendingSessionStartTarget('new-tab')).toBeNull()
   })
 })
 
@@ -237,14 +267,19 @@ describe('settings written against a draft composer', () => {
     expect(draft.run.modelConfig.modelId).toBe('claude-opus-5')
   })
 
-  test('set the mode the draft will start in', async () => {
+  test('set the mode the draft will start in, and the mode the next composer opens on', async () => {
+    // WHY: a mode picked in the draft composer is a preference. Keeping it on
+    // the one draft meant a user who chose Auto had to choose it again in every
+    // new session.
+    const settings = makeSettings({})
     const draft = makeDraft()
-    const controller = await makeController(makeSettings({}), null, undefined, draft)
+    const controller = await makeController(settings, null, undefined, draft)
 
     controller.setPermissionMode('plan', draft.id)
 
     expect(draft.run.permissionMode).toBe('plan')
-    expect(controller.globalDefaults.permissionMode).toBe('auto')
+    expect(controller.globalDefaults.permissionMode).toBe('plan')
+    expect(settings.defaultPermissionMode).toBe('plan')
   })
 
   test('switch the agent of the draft, which has no session to hand over', async () => {
@@ -296,6 +331,7 @@ describe('default permission preference', () => {
     expect(controller.globalDefaults.permissionMode).toBe('ask')
 
     controller.setPermissionMode('plan', draft.id)
+    expect(settings.defaultPermissionMode).toBe('plan')
     settings.defaultPermissionMode = 'auto'
     expect(controller.globalDefaults.permissionMode).toBe('auto')
     expect(draft.run.permissionMode).toBe('plan')

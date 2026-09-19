@@ -17,13 +17,18 @@ export interface CodeHost {
   provider: Provider
 }
 
-/** Null for a folder with no recognizable remote, or a host Solus cannot read. */
-export async function codeHostFor(projectScope: string): Promise<CodeHost | null> {
+/** Repository links already name a remote; only filesystem scopes need Git. */
+export async function repoForScope(projectScope: string): Promise<RepoRef | null> {
   // PR links store host/owner/repo; older links can still name a local path.
   const scope = /^([^/.][^/]*)\/([^/.][^/]*)\/([^/.][^/]*)$/.exec(projectScope)
-  const repo = scope
+  return scope
     ? { host: scope[1], owner: scope[2], repo: scope[3] }
     : await resolveRepoRef(projectScope)
+}
+
+/** Null for a folder with no recognizable remote, or a host Solus cannot read. */
+export async function codeHostFor(projectScope: string): Promise<CodeHost | null> {
+  const repo = await repoForScope(projectScope)
   if (!repo) return null
   const provider = providerForRepo(repo)
   return provider ? { repo, provider } : null

@@ -31,6 +31,7 @@ export function registerCapabilityHandlers(server: SolusServer): void {
       assetUrls: server.hasHandler('assetCreateUrl'),
       skillsInstall: server.hasHandler('skillsInstall'),
       skillsSearch: server.hasHandler('skillsSearch'),
+      skillsManage: server.hasHandler('skillsList') && server.hasHandler('skillsRemove'),
       voiceModel: server.hasHandler('voiceModelStatus'),
       automations: server.hasHandler('automationList'),
       githubProvider: server.hasHandler('providerStatus'),

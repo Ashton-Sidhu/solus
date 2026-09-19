@@ -12,77 +12,104 @@
  *
  * Claude prefixes these with `mcp__solus__`; Codex passes them bare.
  */
+/** User-controlled tools, grouped by their function in Settings. */
+export const SOLUS_TOOL_GROUPS = [
+  { id: 'intelligence', label: 'Intelligence', tools: [
+    'ask_jev',
+  ] },
+  { id: 'works', label: 'Works', tools: [
+    'find_works',
+    'read_work',
+    'create_work',
+    'update_work',
+    'render_artifact',
+    'read_plan',
+    'comment_document',
+    'reply_comment',
+    'resolve_comment',
+    'publish_work',
+    'pull_work_upstream',
+  ] },
+  { id: 'docs', label: 'External documents', tools: [
+    'search_external_doc',
+    'read_external_doc',
+    'read_external_doc_comments',
+    'write_external_doc_comment',
+    'create_external_doc',
+    'update_external_doc',
+    'import_external_doc',
+  ] },
+  { id: 'automations', label: 'Automations', tools: [
+    'create_automation',
+    'list_automations',
+    'read_automation',
+    'update_automation',
+    'delete_automation',
+    'run_automation',
+    'list_automation_runs',
+    'read_automation_run',
+  ] },
+  { id: 'connections', label: 'Connections', tools: [
+    'connection_status',
+  ] },
+  { id: 'insights', label: 'Insights', tools: [
+    'query_insights',
+  ] },
+  { id: 'config', label: 'Configuration', tools: [
+    'read_config',
+    'update_config',
+  ] },
+  { id: 'browser', label: 'Browser', tools: [
+    'browser_status',
+    'browser_open',
+    'browser_close',
+    'browser_navigate',
+    'browser_resize',
+    'browser_set_appearance',
+    'browser_snapshot',
+    'browser_click',
+    'browser_type',
+    'browser_press',
+    'browser_scroll',
+    'browser_evaluate',
+    'browser_wait_for',
+  ] },
+  { id: 'sessions', label: 'Sessions', tools: [
+    'list_agent_targets',
+    'find_sessions',
+    'read_session',
+    'create_session',
+    'prompt_session',
+    'wait_for_session',
+    'stop_session',
+    'answer_session',
+    'review_plan',
+    'claude_subagent',
+    'codex_subagent',
+  ] },
+  { id: 'tasks', label: 'Tasks', tools: [
+    'list_tasks',
+    'read_task',
+    'update_task_status',
+    'create_task',
+    'comment_task',
+    'link_task',
+  ] },
+] as const
+
+export type ConfigurableSolusToolName = (typeof SOLUS_TOOL_GROUPS)[number]['tools'][number]
+export type SolusToolPreferences = Partial<Record<ConfigurableSolusToolName, boolean>>
+
+export const CONFIGURABLE_SOLUS_TOOL_NAMES = SOLUS_TOOL_GROUPS.flatMap((group) => [...group.tools])
+
+export function isSolusToolEnabled(name: string, preferences: SolusToolPreferences): boolean {
+  return !Object.entries(preferences).some(([toolName, enabled]) => toolName === name && !enabled)
+}
+
 export const SOLUS_AGENT_TOOL_NAMES = [
-  // works
-  'find_works',
-  'read_work',
-  'create_work',
-  'update_work',
-  'render_artifact',
-  'read_plan',
-  'comment_document',
-  'reply_comment',
-  'resolve_comment',
-  'publish_work',
-  'pull_work_upstream',
-  // documents in another tool (Confluence, Google Docs)
-  'search_external_doc',
-  'read_external_doc',
-  'read_external_doc_comments',
-  'write_external_doc_comment',
-  'create_external_doc',
-  'update_external_doc',
-  'import_external_doc',
-  // automations
-  'create_automation',
-  'list_automations',
-  'read_automation',
-  'update_automation',
-  'delete_automation',
-  'run_automation',
-  'list_automation_runs',
-  'read_automation_run',
-  // hosts and telemetry
-  'connection_status',
-  'query_insights',
-  'read_config',
-  'update_config',
-  // browser
-  'browser_status',
-  'browser_open',
-  'browser_close',
-  'browser_navigate',
-  'browser_resize',
-  'browser_set_appearance',
-  'browser_snapshot',
-  'browser_click',
-  'browser_type',
-  'browser_press',
-  'browser_scroll',
-  'browser_evaluate',
-  'browser_wait_for',
-  // sessions
-  'list_agent_targets',
-  'find_sessions',
-  'read_session',
-  'create_session',
-  'prompt_session',
-  'wait_for_session',
-  'stop_session',
-  'answer_session',
-  'review_plan',
-  // tasks
-  'list_tasks',
-  'read_task',
-  'update_task_status',
-  'create_task',
-  'comment_task',
-  'link_task',
-  // Given to one purpose-built run rather than the toolbox, but a client still
-  // has to recognize them in that run's transcript.
+  ...CONFIGURABLE_SOLUS_TOOL_NAMES,
+  // Internal review output is required by its purpose-built run.
   'submit_review_guide',
-  'claude_subagent',
-  'codex_subagent',
 ] as const
 
 export type SolusAgentToolName = (typeof SOLUS_AGENT_TOOL_NAMES)[number]

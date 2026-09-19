@@ -167,6 +167,7 @@ export function createDesktopPalette(
       run: () => {
         const target = shareTarget;
         if (target) sharesStore.open(target);
+        else if (session.activeTabId && session.sessionFor(session.activeTabId)?.id) toasts.info("Link this host to Solus cloud in Settings to share");
         else toasts.info("Start a session first, then share it");
       },
     },

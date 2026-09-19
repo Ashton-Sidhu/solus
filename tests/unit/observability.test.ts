@@ -298,6 +298,30 @@ describe.serial('the span record', () => {
       .toEqual({ events: 0 })
   })
 
+  test('the rollover deletes through an index and never runs during boot', () => {
+    // WHY: the rollover is a synchronous delete on the main thread, and its
+    // predicate names only `started_at`. Without an index on that column it
+    // scans the whole spans table — a second per boot on a 250 MB store —
+    // while the first transcript page waits behind it.
+    const plan = metricsDb.getMetricsDb()
+      .prepare('EXPLAIN QUERY PLAN DELETE FROM spans WHERE started_at < ?')
+      .all(0) as { detail: string }[]
+    expect(plan.some((step) => /USING (COVERING )?INDEX spans_time/.test(step.detail))).toBe(true)
+
+    spanTable.writeSpan({
+      spanId: 'stale', traceId: 'stale', kind: registries.SPAN_KINDS.turn, name: 'stale', service: registries.SPAN_SERVICES.sessions,
+      startedAt: 1, endedAt: 2, status: 'ok',
+    })
+    const stop = rollover.startMetricsRollover(() => 1)
+    try {
+      // Starting the rollover schedules it; it must not delete synchronously
+      // inside the boot that called it.
+      expect(metricsDb.getMetricsDb().prepare('SELECT COUNT(*) AS spans FROM spans').get()).toEqual({ spans: 1 })
+    } finally {
+      stop()
+    }
+  })
+
   test('a span outside the registered vocabulary never enters the record', () => {
     // `kind` selects a view and `service` names the owning subsystem, so a span
     // carrying neither is a row no view could claim. It is refused where a span

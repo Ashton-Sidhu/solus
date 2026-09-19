@@ -56,7 +56,7 @@
       if (!detail?.path) return;
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
-      session.openFilePreview(detail, sourceTabId);
+      session.openFileInFiles(detail, sourceTabId);
     };
     window.addEventListener(FILE_PREVIEW_EVENT, handler);
     return () => window.removeEventListener(FILE_PREVIEW_EVENT, handler);

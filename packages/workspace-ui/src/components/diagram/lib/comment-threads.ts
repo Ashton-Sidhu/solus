@@ -1,5 +1,6 @@
 import type { PlanComment } from '@solus/contracts/types'
 import { commentAuthor, isResolved, isUnread } from '../../comments/lib/thread'
+import type { SelfIds } from '../../presence/lib/presence-people'
 
 /**
  * What a thread reads as. One rule, four surfaces — the canvas pin, the thread
@@ -26,7 +27,7 @@ export interface PinSummary {
  * count while `showResolved` is on — and a node whose threads are all resolved
  * then has no pin at all.
  */
-export function pinSummary(threads: PlanComment[], showResolved: boolean): PinSummary | null {
+export function pinSummary(threads: PlanComment[], showResolved: boolean, self: SelfIds = []): PinSummary | null {
   const visible = showResolved ? threads : threads.filter((t) => !isResolved(t))
   if (visible.length === 0) return null
   const tones = visible.map(threadTone)
@@ -38,7 +39,7 @@ export function pinSummary(threads: PlanComment[], showResolved: boolean): PinSu
     : tones.includes('agent')
       ? 'agent'
       : 'resolved'
-  return { tone, count: visible.length, unread: visible.some(isUnread) }
+  return { tone, count: visible.length, unread: visible.some((t) => isUnread(t, self)) }
 }
 
 /** The anchor a thread is attached to: a node, an edge, or the diagram itself. */
@@ -69,12 +70,12 @@ export interface ThreadCounts {
   unread: number
 }
 
-export function threadCounts(comments: PlanComment[]): ThreadCounts {
+export function threadCounts(comments: PlanComment[], self: SelfIds = []): ThreadCounts {
   const open = comments.filter((c) => !isResolved(c))
-  return { total: open.length, unread: open.filter(isUnread).length }
+  return { total: open.length, unread: open.filter((c) => isUnread(c, self)).length }
 }
 
 /** The thread the threads pill scopes to. */
-export function firstUnreadThread(comments: PlanComment[]): PlanComment | undefined {
-  return comments.find((c) => !isResolved(c) && isUnread(c))
+export function firstUnreadThread(comments: PlanComment[], self: SelfIds = []): PlanComment | undefined {
+  return comments.find((c) => !isResolved(c) && isUnread(c, self))
 }

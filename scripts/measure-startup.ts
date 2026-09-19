@@ -14,7 +14,9 @@
  * relaunch really has.
  *
  * Usage:
- *   bun scripts/measure-startup.ts [--runs 7] [--app <path>] [--label baseline]
+ *   bun scripts/measure-startup.ts [--runs 7] [--app <path>] [--label baseline] [--transcript]
+ * --transcript requires a disposable restored session in the isolated bench profile.
+ * Never copy live application data into the benchmark profile.
  */
 import { spawn } from 'child_process'
 import { mkdirSync, rmSync } from 'fs'
@@ -34,14 +36,19 @@ const PHASES = [
   'solus.boot.mounted',
   'renderer.ready',
   'core.booted',
+  'solus.boot.transcript.requested',
+  'solus.boot.transcript.received',
+  'solus.boot.transcript.applied',
+  'solus.boot.transcript.painted',
 ] as const
 type Phase = (typeof PHASES)[number]
 
 /** Reported as an absolute mark: these run beside the critical path, not on it. */
-const OFF_CRITICAL_PATH: ReadonlySet<string> = new Set(['core.booted'])
+const OFF_CRITICAL_PATH: ReadonlySet<string> = new Set(['core.booted', 'solus.boot.transcript.requested', 'solus.boot.transcript.received', 'solus.boot.transcript.applied', 'solus.boot.transcript.painted'])
 
 /** The mark that ends the measurement: main shows the window on this one. */
-const TERMINAL_PHASE: Phase = 'renderer.ready'
+const TERMINAL_PHASE: Phase = process.argv.includes('--transcript')
+  ? 'solus.boot.transcript.painted' : 'renderer.ready'
 /** The renderer's own marks arrive just after it, so the run settles on the next tick. */
 const MARK_DRAIN_MS = 400
 /** A run that has not shown its window by now is a failure, not a slow start. */
@@ -96,7 +103,7 @@ async function measureOnce(binary: string, dataDir: string): Promise<RunResult> 
     fail = rej
   })
 
-  const timer = setTimeout(() => fail(new Error('run timed out before the window was shown')), RUN_TIMEOUT_MS)
+  const timer = setTimeout(() => fail(new Error(`run timed out before ${TERMINAL_PHASE} (transcript mode requires a restored nonempty session in the isolated profile)`)), RUN_TIMEOUT_MS)
 
   let pending = ''
   child.stdout.on('data', (chunk: Buffer) => {
@@ -188,7 +195,7 @@ async function main(): Promise<void> {
   }
   const totals = results.map((r) => r.total)
   process.stdout.write(
-    `\nspawn -> window shown    ${ms(median(totals)).padStart(9)}` +
+    `\nspawn -> ${TERMINAL_PHASE}    ${ms(median(totals)).padStart(9)}` +
       `   (min ${ms(Math.min(...totals))}, max ${ms(Math.max(...totals))})\n`,
   )
 }

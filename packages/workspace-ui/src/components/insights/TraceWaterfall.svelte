@@ -75,6 +75,9 @@
   const rows = $derived(visibleRows(trace.rows, showInternals));
   const tree = $derived(buildWaterfallTree(rows, trace.totalMs));
   const expandable = $derived(expandableIds(tree));
+  /** Spans that are folds — a bar on one unfolds it, as its row does, rather
+   *  than opening a dock for a container that has no detail of its own. */
+  const foldSpanIds = $derived(new Set(expandable));
 
   /** Lanes opened so a deep-linked span is on screen. Everything else stays
    *  folded: the fold is the point. */
@@ -142,9 +145,14 @@
     openSpanIdOverride = openSpanId === spanId ? null : spanId;
   }
 
-  /** A row with a caret unfolds on click; a span's row opens its detail in the
-   *  same click. A lane has no detail of its own — its members do, and they are
-   *  one click away either from the lane's bars or from the rows it reveals. */
+  function activateBar(bar: WaterfallBar): void {
+    if (foldSpanIds.has(bar.spanId)) setExpanded(bar.spanId, !expanded.has(bar.spanId));
+    else selectSpan(bar.spanId);
+  }
+
+  /** A row with a caret unfolds on click; a leaf span's row opens its detail.
+   *  A fold has no detail of its own — its members do, and they are one click
+   *  away either from the lane's bars or from the rows it reveals. */
   function activate(line: WaterfallLine): void {
     const { toggleId, selectSpanId } = activation(line);
     if (toggleId) setExpanded(toggleId, !line.expanded);
@@ -316,7 +324,7 @@
               fill={bar.color}
               fillOpacity={bar.faded ? 0.26 : 0.92}
               class="cursor-pointer transition-[fill-opacity] duration-150"
-              onclick={() => selectSpan(bar.spanId)}
+              onclick={() => activateBar(bar)}
               onpointerenter={() => (hoveredBar = bar)}
               onpointerleave={() => (hoveredBar = null)}
             />

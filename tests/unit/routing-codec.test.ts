@@ -54,8 +54,8 @@ const SAMPLES: RouteRef[] = [
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'map', scope: { kind: 'pr', baseSha: 'abc123' } } },
   { name: 'review', params: { sourceTabId: 'tab_a', view: 'diff', scope: { kind: 'session' }, filePath: 'src/a/b.ts' } },
   { name: 'files', params: { serverId: 'host_a', cwd: '/repo/app' } },
-  { name: 'fileEditor', params: { sourceId: 'tab_a', path: 'src/a/b.ts' } },
-  { name: 'fileEditor', params: { sourceId: 'tab_a', path: 'src/a/b.ts', line: 412 } },
+  { name: 'files', params: { serverId: 'host_a', cwd: '/repo/app', path: 'src/a/b.ts' } },
+  { name: 'files', params: { serverId: 'host_a', cwd: '/repo/app', path: 'src/a/b.ts', line: 412 } },
   { name: 'subagent', params: { sessionId: 'sess_a', messageId: 'msg_1' } },
   { name: 'browser', params: {} },
   { name: 'browser', params: { browserPageId: 'browser_7' } },
@@ -176,20 +176,20 @@ describe('the pane grammar', () => {
     })
   })
 
-  test('a file opened before the line slot existed still opens that file', () => {
-    // A persisted location or an agent link written against the older
-    // `<tab>/<path>` grammar must not silently resolve to a different file.
-    expect(parseRoute('/fileEditor/tab_a/src/a/b.ts')).toEqual({
-      name: 'fileEditor',
-      params: { sourceId: 'tab_a', path: 'src/a/b.ts' },
-    })
+  test('the removed standalone file editor route is no longer accepted', () => {
+    expect(parseRoute('/fileEditor/tab_a/src/a/b.ts')).toBeNull()
   })
 
-  test('a path whose first segment is numeric is not read as a line', () => {
-    expect(parseRoute('/fileEditor/tab_a/-/2024/report.md')).toEqual({
-      name: 'fileEditor',
-      params: { sourceId: 'tab_a', path: '2024/report.md' },
-    })
+  test('file selection preserves absolute paths, special characters, and a line', () => {
+    const ref: RouteRef<'files'> = {
+      name: 'files',
+      params: { serverId: 'host_a', cwd: '/repo/app ?#%', path: '/repo/app ?#%/2024/report.md', line: 30 },
+    }
+    expect(parseRoute(serializeRoute(ref))).toEqual(ref)
+  })
+
+  test('malformed file selection cannot break location restoration', () => {
+    expect(parseRoute('/files/host_a/@file/%25ZZ/30/src/a.ts')).toBeNull()
   })
 
   test('the file tree route owns its host and directory, not a draft or tab', () => {

@@ -1,0 +1,166 @@
+{
+  "uid": "solus-dev-logs",
+  "title": "Solus development",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": {
+    "from": "now-30m",
+    "to": "now"
+  },
+  "tags": [
+    "solus",
+    "development"
+  ],
+  "editable": true,
+  "timezone": "browser",
+  "description": "Local Solus logs. Streaming controls debug provider payloads and transport diagnostics only; warnings and errors are always retained. Console output is available in the collapsed row.",
+  "templating": {
+    "list": [
+      {
+        "name": "streaming",
+        "label": "Streaming diagnostics",
+        "type": "custom",
+        "query": "Hidden : false, Visible : .*",
+        "current": {
+          "text": "Hidden",
+          "value": "false"
+        },
+        "options": [
+          {
+            "text": "Hidden",
+            "value": "false",
+            "selected": true
+          },
+          {
+            "text": "Visible",
+            "value": ".*",
+            "selected": false
+          }
+        ]
+      },
+      {
+        "name": "search",
+        "label": "Text or session ID",
+        "type": "textbox",
+        "query": "",
+        "current": {
+          "text": "",
+          "value": ""
+        }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "App activity",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 14
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=\"solus\",source=\"app\",streaming=~\"${streaming:raw}\"} |= \"$search\" | json | json rpcArgs=\"args\" | line_format \"[{{.tag}}] {{.msg}}{{if .method}} method={{.method}}{{end}}{{if .operation}} operation={{.operation}}{{end}}{{if .path}} path={{.path}}{{end}}{{if .blockedMs}} blockedMs={{.blockedMs}}{{end}}{{if .durationMs}} durationMs={{.durationMs}}{{end}}{{if .sessionId}} session={{.sessionId}}{{end}}{{if .error}} error={{.error}}{{end}}\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 2,
+      "title": "Warnings and errors",
+      "type": "logs",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 14,
+        "w": 24,
+        "h": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "{service_name=\"solus\",source=\"app\",level=~\"warn|error\"} |= \"$search\" | json | json rpcArgs=\"args\" | line_format \"[{{.tag}}] {{.msg}}{{if .method}} method={{.method}}{{end}}{{if .operation}} operation={{.operation}}{{end}}{{if .path}} path={{.path}}{{end}}{{if .blockedMs}} blockedMs={{.blockedMs}}{{end}}{{if .durationMs}} durationMs={{.durationMs}}{{end}}{{if .sessionId}} session={{.sessionId}}{{end}}{{if .error}} error={{.error}}{{end}}\"",
+          "queryType": "range"
+        }
+      ],
+      "options": {
+        "showTime": true,
+        "showLabels": false,
+        "showCommonLabels": false,
+        "wrapLogMessage": true,
+        "prettifyLogMessage": false,
+        "enableLogDetails": true,
+        "sortOrder": "Descending",
+        "dedupStrategy": "none"
+      }
+    },
+    {
+      "id": 3,
+      "type": "row",
+      "title": "Raw console / build output (includes unfiltered streaming diagnostics)",
+      "collapsed": true,
+      "gridPos": {
+        "x": 0,
+        "y": 22,
+        "w": 24,
+        "h": 1
+      },
+      "panels": [
+        {
+          "id": 4,
+          "title": "Console output",
+          "type": "logs",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "gridPos": {
+            "x": 0,
+            "y": 23,
+            "w": 24,
+            "h": 12
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "expr": "{service_name=\"solus\",source=\"console\"} |= \"$search\"",
+              "queryType": "range"
+            }
+          ],
+          "options": {
+            "showTime": true,
+            "showLabels": false,
+            "showCommonLabels": false,
+            "wrapLogMessage": true,
+            "prettifyLogMessage": true,
+            "enableLogDetails": true,
+            "sortOrder": "Descending",
+            "dedupStrategy": "none"
+          }
+        }
+      ]
+    }
+  ]
+}

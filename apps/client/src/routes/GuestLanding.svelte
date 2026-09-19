@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onMount } from "svelte";
-  import { ArrowRight as ArrowRightIcon, Users as UsersIcon } from "@lucide/svelte";
+  import { ArrowRight as ArrowRightIcon, Link2Off as LinkOffIcon } from "@lucide/svelte";
+  import { Button } from "@solus/workspace-ui/components/ui/button";
+  import { Label } from "@solus/workspace-ui/components/ui/label";
+  import WorkspaceMark from "@solus/workspace-ui/components/ui/WorkspaceMark.svelte";
   import { guestBoot } from "../lib/guest-boot.svelte";
 
   /**
@@ -29,41 +32,52 @@
   }
 </script>
 
-<!-- Same posture as the hostless home: one headline, then the one thing this
-     screen exists for. -->
+<!-- The app's own door: the mark and the word above one card, on the same
+     background the workspace has, so the page a guest lands on is already
+     Solus and not a form in front of it. -->
 <div
-  class="text-sm flex min-h-dvh w-full flex-col items-center justify-center gap-8 overflow-y-auto bg-(--solus-bg) px-5 py-10"
+  class="text-workspace-chrome flex min-h-dvh w-full flex-col items-center justify-center gap-8 overflow-y-auto bg-(--background) px-5 pt-[max(2.5rem,env(safe-area-inset-top,0px))] pb-[max(2.5rem,env(safe-area-inset-bottom,0px))]"
   data-solus-ui
 >
-  <header class="flex max-w-[26rem] flex-col items-center gap-3 text-center">
-    <span class="flex size-10 items-center justify-center rounded-full bg-(--solus-accent-light) text-(--solus-accent)">
-      <UsersIcon size={18} />
+  <header class="flex max-w-[26rem] flex-col items-center gap-4 text-center">
+    <span class="flex items-center gap-2 font-medium tracking-[-0.01em] text-(--solus-text-primary)">
+      {#if guestBoot.phase === "revoked"}
+        <span class="flex size-9 items-center justify-center rounded-xl bg-(--solus-surface-hover) text-(--solus-text-secondary)">
+          <LinkOffIcon size={16} />
+        </span>
+      {:else}
+        <WorkspaceMark class="size-9" />
+      {/if}
     </span>
-    <h1 class="text-pretty text-2xl font-medium leading-[1.25] text-(--solus-text-primary)">
+    <h1 class="text-pretty text-2xl font-medium leading-[1.25] tracking-[-0.015em] text-(--solus-text-primary)">
       {guestBoot.phase === "revoked" ? "This link no longer works" : "You’ve been invited to Solus"}
     </h1>
-    <p class="leading-relaxed text-(--solus-text-tertiary)">
+    <p class="text-pretty leading-relaxed text-(--solus-text-tertiary)">
       {#if guestBoot.phase === "revoked"}
         The person who shared it turned the link off or made a new one. Ask them for the current link.
       {:else}
-        Someone shared a session or a document with you. Pick the name they will see, and you are in. No account needed.
+        Someone shared their work with you. Pick the name they will see, and you are in. No account needed.
       {/if}
     </p>
   </header>
 
   {#if guestBoot.phase !== "revoked"}
-    <main class="flex w-full max-w-[26rem] flex-col gap-4">
+    <main class="flex w-full max-w-[24rem] flex-col gap-4">
       <form
-        class="flex flex-col gap-2.5 rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)/40 p-3"
+        class="flex flex-col gap-4 rounded-2xl border border-(--solus-container-border) bg-(--solus-popover-bg) p-5 shadow-[shadow:var(--solus-popover-shadow)]"
         onsubmit={submit}
       >
-        <label class="block">
-          <span class="text-xs font-medium text-(--solus-text-secondary)">Your name</span>
+        <div class="flex flex-col gap-2">
+          <Label for="guest-display-name" class="text-(--solus-text-secondary)">Your name</Label>
+          <!-- A plain field, not the Input primitive: that one wires dictation
+               through the app core's voice store, and this page mounts before
+               any app core exists. -->
           <input
             bind:this={nameInputEl}
             bind:value={nameInput}
+            id="guest-display-name"
             type="text"
-            class="mt-1 w-full rounded-lg border border-(--solus-input-border) bg-(--solus-input-bg) px-3 py-2 text-(--solus-text-primary) outline-none transition-[border-color,box-shadow] placeholder:text-(--solus-text-quaternary) focus:border-(--solus-input-focus-border) focus:shadow-[0_0_0_3px_var(--solus-input-focus-ring)]"
+            class="h-10 w-full min-w-0 rounded-lg border border-input bg-transparent px-3 text-(--solus-text-primary) outline-none transition-colors placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
             placeholder="How should we call you?"
             maxlength="80"
             autocomplete="name"
@@ -71,25 +85,25 @@
             disabled={busy}
             data-testid="guest-name"
           />
-        </label>
+        </div>
 
         {#if guestBoot.phase === "failed" && guestBoot.error}
           <p class="text-pretty leading-relaxed text-(--solus-status-error)" role="alert" data-testid="guest-error">{guestBoot.error}</p>
         {/if}
 
-        <button
-          type="submit"
-          disabled={busy || !name}
-          class="inline-flex items-center justify-center gap-2 rounded-lg bg-(--solus-accent) px-3 py-2 font-medium text-(--solus-text-on-accent) transition-[opacity,transform] active:scale-[0.98] disabled:cursor-wait disabled:opacity-60"
-          data-testid="guest-continue"
-        >
+        <Button type="submit" size="lg" class="w-full" disabled={busy || !name} data-testid="guest-continue">
           {busy ? "Connecting…" : guestBoot.phase === "failed" ? "Try again" : "Continue"}
-          {#if !busy}<ArrowRightIcon size={14} />{/if}
-        </button>
+          {#if !busy}<ArrowRightIcon data-icon="inline-end" />{/if}
+        </Button>
       </form>
-      <p class="px-1 text-center text-xs leading-relaxed text-(--solus-text-quaternary)">
+      <p class="px-1 text-center text-[0.875em] leading-relaxed text-(--solus-text-tertiary)">
         Your visit is limited to what was shared. The link stops working when its owner turns it off.
       </p>
     </main>
   {/if}
+
+  <footer class="flex items-center gap-1.5 text-[0.875em] text-(--solus-text-tertiary)">
+    <WorkspaceMark class="size-3.5" />
+    <span>Solus · a workspace for coding agents</span>
+  </footer>
 </div>

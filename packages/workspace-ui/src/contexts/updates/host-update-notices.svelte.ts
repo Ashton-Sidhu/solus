@@ -10,6 +10,7 @@ import type { ClientShellContext } from '../app/client-shell.svelte'
 import { serversStore } from '../connections/servers.store.svelte'
 import { hostSetupStore } from '../../components/servers/host-setup.store.svelte'
 import { toasts } from '../../lib/toasts'
+import { notificationsStore } from '../notifications/notifications.store.svelte'
 
 export function installHostUpdateNotices(session: ReturnType<typeof createAppCore>['session'], _shell: ClientShellContext): void {
   hostUpdatesStore.start()
@@ -51,6 +52,10 @@ export function installHostUpdateNotices(session: ReturnType<typeof createAppCor
   const shown = new SvelteMap<string, HostUpdateNotice>()
   $effect(() => {
     const hosts = new Set([...hostUpdatesStore.statuses.keys(), ...hostUpdatesStore.errors.keys()])
+    // Read here, not under `untrack`, so a notice held back by the switch
+    // shows once the switch is turned on. The manual-check outcome below is
+    // an answer to a click and is reported either way.
+    const updateNoticesWanted = notificationsStore.wants('update_available')
     const busyHosts = new Set(Object.values(session.sessions).filter((item) => isSessionBusyStatus(item.status)).map((item) => serverConnections.resolveId(item.run.serverId)))
     for (const [serverId, notice] of shown) {
       const status = hostUpdatesStore.hostUpdateFor(serverId)
@@ -71,15 +76,18 @@ export function installHostUpdateNotices(session: ReturnType<typeof createAppCor
           if (outcome === 'up-to-date') toasts.success(`Checked software on ${label} is up to date`)
           else toasts.error(`Update check failed on ${label}`, { description: hostUpdatesStore.errors.get(serverId) ?? 'Open the host to see which check failed.' })
         }
-        if (!notice || hasShownNotice) return
+        if (!notice || hasShownNotice || !updateNoticesWanted) return
         const target = notice.target === 'solus' ? 'Solus' : notice.target === 'claude' ? 'Claude Code' : 'Codex'
         hostUpdatesStore.markNoticeShown(serverId, notice)
+        // A release the client cannot install from here is a fact for the host
+        // page, not an interruption: a toast with nothing to press is only noise.
+        if (notice.target === 'solus' && !hostUpdatesStore.hostUpdateFor(serverId)?.serverUpdate?.supported) return
         shown.set(serverId, notice)
         toasts.show({
           id: `host-update:${serverId}`, message: `${target} ${notice.version} is available on ${label}`,
           duration: 15_000, closeButton: true,
           onDismiss: () => { shown.delete(serverId) },
-          actions: notice.target === 'solus' && !hostUpdatesStore.hostUpdateFor(serverId)?.serverUpdate?.supported ? [] : [
+          actions: [
             { label: 'Update', onAction: () => {
               shown.delete(serverId)
               if (notice.target === 'solus') void hostUpdatesStore.install(serverId)

@@ -6,7 +6,7 @@
     Pen as PencilSimpleIcon,
     Tag as TagIcon,
   } from "@lucide/svelte";
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import { CommentPostingBar } from "../ui/comment-posting-bar";
   import DocumentEditor from "../editor/DocumentEditor.svelte";
   import { projectScopeOf, type ChangedFileStat, type IpcContext } from "@solus/contracts/types";
@@ -31,9 +31,6 @@
   import type { PrGuideStatus } from "@solus/contracts/review";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { changedFileTotals } from "../../lib/diff-stats";
-  import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
-  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import { Skeleton } from "../ui/skeleton";
@@ -781,12 +778,15 @@
          main column on narrow panes instead of disappearing.
          768 + 56 + 330 is the shell's whole budget, so the reading column keeps
          a book measure at every width rather than growing until the rail is a
-         long way from the text it annotates. -->
+         long way from the text it annotates.
+         No bottom padding on the row: the composer is sticky to the foot of
+         the scrollport and carries its own foot, so row padding under it is
+         dead space at the end of the scroll. The rail pads its own column. -->
     <div
       bind:this={contentRowEl}
       class="@container mx-auto flex w-full max-w-[1216px] flex-wrap items-start gap-14 px-[52px] {masthead
         ? 'pt-3.5'
-        : 'pt-[38px]'} pb-24 [.is-laptop-display_&]:gap-10 [.is-laptop-display_&]:px-8 [.is-laptop-display_&]:pb-16 {masthead
+        : 'pt-[38px]'} [.is-laptop-display_&]:gap-10 [.is-laptop-display_&]:px-8 {masthead
         ? ''
         : '[.is-laptop-display_&]:pt-6'}"
     >
@@ -1000,11 +1000,8 @@
             class="github-markdown prose-cloud prose-pr prose-pr-description mt-8"
             aria-label="Pull request description"
           >
-            <SvelteMarkdown
+            <GithubMarkdown
               source={detail.body}
-              extensions={githubMarkdownExtensions}
-              renderers={githubMarkdownRenderers}
-              sanitizeUrl={remoteMarkdownSanitizeUrl}
             />
           </section>
         {/if}

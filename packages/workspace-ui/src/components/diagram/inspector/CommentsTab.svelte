@@ -6,7 +6,10 @@
     commentAuthor,
     isResolved,
     isUnread,
+    messagePerson,
   } from '../../comments/lib/thread'
+  import { getCommentViewer } from '../../comments/lib/comment-viewer'
+  import PresenceAvatar from '../../presence/PresenceAvatar.svelte'
   import { Switch } from '../../ui/switch'
 
   interface Props {
@@ -36,6 +39,8 @@
     now,
   }: Props = $props()
 
+  const viewer = getCommentViewer()
+  const self = $derived(viewer().selfUserIds)
   const open = $derived(threads.filter((t) => !isResolved(t)))
   const resolved = $derived(threads.filter(isResolved))
 
@@ -66,13 +71,18 @@
             <span class="ct-agent-note">{thread.comment}</span>
           </button>
         {:else}
+          {@const person = messagePerson(thread, self)}
           <button type="button" class="ct-row ct-row--open" onclick={() => onOpenThread(thread.id)}>
             <span class="ct-head">
-              {#if isUnread(thread)}
+              {#if isUnread(thread, self)}
                 <span class="ct-unread" aria-label="Unread"></span>
               {/if}
-              <!-- No byline: only the agent branch above names an author, and
-                   the reader never needs telling that their own note is theirs. -->
+              <!-- A byline only for someone else's note: the reader never needs
+                   telling that their own note is theirs. -->
+              {#if person}
+                <PresenceAvatar {person} size={14} />
+                <span class="ct-agent-name">{person.displayName}</span>
+              {/if}
               <span class="ct-meta">
                 {thread.createdAt ? threadTime(thread.createdAt, now) : ''}{replyCount(thread)}
               </span>

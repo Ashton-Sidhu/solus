@@ -25,6 +25,7 @@
   import type { CloneFailure } from "./lib/clone-outcome";
   import { homeRows } from "./lib/open-project-home";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
+  import { hostIsManaged } from "./lib/managed-host";
 
   interface Props {
     /** Runs with the host-absolute path the flow committed to. */
@@ -363,8 +364,8 @@
                     hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--solus-accent)"
                   aria-label="Run on {store.hostLabel || 'this machine'}"
                 >
-                  {#if selectedHost?.os}
-                    <HostOperatingSystemIcon os={selectedHost.os} size={11} class="shrink-0" />
+                  {#if selectedHost?.os || hostIsManaged(selectedHost)}
+                    <HostOperatingSystemIcon os={selectedHost?.os} managed={hostIsManaged(selectedHost)} size={11} class="shrink-0" />
                   {:else if store.hostIsLocal}
                     <DesktopTowerIcon size={11} class="shrink-0" />
                   {:else}

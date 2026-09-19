@@ -24,6 +24,12 @@ export function repoKeyOf(repo: RepoRef): string {
   return `${repo.host}/${repo.owner}/${repo.repo}`
 }
 
+/** GitHub owners and repositories are case-insensitive, and the same pull
+ *  request arrives spelled both ways — from a remote URL and from a task link. */
+function entityKey(scope: string, number: number): string {
+  return `${scope.toLowerCase()}::${number}`
+}
+
 /**
  * Least-recently-used, by insertion order. A `Map` preserves the order keys were
  * added, so touching an entry means deleting and re-adding it — which moves it
@@ -64,7 +70,7 @@ export class PrIndex {
    * be a question it has no answer to.
    */
   pullRequest(repo: RepoRef, provider: Provider, number: number): PullRequest {
-    const key = `${repoKeyOf(repo)}::${number}`
+    const key = entityKey(repoKeyOf(repo), number)
     const existing = this.entities.get(key)
     if (existing) {
       touch(this.entities, key, existing, ENTITY_CAPACITY)
@@ -73,6 +79,16 @@ export class PrIndex {
     const created = new PullRequest(repo, number, provider)
     touch(this.entities, key, created, ENTITY_CAPACITY)
     return created
+  }
+
+  /**
+   * The last answer read for a pull request named by its repository key, or
+   * undefined if nothing on this server has read it. Never costs a request and
+   * never creates an entity: this is for the task sidebar, which names pull
+   * requests by the scope a link was saved with and has no provider in hand.
+   */
+  lastRead(scope: string, number: number): Contracts.PullRequest | undefined {
+    return this.entities.get(entityKey(scope, number))?.lastRead()
   }
 
   /**
@@ -95,17 +111,18 @@ export class PrIndex {
     const prefix = repoKeyOf(repo)
     const found: NumberedPrChecksSummary[] = []
     for (const number of numbers) {
-      const summary = this.entities.get(`${prefix}::${number}`)?.checks()
+      const summary = this.entities.get(entityKey(prefix, number))?.checks()
       if (summary) found.push(summary)
     }
     return found
   }
 
-  async list(repo: RepoRef, provider: Provider, filter: PrFilter | undefined, page: number): Promise<PrListPage> {
-    const viewerLogin = await provider.review.getViewer(repo)
+  /** `viewer` is the caller's login: the listing is cached per account, and the
+   *  caller has already resolved it to attach review attention. */
+  async list(repo: RepoRef, provider: Provider, viewer: string, filter: PrFilter | undefined, page: number): Promise<PrListPage> {
     const key = [
       repoKeyOf(repo),
-      viewerLogin,
+      viewer,
       filter?.state ?? 'open',
       filter?.author ?? '',
       filter?.head ?? '',
@@ -131,7 +148,7 @@ export class PrIndex {
    * appears on and can change a neighbour — a merge moves what is behind it.
    */
   invalidate(repo: RepoRef): void {
-    const prefix = `${repoKeyOf(repo)}::`
+    const prefix = `${repoKeyOf(repo).toLowerCase()}::`
     for (const [key, entity] of this.entities) {
       if (key.startsWith(prefix)) entity.forget()
     }

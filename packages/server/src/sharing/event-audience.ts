@@ -19,6 +19,8 @@ export function eventVisibleTo(principal: Principal, event: HostEvent, shares: S
     return principal.kind === 'org-member' && event.payload.removedUserIds.includes(principal.userId)
   }
   if (principal.kind === 'guest') {
+    // A guest on a task page re-reads it when tasks change; that event names nothing.
+    if (event.type === 'tasks.invalidated') return principal.share.resource.kind === 'task'
     return resource !== null && shares.roleFor(principal, resource) !== 'none'
   }
   if (!resource) return !GUEST_ONLY_HIDDEN.has(event.type) || principal.kind === 'org-member'
@@ -33,6 +35,7 @@ const GUEST_ONLY_HIDDEN = new Set<HostEvent['type']>([
   'outbox.changed',
   'config.changed',
   'usage.limitsChanged',
+  'host.presenceChanged',
 ])
 
 /** The session or work an event is about, when it names exactly one. */
@@ -43,6 +46,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'session.titleChanged':
     case 'session.readStateChanged':
     case 'session.statusChanged':
+    case 'session.presenceChanged':
       return { kind: 'session', id: event.payload.sessionId }
     case 'annotations.changed':
       return event.payload.kind === 'work'

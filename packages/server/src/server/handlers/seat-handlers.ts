@@ -45,6 +45,6 @@ export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatMan
   server.register('seatRemove', async (args) => {
     const { userId, provider } = seatRemoveRequestSchema.parse(args[0])
     for (const each of provider ? [provider] : (['claude-code', 'codex'] as const)) await deps.connector.cancel(userId, each)
-    return { removed: deps.seats.remove(userId, provider) }
+    return { removed: await deps.seats.remove(userId, provider) }
   })
 }

@@ -6,14 +6,14 @@
     getSettingsContext,
     getSessionEnvironmentStore,
   } from "../../contexts";
-  import ProjectPanel from "../project-panel/ProjectPanel.svelte";
+  import { afterPaint } from "../../lib/after-paint";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import SessionSidebar from "../session/SessionSidebar.svelte";
   import SessionContextMenu from "../session/SessionContextMenu.svelte";
+  import SessionSidebarSkeleton from "../session/SessionSidebarSkeleton.svelte";
+  import SidePanel from "./SidePanel.svelte";
   import SessionBreadcrumb from "../conversation/SessionBreadcrumb.svelte";
   import FrameExpandButton from "./FrameExpandButton.svelte";
   import OuterScrollbar from "./OuterScrollbar.svelte";
-  import UnifiedPicker from "../session/unified-picker/UnifiedPicker.svelte";
   import Pane from "../ui/Pane.svelte";
   import ConversationView from "../conversation/ConversationView.svelte";
   import { SvelteSet } from "svelte/reactivity";
@@ -42,14 +42,10 @@
     SIDEBAR_PANE_DEFAULT_SIZE,
     SIDEBAR_PANE_MAX_SIZE,
     SIDEBAR_PANE_MIN_SIZE,
+    SIDEBAR_MIN_WIDTH,
+    SIDEBAR_MAX_WIDTH,
   } from "./lib/workspace-body";
-  import { resolveComposerInset } from "../input/lib/composer-collapse";
-  import {
-    COMPOSER_COLLAPSED_ATTRIBUTE,
-    COMPOSER_FOLD_DURATION_MS,
-    COMPOSER_FOLD_EASING,
-    COMPOSER_SURFACE_ATTRIBUTE,
-  } from "../input/lib/composer-fold";
+  import { ComposerDock } from "../input/lib/composer-dock.svelte";
   import { hasSessionStarted } from "../../lib/sessionUtils";
   import { isProjectRailOpen } from "../project-panel/lib/rail-width";
   import * as Resizable from "../ui/resizable";
@@ -75,6 +71,9 @@
     onScreenshot,
     onDesignMode,
   }: Props = $props();
+
+  const sidebarComponent = afterPaint().then(() => import("../session/SessionSidebar.svelte"));
+  const projectPanelComponent = afterPaint().then(() => import("../project-panel/ProjectPanel.svelte"));
 
   const session = getWorkspaceContext();
   const shell = getClientShellContext();
@@ -197,60 +196,14 @@
     poolInLead && maximizedPaneId === null,
   );
 
-  // ─── The composer's reserved band (ADR-0027) ───
-  //
-  // The dock floats over the bottom of the column instead of standing in flow
-  // beside the transcript, and the column reserves the band it needs through
-  // `--solus-composer-inset`. A dock in flow resized the transcript every time
-  // the bar folded: the scroll viewport grew, the browser clamped `scrollTop`
-  // to the smaller maximum, and the whole conversation slid by the fold
-  // distance under the reader. Floating it means the transcript's box never
-  // changes, and holding the reservation at the expanded height means folding
-  // does not move the band either — so the transcript stays exactly where it
-  // is, in either direction.
-  //
-  // Two vars come out of the same measurement, because the column's chrome
-  // wants two different answers. `--solus-composer-inset` is the held band:
-  // the transcript's bottom padding and the minimap's centre take it, and
-  // neither moves with a fold. `--solus-composer-height` is where the bar's
-  // top edge actually is right now: the action row hugs it, because that row
-  // belongs to the bar rather than to the transcript and a held anchor left it
-  // stranded at the top of the band with dead space underneath.
+  // The composer's reserved band (ADR-0027): the dock floats over the column
+  // and the column publishes the band it holds (`ComposerDock`).
   let inputDockEl: HTMLElement | undefined = $state();
-  let composerInset = $state(0);
-  let composerHeight = $state(0);
-  // The action row's travel is armed only after the bar's first measurement.
-  // Otherwise the opening move — no bar, then a bar — is itself a change of
-  // the edge the row rides, and every conversation would open by sliding its
-  // action row up through the fold's whole 280ms.
-  let hasMeasuredComposer = $state(false);
+  const composerDock = new ComposerDock();
   $effect(() => {
     const dock = inputDockEl;
     if (!dock) return;
-    const observer = new ResizeObserver(() => {
-      const dockHeight = dock.getBoundingClientRect().height;
-      // A hidden dock measures zero and says nothing about the band it will
-      // want back; the reservation it had is the honest answer until it
-      // returns. Both vars are zeroed while it is away regardless.
-      if (dockHeight <= 0) return;
-      if (dockHeight !== untrack(() => composerHeight)) composerHeight = dockHeight;
-      const next = resolveComposerInset({
-        currentInset: untrack(() => composerInset),
-        dockHeight,
-        collapsed:
-          dock.querySelector(
-            `[${COMPOSER_SURFACE_ATTRIBUTE}][${COMPOSER_COLLAPSED_ATTRIBUTE}]`,
-          ) !== null,
-      });
-      if (next !== untrack(() => composerInset)) composerInset = next;
-      if (!untrack(() => hasMeasuredComposer)) {
-        requestAnimationFrame(() => {
-          hasMeasuredComposer = true;
-        });
-      }
-    });
-    observer.observe(dock);
-    return () => observer.disconnect();
+    return composerDock.observe(dock);
   });
   // The band and the rail say where you are, which a draft answers as fully as
   // a conversation does — so they stay while the leading pane composes one,
@@ -728,11 +681,29 @@
       aria-hidden={!sidebarOpen}
       class="workspace-rail-pane"
     >
-      <SessionSidebar
-        open={sidebarOpen}
-        managedWidth
-        onToggleCollapse={toggleSidebar}
-      />
+      {#await sidebarComponent}
+        <SidePanel
+          open={sidebarOpen}
+          managedWidth
+          isElevated={false}
+          minWidth={SIDEBAR_MIN_WIDTH}
+          maxWidth={SIDEBAR_MAX_WIDTH}
+          onAction={toggleSidebar}
+          actionAriaLabel="Collapse sidebar"
+          background="color-mix(in oklch, var(--card) 99%, var(--foreground))"
+        >
+          <SessionSidebarSkeleton />
+        </SidePanel>
+      {:then module}
+        {@const SessionSidebar = module.default}
+        <SessionSidebar
+          open={sidebarOpen}
+          managedWidth
+          onToggleCollapse={toggleSidebar}
+        />
+      {:catch}
+        <p role="alert">Could not load this panel.</p>
+      {/await}
     </Resizable.Pane>
     <!-- The panel is inset 4px and its 1px border paints inward, so its
          centreline sits 4.5px left of the PaneForge boundary. Keep an active
@@ -780,22 +751,23 @@
                       class="conversation-area flex-1 flex min-h-0 relative"
                       data-conversation-space
                     >
-                      <UnifiedPicker
-                        open={active && session.unifiedPickerOpen}
-                        onClose={() => {
-                          session.unifiedPickerOpen = false;
-                        }}
-                      />
+                      {#if active && session.unifiedPickerOpen}
+                        {#await import("../session/unified-picker/UnifiedPicker.svelte") then module}
+                          {@const UnifiedPicker = module.default}
+                          <UnifiedPicker
+                            open={active && session.unifiedPickerOpen}
+                            onClose={() => {
+                              session.unifiedPickerOpen = false;
+                            }}
+                          />
+                        {:catch}
+                          <p role="alert">Could not load the session picker.</p>
+                        {/await}
+                      {/if}
 
                       <div
                         class="primary-column relative flex h-full flex-1 flex-col min-w-0"
-                        style="--solus-composer-inset:{conversationChromeVisible
-                          ? composerInset
-                          : 0}px;--solus-composer-height:{conversationChromeVisible
-                          ? composerHeight
-                          : 0}px;--solus-composer-fold-duration:{hasMeasuredComposer
-                          ? COMPOSER_FOLD_DURATION_MS
-                          : 0}ms;--solus-composer-fold-easing:{COMPOSER_FOLD_EASING}"
+                        style={composerDock.columnStyle(conversationChromeVisible)}
                       >
                         {#if showLeadingBand}
                           <SessionBreadcrumb
@@ -885,15 +857,20 @@
                     class="project-rail contents"
                     class:mode-hidden={!locationChromeVisible}
                   >
-                    <ProjectPanel
-                      sourceId={leadingDraft?.id ?? session.activeTabId}
-                      {active}
-                      containerWidth={projectRailContainerWidth}
-                      {workspaceWidth}
-                      minimized={secondaryMinimizesProjectPanel ||
-                        (!leadingStarted && !newTabProjectPanelPoppedOut)}
-                      onCollapse={() => toggleProjectPanel()}
-                    />
+                    {#await projectPanelComponent then module}
+                      {@const ProjectPanel = module.default}
+                      <ProjectPanel
+                        sourceId={leadingDraft?.id ?? session.activeTabId}
+                        {active}
+                        containerWidth={projectRailContainerWidth}
+                        {workspaceWidth}
+                        minimized={secondaryMinimizesProjectPanel ||
+                          (!leadingStarted && !newTabProjectPanelPoppedOut)}
+                        onCollapse={() => toggleProjectPanel()}
+                      />
+                    {:catch}
+                      <p role="alert">Could not load this panel.</p>
+                    {/await}
                   </div>
                 {/if}
               </div>

@@ -1,5 +1,12 @@
 /** Keep automatic smooth scrolling separate from a reader scrolling away.
  * Browser scrolling stops on direct input; no continuous animation loop is used. */
+export function scrollConversationTo(element: HTMLElement, top: number): void {
+  element.scrollTo({
+    top: Math.max(0, Math.min(top, element.scrollHeight - element.clientHeight)),
+    behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+  })
+}
+
 export function createResponseScroll(element: HTMLElement) {
   let moving = false
   let settleTimer: ReturnType<typeof setTimeout> | undefined

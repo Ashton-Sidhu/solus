@@ -102,6 +102,32 @@ describe('usage handlers', () => {
     expect(reads).toEqual(['bob', undefined])
   })
 
+  test('the host login is read without the login probe', async () => {
+    // WHY: `status()` labels the host login connected or not by running
+    // `claude auth status` synchronously on the main thread — ~200 ms during
+    // which every other request, the first transcript page included, waits.
+    // The usage meter needs only "usage-capable", which the host login always is.
+    const server = new SolusServer()
+    let statusReads = 0
+    registerUsageHandlers(server, {
+      controlPlane: {
+        usageCapableAgents: () => ['claude-code'],
+        readUsageLimits: async () => ({ provider: 'claude-code', stale: false }),
+        usageLimits: new UsageLimitsStore(),
+      } as never,
+      events: { publish: () => 1, broadcast: () => 1 } as never,
+      seats: {
+        connectedSeat: () => ({ userId: 'owner', provider: 'claude-code', home: '/home', isHostLogin: true }),
+        status: () => { statusReads += 1; return { provider: 'claude-code', state: 'connected', usageCapable: true } },
+        onChanged: () => () => {},
+      } as never,
+    })
+
+    await server.handle('usageLimits', [], TEST_HANDLER_CTX)
+
+    expect(statusReads).toBe(0)
+  })
+
   test('a member who asked before connecting sees their quota as soon as the seat connects', async () => {
     // WHY: the first ask cached "no seats" for the member; a seat change must
     // drop that answer and publish the real one, not wait out the window.

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import { ChevronRight as CaretRightIcon } from "@lucide/svelte";
   import type { Message } from "@solus/contracts/types";
   import {
@@ -78,13 +79,13 @@
 
   // The group speaks for itself once every agent has landed, so it folds by
   // default — until the reader asks for it back.
-  let expandedByUser = $state<boolean | null>(null);
+  const disclosure = getTranscriptDisclosure();
+  const view = $derived(disclosure.forKey(`subagents:${messages[0]?.id}`));
   const collapsed = $derived(
-    expandedByUser === null ? runningCount === 0 : !expandedByUser,
+    view.openedByUser === null ? runningCount === 0 : !view.openedByUser,
   );
 
-  let showAllRows = $state(false);
-  const visibleRows = $derived(showAllRows ? rows : rows.slice(0, MAX_ROWS));
+  const visibleRows = $derived(view.showAllRows ? rows : rows.slice(0, MAX_ROWS));
   const hiddenCount = $derived(rows.length - visibleRows.length);
 </script>
 
@@ -111,7 +112,7 @@
       type="button"
       class="subagent-fold mx-auto w-[88%]"
       data-testid="subagent-group-folded"
-      onclick={() => (expandedByUser = true)}
+      onclick={() => (view.openedByUser = true)}
     >
       <CaretRightIcon
         size={10}
@@ -178,7 +179,7 @@
           <button
             type="button"
             class="subagent-group__more"
-            onclick={() => (showAllRows = true)}
+            onclick={() => (view.showAllRows = true)}
           >
             {hiddenCount} more agent{hiddenCount === 1 ? "" : "s"}
           </button>

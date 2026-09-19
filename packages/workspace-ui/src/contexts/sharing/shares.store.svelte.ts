@@ -9,7 +9,8 @@ import { loadServers, type SavedServerUplink } from '@solus/client-core/server-r
 import { organizationIdFor } from '@solus/client-core/uplink-session'
 import { serversStore } from '../connections/servers.store.svelte'
 import { toasts } from '../../lib/toasts'
-import { guestLinkContext, type GuestLinkContext } from '../../components/sharing/lib/share-rows'
+import { notificationsStore } from '../notifications/notifications.store.svelte'
+import { grantsFor, guestLinkContext, linkRoleFor, sameScope, scopeOf, withPersonRole, withoutPerson, type GuestLinkContext, type ShareScope } from '../../components/sharing/lib/share-rows'
 import { uplinkStore } from '../connections/uplink.store.svelte'
 
 /**
@@ -42,6 +43,7 @@ class SharesStore {
   dialog = $state<ShareDialogTarget | null>(null)
   busy = $state(false)
   private readonly loads = new Map<string, Promise<ShareList | null>>()
+  private readonly linkStatusAsked = new Set<string>()
   private stopWatching: (() => void) | null = null
 
   /** Subscribe once; every host's `share.changed` refreshes the cached list. */
@@ -52,9 +54,18 @@ class SharesStore {
       if (this.lists.has(key) || this.dialog && listKey(this.dialog.serverId, this.dialog.resource) === key) {
         void this.load(serverId, change.resource, { force: true })
       }
+      // A task's share reaches its sessions and works: their cached lists say so and must follow.
+      if (change.resource.kind === 'task') {
+        for (const cachedKey of this.lists.keys()) {
+          if (cachedKey.startsWith(`${serverId}|`) && !cachedKey.startsWith(`${serverId}|task|`)) {
+            const [, kind, id] = cachedKey.split('|')
+            if (kind === 'session' || kind === 'work') void this.load(serverId, { kind, id: id! }, { force: true })
+          }
+        }
+      }
       const me = this.identities.get(serverId)?.userId
       if (me && change.removedUserIds.includes(me)) {
-        toasts.info(`Access removed by ${change.changedBy.displayName}`)
+        if (notificationsStore.wants('share_revoked')) toasts.info(`Access removed by ${change.changedBy.displayName}`)
         this.lists.delete(key)
       }
     })
@@ -143,6 +154,21 @@ class SharesStore {
     return guestLinkContext(uplinkStore.statusFor(serverId), saved?.uplink)
   }
 
+  /**
+   * Whether a share made on this host can reach anyone. A guest link needs the
+   * cloud to mint the grant and route the tunnel, and the directory needs an
+   * organization the cloud named, so an unlinked host can share with nobody:
+   * every Share entry point hides behind this. Asks the host once; until it
+   * answers, the answer is no.
+   */
+  canShareFrom(serverId: string): boolean {
+    if (!this.linkStatusAsked.has(serverId)) {
+      this.linkStatusAsked.add(serverId)
+      void uplinkStore.refresh(serverId)
+    }
+    return this.linkContext(serverId).kind === 'linked'
+  }
+
   open(target: ShareDialogTarget): void {
     this.dialog = target
     void this.load(target.serverId, target.resource, { force: true })
@@ -170,6 +196,29 @@ class SharesStore {
     await this.run(serverId, request.resource, () => serverConnections.apiFor(serverId).shareSet(request))
   }
 
+  /**
+   * Who can open a resource and what they may do, as one choice: the named rows
+   * and the link change together so the list never lands between two scopes. A
+   * scope that is already the list's, role included, is a no-op; a role change on
+   * the link keeps its secret, so guests stay connected with the new role.
+   */
+  async setScope(serverId: string, list: ShareList, scope: ShareScope): Promise<void> {
+    if (sameScope(scopeOf(list), scope)) return
+    const organizationId = this.identities.get(serverId)?.organizationId ?? null
+    await this.setGrants(serverId, grantsFor(scope, list, organizationId))
+    const linkRole = linkRoleFor(scope)
+    if (linkRole !== (list.link?.role ?? null)) await this.setLink(serverId, list.resource, linkRole)
+  }
+
+  /** One person's own row, added or changed; every other row and the link stay as they are. */
+  async setPersonRole(serverId: string, list: ShareList, userId: string, role: ShareRole): Promise<void> {
+    await this.setGrants(serverId, withPersonRole(list, userId, role))
+  }
+
+  async removePerson(serverId: string, list: ShareList, userId: string): Promise<void> {
+    await this.setGrants(serverId, withoutPerson(list, userId))
+  }
+
   async setLink(serverId: string, resource: ShareResource, role: ShareRole | null, regenerate = false): Promise<ShareLink | null> {
     let link: ShareLink | null = null
     await this.run(serverId, resource, async () => {
@@ -177,10 +226,6 @@ class SharesStore {
       return null
     })
     return link
-  }
-
-  async transfer(serverId: string, resource: ShareResource, toUserId: string): Promise<void> {
-    await this.run(serverId, resource, () => serverConnections.apiFor(serverId).shareTransfer({ resource, toUserId }))
   }
 
   private async run(serverId: string, resource: ShareResource, change: () => Promise<ShareList | null>): Promise<void> {

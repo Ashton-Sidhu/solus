@@ -151,6 +151,7 @@ export function turnAttributes(root: MetricsSpan, view: TraceView): TurnAttribut
         fact('session_id', root.sessionId, undefined, true),
         fact('provider', root.provider),
         fact('model', root.model),
+        fact('requested_model', root.attrs.requestedModel ?? null, "what the user selected; 'auto' when Solus routed the prompt"),
         fact('service', root.service),
         fact('origin', root.origin, 'how the turn was dispatched'),
       ],

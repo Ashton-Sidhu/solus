@@ -3,6 +3,8 @@ import {
   flushDrafts,
   initDraftState,
   loadDismissedSidebarRowKeys,
+  loadDoneSidebarRowKeys,
+  persistDoneSidebarRowKeys,
   loadOpenSidebarTaskIds,
   loadDrafts,
   loadPersistedTabs,
@@ -112,6 +114,14 @@ describe('tab persistence server scoping', () => {
     expect(loadSidebarRowSnoozes(now)).toEqual(
       new Map([['tab-live', { until: now + 60_000, note: 'check the deploy' }]]),
     )
+  })
+
+  test('a done mark on a row with no task survives a refresh', () => {
+    // WHY: the tab behind a loose row is restored on reload; if its done mark
+    // is not, the row the user shelved walks back into the active column.
+    persistDoneSidebarRowKeys(['tab-1'])
+
+    expect(loadDoneSidebarRowKeys()).toEqual(['tab-1'])
   })
 
   test('rejects an incomplete snapshot instead of guessing its selection', () => {

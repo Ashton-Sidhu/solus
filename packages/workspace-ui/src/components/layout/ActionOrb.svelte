@@ -101,11 +101,9 @@
   const sessionReviewGuideKey = $derived(
     sess?.agentSessionId ? `session-${sess.agentSessionId}` : null,
   );
-  const changesFingerprint = $derived(sessionChangedFiles.join("|"));
-  const sessionReviewIdentity = $derived.by(() => {
-    const identity = sessionGuideIdentity(sess);
-    return identity ? { ...identity, revision: changesFingerprint } : null;
-  });
+  const sessionReviewIdentity = $derived(sessionGuideIdentity(sess));
+  // Read only: `trackSessionReviewGuides` probes the host once per session,
+  // so an orb never issues a request of its own.
   const sharedReviewStatus = $derived(
     reviewGuideStore.statusFor(
       session.serverIdFor(tabId),
@@ -175,18 +173,6 @@
   );
   let reviewPopoverOpen = $state(false);
   let lastReviewFailureAt = 0;
-
-  $effect(() => {
-    const identity = sessionReviewIdentity;
-    if (!identity) return;
-    void reviewGuideStore.load(
-      session.apiFor(tabId),
-      session.serverIdFor(tabId),
-      session.ctxFor(tabId),
-      identity,
-      "session",
-    );
-  });
 
   $effect(() => {
     const status = sharedReviewStatus;
@@ -395,7 +381,7 @@
   }
 
   function handleOpenFileFromSummary(filePath: string) {
-    session.openFilePreview({ path: filePath }, tabId);
+    session.openFileInFiles({ path: filePath }, tabId);
     closeExpanded();
   }
 

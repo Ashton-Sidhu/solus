@@ -15,7 +15,7 @@ import type {
   SessionMeta,
   UsageData,
 } from '@solus/contracts/types'
-import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { ProviderHistoryPage, SessionLoadMessage } from '@solus/contracts/session-history'
 import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
 
 const MOCK_SESSION_ID = 'mock-session-001'
@@ -519,6 +519,14 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
 
   async loadSession(_sessionId: string, _projectPath?: string, _limit?: number): Promise<SessionLoadMessage[]> {
     return []
+  }
+
+  // The mock keeps no transcript on disk, so every session opens on an empty
+  // page and the live turn is what a client sees. Without this the control
+  // plane refuses the read outright, and a client cannot tell that from a
+  // failed one — a resumed session would show an error instead of the stream.
+  async loadSessionPage(_sessionId: string, _projectPath: string | undefined, _limit: number, _before?: string): Promise<ProviderHistoryPage> {
+    return { messages: [], before: null }
   }
 
   async listPlans(_projectPath: string | undefined, _allProjects: boolean): Promise<PlanDescriptor[]> {

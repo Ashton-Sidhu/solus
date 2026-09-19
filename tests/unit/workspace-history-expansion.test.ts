@@ -75,6 +75,62 @@ describe('full history expansion', () => {
 })
 
 describe('paged history expansion', () => {
+  test('cursor pages prepend only older rows, preserve live objects, and drain for Find', async () => {
+    const current = message('assistant', 'newest', 3)
+    const live = message('assistant', 'live update', 4)
+    // Equal timestamps do not make disjoint messages duplicates.
+    const older = message('assistant', 'older', 3)
+    const oldest = message('user', 'oldest', 1)
+    const session = {
+      agentSessionId: 'current-session',
+      run: { provider: 'codex', workingDirectory: '/repo', gitContext: null },
+      historyTruncated: true, historyCursor: 'page-1',
+      messages: [current], progress: null, sessionChangedFiles: [],
+    } as unknown as Session
+    const cursors: (string | undefined)[] = []
+    const store = new WorkspaceLifecycleStore({
+      registry: { sessionFor: () => session },
+      settings: { activeAgent: 'codex' }, config: {},
+      planStore: { hydrateAnnotations() {} },
+      ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
+      loadTranscript: async ({ before, limit }) => {
+        expect(limit).toBe(200)
+        cursors.push(before)
+        if (before === 'page-1') {
+          session.messages.push(live)
+          return { messages: [older], before: 'page-2', truncated: true, progress: null, planIds: [] }
+        }
+        return { messages: [oldest], before: null, truncated: false, progress: null, planIds: [] }
+      },
+      rebuildAgentConversations() {},
+    } as never)
+    await store.expandHistory('tab-1', { full: true })
+    expect(cursors).toEqual(['page-1', 'page-2'])
+    expect(session.messages).toEqual([oldest, older, current, live])
+    expect(session.messages[2]).toBe(current)
+    expect(session.messages[3]).toBe(live)
+    expect(session.historyTruncated).toBe(false)
+    expect(session.historyCursor).toBeNull()
+  })
+
+  test('a failed page keeps the cursor and loaded history for retry', async () => {
+    const current = message('assistant', 'newest', 3)
+    const session = {
+      agentSessionId: 'current-session',
+      run: { provider: 'codex', workingDirectory: '/repo', gitContext: null },
+      historyTruncated: true, historyCursor: 'older', messages: [current],
+    } as unknown as Session
+    const store = new WorkspaceLifecycleStore({
+      registry: { sessionFor: () => session },
+      settings: { activeAgent: 'codex' }, config: {},
+      ctxFor: () => ({ session: { sessionId: 'tab-1' } }),
+      loadTranscript: async () => { throw new Error('Disconnected') },
+    } as never)
+    await expect(store.expandHistory('tab-1')).rejects.toThrow('Disconnected')
+    expect(session.messages).toEqual([current])
+    expect(session.historyCursor).toBe('older')
+  })
+
   test('scrolling widens the window instead of reading the whole session', async () => {
     // A page of tool results can collapse into no new rendered rows, so the
     // window has to grow off the last request. Growing off the message count

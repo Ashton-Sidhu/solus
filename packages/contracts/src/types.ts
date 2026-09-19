@@ -1,3 +1,4 @@
+import type { WireSessionLoadMessage } from './session-history'
 import type { WorkExternalComments, WorkGoogleComments } from './work-comments'
 import rawModelProfiles from './model-profiles.json'
 import type { GitIdentity, GitState, WorktreeEntry } from './git-types'
@@ -5,6 +6,7 @@ import type { TaskProviderId, TaskSnapshot } from './task-types'
 import type { PrReviewTarget, PullRequest } from './providers'
 import type { BrowserSnapshotRef } from './browser-types'
 import type { WorkExternalLink } from './docs'
+import type { TurnAuthor } from './presence'
 import { z } from 'zod'
 
 // ─── Agent ID (needed by ModelProfile below) ───
@@ -67,6 +69,7 @@ export interface HostCapabilities {
   assetUrls?: boolean
   skillsInstall?: boolean
   skillsSearch?: boolean
+  skillsManage?: boolean
   voiceModel?: boolean
   automations?: boolean
   editors?: EditorId[]
@@ -865,7 +868,6 @@ export interface Session {
    *  optimistic state is reconciled with server queue snapshots and events. */
   outboundPrompts: OutboundPrompt[]
   rateLimitInfo: RateLimitInfo | null
-  rateLimitStrategy: 'queue' | 'ask' | 'stop' | 'continue'
   lastResult: RunResult | null
   /** What currently occupies the context window. Drives the context meter. */
   contextUsage: ContextUsage | null
@@ -908,6 +910,10 @@ export interface Session {
   /** True when only a recent window of the transcript was hydrated and older
    *  messages still live on disk (fetched on demand via expandHistory). */
   historyTruncated: boolean
+  /** Opaque cursor for the next disjoint history page; null means exhausted. */
+  historyCursor?: string | null
+  /** Results/nested activity whose owning call is on an older history page. */
+  historyPendingMessages?: WireSessionLoadMessage[]
   /** Prior provider identity retained by a worktree move within the same session.
    *  A separate fork records its source on the transcript divider instead. */
   forkedFromSessionId: string | null
@@ -1008,9 +1014,27 @@ export interface PlanCommentReply {
   id: string
   author: CommentAuthor
   authorAgent?: CommentAgentAuthor
+  /** The person behind a 'you' reply on a shared work, stamped by the host
+   *  (docs/plans/multiplayer-comments.md). Absent on a plan and on every reply
+   *  written before works had people. */
+  person?: TurnAuthor
   text: string
   /** Epoch ms. */
   createdAt: number
+}
+
+/** Where an artifact comment sits: a point over the render, as fractions of its
+ *  box, so the pin rides the render at every pane width. */
+export interface CommentPin {
+  x: number
+  y: number
+}
+
+/** One person's last read of a thread. Read marks are per person on a shared
+ *  work; `readAt` is the single-reader mark plans still use. */
+export interface CommentReadMark {
+  userId: string
+  readAt: number
 }
 
 export interface PlanComment {
@@ -1019,7 +1043,7 @@ export interface PlanComment {
   /** Legacy private Google discussion reference. */
   googleThreadId?: string
   id: string
-  /** The anchor's display text: the quoted selection (docs/plans) or the node label (diagrams). */
+  /** The anchor's display text: the quoted selection (docs/plans), the node label (diagrams), or the pin's label (artifacts). */
   selectedText: string
   comment: string
   textOffset?: number
@@ -1027,17 +1051,26 @@ export interface PlanComment {
   nodeId?: string
   /** For diagram works: id of the edge this comment is anchored to. Mutually exclusive with nodeId. */
   edgeId?: string
+  /** For artifact works: the point over the render this comment is pinned to. Absent = the whole artifact. */
+  pin?: CommentPin
   /** Absent = 'you' — every comment written before threads had authors. */
   author?: CommentAuthor
   authorAgent?: CommentAgentAuthor
+  /** The person behind a 'you' thread on a shared work, stamped by the host from
+   *  the admitted principal; a client never names itself. Absent on a plan and on
+   *  every thread written before works had people. */
+  person?: TurnAuthor
   /** Epoch ms. Absent on pre-existing comments, which render without a time. */
   createdAt?: number
   /** Epoch ms the thread was resolved. Absent = open. */
   resolvedAt?: number
   resolvedBy?: CommentAuthor
+  resolvedByPerson?: TurnAuthor
   replies?: PlanCommentReply[]
   /** Epoch ms the thread was last read. A Solus message newer than this is unread. */
   readAt?: number
+  /** Per-person read marks on a shared work; the host writes the caller's. */
+  readBy?: CommentReadMark[]
 }
 
 export interface DiffComment {
@@ -1166,6 +1199,8 @@ export interface Message {
     path?: string
     pending?: boolean
     streaming?: boolean
+    /** Successful saved revision, used to ignore repeated update delivery. */
+    updatedAt?: string
   }
   /** Reference to an automation the agent created or updated in this thread,
    *  rendered as a card with an Open action. */
@@ -1225,6 +1260,9 @@ export interface Message {
   automationName?: string
   /** Correlates the committed transcript entry with its optimistic outbox row. */
   clientPromptId?: string
+  /** Who wrote this prompt, as the host stamped it. Live-only, like `via`: a
+   *  history reload does not know, and the bubble then carries no name. */
+  author?: TurnAuthor
   /** How this message entered an already-running session. */
   delivery?: PromptDelivery
   /** Milliseconds this prompt spent held by a rate limit before it went out.
@@ -1551,6 +1589,7 @@ export type AgentConversationUpdate =
 // ─── Canonical Events (normalized from raw stream) ───
 
 export type NormalizedEvent =
+  | { type: 'model_routed'; provider: AgentId; modelConfig: ModelConfig; usedFallback: boolean }
   | { type: 'session_init'; sessionId: string; model: string; skills: string[]; handoffFrom?: SessionHandoffLineage }
   | { type: 'text_pending' }
   | { type: 'text_chunk'; text: string; parentToolUseId?: string; streaming?: boolean }
@@ -1603,8 +1642,8 @@ export type NormalizedEvent =
   | { type: 'checkpoint'; checkpointId: string }
   | { type: 'git_context'; gitContext: GitCheckout }
   | { type: 'git_status'; cwd: string; state: GitState | null }
-  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentExchangeId?: string }
-  | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia }
+  | { type: 'user_message'; text: string; delivery?: PromptDelivery; clientPromptId?: string; imageAttachments?: Array<{ mimeType: string; dataUrl: string }>; imageAttachmentRefs?: PromptImageRef[]; via?: PromptVia; automationId?: string; automationName?: string; agentSessionId?: string; agentExchangeId?: string; author?: TurnAuthor }
+  | { type: 'prompt_queued'; text: string; queueId: string; clientPromptId?: string; enqueuedAt: number; reason?: QueuedPromptReason; releaseAt?: number; rateLimitType?: string; images?: Array<{ mimeType: string; dataUrl: string }>; imageRefs?: PromptImageRef[]; via?: PromptVia; author?: TurnAuthor }
   | { type: 'prompt_dequeued'; queueId: string }
   | { type: 'prompt_queue_updated'; queueId: string; text: string }
   | { type: 'rate_limit_resolved'; sessionId: string; action: RateLimitDecisionAction }
@@ -1752,7 +1791,6 @@ export type AppCodeFontFamily = 'sf-mono' | 'geist-mono' | 'fira-code' | 'cascad
 export interface SettingsCtx {
   themeMode: 'dark' | 'light' | 'system'
   isDark: boolean
-  soundEnabled: boolean
   voiceModeEnabled: boolean
   vadSilenceMs: number
   defaultEditor: EditorId | null
@@ -1957,6 +1995,8 @@ export interface QueuedPromptSnapshot {
   /** Host-stored images sent with the queued prompt. Preferred over `images`:
    *  a snapshot is re-sent on every reconnect and stays small. */
   imageRefs?: PromptImageRef[]
+  /** Who wrote the held prompt, stamped by the host; absent for the host's own work. */
+  author?: TurnAuthor
 }
 
 export type OutboundPromptState = 'steering' | 'queueing' | 'queued' | 'failed'
@@ -1979,6 +2019,8 @@ export interface OutboundPrompt {
   workRefs?: WorkReference[]
   sessionRefs?: SessionReference[]
   error?: string
+  /** Who wrote the held prompt, as the host named them; the reader's own stay unlabelled. */
+  author?: TurnAuthor
 }
 
 export interface RateLimitInfo {

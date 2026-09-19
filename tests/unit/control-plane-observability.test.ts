@@ -194,7 +194,7 @@ describe.serial('ControlPlane observability hooks', () => {
           sessionChangedFiles: [], readOnlyReason: null, latestCheckpointId: null,
         },
         settings: {
-          themeMode: 'system', isDark: false, soundEnabled: false, voiceModeEnabled: false,
+          themeMode: 'system', isDark: false, voiceModeEnabled: false,
           vadSilenceMs: 500, defaultEditor: null, fallbackTerminal: null, activeAgent: 'codex',
           reviewAgent: null, reviewModel: null, reviewReasoning: null, reviewGuideInstructions: '',
           stackedPrsEnabled: false, reviewWarmingEnabled: false, rateLimitBehavior: 'ask',

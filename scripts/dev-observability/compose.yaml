@@ -1,0 +1,26 @@
+name: solus-dev-observability
+services:
+  lgtm:
+    image: grafana/otel-lgtm@sha256:475319e883b66594d1a2f22ef168c2459802bb94548e6f25d9782bd5f5c19a3a
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:4318:4318"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/grafana/conf/provisioning/dashboards/custom/solus.json
+    volumes:
+      - lgtm-data:/data
+      - ./dashboards.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/solus.yaml:ro
+      - ./solus.json:/otel-lgtm/grafana/conf/provisioning/dashboards/custom/solus.json:ro
+  alloy:
+    image: grafana/alloy@sha256:b8ec653c44235fbe910879145dac3597d66b0aaecf60bcbbe82580767771a839
+    command: [run, /etc/alloy/config.alloy, --storage.path=/var/lib/alloy/data]
+    volumes:
+      - ./config.alloy:/etc/alloy/config.alloy:ro
+      - ../../:/var/log/solus:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on: [lgtm]
+volumes:
+  lgtm-data:
+  alloy-data:

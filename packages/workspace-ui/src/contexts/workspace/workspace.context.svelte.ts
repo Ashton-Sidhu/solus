@@ -11,8 +11,7 @@ import { adjacentTabAfterClose, branchKeyFor, buildTabSections, findOpenTabForSe
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { uuid } from '@solus/contracts/uuid'
 import { resolveArtifactTitle, workPreview } from '@solus/contracts/work-preview'
-import notificationSrc from '../../../../../resources/notification.mp3'
-import type { NotificationSoundLog, NotificationSoundTrigger } from '@solus/contracts/notification-types'
+import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { sendRateLimitedNow } from '../../lib/rate-limit-actions'
 import { type PlanStore } from '../plans/plan.store.svelte'
 import { WorksStore } from '../works/works.store.svelte'
@@ -47,7 +46,7 @@ import { type StatusBarContext } from '../app/status-bar.context.svelte'
 import { type AgentContext } from '../app/agent.context.svelte'
 import { environmentProjectKey, type GitRefreshResult, type SessionEnvironmentStore } from '../git/session-environment.store.svelte'
 
-import { makeSession, makeTab, makePrompt } from './session.factories'
+import { makeSession, makeTab } from './session.factories'
 import {
   SessionDraft,
   existingTaskId,
@@ -55,7 +54,7 @@ import {
   requestedTaskTarget,
   taskBindingSessionId,
 } from './session-draft.svelte'
-import { alignRunProvider, isDispatch, projectRootOf, startsWorktree } from './run-config'
+import { alignRunProvider, isDispatch, resolveNewRunConfig, startsWorktree } from './run-config'
 import { removeDraft, removePersistedTab } from './tab-persistence'
 import { applySessionTitleChange } from './session-title-change'
 import { applyRuntimeConfig, findLastUserIndex, nextMsgId } from './session.utils'
@@ -187,10 +186,9 @@ interface CreateTabOptions {
    *  fact: `createTab` resolves the git environment, and a remote working
    *  directory has to be read on the machine that holds it. */
   serverId?: string
-  /** The tab the gesture came from — a breadcrumb, an aside pane, an input bar.
-   *  A draft inherits *that* session's run, not whichever tab happens to be
-   *  active, or "new session from here" aims somewhere the user is not looking. */
-  sourceTabId?: string
+  /** The tab or draft the gesture came from. The new run inherits this focused
+   *  source, not whichever hidden tab happens to be active. */
+  sourceId?: string
   via?: Via
 }
 
@@ -198,9 +196,6 @@ interface ForkTabOptions {
   activate?: boolean
   task?: Session['task']
 }
-
-const notificationAudio = new Audio(notificationSrc)
-notificationAudio.volume = 1.0
 
 export class WorkspaceContext {
   readonly toolHistory = new ToolHistoryStore()
@@ -276,7 +271,7 @@ export class WorkspaceContext {
     // Closing a page with no tab open lands on the composer, not on an empty
     // pool. The router asks only when the leading pane is the one closing.
     this.router.leadingHome = () => leadingHomeRoute({
-      hasTabs: this.tabOrder.length > 0,
+      hasTabs: this.hasOpenTabs(),
       leadingBase: this.router.leadingPane.base,
       drafts: this.sessionDrafts,
       composingDraftIds: this.composingDraftIds,
@@ -354,7 +349,9 @@ export class WorkspaceContext {
       addChangedFilesFromMessage: (sessionId, message) => this.lifecycle.addChangedFilesFromMessage(sessionId, message),
       refreshTurnSnapshots: (sessionId) => { void this.refreshTurnSnapshots(sessionId) },
       setGitStatus: (cwd, status) => this.environment.set(cwd, status),
-      playNotificationIfHidden: (sessionId, trigger) => { void this.playNotificationIfHidden(sessionId, trigger) },
+      playNotificationIfHidden: (sessionId, trigger) => {
+        void notificationsStore.playSound(sessionId, this.sessions[sessionId]?.agentSessionId ?? null, trigger)
+      },
       closePlanModal: () => this.closePlanModal(),
       onTurnSettled: (sessionId, cwd) => this.onTurnSettled?.(sessionId, cwd),
       // These surfaces are still addressed by tab — the goal pane is a route
@@ -447,6 +444,20 @@ export class WorkspaceContext {
     const ref = visibleRef(this.router.focused)
     if (ref?.name === 'draft') return ref.params.draftId
     return this.focusedChatTabId
+  }
+
+  /** Sidebar lifecycle decides whether a mounted conversation is current work.
+   * Before that lifecycle has loaded, every mounted tab remains open. */
+  private tabCountsTowardOpenState: (tabId: string) => boolean = () => true
+
+  setOpenTabPredicate(predicate: (tabId: string) => boolean): void {
+    this.tabCountsTowardOpenState = predicate
+  }
+
+  hasOpenTabs(): boolean {
+    return this.tabOrder.some(
+      (tabId) => !!this.tabs[tabId] && this.tabCountsTowardOpenState(tabId),
+    )
   }
 
   /** The chat pinned into a companion pane, if any — the "split chat". */
@@ -924,34 +935,6 @@ export class WorkspaceContext {
     if (patch.pendingInput !== undefined) this.pendingInput = patch.pendingInput
   }
 
-  private async playNotificationIfHidden(sessionId: string, trigger: NotificationSoundTrigger): Promise<void> {
-    if (!this.settings.soundEnabled) return
-    const visible = await localApi.isVisible()
-    if (!visible) {
-      const session = this.sessions[sessionId]
-      const row: NotificationSoundLog = {
-        event: 'notification_sound_play_requested',
-        sessionId,
-        agentSessionId: session?.agentSessionId ?? null,
-        trigger,
-      }
-      console.info('[Solus][NotificationSound]', row)
-      localApi.logNotificationSound?.(row)
-      notificationAudio.currentTime = 0
-      notificationAudio.play().catch((error) => {
-        const failure: NotificationSoundLog = {
-          event: 'notification_sound_play_failed',
-          sessionId,
-          agentSessionId: session?.agentSessionId ?? null,
-          trigger,
-          error: error instanceof Error ? error.message : String(error),
-        }
-        console.warn('[Solus][NotificationSound]', failure)
-        localApi.logNotificationSound?.(failure)
-      })
-    }
-  }
-
   // ─── Static info ───
 
   async initStaticInfo(): Promise<void> {
@@ -1291,42 +1274,21 @@ export class WorkspaceContext {
   // ─── Tab management ───
 
   async createTab(cwd?: string, options: CreateTabOptions = {}): Promise<string> {
-    const defaultDir = this.staticInfo?.projectPath || this.staticInfo?.workspacePath || '~'
-    const activeSession = this.activeSession
-    const inheritedDir = cwd ?? (activeSession?.run.workingDirectory || this.globalDefaults.workingDirectory || defaultDir)
-    const sourceConfig = activeSession?.run.modelConfig ?? this.globalDefaults.modelConfig
-    const provider = activeSession?.run.provider ?? configuredAgent(this.settings.activeAgent)
-    const inheritedModelConfig = {
-      ...sourceConfig,
-      reasoningEffort: this.defaultReasoningEffortFor(provider, sourceConfig.modelId),
-    }
-    const inheritedPermissionMode = this.globalDefaults.permissionMode
-    const inheritedGitContext = options.gitContext === undefined
-      ? cwd === undefined
-        ? activeSession?.run.gitContext ?? this.globalDefaults.gitContext
-        : null
-      : options.gitContext
+    const sourceId = options.sourceId ?? this.focusedSourceId ?? this.activeTabId
+    const run = resolveNewRunConfig(this.defaultRunConfig, this.runFor(sourceId), {
+      freshTask: options.freshTask,
+      workingDirectory: cwd,
+      gitContext: options.gitContext,
+      serverId: options.serverId,
+    })
     // Isolation belongs to one piece of work, so a fresh tab only branches a
     // worktree when the gesture that opened it asked for one.
     const worktreeRequested = options.worktreeRequested ?? false
     // A tab is renderer-local now — the host only ever hears about the session,
     // and only once one is watched.
+    run.worktree = worktreeRequested ? { baseBranch: run.gitContext?.targetBranch ?? null } : null
     const session = makeSession(this.settings, {
-      run: {
-        serverId: options.serverId ?? activeSession?.run.serverId ?? this.fallbackServerId,
-        // A host named for this tab owns its project too — only a dispatch
-        // splits the two, and it carries the split across from its source.
-        taskServerId: options.serverId ?? activeSession?.run.taskServerId ?? this.fallbackServerId,
-        // Grouping follows the run the tab was opened from, so work continued
-        // from a dispatched session stays under the project the user knows.
-        projectGroupPath: options.serverId ? null : activeSession?.run.projectGroupPath ?? null,
-        workingDirectory: inheritedDir,
-        gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
-        worktree: worktreeRequested ? { baseBranch: inheritedGitContext?.targetBranch ?? null } : null,
-        modelConfig: inheritedModelConfig,
-        permissionMode: inheritedPermissionMode,
-        sessionSkills: activeSession?.run.sessionSkills ?? [],
-      },
+      run,
       pluginCommands: this.pluginCommands,
       task: options.taskId ? { kind: 'existing', taskId: options.taskId } : { kind: 'new' },
     })
@@ -1340,7 +1302,7 @@ export class WorkspaceContext {
       this.setActiveTab(tab.id)
       this.resetOverlays({ closeArtifact: true })
     }
-    if (options.activate !== false && !activeSession?.run.gitContext && inheritedGitContext) {
+    if (options.activate !== false && !this.runFor(sourceId)?.gitContext && run.gitContext) {
       this.config.applyGlobalStartTarget({ gitContext: null })
     }
     if (options.gitInitialization !== 'skip') {
@@ -1348,16 +1310,18 @@ export class WorkspaceContext {
       if (options.gitInitialization === 'background') void gitInitialization
       else await gitInitialization
     }
-    if (!options.skipPluginCommands) void this.refreshPluginCommands(inheritedDir)
+    if (!options.skipPluginCommands) void this.refreshPluginCommands(run.workingDirectory)
     if (options.activate !== false) requestInputFocus()
     return tabId
   }
 
-  /** The task the session behind `tabId` belongs to — the anchor a new draft
-   *  files under. Reads the named tab, not the active one: the gesture may come
-   *  from a breadcrumb or aside pane showing a different session. */
-  private rootTaskIdFor(tabId: string | undefined): string | null {
-    const anchor = tabId ? this.sessionFor(tabId) : undefined
+  /** The task the source belongs to — the anchor a new draft files under. */
+  private rootTaskIdFor(sourceId: string | undefined): string | null {
+    const draftTaskId = sourceId
+      ? existingTaskId(this.sessionDrafts.get(sourceId)?.task ?? { kind: 'new' })
+      : null
+    if (draftTaskId) return draftTaskId
+    const anchor = sourceId ? this.sessionFor(sourceId) : undefined
     if (!anchor) return null
     return this.tasksStore.taskForSession(taskBindingSessionId(anchor))?.id
       ?? existingTaskId(anchor.task)
@@ -1405,7 +1369,11 @@ export class WorkspaceContext {
         this.resetOverlays({ closeArtifact: true })
       }
     }
-    void this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested: startsWorktree(spec.run) })
+    void this.config.refreshSessionStartTarget(
+      tabId,
+      spec.run.workingDirectory,
+      startsWorktree(spec.run),
+    ).catch(() => null)
     void this.refreshPluginCommands(spec.run.workingDirectory, tabId)
     if (options.activate !== false && options.reveal !== false) requestInputFocus({ tabId })
     return tabId
@@ -1432,52 +1400,6 @@ export class WorkspaceContext {
       sessionSkills: [],
       pendingHostDispatch: null,
     }
-  }
-
-  /**
-   * The run config a new draft carries over, or null when it starts clean.
-   * "New task" is not a flag on the draft — it is simply having nothing to
-   * inherit, anchored to the project the current session belongs to.
-   */
-  private runToInherit(
-    anchorTabId: string | undefined,
-    cwd: string | undefined,
-    options: CreateTabOptions,
-  ): RunConfig | null {
-    const anchor = anchorTabId ? this.sessionFor(anchorTabId)?.run ?? null : null
-    if (options.freshTask) {
-      const projectRoot = projectRootOf(anchor)
-      // The project root is a path on the anchor's host, so the new task stays
-      // on that host — dropping to the local default would point a remote path
-      // at this machine. Only a started session names a project root here, so
-      // `anchor` is non-null whenever one is found.
-      return projectRoot
-        ? {
-            ...this.defaultRunConfig,
-            workingDirectory: projectRoot,
-            gitContext: null,
-            serverId: anchor?.serverId ?? this.defaultRunConfig.serverId,
-            // New work on the same project keeps that project's task host, so a
-            // fresh task started from a dispatched session still files here —
-            // and keeps grouping under the project the user knows.
-            taskServerId: anchor?.taskServerId ?? this.defaultRunConfig.taskServerId,
-            projectGroupPath: anchor?.projectGroupPath ?? null,
-          }
-        : null
-    }
-    // An explicit directory may name an entirely different project, so the
-    // inherited checkout is dropped rather than mislabelling it until the
-    // environment refresh lands.
-    if (cwd !== undefined || options.gitContext !== undefined) {
-      const base = anchor ?? this.defaultRunConfig
-      const inherited: RunConfig = {
-        ...base,
-        gitContext: options.gitContext !== undefined ? options.gitContext : null,
-      }
-      if (cwd !== undefined) inherited.workingDirectory = cwd
-      return inherited
-    }
-    return anchor
   }
 
   /** Every run nothing has happened in yet: the tabs that have not started, and
@@ -1515,12 +1437,18 @@ export class WorkspaceContext {
    *  leading-pane home needs one this way: it is answering a close that is
    *  already placing the route, so navigating again would be a second move. */
   private createSessionDraft(options: CreateTabOptions, cwd?: string): SessionDraft {
-    const anchorTabId = options.sourceTabId ?? (this.activeTabId || undefined)
-    const draft = new SessionDraft(
-      this.defaultRunConfig,
-      this.runToInherit(anchorTabId, cwd, options),
-    )
-    draft.task = requestedTaskTarget(options, this.rootTaskIdFor(anchorTabId))
+    const sourceId = options.sourceId ?? this.focusedSourceId ?? this.activeTabId
+    const run = resolveNewRunConfig(this.defaultRunConfig, this.runFor(sourceId), {
+      freshTask: options.freshTask,
+      workingDirectory: cwd,
+      gitContext: options.gitContext,
+      serverId: options.serverId,
+    })
+    const draft = new SessionDraft(this.defaultRunConfig, run)
+    if (options.worktreeRequested) {
+      draft.run.worktree = { baseBranch: draft.run.gitContext?.targetBranch ?? null }
+    }
+    draft.task = requestedTaskTarget(options, this.rootTaskIdFor(sourceId))
     draft.boundWorkId = options.workId ?? null
     this.sessionDrafts.set(draft.id, draft)
     return draft
@@ -1702,13 +1630,11 @@ export class WorkspaceContext {
     const draft = this.openSessionDraft({ worktreeRequested: true }, projectRoot)
     // Always branch off the project root, even when the source was itself inside
     // a worktree whose checkout the draft would otherwise inherit.
-    draft.run = { ...draft.run, gitContext: null }
+    draft.run.gitContext = null
+    draft.run.worktree = { baseBranch: null }
     const dir = draft.run.workingDirectory
     if (!dir || dir === '~') return
-    const refreshed = await this.environment.refresh(dir, { force: true })
-    void refreshed
-    const targetBranch = this.environment.statusFor(dir)?.targetBranch
-    if (targetBranch) draft.run = { ...draft.run, worktree: { baseBranch: targetBranch } }
+    await this.config.refreshSessionStartTarget(draft.id, dir, true)
   }
 
   /** Fork a session into a new tab. The fork inherits the transcript through the
@@ -1928,7 +1854,7 @@ export class WorkspaceContext {
     if (tabId === this.activeTabId) {
       const others = this.tabOrder.filter((id) => id !== tabId && this.tabs[id])
       if (others.length === 0) {
-        this.createTabFromDefaults()
+        this.openSessionDraft({ sourceId: tabId, via: 'click' })
       } else {
         const splitIdx = this.tabOrder.indexOf(tabId)
         this.selectTab(others.reduce((best, id) => {
@@ -1998,46 +1924,6 @@ export class WorkspaceContext {
     const paneId = this.splitChatPaneId
     if (paneId) this.router.closePane(paneId)
   }
-
-
-  private createTabFromDefaults(): string {
-    const workingDirectory = this.globalDefaults.workingDirectory
-    const inheritedWorktreePath = this.globalDefaults.gitContext?.worktreePath
-    const inheritedGitContext = gitCheckoutFromState(
-      this.environment.statusFor(inheritedWorktreePath ?? workingDirectory),
-      inheritedWorktreePath,
-      this.globalDefaults.gitContext?.repoRoot,
-    )
-    const session = makeSession(this.settings, {
-      run: {
-        serverId: this.fallbackServerId,
-        taskServerId: this.fallbackServerId,
-        workingDirectory,
-        gitContext: inheritedGitContext ? { ...inheritedGitContext } : null,
-        worktree: null,
-        modelConfig: { ...this.globalDefaults.modelConfig },
-        permissionMode: this.globalDefaults.permissionMode,
-      },
-    })
-    const tabId = uuid()
-    // Hand the tab-less composer off to the first tab, then reset it.
-    // The prompt written with no tab selected becomes this session's own.
-    session.prompt = this.activeInput
-    const tab = makeTab(session.id, { id: tabId })
-    this.activeInput = makePrompt()
-    this.sessions[session.id] = session
-    this.tabs[tab.id] = tab
-    this.addTabToOrder(tab.id)
-    this.setActiveTab(tab.id)
-    this.resetOverlays()
-    if (inheritedGitContext) {
-      this.config.applyGlobalStartTarget({ gitContext: null })
-    }
-    void this.environment.refreshEnvironment(this, { sourceId: tabId, worktreeRequested: false })
-    void this.refreshPluginCommands(workingDirectory)
-    return tabId
-  }
-
   closeTab(tabId: string, via: Via = 'click'): void {
     const serverId = this.sessionFor(tabId)?.run.serverId
     if (this.splitChatTabId === tabId) this.closeSplitPane()
@@ -2103,7 +1989,7 @@ export class WorkspaceContext {
    *  dedicated draft surface. The draft is created first so it inherits the
    *  session's project and run configuration before the tab is removed. */
   clearTabToDraft(tabId: string, via: Via = 'click'): void {
-    const draft = this.openSessionDraft({ via, sourceTabId: tabId })
+    const draft = this.openSessionDraft({ via, sourceId: tabId })
     this.clearTab(tabId)
     this.closeTab(tabId, via)
     // Closing a split tab also closes its pane. Reopen the inherited draft in
@@ -2307,10 +2193,8 @@ export class WorkspaceContext {
           : null,
       )
 
-    // The session must appear correctly grouped in the sidebar the moment the
-    // spinner clears, so land git identity (repoRoot + branch + worktree flag)
-    // and the transcript on the critical path — everything heavier streams in
-    // afterward without gating `loadingHistory`.
+    // Transcript display does not wait for git or task metadata. Each background
+    // result checks that this tab still owns the session before applying it.
     const worktreePath = isSolusWorktreePath(defaultDir) ? defaultDir : undefined
     const resumingSession = this.sessionFor(tabId)
     // Re-read the tab's session before applying anything: a concurrent resume
@@ -2322,38 +2206,21 @@ export class WorkspaceContext {
 
     try {
       const api = this.apiFor(tabId)
-      const [identity, transcript] = await Promise.all([
-        api.gitIdentity
-          ? api.gitIdentity(defaultDir).catch(() => null)
-          : Promise.resolve(null),
-        loadSessionTranscript(this, {
-          sessionId: stableSessionId,
-          loadPath: meta.projectPath || defaultDir,
-          displayCwd: workingDirectory,
-          provider,
-          ctx: this.ctxFor(tabId),
-          limit: RESTORED_TRANSCRIPT_LIMIT,
-        }),
-        this.tasksStore.ensureSessionBinding(stableSessionId, this.runFor(tabId)?.taskServerId).catch(() => null),
-      ])
+      const identityPending = api.gitIdentity
+        ? api.gitIdentity(defaultDir).catch(() => null)
+        : Promise.resolve(null)
+      void this.tasksStore.ensureSessionBinding(stableSessionId, this.runFor(tabId)?.taskServerId).catch(() => null)
+      const transcript = await loadSessionTranscript(this, {
+        sessionId: stableSessionId,
+        loadPath: meta.projectPath || defaultDir,
+        displayCwd: workingDirectory,
+        provider,
+        ctx: this.ctxFor(tabId),
+        limit: RESTORED_TRANSCRIPT_LIMIT,
+      })
 
       const session = currentResumeTarget()
       if (session) {
-        // `gitIdentity` returning null means non-git dir (or a worktree whose
-        // checkout is gone); `gitCheckoutFromState` yields null and the
-        // background worktree restore below applies the read-only fallback.
-        const gitContext = gitCheckoutFromState(identity, worktreePath)
-        session.run.gitContext = gitContext
-        if (gitContext) session.readOnlyReason = null
-        const guideIdentity = sessionGuideIdentity(session)
-        if (guideIdentity && (!background || !!intoTabId)) {
-          void reviewGuideStore.acknowledgeSessionGuide(
-            api,
-            this.serverIdFor(tabId),
-            this.ctxFor(tabId),
-            guideIdentity,
-          )
-        }
         // Paint before registering the environment: the transcript is in hand,
         // and nothing below changes what the conversation renders. Clearing the
         // spinner here rather than in the `finally` keeps a round trip the reader
@@ -2362,17 +2229,32 @@ export class WorkspaceContext {
         this.eventReducer.rebuildAgentConversations(session)
         session.progress = transcript.progress
         session.historyTruncated = transcript.truncated
+        session.historyCursor = transcript.before
+        session.historyPendingMessages = transcript.pendingMessages
         session.loadingHistory = false
-        // Through the store, so the full refresh below finds this checkout
-        // already registered rather than registering it again. A failure only
-        // delays cwd/git wiring for an immediate prompt; that refresh retries.
-        await this.environment.registerEnvironment(this, tabId, worktreePath ?? workingDirectory, gitContext)
+        requestConversationScrollToBottom(tabId)
 
-        // Everything below is off the critical path — a stale/failed step only
-        // means the git panel / changed files / plugins catch up a beat later.
         void (async () => {
+          const identity = await identityPending
+          const restoredSession = currentResumeTarget()
+          if (!restoredSession) return
+          // Changed files before the checkout: the session guide is probed from
+          // both, and settling the file set first means the probe fires once
+          // with the right revision instead of once empty and once again.
+          this.recomputeChangedFiles(tabId)
+          const gitContext = gitCheckoutFromState(identity, worktreePath)
+          restoredSession.run.gitContext = gitContext
+          if (gitContext) restoredSession.readOnlyReason = null
+          const guideIdentity = sessionGuideIdentity(restoredSession)
+          if (guideIdentity && (!background || !!intoTabId)) {
+            // Same identity as `trackSessionReviewGuides`, so the store answers
+            // both from one request.
+            void reviewGuideStore.acknowledgeSessionGuide(
+              api, this.serverIdFor(tabId), this.ctxFor(tabId), guideIdentity,
+            )
+          }
+          await this.environment.registerEnvironment(this, tabId, worktreePath ?? workingDirectory, gitContext)
           if (!currentResumeTarget()) return
-          const restoredSession = this.sessionFor(tabId)!
           let environmentRefresh: Promise<GitRefreshResult> | null = null
           // The identity read above already answers whether a worktree is still
           // there: a checkout means it is, null means its branch is gone.
@@ -2383,15 +2265,14 @@ export class WorkspaceContext {
             environmentRefresh = this.environment.refreshEnvironment(this, { sourceId: tabId, level: 'full' })
           }
 
-          this.recomputeChangedFiles(tabId)
           void this.refreshPluginCommands(workingDirectory, tabId)
           await Promise.all(transcript.planIds.map((planId) => this.planStore.hydrateAnnotations(planId)))
 
           if (environmentRefresh) await environmentRefresh
-          if (worktreePath && gitContext) {
+          if (worktreePath && gitContext && currentResumeTarget()) {
             await this.hydrateChangedFilesFromDiff(tabId)
           }
-        })()
+        })().catch((error) => console.warn("Session environment refresh failed", error))
       }
 
       // Joined here rather than beside the transcript: the conversation is
@@ -2405,7 +2286,6 @@ export class WorkspaceContext {
       if (session) session.loadingHistory = false
     }
 
-    requestConversationScrollToBottom(tabId)
     if (intoTabId) requestInputFocus({ tabId })
     track('session_resumed', {})
     return tabId
@@ -2799,17 +2679,16 @@ export class WorkspaceContext {
     tabId?: string,
     delivery: PromptDelivery = 'steer',
   ): boolean {
-    // The workspace seeds a composer at boot and after the last close, so this
-    // holds only in the window before that lands. It repairs the invariant
-    // rather than describing a second way to start a session.
-    if (!tabId && this.tabOrder.length === 0) {
-      const sessionStartTargetResolution = this.config.pendingSessionStartTarget()
-      if (sessionStartTargetResolution) {
-        void sessionStartTargetResolution.then(() => this.sendMessage(prompt, projectPath, tabId, delivery))
-        return true
-      }
-      this.createTabFromDefaults()
+    // A legacy caller can still send before the draft pane has promoted itself.
+    // Promote that same draft here; never mint a session from a second set of
+    // defaults, or this path would disagree with the visible composer.
+    const focusedSourceId = this.focusedSourceId
+    if (!tabId && focusedSourceId && this.sessionDrafts.has(focusedSourceId)) {
+      const targetTabId = this.startSessionDraft(focusedSourceId)
+      if (!targetTabId) return false
+      return this.sendMessage(prompt, projectPath, targetTabId, delivery)
     }
+    if (!tabId && this.tabOrder.length === 0) return false
     const targetTabId = tabId ?? this.activeTabId
     const tab = this.tabs[targetTabId]
     const session = this.sessionFor(targetTabId)
@@ -3267,7 +3146,7 @@ export class WorkspaceContext {
     if (paneId) this.router.closePane(paneId)
     else this.router.close('work')
 
-    if (this.tabOrder.some((tabId) => !!this.tabs[tabId])) {
+    if (this.hasOpenTabs()) {
       requestInputFocus()
       return
     }
@@ -4014,8 +3893,8 @@ export class WorkspaceContext {
     })
 
     // A web link can name a PR outside the repositories this client can read.
-    // Only that case probes the exact review target before changing panes: the
-    // host request costs seconds, so every in-app surface enters the route
+    // URL-backed navigation probes the exact review target before changing panes.
+    // The host request costs seconds, so number-only navigation enters the route
     // immediately and lets the pane fill in place. The router keeps a
     // successful result, so opening the pane does not repeat the request; a
     // failure stays invisible and opens the original URL instead.
@@ -4235,7 +4114,7 @@ export class WorkspaceContext {
    */
   openRoute(
     ref: RouteRef,
-    opts: { via?: Via; target?: NavTarget; sourceUrl?: string } = {},
+    opts: { via?: Via; target?: NavTarget; sourceUrl?: string; tab?: PrReviewTab } = {},
   ): void {
     switch (ref.name) {
       case 'plan':
@@ -4264,10 +4143,10 @@ export class WorkspaceContext {
           expectedRepo: ref.params.expectedRepo,
           url: opts.sourceUrl,
         }, {
-          // A web link in a transcript can name a repository this client cannot
-          // read. It is the one caller that waits for the host answer before it
-          // moves any pane, so an unreadable PR just opens in the browser.
+          // URL-backed PRs, from a transcript or task menu, check access before
+          // moving a pane so an unreadable PR opens in the browser instead.
           preflight: opts.sourceUrl !== undefined,
+          tab: opts.tab,
           via: opts.via,
           target: opts.target,
           serverId: ref.params.serverId,
@@ -4355,11 +4234,14 @@ export class WorkspaceContext {
     })
   }
 
-  openFilePreview(file: FilePreviewRequest, sourceId: string, sourcePaneId?: PaneId): void {
+  openFileInFiles(file: FilePreviewRequest, sourceId: string, sourcePaneId?: PaneId): void {
+    const run = this.runFor(sourceId)
+    const environment = this.environment.environmentFor(run)
+    if (!environment.cwd || environment.cwd === '~') return
     this.showViewer(
       {
-        name: 'fileEditor',
-        params: { sourceId, path: file.path, line: file.line },
+        name: 'files',
+        params: { serverId: this.serverIdForRun(run), cwd: environment.cwd, path: file.path, line: file.line },
       },
       sourcePaneId ? this.router.targetAcrossFrom(sourcePaneId) : 'aside',
     )

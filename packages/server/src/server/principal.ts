@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { hostKindSchema, organizationRoleSchema, type HostKind } from '@solus/contracts/uplink'
-import { HOST_OWNER_USER_ID, shareResourceSchema, shareRoleSchema } from '@solus/contracts/sharing'
+import { HOST_OWNER_USER_ID, shareResourceSchema, shareRoleSchema, type ShareResource, type ShareRole } from '@solus/contracts/sharing'
 import type { VerifiedWsTicket } from './auth'
 
 /**
@@ -51,7 +51,8 @@ export type Principal =
       displayName: string
       /** The guestId: what the transport keys the client on. */
       deviceId: string
-      share: { resource: { kind: 'session' | 'work'; id: string }; role: 'viewer' | 'editor'; sharedByUserId: string; linkSecretHash: string }
+      /** A task resource reaches the task page and everything linked to it. */
+      share: { resource: ShareResource; role: ShareRole; sharedByUserId: string; linkSecretHash: string }
       expiresAt: number
       deviceLabel: string
     }

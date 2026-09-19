@@ -87,18 +87,37 @@ describe('host config', () => {
     expect(parsed.fontSize).toBe(14)
   })
 
-  test('permission and background-toast defaults preserve existing behavior', () => {
+  test('permission and notification defaults preserve existing behavior', () => {
+    // Before preferences existed the sound and system alert were on and the
+    // background toast was off; an upgrade must not change what a user hears.
     expect(DEFAULT_HOST_CONFIG.defaultPermissionMode).toBe('auto')
-    expect(DEFAULT_HOST_CONFIG.backgroundActivityToasts).toBe(false)
+    expect(DEFAULT_HOST_CONFIG.notifications.channels).toEqual({ sound: true, toast: false, system: true })
+    expect(Object.values(DEFAULT_HOST_CONFIG.notifications.events).every(Boolean)).toBe(true)
     expect(hostConfigPatchSchema.parse({ defaultPermissionMode: 'invalid' }).defaultPermissionMode).toBe('auto')
   })
 
-  test('permission and background-toast choices are saved on the host', () => {
-    settings.setHostConfig({ defaultPermissionMode: 'plan', backgroundActivityToasts: true })
+  test('permission and notification choices are saved on the host', () => {
+    settings.setHostConfig({ defaultPermissionMode: 'plan', notifications: { channels: { toast: true } } })
     settings.setHostConfig({ fontSize: 14 })
     const persisted = JSON.parse(readFileSync(join(dataDir, 'server-settings.json'), 'utf-8'))
     expect(persisted.hostConfig.defaultPermissionMode).toBe('plan')
-    expect(persisted.hostConfig.backgroundActivityToasts).toBe(true)
+    expect(persisted.hostConfig.notifications.channels.toast).toBe(true)
+  })
+
+  test('one notification switch does not reset the others', () => {
+    // The Notifications page sends the one flag it moved. Replacing the whole
+    // object would turn every other event back on.
+    settings.setHostConfig({ notifications: { events: { turn_finished: false } } })
+    const after = settings.setHostConfig({ notifications: { channels: { sound: false } } }).config.notifications
+
+    expect(after.events.turn_finished).toBe(false)
+    expect(after.channels.sound).toBe(false)
+    expect(after.channels.system).toBe(true)
+  })
+
+  test('a malformed notification patch heals to no change', () => {
+    const parsed = hostConfigPatchSchema.parse({ notifications: { channels: { sound: 'loud' } } })
+    expect(parsed.notifications).toEqual({})
   })
 
   test('config survives a host restart', async () => {

@@ -231,10 +231,10 @@
       </Table.Header>
       <!-- The app disables selection at the root, so the rows opt back in: a
            reader must be able to drag a prompt or an id out of the table. -->
-      <Table.Body class="select-text">
+      <Table.Body zebra class="select-text">
         {#each dataTable.getRowModel().rows as row (row.original.spanId ?? `${row.original.startedAt}:${row.id}`)}
           <Table.Row
-            class="h-10 border-0 outline-none shadow-[inset_0_-0.5px_0_var(--hairline)] transition-[background-color,box-shadow] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)] focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) {row.original.traceId != null ? 'cursor-pointer' : ''}"
+            class="h-10 border-0 outline-none focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-(--primary) {row.original.traceId != null ? 'cursor-pointer' : ''}"
             tabindex={row.original.traceId != null ? 0 : undefined}
             title={row.original.traceId != null ? "Open this span in its turn's waterfall" : undefined}
             onclick={() => open(row.original)}

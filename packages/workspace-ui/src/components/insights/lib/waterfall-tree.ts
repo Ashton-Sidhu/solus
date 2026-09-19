@@ -272,13 +272,15 @@ export interface LineActivation {
  * A line that draws a disclosure caret opens on a click, whether it is a lane
  * or a span with children: `setup` folds its dispatch steps exactly as a lane
  * folds its members, and a caret that answers only to the arrow keys is a
- * control the reader cannot find. A span opens its detail in the same click,
- * because a span is a measurement as well as a parent; a lane has no detail of
- * its own, so it only opens.
+ * control the reader cannot find. A fold is all such a line does: `setup` is a
+ * container for the steps under it, and a dock that opens on the container
+ * says only what its children say better. Only a leaf span — the measurement
+ * itself — opens its detail.
  */
 export function activation(line: WaterfallLine): LineActivation {
   if (line.type === 'group') return { toggleId: line.id, selectSpanId: null }
-  return { toggleId: line.expandable ? line.id : null, selectSpanId: line.row.spanId }
+  if (line.expandable) return { toggleId: line.id, selectSpanId: null }
+  return { toggleId: null, selectSpanId: line.row.spanId }
 }
 
 /** Every id that can open. What "Expand all" sets. The turn root is not one:

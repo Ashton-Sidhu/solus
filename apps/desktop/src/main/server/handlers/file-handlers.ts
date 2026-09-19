@@ -505,7 +505,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
       : process.cwd()
     const command = buildAgentTerminalCommand(agentId, agentBin, sessionId)
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
-    const launcher = launchInTerminal({ command, fallbackTerminalId, cwd: projectPath })
+    const launcher = await launchInTerminal({ command, fallbackTerminalId, cwd: projectPath })
     deps.hideAppWindow()
     return launcher
   })
@@ -518,7 +518,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
 
     const shellPath = process.env.SHELL || '/bin/zsh'
     const fallbackTerminalId = ctx.settings.fallbackTerminal ?? 'default-terminal'
-    const launcher = launchInTerminal({
+    const launcher = await launchInTerminal({
       command: `exec ${shellQuote(shellPath)} -l`,
       fallbackTerminalId,
       cwd: targetPath,
@@ -604,7 +604,7 @@ export function registerFileHandlers(server: SolusServer, deps: FileDeps): void 
     const escapedPaths = filePaths.map(p => `"${p.replace(/"/g, '\\"')}"`)
     const command = [app.bin, ...(app.args ?? []), ...escapedPaths].join(' ')
 
-    const launched = launchInTerminal({ command, fallbackTerminalId: fallbackTerminalId || 'default-terminal', cwd })
+    const launched = await launchInTerminal({ command, fallbackTerminalId: fallbackTerminalId || 'default-terminal', cwd })
     deps.hideAppWindow()
     return launched
   })

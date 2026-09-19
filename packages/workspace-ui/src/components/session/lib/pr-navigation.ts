@@ -1,27 +1,27 @@
-export interface PrNavigationTargetInput {
-  /** The host this client uses for its normal RPC surface. */
-  clientServerId: string
-  projectDirectory: string
-  /** Competing host identities are explicit so this policy cannot drift back to
-   * either task ownership or attempt execution. */
-  taskServerId: string | null
-  attemptServerId: string | null
+import { routeForHref } from '../../../lib/agent-links'
+import type { RouteRef } from '../../../contexts/workspace/routing/route-registry'
+import type { TaskPrChoice } from './task-list'
+
+interface TaskPrNavigation {
+  route: RouteRef<'prReview'>
+  sourceUrl: string | undefined
 }
 
-export interface PrNavigationTarget {
-  serverId: string
-  projectDirectory: string
-  paneTarget: 'aside'
-}
-
-/**
- * A PR chip is client navigation. Task ownership and execution placement must
- * not move that surface to another host.
- */
-export function prNavigationTarget(input: PrNavigationTargetInput): PrNavigationTarget {
+/** Task choices use the same URL identity and current workspace as transcript links.
+ * Number-only choices can still open, but cannot supply a browser fallback. */
+export function taskPrNavigation(choice: TaskPrChoice): TaskPrNavigation {
+  const sourceUrl = choice.url || choice.pullRequest?.url || undefined
+  const title = choice.pullRequest?.title || choice.title
+  const linkRoute = sourceUrl ? routeForHref(sourceUrl, { title }) : null
   return {
-    serverId: input.clientServerId,
-    projectDirectory: input.projectDirectory,
-    paneTarget: 'aside',
+    route: linkRoute?.name === 'prReview' ? linkRoute : {
+      name: 'prReview',
+      params: {
+        number: choice.number,
+        title,
+        expectedRepo: choice.pullRequest?.baseRepo,
+      },
+    },
+    sourceUrl,
   }
 }

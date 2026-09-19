@@ -884,7 +884,12 @@ describe('session minting and durable links', () => {
     expect((await taskSessions.taskSessions(task!.id))[task!.id]).toHaveLength(1)
   })
 
-  test('task attempts read session metadata through the stable lineage id', async () => {
+  test.each([
+    ['claude', 'claude-code'],
+    ['claude-code', 'claude-code'],
+    ['codex', 'codex'],
+    ['opencode', 'opencode'],
+  ])('task attempts normalize stored %s metadata through the stable lineage id', async (storedProvider, provider) => {
     const task = await taskSessions.prepareSessionTask({
       sessionId: 'stable-session',
       projectKey: '/workspace/solus',
@@ -893,20 +898,23 @@ describe('session minting and durable links', () => {
     db.getDb().prepare(`
       INSERT INTO sessions(session_id, provider, first_message, custom_title, last_timestamp)
       VALUES (?, ?, ?, ?, ?)
-    `).run('provider-session', 'codex', 'First provider message', 'Provider session title', 1_725_000_000_000)
+    `).run('provider-session', storedProvider, 'First provider message', 'Provider session title', 1_725_000_000_000)
     db.getDb().prepare(`
       INSERT INTO session_lineage_members(
         session_id, position, provider, provider_session_id, cwd, started_at, ended_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run('stable-session', 0, 'codex', 'provider-session', '/workspace/solus', 1, null, 1)
+    `).run('stable-session', 0, provider, 'provider-session', '/workspace/solus', 1, null, 1)
 
     expect((await taskSessions.taskSessions(task!.id))[task!.id]).toEqual([
       expect.objectContaining({
         sessionId: 'stable-session',
         sessionTitle: 'Provider session title',
-        provider: 'codex',
+        provider,
       }),
     ])
+    // A stored Claude name must not block the snapshot for every task.
+    const { readTaskSidebarSnapshot } = await import('@solus/server/tasks/task-sidebar')
+    expect(readTaskSidebarSnapshot().sessionsByTask[task!.id][0].provider).toBe(provider)
   })
 
   test('performs no write for any dispatch with an existing provider session', async () => {
@@ -1166,7 +1174,7 @@ describe('session minting and durable links', () => {
     // indistinguishable from one that ran here, and every closed-session row
     // reads as local.
     await bag.linkSession('dispatched-session', 'working', {
-      execution: { serverId: 'studio', provider: 'claude', projectRoot: '/repo' },
+      execution: { serverId: 'studio', provider: 'claude-code', projectRoot: '/repo' },
     })
     await bag.linkSession('local-session', 'working', { execution: null })
     // Re-linking carries no host — it must not erase the one already recorded.
@@ -1191,7 +1199,7 @@ describe('session minting and durable links', () => {
     const first = await taskStore.createTask({ title: 'Dispatched task' })
     const second = await taskStore.createTask({ title: 'Task that references it' })
     await (await tasks.Task.byId(first.id)).linkSession('shared-session', 'working', {
-      execution: { serverId: 'studio', provider: 'claude', projectRoot: '/repo' },
+      execution: { serverId: 'studio', provider: 'claude-code', projectRoot: '/repo' },
     })
     await (await tasks.Task.byId(second.id)).linkSession('shared-session', 'referenced')
 
@@ -1201,7 +1209,7 @@ describe('session minting and durable links', () => {
     ])
     // The stub session row also carries the agent, so the task's host can name
     // it without ever holding the transcript.
-    expect(links[first.id][0].provider).toBe('claude')
+    expect(links[first.id][0].provider).toBe('claude-code')
   })
 })
 

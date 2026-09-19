@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { NumberedPrChecksSummary } from '@solus/contracts/checks-rpc-types'
-import type { PullRequest, PullRequestOverview, RepoRef } from '@solus/contracts/providers'
+import type { PullRequest, RepoRef } from '@solus/contracts/providers'
 import type { Provider } from '@solus/server/providers/types'
 import { PrIndex } from '@solus/server/prs/pr-index'
 
@@ -9,7 +9,6 @@ const otherRepo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'other' }
 
 interface Calls {
   getPullRequest: number
-  getPullRequestOverview: number
   listCommits: number
   listPullRequestsPage: number
   listPullRequestFileStats: number
@@ -28,7 +27,6 @@ function checksFor(number: number, inFlight: boolean): NumberedPrChecksSummary {
 function fakeProvider(viewer = 'alice', gate?: Promise<void>): { provider: Provider; calls: Calls; headSha: { value: string } } {
   const calls: Calls = {
     getPullRequest: 0,
-    getPullRequestOverview: 0,
     listCommits: 0,
     listPullRequestsPage: 0,
     listPullRequestFileStats: 0,
@@ -41,14 +39,11 @@ function fakeProvider(viewer = 'alice', gate?: Promise<void>): { provider: Provi
       if (gate) await gate
       return pullRequestFor(number, headSha.value)
     },
-    getPullRequestOverview: async (_repo: RepoRef, number: number): Promise<PullRequestOverview> => {
-      calls.getPullRequestOverview += 1
-      return { pullRequest: pullRequestFor(number), commits: [], reviewers: [] } as unknown as PullRequestOverview
-    },
     listCommits: async () => {
       calls.listCommits += 1
       return []
     },
+    listReviewers: async () => [],
     listPullRequestsPage: async () => {
       calls.listPullRequestsPage += 1
       return { items: [], page: 1, hasMore: false }
@@ -161,19 +156,22 @@ describe('PrIndex', () => {
     expect(index.pullRequest(repo, provider, 7).checks()?.summary.inFlight).toBe(true)
   })
 
-  test('an overview seeds the fields it carries', async () => {
+  test('an overview reuses the pull request the page was opened with', async () => {
+    // WHY: opening a review reads the pull request fresh, then asks for its
+    // overview a moment later. Reading the overview as its own unit cost the
+    // host the same pull request a second time — three requests, with the
+    // branch rules and approval query each read carries.
     const index = new PrIndex()
     const { provider, calls } = fakeProvider()
 
     const pullRequest = index.pullRequest(repo, provider, 7)
+    await pullRequest.readFresh()
     await pullRequest.overview()
     await pullRequest.commits()
     await pullRequest.read()
 
-    expect(calls.getPullRequestOverview).toBe(1)
-    // Both arrived inside the overview, so neither costs a second request.
-    expect(calls.listCommits).toBe(0)
-    expect(calls.getPullRequest).toBe(0)
+    expect(calls.getPullRequest).toBe(1)
+    expect(calls.listCommits).toBe(1)
   })
 
   test('invalidating after a write sends the next read back to the host', async () => {
@@ -181,14 +179,14 @@ describe('PrIndex', () => {
     const { provider, calls } = fakeProvider()
 
     await index.pullRequest(repo, provider, 7).read()
-    await index.list(repo, provider, { state: 'open' }, 1)
+    await index.list(repo, provider, 'alice', { state: 'open' }, 1)
     expect(calls.getPullRequest).toBe(1)
     expect(calls.listPullRequestsPage).toBe(1)
 
     index.invalidate(repo)
 
     await index.pullRequest(repo, provider, 7).read()
-    await index.list(repo, provider, { state: 'open' }, 1)
+    await index.list(repo, provider, 'alice', { state: 'open' }, 1)
     expect(calls.getPullRequest).toBe(2)
     expect(calls.listPullRequestsPage).toBe(2)
   })

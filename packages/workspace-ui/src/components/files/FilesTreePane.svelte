@@ -22,6 +22,7 @@
     {api}
     {ctx}
     cwd={params.cwd}
+    requestedFile={params}
     isDark={session.settings.isDark}
     bordered={!pane.isLeading}
     onClose={pane.closeOverlay}

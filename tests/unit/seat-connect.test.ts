@@ -46,7 +46,7 @@ function harness(verified = true) {
   seats.onChanged((event) => events.push({ state: event.state, error: event.error }))
   const connector = new SeatConnector({
     seats,
-    verifyLogin: () => verified,
+    verifyLogin: async () => verified,
     spawnProcess: (command, args, options) => {
       const child = new FakeChild()
       spawned.push({ command, args, env: (options?.env ?? {}) as NodeJS.ProcessEnv, cwd: options?.cwd as string | undefined, child })
@@ -69,7 +69,7 @@ describe('SeatConnector', () => {
       expect(spawn?.env.CLAUDE_CONFIG_DIR).toBe(seats.homeFor('bob', 'claude-code'))
       expect(spawn?.env.PATH?.startsWith(seats.shimBinDir())).toBe(true)
       expect(spawn?.env.ANTHROPIC_API_KEY).toBeUndefined()
-      expect(seats.status('bob', 'claude-code').state).toBe('connecting')
+      expect((await seats.status('bob', 'claude-code')).state).toBe('connecting')
       spawn!.child.stdout.emit('data', 'Browser didn\'t open, visit: https://claude.ai/oauth/authorize?code=true\nPaste code here if prompted > ')
       const result = await started
       expect(result).toEqual({ verificationUrl: 'https://claude.ai/oauth/authorize?code=true', requiresCodeInput: true })
@@ -77,7 +77,7 @@ describe('SeatConnector', () => {
       expect(spawn!.child.stdinWrites).toEqual(['abc-123\n'])
       spawn!.child.emit('close', 0, null)
       await new Promise((resolve) => setTimeout(resolve, 0))
-      expect(seats.status('bob', 'claude-code')).toMatchObject({ state: 'connected', method: 'login' })
+      expect(await seats.status('bob', 'claude-code')).toMatchObject({ state: 'connected', method: 'login' })
     } finally {
       delete process.env.ANTHROPIC_API_KEY
     }
@@ -95,7 +95,7 @@ describe('SeatConnector', () => {
     expect(result).toEqual({ verificationUrl: 'https://auth.openai.com/codex/device', userCode: 'ABCD-EFGH', requiresCodeInput: false })
     spawn!.child.emit('close', 0, null)
     await new Promise((resolve) => setTimeout(resolve, 0))
-    expect(seats.status('bob', 'codex').state).toBe('none')
+    expect((await seats.status('bob', 'codex')).state).toBe('none')
     // The reason rides the event to the member's client; a seat that never was has no row to keep it on.
     expect(events.at(-1)).toMatchObject({ state: 'none', error: expect.stringMatching(/no credential was saved/) })
   })
@@ -105,7 +105,7 @@ describe('SeatConnector', () => {
     const probed: Array<string | null> = []
     const owner = new SeatConnector({
       seats: (connector as unknown as { deps: { seats: SeatManager } }).deps.seats,
-      verifyLogin: (_provider, home) => { probed.push(home); return true },
+      verifyLogin: async (_provider, home) => { probed.push(home); return true },
       spawnProcess: (command, args, options) => {
         const child = new FakeChild()
         spawned.push({ command, args, env: (options?.env ?? {}) as NodeJS.ProcessEnv, cwd: options?.cwd as string | undefined, child })
@@ -131,7 +131,7 @@ describe('SeatConnector', () => {
     spawned[0]!.child.stdout.emit('data', 'network is down\n')
     spawned[0]!.child.emit('close', 1, null)
     await expect(started).rejects.toThrow(/exited with code 1/)
-    expect(seats.status('bob', 'codex').state).toBe('none')
+    expect((await seats.status('bob', 'codex')).state).toBe('none')
 
     const second = connector.start('bob', 'codex')
     await new Promise((resolve) => setTimeout(resolve, 0))

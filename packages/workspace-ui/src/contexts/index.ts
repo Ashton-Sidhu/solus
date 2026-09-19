@@ -97,6 +97,7 @@ export { connectRequestStore } from './connections/connect-request.store.svelte'
 export type { ConnectRequest } from './connections/connect-request.store.svelte'
 /** Provider seats: a member's own Claude and Codex logins on a shared host. */
 export { seatsStore, seatProviderOf, SeatConnectCancelled } from './seats/seats.store.svelte'
+export { presenceStore } from './presence/presence.store.svelte'
 export type { SeatRequest } from './seats/seats.store.svelte'
 
 /** Session sidebar navigation and historical-session loading. */

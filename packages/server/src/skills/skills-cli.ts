@@ -8,12 +8,16 @@
  */
 
 import { execFile } from 'child_process'
+import { mkdtemp, rm } from 'fs/promises'
+import { tmpdir } from 'os'
+import { join } from 'path'
 import { promisify } from 'util'
 import { getCliEnv } from '../cli-env'
 import { createLogger } from '../logger'
 import { captureServerEvent } from '../analytics'
 import type { AgentId, RemoteSkill, SkillInstallResult } from '@solus/contracts/types'
 import { z } from 'zod'
+import type { SkillListResult, SkillRemoveResult } from '@solus/contracts/skill-types'
 
 const execFileAsync = promisify(execFile)
 const log = createLogger('skills', 'skills-cli.ts')
@@ -24,6 +28,22 @@ const BASE_ARGS = ['-y', 'skills']
 const CLI_TIMEOUT_MS = 120_000
 const SEARCH_API = 'https://skills.sh/api/search'
 const SEARCH_LIMIT = 20
+
+/** Keep npm's project discovery out of the server's working directory. */
+async function runGlobalSkills(args: string[]): Promise<string> {
+  const cwd = await mkdtemp(join(tmpdir(), 'solus-skills-'))
+  try {
+    const { stdout } = await execFileAsync(NPX, [...BASE_ARGS, ...args], {
+      cwd,
+      env: getCliEnv({ DISABLE_TELEMETRY: '1' }),
+      timeout: CLI_TIMEOUT_MS,
+      maxBuffer: 4 * 1024 * 1024,
+    })
+    return stdout
+  } finally {
+    await rm(cwd, { recursive: true, force: true })
+  }
+}
 
 // eslint-disable-next-line no-control-regex
 const ANSI = /\x1b\[[0-9;]*m/g
@@ -36,7 +56,16 @@ const skillSearchSchema = z.object({
     source: z.string(),
   })),
 })
-const installedSkillSchema = z.array(z.object({ name: z.string().optional() }))
+const installedSkillSchema = z.array(z.object({
+  name: z.string().min(1),
+  path: z.string(),
+  agents: z.array(z.string()),
+  source: z.string().nullable().optional().transform((value) => value ?? null),
+}))
+
+// CLI options, paths, and control characters cannot identify one global skill.
+// eslint-disable-next-line no-control-regex
+const removableSkillName = z.string().min(1).max(255).regex(/^[^-\s/\\][^/\\\x00-\x1f]*$/).refine((name) => name !== '.' && name !== '..')
 
 function errorMessage(error: Parameters<typeof String>[0]): string {
   return error instanceof Error ? error.message : String(error)
@@ -51,7 +80,7 @@ function formatInstalls(count: number): string | undefined {
 
 /**
  * Searches the registry API directly.
- * Returns [] for blank queries, no matches, or request failure — never throws.
+ * Returns [] for blank queries or no matches. Request failures reach the inline error state.
  */
 export async function searchSkills(query: string): Promise<RemoteSkill[]> {
   const q = query.trim()
@@ -75,32 +104,43 @@ export async function searchSkills(query: string): Promise<RemoteSkill[]> {
       }))
   } catch (err) {
     log.warn('skills_search_failed', { query: q, error: errorMessage(err) })
-    return []
+    throw new Error('Could not search skills.sh. Try again.')
   }
 }
 
-/**
- * Returns the names of globally-installed skills via `skills list -g --json`.
- * Used to mark search results that are already installed. Never throws.
- */
-export async function listInstalledSkillNames(): Promise<string[]> {
-  let stdout: string
+/** A failed list must not appear as an empty installation. */
+export async function listInstalledSkills(): Promise<SkillListResult> {
   try {
-    ;({ stdout } = await execFileAsync(NPX, [...BASE_ARGS, 'list', '-g', '--json'], {
-      env: getCliEnv({ DISABLE_TELEMETRY: '1' }),
-      timeout: CLI_TIMEOUT_MS,
-      maxBuffer: 4 * 1024 * 1024,
-    }))
+    const stdout = await runGlobalSkills(['list', '-g', '--json'])
+    const skills = installedSkillSchema.parse(JSON.parse(stdout.replace(ANSI, '')))
+    return { ok: true, skills }
   } catch (err) {
     log.warn('skills_list_failed', { error: errorMessage(err) })
-    return []
+    return { ok: false, error: 'Could not load global skills. Try again.' }
   }
+}
 
+/** Remove only a listed global skill; never accept CLI flags or path arguments. */
+export async function removeSkill(name: string): Promise<SkillRemoveResult> {
+  const parsed = removableSkillName.safeParse(name)
+  if (!parsed.success) return { ok: false, error: 'Invalid skill name.' }
+  const installed = await listInstalledSkills()
+  if (!installed.ok) return installed
+  if (!installed.skills.some((skill) => skill.name === name)) {
+    return { ok: false, error: 'This global skill is no longer installed. Refresh the list.' }
+  }
   try {
-    const parsed = installedSkillSchema.parse(JSON.parse(stdout.replace(ANSI, '')))
-    return parsed.map((s) => s.name).filter((n): n is string => !!n)
-  } catch {
-    return []
+    await runGlobalSkills(['remove', name, '-g', '-y'])
+    // The CLI can report a partial failure with exit code zero. Verify the result.
+    const remaining = await listInstalledSkills()
+    if (!remaining.ok) return remaining
+    if (remaining.skills.some((skill) => skill.name === name)) {
+      return { ok: false, error: 'The skill could not be removed from every agent. Refresh the list and try again.' }
+    }
+    return { ok: true }
+  } catch (err) {
+    log.warn('skill_remove_failed', { skillName: name, error: errorMessage(err) })
+    return { ok: false, error: 'Could not remove the global skill. Try again.' }
   }
 }
 
@@ -116,11 +156,7 @@ export async function installSkill(id: string, agentIds: AgentId[]): Promise<Ski
   log.info('skill_install_started', { skillId: id, agentIds })
 
   try {
-    await execFileAsync(NPX, [...BASE_ARGS, 'add', id, '-g', '-y', ...agentArgs], {
-      env: getCliEnv({ DISABLE_TELEMETRY: '1' }),
-      timeout: CLI_TIMEOUT_MS,
-      maxBuffer: 4 * 1024 * 1024,
-    })
+    await runGlobalSkills(['add', id, '-g', '-y', ...agentArgs])
     log.info('skill_installed', { skillId: id })
     captureServerEvent('skill_installed', {})
     return { ok: true, agents: agentIds }

@@ -21,6 +21,28 @@ function fixture() {
   return { service, calls, published, advance: () => { now += 60_000 }, upgrade: () => { installed = '2.0.0' }, fail: () => { failClaude = true } }
 }
 
+test('a cloud host never checks: the control plane replaces its image, so there is nothing to announce', async () => {
+  // WHY: a "Solus 2.0 is available" notice on a host nobody can update from a
+  // client is noise; the host page says who keeps it current instead.
+  const calls: string[] = []
+  const published: HostUpdateStatus[] = []
+  const service = new UpdateStatusService({
+    currentVersion: '1.0.0', install: 'cloud',
+    latest: async (target) => { calls.push(target); return { version: '2.0.0', url: 'https://example.com/release' } },
+    providerVersion: async () => '1.0.0',
+    publish: (status) => { published.push(status) },
+  })
+  service.start()
+  const status = await service.check()
+  // Adding a provider on the host is the one path that used to check outside the schedule.
+  await service.providerInstalled('codex')
+  expect(calls).toEqual([])
+  expect(published).toEqual([])
+  expect(status.check).toEqual({ kind: 'idle', reason: 'Kept up to date by Solus cloud.' })
+  expect(status.providers.every((provider) => provider.check.kind === 'idle')).toBe(true)
+  service.stop()
+})
+
 test('one client cannot trigger repeated registry requests inside one minute', async () => {
   const f = fixture()
   await Promise.all([f.service.check(), f.service.check()])

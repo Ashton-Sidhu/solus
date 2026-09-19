@@ -15,6 +15,7 @@ import type {
 } from '@solus/contracts/task-types'
 import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
 import type { TaskSyncAdapter } from '@solus/server/tasks/adapters/types'
+import type { MergedPullRequestCompletion } from '@solus/server/tasks/sync-engine'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 mock.module('@solus/server/tasks/adapters/registry', () => ({
@@ -200,6 +201,11 @@ const PR_URL = (number: number) => `https://github.com/owner/repo/pull/${number}
  *  rather than read, so completion is exercised without a code host. */
 const neverMerged = async () => false
 const alwaysMerged = async () => true
+/** A merge that landed after everything the tests do to the task, under no
+ *  running session — the ordinary case each completion test starts from. */
+function mergedNow(overrides: Partial<MergedPullRequestCompletion> = {}): MergedPullRequestCompletion {
+  return { mergedAt: new Date(Date.now() + 60_000).toISOString(), isSessionBusy: () => false, ...overrides }
+}
 
 async function linkedTask() {
   const created = await taskStore.createTask({
@@ -501,10 +507,48 @@ describe('task sync engine', () => {
     await task.update({ projectKey: projectRoot, status: 'todo' })
     await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
 
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, neverMerged))
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
       .toEqual([task.id])
     expect((await tasks.Task.byId(task.id)).status).toBe('done')
     expect(syncStore.externalLinkForTask(task.id)?.dirtyFields).toContain('status')
+  })
+
+  test('leaves a task alone that was touched after its pull request merged', async () => {
+    // WHY: a task moved, edited or resumed after the merge landed is a newer
+    // decision than the merge. The reconciler re-asks every poll from the same
+    // cached answer, so without this the user's reopen would be undone within
+    // the minute — the rule the sidebar used to hold on its own.
+    const task = await linkedTask()
+    const projectRoot = process.cwd()
+    await task.update({ projectKey: projectRoot, status: 'todo' })
+    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
+    const mergedBeforeTouch = new Date(Date.now() - 60_000).toISOString()
+
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ mergedAt: mergedBeforeTouch })))
+      .toEqual([])
+    expect((await tasks.Task.byId(task.id)).status).toBe('todo')
+  })
+
+  test('waits while a session working on the task is still busy', async () => {
+    // WHY: the merge landed under an agent that is still mid-turn on this task.
+    // Closing the card now hides live work; the next poll asks again once the
+    // session settles. A merely referenced session does not hold the task.
+    const task = await linkedTask()
+    const projectRoot = process.cwd()
+    await task.update({ projectKey: projectRoot, status: 'in_progress' })
+    await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
+    await task.linkSession('working-session', 'working', {})
+    await task.linkSession('referenced-session', 'referenced', {})
+
+    const busy = new Set(['working-session'])
+    const completion = mergedNow({ isSessionBusy: (sessionId) => busy.has(sessionId) })
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, completion)).toEqual([])
+    expect((await tasks.Task.byId(task.id)).status).toBe('in_progress')
+
+    busy.clear()
+    busy.add('referenced-session')
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, completion)).toEqual([task.id])
+    expect((await tasks.Task.byId(task.id)).status).toBe('done')
   })
 
   test('uses each linked task project setting and does not complete another repository', async () => {
@@ -518,7 +562,7 @@ describe('task sync engine', () => {
     const enabled = await taskStore.createTask({ title: 'Automatic completion', projectKey: dataDir })
     await (await tasks.Task.byId(enabled.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: PR_URL(17) })
 
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, alwaysMerged)).toEqual([enabled.id])
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ isMerged: alwaysMerged }))).toEqual([enabled.id])
     expect((await tasks.Task.byId(disabled.id)).status).toBe('todo')
     expect((await tasks.Task.byId(other.id)).status).toBe('todo')
   })
@@ -531,12 +575,12 @@ describe('task sync engine', () => {
     await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
     await task.linkPullRequest({ number: 18, targetScope: projectRoot, url: PR_URL(18) })
 
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, neverMerged))
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
       .toEqual([])
     expect((await tasks.Task.byId(task.id)).status).toBe('in_review')
 
     // #18 merges too, and the task has nothing left outstanding.
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 18, alwaysMerged))
+    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 18, mergedNow({ isMerged: alwaysMerged })))
       .toEqual([task.id])
     expect((await tasks.Task.byId(task.id)).status).toBe('done')
   })

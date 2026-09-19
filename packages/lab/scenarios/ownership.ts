@@ -1,12 +1,12 @@
 import { expectOk, expectRefused, scenario } from '../src/scenario'
 import { checkNoLocalOwnerOnManaged, checkOwnership } from '../src/oracle'
-import { PERSONAS } from '../src/personas'
+import { ORGANIZATION_ID, PERSONAS } from '../src/personas'
 
 /**
  * Phase 1 exit (plan §9, §3.4 ownership): the creator owns a resource, sessions
- * included; only the owner transfers or deletes; every member of the organization
- * is an editor on it (full visibility, decision 2026-09-15); a managed host has no
- * owner person.
+ * included; only the owner transfers or deletes; a member is an editor through the
+ * organization row (a managed host starts a resource with one, a personal host
+ * needs the owner to share; decision 2026-09-16); a managed host has no owner person.
  */
 export default scenario('ownership: the creator owns a work and a session; transfer is the owner\'s alone', async (ctx) => {
   const alice = await ctx.as('alice')
@@ -15,9 +15,12 @@ export default scenario('ownership: the creator owns a work and a session; trans
   const bobUserId = PERSONAS.bob.kind === 'org-member' ? PERSONAS.bob.userId : ''
   const caraUserId = PERSONAS.cara.kind === 'org-member' ? PERSONAS.cara.userId : ''
 
-  ctx.step('bob creates a work: he owns it; every member opens it')
+  ctx.step('bob creates a work: he owns it; shared with the organization, every member opens it')
   const work = await bob.rpc('createWork', 'Bob\'s doc', 'doc', 'mine', 'mine', undefined, 'claude-code', ctx.cwd)
   const resource = { kind: 'work', id: work.id } as const
+  if (ctx.hostKind === 'personal') {
+    await bob.rpc('shareSet', { resource, grants: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
+  }
   await checkOwnership(ctx, resource, bobUserId, { bob: true, cara: true, alice: true })
   await expectOk(ctx, 'the organization owner opens it on either flavor', alice.rpc('loadWork', work.id, ctx.cwd))
   if (ctx.hostKind === 'managed') {
@@ -41,6 +44,9 @@ export default scenario('ownership: the creator owns a work and a session; trans
   const sessionId = created.agentSessionId
   ctx.check('bob started a session', sessionId.length > 0, sessionId)
   const session = { kind: 'session', id: sessionId } as const
+  if (ctx.hostKind === 'personal') {
+    await bob.rpc('shareSet', { resource: session, grants: [{ subject: { kind: 'organization', id: ORGANIZATION_ID }, role: 'editor' }] })
+  }
   await checkOwnership(ctx, session, bobUserId, { bob: true, cara: true, alice: true })
   await expectOk(ctx, 'cara watches bob\'s session', cara.rpc('watchSession', { sessionId }))
   await expectOk(ctx, 'cara reads its info', cara.rpc('getSessionInfo', sessionId))

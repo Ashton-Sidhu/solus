@@ -13,7 +13,7 @@ function status(version: string | null): HostUpdateStatus {
     check: version ? { kind: 'available', latestVersion: version, checkedAt: 0 } : { kind: 'up-to-date', checkedAt: 0 }, providers: [] }
 }
 
-async function fixture() {
+async function fixture(hostKind: 'personal' | 'managed' = 'personal') {
   const { HostUpdatesStore } = await import('@solus/workspace-ui/contexts/updates/host-updates.store.svelte')
   let current = status('2.0.0')
   let connected: ConnectionStatus = 'connected'
@@ -23,6 +23,7 @@ async function fixture() {
   const store = new HostUpdatesStore({
     resolveId: (id) => id, statusFor: () => connected, capabilitiesFor: async () => ({ hostUpdates: supports }),
     apiFor: () => ({ hostUpdateStatus: () => read(), hostCheckForUpdates: () => read(), hostInstallUpdate: () => read(), hostCancelUpdate: () => read() }),
+    connectionFor: () => ({ target: { uplink: hostKind === 'managed' ? { kind: 'managed' } : undefined } }),
     connectedServerIds: () => ['host'], onConnectionCreated: () => () => {},
     onStatusChange: (callback) => { listener = callback; return () => {} },
   })
@@ -32,6 +33,23 @@ async function fixture() {
     unsupported: () => { supports = false },
   }
 }
+
+test('a cloud host on an older image never yields a notice, a count, or a provider update', async () => {
+  // WHY: the control plane replaces a cloud host's image, so nothing on it is the
+  // user's to update. An image built before `install: 'cloud'` still checks and
+  // still reports a Codex release; the client must not turn that into a toast.
+  const f = await fixture('managed')
+  const reported = status('2.0.0')
+  reported.providers = [{ agent: 'codex', installedVersion: '1.0.0', check: { kind: 'available', latestVersion: '1.1.0', checkedAt: 0 } }]
+  f.set(reported)
+  await f.store.load('host')
+  f.store.applyStatus('host', reported)
+  expect(f.store.pendingNoticeFor('host')).toBeNull()
+  expect(f.store.pendingCountFor('host')).toBe(0)
+  expect(f.store.anyUpdateAvailable).toBe(false)
+  expect(f.store.hostUpdateFor('host')).toMatchObject({ install: 'cloud', check: { kind: 'idle', reason: 'Kept up to date by Solus cloud.' } })
+  expect(f.store.providerUpdatesFor('host')).toEqual([{ agent: 'codex', installedVersion: '1.0.0', check: { kind: 'idle', reason: null } }])
+})
 
 test('repeated broadcasts never re-arm a notice, but a newer release does', async () => {
   const { store } = await fixture()

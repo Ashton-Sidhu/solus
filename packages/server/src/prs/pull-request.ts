@@ -22,6 +22,11 @@ const ACTIVITY_TTL_MS = 15_000
 /** A pull request's size only moves when somebody pushes to it. */
 const FILE_STATS_TTL_MS = 60_000
 
+/** A late answer must not undo a newer one: the host's `updatedAt` says which is newer. */
+function newerPullRequest(previous: Contracts.PullRequest | undefined, next: Contracts.PullRequest): Contracts.PullRequest {
+  return previous && Date.parse(previous.updatedAt) > Date.parse(next.updatedAt) ? previous : next
+}
+
 /**
  * One pull request, as the server knows it. Identity is `(repo, number)`.
  *
@@ -46,8 +51,7 @@ const FILE_STATS_TTL_MS = 60_000
  * cadence belong above it.
  */
 export class PullRequest {
-  private readonly pullRequestField = new CachedField<Contracts.PullRequest>(DETAIL_TTL_MS)
-  private readonly overviewField = new CachedField<PullRequestOverview>(DETAIL_TTL_MS)
+  private readonly pullRequestField = new CachedField<Contracts.PullRequest>(DETAIL_TTL_MS, newerPullRequest)
   private readonly threadsField = new CachedField<ReviewThread[]>(ACTIVITY_TTL_MS)
   private readonly commentsField = new CachedField<PrConversationItem[]>(ACTIVITY_TTL_MS)
   private readonly commitsField = new CachedField<PrCommit[]>(ACTIVITY_TTL_MS)
@@ -97,17 +101,30 @@ export class PullRequest {
     )
   }
 
+  /** The last answer read, however old, or undefined if nothing has read it. */
+  lastRead(): Contracts.PullRequest | undefined {
+    return this.pullRequestField.peek()
+  }
+
+  /** Take a pull request that arrived another way — a listing row, a write's
+   *  response — so the next read does not pay for it again. */
+  seed(detail: Contracts.PullRequest): void {
+    this.pullRequestField.seed(detail)
+  }
+
+  /**
+   * Composed from the fields it carries rather than read as one unit, so the
+   * pull request `prOpenReview` just read fresh is reused instead of fetched a
+   * second time — and each part keeps its own lifetime for the callers that
+   * ask for it alone.
+   */
   async overview(): Promise<PullRequestOverview> {
-    const overview = await this.overviewField.read(() =>
-      this.provider.review.getPullRequestOverview(this.repo, this.number),
-    )
-    // An overview carries three fields a caller may ask for separately. Seed
-    // them here, or reading a pull request's commits straight after opening it
-    // pays for a request whose answer already arrived.
-    this.pullRequestField.seed(overview.pullRequest)
-    this.commitsField.seed(overview.commits)
-    this.reviewersField.seed(overview.reviewers)
-    return overview
+    const [pullRequest, commits, reviewers] = await Promise.all([
+      this.read(),
+      this.commits(),
+      this.reviewers(),
+    ])
+    return { pullRequest, commits, reviewers }
   }
 
   async threads(): Promise<ReviewThread[]> {
@@ -168,7 +185,6 @@ export class PullRequest {
    */
   forget(): void {
     this.pullRequestField.clear()
-    this.overviewField.clear()
     this.threadsField.clear()
     this.commentsField.clear()
     this.commitsField.clear()

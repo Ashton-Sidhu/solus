@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
@@ -20,11 +20,13 @@ export function seatEnv(provider: SeatProvider, home: string | null): NodeJS.Pro
  * stores it (a file on Linux, the keychain on macOS), so its own status command is
  * the only honest check; Codex writes `auth.json` into its home.
  */
-export function providerLoginConnected(
+export type LoginProbe = (command: string, args: string[], env: NodeJS.ProcessEnv) => Promise<boolean>
+
+export async function providerLoginConnected(
   provider: SeatProvider,
   home: string | null,
-  probe: (command: string, args: string[], env: NodeJS.ProcessEnv) => boolean = probeSucceeds,
-): boolean {
+  probe: LoginProbe = probeSucceeds,
+): Promise<boolean> {
   if (provider === 'codex') {
     const codexHome = home ?? hostCodexHome()
     return existsSync(join(codexHome, 'auth.json'))
@@ -44,11 +46,10 @@ export function hostCodexHome(): string {
   return process.env.CODEX_HOME?.trim() || join(homedir(), '.codex')
 }
 
-function probeSucceeds(command: string, args: string[], env: NodeJS.ProcessEnv): boolean {
-  try {
-    execFileSync(command, args, { env, timeout: 5_000, stdio: ['ignore', 'ignore', 'ignore'] })
-    return true
-  } catch {
-    return false
-  }
+/** The CLI is a whole process starting up — a few hundred milliseconds — so it
+ *  runs off the main thread; a synchronous spawn here held every request. */
+function probeSucceeds(command: string, args: string[], env: NodeJS.ProcessEnv): Promise<boolean> {
+  return new Promise((resolve) => {
+    execFile(command, args, { env, timeout: 5_000 }, (error) => resolve(!error))
+  })
 }

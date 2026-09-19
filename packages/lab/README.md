@@ -38,6 +38,8 @@ bun lab run guest-revoke --keep          # keep the data directory and lab.log f
 - `share-matrix` — every persona against the role matrix on one work; guest admission with the link secret; host administration by flavor; ownership transfer.
 - `guest-revoke` — regenerating or removing the link ends every guest socket within a second; a removed member's next call fails and they are told who did it.
 - `ownership` — the creator owns a work and a session; only the owner transfers; a managed host has no owner person.
+- `presence` — the host names every participant; a session's room is its connected watchers; typing and focus reach the other watcher; a guest gets its one room and never the host roster; a dropped socket leaves every room at once.
+- `task-share` — a task shared with a person by name opens its page, the session under it, and the document linked to it at the task's role; the person's own row survives a scope change; a guest with a task link reaches exactly the task and its contents, prompts as an editor on the sharer's seat, and is ended when the link is turned off; only the owner deletes.
 - `seats` — a member with no provider seat is refused with `SEAT_REQUIRED` and nothing is spawned; a pasted token seat rides the run; a guest runs on the sharer's seat; two members run at once on their own seats; only the administrator removes a seat. The mock backend records every run it is handed in `<dataDir>/lab/mock-runs.ndjson`, which `src/oracle.ts` reads.
 
 A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as('bob')` is a connected client, `ctx.client(...)` a fresh one, `expectOk` and `expectRefused` record checks, and `src/oracle.ts` holds the invariants scenarios call between steps.

@@ -11,7 +11,9 @@
   } from "@lucide/svelte";
   import type { TaskSessionLink } from "@solus/contracts/task-types";
   import * as TooltipUI from "../../ui/tooltip";
-  import { getWorkspaceContext, serversStore } from "../../../contexts";
+  import { getWorkspaceContext, presenceStore, serversStore } from "../../../contexts";
+  import PresenceStack from "../../presence/PresenceStack.svelte";
+  import { activeTurnAuthorOf } from "../../presence/lib/presence-people";
   import {
     attemptServerId,
     getAttentionState,
@@ -50,34 +52,38 @@
   const now = Date.now();
 
   // Only "is it running right now" is read from the live session — that is the
-  // one live fact the row acts on (Stop). Everything else comes off the link.
+  // one live fact the row acts on (Stop). Everything else comes off the link,
+  // except who is in the session: that is the host's roster, so a row can name
+  // a teammate in an attempt this client never opened.
   const rows = $derived(
     sessions.map((link) => {
-      const linkServerId = attemptServerId({
-        link,
-        taskServerId: link.taskId
-          ? session.tasksStore.get(link.taskId).serverId
-          : null,
-      });
+      const taskServerId = link.taskId
+        ? session.tasksStore.get(link.taskId).serverId
+        : null;
+      const linkServerId = attemptServerId({ link, taskServerId });
       const open = openSessionFor(link.sessionId, linkServerId, session);
-      const host = serversStore.hostFor(
-        attemptServerId({
-          link,
-          liveServerId: open?.session.run.serverId,
-          taskServerId: link.taskId
-            ? session.tasksStore.get(link.taskId).serverId
-            : null,
-        }),
-      );
-      return taskSessionRow(
+      const serverId = attemptServerId({
         link,
-        open ? sessionTitle(open.session) : null,
-        open?.session.run.provider ?? null,
-        !!open && getAttentionState(open.session, open.tab) === "running",
-        now,
-        taskTitle,
-        host && ({ label: host.label, isRemote: !host.local } satisfies TaskSessionHost),
-      );
+        liveServerId: open?.session.run.serverId,
+        taskServerId,
+      });
+      const host = serversStore.hostFor(serverId);
+      const people = serverId
+        ? presenceStore.peopleFocusedOn(serverId, { kind: "session", sessionId: link.sessionId })
+        : [];
+      return {
+        ...taskSessionRow(
+          link,
+          open ? sessionTitle(open.session) : null,
+          open?.session.run.provider ?? null,
+          !!open && getAttentionState(open.session, open.tab) === "running",
+          now,
+          taskTitle,
+          host && ({ label: host.label, isRemote: !host.local } satisfies TaskSessionHost),
+        ),
+        people,
+        activeUserId: activeTurnAuthorOf(people),
+      };
     }),
   );
 </script>
@@ -143,6 +149,10 @@
                     <span class="truncate">{row.host.label}</span>
                   </span>
                 {/if}
+                <!-- Who is in this attempt right now, at full ink: the one live
+                     fact on the line. The ring marks whose prompt is running,
+                     the dot a draft being typed. -->
+                <PresenceStack people={row.people} size={16} max={3} activeUserId={row.activeUserId} />
               </span>
             </span>
           </div>
@@ -281,6 +291,9 @@
                 Running
               </span>
             {/if}
+            <!-- Who is in this attempt right now, from the host's roster. The
+                 ring marks whose prompt is running, the dot a draft being typed. -->
+            <PresenceStack people={row.people} size={14} max={3} activeUserId={row.activeUserId} />
           </span>
 
           <span

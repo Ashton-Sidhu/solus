@@ -23,6 +23,7 @@ import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-sni
 import { reviewGuideKeyFor, type ReviewContext, type ReviewGuideStatusEvent, type ReviewState } from '@solus/contracts/review'
 import type { Task, TaskCommentData, TaskLink, TaskLinkInput, TaskSessionLink } from '@solus/contracts/task-types'
 import type { ChangedFileStat, DiffRequest, TurnSnapshot } from '@solus/contracts/git-types'
+import { applyCommentCommand, type WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { DEMO_PROJECT, DEMO_VIEWER, type DemoFixtures } from './fixtures/types'
 
 interface DemoDiff {
@@ -339,9 +340,14 @@ export class DemoStore {
     return this.findWorkEntry(id)?.annotations ?? null
   }
 
-  saveWorkAnnotations(annotations: WorkAnnotations): void {
-    const entry = this.findWorkEntry(annotations.workId)
-    if (entry) entry.annotations = annotations
+  /** The demo is its own host: the one reader is the work's owner, unnamed. */
+  applyWorkComment(workId: string, command: WorkCommentCommand): WorkAnnotations {
+    const entry = this.findWorkEntry(workId)
+    const current: WorkAnnotations = entry?.annotations ?? { version: 1, workId, comments: [], updatedAt: 0 }
+    const now = Date.now()
+    const next: WorkAnnotations = { ...current, comments: applyCommentCommand(current.comments, command, { person: null, canModerate: true, now }), updatedAt: now }
+    if (entry) entry.annotations = next
+    return next
   }
 
   loadWorkPrevious(id: string): WorkPrevious | null {
@@ -436,7 +442,7 @@ export class DemoStore {
    *  and a visitor who clicks "Review changes" has no way to wait for one — so
    *  the report is reported ready and the button reads "View report" from the
    *  first frame. */
-  reviewGuideStatus(ctx: IpcContext, scope: 'branch' | 'session'): ReviewGuideStatusEvent {
+  reviewGuideStatus(ctx: Pick<IpcContext, 'session'>, scope: 'branch' | 'session'): ReviewGuideStatusEvent {
     // The key must be the one the renderer derives, and the renderer derives it
     // from the checkout `gitRefreshState` reports — one state for the whole demo
     // project, whatever branch an individual tab remembers starting on.

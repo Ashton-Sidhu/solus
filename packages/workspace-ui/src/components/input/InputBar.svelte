@@ -13,6 +13,7 @@
     getSettingsContext,
     getAgentContext,
     getVoiceModelStore,
+    presenceStore,
     runtime,
   } from "../../contexts";
   import {
@@ -126,6 +127,11 @@
      *  A host with nothing behind the bar to give room to — the session draft
      *  pane, where the bar is the page — turns it off. */
     collapseWhenIdle?: boolean;
+    /** Why this client may only read the conversation, when the reason is the
+     *  client's rather than the session's: a viewer on a shared session. The
+     *  session's own reason (a worktree that is gone) still applies without it.
+     *  The bar shows the reason as its placeholder and takes no input. */
+    readOnlyReason?: string | null;
     /** Receives the saved-prompts control, which the toolbar seats in the left
      *  cluster beside the pickers rather than out with the mic and send: saving
      *  a prompt is a composer decision, not a send action. It is handed over as
@@ -151,6 +157,7 @@
     boundWorkId: draftBoundWorkId,
     onUnbindWork,
     collapseWhenIdle = true,
+    readOnlyReason: suppliedReadOnlyReason = null,
     leadingActions,
   }: Props = $props();
 
@@ -197,7 +204,8 @@
   const activeProvider = $derived(run?.provider ?? theme.activeAgent);
   // Every provider steers; the turn just has to have actually started.
   const canSteer = $derived(!!sess && isSteerableStatus(sess.status));
-  const isReadOnly = $derived(!!sess?.readOnlyReason);
+  const readOnlyReason = $derived(suppliedReadOnlyReason ?? sess?.readOnlyReason ?? null);
+  const isReadOnly = $derived(!!readOnlyReason);
   // Model and permission-mode shortcuts belong to the composer, not to a tab
   // resolved from global focus: the focused pane's bar edits the run it is
   // composing for, in place, so a draft and a started session are one case. The
@@ -346,6 +354,14 @@
   // because PromptEditor immediately reports the true state once its `value`
   // prop lands.
   let editorHasText = $state(untrack(() => inputText.trim().length > 0));
+  // The room hears that this person has a draft, and hears it end when the
+  // draft goes out or the bar goes inactive; the store coalesces keystrokes.
+  $effect(() => {
+    const composing = active && editorHasText;
+    const serverId = sess?.run.serverId;
+    const roomSessionId = sess?.id;
+    untrack(() => presenceStore.setComposing(serverId, roomSessionId, composing));
+  });
   const planRefs = $derived(prompt.planRefs);
   const workRefs = $derived(prompt.workRefs);
   const sessionRefs = $derived(prompt.sessionRefs);
@@ -420,7 +436,7 @@
 
   const placeholder = $derived(
     isReadOnly
-      ? (sess?.readOnlyReason ?? "This session is read-only.")
+      ? (readOnlyReason ?? "This session is read-only.")
       : isConnecting
         ? "Initializing..."
         : voiceState === "transcribing"

@@ -14,6 +14,7 @@
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
+  import { hostIsManaged } from "../servers/lib/managed-host";
   import ProjectFavicon from "../ui/ProjectFavicon.svelte";
   import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import PrChip from "./PrChip.svelte";
@@ -560,6 +561,7 @@
                 >
                   <HostOperatingSystemIcon
                     os={remoteOs}
+                    managed={hostIsManaged(host)}
                     size={12}
                     class="size-3 shrink-0 [.is-laptop-display_&]:size-2.5"
                   />

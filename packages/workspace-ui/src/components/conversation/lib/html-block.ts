@@ -1,4 +1,12 @@
+import { resolveArtifactTitle } from "@solus/contracts/work-preview";
 import { needsSandbox } from "../../artifact/lib/artifact-view";
+import { exportFileName } from "../../pickers/lib/export-file-name";
+
+/** The file an HTML block is saved to the device as: named after its own
+ *  `<title>`, so a download folder of renders stays readable. */
+export function htmlBlockFileName(html: string): string {
+  return exportFileName(resolveArtifactTitle(undefined, html), "html", "artifact");
+}
 
 /**
  * How a fenced ```html block reads in a reply.

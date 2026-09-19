@@ -55,7 +55,7 @@ Everything that must survive a restart resolves under `/data`:
 | Repositories and worktrees | `/data/projects` (`SOLUS_PROJECTS_ROOT`) |
 | Managed cloudflared and other pinned binaries | image (`/opt/solus`), never the volume |
 
-`SOLUS_PROJECTS_ROOT` is the host's projects root (`setupProjectsRoot()`); a host administrator's `projectsBaseDirectory` setting still outranks it, as on a personal host. Each organization member gets a **workspace** beneath it, `<root>/<userId>` (`projectsRootFor(principal)` in `setup-handlers.ts`): it is their default clone destination, the directory their pickers open on, and their home on the host (`start` answers it as `projectPath` and `homePath`; `setupHostReadiness` and `getServerCapabilities` name it too). The owner of a personal host and the host's own work use the root itself. The workspace is a default, not a boundary: members see every session and work on the host (decision 2026-09-15) and may open any path. The connector finds the image's `cloudflared` through `SOLUS_CLOUDFLARED=/opt/solus/bin/cloudflared`, the explicit override it already reads first, so it never looks under the data directory. The image and its runbook are `packaging/managed-host/`.
+`SOLUS_PROJECTS_ROOT` is the host's projects root (`setupProjectsRoot()`); a host administrator's `projectsBaseDirectory` setting still outranks it, as on a personal host. Each organization member gets a **workspace** beneath it, `<root>/<userId>` (`projectsRootFor(principal)` in `setup-handlers.ts`): it is their default clone destination, the directory their pickers open on, and their home on the host (`start` answers it as `projectPath` and `homePath`; `setupHostReadiness` and `getServerCapabilities` name it too). The owner of a personal host and the host's own work use the root itself. A member's project listings (`listProjects`, `listProjectIdentities`, `listRecentProjects`, and the capability count; `projectsVisibleTo`) show their workspace only, so two people on one host never share a main checkout: each clones their own. The workspace is a default and a view, not a boundary: a member may still open a path a shared session names. A managed host never checks for updates (`install: 'cloud'`): the control plane replaces its image, and the host page says so instead of a notice. A client applies the same rule to any host its directory record marks `managed` (`asCloudStatus` in `host-updates.store.svelte.ts`): an image built before this decision still checks and still reports a Codex or Solus release, and the client must not turn that into a toast, a badge, or an Update button. The connector finds the image's `cloudflared` through `SOLUS_CLOUDFLARED=/opt/solus/bin/cloudflared`, the explicit override it already reads first, so it never looks under the data directory. The image and its runbook are `packaging/managed-host/`.
 
 The image is replaceable; the volume is authoritative. One server owns the SQLite file; there is never a second process against it.
 
@@ -81,3 +81,17 @@ One managed host per organization; only organization owners create, stop, start,
 ## Non-goals of this version
 
 Independent session workers, idle stopping, zero-downtime image updates, active-active hosts, access to a stopped host's content, Fly's native HTTPS edge, and per-turn cost billing.
+
+## Live verification — 2026-09-16
+
+The Fly billing blocker is cleared. A disposable private app in `yyz` ran the current server and the product image on 4 shared CPUs / 8192 MB RAM with encrypted 3 GB fixture volumes.
+
+- Real-source fixture: initial boot 13/13; stop/start 12/12; Fly snapshot restored to a new volume and Machine 12/12.
+- Product image: actual non-root entrypoint 13/13; replacement with a different image digest on the same volume 12/12; stopped-volume Fly snapshot restored to a new volume and Machine 12/12.
+- Clients on the developer Mac through a temporary Cloudflare HTTPS tunnel: 6/6, covering member admission, Socket.IO, saved work, reconnect, replay refusal and guest revocation.
+
+Saved works, git history, tracked/untracked/ignored edits and synthetic seat material survived. The shipped cloud Fly API client handled live reads, volume/Machine creation, start/stop and cleanup; app creation and snapshots used `flyctl`. No production deploy or named-tunnel provisioning ran. The test app and Machines were removed, volume deletions accepted, and the temporary tunnel stopped. Snapshot erasure remains subject to Fly retention.
+
+This is infrastructure evidence, not completion of the provider or launch gates: no real provider turn/login/refresh, Litestream recovery, active-write crash, client visual pass, load test or UX percentile measurement ran. Queues remain in memory. The full record is `solus-cloud/spikes/fly-host/execution-2026-09-16.md`.
+
+Sprites was assessed from current official documentation in the adjacent `sprites-assessment.md`. Its persistent filesystem, service startup and checkpoints could reduce provisioning and recovery work. The selected implementation remains Machines: Sprite sleep/cold wake, Socket.IO on its native URL, scheduled work, per-member subscription seats and measured cost/capacity need a separate proof. No Sprite was created.

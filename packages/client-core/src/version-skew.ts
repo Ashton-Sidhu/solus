@@ -27,6 +27,7 @@ const FEATURE_WORDING = {
   assetUrls: 'artifact previews',
   skillsInstall: 'skills',
   skillsSearch: 'skills',
+  skillsManage: 'global skill management',
   voiceModel: 'voice',
   automations: 'automations',
   githubProvider: 'GitHub',

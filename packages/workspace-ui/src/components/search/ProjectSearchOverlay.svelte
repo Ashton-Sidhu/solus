@@ -187,7 +187,7 @@
   function openMatch(match: ProjectContentMatch) {
     if (!canOpen) return;
     open = false;
-    session.openFilePreview({ path: match.path, line: match.lineNumber }, targetTabId);
+    session.openFileInFiles({ path: match.path, line: match.lineNumber }, targetTabId);
   }
 
   function onSearchKeydown(e: KeyboardEvent) {

@@ -1,9 +1,11 @@
 <script lang="ts">
+  import { AUTO_MODEL_ID } from "@solus/contracts/model-routing";
   import {
     ChevronDown as CaretDownIcon,
     Check as CheckIcon,
     Code as CodeIcon,
     LoaderCircle as SpinnerGapIcon,
+    Sparkles as SparklesIcon,
     Zap as LightningIcon,
   } from "@lucide/svelte";
   import ClaudeIcon from "../ClaudeIcon.svelte";
@@ -113,6 +115,7 @@
         ? modelOptionsFor(activeAgent, metadata)
         : (modelMeta?.models ?? []),
   );
+  const canRoute = $derived(!modelOnly && isPrimary && !sess?.agentSessionId && !sess?.forked);
   const defaultModel = $derived(modelMeta?.defaultModel ?? models[0]?.id ?? null);
   const currentModelId = $derived(
     selection
@@ -121,8 +124,9 @@
         ? defaultModel
         : (ctx.model || defaultModel),
   );
+  const isAuto = $derived(currentModelId === AUTO_MODEL_ID);
   const modelLabel = $derived(
-    models.find((m) => m.id === currentModelId)?.label ?? currentModelId ?? "",
+    currentModelId === AUTO_MODEL_ID ? "Auto" : models.find((m) => m.id === currentModelId)?.label ?? currentModelId ?? "",
   );
 
   // Reasoning — the primary knob, surfaced inline in the chip + menu root.
@@ -133,7 +137,7 @@
         : ctx.reasoningEffort),
   );
   const reasoningLevels = $derived(
-    detached ? reasoningLevelsFor(activeAgent, currentModelId) : ctx.reasoningLevels,
+    isAuto ? reasoningLevelsFor(activeAgent, defaultModel) : detached ? reasoningLevelsFor(activeAgent, currentModelId) : ctx.reasoningLevels,
   );
   const reasoningLabel = $derived(REASONING_EFFORT_LABELS[reasoningEffort] ?? "High");
   const fastMode = $derived(selection?.fastMode ?? (pendingHandoffAgent ? false : ctx.fastMode));
@@ -211,6 +215,7 @@
   // along in the same call: updateModelConfig's model branch would otherwise
   // overwrite the effort with the model's default.
   function selectReasoning(effort: ReasoningEffort) {
+    if (isAuto && !hoveredModelId) return;
     const pendingModelId =
       hoveredModelId && hoveredModelId !== currentModelId ? hoveredModelId : null;
     if (selection) {
@@ -237,12 +242,16 @@
     hoveredModelId = null;
     if (selection) {
       selection.modelId = modelId;
-      selection.reasoningEffort = clampReasoningEffort(selection.provider, modelId, selection.reasoningEffort);
+      selection.reasoningEffort = modelId === AUTO_MODEL_ID ? "medium" : clampReasoningEffort(selection.provider, modelId, selection.reasoningEffort);
       selection.fastMode = false;
       onSelectionChange?.(selection);
       return;
     }
-    session.updateModelConfig({ modelId, fastMode: false }, tabId);
+    if (modelId === AUTO_MODEL_ID) {
+      session.updateModelConfig({ modelId, fastMode: false, reasoningEffort: "medium" }, tabId);
+    } else {
+      session.updateModelConfig({ modelId, fastMode: false }, tabId);
+    }
   }
   function selectAgent(id: AgentId) {
     if (selection) {
@@ -385,15 +394,19 @@
                  they paint outside the border box and over the neighbour. -->
             <button {...tooltipProps} {...props} type="button" aria-label={ariaLabel} class={cn("flex h-[1.875rem] min-w-0 items-center gap-1.5 overflow-hidden rounded-lg border-[0.5px] border-(--solus-container-border) px-2.5 font-secondary text-workspace-chrome text-(--solus-text-secondary) transition-[background-color,scale] hover:bg-(--solus-surface-hover) active:scale-[0.96] focus-visible:outline-none focus-visible:bg-(--solus-accent-light) focus-visible:text-(--solus-text-primary)", open && "bg-(--solus-surface-hover)", className)} style="cursor:{disabled || isBusy || handoffInProgress ? 'not-allowed' : 'pointer'}">
         <!-- Codex's mark is solid black, so it keeps a white plate to stay
-             legible in dark mode; the others take the accent directly. -->
+             legible in dark mode; the others take the accent directly. Auto
+             belongs to no one provider, so it carries a sparkles glyph in the
+             same slot rather than a brand mark. -->
         <span
-        class="flex flex-shrink-0 items-center justify-center {isCodex
+        class="flex flex-shrink-0 items-center justify-center {isCodex && !isAuto
             ? fastMode
               ? 'h-5 w-5 text-amber-500 dark:text-amber-300'
               : 'h-5 w-5 rounded-full bg-white text-(--solus-accent)'
             : 'text-(--solus-accent)'}"
         >
-          {#if isClaude}
+          {#if isAuto}
+            <SparklesIcon size={13} />
+          {:else if isClaude}
             <ClaudeIcon size={13} />
           {:else if isCodex}
             {#if fastMode}
@@ -405,12 +418,13 @@
             <CodeIcon size={13} class="flex-shrink-0" />
           {/if}
         </span>
-        <!-- Composer ladder, rung 6: below 22rem the chip is the brand glyph
-             alone. It stays a hit target and keeps its ⌥ shortcut; only the
-             label goes. Named `/composer` so the rung is inert wherever the chip
-             is not in a composer. -->
-        <span class="truncate max-w-48 font-medium text-(--solus-text-primary) @max-[22rem]/composer:hidden">{modelOnly ? `${agentName} · ${modelLabel}` : modelLabel}</span>
-        {#if !modelOnly}
+        <!-- Composer ladder, rung 6: below 22rem the chip is the glyph alone.
+             It stays a hit target and keeps its ⌥ shortcut; only the label
+             goes. Named `/composer` so the rung is inert wherever the chip is
+             not in a composer. The label inherits the chip's secondary colour,
+             the same as the permission chip beside it. -->
+        <span class="truncate max-w-48 font-medium @max-[22rem]/composer:hidden">{modelOnly ? `${agentName} · ${modelLabel}` : modelLabel}</span>
+        {#if !modelOnly && !isAuto}
           <!-- Rung 3: the reasoning label is the first thing the chip can spend. -->
           <span class="flex-shrink-0 text-(--solus-text-tertiary) @max-[31rem]/composer:hidden">{reasoningLabel}</span>
         {/if}
@@ -467,7 +481,7 @@
              current model between every two rows you sweep across, and clearing
              at the column edge would drop the pending model on the walk to the
              level you're about to click. -->
-        <DropdownMenu.RadioGroup value={currentModelId ?? undefined}>
+        <DropdownMenu.RadioGroup value={currentModelId ?? ""}>
           <DropdownMenu.GroupHeading>Model</DropdownMenu.GroupHeading>
           {#each models as model (model.id)}
             <DropdownMenu.RadioItem
@@ -503,7 +517,7 @@
         <div class="w-px shrink-0 bg-(--solus-menu-hairline)"></div>
 
         <div class="flex w-[184px] shrink-0 flex-col p-1.5">
-          <DropdownMenu.RadioGroup value={previewReasoning ? undefined : reasoningEffort}>
+          <DropdownMenu.RadioGroup value={isAuto || previewReasoning ? "" : reasoningEffort}>
             <!-- Which model these levels belong to is said by the model row,
                  which keeps its wash (`data-menu-preview`) while its levels
                  are on offer, and by the footer — not by the heading. -->
@@ -515,7 +529,7 @@
                      land a quarter-second late — reads as flicker. -->
                 <DropdownMenu.RadioItem
                   value={level}
-                  disabled={handoffInProgress}
+                  disabled={handoffInProgress || (isAuto && !hoveredModelId)}
                   data-picker-column="reasoning"
                   data-picker-value={level}
                   onSelect={() => selectReasoning(level)}
@@ -534,17 +548,32 @@
           </DropdownMenu.RadioGroup>
           <div class="min-h-2 flex-1"></div>
           <DropdownMenu.Separator />
-          {#if isCodex && supportsFastModeFor(activeAgent, currentModelId)}
+          {#if isCodex && supportsFastModeFor(activeAgent, isAuto ? defaultModel : currentModelId)}
             <div class="flex h-8 items-center gap-2.5 rounded-lg px-2.5 text-menu text-(--solus-text-secondary) pointer-fine:[.is-laptop-display_&]:h-7 pointer-fine:[.is-laptop-display_&]:gap-2 pointer-fine:[.is-laptop-display_&]:px-2">
               <span class="min-w-0 flex-1 text-(--solus-text-tertiary)">Fast mode</span>
               <Switch
                 size="sm"
                 checked={fastMode}
-                disabled={handoffInProgress}
+                disabled={handoffInProgress || isAuto}
                 onCheckedChange={setFastMode}
                 aria-label="Fast mode for {modelLabel}"
               />
             </div>
+          {/if}
+          {#if canRoute}
+            <DropdownMenu.RadioGroup value={currentModelId ?? ""}>
+              <DropdownMenu.RadioItem
+                value={AUTO_MODEL_ID}
+                disabled={handoffInProgress}
+                data-picker-column="reasoning"
+                data-picker-value={AUTO_MODEL_ID}
+                onSelect={() => selectModel(AUTO_MODEL_ID)}
+                onfocus={() => { hoveredModelId = null; hoveredLevel = null; }}
+                onpointerenter={() => { hoveredModelId = null; hoveredLevel = null; }}
+              >
+                Auto
+              </DropdownMenu.RadioItem>
+            </DropdownMenu.RadioGroup>
           {/if}
           <DropdownMenu.Sub>
             <DropdownMenu.SubTrigger data-picker-column="reasoning">
@@ -586,7 +615,9 @@
     {#if !modelOnly}
       <MenuFooter
         hints={[["↑↓", "within"], ["←→", "columns"], [comboHint("global.cycle-model"), "cycle"]]}
-        summary="{previewedModelLabel} · {REASONING_EFFORT_LABELS[hoveredLevel ?? previewReasoning ?? reasoningEffort]}"
+        summary={isAuto
+          ? "Auto"
+          : `${previewedModelLabel} · ${REASONING_EFFORT_LABELS[hoveredLevel ?? previewReasoning ?? reasoningEffort]}`}
       />
     {/if}
   </DropdownMenu.Content>

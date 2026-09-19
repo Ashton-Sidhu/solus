@@ -36,9 +36,6 @@ export interface ReviewGuideIdentity {
   target?: ReviewTarget
   /** Present when the renderer already knows the checkout HEAD. */
   headSha?: string
-  /** Renderer-known change-set identity. A ready guide is hidden once the
-   * working tree or session file set moves beyond the snapshot it covered. */
-  revision?: string
 }
 
 export interface ReviewGuideRequest {
@@ -102,6 +99,12 @@ function targetOptions(scope: ReviewScope | ReviewTarget): { scope: ReviewScope 
   return scope === 'branch' || scope === 'session' ? { scope } : { target: scope }
 }
 
+/** What a probe asked about. Two probes with the same version share one
+ * in-flight request. */
+function loadVersion(identity: ReviewGuideIdentity): string {
+  return `${identity.headSha ?? ''}::${identity.target?.kind === 'pr' ? identity.target.baseSha ?? '' : ''}`
+}
+
 function isReviewScope(scope: ReviewScope | ReviewTarget): scope is ReviewScope {
   return scope === 'branch' || scope === 'session'
 }
@@ -136,7 +139,6 @@ export class ReviewGuideStore {
   private loadErrors = new SvelteMap<string, string>()
   private disconnectedServers = new SvelteSet<string>()
   private connectionUnsubscribe: (() => void) | null = null
-  private revisionsByServer = new Map<string, Map<string, string>>()
   private readyListeners = new Set<ReadyListener>()
   private changeListeners = new Set<ReadyListener>()
   private openedReadyEventsByServer = new SvelteMap<string, SvelteSet<string>>()
@@ -145,16 +147,6 @@ export class ReviewGuideStore {
     private readonly eventsFor: (serverId: string) => HostEventSubscriber = (serverId) => serverConnections.eventsFor(serverId),
     private readonly watchConnections: (listener: ConnectionListener) => () => void = (listener) => serverConnections.onStatusChange(listener),
   ) {}
-
-  private rememberRevision(serverId: string, identity: ReviewGuideIdentity): void {
-    if (identity.revision === undefined) return
-    let revisions = this.revisionsByServer.get(serverId)
-    if (!revisions) {
-      revisions = new Map()
-      this.revisionsByServer.set(serverId, revisions)
-    }
-    revisions.set(statusKey(identity), identity.revision)
-  }
 
   bind(serverId: string): void {
     if (this.subscribedServerIds.has(serverId)) return
@@ -166,9 +158,14 @@ export class ReviewGuideStore {
         return
       }
       this.disconnectedServers.delete(host)
+      // Session guides re-probe as one batch: a reconnect with many restored
+      // tabs must not repeat the boot fan-out.
+      const sessionProbes: { api: HostApi; ctx: IpcContext; identity: ReviewGuideIdentity }[] = []
       for (const tracked of this.trackedGuides.get(host)?.values() ?? []) {
-        void this.load(tracked.api, host, tracked.ctx, tracked.identity, tracked.scope)
+        if (tracked.scope === 'session') sessionProbes.push(tracked)
+        else void this.load(tracked.api, host, tracked.ctx, tracked.identity, tracked.scope)
       }
+      if (sessionProbes.length) void this.loadSessions(sessionProbes[0].api, host, sessionProbes)
     })
     this.eventsFor(serverId).subscribe('review.guideStatusChanged', (event) => {
       const previous = this.statusesByServer.get(serverId)?.get(statusKey(event))
@@ -216,21 +213,51 @@ export class ReviewGuideStore {
     identity: ReviewGuideIdentity,
     scope: ReviewScope | ReviewTarget,
   ): Promise<void> {
+    return this.settle(api, serverId, ctx, identity, scope, () => api.reviewGuideStatus(ctx, targetOptions(scope)))
+  }
+
+  /** Probe many session guides on one host with one request. Each guide keeps
+   * its own entry, so a later `load` or `acknowledgeSessionGuide` for the same
+   * identity joins the batch instead of asking again. */
+  loadSessions(
+    api: SolusApi,
+    serverId: string,
+    probes: { ctx: IpcContext; identity: ReviewGuideIdentity }[],
+  ): Promise<void> {
+    const fresh = probes.filter((probe) => !this.isPending(serverId, probe.identity))
+    if (!fresh.length) return Promise.resolve()
+    const batch = api.sessionGuideStatuses(fresh.map((probe) => probe.ctx.session))
+    return Promise.all(fresh.map((probe, index) =>
+      this.settle(api, serverId, probe.ctx, probe.identity, 'session', () => batch.then((events) => events[index] ?? null)),
+    )).then(() => undefined)
+  }
+
+  private isPending(serverId: string, identity: ReviewGuideIdentity): boolean {
+    return this.pendingLoads.get(`${serverId}::${statusKey(identity)}`)?.version === loadVersion(identity)
+  }
+
+  private settle(
+    api: SolusApi,
+    serverId: string,
+    ctx: IpcContext,
+    identity: ReviewGuideIdentity,
+    scope: ReviewScope | ReviewTarget,
+    fetch: () => Promise<ReviewGuideStatusEvent | null>,
+  ): Promise<void> {
     this.bind(serverId)
     this.track(api, serverId, ctx, identity, scope)
     const key = statusKey(identity)
     const requestKey = `${serverId}::${key}`
-    const targetVersion = `${identity.headSha ?? ''}::${identity.revision ?? ''}::${identity.target?.kind === 'pr' ? identity.target.baseSha ?? '' : ''}`
+    const targetVersion = loadVersion(identity)
     const pending = this.pendingLoads.get(requestKey)
     if (pending?.version === targetVersion) return pending.promise
     const requestVersion = (this.requestVersions.get(requestKey) ?? 0) + 1
     this.requestVersions.set(requestKey, requestVersion)
     const eventVersion = this.eventVersions.get(requestKey) ?? 0
-    this.rememberRevision(serverId, identity)
     const current = () => this.requestVersions.get(requestKey) === requestVersion
       && (this.eventVersions.get(requestKey) ?? 0) === eventVersion
     const promise = (async () => { try {
-      const event = await api.reviewGuideStatus(ctx, targetOptions(scope))
+      const event = await fetch()
       // A newer load for the same stable guide key owns the entry now. Keep
       // this response under its original target instead of letting it replace
       // the newer checkout/revision state.
@@ -266,7 +293,6 @@ export class ReviewGuideStore {
   ): Promise<void> {
     this.bind(serverId)
     this.track(api, serverId, ctx, identity, request.target ?? request.scope ?? 'branch')
-    this.rememberRevision(serverId, identity)
     const requestKey = `${serverId}::${statusKey(identity)}`
     this.requestVersions.set(requestKey, (this.requestVersions.get(requestKey) ?? 0) + 1)
     this.pendingLoads.delete(requestKey)
@@ -335,11 +361,6 @@ export class ReviewGuideStore {
     if (starting && starting.eventVersion === (this.eventVersions.get(requestKey) ?? 0)) return starting.event
     const event = this.statusesByServer.get(serverId)?.get(statusKey(identity)) ?? null
     if (event && identity.headSha && event.headSha !== identity.headSha && identity.target?.kind !== 'pr') return null
-    if (
-      event &&
-      identity.revision !== undefined &&
-      this.revisionsByServer.get(serverId)?.get(statusKey(identity)) !== identity.revision
-    ) return null
     return event
   }
 

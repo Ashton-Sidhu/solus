@@ -24,6 +24,8 @@ export interface SavedServerUplink {
   organizationId?: string
   /** Whose machine this is, for a host shared with the account rather than linked by it. */
   ownerName?: string
+  /** The account that linked a personal host, so its `host-owner` presence is one person with their account elsewhere. */
+  ownerUserId?: string
   /** `managed` for a host Solus cloud provisioned for an organization (managed-hosts.md); absent is personal. */
   kind?: HostKind
   /** Managed hosts only: what the control plane last said of the compute. Only a `ready` host is dialed. */
@@ -124,6 +126,7 @@ const savedServerSchema = z.looseObject({
     directoryUrl: z.string().min(1),
     organizationId: z.string().min(1).optional().catch(undefined),
     ownerName: z.string().min(1).optional().catch(undefined),
+    ownerUserId: z.string().min(1).optional().catch(undefined),
     kind: hostKindSchema.optional().catch(undefined),
     managedState: managedHostLifecycleSchema.optional().catch(undefined),
   }).optional().catch(undefined),

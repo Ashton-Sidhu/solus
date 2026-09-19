@@ -1,5 +1,26 @@
 import type { AgentId } from './types'
 
+/** Opaque host cursor. Pages contain complete turns so tool results never
+ * arrive without their calls. The limit is a target, not a hard row cap. */
+export interface SessionHistoryPageRequest {
+  sessionId: string
+  projectPath?: string
+  provider: AgentId
+  limit?: number
+  before?: string
+  deferToolInputs?: boolean
+}
+
+export interface SessionHistoryPage {
+  messages: WireSessionLoadMessage[]
+  before: string | null
+}
+
+export interface ProviderHistoryPage {
+  messages: SessionLoadMessage[]
+  before: string | null
+}
+
 export interface SessionLoadMessage {
   /** Stable identity for synthetic rows derived from Solus-owned lineage. */
   messageId?: string
@@ -49,6 +70,10 @@ export interface WireSessionLoadMessage extends Omit<SessionLoadMessage, 'toolRe
   contentBytes?: number
   /** Structured correlation facts extracted before tool output is discarded. */
   agentConversationResult?: AgentConversationResultProjection
+  /** Stable work identity from a successful artifact tool result. */
+  artifactWorkRef?: { workId: string; title: string }
+  /** A legacy update receipt can identify success without naming the work type. */
+  workUpdateSucceeded?: boolean
 }
 
 export const MAX_SESSION_TOOL_INPUTS = 200

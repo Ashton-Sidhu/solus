@@ -35,6 +35,7 @@ import type { DiscoveredServer, HostOperatingSystem, ProjectIdentity } from '@so
 import type { HostRoute } from '@solus/contracts/uplink'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { toasts } from '../../lib/toasts'
+import { notificationsStore } from '../notifications/notifications.store.svelte'
 import { accountStore } from '../account/account.store.svelte'
 import {
   compareNearbyHosts,
@@ -649,6 +650,9 @@ class ServersStore {
   }
 
   private showDiscoveryToast(servers: DiscoveredServer[]): void {
+    // Not marked announced: a host found while the switch is off is announced
+    // once the switch is on, the same as one found after it.
+    if (!notificationsStore.wants('host_discovered')) return
     const unsnoozed = servers.filter(
       (server) => !this.toastSnoozedInstallationIds.has(server.installationId),
     )

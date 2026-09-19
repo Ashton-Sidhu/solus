@@ -240,12 +240,9 @@ function rowLabel(span: MetricsSpan): string {
   if (span.kind === 'setup') return 'Solus setup'
   // A dispatch step is a piece of Solus's own code, so it is named the way the
   // reader will search for it: the step id verbatim — `worktree_create`, not
-  // "worktree create" — followed by the function it times, when the step
-  // recorded one. A prettified phrase reads well and greps for nothing.
-  if (span.kind === 'internal.dispatch_step') {
-    const fn = asStringOrNull(span.attrs.fn)
-    return fn ? `${span.name} · ${fn}` : span.name
-  }
+  // "worktree create". A prettified phrase reads well and greps for nothing.
+  // The function it times stays in the span's attributes, read from the dock:
+  // on the row it only spent label width the step id needs.
   return span.name
 }
 

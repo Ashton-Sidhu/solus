@@ -1,30 +1,73 @@
 import { afterEach, beforeAll, describe, expect, mock, test } from 'bun:test'
 import { Database } from 'bun:sqlite'
-import { spawnSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { promisify } from 'node:util'
 import type { IpcContext } from '@solus/contracts/types'
 import type { AgentDispatcher, AgentRun, AgentRunRequest } from '@solus/server/agents/agent-runner'
 import type { AgentToolContext } from '@solus/server/agents/tools/agent-tool'
-import {
-  initSessionBase,
-  prepareTurnSnapshot,
-  snapshotTurn,
-} from '@solus/server/git/session-snapshots'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
+
+// A synchronous spawn on the main thread stalls every transcript read behind
+// it. The status path must never take one; count them at the module boundary.
+const childProcess = await import('node:child_process')
+const realExecFileSync = childProcess.execFileSync
+const realSpawnSync = childProcess.spawnSync
+const realExecFile = childProcess.execFile
+let syncSpawns = 0
+let gitSpawns = 0
+// `git/exec.ts` promisifies execFile, which reads the custom promisify hook;
+// the counter must keep that hook or the promise resolves to the wrong shape.
+const countedExecFile = Object.assign(
+  ((...args: Parameters<typeof realExecFile>) => {
+    if (args[0] === 'git') gitSpawns += 1
+    return realExecFile(...args)
+  }) as typeof realExecFile,
+  {
+    [promisify.custom]: (...args: Parameters<typeof realExecFile>) => {
+      if (args[0] === 'git') gitSpawns += 1
+      return (realExecFile as unknown as { [promisify.custom]: (...inner: unknown[]) => Promise<unknown> })[promisify.custom](...args)
+    },
+  },
+)
+const countedChildProcess = () => ({
+  ...childProcess,
+  execFileSync: (...args: Parameters<typeof realExecFileSync>) => { syncSpawns += 1; return realExecFileSync(...args) },
+  spawnSync: (...args: Parameters<typeof realSpawnSync>) => { syncSpawns += 1; return realSpawnSync(...args) },
+  execFile: countedExecFile,
+})
+mock.module('child_process', countedChildProcess)
+mock.module('node:child_process', countedChildProcess)
+
+// Imported after the mock: a static import would hoist above it and bind
+// `git/exec.ts` to the real module, leaving the counters at zero for good.
+const sessionSnapshots = await import('@solus/server/git/session-snapshots')
+const { initSessionBase, prepareTurnSnapshot, snapshotTurn } = sessionSnapshots
+// Bind the real function now: the namespace binding is live and points at the
+// mock once it is installed.
+const realGetEpisodeDiff = sessionSnapshots.getEpisodeDiff
+let episodeDiffCalls = 0
+mock.module('@solus/server/git/session-snapshots', () => ({
+  ...sessionSnapshots,
+  getEpisodeDiff: (...args: Parameters<typeof realGetEpisodeDiff>) => {
+    episodeDiffCalls += 1
+    return realGetEpisodeDiff(...args)
+  },
+}))
 
 type GuideProducerModule = typeof import('@solus/server/review/guide-producer')
 let generateGuide: GuideProducerModule['generateGuide']
 let cancelGenerateGuide: GuideProducerModule['cancelGenerateGuide']
 let getReviewGuideStatus: GuideProducerModule['getReviewGuideStatus']
+let getSessionGuideStatuses: GuideProducerModule['getSessionGuideStatuses']
 
 const temporaryDirectories: string[] = []
 const previousDataDir = process.env.SOLUS_DATA_DIR
 
 beforeAll(async () => {
-  ;({ generateGuide, cancelGenerateGuide, getReviewGuideStatus } = await import('@solus/server/review/guide-producer'))
+  ;({ generateGuide, cancelGenerateGuide, getReviewGuideStatus, getSessionGuideStatuses } = await import('@solus/server/review/guide-producer'))
 })
 
 afterEach(() => {
@@ -35,7 +78,7 @@ afterEach(() => {
 })
 
 function git(cwd: string, args: string[]): string {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' })
+  const result = realSpawnSync('git', args, { cwd, encoding: 'utf8' })
   if (result.status !== 0) throw new Error(result.stderr || `git ${args.join(' ')} failed`)
   return result.stdout.trim()
 }
@@ -134,7 +177,6 @@ function reviewContext(cwd: string, sessionId: string): IpcContext {
     settings: {
       themeMode: 'system',
       isDark: false,
-      soundEnabled: false,
       voiceModeEnabled: false,
       vadSilenceMs: 800,
       defaultEditor: null,
@@ -283,6 +325,102 @@ describe('session review guide scope', () => {
     expect(dispatcher.request?.prompt).not.toContain('unrelated edit')
     expect(generated?.guide.sections.flatMap((section) => section.files.map((file) => file.path)))
       .toEqual(['session.txt'])
+  })
+
+  test('answers a batch of session probes in request order without failing on a missing guide', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'solus-session-guide-batch-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'solus-session-guide-batch-data-'))
+    temporaryDirectories.push(cwd, dataDir)
+    process.env.SOLUS_DATA_DIR = dataDir
+
+    git(cwd, ['init', '-b', 'main'])
+    git(cwd, ['config', 'user.email', 'test@example.com'])
+    git(cwd, ['config', 'user.name', 'Test'])
+    writeFileSync(join(cwd, 'session.txt'), 'base\n')
+    git(cwd, ['add', '.'])
+    git(cwd, ['commit', '-m', 'base'])
+    const baseSha = git(cwd, ['rev-parse', 'HEAD'])
+    const sessionId = 'provider-session-batch'
+
+    await initSessionBase(cwd, sessionId, baseSha)
+    await prepareTurnSnapshot(cwd, cwd, sessionId)
+    writeFileSync(join(cwd, 'session.txt'), 'base\nsession edit\n')
+    await snapshotTurn(cwd, cwd, sessionId, { sessionChangedFiles: ['session.txt'] })
+    await generateGuide(new CapturingDispatcher(), reviewContext(cwd, sessionId), { target: { kind: 'session' }, agent: 'codex' })
+
+    // WHY: a restored workspace probes every tab in one request. Each answer
+    // must land on the tab that asked, and a tab with no guide (or no
+    // checkout at all) answers null instead of sinking the whole batch.
+    syncSpawns = 0
+    const statuses = await getSessionGuideStatuses([
+      reviewContext(cwd, 'never-reviewed').session,
+      reviewContext(cwd, sessionId).session,
+      reviewContext('~', 'no-checkout').session,
+    ])
+
+    expect(statuses.map((event) => event?.status ?? null)).toEqual([null, 'ready', null])
+    // WHY: 89 restored tabs once cost ~270 synchronous git spawns and held the
+    // first transcript page for four seconds. A probe must not block the loop.
+    expect(syncSpawns).toBe(0)
+    expect(statuses[1]?.key).toBe(`session-${sessionId}`)
+  })
+
+  test('a batch of sessions on one checkout reads that checkout once', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'solus-session-guide-shared-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'solus-session-guide-shared-data-'))
+    temporaryDirectories.push(cwd, dataDir)
+    process.env.SOLUS_DATA_DIR = dataDir
+    git(cwd, ['init', '-b', 'main'])
+    git(cwd, ['config', 'user.email', 'test@example.com'])
+    git(cwd, ['config', 'user.name', 'Test'])
+    writeFileSync(join(cwd, 'session.txt'), 'base\n')
+    git(cwd, ['add', '.'])
+    git(cwd, ['commit', '-m', 'base'])
+
+    // WHY: a restored workspace probes every tab at once, and those tabs are
+    // mostly sessions of one project. The transcript that is loading at the
+    // same time competes with every git process the batch starts, so the
+    // checkout's root, branch, target, and head are read once for the batch —
+    // not four times per session. Six is the cold cost of one checkout (the
+    // default-branch lookup alone is up to three reads); a per-session cost
+    // would put five sessions well past it.
+    gitSpawns = 0
+    const statuses = await getSessionGuideStatuses(
+      ['one', 'two', 'three', 'four', 'five'].map((sessionId) => reviewContext(cwd, sessionId).session),
+    )
+    expect(statuses).toEqual([null, null, null, null, null])
+    expect(gitSpawns).toBeLessThanOrEqual(6)
+  })
+
+  test('a branch probe with no guide answers null without diffing the working tree', async () => {
+    const cwd = mkdtempSync(join(tmpdir(), 'solus-branch-guide-probe-'))
+    const dataDir = mkdtempSync(join(tmpdir(), 'solus-branch-guide-probe-data-'))
+    temporaryDirectories.push(cwd, dataDir)
+    process.env.SOLUS_DATA_DIR = dataDir
+
+    git(cwd, ['init', '-b', 'main'])
+    git(cwd, ['config', 'user.email', 'test@example.com'])
+    git(cwd, ['config', 'user.name', 'Test'])
+    writeFileSync(join(cwd, 'change.txt'), 'base\n')
+    git(cwd, ['add', '.'])
+    git(cwd, ['commit', '-m', 'base'])
+    git(cwd, ['checkout', '-b', 'feature'])
+    writeFileSync(join(cwd, 'change.txt'), 'base\nedit\n')
+    const ctx = reviewContext(cwd, 'never-reviewed-branch')
+
+    // WHY: the Git section probes on every working-tree change while an agent
+    // edits. Most branches have no guide, and answering that must not cost a
+    // full diff of the tree each time a file is saved.
+    episodeDiffCalls = 0
+    syncSpawns = 0
+    expect(await getReviewGuideStatus(ctx, { scope: 'branch' })).toBeNull()
+    expect(episodeDiffCalls).toBe(0)
+    expect(syncSpawns).toBe(0)
+
+    await generateGuide(new CapturingDispatcher(), ctx, { scope: 'branch', agent: 'codex' })
+    episodeDiffCalls = 0
+    expect((await getReviewGuideStatus(ctx, { scope: 'branch' }))?.status).toBe('ready')
+    expect(episodeDiffCalls).toBeGreaterThan(0)
   })
 
   test('stops the active author after the session snapshot changes', async () => {

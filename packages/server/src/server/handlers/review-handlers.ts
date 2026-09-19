@@ -1,6 +1,6 @@
 import type { SolusServer } from '../server'
 import { readGuideByKey, readLegacyGuide, readLedger, writeLedger, resolveReviewContext, reviewCheckout, reviewRepoRoot } from '../../review/ledger'
-import { cancelGenerateGuide, generateGuide, getReviewGuideStatus, requestReviewGuide } from '../../review/guide-producer'
+import { cancelGenerateGuide, generateGuide, getReviewGuideStatus, getSessionGuideStatuses, requestReviewGuide } from '../../review/guide-producer'
 import { guideKeyFor } from '../../review/review-target'
 import { readReviewState, writeReviewState } from '../../review/review-state'
 import type { AgentDispatcher } from '../../agents/agent-runner'
@@ -94,6 +94,8 @@ export function registerReviewHandlers(
     const target = prTargetFor(ctx, opts)
     return target ? prGuideJobs.status(ctx, target) : getReviewGuideStatus(ctx, opts)
   })
+
+  server.register('sessionGuideStatuses', async ([sessions]) => getSessionGuideStatuses(sessions))
 
   server.register('cancelGenerateGuide', async (args) => {
     const [ctx, opts] = args

@@ -1,7 +1,7 @@
 import { EventEmitter } from 'events'
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
 import { join } from 'node:path'
-import { getCliEnv } from '../../cli-env'
+import { getCliEnv, warmCliPath } from '../../cli-env'
 import { SOLUS_PLUGINS_DIR } from '../plugins'
 import { createLogger } from '../../logger'
 import type {
@@ -126,6 +126,9 @@ export class CodexAppServerClient extends EventEmitter {
   private async start(): Promise<void> {
     this.stopped = false
     const codexHome = this.options.codexHome
+    // The login-shell PATH, resolved off the main thread: a version-managed
+    // codex lives on it, and asking synchronously here blocks every request.
+    await warmCliPath()
     const proc = spawn('codex', [
       'app-server',
       '--listen',

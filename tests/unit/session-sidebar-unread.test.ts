@@ -4,7 +4,7 @@ import type { Tab } from '@solus/contracts/types'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
 
-type SidebarStoreHarness = Pick<SessionSidebarStore, 'markTaskUnread'> & {
+type SidebarStoreHarness = Pick<SessionSidebarStore, 'markTaskUnread' | 'acknowledgeTask'> & {
   catalogTasks: SidebarTask[]
   session: {
     tabs: Record<string, Tab>
@@ -60,6 +60,34 @@ describe('session sidebar unread state', () => {
     await store.markTaskUnread(child.id)
 
     expect(store.session.tabs['child-tab'].hasUnread).toBe(true)
+  })
+
+  test('opening a task writes its read time only when the row is woken', () => {
+    // WHY: the read time exists to clear a woken snooze. Writing it on every
+    // click makes the host invalidate all task surfaces, which re-read the
+    // sidebar snapshot and every watched task detail for no visible change.
+    const child = taskRecord('child', 'root')
+    const marked: string[] = []
+    // SAFETY: the test calls one prototype method and supplies every field that
+    // method reads below; the Svelte constructor is intentionally bypassed.
+    const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
+    const row = sidebarTask('root', ['child-tab'])
+    store.catalogTasks = [row]
+    store.session = {
+      tabs: {},
+      tasksStore: {
+        peek: () => child,
+        get: (taskId) => ({ markRead: async () => { marked.push(taskId); return child } }),
+      },
+    }
+
+    store.acknowledgeTask(child.id)
+    expect(marked).toEqual([])
+
+    row.woke = true
+    store.acknowledgeTask(child.id)
+    // The row wakes on the root task's read time, so the root is what is written.
+    expect(marked).toEqual(['root'])
   })
 })
 

@@ -1,3 +1,4 @@
+import { z } from 'zod'
 import type { ControlPlane } from '../../control-plane'
 import type { AgentId, IpcContext, SessionMeta, SessionScanEvent, SessionTitleChangedEvent } from '@solus/contracts/types'
 import { loadAnnotations, saveAnnotations, toggleBookmarkAnnotations } from '../../plans/annotations'
@@ -8,6 +9,7 @@ import type { HandlerCtx, SolusServer } from '../server'
 import type { ShareManager } from '../../sharing/share-manager'
 import { getIndexedSession, getSessionMessageWindow, searchIndexedSessions, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
+import { projectsVisibleTo } from './setup-handlers'
 import { generateSessionMetadata } from '../../sessions/session-title'
 import { updateGeneratedMetadataForSession } from '../../tasks/task-sessions'
 import { emitChanged } from '../../tasks/task-store'
@@ -102,10 +104,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('listRecentProjects', async () => {
+  server.register('listRecentProjects', async (_args, ctx) => {
     const t0 = Date.now()
     try {
-      const projects = await listRecentProjects()
+      const projects = projectsVisibleTo(ctx.principal, await listRecentProjects())
       recordOtelDuration('list_recent_projects', Date.now() - t0, { count: projects.length })
       return projects
     } catch (err) {
@@ -151,6 +153,29 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     } catch (err) {
       log.error('load_session_failed', { error: String(err), sessionId, projectPath })
       return []
+    }
+  })
+
+  server.register('loadSessionPage', async ([input]) => {
+    const startedAt = Date.now()
+    const request = z.object({
+      sessionId: z.string().min(1),
+      provider: z.enum(['claude-code', 'codex', 'opencode']),
+      projectPath: z.string().optional(),
+      limit: z.number().int().min(1).max(500).optional(),
+      before: z.string().max(16384).optional(),
+      deferToolInputs: z.boolean().optional(),
+    }).parse(input)
+    const page = await controlPlane.loadSessionPage(request)
+    const messages = projectSessionHistory(page.messages)
+    recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
+    log.info('session_history_page_loaded', {
+      sessionId: request.sessionId, provider: request.provider, messageCount: messages.length,
+      olderPage: !!request.before, hasMore: page.before !== null, durationMs: Date.now() - startedAt,
+    })
+    return {
+      messages: request.deferToolInputs ? deferSessionToolInputs(messages) : messages,
+      before: page.before,
     }
   })
 

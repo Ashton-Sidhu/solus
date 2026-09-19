@@ -1,11 +1,17 @@
 <script lang="ts">
-  import { untrack } from "svelte";
-  import { Code as CodeIcon, Eye as EyeIcon, Check as CheckIcon } from "@lucide/svelte";
+  import {
+    BookmarkPlus as SaveArtifactIcon,
+    Code as CodeIcon,
+    Download as DownloadIcon,
+    PanelRight as PanelRightIcon,
+  } from "@lucide/svelte";
   import { getWorkspaceContext } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
-  import CodeBlock from "../ui/CodeBlock.svelte";
+  import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import ArtifactRail from "../artifact/ArtifactRail.svelte";
   import SandboxFrame from "../artifact/SandboxFrame.svelte";
+  import { downloadPayload } from "../work/lib/work-export";
+  import { htmlBlockFileName } from "./lib/html-block";
   import { getHtmlBlockOrigin } from "./lib/html-block-origin";
 
   /**
@@ -15,101 +21,105 @@
    * A block is ephemeral — it is the message, and it has no work id until the
    * reader asks for one. "Save as artifact" is what gives it identity; the rail
    * that appears afterwards is the same one an `artifact` work carries.
-   *
-   * The Preview/Source toggle is deliberately local state: a transcript is not
-   * a document, so which way a reader last looked at a block is not something
-   * to persist or to sync across the clients reading the same session.
+   * "Open in split" needs that identity too, so it saves first when it must.
+   * "Save as HTML" writes the markup to the device and leaves the block as it is.
    */
   interface Props {
     html: string;
-    /** Snippets that were rendered by hand start on source, so the reader ends
-     *  up where they asked to be rather than one click away from it. */
-    initialMode?: "preview" | "source";
+    /** A snippet the reader rendered by hand keeps a way back to its source.
+     *  A block that rendered on its own has no source view. */
+    onShowSource?: () => void;
   }
 
-  let { html, initialMode = "preview" }: Props = $props();
+  let { html, onShowSource }: Props = $props();
 
   const session = getWorkspaceContext();
   const origin = getHtmlBlockOrigin();
 
-  let mode = $state<"preview" | "source">(untrack(() => initialMode));
   let saving = $state(false);
   let saved = $state<{ workId: string; title: string } | null>(null);
 
-  async function saveAsArtifact() {
-    if (saving || saved) return;
+  async function ensureSaved(): Promise<{ workId: string; title: string } | null> {
+    if (saved) return saved;
+    if (saving) return null;
     saving = true;
     try {
       saved = await session.createArtifact(html, origin?.().tabId);
+      return saved;
     } finally {
       saving = false;
-      requestInputFocus();
     }
+  }
+
+  async function saveAsArtifact() {
+    await ensureSaved();
+    requestInputFocus();
+  }
+
+  async function openInSplit() {
+    const work = await ensureSaved();
+    if (work) session.openWork(work.workId, "aside");
+    requestInputFocus();
+  }
+
+  function saveAsHtml() {
+    downloadPayload(htmlBlockFileName(html), "text/html", { contents: html, encoding: "utf8" });
+    requestInputFocus();
   }
 </script>
 
-<div
-  class="html-block {origin && mode === 'preview' ? 'w-full' : ''}"
-  data-testid="html-block"
-  data-conversation-preview={origin && mode === "preview" ? true : undefined}
->
-  {#if mode === "preview"}
-    <SandboxFrame {html}>
-      {#snippet actions()}
-        {#if !saved}
-          <button
-            type="button"
-            class="artifact-action is-labelled"
-            data-testid="html-block-save"
-            disabled={saving}
-            onclick={saveAsArtifact}
-          >
-            {saving ? "Saving…" : "Save as artifact"}
-          </button>
-        {:else}
-          <span class="artifact-action is-labelled" aria-live="polite">
-            <CheckIcon size={12} />
-            Saved
-          </span>
-        {/if}
+{#snippet action(
+  label: string,
+  testId: string,
+  onclick: () => void,
+  icon: typeof DownloadIcon,
+  disabled = false,
+)}
+  {@const Icon = icon}
+  <TooltipUI.Root>
+    <TooltipUI.Trigger>
+      {#snippet child({ props: tooltipProps })}
         <button
+          {...tooltipProps}
           type="button"
           class="artifact-action"
-          data-testid="html-block-source"
-          aria-label="Show HTML source"
-          title="Show source"
-          onclick={() => (mode = "source")}
+          data-testid={testId}
+          aria-label={label}
+          {disabled}
+          {onclick}
         >
-          <CodeIcon size={14} />
+          <Icon size={14} />
         </button>
       {/snippet}
-    </SandboxFrame>
-  {:else}
-    <CodeBlock text={html} lang="html">
-      {#snippet actions()}
-        <button
-          type="button"
-          class="solus-code-action"
-          data-testid="html-block-preview"
-          onclick={() => (mode = "preview")}
-        >
-          <EyeIcon size={11} />
-          Preview
-        </button>
-        {#if !saved}
-          <button
-            type="button"
-            class="solus-code-action"
-            data-testid="html-block-save"
-            disabled={saving}
-            onclick={saveAsArtifact}
-          >
-            {saving ? "Saving…" : "Save as artifact"}
-          </button>
-        {/if}
-      {/snippet}
-    </CodeBlock>
-  {/if}
+    </TooltipUI.Trigger>
+    <TooltipUI.Content value={label} />
+  </TooltipUI.Root>
+{/snippet}
+
+<div
+  class="html-block {origin ? 'w-full' : ''}"
+  data-testid="html-block"
+  data-conversation-preview={origin ? true : undefined}
+>
+  <SandboxFrame {html} expandable={false}>
+    {#snippet actions()}
+      {#if onShowSource}
+        {@render action("Show source", "html-block-source", onShowSource, CodeIcon)}
+      {/if}
+      {@render action("Save as HTML", "html-block-download", saveAsHtml, DownloadIcon)}
+      {#if !saved}
+        <!-- Once saved, the rail below names the artifact; the action goes away. -->
+        {@render action(
+          saving ? "Saving…" : "Save as artifact",
+          "html-block-save",
+          saveAsArtifact,
+          SaveArtifactIcon,
+          saving,
+        )}
+      {/if}
+      {@render action("Open in split", "html-block-open-split", openInSplit, PanelRightIcon, saving)}
+    {/snippet}
+  </SandboxFrame>
 
   {#if saved}
     <ArtifactRail

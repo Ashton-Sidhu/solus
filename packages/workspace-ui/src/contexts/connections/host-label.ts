@@ -1,3 +1,5 @@
+import type { SavedServerUplink } from '@solus/client-core/server-registry'
+
 /**
  * Which name a host row prints.
  *
@@ -9,13 +11,20 @@
  * record does: it rides the authenticated connection and reloads on every
  * reconnect.
  *
+ * A managed host is "Cloud", one word (docs/plans/managed-hosts.md): its machine
+ * name is an identifier nobody chose, and every surface answers "where does this
+ * run", not which machine. Which team it serves belongs to Connections.
+ *
  * The exception is a name the user typed. Renaming the machine must not rewrite
  * their wording, so `hasUserLabel` outranks the host's own answer.
  */
+export const CLOUD_HOST_LABEL = 'Cloud'
+
 export function hostRowLabel(
-  saved: { label: string; hasUserLabel?: boolean },
+  saved: { label: string; hasUserLabel?: boolean; uplink?: Pick<SavedServerUplink, 'kind'> },
   reportedName: string | undefined,
 ): string {
   if (saved.hasUserLabel) return saved.label
+  if (saved.uplink?.kind === 'managed') return CLOUD_HOST_LABEL
   return reportedName || saved.label
 }

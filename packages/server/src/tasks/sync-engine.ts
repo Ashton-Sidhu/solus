@@ -15,6 +15,7 @@ import { createLogger } from '../logger'
 import { loadProjectConfig } from '../project-config/project-config'
 import { pullRequestIsMerged } from '../prs/code-host'
 import { readTaskLinks, type PrLinkTarget } from './task-links'
+import { taskSessions } from './task-sessions'
 import { createTask, emitChanged } from './task-store'
 import { Task as TaskModel } from './task'
 import {
@@ -514,6 +515,17 @@ export function taskHasPendingSync(taskId: string): boolean {
   return hasPendingSync(taskId, getDb())
 }
 
+export interface MergedPullRequestCompletion {
+  /** The host's `updatedAt` for the merged pull request. A task touched after
+   *  it has been reopened or resumed on purpose; that newer decision wins until
+   *  the pull request itself changes again. */
+  mergedAt: string
+  /** Whether a Solus session is still mid-turn. Work merged under a session
+   *  that is still working is not finished yet; the next poll asks again. */
+  isSessionBusy: (sessionId: string) => boolean
+  isMerged?: (target: PrLinkTarget) => Promise<boolean>
+}
+
 /**
  * Finish the work a merged pull request finished.
  *
@@ -527,18 +539,21 @@ export function taskHasPendingSync(taskId: string): boolean {
  * cost a read; one link, the common case, costs none. A link that cannot be
  * read leaves the task alone — see `pullRequestIsMerged`.
  *
- * Called by the merge handler, which has authoritative success, and by
- * `PrReconciler` for a merge made outside Solus.
+ * This is the one place the rule lives. Called by the merge handler, which has
+ * authoritative success, and by `PrReconciler` for a merge made outside Solus;
+ * `tasks.invalidated` carries the answer to every client.
  */
 export async function completeTasksForMergedPullRequest(
   repositoryScope: string,
   number: number,
-  isMerged: (target: PrLinkTarget) => Promise<boolean> = ({ projectScope, number: linked }) =>
-    pullRequestIsMerged(projectScope, linked),
+  completion: MergedPullRequestCompletion,
 ): Promise<string[]> {
+  const isMerged = completion.isMerged ?? (({ projectScope, number: linked }) =>
+    pullRequestIsMerged(projectScope, linked))
+  const mergedAtMs = Date.parse(completion.mergedAt)
   const db = getDb()
-  const rows = z.array(z.object({ id: z.string(), project_key: z.string().nullable() })).parse(db.prepare(`
-    SELECT DISTINCT tasks.id, tasks.project_key
+  const rows = z.array(z.object({ id: z.string(), project_key: z.string().nullable(), updated_at: z.number() })).parse(db.prepare(`
+    SELECT DISTINCT tasks.id, tasks.project_key, tasks.updated_at
     FROM tasks
     JOIN task_links ON task_links.task_id = tasks.id
     WHERE tasks.status NOT IN ('done', 'dropped')
@@ -551,6 +566,9 @@ export async function completeTasksForMergedPullRequest(
   for (const row of rows) {
     const config = row.project_key ? await loadProjectConfig(row.project_key) : null
     if (config?.taskDoneOnMerge === false) continue
+    if (Number.isFinite(mergedAtMs) && row.updated_at > mergedAtMs) continue
+    const working = (taskSessions(row.id)[row.id] ?? []).filter((link) => link.role === 'working')
+    if (working.some((link) => completion.isSessionBusy(link.sessionId))) continue
     const others = readTaskLinks(db, row.id).flatMap((link) => {
       if (link.kind !== 'pr') return []
       const linkedNumber = Number(link.targetKey)

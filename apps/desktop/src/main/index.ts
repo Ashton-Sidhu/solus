@@ -961,6 +961,7 @@ if (isPairUrl) {
     // Transcription comes with it: both of its exports are used only from here
     // down, and its model downloader reaches posthog-node — the one heavy
     // dependency still eager once the server graph moved.
+    const serverGraphLoadStartedAt = performance.now()
     const [
       { bootCore },
       { prepareTranscriptionModel, transcribeAudio },
@@ -970,6 +971,7 @@ if (isPairUrl) {
       import('@solus/desktop-main/transcription'),
       import('@solus/desktop-main/server/handlers/file-handlers'),
     ])
+    log.info('server_graph_loaded', { elapsedMs: Math.round(performance.now() - serverGraphLoadStartedAt) })
 
     let bootedCore: BootCore
     try {

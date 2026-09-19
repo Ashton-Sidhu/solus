@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, spyOn, test } from 'bun:test'
 import type { PrListPage, PullRequest } from '@solus/contracts/providers'
 import type { PrGuideMetadataRequest, ReviewGuideStatusEvent } from '@solus/contracts/review'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
@@ -85,6 +85,18 @@ const NO_CHECKS = {
 }
 
 describe('PrsStore lookups are scoped to one project', () => {
+  test('managed worktrees share a project entry while different hosts remain separate', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const api = asHostApi({})
+    const root = store.get(api, 'host-a', ctxFor('/repos/a'))
+    const worktree = store.get(api, 'host-a', ctxFor('/repos/a/.git/solus/worktrees/feature'))
+    expect(worktree).toBe(root)
+    expect(store.at('host-a', '/repos/a/.git/solus/worktrees/feature')).toBe(root)
+    expect(store.get(api, 'host-b', ctxFor('/repos/a'))).not.toBe(root)
+  })
+
   test('a label write updates the indexed pull request and its visible list row', async () => {
     // WHY: the detail picker and PR list stay mounted together. A label edit
     // is applied through the one path every write and host broadcast takes,
@@ -201,7 +213,7 @@ describe('branch discovery shared by mobile and the git rail', () => {
           return { items: [pr(7, { title: serverId, headRef: 'feature/x' })], page: 1, hasMore: false }
         },
       })
-      await store.get(api, serverId, ctxFor('/repos/a')).loadBranch('feature/x', pr(7).url)
+      await store.get(api, serverId, ctxFor('/repos/a')).query({ state: 'all', head: 'feature/x' })
     }
     expect(reads).toEqual(['host-a', 'host-b'])
     expect(store.at('host-a', '/repos/a')?.prForBranch('feature/x')?.title).toBe('host-a')
@@ -215,18 +227,18 @@ describe('branch discovery shared by mobile and the git rail', () => {
     let reads = 0
     const response = Promise.withResolvers<PrListPage>()
     const api = asHostApi({ prList: async (_ctx, filter) => {
-      expect(filter).toEqual({ state: 'open', head: 'feature/x' })
+      expect(filter).toEqual({ state: 'all', head: 'feature/x' })
       reads++
       return response.promise
     } })
     const project = store.get(api, 'host-a', ctxFor('/repos/a'))
     project.filter = { state: 'closed' }
-    const first = project.loadBranch('feature/x', pr(7).url)
-    const second = project.loadBranch('feature/x', pr(7).url)
+    const first = project.query({ state: 'all', head: 'feature/x' })
+    const second = project.query({ state: 'all', head: 'feature/x' })
     expect(reads).toBe(1)
     response.resolve({ items: [pr(7, { headRef: 'feature/x' })], page: 1, hasMore: false })
     await Promise.all([first, second])
-    await project.loadBranch('feature/x', pr(7).url)
+    await project.query({ state: 'all', head: 'feature/x' })
     expect(reads).toBe(1)
     expect(project.prForBranch('feature/x')?.number).toBe(7)
     expect(project.filter).toEqual({ state: 'closed' })
@@ -242,13 +254,13 @@ describe('branch discovery shared by mobile and the git rail', () => {
       return { items: [pr(7, { headRef: 'feature/x' })], page: 1, hasMore: false }
     } })
     const project = new PrsStore().get(api, 'host-a', ctxFor('/repos/a'))
-    await expect(project.loadBranch('feature/x', pr(7).url)).rejects.toThrow('Host disconnected')
-    await project.loadBranch('feature/x', pr(7).url)
+    await expect(project.query({ state: 'all', head: 'feature/x' })).rejects.toThrow('Host disconnected')
+    await project.query({ state: 'all', head: 'feature/x' })
     expect(reads).toBe(2)
     expect(project.prForBranch('feature/x')?.number).toBe(7)
   })
 
-  test('a branch without a discovered pull request does not ask the host', async () => {
+  test('an empty background interest does not ask the host', async () => {
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
     let reads = 0
@@ -257,8 +269,7 @@ describe('branch discovery shared by mobile and the git rail', () => {
       return { items: [], page: 1, hasMore: false }
     } })
     const project = new PrsStore().get(api, 'host-a', ctxFor('/repos/a'))
-    await project.loadBranch('feature/x', null)
-    await project.loadBranch(null, pr(7).url)
+    await project.refreshObserved([], [])
     expect(reads).toBe(0)
   })
 })
@@ -700,6 +711,274 @@ describe('PrsStore carries an optimistic lifecycle edit and its rollback', () =>
 })
 
 describe('PrsStore stops asking for a pull request the provider refuses', () => {
+  test('background failures retry after the cooldown instead of remaining unavailable forever', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const clock = spyOn(Date, 'now').mockReturnValue(1_000)
+    let reads = 0
+    try {
+      const project = new PrsStore().get(asHostApi({
+        prGetDetail: async () => {
+          if (++reads === 1) throw new Error('Host unavailable')
+          return pr(7)
+        },
+      }), 'host-a', ctxFor('/repos/a'))
+      await project.refreshObserved([], [], [7])
+      await project.refreshObserved([], [], [7])
+      expect(reads).toBe(1)
+      clock.mockReturnValue(301_001)
+      await project.refreshObserved([], [], [7])
+      expect(reads).toBe(2)
+      expect(project.prFor(7)?.number).toBe(7)
+    } finally { clock.mockRestore() }
+  })
+
+  test('repeated background passes do not retry missing PR details; explicit reads still work', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    let reads = 0
+    let available = false
+    const project = new PrsStore().get(asHostApi({
+      prList: async () => ({ items: [], page: 1, hasMore: false }),
+      prGetDetail: async (_ctx, number) => {
+        reads++
+        if (!available) throw new Error('Not Found')
+        return pr(number)
+      },
+    }), 'host-a', ctxFor('/repos/a'))
+    await project.refreshObserved([65, 66, 67, 68], [])
+    expect(reads).toBe(0)
+    await project.refreshObserved([65, 66, 67, 68], [], [65])
+    await project.refreshObserved([65, 66, 67, 68], [])
+    await project.refreshObserved([], [], [65])
+    expect(reads).toBe(1)
+    available = true
+    await project.get(65).loadDetail()
+    expect(reads).toBe(2)
+    expect(project.prFor(65)?.number).toBe(65)
+    project.forgetAll()
+    await project.refreshObserved([], [], [66])
+    expect(reads).toBe(3)
+  })
+
+  test('an unavailable project does not fan out into individual PR lookups', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    let lists = 0
+    let details = 0
+    const project = new PrsStore().get(asHostApi({
+      prList: async () => { lists++; throw new Error('no recognizable git remote') },
+      prGetDetail: async (_ctx, number) => { details++; return pr(number) },
+    }), 'host-a', ctxFor('github.com/acme/repo'))
+    await project.refreshObserved([35], ['main'])
+    await project.refreshObserved([35], ['main'])
+    expect(lists).toBe(1)
+    expect(details).toBe(0)
+  })
+
+  test('visible detail interests load merge fields even when the list already describes the PR', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    let details = 0
+    const project = new PrsStore().get(asHostApi({
+      prList: async () => ({ items: [pr(7)], page: 1, hasMore: false }),
+      prGetDetail: async () => { details++; return pr(7, { mergeable: true }) },
+    }), 'host-a', ctxFor('/repos/a'))
+    await project.refreshObserved([7], [], [7])
+    await project.refreshObserved([], [], [7])
+    expect(details).toBe(1)
+    expect(project.prFor(7)?.mergeable).toBe(true)
+  })
+
+  test('background interests combine after paint and explicit reads do not wait for them', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const paint = Promise.withResolvers<void>()
+    let listenerStarts = 0
+    let listenerStops = 0
+    const store = new PrsStore(() => paint.promise, () => {
+      listenerStarts++
+      return () => { listenerStops++ }
+    })
+    let lists = 0
+    let details = 0
+    const api = asHostApi({
+      prList: async () => {
+        lists++
+        return { items: [pr(7)], page: 1, hasMore: false }
+      },
+      prGetDetail: async (_ctx, number) => { details++; return pr(number) },
+    })
+    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
+    const settled = Array.from({ length: 10 }, () => Promise.withResolvers<void>())
+    const releases = settled.map((done) => store.watch(project, { numbers: [7], branches: ['feature/7'] }, done.resolve))
+    try {
+      expect(lists).toBe(0)
+      expect(listenerStarts).toBe(1)
+      await project.get(8).loadDetail()
+      expect(details).toBe(1)
+      paint.resolve()
+      await Promise.all(settled.map((done) => done.promise))
+      expect(lists).toBe(1)
+      expect(details).toBe(1)
+      expect(project.prFor(7)?.number).toBe(7)
+    } finally {
+      for (const release of releases) release()
+    }
+    expect(listenerStops).toBe(1)
+  })
+
+  test('restoring many saved PR links issues one summary list and zero full-detail requests', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore(() => Promise.resolve(), () => () => {})
+    let lists = 0
+    let details = 0
+    const project = store.get(asHostApi({
+      prList: async () => {
+        lists++
+        return { items: [pr(1)], page: 1, hasMore: true }
+      },
+      prGetDetail: async (_ctx, number) => { details++; return pr(number) },
+    }), 'host-a', ctxFor('/repos/a'))
+    const settled = Array.from({ length: 100 }, () => Promise.withResolvers<void>())
+    const releases = settled.map((done, index) => store.watch(project, { numbers: [index + 1] }, done.resolve))
+    try {
+      await Promise.all(settled.map((done) => done.promise))
+      expect(lists).toBe(1)
+      expect(details).toBe(0)
+      expect(project.prFor(68)).toBeNull()
+      await project.get(68).loadDetail()
+      expect(details).toBe(1)
+      expect(project.prFor(68)?.number).toBe(68)
+    } finally {
+      for (const release of releases) release()
+    }
+  })
+
+  test('a surface removed before paint starts no reads and receives no callback', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const paint = Promise.withResolvers<void>()
+    const settled = Promise.withResolvers<void>()
+    const store = new PrsStore(() => paint.promise, () => () => {})
+    let staleReads = 0
+    let staleCallbacks = 0
+    const abandoned = store.get(asHostApi({ prList: async () => {
+      staleReads++
+      return { items: [], page: 1, hasMore: false }
+    } }), 'host-a', ctxFor('/abandoned'))
+    const release = store.watch(abandoned, { branches: ['main'] }, () => { staleCallbacks++ })
+    release()
+    const current = store.get(asHostApi({ prList: async () => ({ items: [], page: 1, hasMore: false }) }), 'host-a', ctxFor('/current'))
+    const stop = store.watch(current, { branches: ['main'] }, settled.resolve)
+    try {
+      paint.resolve()
+      await settled.promise
+      expect(staleReads).toBe(0)
+      expect(staleCallbacks).toBe(0)
+    } finally { stop() }
+  })
+
+  test('a host update wins over an older pending detail read', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const response = Promise.withResolvers<PullRequest>()
+    const project = store.get(asHostApi({ prGetDetail: () => response.promise }), 'host-a', ctxFor('/repos/a'))
+    const pending = project.get(7).loadDetail()
+    project.applyPullRequest(pr(7, { state: 'merged' }))
+    response.resolve(pr(7, { state: 'open' }))
+    await pending
+    expect(project.prFor(7)?.state).toBe('merged')
+    expect(project.mirrors.detail.fresh('7')?.state).toBe('merged')
+  })
+
+  test('concurrent sidebar rows wait for the shared list before requesting missing details', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    const page = Promise.withResolvers<PrListPage>()
+    let listReads = 0
+    const detailReads: number[] = []
+    const api = asHostApi({
+      prList: async () => {
+        listReads++
+        return page.promise
+      },
+      prGetDetail: async (_ctx, number) => {
+        detailReads.push(number)
+        return pr(number)
+      },
+    })
+    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
+    const rows = [project.ensureNumbers([1]), project.ensureNumbers([2]), project.ensureNumbers([3])]
+    expect(listReads).toBe(1)
+    expect(detailReads).toEqual([])
+    page.resolve({ items: [pr(1), pr(2)], page: 1, hasMore: false })
+    await Promise.all(rows)
+    expect(detailReads).toEqual([3])
+    expect(project.prFor(2)?.number).toBe(2)
+    await project.ensureNumbers([1, 2, 3])
+    expect(listReads).toBe(1)
+    expect(detailReads).toEqual([3])
+  })
+
+  test('linked PRs with empty cached entities still load their merged status', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const { prChipForChoices } = await import('@solus/workspace-ui/components/session/lib/task-list')
+    const detailReads: number[] = []
+    const store = new PrsStore()
+    const project = store.get(asHostApi({
+      prList: async () => ({ items: [pr(1, { state: 'merged' })], page: 1, hasMore: true }),
+      prGetDetail: async (_ctx, number) => {
+        detailReads.push(number)
+        return pr(number, { state: 'merged' })
+      },
+    }), 'host-a', ctxFor('/repos/a'))
+    // A pane can allocate an entity before it reads any provider data. That
+    // empty entity must not keep an older linked PR outside the list unloaded.
+    project.get(2)
+    await project.ensureNumbers([1, 2])
+    expect(detailReads).toEqual([2])
+    expect(prChipForChoices([1, 2].map((number) => ({
+      number,
+      targetScope: '/repos/a',
+      title: `#${number}`,
+      url: null,
+      pullRequest: project.prFor(number),
+    })))?.state).toBe('merged')
+  })
+
+  test('a failed shared list still resolves linked numbers and invalidation permits a new list', async () => {
+    installStateRune()
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore()
+    let listReads = 0
+    const detailReads: number[] = []
+    const api = asHostApi({
+      prList: async (): Promise<PrListPage> => {
+        listReads++
+        if (listReads === 1) throw new Error('List unavailable')
+        return { items: [pr(3)], page: 1, hasMore: false }
+      },
+      prGetDetail: async (_ctx, number) => {
+        detailReads.push(number)
+        return pr(number)
+      },
+    })
+    const project = store.get(api, 'host-a', ctxFor('/repos/a'))
+    await Promise.all([project.ensureNumbers([1]), project.ensureNumbers([2])])
+    expect(listReads).toBe(1)
+    expect(detailReads).toEqual([1, 2])
+    project.forgetAll()
+    await project.ensureNumbers([3])
+    expect(listReads).toBe(2)
+    expect(detailReads).toEqual([1, 2])
+    expect(project.prFor(3)?.number).toBe(3)
+  })
+
   test('a number that fails once is not requested again', async () => {
     installStateRune()
     const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')

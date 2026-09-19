@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, mock, test } from 'bun:test'
 import type { WorkspaceContext } from '@solus/workspace-ui/contexts/workspace/workspace.context.svelte'
 import type { IpcContext } from '@solus/contracts/types'
+import type { SessionHistoryPageRequest } from '@solus/contracts/session-history'
 import { singleHostServerConnections } from './helpers/server-connections-mock'
+import { projectSessionHistory } from '@solus/server/server/result-projection'
+import { deferSessionToolInputs } from '@solus/server/server/session-tool-inputs'
+import type { SessionLoadMessage } from '@solus/contracts/session-history'
 
 const connections = singleHostServerConnections()
 
@@ -12,12 +16,100 @@ mock.module('@solus/client-core/server-connections', () => ({
 const {
   loadRestoredSessionTranscript,
   loadSessionTranscript,
+  materializeSessionTranscript,
   RESTORED_TRANSCRIPT_LIMIT,
 } = await import('@solus/workspace-ui/contexts/workspace/session-transcript')
 
 afterEach(() => connections.reset())
 
 describe('session transcript rehydration', () => {
+  for (const provider of ['claude-code', 'codex'] as const) {
+    test(`${provider} restores artifact updates, identities and failed calls from mobile history`, () => {
+      const prefix = provider === 'claude-code' ? 'mcp__solus__' : ''
+      const history: SessionLoadMessage[] = []
+      function call(toolId: string, name: string, input: { html?: string; work_id?: string; content?: string }, output: string, failed = false) {
+        const tool: SessionLoadMessage = { role: 'tool', toolId, toolName: `${prefix}${name}`, toolInput: JSON.stringify(input), content: '', timestamp: history.length + 1 }
+        history.push(tool)
+        if (provider === 'codex') {
+          tool.content = output
+          tool.toolStatus = failed ? 'error' : 'completed'
+        } else history.push({ role: 'tool_result', toolResultForId: toolId, content: output, toolResultIsError: failed, timestamp: history.length + 1 })
+      }
+      call('create', 'render_artifact', { html: '<p>Original</p>' }, 'Rendered "Same title" in the conversation and saved it as an artifact (id: work-a).')
+      call('other', 'render_artifact', { html: '<p>Separate</p>' }, 'Rendered "Same title" in the conversation and saved it as an artifact (id: work-b).')
+      call('edit', 'update_work', { work_id: 'work-a', content: '<p>Revised</p>' }, 'Updated "Renamed" (artifact, id: work-a).')
+      call('failed', 'update_work', { work_id: 'work-a', content: '<p>Failed</p>' }, 'Work tool error: save failed', true)
+      call('document', 'update_work', { work_id: 'doc', content: 'Document' }, 'Updated "Document".')
+      history.push({ role: 'tool', toolId: 'interrupted', toolName: `${prefix}update_work`, toolInput: JSON.stringify({ work_id: 'work-a', content: '<p>Incomplete</p>' }), content: '', timestamp: 20 })
+      connections.registerPrimary('transcript-host', {})
+      const ctx = {
+        apiForSession: () => connections.apiFor('transcript-host'),
+        worksStore: { get: () => undefined },
+      } as unknown as WorkspaceContext
+      const transcript = materializeSessionTranscript(ctx, {
+        sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider,
+        ctx: { session: { sessionId: 'tab' } } as IpcContext,
+      }, deferSessionToolInputs(projectSessionHistory(history)))
+      const artifacts = transcript.messages.filter((message) => message.artifact)
+      expect(artifacts.map((message) => message.artifact?.html)).toEqual(['<p>Original</p>', '<p>Separate</p>', '<p>Revised</p>'])
+      expect(artifacts.map((message) => message.workRef?.workId)).toEqual(['work-a', 'work-b', 'work-a'])
+      expect(artifacts.map((message) => message.workRef?.title)).toEqual(['Same title', 'Same title', 'Renamed'])
+    })
+  }
+  test('late subagent activity follows its owning call across disjoint pages', async () => {
+    connections.registerPrimary('transcript-host', {
+      loadSessionPage: async (request) => request.before ? {
+        messages: [
+          { role: 'user', content: 'start', timestamp: 1 },
+          { role: 'tool', content: '', toolName: 'Agent', toolId: 'parent', isSubagent: true, timestamp: 2 },
+        ], before: null,
+      } : {
+        messages: [
+          { role: 'user', content: 'continue while the agent works', timestamp: 3 },
+          { role: 'assistant', content: 'nested reply', parentToolUseId: 'parent', timestamp: 4 },
+          { role: 'tool_result', content: '', report: 'finished', toolResultForId: 'parent', status: 'ok', timestamp: 5 },
+        ], before: 'older',
+      },
+    })
+    const ctx = {
+      apiForSession: () => connections.apiFor('transcript-host'),
+      automationsStore: { loaded: true },
+    } as unknown as WorkspaceContext
+    const args = {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'claude-code' as const,
+      ctx: { session: { sessionId: 'tab' } } as IpcContext,
+    }
+    const recent = await loadRestoredSessionTranscript(ctx, args)
+    expect(recent.messages.map((message) => message.content)).toEqual(['continue while the agent works'])
+    expect(recent.pendingMessages).toHaveLength(2)
+    const older = await loadRestoredSessionTranscript(ctx, {
+      ...args, before: recent.before!, pendingMessages: recent.pendingMessages,
+    })
+    const parent = older.messages.find((message) => message.toolId === 'parent')
+    expect(parent?.report).toBe('finished')
+    expect(parent?.toolStatus).toBe('completed')
+    expect(parent?.subMessages?.map((message) => message.content)).toEqual(['nested reply'])
+    expect(older.pendingMessages).toEqual([])
+  })
+
+  test('a short cursor page still exposes older history and forwards the cursor', async () => {
+    const loadSessionPage = mock(async (_request: SessionHistoryPageRequest) => ({
+      messages: [{ role: 'user', content: 'older turn', timestamp: 1 }], before: 'next-page',
+    }))
+    connections.registerPrimary('transcript-host', { loadSessionPage })
+    const ctx = {
+      apiForSession: () => connections.apiFor('transcript-host'),
+      automationsStore: { loaded: true },
+    } as unknown as WorkspaceContext
+    const transcript = await loadRestoredSessionTranscript(ctx, {
+      sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
+      ctx: { session: { sessionId: 'tab' } } as IpcContext, before: 'older-page',
+    })
+    expect(loadSessionPage.mock.calls[0]?.[0]).toMatchObject({ before: 'older-page', limit: 200 })
+    expect(transcript.truncated).toBe(true)
+    expect(transcript.before).toBe('next-page')
+  })
+
   test('consumes an early history read without issuing a duplicate RPC', async () => {
     const loadSession = mock(async () => [])
     connections.registerPrimary('transcript-host', { loadSession })
@@ -65,9 +157,8 @@ describe('session transcript rehydration', () => {
   })
 
   test('rebuilds a rendered artifact with the work it was saved as', async () => {
-    // WHY: the work id lived in the dropped tool result, so a reloaded frame
-    // finds its work the way a create_work card does — by the title the host
-    // saved it under, which is the same rule the host applied.
+    // WHY: identity survives renames and same-title artifacts. It comes from
+    // the successful receipt, even before the works store has loaded.
     const html = '<!doctype html><html><head><title>Latency</title></head><body></body></html>'
     connections.registerPrimary('transcript-host', {
       loadSession: async () => [{
@@ -76,6 +167,7 @@ describe('session transcript rehydration', () => {
         toolName: 'mcp__solus__render_artifact',
         toolId: 'artifact-1',
         toolInput: JSON.stringify({ html }),
+        artifactWorkRef: { workId: 'w-art', title: 'Latency' },
         timestamp: 1,
       }],
     })
@@ -342,4 +434,25 @@ describe('session transcript rehydration', () => {
     expect(predecessor.truncated).toBe(true)
     expect(current.truncated).toBe(true)
   })
+})
+
+
+test('first-render transcript conversion does not wait for automation metadata', () => {
+  connections.registerPrimary('transcript-host', {})
+  const loadAll = mock(() => new Promise<void>(() => {}))
+  const ctx = {
+    apiForSession: () => connections.apiFor('transcript-host'),
+    automationsStore: { loaded: false, items: [], loadAll },
+  } as unknown as WorkspaceContext
+  const transcript = materializeSessionTranscript(ctx, {
+    sessionId: 'session', loadPath: '/repo', displayCwd: '/repo', provider: 'codex',
+    ctx: { session: { sessionId: 'tab' } } as IpcContext,
+  }, {
+    messages: [
+      { role: 'user', content: 'show this immediately', timestamp: 1 },
+      { role: 'tool', content: '', toolName: 'create_automation', toolInput: '{"name":"Later"}', timestamp: 2 },
+    ], before: null,
+  })
+  expect(transcript.messages[0].content).toBe('show this immediately')
+  expect(loadAll).not.toHaveBeenCalled()
 })

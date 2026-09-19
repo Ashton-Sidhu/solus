@@ -15,7 +15,16 @@ export class CachedField<T> {
   private fetchedAt = 0
   private inFlight: Promise<T> | null = null
 
-  constructor(private readonly ttlMs: number) {}
+  /**
+   * `accept` decides between what is held and what just arrived. Without one
+   * the newer arrival always wins; a field whose answers can land out of order
+   * — a listing row seeded while a direct read is in flight — supplies one so a
+   * late, older answer cannot replace a newer one.
+   */
+  constructor(
+    private readonly ttlMs: number,
+    private readonly accept: (previous: T | undefined, next: T) => T = (_previous, next) => next,
+  ) {}
 
   async read(load: () => Promise<T>, opts: { force?: boolean } = {}): Promise<T> {
     if (!opts.force && this.value !== undefined && Date.now() - this.fetchedAt < this.ttlMs) {
@@ -24,10 +33,7 @@ export class CachedField<T> {
     if (this.inFlight) return this.inFlight
 
     const flight = load()
-      .then((value) => {
-        this.seed(value)
-        return value
-      })
+      .then((value) => this.seed(value))
       .finally(() => {
         // Only clear the flight this call started: a `clear()` during the
         // request may already have replaced it, and dropping that one would
@@ -39,14 +45,23 @@ export class CachedField<T> {
   }
 
   /** Record a value obtained elsewhere — a mutation's response, or a read that
-   *  carried this field inside a larger payload. */
-  seed(value: T): void {
-    this.value = value
+   *  carried this field inside a larger payload. Answers with what is held
+   *  afterwards, which is the arrival unless `accept` kept the previous one. */
+  seed(value: T): T {
+    this.value = this.accept(this.value, value)
     this.fetchedAt = Date.now()
+    return this.value
   }
 
+  /** What is held, however old. For surfaces that would rather show the last
+   *  answer than nothing, and must not cost a request to find out. */
+  peek(): T | undefined {
+    return this.value
+  }
+
+  /** Expire rather than drop: the next `read` goes to the host, but `peek`
+   *  still has the last answer to show until it lands. */
   clear(): void {
-    this.value = undefined
     this.fetchedAt = 0
   }
 }

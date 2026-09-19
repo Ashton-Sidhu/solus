@@ -1,8 +1,10 @@
 <script lang="ts">
   import { localApi } from "@solus/client-core/local-api";
-  import { GitMerge as GitMergeIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
+  import { ChevronDown as ChevronDownIcon, GitMerge as GitMergeIcon, GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../ui/dropdown-menu";
-  import { prChipState, type PrChip, type PrChipState, type TaskPrChoice } from "./lib/task-list";
+  import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
+  import { taskPrMenuTitle } from "./lib/task-pr-menu";
+  import type { PrChip, PrChipState, TaskPrChoice } from "./lib/task-list";
 
   interface Props {
     chip: PrChip;
@@ -10,6 +12,7 @@
     onOpen: (choice: TaskPrChoice) => void;
   }
   let { chip, choices, onOpen }: Props = $props();
+  let menuOpen = $state(false);
 
   // Match Git host conventions: open is green and merged is purple. Review
   // requests also use purple as an attention state; drafts stay neutral.
@@ -33,6 +36,8 @@
   const label = $derived(
     chip.state === "approvalRequested"
       ? `Pull request #${chip.number} — your review requested`
+      : chip.state === "unknown"
+        ? `Pull request #${chip.number} — status unavailable`
       : `Pull request #${chip.number} — ${chip.state}`,
   );
   const actionLabel = $derived(
@@ -57,7 +62,7 @@
      task's hover actions, and a target that reached up into them turned a click
      on close or complete into a trip to the pull request. -->
 {#if chip.count > 1}
-  <DropdownMenu.Root>
+  <DropdownMenu.Root bind:open={menuOpen}>
     <DropdownMenu.Trigger>
       {#snippet child({ props })}
         <button
@@ -67,9 +72,16 @@
           style:--pr-color={tone}
           aria-label={actionLabel}
           title={actionLabel}
+          onkeydown={(event) => {
+            event.stopPropagation();
+            props.onkeydown?.(event);
+          }}
+          onpointerdown={(event) => {
+            event.stopPropagation();
+            props.onpointerdown?.(event);
+          }}
           onclick={(event) => {
             event.stopPropagation();
-            if (choices[0] && openChoiceExternal(choices[0], event)) return;
             props.onclick?.(event);
           }}
         >
@@ -78,23 +90,30 @@
           {:else}
             <GitPullRequestIcon size={12.5} weight={chip.state === "draft" ? "light" : "regular"} class="shrink-0 pointer-fine:[.is-laptop-display_&]:size-3" />
           {/if}
-          <span class="tabular-nums">#{chip.number} +{chip.count - 1}</span>
+          <span class="tabular-nums">{chip.count} PRs</span>
+          <ChevronDownIcon size={11} aria-hidden="true" />
         </button>
       {/snippet}
     </DropdownMenu.Trigger>
-    <DropdownMenu.Content side="bottom" align="end" sideOffset={7} class="w-[min(22rem,calc(100vw-1rem))]">
+    <DropdownMenu.Content
+      side="bottom"
+      align="end"
+      sideOffset={7}
+      class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-dropdown-menu-content-available-height))] overscroll-contain text-workspace-chrome pointer-fine:[.is-laptop-display_&]:w-72"
+    >
+      <DropdownMenu.Label class="text-workspace-chrome">Pull requests</DropdownMenu.Label>
       {#each choices as choice (`${choice.targetScope}:${choice.number}`)}
-        {@const state = choice.pullRequest ? prChipState(choice.pullRequest) : "open"}
-        <DropdownMenu.Item onSelect={() => onOpen(choice)}>
-          <span class="flex size-4 shrink-0 items-center justify-center" style="color:{toneFor(state)}">
-            {#if state === "merged"}
-              <GitMergeIcon size={13} />
-            {:else}
-              <GitPullRequestIcon size={13} weight={state === "draft" ? "light" : "regular"} />
-            {/if}
-          </span>
-          <span class="shrink-0 tabular-nums text-muted-foreground">#{choice.number}</span>
-          <span class="min-w-0 flex-1 truncate">{choice.title}</span>
+        <DropdownMenu.Item
+          class="h-auto py-2 text-workspace-chrome"
+          textValue={`#${choice.number} ${taskPrMenuTitle(choice)}`}
+          title={`Open #${choice.number} ${taskPrMenuTitle(choice)}`}
+          onclick={(event) => {
+            event.stopPropagation();
+            if (openChoiceExternal(choice, event)) menuOpen = false;
+          }}
+          onSelect={() => onOpen(choice)}
+        >
+          <TaskPrMenuLabel {choice} />
         </DropdownMenu.Item>
       {/each}
     </DropdownMenu.Content>
@@ -106,6 +125,8 @@
     style:--pr-color={tone}
     aria-label={actionLabel}
     title={actionLabel}
+    onkeydown={(event) => event.stopPropagation()}
+    onpointerdown={(event) => event.stopPropagation()}
     onclick={(event) => {
       event.stopPropagation();
       if (choices[0] && !openChoiceExternal(choices[0], event)) onOpen(choices[0]);

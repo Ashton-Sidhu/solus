@@ -1,3 +1,4 @@
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { createAppContext } from './create-app-context'
 import { MODEL_PROFILES } from '@solus/contracts/types'
 import type { StatusBarCtx, RunConfig } from '@solus/contracts/types'
@@ -41,7 +42,7 @@ export class StatusBarContext {
     const metaDefault = this._agent?.metadata[effectiveAgent]?.defaultModel ?? null
     const mc = run?.modelConfig ?? defaults?.modelConfig
     const preferredModel = mc?.modelId ?? null
-    const model = preferredModel && models.some((m) => m.id === preferredModel)
+    const model = preferredModel && (preferredModel === AUTO_MODEL_ID || models.some((m) => m.id === preferredModel))
       ? preferredModel
       : metaDefault ?? models[0]?.id ?? ''
     const profile = MODEL_PROFILES[effectiveAgent]?.[model]

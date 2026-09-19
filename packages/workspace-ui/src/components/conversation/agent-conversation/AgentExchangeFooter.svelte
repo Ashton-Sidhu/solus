@@ -11,6 +11,7 @@
    */
   interface Props {
     agentName: string;
+    draftKey: string;
     /** The agent asked you something — the footer becomes the answer field. */
     needsYou?: boolean;
     /** A permission or a plan can't be answered by typing at it. */
@@ -26,6 +27,7 @@
   }
   let {
     agentName,
+    draftKey,
     needsYou = false,
     answerInSessionOnly = false,
     onSend,
@@ -47,6 +49,7 @@
     <span class="flex-1"></span>
   {:else}
     <AgentConversationComposer
+      {draftKey}
       placeholder={needsYou
         ? `Answer ${agentName}…`
         : `Say something to ${agentName}…`}

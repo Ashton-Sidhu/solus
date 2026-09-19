@@ -1,6 +1,7 @@
 import type { IpcContext } from '@solus/contracts/types'
 import type { ReviewTarget } from '@solus/contracts/review'
 import { providerForRepo } from '../providers/registry'
+import { prIndex } from '../prs/pr-index'
 import { buildPrReviewTarget } from '../providers/pr-review-target'
 import { ensureManagedPrCheckout } from './managed-pr-checkout'
 
@@ -11,7 +12,7 @@ export type ResolvedPrGuideTarget = PrGuideTarget & { baseSha: string; headSha: 
 export async function currentPrGuideTarget(target: PrGuideTarget): Promise<ResolvedPrGuideTarget> {
   const provider = providerForRepo(target)
   if (!provider) throw new Error(`PR review is not supported for ${target.host} yet.`)
-  const detail = await provider.review.getPullRequest(target, target.number)
+  const detail = await prIndex.pullRequest(target, provider, target.number).read()
   return {
     kind: 'pr', host: target.host, owner: target.owner, repo: target.repo, number: target.number,
     baseSha: await provider.review.getPullRequestDiffBase(target, detail),
@@ -27,7 +28,7 @@ export async function prepareReviewGuidePrContext(
 ): Promise<{ ctx: IpcContext; target: ResolvedPrGuideTarget }> {
   const provider = providerForRepo(requested)
   if (!provider) throw new Error(`PR review is not supported for ${requested.host} yet.`)
-  const detail = await provider.review.getPullRequest(requested, requested.number)
+  const detail = await prIndex.pullRequest(requested, provider, requested.number).read()
   const current = buildPrReviewTarget(requested, detail,
     await provider.review.getPullRequestDiffBase(requested, detail))
   const target: ResolvedPrGuideTarget = {

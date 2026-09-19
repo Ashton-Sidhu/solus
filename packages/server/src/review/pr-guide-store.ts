@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path'
 import { reviewGuideKeyForTarget, type ReviewGuide } from '@solus/contracts/review'
 import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
 import { providerForRepo } from '../providers/registry'
+import { prIndex } from '../prs/pr-index'
 import { dataDir } from '../platform/paths'
 import { resolveRepoRef } from '../git/git-helpers'
 import { readGuideByKey } from './ledger'
@@ -40,7 +41,7 @@ export async function readPrGuide(ctx: IpcContext, target: PrGuideTarget): Promi
   }))
   try {
     const provider = providerForRepo(target)
-    const detail = await provider?.review.getPullRequest(target, target.number)
+    const detail = provider ? await prIndex.pullRequest(target, provider, target.number).read() : undefined
     if (detail) keys.add(detail.headRef.replace(/\//g, '__'))
   } catch {
     // An offline read can still recover a known cached PR guide.

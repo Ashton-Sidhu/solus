@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AgentTool, AgentToolContext, AgentToolResult } from '../tools/agent-tool'
-import { assertUniqueAgentTools, executeAgentTool } from '../tools/agent-tool'
+import { assertUniqueAgentTools, executeAgentTool, enabledAgentTools } from '../tools/agent-tool'
 import type { CodexDynamicTool } from './codex-protocol'
 
 export function bareAgentToolName(name: string): string {
@@ -9,6 +9,7 @@ export function bareAgentToolName(name: string): string {
 
 export function adaptCodexTools(tools: AgentTool[]): CodexDynamicTool[] {
   assertUniqueAgentTools(tools)
+  tools = enabledAgentTools(tools)
   return tools.map((agentTool) => {
     const generatedSchema = z.toJSONSchema(z.object(agentTool.inputFields))
     // SAFETY: Zod emits a JSON Schema object, which is the exact protocol value Codex accepts for a dynamic tool.

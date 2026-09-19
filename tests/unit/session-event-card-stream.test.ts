@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import type { Message, Session, Tab } from '@solus/contracts/types'
+import type { Message, Session, Tab, SettingsCtx } from '@solus/contracts/types'
+
+import { needsRateLimitDecision } from '@solus/workspace-ui/components/conversation/lib/queued-prompts'
 
 const previousState = (globalThis as unknown as { $state?: unknown }).$state
 
@@ -28,6 +30,7 @@ async function createReducer(
     task: { kind: 'new' },
   } as unknown as Session
   const tab = { id: 'tab-1', sessionId: 'session-1' } as Tab
+  const settings: Pick<SettingsCtx, 'rateLimitBehavior'> = { rateLimitBehavior: 'ask' }
   const reducer = new SessionEventReducer({
     registry: {
       tabs: { 'tab-1': tab },
@@ -35,7 +38,7 @@ async function createReducer(
       sessionFor: (tabId: string) => tabId === 'tab-1' ? session : undefined,
       tabIdsBySession: new Map([['session-1', ['tab-1']]]),
     },
-    settings: { rateLimitBehavior: 'ask' },
+    settings,
     // `linkSession` is the durable write to the task's host; this test is about
     // what the renderer holds while that write is in flight, so it only has to
     // exist and not resolve.
@@ -55,7 +58,7 @@ async function createReducer(
     playNotificationIfHidden: () => {},
     log: () => {},
   } as any)
-  return { reducer, session }
+  return { reducer, session, settings }
 }
 
 describe('SessionEventReducer card stream boundaries', () => {
@@ -446,6 +449,22 @@ describe('SessionEventReducer card stream boundaries', () => {
     expect(session.outboundPrompts).toHaveLength(0)
   })
 
+  test('a held prompt keeps the author the host stamped, so the queue names who is waiting', async () => {
+    const { reducer, session } = await createReducer([])
+    const author = { userId: 'cara', displayName: 'Cara', colorIndex: 3 }
+
+    // docs/plans/multiplayer-presence.md §5: another person's held prompt is
+    // labelled like their sent one; a client that never saw the author would
+    // render a queue of anonymous bubbles.
+    reducer.apply('session-1', { type: 'prompt_queued', text: 'then deploy', queueId: 'q1', enqueuedAt: 1, author })
+    expect(session.outboundPrompts[0]?.author).toEqual(author)
+
+    // The sender's own optimistic bubble learns its author when the host confirms the queue slot.
+    session.outboundPrompts.push({ clientPromptId: 'p2', text: 'and test', state: 'queueing', enqueuedAt: 2 })
+    reducer.apply('session-1', { type: 'prompt_queued', text: 'and test', queueId: 'q2', clientPromptId: 'p2', enqueuedAt: 2, author })
+    expect(session.outboundPrompts[1]).toMatchObject({ queueId: 'q2', state: 'queued', author })
+  })
+
   test('commits a completed prose run directly for a hidden tab', async () => {
     const { reducer, session } = await createReducer([], false)
 
@@ -512,4 +531,35 @@ describe('SessionEventReducer card stream boundaries', () => {
     reducer.apply('session-1', { type: 'goal_cleared', threadId: 'thread-1' })
     expect(session.goal).toBeNull()
   })
+})
+
+
+describe('host rate-limit state across client preferences', () => {
+  for (const preference of ['ask', 'queue', 'stop', 'continue'] as const) {
+    test(`a ${preference} client shows a held run until the host queues it`, async () => {
+      const { reducer, session, settings } = await createReducer([])
+      settings.rateLimitBehavior = preference
+      // The status and dispatch rejection can arrive before the limit details.
+      session.status = 'rate_limited'
+      reducer.handleError(session.id, {
+        message: 'Session limit reached', stderrTail: [], exitCode: null,
+        elapsedMs: 0, toolCallCount: 0,
+      })
+      expect(session.status).toBe('rate_limited')
+      reducer.apply(session.id, {
+        type: 'rate_limit', status: 'limited', resetsAt: null, rateLimitType: 'Claude',
+        info: { resetsAt: null, rateLimitType: 'Claude', prompt: 'Wait', queuedPrompt: 'Queued' },
+      })
+      expect(needsRateLimitDecision(session)).toBe(true)
+      expect(session.terminalFailure).toBeUndefined()
+      reducer.apply(session.id, {
+        type: 'prompt_queued', queueId: 'retry', text: 'Continue', enqueuedAt: 1,
+        reason: 'rate_limit',
+      })
+      expect(session.outboundPrompts).toHaveLength(1)
+      expect(needsRateLimitDecision(session)).toBe(false)
+      reducer.apply(session.id, { type: 'rate_limit_resolved', action: 'stop' })
+      expect(needsRateLimitDecision(session)).toBe(false)
+    })
+  }
 })

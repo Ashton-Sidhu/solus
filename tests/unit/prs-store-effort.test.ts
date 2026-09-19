@@ -327,6 +327,49 @@ describe('PR list effort metadata', () => {
 })
 
 describe('PR mutation results', () => {
+  test('the store refreshes only observed interests on the invalidated or reconnected host', async () => {
+    installStateRune()
+    const reads: string[] = []
+    for (const host of ['host-a', 'host-b']) {
+      serverConnectionsMock.registerHost(host, {
+        prList: async () => {
+          reads.push(host)
+          return { items: [listItem()], page: 1, hasMore: false }
+        },
+      })
+    }
+    const { PrsStore } = await import('@solus/workspace-ui/contexts/prs/prs.store.svelte')
+    const store = new PrsStore(() => Promise.resolve(), () => () => {})
+    let settledA = Promise.withResolvers<void>()
+    const settledB = Promise.withResolvers<void>()
+    const projectA = store.get(serverConnectionsMock.apiFor('host-a'), 'host-a', ctx)
+    const projectB = store.get(serverConnectionsMock.apiFor('host-b'), 'host-b', ctx)
+    const releaseA = store.watch(projectA, { numbers: [33] }, () => settledA.resolve())
+    const releaseB = store.watch(projectB, { numbers: [33] }, settledB.resolve)
+    try {
+      await Promise.all([settledA.promise, settledB.promise])
+      expect(reads.toSorted()).toEqual(['host-a', 'host-b'])
+      settledA = Promise.withResolvers<void>()
+      serverConnectionsMock.emit('host-a', 'prs.invalidated', { projectRoot: '/repo' })
+      await settledA.promise
+      expect(reads.filter((host) => host === 'host-a')).toHaveLength(2)
+      expect(reads.filter((host) => host === 'host-b')).toHaveLength(1)
+      settledA = Promise.withResolvers<void>()
+      serverConnectionsMock.emitStatus('host-a', 'connected')
+      await settledA.promise
+      expect(reads.filter((host) => host === 'host-a')).toHaveLength(3)
+      releaseB()
+      settledA = Promise.withResolvers<void>()
+      serverConnectionsMock.emit('host-b', 'prs.invalidated', { projectRoot: '/repo' })
+      serverConnectionsMock.emit('host-a', 'prs.invalidated', { projectRoot: '/repo' })
+      await settledA.promise
+      expect(reads.filter((host) => host === 'host-b')).toHaveLength(1)
+    } finally {
+      releaseA()
+      releaseB()
+    }
+  })
+
   test('applies lifecycle events to the visible row and cached list page', async () => {
     // WHY: another connected client can change a PR while this list stays
     // mounted. Applying the delta must not wait for a provider reload, and a

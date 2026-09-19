@@ -44,7 +44,7 @@ const taskSessionLinkRowSchema = z.object({
   /** Joined from `sessions` by `LINK_SELECT`, which is the only way links are
    *  read. Null when the session is not in the index yet. */
   session_title: z.string().nullable(),
-  session_provider: z.string().nullable(),
+  session_provider: z.enum(['claude', 'claude-code', 'codex', 'opencode']).nullable(),
   session_model: z.string().nullable(),
   session_server_id: z.string().nullable(),
   session_is_worktree: z.number().nullable(),
@@ -79,7 +79,7 @@ function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
     taskId: row.task_id,
     sessionId: row.session_id,
     sessionTitle: row.session_title ?? null,
-    provider: row.session_provider ?? null,
+    provider: row.session_provider === 'claude' ? 'claude-code' : row.session_provider,
     model: row.session_model ?? null,
     startedAt: row.session_started_at ?? null,
     lastActivityAt: row.last_activity_at ?? null,
@@ -322,17 +322,22 @@ export function taskSessions(taskId?: string): TaskSessionsByTask {
 
 /** Resolve a session into the durable two-level task tree without loading or
  * starting any sibling sessions. */
-export async function tasksForSession(sessionId: string): Promise<TaskForSessionResult | null> {
-  // The owner answers; a later `referenced` relationship must not outrank it.
+/** The task a session works on: its owner first, a later `referenced` relationship never outranks it. */
+export function taskIdForSession(sessionId: string): string | null {
   const link = taskIdRowSchema.nullish().parse(getDb().prepare(`
     SELECT task_id FROM task_session_links
     WHERE session_id = ?
     ORDER BY CASE role WHEN 'working' THEN 0 ELSE 1 END, linked_at DESC
     LIMIT 1
   `).get(sessionId))
-  if (!link) return null
+  return link?.task_id ?? null
+}
 
-  const task = loadTaskRecord(link.task_id)
+export async function tasksForSession(sessionId: string): Promise<TaskForSessionResult | null> {
+  const taskId = taskIdForSession(sessionId)
+  if (!taskId) return null
+
+  const task = loadTaskRecord(taskId)
   if (!task) return null
   const parent = task.parentId ? loadTaskRecord(task.parentId) : null
   const rootId = parent?.id ?? task.id

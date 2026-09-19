@@ -25,7 +25,6 @@ import {
   reconcileSidebarTasks,
   resolveSidebarRowMark,
   resolveTaskSidebarLifecycle,
-  shouldCompleteTaskForPr,
   shouldRecedeRow,
   shouldShelveCompletedTask,
   shouldShowDurableSidebarTask,
@@ -184,26 +183,6 @@ describe('sidebar lifecycle resolution', () => {
         now,
       })).toMatchObject({ lifecycle: 'active', snoozedUntil: now + 1 })
     }
-  })
-})
-
-describe('linked PR completion', () => {
-  it('completes a task when its linked PR closes or merges', () => {
-    // WHY: either terminal PR result is authoritative for the linked task.
-    const task = { status: 'in_progress' as const, updatedAt: 100 }
-    expect(shouldCompleteTaskForPr(task, { state: 'closed', updatedAt: new Date(200).toISOString() })).toBe(true)
-    expect(shouldCompleteTaskForPr(task, { state: 'merged', updatedAt: new Date(200).toISOString() })).toBe(true)
-    expect(shouldCompleteTaskForPr(task, { state: 'open', updatedAt: new Date(200).toISOString() })).toBe(false)
-  })
-
-  it('does not close a task again after it was reopened', () => {
-    // WHY: reopening is a newer explicit decision than the PR's unchanged
-    // closed state. Refreshing or restarting the app must preserve that choice.
-    const reopened = { status: 'todo' as const, updatedAt: 300 }
-    expect(shouldCompleteTaskForPr(reopened, {
-      state: 'closed',
-      updatedAt: new Date(200).toISOString(),
-    })).toBe(false)
   })
 })
 
@@ -613,21 +592,21 @@ describe('prChipForChoices', () => {
     // WHY: the record comes from the code host, and the link comes from our own
     // database. A host that is unreachable or unauthenticated must not empty the
     // column of pull requests the user can see are there — it may only leave
-    // their state unknown, which reads as open.
+    // their state unknown, which stays neutral.
     expect(prChipForChoices([{
       number: 65,
       targetScope: '/repo',
       title: '#65',
       url: null,
       pullRequest: null,
-    }])).toEqual({ number: 65, count: 1, state: 'open' })
+    }])).toEqual({ number: 65, count: 1, state: 'unknown' })
   })
 
-  it('lets a known merge outrank an unknown neighbour', () => {
+  it('keeps an incomplete merged set unknown', () => {
     expect(prChipForChoices([
       { number: 65, targetScope: '/repo', title: '#65', url: null, pullRequest: null },
       choice(66, 'merged'),
-    ])?.state).toBe('open')
+    ])?.state).toBe('unknown')
   })
 })
 

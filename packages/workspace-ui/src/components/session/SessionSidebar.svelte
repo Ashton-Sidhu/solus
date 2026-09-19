@@ -1,6 +1,6 @@
 <script lang="ts">
+  import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import { localApi } from "@solus/client-core/local-api";
-  import { serverConnections } from "@solus/client-core/server-connections";
   import { onMount, tick } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { comboHint } from "../../lib/keybindings/manifest";
@@ -39,6 +39,7 @@
   } from "../layout/lib/workspace-body";
   import * as Sidebar from "../ui/sidebar";
   import TaskListSkeleton from "./TaskListSkeleton.svelte";
+  import HostPresence from "../presence/HostPresence.svelte";
   import SessionContextMenu from "./SessionContextMenu.svelte";
   import SidebarNavContextMenu from "./SidebarNavContextMenu.svelte";
   import TaskContextMenu from "./TaskContextMenu.svelte";
@@ -52,7 +53,7 @@
     type TaskSnoozeAnchor,
   } from "./lib/task-snooze";
   import type { DraftRow as DraftRowModel } from "./lib/draft-list";
-  import { prNavigationTarget } from "./lib/pr-navigation";
+  import { taskPrNavigation } from "./lib/pr-navigation";
   import { openNavPage, type NavPage } from "../../lib/page-nav";
   import type { SidebarSessionChild } from "../../contexts/workspace/session-sidebar.store.svelte";
   import {
@@ -250,33 +251,9 @@
     session.openSessionDraft({ freshTask: true, via: "click" });
   }
 
-  function openTaskPr(task: SidebarTask, choice: TaskPrChoice, tab: "activity" | "diff" = "activity"): void {
-    // PR navigation opens on the client's own machine when there is one; a web
-    // client has none, so the new-work default host stands in.
-    const clientServerId =
-      serverConnections.localServerId() ?? serverConnections.defaultServerId();
-    if (!clientServerId) return;
-    const target = prNavigationTarget({
-      clientServerId,
-      projectDirectory: task.projectKey,
-      taskServerId: task.taskId
-        ? session.tasksStore.get(task.taskId).serverId
-        : null,
-      attemptServerId: task.serverId,
-    });
-    // Identity is enough to open one: the pane reads the record itself, and a
-    // choice this client holds none for is exactly the case that must still open.
-    void session.openPullRequest(choice.pullRequest ?? {
-      number: choice.number,
-      title: choice.title,
-      url: choice.url,
-    }, {
-      ctx: session.ctxForDirectory(target.projectDirectory),
-      serverId: target.serverId,
-      target: target.paneTarget,
-      tab,
-      via: "click",
-    });
+  function openTaskPr(choice: TaskPrChoice, tab?: PrReviewTab): void {
+    const { route, sourceUrl } = taskPrNavigation(choice);
+    session.openRoute(route, { target: "aside", sourceUrl, tab, via: "click" });
   }
 
   /** A draft row goes back to the composer it was left in, with the caret in it
@@ -349,7 +326,7 @@
    *  tree feel slow. The disclosure gets its own frame, and navigation follows
    *  on the next one, by which time the row has already answered the click. */
   function activateTask(task: SidebarTask) {
-    if (task.taskId) void session.tasksStore.get(task.taskId).markRead(true);
+    if (task.taskId) sidebarStore.acknowledgeTask(task.taskId);
     if (hasDisclosure(sidebarStore.sessionsFor(task))) toggleExpand(task.id);
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -476,7 +453,7 @@
   }
 
   function selectSession(child: SidebarSessionChild) {
-    if (child.taskId) void session.tasksStore.get(child.taskId).markRead(true);
+    if (child.taskId) sidebarStore.acknowledgeTask(child.taskId);
     void sidebarStore.selectChild(child);
     requestInputFocus();
     onSessionSelect?.();
@@ -833,7 +810,7 @@
     onWake={() => wakeRow(task.key)}
     onComplete={() => completeTask(task)}
     onClose={() => removeTask(task)}
-    onOpenPr={(choice) => openTaskPr(task, choice)}
+    onOpenPr={openTaskPr}
     onSelectSession={selectSession}
     onMoreSession={openChildContextMenu}
     onSnoozeSession={(child, anchor) =>
@@ -994,6 +971,10 @@
             >
           </Sidebar.MenuButton>
         </Sidebar.MenuItem>
+        <!-- Who else is on the hosts this client is connected to: the last row
+             of the navigation, in its geometry. The team is context for the
+             work, not a page of its own. Renders nothing for a person working alone. -->
+        <HostPresence />
       </Sidebar.Menu>
     </Sidebar.GroupContent>
   </Sidebar.Group>
@@ -1420,7 +1401,7 @@
         }}
         prChoices={menuPrChoices}
         onOpenPr={menuPrChoices.length && sidebarTask
-          ? (choice, tab) => openTaskPr(sidebarTask, choice, tab)
+          ? openTaskPr
           : undefined}
         onOpenPrWeb={(choice) => {
           const url = choice.url ?? choice.pullRequest?.url;

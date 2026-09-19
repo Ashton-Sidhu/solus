@@ -1,9 +1,11 @@
 <script lang="ts">
-  import { untrack, type Snippet } from "svelte";
+  import { tick, untrack, type Snippet } from "svelte";
   import type { AgentId } from "@solus/contracts/types";
   import type { Task, TaskPriority, TaskStatus } from "@solus/contracts/task-types";
   import { getAgentContext, getWorkspaceContext } from "../../../contexts";
   import DocumentPromptEditor from "../../editor/DocumentPromptEditor.svelte";
+  import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
+  import { Button } from '../../ui/button';
   import { Input } from "../../ui/input";
   import { relativeTime, STATUS_META } from "../lib/tasks-api";
   import { priorityBars, priorityLabel, statusTextColor } from "./lib/task-page";
@@ -55,6 +57,9 @@
 
   let titleDraft = $state(untrack(() => task.title));
   let bodyDraft = $state(untrack(() => task.body));
+  let editingBody = $state(false);
+  let bodyEditor: DocumentPromptEditor | undefined = $state();
+  let editBodyButton: HTMLButtonElement | null = $state(null);
   // Re-seed when the route swaps to another task: the same component instance
   // is reused, so drafts must follow the id rather than the mount.
   let seededId = untrack(() => task.id);
@@ -63,6 +68,7 @@
     seededId = task.id;
     titleDraft = task.title;
     bodyDraft = task.body;
+    editingBody = false;
   });
 
   function commitTitle() {
@@ -72,6 +78,13 @@
       return;
     }
     onSaveTitle(next);
+  }
+
+  async function finishBodyEdit(save: boolean) {
+    if (save && bodyDraft !== task.body) onSaveBody(bodyDraft);
+    editingBody = false;
+    await tick();
+    editBodyButton?.focus();
   }
 </script>
 
@@ -172,12 +185,11 @@
 {/if}
 
 <div class="task-description-prose pt-[18px]">
+  {#if editingBody && canEdit}
   <DocumentPromptEditor
+    bind:this={bodyEditor}
     value={bodyDraft}
     onValueChange={(v) => (bodyDraft = v)}
-    onBlur={() => {
-      if (bodyDraft !== task.body) onSaveBody(bodyDraft);
-    }}
     readOnly={!canEdit}
     dragHandle={false}
     placeholder="Describe the work…"
@@ -188,4 +200,19 @@
     menuPlacement="down"
     maxHeight={4000}
   />
+    <Button variant="ghost" size="sm" onclick={() => finishBodyEdit(true)}>Save description</Button>
+    <Button variant="ghost" size="sm" onclick={() => finishBodyEdit(false)}>Cancel</Button>
+  {:else}
+    <div class="github-markdown prose-cloud prose-pr">
+      <GithubMarkdown source={task.body} policy="local" />
+    </div>
+    {#if canEdit}
+      <Button bind:ref={editBodyButton} variant="ghost" size="sm" onclick={async () => {
+        bodyDraft = task.body;
+        editingBody = true;
+        await tick();
+        bodyEditor?.focus();
+      }}>{task.body ? 'Edit description' : 'Add description'}</Button>
+    {/if}
+  {/if}
 </div>

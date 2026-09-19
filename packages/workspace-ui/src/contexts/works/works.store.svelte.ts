@@ -1,5 +1,6 @@
 import { ExternalCommentsStore } from './external-comments.store.svelte'
-import type { AgentId, CommentAuthor, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
+import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
+import type { NewWorkComment, WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
 import { serverConnections } from '@solus/client-core/server-connections'
@@ -16,6 +17,7 @@ import type {
 } from '@solus/contracts/docs'
 import { PresenceWatch } from '../../lib/presence-watch'
 import { firstHeadingTitle, isPlaceholderWorkTitle } from './work-title'
+import { reconcileComments } from './comment-sync'
 
 export class WorksStore {
   readonly externalComments = new ExternalCommentsStore(workId => this.apiForWork(workId), workId => this.get(workId)?.mirroredDoc)
@@ -148,78 +150,113 @@ export class WorksStore {
     try {
       const ann = await this.apiForWork(workId).loadWorkAnnotations(workId)
       if (this.annotationLoadTokens.get(workId) !== token) return this.annotations[workId] ?? null
-      const entry = this.ensureAnnotationsEntry(workId)
-      entry.updatedAt = ann?.updatedAt ?? Date.now()
-      entry.comments.splice(0, entry.comments.length, ...(ann?.comments ?? []))
-      return entry
+      return this.acceptAnnotations(workId, ann)
     } catch (err) {
       logWorkLoad('error', 'annotation load failed', { workId, error: formatError(err) })
       return this.annotations[workId] ?? null
     }
   }
 
-  async saveAnnotations(workId: string): Promise<void> {
-    const entry = this.ensureAnnotationsEntry(workId)
-    entry.updatedAt = Date.now()
-    await this.apiForWork(workId).saveWorkAnnotations($state.snapshot(entry))
+  /**
+   * Re-read a work's threads whenever anyone changes them — another person on a
+   * shared work, or an agent (docs/plans/multiplayer-comments.md). Returns the
+   * unsubscribe; a surface holds it for as long as the work is open.
+   */
+  watchAnnotations(workId: string, onLoaded?: () => void): () => void {
+    return serverConnections.eventsForApi(this.apiForWork(workId)).subscribe('annotations.changed', (change) => {
+      if (change.kind !== 'work' || change.targetId !== workId) return
+      void this.loadAnnotations(workId).then(() => onLoaded?.())
+    })
   }
 
-  addAnnotationComment(workId: string, comment: PlanComment): void {
-    const entry = this.ensureAnnotationsEntry(workId)
-    entry.comments.push(comment)
-    entry.updatedAt = Date.now()
+  /**
+   * Every change to a thread is one command to the host, which stamps who made
+   * it. The change is shown at once and the host's answer reconciled over it; a
+   * refused command re-reads, so the rail never keeps a change the host did not.
+   */
+  private async applyComment(workId: string, command: WorkCommentCommand): Promise<void> {
+    try {
+      this.acceptAnnotations(workId, await this.apiForWork(workId).applyWorkComment(workId, command))
+    } catch (err) {
+      logWorkLoad('error', 'comment command failed', { workId, kind: command.kind, error: formatError(err) })
+      await this.loadAnnotations(workId)
+    }
   }
 
-  editAnnotationComment(workId: string, commentId: string, text: string): void {
+  private acceptAnnotations(workId: string, ann: WorkAnnotations | null): WorkAnnotations {
+    const entry = this.ensureAnnotationsEntry(workId)
+    entry.updatedAt = ann?.updatedAt ?? Date.now()
+    reconcileComments(entry.comments, ann?.comments ?? [])
+    return entry
+  }
+
+  async addAnnotationComment(workId: string, comment: PlanComment): Promise<void> {
+    const entry = this.ensureAnnotationsEntry(workId)
+    entry.comments.push({ author: 'you', createdAt: Date.now(), ...comment })
+    entry.updatedAt = Date.now()
+    await this.applyComment(workId, { kind: 'add', comment: newWorkComment(comment) })
+  }
+
+  async editAnnotationComment(workId: string, commentId: string, text: string): Promise<void> {
     const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
     if (!comment) return
     comment.comment = text
-    this.annotations[workId].updatedAt = Date.now()
+    await this.applyComment(workId, { kind: 'edit', commentId, text })
   }
 
-  deleteAnnotationComment(workId: string, commentId: string): void {
+  async deleteAnnotationComment(workId: string, commentId: string): Promise<void> {
     const comments = this.annotations[workId]?.comments
     if (!comments) return
     const index = comments.findIndex((x) => x.id === commentId)
     if (index === -1) return
     comments.splice(index, 1)
-    this.annotations[workId].updatedAt = Date.now()
+    await this.applyComment(workId, { kind: 'delete', commentId })
   }
 
-  addAnnotationReply(workId: string, commentId: string, reply: PlanCommentReply): void {
+  async addAnnotationReply(workId: string, commentId: string, reply: PlanCommentReply): Promise<void> {
     const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
     if (!comment) return
     // Mutate in place — the replies array is inside a $state proxy, so pushing
     // notifies the one card rather than invalidating every thread in the rail.
     if (comment.replies) comment.replies.push(reply)
     else comment.replies = [reply]
-    this.annotations[workId].updatedAt = Date.now()
+    await this.applyComment(workId, { kind: 'reply', commentId, reply: { id: reply.id, text: reply.text } })
   }
 
-  setAnnotationResolved(workId: string, commentId: string, by: CommentAuthor | null): void {
+  async setAnnotationResolved(workId: string, commentId: string, resolved: boolean): Promise<void> {
     const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
     if (!comment) return
-    if (by) {
+    if (resolved) {
       comment.resolvedAt = Date.now()
-      comment.resolvedBy = by
+      comment.resolvedBy = 'you'
     } else {
       delete comment.resolvedAt
       delete comment.resolvedBy
+      delete comment.resolvedByPerson
     }
-    this.annotations[workId].updatedAt = Date.now()
+    await this.applyComment(workId, { kind: 'resolve', commentId, resolved })
   }
 
-  markAnnotationRead(workId: string, commentId: string): void {
+  /** Every open thread settles at once: a round of feedback handed to an agent. */
+  async resolveOpenAnnotationComments(workId: string): Promise<void> {
+    const now = Date.now()
+    for (const comment of this.annotationComments(workId)) {
+      if (comment.resolvedAt !== undefined) continue
+      comment.resolvedAt = now
+      comment.resolvedBy = 'you'
+    }
+    await this.applyComment(workId, { kind: 'resolve-open' })
+  }
+
+  async markAnnotationRead(workId: string, commentId: string): Promise<void> {
     const comment = this.annotations[workId]?.comments.find((x) => x.id === commentId)
     if (!comment) return
     comment.readAt = Date.now()
-    this.annotations[workId].updatedAt = Date.now()
-  }
-
-  clearAnnotationComments(workId: string): void {
-    const entry = this.ensureAnnotationsEntry(workId)
-    entry.comments.splice(0, entry.comments.length)
-    entry.updatedAt = Date.now()
+    try {
+      this.acceptAnnotations(workId, await this.apiForWork(workId).markWorkCommentRead(workId, commentId))
+    } catch (err) {
+      logWorkLoad('error', 'comment read mark failed', { workId, error: formatError(err) })
+    }
   }
 
   async loadPrevious(workId: string, cwd?: string, contentKey = ''): Promise<WorkPrevious | null> {
@@ -639,6 +676,18 @@ function logWorkLoad<Data extends object>(
   data: Data,
 ): void {
   console[level](`[Solus][WorksStore] ${message}`, data)
+}
+
+/** What the client may say about a new thread: where it is and what it says. Who
+ *  wrote it and when are the host's to stamp. */
+function newWorkComment(comment: PlanComment): NewWorkComment {
+  const next: NewWorkComment = { id: comment.id, selectedText: comment.selectedText, comment: comment.comment }
+  if (comment.textOffset !== undefined) next.textOffset = comment.textOffset
+  if (comment.nodeId) next.nodeId = comment.nodeId
+  if (comment.edgeId) next.edgeId = comment.edgeId
+  if (comment.pin) next.pin = comment.pin
+  if (comment.externalThreadId) next.externalThreadId = comment.externalThreadId
+  return next
 }
 
 function formatError(err: Parameters<typeof String>[0]): string {

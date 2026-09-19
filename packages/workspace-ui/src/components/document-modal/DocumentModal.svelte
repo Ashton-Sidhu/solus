@@ -21,6 +21,7 @@
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
   import { workBreadcrumb } from "./lib/breadcrumb";
   import { openThreads } from "../comments/lib/thread";
+  import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
   import type { PlanComment, PlanCommentReply, SessionMeta, WorkStorage } from "@solus/contracts/types";
 
   interface DocumentModalProps {
@@ -64,6 +65,9 @@
       return serverId ? serverConnections.apiFor(serverId) : undefined;
     },
   });
+  // Who reads the threads: their own carry no byline, other people's do, and the
+  // verbs on someone else's appear only for the work's owner.
+  setCommentViewer(() => workCommentViewer(workId ? session.worksStore.hostFor(workId) : null, { kind: "work", id: workId ?? "" }));
   const commentExtensions = [CommentMark, ExternalCommentHighlights];
 
   // A document is one file: its own markdown. The header still renders it
@@ -135,9 +139,8 @@
   async function askPrivately(thread: DocCommentThread) {
     if (!workId) return;
     const id = workId;
-    const comment: PlanComment = { id: uuid(), externalThreadId: thread.id, selectedText: thread.quote, comment: `Review this external comment privately: ${thread.text}`, author: 'you', createdAt: Date.now() };
-    session.worksStore.addAnnotationComment(id, comment);
-    await session.worksStore.saveAnnotations(id);
+    const comment: PlanComment = { id: uuid(), externalThreadId: thread.id, selectedText: thread.quote, comment: `Review this external comment privately: ${thread.text}` };
+    await session.worksStore.addAnnotationComment(id, comment);
     await session.openChatForWork(id, 'new');
     if (!session.leadingInput.text) session.leadingInput.text = `Please review local comment ${comment.id} on work ${id}. Keep the discussion in Solus. Do not post to the external document.`;
     requestInputFocus();
@@ -159,59 +162,38 @@
   const openThreadCount = $derived(openThreads(comments).length + externalThreads.filter(thread => !thread.resolved).length);
   // Published by the comment layer, read by the outline's per-section counts.
   let threadAnchors = $state<{ id: string; pos: number }[]>([]);
-  let loadedForWorkId: string | null = null;
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Load the annotation sidecar whenever the open work changes.
+  // Load the threads whenever the open work changes, and re-read them while it
+  // is open: another person's comment, or an agent's, lands in this rail too.
   $effect(() => {
     const id = workId;
-    if (!id) {
-      loadedForWorkId = null;
-      return;
-    }
-    if (id === loadedForWorkId) return;
-    loadedForWorkId = id;
+    if (!id) return;
     void session.worksStore.loadAnnotations(id);
+    return session.worksStore.watchAnnotations(id);
   });
-
-  function persist() {
-    if (!workId) return;
-    if (saveTimer) clearTimeout(saveTimer);
-    const id = workId;
-    saveTimer = setTimeout(() => {
-      void session.worksStore.saveAnnotations(id);
-    }, 400);
-  }
 
   function addComment(c: PlanComment) {
     if (!workId) return;
-    session.worksStore.addAnnotationComment(workId, c);
-    persist();
+    void session.worksStore.addAnnotationComment(workId, c);
   }
   function editComment(commentId: string, text: string) {
     if (!workId) return;
-    session.worksStore.editAnnotationComment(workId, commentId, text);
-    persist();
+    void session.worksStore.editAnnotationComment(workId, commentId, text);
   }
   function deleteComment(commentId: string) {
     if (!workId) return;
-    session.worksStore.deleteAnnotationComment(workId, commentId);
-    persist();
+    void session.worksStore.deleteAnnotationComment(workId, commentId);
   }
   function replyToComment(commentId: string, reply: PlanCommentReply) {
     if (!workId) return;
-    session.worksStore.addAnnotationReply(workId, commentId, reply);
-    persist();
+    void session.worksStore.addAnnotationReply(workId, commentId, reply);
   }
   function resolveComment(commentId: string, resolved: boolean) {
     if (!workId) return;
-    session.worksStore.setAnnotationResolved(workId, commentId, resolved ? "you" : null);
-    persist();
+    void session.worksStore.setAnnotationResolved(workId, commentId, resolved);
   }
   function readComment(commentId: string) {
     if (!workId) return;
-    session.worksStore.markAnnotationRead(workId, commentId);
-    persist();
+    void session.worksStore.markAnnotationRead(workId, commentId);
   }
 
   /** Selection → the work's chat, quoted and *not* sent. The user still has to
@@ -263,10 +245,7 @@
     // than vanish. The mark keeps its dotted sage trace, so the reader can
     // still see where the conversation happened; deleting them outright made
     // a whole round of feedback disappear from the page with no record.
-    for (const c of unresolved) {
-      session.worksStore.setAnnotationResolved(workId, c.id, "solus");
-    }
-    persist();
+    await session.worksStore.resolveOpenAnnotationComments(workId);
   }
 </script>
 

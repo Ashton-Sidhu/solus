@@ -10,6 +10,12 @@
     { "name": "solus", "specifier": "./tools/oxlint/solus/index.ts" }
   ],
   "rules": {
+    "no-restricted-imports": ["error", {
+      "patterns": [{
+        "group": ["@typesafe-ai/sdk", "@typesafe-ai/sdk/*"],
+        "message": "Use @solus/server/typesafe/index so TypeSafe calls share one server interface."
+      }]
+    }],
     "anti-slop/no-chained-type-assertions": "error",
     "anti-slop/no-conditional-empty-object-spread": "error",
     "anti-slop/no-known-value-widening": "error",
@@ -34,5 +40,9 @@
     "solus/no-tailwind-class-variables": "error",
     "solus/require-resolved-cwd": "error",
     "complexity": "error"
-  }
+  },
+  "overrides": [{
+    "files": ["packages/server/src/typesafe/index.ts"],
+    "rules": { "no-restricted-imports": "off" }
+  }]
 }

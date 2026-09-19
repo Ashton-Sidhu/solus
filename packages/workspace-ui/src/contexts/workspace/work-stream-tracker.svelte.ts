@@ -179,6 +179,20 @@ export class WorkStreamTracker {
     if (index !== -1) session.messages.splice(index, 1)
   }
 
+  updateArtifact(session: Session, event: Extract<NormalizedEvent, { type: 'work_updated' }>): void {
+    if (event.docType !== 'artifact') return
+    const previous = session.messages.findLast((message) => message.workRef?.workId === event.workId && message.artifact)
+    if (previous?.artifact?.updatedAt && previous.artifact.updatedAt >= event.updatedAt) return
+    session.messages.push({
+      id: nextMsgId(),
+      role: 'assistant',
+      content: '',
+      artifact: { kind: 'html', html: event.content, updatedAt: event.updatedAt },
+      workRef: { workId: event.workId, title: event.title, workType: 'artifact' },
+      timestamp: Date.now(),
+    })
+  }
+
   /** Drop provisional cards whose create_work never persisted (tool errored, or
    *  the turn ended), plus any render_artifact skeletons left pending by a failed
    *  call. Finalized streams keep their card; only the tracking is cleared. */

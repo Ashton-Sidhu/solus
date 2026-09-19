@@ -30,6 +30,14 @@ const LANGUAGES: ReadonlyArray<{ value: string; label: string }> = [
   { value: "yaml", label: "yaml" },
 ];
 
+/** Which live block a code block's language can turn into, if any. */
+function renderableBlockFor(language: string | null): "html" | "mermaid" | null {
+  const fence = fenceLanguage(language ?? "");
+  if (fence === "html") return "html";
+  if (fence === "mermaid") return "mermaid";
+  return null;
+}
+
 function control(label: string, title: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -94,19 +102,22 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
         wrap.classList.toggle("doc-code-block__btn--on", on);
       });
 
-      // The reverse of the HTML block's "Show as code". An html fence the
-      // content test read as a snippet — or one the author marked `source` —
-      // is still something a reader may want to look at rather than read.
-      const render = control("render", "Render this HTML");
+      // The reverse of the HTML and Mermaid blocks' "Show as code". An html
+      // fence the content test read as a snippet — or a fence the author
+      // marked `source` — is still something a reader may want to look at
+      // rather than read.
+      const render = control("render", "Render this block");
       render.addEventListener("click", () => {
         const pos = getPos();
         if (pos == null) return;
-        const html = currentNode.value.textContent;
+        const text = currentNode.value.textContent;
         editor
           .chain()
           .focus()
           .command(({ tr, state }) => {
-            const block = state.schema.nodes.htmlBlock?.create({ html, explicit: true });
+            const block = renderableBlockFor(codeBlockLanguageSchema.parse(currentNode.value.attrs.language)) === "mermaid"
+              ? state.schema.nodes.mermaidBlock?.create({ source: text })
+              : state.schema.nodes.htmlBlock?.create({ html: text, explicit: true });
             if (!block) return false;
             tr.replaceWith(pos, pos + currentNode.value.nodeSize, block);
             return true;
@@ -125,12 +136,16 @@ export const DocCodeBlock = CodeBlockLowlight.extend({
           .catch(() => {});
       });
 
-      // Only an html fence earns it, and only where the schema has the node —
-      // the prompt editor and the task description share this view without it.
+      // Only an html or mermaid fence earns it, and only where the schema has
+      // the node — the prompt editor and the task description share this view
+      // without it.
       const syncRender = () => {
-        const language = codeBlockLanguageSchema.parse(currentNode.value.attrs.language) ?? "";
-        const show = !!editor.state.schema.nodes.htmlBlock && fenceLanguage(language) === "html";
+        const kind = renderableBlockFor(codeBlockLanguageSchema.parse(currentNode.value.attrs.language));
+        const show =
+          (kind === "html" && !!editor.state.schema.nodes.htmlBlock) ||
+          (kind === "mermaid" && !!editor.state.schema.nodes.mermaidBlock);
         render.style.display = show ? "" : "none";
+        render.title = kind === "mermaid" ? "Draw this diagram" : "Render this HTML";
       };
       syncRender();
 

@@ -47,3 +47,21 @@ test('a failed call cannot take a later call or an unrelated image', async () =>
   expect(messages[0].artifact?.html).toBe('<p>Done</p>')
   expect(messages[1].artifact?.kind).toBe('image')
 })
+
+test('saved updates append snapshots and ignore repeated or stale delivery', async () => {
+  const { tracker, session, messages } = await fixture()
+  tracker.finalizeArtifact(session, { type: 'artifact_created', kind: 'html', workId: 'work', title: 'Original', html: '<p>One</p>' })
+  const original = messages[0]
+  const update = { type: 'work_updated' as const, workId: 'work', title: 'Renamed', docType: 'artifact' as const, content: '<p>Two</p>', updatedAt: '2026-09-18T10:00:00Z' }
+  tracker.updateArtifact(session, update)
+  tracker.updateArtifact(session, update)
+  tracker.updateArtifact(session, { ...update, updatedAt: '2026-09-18T09:00:00Z' })
+  tracker.updateArtifact(session, { ...update, docType: 'doc' })
+  tracker.sweep(session)
+  expect(messages).toHaveLength(2)
+  expect(messages[0]).toBe(original)
+  expect(original.artifact?.html).toBe('<p>One</p>')
+  expect(original.workRef?.title).toBe('Original')
+  expect(messages[1].artifact?.html).toBe('<p>Two</p>')
+  expect(messages[1].workRef?.workId).toBe('work')
+})

@@ -24,6 +24,8 @@ async function openSkillsTab(app: AppPage) {
   const skillsTab = app.page.locator(ACTIVE_SHELL).getByRole('tab', { name: 'Skills' })
   await skillsTab.waitFor({ state: 'visible', timeout: 5_000 })
   await skillsTab.click()
+  // The tab opens on the installed list; registry search is an explicit add mode.
+  await app.page.locator(ACTIVE_SHELL).getByRole('button', { name: 'Add skill' }).click()
 }
 
 test.describe('Skills install', () => {

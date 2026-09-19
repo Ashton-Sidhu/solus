@@ -9,7 +9,7 @@ import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { PullRequest } from '@solus/contracts/providers'
-import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
+import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
 import { detached, projectPrsKey } from './project-prs.svelte'
 import type { PrsStore } from './prs.store.svelte'
@@ -65,7 +65,8 @@ export class PrNeedsReviewStore {
     const promise = api.prNeedsReview(detached(ctx))
       .then((items) => {
         if (this.generation.get(key) !== seq) return
-        this.byProject.set(key, items)
+        const project = this.prs.get(api, serverId, ctx)
+        this.byProject.set(key, items.map((item) => project.absorb(item)))
       })
       .finally(() => {
         if (this.inFlight.get(key) === promise) this.inFlight.delete(key)
@@ -76,7 +77,7 @@ export class PrNeedsReviewStore {
 
   /** Drop a pull request that is no longer waiting on anyone — merged, closed. */
   forget(serverId: string, projectScope: string, number: number): void {
-    const items = this.byProject.get(hostKey(serverId, projectScope))
+    const items = this.byProject.get(hostKey(serverId, worktreeProjectRoot(projectScope)))
     if (!items) return
     const index = items.findIndex((item) => item.number === number)
     if (index >= 0) items.splice(index, 1)
@@ -87,13 +88,13 @@ export class PrNeedsReviewStore {
    * whenever the host says a project's pull requests changed.
    */
   subscribe(watching: () => WatchedScope): () => void {
+    const releaseProjects = this.prs.subscribeLifecycleChanges()
     const refresh = () => {
       if (document.visibilityState !== 'visible') return
       const scope = watching()
       void this.refresh(scope.api, scope.serverId, scope.ctx).catch(() => {})
     }
     const unsubscribe = subscribeAllHosts('prs.invalidated', (serverId, { projectRoot }) => {
-      this.prs.at(serverId, projectRoot)?.forgetAll()
       const scope = watching()
       if (serverId === scope.serverId && projectRoot === projectScopeOf(scope.ctx.session)) refresh()
     })
@@ -102,6 +103,7 @@ export class PrNeedsReviewStore {
     refresh()
     return () => {
       unsubscribe()
+      releaseProjects()
       window.clearInterval(interval)
       window.removeEventListener('focus', refresh)
     }

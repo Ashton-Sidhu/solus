@@ -1,61 +1,64 @@
-// Noticing a pull request that stopped being open somewhere other than Solus.
-//
-// Every write Solus makes announces itself: `prMerge` and `prUpdateLifecycle`
-// broadcast `pr.lifecycleChanged`, and the surfaces reading that pull request
-// correct on the next frame. A merge pressed on github.com, run through `gh`,
-// or made from another machine announces nothing — so the sidebar chip kept
-// drawing the pull request open and its task kept sitting in review.
-//
-// One rule: a pull request a live task links, that the host no longer reports
-// open, is news exactly once. Reads go through `PrIndex` like every client
-// read, which shares the answer and inherits the `gh` CLI fallback, so a host
-// whose OAuth token has expired is still told about the merge.
-
 import type * as Contracts from '@solus/contracts/providers'
 import { getDb } from '../db'
 import { createLogger } from '../logger'
 import { completeTasksForMergedPullRequest } from '../tasks/sync-engine'
+import { emitChanged } from '../tasks/task-store'
 import { readActivePrLinkTargets, type PrLinkTarget } from '../tasks/task-links'
 import { codeHostFor, type CodeHost } from './code-host'
-import { prIndex } from './pr-index'
+import { prIndex, repoKeyOf } from './pr-index'
+import { PrLinkDiscovery } from './pr-link-discovery'
 
 const log = createLogger('main', 'pr-reconciler')
-
 const POLL_INTERVAL_MS = 60_000
+/** How long a pull request's last answer is trusted before the worker asks again. */
+const OPEN_RECHECK_MS = 60_000
+const SETTLED_RECHECK_MS = 15 * 60_000
+const UNREADABLE_RECHECK_MS = 5 * 60_000
+
+/** When each watched pull request is next due, by `scope#number`. Host memory
+ *  rather than the worker's own, so replacing the worker does not re-read every
+ *  pull request it had just settled; a host restart starts over, as the answers
+ *  in `PrIndex` do. */
+const nextAttemptAt = new Map<string, number>()
+
+function recheckAfter(state: Contracts.PullRequest['state']): number {
+  return state === 'open' ? OPEN_RECHECK_MS : SETTLED_RECHECK_MS
+}
 
 export interface PrReconcilerDeps {
-  /** Adapted to the host event by the composition root, which owns transports. */
   announce: (projectRoot: string, detail: Contracts.PullRequest) => void
-  /** Overridable so a test can state a watch list and a code host of its own;
-   *  the defaults beside them are what runs. */
+  /** Whether a Solus session is still mid-turn; a task under one is not finished yet. */
+  isSessionBusy?: (sessionId: string) => boolean
   watchList?: () => PrLinkTarget[]
   codeHost?: (projectScope: string) => Promise<CodeHost | null>
   intervalMs?: number
+  now?: () => number
+  discover?: () => Promise<void>
 }
 
+/** One host worker, independent of mounted clients. Reads never start this worker.
+ * What it reads lands in `PrIndex`, where every surface reads it. */
 export class PrReconciler {
-  /**
-   * The pull requests already reported. A merged or closed pull request cannot
-   * change again, so this is both what stops a second announcement and what
-   * makes the poll affordable: a project whose linked work is finished asks
-   * nothing. Disposable — a restart re-reads, which is also how a merge made
-   * while Solus was closed gets noticed.
-   */
-  private readonly reported = new Set<string>()
+  private readonly discovery = new PrLinkDiscovery()
   private readonly watchList: () => PrLinkTarget[]
   private readonly codeHost: NonNullable<PrReconcilerDeps['codeHost']>
+  private readonly isSessionBusy: NonNullable<PrReconcilerDeps['isSessionBusy']>
   private readonly intervalMs: number
+  private readonly now: () => number
   private timer: ReturnType<typeof setInterval> | null = null
   private polling: Promise<void> | null = null
 
   constructor(private readonly deps: PrReconcilerDeps) {
     this.watchList = deps.watchList ?? (() => readActivePrLinkTargets(getDb()))
     this.codeHost = deps.codeHost ?? codeHostFor
+    this.isSessionBusy = deps.isSessionBusy ?? (() => false)
     this.intervalMs = deps.intervalMs ?? POLL_INTERVAL_MS
+    this.now = deps.now ?? Date.now
   }
 
   start(): void {
     if (this.timer) return
+    // No provider work on the server boot path.
     this.timer = setInterval(() => void this.poll(), this.intervalMs)
     this.timer.unref?.()
   }
@@ -65,46 +68,70 @@ export class PrReconciler {
     this.timer = null
   }
 
-  /** One pass. A host slower than the interval is asked once, not twice. */
   poll(): Promise<void> {
     if (this.polling) return this.polling
-    const pass = this.runPass().finally(() => { this.polling = null })
+    const pass = this.runPass().catch((error) => {
+      log.warn('pr_reconcile_pass_failed', { error: String(error) })
+    }).finally(() => { this.polling = null })
     this.polling = pass
     return pass
   }
 
   private async runPass(): Promise<void> {
-    for (const target of this.watchList()) {
-      const key = `${target.projectScope}\0${target.number}`
-      if (this.reported.has(key)) continue
+    await (this.deps.discover ?? (() => this.discovery.poll()))()
+    let changed = false
+    const seen = new Set<string>()
+    const hosts = new Map<string, CodeHost | null>()
+    for (const { projectScope, number } of this.watchList()) {
+      let scope = projectScope
+      let key = `${scope}#${number}`
       try {
-        if (await this.check(target)) this.reported.add(key)
+        if (!hosts.has(projectScope)) hosts.set(projectScope, await this.codeHost(projectScope))
+        const host = hosts.get(projectScope)
+        if (!host) continue
+        scope = repoKeyOf(host.repo).toLowerCase()
+        key = `${scope}#${number}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const known = prIndex.lastRead(scope, number)
+        const due = nextAttemptAt.get(key)
+        if (due === undefined && known) {
+          // First sight of a pull request something else already read — a
+          // review page, branch discovery. That answer is the answer; start
+          // the clock from it rather than asking the host again.
+          nextAttemptAt.set(key, this.now() + recheckAfter(known.state))
+        }
+        if ((nextAttemptAt.get(key) ?? 0) > this.now()) {
+          // A task skipped last time because its session was busy is asked
+          // about again here; a task reopened since is left alone.
+          if (known) await this.completeMerged(scope, number, known)
+          continue
+        }
+        const detail = await prIndex.pullRequest(host.repo, host.provider, number).readFresh()
+        nextAttemptAt.set(key, this.now() + recheckAfter(detail.state))
+        // tasks.invalidated already reaches every client over IPC or WebSocket.
+        // Its snapshot handler reads local task data and host memory only.
+        changed = true
+        this.deps.announce(scope, detail)
+        await this.completeMerged(scope, number, detail)
       } catch (error) {
-        // Not fatal: an unreachable host answers nothing this pass and is asked
-        // again on the next one, so the key stays out of `reported`.
+        // An unreadable pull request keeps its last answer until a later read lands.
+        nextAttemptAt.set(key, this.now() + UNREADABLE_RECHECK_MS)
         log.warn('pr_reconcile_failed', {
-          projectRoot: target.projectScope,
-          prNumber: target.number,
-          error: error instanceof Error ? error.message : String(error),
+          projectRoot: scope, prNumber: number, error: String(error),
         })
       }
     }
+    if (changed) emitChanged()
   }
 
-  /** Whether this pull request was reported, and so needs no asking again. */
-  private async check({ projectScope, number }: PrLinkTarget): Promise<boolean> {
-    const target = await this.codeHost(projectScope)
-    if (!target) return false
-    // Fresh: a remembered answer is what every stale surface already has.
-    const detail = await prIndex.pullRequest(target.repo, target.provider, number).readFresh()
-    if (detail.state === 'open') return false
-
-    log.info('pr_lifecycle_reconciled', { projectRoot: projectScope, prNumber: number, state: detail.state })
-    this.deps.announce(projectScope, detail)
-    // The in-Solus merge path completes linked tasks itself; a merge made
-    // anywhere else has to reach the same place, or the work stays in review
-    // with nothing left to review.
-    if (detail.state === 'merged') await completeTasksForMergedPullRequest(projectScope, number)
-    return true
+  private async completeMerged(scope: string, number: number, detail: Contracts.PullRequest): Promise<void> {
+    if (detail.state !== 'merged') return
+    await completeTasksForMergedPullRequest(scope, number, {
+      mergedAt: detail.updatedAt,
+      isSessionBusy: this.isSessionBusy,
+      isMerged: async (other) => prIndex.lastRead(other.projectScope, other.number)?.state === 'merged',
+    })
   }
+
 }

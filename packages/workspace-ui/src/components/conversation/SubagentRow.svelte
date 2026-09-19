@@ -57,27 +57,34 @@
     {/if}
   </span>
 
-  <span class="subagent-row__name">{row.name}</span>
-
-  <span
-    class="subagent-row__activity"
-    class:is-shimmering={row.state === "running"}
-    class:is-muted={row.state !== "running"}
-  >
-    {row.activity}
+  <!-- Same anatomy as the run card: the name leads on its own line and the step
+       in flight sits under it, so the two never fight for one line and the
+       name stays whole while the activity truncates. -->
+  <span class="subagent-row__body">
+    <span class="subagent-row__name">{row.name}</span>
+    <span class="subagent-row__detail">
+      <span
+        class="subagent-row__activity"
+        class:is-shimmering={row.state === "running"}
+        class:is-muted={row.state !== "running"}
+      >
+        {row.activity}
+      </span>
+      {#if row.target}
+        <span class="subagent-row__target font-mono">{row.target}</span>
+      {/if}
+    </span>
   </span>
 
-  {#if row.target}
-    <span class="subagent-row__target">{row.target}</span>
-  {/if}
-
-  <span class="flex-1"></span>
-
-  {#if row.meta}
-    <span class="subagent-row__meta">{row.meta}</span>
-  {/if}
-  <span class="subagent-row__rail subagent-row__rail--steps">{steps}</span>
-  <span class="subagent-row__rail subagent-row__rail--time">{elapsed}</span>
+  <!-- The rail is the first thing to give in a narrow pane: dispatch facts
+       drop before the figures, and the figures never drop. -->
+  <span class="subagent-row__rails">
+    {#if row.meta}
+      <span class="subagent-row__meta @max-[30rem]/pane:hidden">{row.meta}</span>
+    {/if}
+    <span class="subagent-row__rail subagent-row__rail--steps">{steps}</span>
+    <span class="subagent-row__rail subagent-row__rail--time">{elapsed}</span>
+  </span>
 </button>
 
 <style>
@@ -130,21 +137,42 @@
     color: color-mix(in oklch, var(--destructive) 70%, var(--foreground));
   }
 
-  /* The name is the only thing that lets a reader act on a row, so it never
-     truncates — the activity beside it gives way instead. */
-  .subagent-row__name {
-    flex-shrink: 0;
-    font-size: var(--text-transcript-card);
-    font-weight: 500;
-    color: var(--solus-text-primary);
+  /* The body owns the flexible middle; everything inside it truncates and
+     nothing outside it does, so the rails always land. */
+  .subagent-row__body {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 auto;
+    flex-direction: column;
+    gap: 0.125rem;
   }
 
-  .subagent-row__activity {
-    min-width: 0;
+  /* The name is the only thing that lets a reader act on a row, so it gets
+     the whole line — the activity under it gives way instead. */
+  .subagent-row__name {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: var(--text-transcript-card);
+    font-weight: 500;
+    line-height: 1.25;
+    color: var(--solus-text-primary);
+  }
+
+  .subagent-row__detail {
+    display: flex;
+    min-width: 0;
+    align-items: baseline;
+    gap: 0.4375rem;
     font-size: var(--text-transcript-meta);
+  }
+
+  .subagent-row__activity {
+    flex-shrink: 0;
+    max-width: 60%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .subagent-row__activity.is-muted {
@@ -156,24 +184,30 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.7;
+  }
+
+  .subagent-row__rails {
+    display: flex;
+    flex-shrink: 0;
+    align-items: baseline;
+    gap: 0.6875rem;
+    font-size: var(--text-transcript-meta);
   }
 
   /* Dispatch, not progress: it sits a step dimmer than the rails so the eye
      reads what the agent is doing before what it was dispatched with. */
   .subagent-row__meta {
-    flex-shrink: 0;
-    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.5;
     white-space: nowrap;
   }
 
+  /* Each figure is locked to its own box so ticking digits never nudge the
+     rail; the box is a floor, so a long figure widens it instead of spilling
+     past the card edge. */
   .subagent-row__rail {
-    flex-shrink: 0;
-    font-size: var(--text-transcript-meta);
     color: var(--muted-foreground);
     opacity: 0.55;
     font-variant-numeric: tabular-nums;
@@ -182,11 +216,11 @@
   }
 
   .subagent-row__rail--steps {
-    width: 1.875rem;
+    min-width: 1.875rem;
   }
 
   .subagent-row__rail--time {
-    width: 2.125rem;
+    min-width: 3.25rem;
   }
 
   /* Live reads as a sentence in progress; a settled row stops moving. */

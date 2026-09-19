@@ -4,4 +4,4 @@
  * networked skills.sh calls are replaced with deterministic fixtures and no
  * mock data ships in releases.
  */
-export { searchSkills, installSkill } from './skills-cli'
+export { searchSkills, installSkill, listInstalledSkills, removeSkill } from './skills-cli'

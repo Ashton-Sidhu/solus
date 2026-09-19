@@ -18,6 +18,7 @@
   import { urlHost } from "@solus/client-core/pairing";
   import MobileSheet from "./MobileSheet.svelte";
   import HostOperatingSystemIcon from "@solus/workspace-ui/components/servers/HostOperatingSystemIcon.svelte";
+  import { isManagedHost } from "@solus/workspace-ui/components/servers/lib/managed-host";
 
   interface Props {
     open: boolean;
@@ -78,7 +79,7 @@
           {#if server.local}
             <HardDrivesIcon size={14} />
           {:else}
-            <HostOperatingSystemIcon os={server.os} size={14} />
+            <HostOperatingSystemIcon os={server.os} managed={isManagedHost(server.uplink)} size={14} />
           {/if}
         </span>
         <span class="flex-1 min-w-0 flex flex-col gap-px">

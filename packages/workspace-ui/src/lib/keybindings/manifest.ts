@@ -117,12 +117,10 @@ export const KEYBINDINGS = {
   'diff-panel.submit':            { combo: { alt: true, code: 'Enter' },                   scope: 'diff-panel',         label: 'Send to session',          group: 'Comment & send' },
 
   // ── File editor ────────────────────────────────────────────────────────────
-  'file-editor.close':            { combo: { code: 'Escape' },                             scope: 'file-editor',        label: 'Close file',               group: 'Editor' },
   'file-editor.save':             { combo: { alt: true, code: 'KeyS' },                    scope: 'file-editor',        label: 'Save file',                group: 'Editor' },
   // ⌥R for "rendered". This used to be ⌥M, which a pane scope sits above — so
   // the one key that maximizes every other pane silently did something else in
   // the two that host a file. Toggling rendered/source keeps its own letter.
-  'file-editor.toggle-markdown':  { combo: { alt: true, code: 'KeyR' },                    scope: 'file-editor',        label: 'Toggle Markdown view',     group: 'Editor' },
 
   // ── Files pane ─────────────────────────────────────────────────────────────
   'files-pane.close':             { combo: { code: 'Escape' },                             scope: 'files-pane',         label: 'Close files',              group: 'Panel' },
@@ -236,6 +234,11 @@ export const KEYBINDINGS = {
   'diagram.nudge-down-fine':      { combo: { shift: true, code: 'ArrowDown' },              scope: 'diagram',            label: 'Nudge down (1px)',         group: 'Move' },
   'diagram.nudge-left-fine':      { combo: { shift: true, code: 'ArrowLeft' },              scope: 'diagram',            label: 'Nudge left (1px)',         group: 'Move' },
   'diagram.nudge-right-fine':     { combo: { shift: true, code: 'ArrowRight' },             scope: 'diagram',            label: 'Nudge right (1px)',        group: 'Move' },
+
+  // ── Artifact pane (docs/plans/multiplayer-comments.md §4) ──────────────────
+  // The same ⌥C the diagram gives its comments: arms the pin tool, Esc disarms.
+  'artifact.comment':             { combo: { alt: true, code: 'KeyC' },                     scope: 'artifact',           label: 'Comment on the render',    group: 'Artifact' },
+  'artifact.dismiss':             { combo: { code: 'Escape' },                              scope: 'artifact',           label: 'Close thread / disarm',    group: 'Artifact' },
 
   // ── Attachment preview ─────────────────────────────────────────────────────
   'attachment.close-preview':     { combo: { code: 'Escape' },                             scope: 'attachment-preview', label: 'Close preview',            group: 'General' },

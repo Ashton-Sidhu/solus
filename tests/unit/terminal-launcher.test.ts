@@ -23,7 +23,20 @@ const execFileSync = mock((file: string, args: string[]) => {
   return Buffer.from('')
 })
 
-mock.module('child_process', () => ({ execFileSync }))
+// The read path (which clients are attached, which app draws them) runs off
+// the main thread; it answers through the same fake, one tick later.
+const execFile = mock((file: string, args: string[], _options: unknown, callback: (error: Error | null, stdout: string) => void) => {
+  let result: string
+  try {
+    result = String(execFileSync(file, args))
+  } catch (error) {
+    queueMicrotask(() => callback(error instanceof Error ? error : new Error(String(error)), ''))
+    return
+  }
+  queueMicrotask(() => callback(null, result))
+})
+
+mock.module('child_process', () => ({ execFileSync, execFile }))
 mock.module('@solus/server/cli-env', () => ({ getCliEnv: () => ({ PATH: '/usr/bin:/bin' }) }))
 mock.module('@solus/server/logger', () => ({
   createLogger: () => ({ info() {}, warn() {}, error() {} }),
@@ -63,9 +76,9 @@ function expectFallbackTerminalAttached(): void {
 }
 
 describe('launchInTerminal', () => {
-  test('opens a window in the shared session and falls back to the configured terminal when nothing is attached', () => {
+  test('opens a window in the shared session and falls back to the configured terminal when nothing is attached', async () => {
     // WHY: with no attached client the tmux window is invisible until some terminal attaches to it.
-    const launched = launchInTerminal({ command: 'bun run dev', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
+    const launched = await launchInTerminal({ command: 'bun run dev', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
 
     expect(launched).toBe(true)
     expect(execCalls.slice(0, 2)).toEqual([
@@ -75,10 +88,10 @@ describe('launchInTerminal', () => {
     expectFallbackTerminalAttached()
   })
 
-  test('creates the shared session before falling back when it does not exist', () => {
+  test('creates the shared session before falling back when it does not exist', async () => {
     hasSession = false
 
-    const launched = launchInTerminal({ command: 'exec /bin/zsh -l', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
+    const launched = await launchInTerminal({ command: 'exec /bin/zsh -l', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
 
     expect(launched).toBe(true)
     expect(execCalls.slice(0, 2)).toEqual([
@@ -91,8 +104,8 @@ describe('launchInTerminal', () => {
     expectFallbackTerminalAttached()
   })
 
-  test('attaches Apple Terminal or the system terminal when it is the configured fallback', () => {
-    const launched = launchInTerminal({ command: 'pwd', fallbackTerminalId: 'default-terminal', cwd: '/tmp/project' })
+  test('attaches Apple Terminal or the system terminal when it is the configured fallback', async () => {
+    const launched = await launchInTerminal({ command: 'pwd', fallbackTerminalId: 'default-terminal', cwd: '/tmp/project' })
 
     expect(launched).toBe(true)
     const terminalCall = execCalls.at(-1)
@@ -112,17 +125,17 @@ describe('launchInTerminal', () => {
     ['wezterm' as const],
     ['kitty' as const],
     ['alacritty' as const],
-  ])('launches %s already attached to the shared session', (fallbackTerminalId) => {
+  ])('launches %s already attached to the shared session', async (fallbackTerminalId) => {
     // WHY: a fallback that comes up in a plain shell leaves the user staring at
     // the wrong window while their agent runs in a session they cannot see.
-    const launched = launchInTerminal({ command: 'pwd', fallbackTerminalId, cwd: '/tmp/project' })
+    const launched = await launchInTerminal({ command: 'pwd', fallbackTerminalId, cwd: '/tmp/project' })
 
     expect(launched).toBe(true)
     const terminalCall = execCalls.at(-1)
     expect(terminalCall?.args.join(' ')).toContain(ATTACH_COMMAND)
   })
 
-  test('reuses a terminal that already holds the session instead of launching another one', () => {
+  test('reuses a terminal that already holds the session instead of launching another one', async () => {
     // WHY: a second client fights the first over the session size, which is what
     // made every "Open in terminal" pile up unusable windows.
     attachedClientPids = [4242]
@@ -131,7 +144,7 @@ describe('launchInTerminal', () => {
       4200: '1 /Applications/WezTerm.app/Contents/MacOS/wezterm-gui',
     }
 
-    const launched = launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
+    const launched = await launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
 
     expect(launched).toBe(true)
     expect(execCalls.some((call) => call.args.includes('/Applications/Ghostty.app'))).toBe(false)
@@ -142,23 +155,23 @@ describe('launchInTerminal', () => {
     }
   })
 
-  test('still reuses an attached terminal whose application cannot be identified', () => {
+  test('still reuses an attached terminal whose application cannot be identified', async () => {
     // WHY: an ssh or non-bundle client is still a live view of the session; a
     // fallback launch would attach a competing second client.
     attachedClientPids = [7]
     processTree = { 7: '1 /usr/bin/tmux' }
 
-    const launched = launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
+    const launched = await launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
 
     expect(launched).toBe(true)
     expect(execCalls.some((call) => call.args.includes('/Applications/Ghostty.app'))).toBe(false)
   })
 
-  test('does not report success when the tmux session cannot be created', () => {
+  test('does not report success when the tmux session cannot be created', async () => {
     hasSession = false
     failSessionCreation = true
 
-    const launched = launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
+    const launched = await launchInTerminal({ command: 'pwd', fallbackTerminalId: 'ghostty', cwd: '/tmp/project' })
 
     expect(launched).toBe(false)
     expect(execCalls).toHaveLength(2)
@@ -166,7 +179,7 @@ describe('launchInTerminal', () => {
 })
 
 describe('resolveTerminal', () => {
-  test('names the terminal already attached to the shared session', () => {
+  test('names the terminal already attached to the shared session', async () => {
     // WHY: the clients badge the action with this. Naming the configured
     // fallback while a different terminal holds the session is the stale label
     // that sent users looking in the wrong window.
@@ -176,7 +189,7 @@ describe('resolveTerminal', () => {
       4200: '1 /Applications/WezTerm.app/Contents/MacOS/wezterm-gui',
     }
 
-    const resolved = resolveTerminal('ghostty')
+    const resolved = await resolveTerminal('ghostty')
 
     if (process.platform === 'darwin') {
       expect(resolved).toEqual({ id: 'wezterm', name: 'WezTerm', source: 'attached' })
@@ -185,13 +198,13 @@ describe('resolveTerminal', () => {
     }
   })
 
-  test('names a terminal it can see but cannot launch', () => {
+  test('names a terminal it can see but cannot launch', async () => {
     // WHY: Warp runs no startup command so it is not in the catalog, but a Warp
     // user with the session already open should still see their own terminal.
     attachedClientPids = [99]
     processTree = { 99: '90 /usr/local/bin/tmux', 90: '1 /Applications/Warp.app/Contents/MacOS/stable' }
 
-    const resolved = resolveTerminal('ghostty')
+    const resolved = await resolveTerminal('ghostty')
 
     expect(resolved.source).toBe('attached')
     if (process.platform === 'darwin') {
@@ -201,17 +214,17 @@ describe('resolveTerminal', () => {
     }
   })
 
-  test('falls back to the configured terminal when nothing is attached', () => {
-    const resolved = resolveTerminal('ghostty')
+  test('falls back to the configured terminal when nothing is attached', async () => {
+    const resolved = await resolveTerminal('ghostty')
 
     expect(resolved.id).toBe('ghostty')
     expect(resolved.name).toBe('Ghostty')
     expect(resolved.source).toBe('fallback')
   })
 
-  test('calls the system terminal by its own name on macOS', () => {
+  test('calls the system terminal by its own name on macOS', async () => {
     // WHY: "Default Terminal" is a role, not what the user sees in their Dock.
-    const resolved = resolveTerminal('default-terminal')
+    const resolved = await resolveTerminal('default-terminal')
 
     expect(resolved.name).toBe(process.platform === 'darwin' ? 'Terminal' : 'Default Terminal')
     expect(resolved.source).toBe('fallback')

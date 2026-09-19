@@ -67,8 +67,12 @@ import {
   browserWaitForAgentTool,
 } from '../../browser/browser-tools'
 import { readConfigAgentTool, updateConfigAgentTool } from '../../server/config-tools'
+import { askJevAgentTool } from '../../typesafe/jev-tool'
 
 export const solusToolbox = {
+  intelligence: {
+    askJev: askJevAgentTool,
+  },
   works: {
     find: findWorksAgentTool,
     read: readWorkAgentTool,

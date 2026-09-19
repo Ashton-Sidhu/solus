@@ -1,3 +1,4 @@
+import { prefetchStartupTranscript } from '@solus/workspace-ui/contexts/workspace/startup-transcript'
 import { mount, unmount } from 'svelte'
 import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@solus/client-core/ws-transport'
@@ -161,6 +162,7 @@ async function connectToServer(
   webPushState.init()
   installServiceWorkerMessageBridge()
   transport.start()
+  const startupTranscript = prefetchStartupTranscript()
   // Every saved host is eagerly desired, not only the one this boot chose.
   serverConnections.startCatalogSupervisors()
   touchLastConnected(server.id)
@@ -175,7 +177,7 @@ async function connectToServer(
   try {
     // Pairing and reconnect plumbing live in the small entry chunk; the
     // multi-megabyte shared workspace graph loads lazily behind it.
-    const { default: App } = await loadWorkspaceApp()
+    const [{ default: App }] = await Promise.all([loadWorkspaceApp(), startupTranscript])
     if (generation !== connectionGeneration || activeTransport !== transport) {
       transport.destroy()
       return

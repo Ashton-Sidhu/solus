@@ -16,7 +16,7 @@ import { spawnSync } from 'node:child_process'
 import { createServer, type Server } from 'node:http'
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { extname, join, normalize, resolve } from 'node:path'
-import { chromium, type Browser, type Page } from 'playwright'
+import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
 import { z } from 'zod'
 import { bootLabHost, type LabHost } from '@solus/lab/host'
 import { LabClient } from '@solus/lab/client'
@@ -130,6 +130,89 @@ async function proveOwnerShareDialog(browser: Browser, localUrl: string, workId:
   await context.close()
 }
 
+/** An editor on a session: the workspace's conversation column, composer live and floating over the transcript. */
+async function proveEditorComposer(page: Page): Promise<void> {
+  const composer = page.getByTestId('guest-composer')
+  await composer.locator('[data-testid="message-input"]').waitFor({ timeout: 20_000 }).catch(() => null)
+  // The bar folds its toolbar row (itself inert) while the keyboard is elsewhere,
+  // as the workspace dock does; the read-only rule is on the toolbar's own root.
+  check('an editor gets the conversation page\'s composer, live', (await composer.locator('[data-testid="message-input"] .cm-content[contenteditable="true"]').count()) === 1 && (await composer.locator('[data-testid="input-toolbar"][inert]').count()) === 0)
+  check('the composer floats over the transcript and the column holds its band', await page.evaluate(() => {
+    const dock = document.querySelector('[data-testid="guest-composer"]')
+    const column = dock?.parentElement
+    return !!dock && getComputedStyle(dock).position === 'absolute' && parseFloat(column?.style.getPropertyValue('--solus-composer-inset') ?? '0') > 0
+  }))
+  check('an editor link on a session says whose account the turn runs on', await page.getByTestId('guest-session-note').isVisible().catch(() => false))
+}
+
+/** An editor guest sends a prompt from the browser composer and the host runs the turn. */
+async function proveGuestPrompt(page: Page): Promise<void> {
+  const main = page.getByTestId('guest-main')
+  const composer = page.getByTestId('guest-composer')
+  // Alice's turn settles first: the corner button is a Send again, not a Stop.
+  await composer.locator('[data-testid="send-button"]').waitFor({ timeout: 20_000 }).catch(() => null)
+  const answers = main.getByText('mock response from the test agent')
+  const answersBefore = await answers.count()
+  await composer.locator('[data-testid="message-input"] .cm-content').click()
+  await page.keyboard.type('hello from Maya, sent from the guest composer')
+  await page.keyboard.press('Enter')
+  const echoed = await main.getByText('hello from Maya, sent from the guest composer').first().waitFor({ timeout: 20_000 }).then(() => true).catch(() => false)
+  check('a prompt typed in the guest composer lands in the transcript', echoed)
+  const deadline = Date.now() + 20_000
+  while ((await answers.count()) <= answersBefore && Date.now() < deadline) await page.waitForTimeout(200)
+  const answersAfter = await answers.count()
+  check('the host runs the guest\'s turn and the answer streams back', answersAfter > answersBefore, `${answersBefore} → ${answersAfter} answers; transcript: ${JSON.stringify((await main.textContent())?.slice(0, 400))}`)
+  check('the composer is empty again, ready for the next prompt', (await composer.locator('.cm-content').textContent())?.includes('hello from Maya') === false)
+  await page.screenshot({ path: join(ARTIFACTS, 'guest-session-prompted.png') })
+}
+
+/** A viewer on a session: the conversation page as a member sees it, with a composer that takes no input. */
+async function proveViewerSession(context: BrowserContext, origin: string, hostId: string, secret: string): Promise<void> {
+  const page = await context.newPage()
+  await landAsGuest(page, origin, hostId, secret, 'Maya')
+  check('the guest is a viewer on the session', (await page.getByTestId('guest-role').textContent())?.trim() === 'Viewer')
+  const composer = page.getByTestId('guest-composer')
+  const readOnly = composer.locator('[data-testid="message-input"] .cm-content[contenteditable="false"]')
+  await readOnly.waitFor({ timeout: 20_000 }).catch(() => null)
+  await page.screenshot({ path: join(ARTIFACTS, 'guest-session-viewer.png') })
+  check('a viewer gets the same composer, taking no input', (await readOnly.count()) === 1, `page: ${JSON.stringify((await page.getByTestId('guest-main').textContent())?.slice(0, 300))}`)
+  check('the composer says why in place of a prompt', (await composer.locator('.cm-placeholder').textContent({ timeout: 5_000 }).catch(() => ''))?.includes('You can view this session') === true)
+  check('the toolbar is inert and send is off', (await composer.locator('[data-testid="input-toolbar"][inert]').count()) === 1 && (await composer.locator('[data-testid="send-button"]:disabled').count()) === 1)
+  check('a viewer is not told whose account a turn would run on', (await page.getByTestId('guest-session-note').count()) === 0)
+  await page.close()
+}
+
+/**
+ * A task shared by link: the rail names the task and its sessions, a session
+ * opens in the same shell with the task as the crumb before it, and that crumb
+ * is the way back to the page.
+ */
+async function proveTaskLink(context: BrowserContext, origin: string, host: LabHost, alice: LabClient, sessionId: string): Promise<void> {
+  const task = await alice.rpc('tasksCreate', { title: 'Guest proof task', projectKey: host.dataDir })
+  await alice.rpc('tasksLinkSession', task.id, sessionId, 'working')
+  const taskLink = (await alice.rpc('shareSetLink', { resource: { kind: 'task', id: task.id }, role: 'editor' }))!
+  const page = await context.newPage()
+  await landAsGuest(page, origin, host.hostId, taskLink.secret, 'Maya')
+  await page.getByTestId('guest-task').waitFor({ timeout: 20_000 }).catch(() => null)
+  check('the task page opens for a task link', (await page.getByTestId('guest-task').count()) === 1)
+  const railSession = page.getByTestId('guest-rail-session').first()
+  check('the rail lists the task\'s session', await railSession.waitFor({ timeout: 20_000 }).then(() => true).catch(() => false))
+  check('the rail says what the guest may do', (await page.getByTestId('guest-rail-access').textContent())?.includes('edit this task') === true)
+  await page.screenshot({ path: join(ARTIFACTS, 'guest-task.png') })
+  await railSession.click()
+  const crumb = page.getByTestId('guest-back-to-task')
+  check('the session opens in the shell with the task as the crumb before it', await crumb.waitFor({ timeout: 20_000 }).then(() => true).catch(() => false) && (await crumb.textContent())?.includes('Guest proof task') === true)
+  await page.locator('[data-testid="guest-composer"] [data-testid="message-input"]').waitFor({ timeout: 20_000 }).catch(() => null)
+  check('the composer is live under a task editor link', (await page.locator('[data-testid="guest-composer"] [data-testid="message-input"] .cm-content[contenteditable="true"]').count()) === 1)
+  await page.screenshot({ path: join(ARTIFACTS, 'guest-task-session.png') })
+  await crumb.click()
+  check('the crumb returns to the task page', await page.getByTestId('guest-task').waitFor({ timeout: 20_000 }).then(() => true).catch(() => false))
+  await page.getByTestId('guest-rail-toggle').click()
+  check('the rail can be hidden', (await page.getByTestId('guest-rail').count()) === 0)
+  await page.close()
+  await alice.rpc('shareSetLink', { resource: { kind: 'task', id: task.id }, role: null })
+}
+
 async function main(): Promise<number> {
   mkdirSync(ARTIFACTS, { recursive: true })
   console.log('== building the web client under /app/')
@@ -141,7 +224,9 @@ async function main(): Promise<number> {
 
   const issuer = new LabIssuer()
   await issuer.start()
-  const host = await bootLabHost({ flavor: 'personal', issuer })
+  // `SOLUS_LAB_ENTRY` names a private copy of the test bundle: a running dev app
+  // rewrites `dist/main` on every server change, and the Lab would spawn that.
+  const host = await bootLabHost({ flavor: 'personal', issuer, entry: process.env.SOLUS_LAB_ENTRY })
   console.log(`== host ${host.hostId} · data ${host.dataDir} · tunnel ${host.tunnelUrl}`)
   const { server: originServer, origin } = await startOrigin(issuer, host)
   console.log(`== origin ${origin}`)
@@ -196,16 +281,28 @@ async function main(): Promise<number> {
     const sessionPage = await sessionContext.newPage()
     const refusedOnSession = await landAsGuest(sessionPage, origin, host.hostId, sessionLink.secret, 'Maya')
     check('the guest is an editor on the session', (await sessionPage.getByTestId('guest-role').textContent())?.trim() === 'Editor')
-    check('an editor link on a session says prompting arrives later', await sessionPage.getByTestId('guest-session-note').isVisible().catch(() => false))
+    await proveEditorComposer(sessionPage)
     // The mock backend keeps no transcript on disk, so history is empty here; what a
     // guest must see is the live turn: alice prompts, the guest's transcript moves.
     await alice.rpc('promptSession', created.agentSessionId, 'second prompt from alice, while Maya watches')
     const sessionMain = sessionPage.getByTestId('guest-main')
     const streamed = await sessionMain.getByText('second prompt from alice').first().waitFor({ timeout: 20_000 }).then(() => true).catch(() => false)
     check('the guest sees the turn alice starts, live', streamed)
-    check('the guest has no composer on the session', (await sessionPage.locator('[data-testid="message-input"]').count()) === 0)
     check('the transcript does not call a live host unreachable', (await sessionPage.locator('[data-testid="host-status-row"]').count()) === 0)
     await sessionPage.screenshot({ path: join(ARTIFACTS, 'guest-session.png') })
+
+    console.log('== Maya sends a prompt from the guest composer')
+    await proveGuestPrompt(sessionPage)
+
+    // The same session, its link turned to viewer: the mock backend reports one
+    // provider id for every run, so a second mock session cannot keep its own
+    // identity once turns have run; one session, two roles, proves the same thing.
+    console.log('== the session link turned to viewer')
+    await alice.rpc('shareSetLink', { resource: { kind: 'session', id: created.agentSessionId }, role: 'viewer' })
+    await proveViewerSession(sessionContext, origin, host.hostId, sessionLink.secret)
+
+    console.log('== a task shared by link, with the session under it')
+    await proveTaskLink(sessionContext, origin, host, alice, created.agentSessionId)
 
     console.log('== alice regenerates the session link')
     await alice.rpc('shareSetLink', { resource: { kind: 'session', id: created.agentSessionId }, role: 'editor', regenerate: true })

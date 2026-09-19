@@ -97,6 +97,7 @@
             type: "image" as const,
           }))}
         deliveryState={prompt.state}
+        author={prompt.author}
         ordinal={prompts.length > 1 ? index + 1 : undefined}
         onEditSubmit={prompt.queueId
           ? (text) => handleEdit(prompt, text)

@@ -170,10 +170,6 @@ class ScriptedGitHubProvider extends GitHubProvider {
     return [{ rest, credential: { source: 'host', token: 'test-token' } } as unknown as GitHubClient]
   }
 
-  override async getPullRequest(): Promise<PullRequest> {
-    return detail
-  }
-
   override async getPullRequestDiffBase(): Promise<string> {
     return 'base-sha'
   }
@@ -184,7 +180,7 @@ describe('GitHub commit-scoped pull request diff', () => {
     // WHY: clicking a commit must show that commit's own changes. The PR files
     // endpoint can only describe the whole change.
     const provider = new ScriptedGitHubProvider('<https://api.github.com/next>; rel="next"')
-    const slice = await provider.getPullRequestDiff(repo, {
+    const slice = await provider.getPullRequestDiff(repo, detail, {
       number: 7,
       baseSha: 'base-sha',
       headSha: 'head-sha',
@@ -201,7 +197,7 @@ describe('GitHub commit-scoped pull request diff', () => {
   test('rejects a scope that is not a commit sha', async () => {
     // WHY: the value is spliced into an API path; only a real sha may travel.
     const provider = new ScriptedGitHubProvider()
-    await expect(provider.getPullRequestDiff(repo, {
+    await expect(provider.getPullRequestDiff(repo, detail, {
       number: 7,
       baseSha: 'base-sha',
       headSha: 'head-sha',
@@ -214,7 +210,7 @@ describe('GitHub commit-scoped pull request diff', () => {
     // WHY: a commit's old side is its parent. Reading the PR base would render
     // expanded context lines that never matched this commit's patch.
     const provider = new ScriptedGitHubProvider()
-    const contents = await provider.getPullRequestDiffFileContents(repo, {
+    const contents = await provider.getPullRequestDiffFileContents(repo, detail, {
       number: 7,
       baseSha: 'base-sha',
       headSha: 'head-sha',

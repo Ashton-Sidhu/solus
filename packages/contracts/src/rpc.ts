@@ -117,6 +117,7 @@ export const RPC_INVOKE_METHODS = [
   'listSessions',
   'searchSessions',
   'loadSession',
+  'loadSessionPage',
   'loadSessionToolInputs',
   'loadSessionPreview',
   'loadSessionMessageWindow',
@@ -174,6 +175,8 @@ export const RPC_INVOKE_METHODS = [
   // Skills (skills.sh registry — opt-in install across active providers)
   'skillsSearch',
   'skillsInstall',
+  'skillsList',
+  'skillsRemove',
 
   // Pinned sessions (sidebar pins persisted to ~/.solus/pinned-sessions.json)
   'pinnedSessionsList',
@@ -223,9 +226,14 @@ export const RPC_INVOKE_METHODS = [
   'seatConnectToken',
   'seatDisconnect',
   'seatRemove',
+  // Presence: who is here, what they are looking at, and whether they are typing
+  'presenceSnapshot',
+  'presenceSetFocus',
+  'presenceSetComposing',
   'setAnalyticsConsent',
 
   // Host config — the tier that follows a user between clients
+  'typeSafeKeySet',
   'configGet',
   'configUpdate',
 
@@ -273,7 +281,8 @@ export const RPC_INVOKE_METHODS = [
   'linkWorkSession',
   'promoteWorkToProject',
   'loadWorkAnnotations',
-  'saveWorkAnnotations',
+  'applyWorkComment',
+  'markWorkCommentRead',
   'readWorkGoogleComments',
   'refreshWorkGoogleComments',
   'sendWorkGoogleComment',
@@ -365,6 +374,7 @@ export const RPC_INVOKE_METHODS = [
   'generateGuide',
   'requestReviewGuide',
   'reviewGuideStatus',
+  'sessionGuideStatuses',
   'cancelGenerateGuide',
   'readGuide',
   'readReviewState',

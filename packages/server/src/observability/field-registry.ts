@@ -220,6 +220,7 @@ export const KIND_REGISTRY = {
         attr('hostname', 'hostname', 'string', 'Hostname of the machine that executed the turn'),
         attr('host_os', 'hostOs', 'string', "Operating system of the execution host: 'macos', 'windows', or 'linux'"),
         attr('prompt_source', 'promptSource', 'string', "How the turn was dispatched: 'typed', 'queued', 'automation', 'agent', or 'dispatch'"),
+        attr('requested_model', 'requestedModel', 'string', "Model the user selected: 'auto' when Solus routed the prompt, else the explicit model id; null for the provider default. `model` is what ran"),
         attr('reasoning_effort', 'reasoningEffort', 'string', 'Requested reasoning effort for the turn'),
         attr('is_resume', 'isResume', 'boolean', 'True when the provider continued an existing session'),
         attr('has_thinking', 'hasThinking', 'boolean', 'True when the turn contained extended thinking'),

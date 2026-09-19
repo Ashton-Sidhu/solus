@@ -1,3 +1,5 @@
+import { z } from 'zod'
+import { setTypeSafeApiKey } from '../../typesafe/credentials'
 import {
   getHostConfig,
   resolveSourceControlWriterModel,
@@ -17,6 +19,15 @@ export function registerSettingsHandlers(
   deps: { controlPlane: ControlPlane; onHostConfigChanged: (snapshot: HostConfigSnapshot) => void },
 ): void {
   server.register('configGet', () => getHostConfig())
+
+  server.register('typeSafeKeySet', ([apiKey]) => {
+    const parsed = z.string().trim().min(1).max(4096).nullable().safeParse(apiKey)
+    if (!parsed.success) throw new Error('Enter a TypeSafe API key, or remove the saved key.')
+    setTypeSafeApiKey(parsed.data)
+    const snapshot = getHostConfig()
+    deps.onHostConfigChanged(snapshot)
+    return snapshot
+  })
 
   server.register('configUpdate', async (args) => {
     // SAFETY: The RPC method contract supplies the config patch in slot zero.

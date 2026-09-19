@@ -23,7 +23,9 @@ import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { Task } from '../../tasks/task'
 import { completeTasksForMergedPullRequest } from '../../tasks/sync-engine'
 import { buildPrReviewTarget } from '../../providers/pr-review-target'
+import { emitChanged } from '../../tasks/task-store'
 import { prIndex, repoKeyOf } from '../../prs/pr-index'
+import { repoForScope } from '../../prs/code-host'
 import type { PullRequest } from '../../prs/pull-request'
 
 const log = createLogger('main', 'provider-handlers')
@@ -115,7 +117,7 @@ async function providerForContext(ctx: IpcContext): Promise<Provider | null> {
  *  user-facing message when the repo host isn't supported or auth is missing. */
 export async function reviewTargetFor(ctx: IpcContext): Promise<{ repo: RepoRef; provider: Provider }> {
   const cwd = projectScopeOf(ctx.session)
-  const repo = cwd ? await resolveRepoRef(cwd) : null
+  const repo = cwd ? await repoForScope(cwd) : null
   if (!repo) throw new Error('This folder has no recognizable git remote to review PRs from.')
   const provider = providerForRepo(repo)
   if (!provider) throw new Error(`PR review isn't supported for ${repo.host} yet.`)
@@ -233,6 +235,8 @@ async function persistReviewCheckpoint(
 
 export interface ProviderHandlerDeps {
   isWorktreeInUse: (path: string) => boolean
+  /** Whether a Solus session is still mid-turn; a merge does not finish a task under one. */
+  isSessionBusy: (sessionId: string) => boolean
   dispatcher: AgentDispatcher
   events: HostEventPublisher
 }
@@ -305,10 +309,8 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prList', async (args) => {
     const [ctx, filter, page = 1] = args
     const { repo, provider } = await reviewTargetFor(ctx)
-    const [page1, viewer] = await Promise.all([
-      prIndex.list(repo, provider, filter, page),
-      provider.review.getViewer(repo),
-    ])
+    const viewer = await provider.review.getViewer(repo)
+    const page1 = await prIndex.list(repo, provider, viewer, filter, page)
     // Copied rather than assigned into: `page1` is the index's own object, and
     // decorating it in place would write this viewer's attention flags onto the
     // answer every other reader shares.
@@ -422,14 +424,19 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     const [ctx, request] = args
     if (request.repo) return readPrGuidePatch(request.repo, request)
     const { repo, provider } = await reviewTargetFor(ctx)
-    return provider.review.getPullRequestDiff(repo, request)
+    // Remembered, not fresh: the guard inside compares against the `headSha`
+    // the client got from `prOpenReview`, which forced this same field moments
+    // ago. A push since then surfaces on the next open, not on every diff page.
+    const detail = await prIndex.pullRequest(repo, provider, request.number).read()
+    return provider.review.getPullRequestDiff(repo, detail, request)
   })
 
   server.register('prGetDiffFileContents', async (args) => {
     const [ctx, request] = args
     if (request.repo) return readPrGuideFileContents(request.repo, request)
     const { repo, provider } = await reviewTargetFor(ctx)
-    return provider.review.getPullRequestDiffFileContents(repo, request)
+    const detail = await prIndex.pullRequest(repo, provider, request.number).read()
+    return provider.review.getPullRequestDiffFileContents(repo, detail, request)
   })
 
   server.register('prPrepareCheckout', async (args) => {
@@ -449,8 +456,12 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       const result = await provider.review.mergePullRequest(repo, number, method)
       if (!result.merged) return result
       const projectPath = projectScopeOf(ctx.session)
-      await completeTasksForMergedPullRequest(repoKeyOf(repo).toLowerCase(), number)
       const detailAfterMerge = await pullRequest.readFresh()
+      await completeTasksForMergedPullRequest(repoKeyOf(repo).toLowerCase(), number, {
+        mergedAt: detailAfterMerge.updatedAt,
+        isSessionBusy: deps.isSessionBusy,
+      })
+      emitChanged()
       // A merge is a lifecycle change like any other, so it is announced the
       // same way. Without this, only the surface that ran the merge learned
       // about it: the sidebar chip, the git rail and every other client kept
@@ -533,7 +544,9 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('prGetDetail', async (args) => {
     const [ctx, number] = args
     const { repo, provider } = await reviewTargetFor(ctx)
-    return prIndex.pullRequest(repo, provider, number).read()
+    const detail = await prIndex.pullRequest(repo, provider, number).read()
+    emitChanged()
+    return detail
   })
 
   server.register('prUpdate', async (args) => {
@@ -647,6 +660,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       // Announced like a lifecycle change, with the whole pull request: the
       // list row and every other client draw labels too.
       const detailAfterWrite = await pullRequest.readFresh()
+      emitChanged()
       const projectRoot = projectScopeOf(ctx.session)
       if (projectRoot) deps.events.broadcast('pr.lifecycleChanged', { projectRoot, detail: detailAfterWrite })
       return detailAfterWrite
@@ -658,6 +672,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     if (!['close', 'reopen', 'ready', 'draft'].includes(action)) throw new Error('Unsupported pull request action.')
     const detail = await writePullRequest(ctx, number, ({ repo, provider }) =>
       provider.review.updatePullRequestLifecycle(repo, number, action, expectedHeadSha))
+    emitChanged()
     const projectRoot = projectScopeOf(ctx.session)
     if (projectRoot) deps.events.broadcast('pr.lifecycleChanged', { projectRoot, detail })
     return detail

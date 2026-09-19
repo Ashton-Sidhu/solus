@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { untrack } from "svelte";
+  import { serverConnections } from "@solus/client-core/server-connections";
   import { ExternalLink as ExternalLinkIcon } from "@lucide/svelte";
   import type { Task, TaskLink } from "@solus/contracts/task-types";
   import { getPullRequestsContext, getWorkspaceContext } from "../../../contexts";
@@ -12,7 +14,6 @@
     priorityLabel,
   } from "../../tasks/task-page/lib/task-page";
   import { prStatusBadge } from "../../prs/lib/pr-utils";
-  import { prLifecycleOf } from "../../tasks/task-page/lib/task-prs";
   import {
     previewPrGlyph,
     previewPrRows,
@@ -58,16 +59,14 @@
 
   // Works, plans and automations only come from a detail read, so the preview
   // asks for them once the selection settles and shows no Linked section until
-  // they arrive. PRs need no read: the sidebar snapshot already carries them.
+  // they arrive. PR identities are already in the sidebar snapshot.
   const previewDetails = new TaskPreviewDetails((taskId, projectKey) =>
     session.tasksStore.get(taskId, projectKey).loadDetails(),
   );
   const details = $derived(session.tasksStore.get(task.id).details);
   const links = $derived(details?.links ?? []);
   const linkedRows = $derived(linkedTableLinks(links).map((link) => linkRow(link)));
-  // A PR's state and title are a provider round trip the picker deliberately
-  // does not make: both appear when some other surface has already read that
-  // PR, and the row renders from its link snapshot otherwise.
+  // Read and observe links through the same store as the task page and sidebar.
   const prScope = $derived({
     cwd: task.projectKey ?? null,
     serverId: session.tasksStore.get(task.id).serverId,
@@ -76,16 +75,20 @@
     previewPrRows(
       links,
       session.tasksStore.get(task.id).prLink,
-      (number) =>
-        prLifecycleOf(
-          pullRequests.projects.at(prScope.serverId, prScope.cwd)?.prFor(number) ?? null,
-        ),
-      (number) =>
-        pullRequests.projects.at(prScope.serverId, prScope.cwd)?.prFor(number)?.title ||
-        undefined,
+      (link) => pullRequests.projects.linkedPr(prScope.serverId, link, prScope.cwd),
     ),
   );
   const linkedCount = $derived(linkedRows.length + prRows.length);
+
+  $effect(() => {
+    const { serverId, cwd } = prScope;
+    const prLinks = session.tasksStore.get(task.id).prLinks;
+    if (!serverId) return;
+    return untrack(() => pullRequests.projects.watchLinkedPrs(
+      serverConnections.apiFor(serverId), serverId,
+      session.ctxForEnvironment(cwd ?? "~", null), prLinks,
+    ));
+  });
 
   $effect(() => {
     previewDetails.request(task.id, task.projectKey ?? undefined);

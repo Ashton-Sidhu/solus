@@ -1,9 +1,10 @@
+import { requestSessionHistoryPage, RESTORED_TRANSCRIPT_LIMIT } from '@solus/client-core/session-history-page'
 import type { AgentId, AutomationTrigger, IpcContext, Message, NormalizedEvent, PermissionRequest, QueuedPromptSnapshot, QuestionRequest, Session, SessionProgress } from '@solus/contracts/types'
 import { z } from 'zod'
 import { encodePathAsFolder } from '@solus/contracts/types'
-import type { AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionHistoryPage, AgentConversationResultProjection, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { uuid } from '@solus/contracts/uuid'
-import { resolveArtifactTitle } from '@solus/contracts/work-preview'
+import { artifactUpdateFromHistory } from './artifact-history'
 import { imageRefAttachments, isAgentNotice, nextMsgId, progressFromMessages, toPermissionRequest, toQuestionRequest } from './session.utils'
 import { AgentConversationTranscriptBuilder, isAgentConversationTool } from './agent-conversation-transcript'
 import type { WorkspaceContext } from './workspace.context.svelte'
@@ -13,7 +14,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 
 // Initial/restored surfaces render 100 rows at a time. Keep one extra page in
 // memory for instant upward scroll and leave the rest on the host until asked.
-export const RESTORED_TRANSCRIPT_LIMIT = 200
+export { RESTORED_TRANSCRIPT_LIMIT } from '@solus/client-core/session-history-page'
 
 /** Matches both Claude (`mcp__solus__create_work`) and Codex (`create_work`). */
 function isCreateWorkTool(name: string | undefined): boolean {
@@ -90,7 +91,9 @@ export interface SessionTranscriptLoadArgs {
   /** Hydrate only the most recent `limit` messages for a fast initial paint. */
   limit?: number
   /** A restore can start this read while resolving the session's identity. */
-  history?: Promise<WireSessionLoadMessage[]>
+  history?: Promise<WireSessionLoadMessage[] | SessionHistoryPage>
+  before?: string
+  pendingMessages?: WireSessionLoadMessage[]
   shouldApply?: () => boolean
 }
 
@@ -99,6 +102,8 @@ interface SessionTranscriptLoadResult {
   planIds: string[]
   progress: SessionProgress | null
   truncated: boolean
+  before?: string | null
+  pendingMessages?: WireSessionLoadMessage[]
 }
 
 // Enum fields degrade alone: an unknown value from a newer host drops that
@@ -124,11 +129,33 @@ const imageInputSchema = z.object({ path: z.string().optional() })
 
 export async function loadSessionTranscript(ctx: WorkspaceContext, args: SessionTranscriptLoadArgs): Promise<SessionTranscriptLoadResult> {
   const api = ctx.apiForSession(args.ctx.session.sessionId)
-  const serverId = serverConnections.serverIdForApi(api)
-  const history = await (args.history ?? api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit,
-    ctx.deferHistoryToolInputs ? { deferToolInputs: true } : undefined))
-  // A full window of messages means older ones were left on disk.
-  const truncated = !!args.limit && history.length >= args.limit
+  const loaded = await (args.history ?? (args.limit
+    ? requestSessionHistoryPage(api, {
+        sessionId: args.sessionId, projectPath: args.loadPath, provider: args.provider,
+        limit: args.limit, before: args.before, deferToolInputs: ctx.deferHistoryToolInputs,
+      }, args.ctx)
+    : api.loadSession(args.sessionId, args.loadPath, args.ctx, args.provider, args.limit,
+        ctx.deferHistoryToolInputs ? { deferToolInputs: true } : undefined)))
+  const history = (Array.isArray(loaded) ? loaded : loaded.messages).concat(args.pendingMessages ?? [])
+  if (history.some((message) => message.role === 'tool' && isAutomationSaveTool(message.toolName)) && !ctx.automationsStore.loaded) {
+    await ctx.automationsStore.loadAll()
+  }
+  return materializeSessionTranscript(ctx, args, loaded)
+}
+
+/** Purely synchronous conversion of an already-read page. The first mounted
+ * conversation uses it before secondary stores have loaded. Their cards are
+ * reconciled by the normal asynchronous hydration path. */
+export function materializeSessionTranscript(
+  ctx: WorkspaceContext,
+  args: SessionTranscriptLoadArgs,
+  loaded: SessionHistoryPage | WireSessionLoadMessage[],
+): SessionTranscriptLoadResult {
+  const serverId = serverConnections.serverIdForApi(ctx.apiForSession(args.ctx.session.sessionId))
+  const pageMessages = Array.isArray(loaded) ? loaded : loaded.messages
+  const history = args.pendingMessages?.length ? pageMessages.concat(args.pendingMessages) : pageMessages
+  const before = Array.isArray(loaded) ? undefined : loaded.before
+  const truncated = before !== undefined ? before !== null : !!args.limit && pageMessages.length >= args.limit
   if (args.shouldApply && !args.shouldApply()) {
     return { messages: [], planIds: [], progress: null, truncated: false }
   }
@@ -143,17 +170,15 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
   // Tool messages by tool_use id (main thread + nested) so sub-agent children
   // and the Agent tool's own result can be reattached to their tool message.
   const toolById = new Map<string, Message>()
+  const pendingMessages: WireSessionLoadMessage[] = []
   // Agent-conversation cards rebuild from session-tool rows + [session report] user turns,
   // mirroring the live AgentConversationTracker's one-card-per-agent-per-turn keying.
   const agentConversations = new AgentConversationTranscriptBuilder(messages)
 
-  // Automation cards resolve against the store; ensure it's hydrated if this
-  // transcript created/updated any automations.
-  if (history.some((m) => m.role === 'tool' && isAutomationSaveTool(m.toolName)) && !ctx.automationsStore.loaded) {
-    await ctx.automationsStore.loadAll()
-  }
-
   const loadedHistory = history
+  const resultsByToolId = new Map(history.flatMap((message) =>
+    message.role === 'tool_result' && message.toolResultForId ? [[message.toolResultForId, message] as const] : [],
+  ))
   // Thinking is never rendered as a turn — only its duration is, folded onto the
   // tool call it preceded (mirrors the live reducer's thinkingSpans). Replay has
   // no span boundaries, so the run of reasoning turns is bracketed by the first
@@ -178,6 +203,8 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
         target.contentBytes = m.contentBytes
         target.toolStatus = m.status === 'error' ? 'error' : 'completed'
         if (m.timestamp) target.toolCompletedAt = m.timestamp
+      } else if (before !== undefined && m.toolResultForId) {
+        pendingMessages.push(m)
       }
       continue
     }
@@ -220,7 +247,13 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
         }
         continue
       }
-      // Parent missing (truncated window) → fall through to render inline.
+      if (before !== undefined) {
+        // An asynchronous child's activity may follow a later user turn. Keep
+        // it until its owning call arrives, rather than leaking it inline.
+        pendingMessages.push(m)
+        continue
+      }
+      // Legacy window: no replay cursor is available.
     }
 
     const msgTimestamp = m.timestamp ?? Date.now()
@@ -338,12 +371,19 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
         })
       }
       continue
+    } else if (m.role === 'tool' && m.toolName?.endsWith('update_work')) {
+      messages.push(msg)
+      const result = resultsByToolId.get(m.toolId ?? '') ?? m
+      const revision = artifactUpdateFromHistory(m, result, (workId) => ctx.worksStore.get(workId))
+      if (revision) messages.push(revision)
+      continue
     } else if (m.role === 'tool' && isRenderArtifactTool(m.toolName)) {
       // A render_artifact call replays as a tool row (debug visibility) followed by
       // its rendered artifact. The tool input carries everything to re-render.
-      // The persisted work's id lived in the dropped tool result, so it is
-      // resolved by title the way a create_work card is.
+      // Receipt metadata keeps the saved identity even after a rename.
       messages.push(msg)
+      const result = resultsByToolId.get(m.toolId ?? '') ?? m
+      if (result.status === 'error' || m.toolStatus === 'error' || m.toolStatus === 'running') continue
       try {
         const input = artifactInputSchema.parse(JSON.parse(m.toolInput || '{}'))
         const kind = input.kind === 'image' ? 'image' : 'html'
@@ -353,9 +393,10 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
         if (path && !path.startsWith('/')) path = `${args.displayCwd.replace(/\/$/, '')}/${path}`
         let workRef: Message['workRef']
         if (kind === 'html' && input.html) {
-          const title = resolveArtifactTitle(input.title, input.html)
-          const workId = resolveCreatedWork(ctx, title, args.sessionId, claimedWorks)
-          if (workId) workRef = { workId, title, workType: 'artifact' }
+          // Never infer artifact identity from a title: two artifacts can share
+          // a title, and a later rename must not break the revision chain.
+          const ref = result.artifactWorkRef
+          if (ref) workRef = { ...ref, workType: 'artifact' }
         }
         messages.push({
           id: nextMsgId(),
@@ -411,6 +452,8 @@ export async function loadSessionTranscript(ctx: WorkspaceContext, args: Session
     planIds,
     progress: progressFromMessages(messages),
     truncated,
+    before,
+    pendingMessages,
   }
 }
 

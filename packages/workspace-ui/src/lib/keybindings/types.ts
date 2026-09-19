@@ -27,6 +27,8 @@ export type Scope =
   | 'attachment-preview'
   | 'saved-prompts'
   | 'diagram'
+  /** An artifact work open in a pane: the render with its comment pins. */
+  | 'artifact'
   | 'command-palette'
   /** The one picker over tasks and their sessions. Its navigation keys are
    *  handled on its own dialog element; only the project scope is a named,

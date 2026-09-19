@@ -13,6 +13,9 @@
   import { liveActivityClock } from "../../lib/shared-clock";
   import { serversStore } from "../../contexts/connections/servers.store.svelte";
   import HostOperatingSystemIcon from "../servers/HostOperatingSystemIcon.svelte";
+  import { hostIsManaged } from "../servers/lib/managed-host";
+  import PresenceStack from "../presence/PresenceStack.svelte";
+  import { presenceStore } from "../../contexts/presence/presence.store.svelte";
   import SessionNameInput from "./SessionNameInput.svelte";
   import ReviewGuideGlyph from "../review/ReviewGuideGlyph.svelte";
   import TaskStatusGlyph from "./TaskStatusGlyph.svelte";
@@ -115,6 +118,13 @@
   // A host Solus no longer has a saved entry for names no operating system;
   // the icon falls back to a globe in that case.
   const remoteOs = $derived(host && "os" in host ? host.os : undefined);
+  // Teammates whose screen shows this session, from the host's own roster: a
+  // row can say who is in a session this client has not opened.
+  const people = $derived(
+    session.serverId && session.sessionId
+      ? presenceStore.peopleFocusedOn(session.serverId, { kind: "session", sessionId: session.sessionId })
+      : [],
+  );
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let suppressNextClick = false;
   function startLongPress(event: PointerEvent) {
@@ -241,6 +251,7 @@
           {#if isRemote}
             <HostOperatingSystemIcon
               os={remoteOs}
+              managed={hostIsManaged(host)}
               size={11}
               aria-label={host?.label}
             />
@@ -252,6 +263,9 @@
             />
           {/if}
         </span>
+        <!-- Who is in this session right now, at full ink: it is the one live
+             fact on the line, and it reads even when the row has receded. -->
+        <PresenceStack {people} size={14} max={2} class="opacity-100" />
       </span>
 
       <!-- One mark at rest, the row's actions on hover, in the same slot. The

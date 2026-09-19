@@ -687,7 +687,11 @@ export class Task implements TaskRecord {
    */
   applyDetails(details: TaskDetails): void {
     this.hydrate(details.task)
-    this.applyPrLinks(prLinksOf(details))
+    this.applyPrLinks(prLinksOf(details).map((link) => ({
+      ...link,
+      snapshot: this.#prLinks.find((current) => current.number === link.number
+        && current.targetScope === link.targetScope)?.snapshot,
+    })))
     for (const subtask of details.subtasks) this.#store.get(subtask.id).hydrate(subtask)
     this.#details = details
   }

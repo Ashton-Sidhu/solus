@@ -41,6 +41,10 @@
     savedPromptsControl?: Snippet;
     /** Extra controls appended to the right cluster (web: push bell, logout). */
     trailingActions?: Snippet;
+    /** Editing is not permitted here (a viewer on a shared session). The row
+     *  stays, so the bar keeps its shape, but every control in it is inert:
+     *  the host would refuse a model, mode, or attachment change anyway. */
+    readOnly?: boolean;
   }
   let {
     active,
@@ -57,6 +61,7 @@
     onDesignMode,
     savedPromptsControl,
     trailingActions,
+    readOnly = false,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -126,9 +131,11 @@
   got narrow.
 -->
 <div
+  data-testid="input-toolbar"
   class="flex flex-1 min-w-0 items-center gap-2 {spacious
     ? 'editor-input-toolbar text-workspace-chrome [&_button]:text-[length:inherit]'
-    : ''}"
+    : ''} {readOnly ? 'opacity-50' : ''}"
+  inert={readOnly}
 >
   <AddFilesButton
     {onAttachFile}

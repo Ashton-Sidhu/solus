@@ -8,6 +8,7 @@ const DRAFTS_KEY = 'solus-tab-drafts'
 const DISMISSED_SIDEBAR_TASKS_KEY = 'solus-dismissed-sidebar-tasks'
 const OPEN_SIDEBAR_TASKS_KEY = 'solus-open-sidebar-tasks'
 const SIDEBAR_ROW_SNOOZES_KEY = 'solus-sidebar-row-snoozes'
+const DONE_SIDEBAR_ROWS_KEY = 'solus-done-sidebar-rows'
 // Last successful start() payload, scoped to the server installation exactly
 // like the tab snapshot so a different server never reads a stale
 // environment. Applied optimistically on boot, then reconciled with fresh data.
@@ -330,6 +331,25 @@ export function persistSidebarRowSnoozes(snoozes: Map<string, SidebarRowSnooze>)
       SIDEBAR_ROW_SNOOZES_KEY,
       JSON.stringify(Object.fromEntries(snoozes)),
     )
+  } catch {}
+}
+
+/** Done marks for rows with no task behind them. A task's done state is the
+ *  host's; a loose session has nowhere else to keep its check across a reload. */
+export function loadDoneSidebarRowKeys(): string[] {
+  try {
+    const raw = localStorage.getItem(DONE_SIDEBAR_ROWS_KEY)
+    if (!raw) return []
+    const parsed = z.array(z.string()).safeParse(JSON.parse(raw))
+    return parsed.success ? parsed.data : []
+  } catch {
+    return []
+  }
+}
+
+export function persistDoneSidebarRowKeys(rowKeys: Iterable<string>): void {
+  try {
+    localStorage.setItem(DONE_SIDEBAR_ROWS_KEY, JSON.stringify([...rowKeys]))
   } catch {}
 }
 

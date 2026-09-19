@@ -6,8 +6,10 @@
  */
 import type { SetupAgent } from './types'
 
-/** How Solus got onto the host. Decides the remediation. */
-export type HostInstallKind = 'desktop' | 'managed' | 'source' | 'unknown'
+/** How Solus got onto the host. Decides the remediation. `cloud` is a host Solus
+ *  cloud provisioned (managed-hosts.md): its image is replaced by the control
+ *  plane, so it never checks for updates and nothing on it is the user's to run. */
+export type HostInstallKind = 'desktop' | 'managed' | 'source' | 'cloud' | 'unknown'
 
 /**
  * The desktop update states without `downloading` and `ready`: a host or a

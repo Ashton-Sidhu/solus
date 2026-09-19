@@ -1,7 +1,8 @@
 import { GitPullRequest as GitPullRequestIcon } from "@lucide/svelte";
   import type { TaskDetails, TaskLink, TaskSidebarPrLink } from '@solus/contracts/task-types'
 import type { LinkedPrLifecycle } from '../../tasks/task-page/lib/task-prs'
-import { taskPrRows } from '../../tasks/task-page/lib/task-prs'
+import type { LinkedPr, PrLink } from '../../../contexts/prs/linked-pr'
+import { taskPrRows, prLifecycleOf, titleWithoutPrRef } from '../../tasks/task-page/lib/task-prs'
 import { prStatusBadge } from '../../prs/lib/pr-utils'
 
 /**
@@ -82,10 +83,9 @@ export function previewPrGlyph(state: LinkedPrLifecycle | null) {
 export function previewPrRows(
   links: TaskLink[],
   snapshotLink: TaskSidebarPrLink | null,
-  lifecycleFor: (number: number) => LinkedPrLifecycle | null,
-  titleFor: (number: number) => string | undefined = () => undefined,
+  readPr: (link: PrLink) => LinkedPr | null,
 ): TaskPreviewPrRow[] {
-  const rows = taskPrRows(links, lifecycleFor, titleFor)
+  const rows = taskPrRows(links, readPr)
   if (rows.length) {
     return rows.map((row) => ({
       key: row.key,
@@ -97,12 +97,14 @@ export function previewPrRows(
     }))
   }
   if (!snapshotLink) return []
+  const pr = readPr(snapshotLink)
+  const ref = `#${pr?.number ?? snapshotLink.number}`
   return [{
-    key: `pr:${snapshotLink.number}`,
+    key: pr?.key ?? `pr:${snapshotLink.number}`,
     link: null,
-    ref: `#${snapshotLink.number}`,
-    title: titleFor(snapshotLink.number) ?? '',
-    url: snapshotLink.url ?? null,
-    state: lifecycleFor(snapshotLink.number),
+    ref,
+    title: titleWithoutPrRef(pr?.title ?? '', ref),
+    url: pr?.url ?? snapshotLink.url ?? null,
+    state: prLifecycleOf(pr?.pullRequest),
   }]
 }

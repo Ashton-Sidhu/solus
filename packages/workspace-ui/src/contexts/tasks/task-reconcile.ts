@@ -49,5 +49,7 @@ export function samePrLinks(
       && link.targetScope === candidate.targetScope
       && link.createdBy === candidate.createdBy
       && link.originSessionId === candidate.originSessionId
+      && link.snapshot?.updatedAt === candidate.snapshot?.updatedAt
+      && link.snapshot?.state === candidate.snapshot?.state
   })
 }

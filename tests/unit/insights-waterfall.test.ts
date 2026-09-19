@@ -110,11 +110,11 @@ describe('Solus internals', () => {
   })
 
   // WHY: a dispatch step is Solus's own code, and the reader of one is on their
-  // way to it. The step id has to survive verbatim so it can be searched for,
-  // and the function it times is what turns the row into a destination.
-  test('a dispatch step names the function it times, id intact', () => {
-    expect(view.rows.find((row) => row.spanId === 'worktree')?.label)
-      .toBe('worktree_create · createWorktree')
+  // way to it. The step id has to survive verbatim so it can be searched for.
+  // The function it times is not on the row: the label column is narrow, and
+  // the dock's attributes carry `fn` for the reader who opens the step.
+  test('a dispatch step is labelled by its id alone, verbatim', () => {
+    expect(view.rows.find((row) => row.spanId === 'worktree')?.label).toBe('worktree_create')
   })
 
   test('a step recorded before call sites were captured still names itself', () => {

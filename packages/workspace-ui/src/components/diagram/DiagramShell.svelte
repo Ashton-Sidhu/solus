@@ -109,6 +109,7 @@
   import { anchorRectFor, type ThreadAnchor } from "./lib/thread-card-position";
   import { minimapSize } from "./lib/minimap-size";
   import { isResolved, isUnread } from "../comments/lib/thread";
+  import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
   import {
     applyLayout,
     reapplyLayout,
@@ -234,30 +235,25 @@
     },
   });
 
-  // Load the annotation sidecar whenever the open work changes (mirrors
-  // DocumentModal).
+  // Who reads the threads: their own pins and cards carry no byline, other
+  // people's do, and the verbs on someone else's appear only for the owner.
+  const commentViewer = () => workCommentViewer(workId ? session.worksStore.hostFor(workId) : null, { kind: "work", id: workId ?? "" });
+  setCommentViewer(commentViewer);
+  const selfUserIds = $derived(commentViewer().selfUserIds);
+
+  // Load the threads whenever the open work changes (mirrors DocumentModal),
+  // and re-read them while it is open: another person's thread, or an agent's,
+  // must land on this canvas too. The pins follow the list, so every load
+  // re-applies the transient node state.
   $effect(() => {
     const id = workId;
-    if (!id) {
-      loadedAnnotationsFor = null;
-      return;
-    }
-    if (id === loadedAnnotationsFor) return;
-    loadedAnnotationsFor = id;
-    void session.worksStore.loadAnnotations(id).then(() => {
-      if (loadedAnnotationsFor !== id) return;
-      applyTransientState();
-    });
+    if (!id) return;
+    const refreshPins = () => {
+      if (workId === id) applyTransientState();
+    };
+    void session.worksStore.loadAnnotations(id).then(refreshPins);
+    return session.worksStore.watchAnnotations(id, refreshPins);
   });
-
-  function persistComments() {
-    if (!workId) return;
-    if (commentsSaveTimer) clearTimeout(commentsSaveTimer);
-    const id = workId;
-    commentsSaveTimer = setTimeout(() => {
-      void session.worksStore.saveAnnotations(id);
-    }, 400);
-  }
 
   function openComments(nodeId: string | null, autoFocus: boolean) {
     activeDrawerNodeId = null;
@@ -292,21 +288,18 @@
       comment: text,
     };
     if (commentDraftNodeId) Object.assign(comment, { nodeId: commentDraftNodeId });
-    session.worksStore.addAnnotationComment(workId, comment);
-    persistComments();
+    void session.worksStore.addAnnotationComment(workId, comment);
     applyTransientState();
   }
 
   function editComment(commentId: string, text: string) {
     if (!workId) return;
-    session.worksStore.editAnnotationComment(workId, commentId, text);
-    persistComments();
+    void session.worksStore.editAnnotationComment(workId, commentId, text);
   }
 
   function deleteComment(commentId: string) {
     if (!workId) return;
-    session.worksStore.deleteAnnotationComment(workId, commentId);
-    persistComments();
+    void session.worksStore.deleteAnnotationComment(workId, commentId);
     applyTransientState();
   }
 
@@ -320,8 +313,7 @@
     editingThreadId = null;
     composerAnchor = null;
     if (workId) {
-      session.worksStore.markAnnotationRead(workId, commentId);
-      persistComments();
+      void session.worksStore.markAnnotationRead(workId, commentId);
       applyTransientState();
     }
     if (comment.nodeId) {
@@ -358,15 +350,12 @@
   function addThreadOn(anchor: ThreadAnchor, text: string) {
     if (!workId) return;
     const id = uuid();
-    session.worksStore.addAnnotationComment(workId, {
+    void session.worksStore.addAnnotationComment(workId, {
       id,
       selectedText: anchorLabelFor(anchor) ?? title,
       comment: text,
-      author: "you",
-      createdAt: Date.now(),
       ...anchor,
     });
-    persistComments();
     applyTransientState();
     openThreadId = id;
   }
@@ -382,27 +371,25 @@
 
   function replyToThread(commentId: string, text: string) {
     if (!workId) return;
-    session.worksStore.addAnnotationReply(workId, commentId, {
+    void session.worksStore.addAnnotationReply(workId, commentId, {
       id: uuid(),
       author: "you",
       text,
       createdAt: Date.now(),
     });
-    persistComments();
   }
 
   // Resolve flips the tint to sage, collapses the card and drops the pin.
   function resolveThread(commentId: string, resolved: boolean) {
     if (!workId) return;
-    session.worksStore.setAnnotationResolved(workId, commentId, resolved ? "you" : null);
-    persistComments();
+    void session.worksStore.setAnnotationResolved(workId, commentId, resolved);
     applyTransientState();
     if (resolved && openThreadId === commentId) closeFloatingThread();
   }
 
-  // The threads pill scopes the canvas to the first thread Solus has spoken in.
+  // The threads pill scopes the canvas to the first thread somebody else has spoken in.
   function scopeToFirstUnread() {
-    const unread = firstUnreadThread(comments);
+    const unread = firstUnreadThread(comments, selfUserIds);
     if (unread) openThreadCard(unread.id);
     else openComments(null, false);
   }
@@ -431,15 +418,15 @@
   }
 
   // Hand the comments to the agent as a chat message (same flow as
-  // DocumentModal): they're cleared here because the agent now owns them.
+  // DocumentModal): the threads resolve rather than vanish, so the record of a
+  // round of feedback stays on the diagram for everyone who can open it.
   async function sendCommentsToAgent() {
     if (!workId || comments.length === 0) return;
     const body = formatInlineComments($state.snapshot(comments));
     const msg = `Please address these comments on the diagram "${title}" (work_id: ${workId}):\n${body}`;
     const sent = await session.sendMessageToNewWorkSession(workId, msg);
     if (!sent) return;
-    session.worksStore.clearAnnotationComments(workId);
-    persistComments();
+    await session.worksStore.resolveOpenAnnotationComments(workId);
     applyTransientState();
   }
   let flowControls: ReturnType<typeof useSvelteFlow> | null = null;
@@ -505,7 +492,6 @@
   // Node the composer is pre-anchored to; null = whole-diagram comment.
   let commentDraftNodeId = $state<string | null>(null);
   let commentsAutoFocus = $state(false);
-  let commentsSaveTimer: ReturnType<typeof setTimeout> | null = null;
   // At most one thread card is open at a time; opening a second closes the
   // first. Closes on Resolve, on outside click, and on a level change.
   let openThreadId = $state<string | null>(null);
@@ -521,7 +507,6 @@
   // The board's own box, so a thread card can be clamped inside it.
   let boardWidth = $state(0);
   let boardHeight = $state(0);
-  let loadedAnnotationsFor: string | null = null;
   let contextMenu = $state<{
     x: number;
     y: number;
@@ -596,7 +581,7 @@
   const inspectedEdgeThreads = $derived(
     activeDrawerEdgeId === null ? [] : (threadsByAnchorId.get(activeDrawerEdgeId) ?? []),
   );
-  const diagramThreads = $derived(threadCounts(comments));
+  const diagramThreads = $derived(threadCounts(comments, selfUserIds));
 
   // Siblings leaving the same source share one vertical trunk, so three edges
   // read as one branch rather than three curves.
@@ -924,7 +909,7 @@
         !neighborIds.has(n.id);
       const searchDimmed = matchedNodeIds !== null && !matchedNodeIds.has(n.id);
       const dimmed = focusDimmed || searchDimmed;
-      const pin = pinSummary(threads.get(n.id) ?? [], showResolvedThreads);
+      const pin = pinSummary(threads.get(n.id) ?? [], showResolvedThreads, selfUserIds);
       const current = diagramNodeData(n).commentPin;
       if (
         n.data.expanded === expanded &&

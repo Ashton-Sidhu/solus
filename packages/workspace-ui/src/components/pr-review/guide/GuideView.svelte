@@ -1,5 +1,5 @@
 <script lang="ts">
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
   import type { FileDiffContentsLoader } from "@pierre/diffs";
   import { Clock as ClockIcon } from "@lucide/svelte";
   import type { ReviewGuide, ReviewLedger } from "@solus/contracts/review";
@@ -8,14 +8,11 @@
     formatAbsoluteTimestamp,
     formatTimeAgoFromTimestamp,
   } from "../../../lib/sessionUtils";
-  import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
   import { worktreeDisplayName } from "../../../lib/git-context";
-  import CodeSpan from "../../ui/CodeSpan.svelte";
   import { splitPatchByFile, type GuideDiffCommentSave } from "./lib/guide-data";
   import GuideSection from "./GuideSection.svelte";
   import GuideRail from "./GuideRail.svelte";
 
-  const markdownRenderers = { codespan: CodeSpan };
 
   // The native guided-review surface: a centered walkthrough where each section
   // pairs a sticky "why" summary on the left with its scrolling diffs on the
@@ -124,7 +121,7 @@
 
           {#if guide.summary}
             <div class="prose-cloud prose-reading prose-review-guide mt-4 max-w-[54rem] font-secondary text-(--solus-text-secondary)">
-              <SvelteMarkdown source={guide.summary} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
+              <GithubMarkdown source={guide.summary} policy="local" />
             </div>
           {/if}
         </header>

@@ -1,11 +1,7 @@
 <script lang="ts">
   import { TriangleAlert as WarningIcon } from "@lucide/svelte";
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
   import type { GuideSection, LedgerRecord } from "@solus/contracts/review";
-  import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
-  import CodeSpan from "../../ui/CodeSpan.svelte";
-
-  const markdownRenderers = { codespan: CodeSpan };
 
   // The "why" column of a guide section: the agent's explanation, then the
   // ledger-sourced detail (collapsed), and any author question as a flagged
@@ -30,7 +26,7 @@
 
 <div class="flex flex-col gap-3.5">
   <div class="prose-cloud prose-reading prose-review-guide font-secondary text-(--solus-text-secondary)">
-    <SvelteMarkdown source={section.explanation} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
+    <GithubMarkdown source={section.explanation} policy="local" />
   </div>
 
   {#each questions as question (question)}
@@ -64,7 +60,7 @@
                     {field.label}
                   </p>
                   <div class="prose-cloud prose-reading prose-review-guide font-secondary text-(--solus-text-secondary)">
-                    <SvelteMarkdown source={detail} renderers={markdownRenderers} sanitizeUrl={markdownSanitizeUrl} />
+                    <GithubMarkdown source={detail} policy="local" />
                   </div>
                 </div>
               {/if}

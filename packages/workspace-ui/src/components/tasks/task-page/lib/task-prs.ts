@@ -1,5 +1,6 @@
 // Shaping for the task page's Pull requests section.
 import type { TaskLink } from '@solus/contracts/task-types'
+import type { LinkedPr } from '../../../../contexts/prs/linked-pr'
 
 /** Lifecycle for a linked PR, as the PR store knows it. Null when nothing has
  *  loaded that PR yet: the row then renders without a state rather than
@@ -59,23 +60,23 @@ export function linkedPrTitle(link: TaskLink, ref: string, liveTitle?: string): 
  *  ones are the trail behind it. */
 export function taskPrRows(
   links: TaskLink[],
-  lifecycleFor: (number: number, link: TaskLink) => LinkedPrLifecycle | null,
-  titleFor: (number: number, link: TaskLink) => string | undefined = () => undefined,
+  readPr: (link: TaskLink) => LinkedPr | null,
 ): TaskPrRow[] {
   return links
     .filter((link) => link.kind === 'pr')
     .map((link) => {
-      const number = Number(link.targetKey)
+      const pr = readPr(link)
+      const number = pr?.number ?? Number(link.targetKey)
       const valid = Number.isSafeInteger(number) && number > 0
       const ref = valid ? `#${number}` : link.targetKey
       return {
-        key: `pr:${link.targetScope}:${link.targetKey}`,
+        key: pr?.key ?? `pr:${link.targetScope}:${link.targetKey}`,
         link,
         number: valid ? number : 0,
         ref,
-        title: linkedPrTitle(link, ref, valid ? titleFor(number, link) : undefined),
-        url: link.url ?? null,
-        state: valid ? lifecycleFor(number, link) : null,
+        title: linkedPrTitle(link, ref, pr?.title),
+        url: pr?.url ?? link.url ?? null,
+        state: prLifecycleOf(pr?.pullRequest),
       }
     })
     .sort((left, right) => right.link.linkedAt - left.link.linkedAt)

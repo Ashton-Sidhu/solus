@@ -41,6 +41,7 @@
   import { useKeybinding } from "@solus/workspace-ui/lib/keybindings/use-keybinding.svelte";
   import type { SidebarTask } from "@solus/workspace-ui/components/session/lib/task-list";
   import MobileTaskRow from "./MobileTaskRow.svelte";
+  import MobileHereNow from "./MobileHereNow.svelte";
   import { swipeActions } from "@solus/workspace-ui/lib/swipe-actions";
   import MobileStateGlyph from "./MobileStateGlyph.svelte";
   import {
@@ -452,6 +453,12 @@
           <span class="min-w-0 flex-1 truncate font-medium {isActive ? 'text-(--solus-accent)' : 'text-(--solus-text-primary)'}">{pin.title}</span>
         </button>
       {/each}
+    {/if}
+
+    <!-- Who else is on the hosts this phone is connected to, with the way to
+         go where they are. Between the pins and the tasks, as on the sidebar. -->
+    {#if !searching}
+      <MobileHereNow onNavigate={onSessionSelect} />
     {/if}
 
     {#if !session.tasksStore.loaded}

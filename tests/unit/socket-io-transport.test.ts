@@ -8,6 +8,7 @@ import { HostEventPublisher } from '@solus/server/events/host-event-publisher'
 import { attachWebSocketTransport, isLoopbackAddress } from '@solus/server/transports/websocket'
 import { WsTransport, type ConnectionStatus } from '@solus/client-core/ws-transport'
 import { HostSupervisor } from '@solus/client-core/host-supervisor'
+import { PresenceManager } from '@solus/server/presence/presence-manager'
 import type { SolusAPI } from '../../src/preload'
 import type { IpcContext } from '@solus/contracts/types'
 
@@ -29,6 +30,40 @@ afterEach(() => {
 })
 
 describe('Socket.IO transport', () => {
+  test('closing a listener removes every connected person once, including clients with two sockets', async () => {
+    const presence = new PresenceManager()
+    const disconnected: string[] = []
+    const harness = await createHarness(false, '127.0.0.1', '127.0.0.1', {
+      onClientConnected: ({ clientId }) => {
+        presence.join(clientId, { kind: 'local-owner', deviceId: null, deviceLabel: 'Test' }, 'Test')
+      },
+      onClientDisconnected: ({ clientId }) => {
+        disconnected.push(clientId)
+        presence.leave(clientId)
+      },
+    })
+    for (const clientInstanceId of ['same_client_12345', 'same_client_12345', 'other_client_1234']) {
+      const socket = io(harness.url, {
+        path: '/ws', transports: ['websocket'], reconnection: false,
+        forceNew: true, auth: { clientInstanceId },
+      })
+      cleanups.push(() => socket.disconnect())
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', resolve)
+        socket.once('connect_error', reject)
+      })
+    }
+    expect(harness.transport.sessions.size).toBe(3)
+    expect(presence.hostSnapshot().participants).toHaveLength(2)
+    const watchers = presence.hostSnapshot().participants.map((person) => person.clientId)
+    harness.transport.close()
+    harness.transport.close()
+    expect(disconnected).toHaveLength(2)
+    expect(new Set(disconnected).size).toBe(2)
+    expect(presence.hostSnapshot().participants).toEqual([])
+    expect(presence.sessionSnapshot('session-1', watchers, null).participants).toEqual([])
+  })
+
   test('does not negotiate frame compression for a loopback client', async () => {
     const harness = await createHarness(false)
     const client = createClient(harness.url)
@@ -298,7 +333,7 @@ describe('Socket.IO transport', () => {
   })
 })
 
-async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost): Promise<Harness> {
+async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHost = bindHost, lifecycle: Pick<Parameters<typeof attachWebSocketTransport>[2], 'onClientConnected' | 'onClientDisconnected'> = {}): Promise<Harness> {
   const http = createServer((request, response) => {
     if (request.method === 'POST' && request.url === '/auth/ws-ticket') {
       const authorization = request.headers.authorization
@@ -319,7 +354,7 @@ async function createHarness(requireAuth: boolean, bindHost = '127.0.0.1', urlHo
   const server = new SolusServer()
   const clientEvents = new ClientEventRegistry()
   const events = new HostEventPublisher(clientEvents)
-  const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth })
+  const transport = attachWebSocketTransport(http, server, { clientEvents, requireAuth, ...lifecycle })
   await new Promise<void>((resolve) => http.listen(0, bindHost, resolve))
   const address = http.address()
   if (!address || typeof address === 'string') throw new Error('expected TCP address')

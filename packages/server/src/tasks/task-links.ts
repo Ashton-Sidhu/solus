@@ -1,5 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite'
 import { z } from 'zod'
+import type { PullRequest } from '@solus/contracts/providers'
+import { prIndex } from '../prs/pr-index'
 import { appendTaskEvent, type EventActor } from './task-events'
 import type {
   TaskLink,
@@ -7,6 +9,7 @@ import type {
   TaskLinkKind,
   TaskLinkTarget,
   TaskLinkedTask,
+  TaskPrSnapshot,
   TaskSidebarPrLink,
 } from '@solus/contracts/task-types'
 
@@ -371,6 +374,15 @@ export function readActivePrLinkTargets(db: DatabaseSync): PrLinkTarget[] {
   return targets
 }
 
+/** The part of a pull request a task card draws: display state, never a permission. */
+function toTaskPrSnapshot(detail: PullRequest): TaskPrSnapshot {
+  return {
+    number: detail.number, url: detail.url, title: detail.title,
+    state: detail.state, draft: detail.draft, updatedAt: detail.updatedAt,
+    baseRepo: { ...detail.baseRepo },
+  }
+}
+
 /** Compact PR edges for the sidebar's cold-start snapshot. Links are newest
  * first. Invalid legacy keys stay out of the renderer contract. */
 export function readTaskPrLinks(db: DatabaseSync): TaskSidebarPrLinks {
@@ -378,7 +390,7 @@ export function readTaskPrLinks(db: DatabaseSync): TaskSidebarPrLinks {
     SELECT task_id, target_scope, target_key, title, url, created_by, origin_session_id
     FROM task_links
     WHERE kind = 'pr'
-    ORDER BY linked_at DESC, rowid DESC
+    ORDER BY linked_at DESC, task_links.rowid DESC
   `).all())
   const links: TaskSidebarPrLinks = {}
   for (const row of rows) {
@@ -390,6 +402,8 @@ export function readTaskPrLinks(db: DatabaseSync): TaskSidebarPrLinks {
       targetScope: row.target_scope,
       createdBy: row.created_by,
     }
+    const detail = prIndex.lastRead(row.target_scope, number)
+    if (detail) link.snapshot = toTaskPrSnapshot(detail)
     if (row.url !== null) link.url = row.url
     if (row.origin_session_id !== null) link.originSessionId = row.origin_session_id
     const taskLinks = links[row.task_id]

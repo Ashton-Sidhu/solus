@@ -27,6 +27,7 @@ import type { CodeIntelStatus } from './code-intel'
 import type { HostUpdateStatus } from './host-update-types'
 import type { ShareChangedEvent } from './sharing'
 import type { SeatChangedEvent } from './seats'
+import type { HostPresenceSnapshot, SessionPresenceSnapshot } from './presence'
 import { z } from 'zod'
 
 /**
@@ -97,6 +98,13 @@ export interface HostEventMap {
   /** One member's seat for one provider changed state. Delivered to that member's
    *  clients only; the list is re-read with `seatList`. */
   'host.seatChanged': SeatChangedEvent
+  /** Who is watching one session, and whose turn is running. The whole room each
+   *  time: a handful of rows, and two clients disagreeing about who is present is
+   *  the failure to avoid. Delivered to the session's watchers. */
+  'session.presenceChanged': SessionPresenceSnapshot
+  /** Who is connected to this host and what each of them has focused. Delivered to
+   *  every admitted client but a guest, who is never told about the host. */
+  'host.presenceChanged': HostPresenceSnapshot
 }
 
 export type HostEventName = keyof HostEventMap
@@ -152,6 +160,8 @@ export const HOST_EVENT_DEFINITIONS = {
   'host.updateStatusChanged': { owner: 'updates', category: 'snapshot', recovery: 'reload', description: 'The host Solus release check or a provider release check changed state.' },
   'share.changed': { owner: 'sharing', category: 'delta', recovery: 'reload', description: "A session's or work's owner or share list changed." },
   'host.seatChanged': { owner: 'seats', category: 'delta', recovery: 'reload', description: "A member's provider seat on this host changed state." },
+  'session.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people watching a session, or its active turn, changed.' },
+  'host.presenceChanged': { owner: 'presence', category: 'snapshot', recovery: 'reload', description: 'The people connected to this host, or what they have focused, changed.' },
 } as const satisfies Record<HostEventName, HostEventDefinition>
 
 const hostEventEnvelopeSchema = z.object({

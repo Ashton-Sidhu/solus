@@ -56,6 +56,7 @@ export function createCodexSubagentAgentTool(dispatcher: AgentDispatcher): Agent
           ...Object.values(solusToolbox.artifact),
           ...Object.values(solusToolbox.connections),
           ...Object.values(solusToolbox.insights),
+          ...Object.values(solusToolbox.intelligence),
           ...Object.values(solusToolbox.browser),
           ...Object.values(solusToolbox.sessions),
           ...Object.values(solusToolbox.tasks),

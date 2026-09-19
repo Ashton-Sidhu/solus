@@ -1,4 +1,5 @@
 import {
+  Cloud as CloudIcon,
   CloudOff as CloudSlashIcon,
   Earth as GlobeSimpleIcon,
   Terminal as LinuxLogoIcon,
@@ -7,13 +8,16 @@ import {
 import type { Component } from 'svelte'
 import AppleLogoIcon from '../../components/servers/AppleLogoIcon.svelte'
 import type { HostOperatingSystem } from '@solus/contracts/types'
+import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import type { ServerItemStatus } from './servers.store.svelte'
 
-/** The host a surface belongs to, in the two facts every badge needs. */
+/** The host a surface belongs to, in the facts every badge needs. */
 export interface HostAffinityTarget {
   label: string
   local: boolean
   os?: HostOperatingSystem
+  /** A managed host wears a cloud, whatever it runs on. */
+  uplink?: Pick<SavedServerUplink, 'kind'>
 }
 
 export interface HostAffinityGlyph {
@@ -58,15 +62,14 @@ export function hostAffinityGlyph(
   status: ServerItemStatus,
 ): HostAffinityGlyph | null {
   if (!host || host.local) return null
-  const { icon, className, statusLabel } = glyphForStatus(status, host.os)
+  const { icon, className, statusLabel } = glyphForStatus(status, host.uplink?.kind === 'managed' ? CloudIcon : operatingSystemIcon(host.os))
   return { icon, className, statusLabel, tooltip: `Runs on ${host.label} · ${statusLabel}` }
 }
 
 function glyphForStatus(
   status: ServerItemStatus,
-  os?: HostOperatingSystem,
+  hostIcon: Component,
 ): Omit<HostAffinityGlyph, 'tooltip'> {
-  const hostIcon = operatingSystemIcon(os)
   if (status === 'connecting') {
     return { icon: hostIcon, className: 'animate-pulse text-(--solus-accent)', statusLabel: hostStatusLabel(status) }
   }

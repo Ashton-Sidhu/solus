@@ -1,7 +1,7 @@
 import { appendFile } from 'fs/promises'
 import path from 'path'
 import type { ControlPlane } from '../../control-plane'
-import { searchSkills, installSkill } from '../../skills/skills-provider'
+import { searchSkills, installSkill, listInstalledSkills, removeSkill } from '../../skills/skills-provider'
 import { WORKSPACE_DIR } from '../../workspace'
 import { projectScopeOf } from '@solus/contracts/types'
 import { expandHome } from './lib/host-path'
@@ -23,6 +23,14 @@ async function appendInstructionFile(filePath: string, text: string): Promise<vo
 
 /** Registers the opt-in skills.sh registry handlers (Settings → Skills). */
 export function registerSkillsHandlers(server: SolusServer, deps: { controlPlane: ControlPlane }): void {
+  server.register('skillsList', () => listInstalledSkills())
+
+  server.register('skillsRemove', async ([name]) => {
+    const result = await removeSkill(name)
+    if (result.ok) await deps.controlPlane.refreshPluginCommands()
+    return result
+  })
+
   server.register('skillsSearch', (args) => {
     const [query] = args
     return searchSkills(query)

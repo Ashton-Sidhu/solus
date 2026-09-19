@@ -179,7 +179,7 @@ export class GitActions {
         await this.environmentStore.refreshEnvironment(this.session, {
           sourceId: this.sourceId,
           cwd: target.cwd,
-          level: 'details',
+          level: 'full',
         }).catch(() => null)
       }
       this.discarding = false

@@ -30,13 +30,13 @@ export type SpawnProcess = (command: string, args: string[], options: Parameters
 export class SeatConnector {
   private readonly active = new Map<string, ActiveConnect>()
   private readonly spawnProcess: SpawnProcess
-  private readonly verifyLogin: (provider: SeatProvider, home: string | null) => boolean
+  private readonly verifyLogin: (provider: SeatProvider, home: string | null) => Promise<boolean>
 
   constructor(private readonly deps: {
     seats: SeatManager
     spawnProcess?: SpawnProcess
     /** Whether the CLI left a working credential in the seat's directory (`null`: the host's defaults). */
-    verifyLogin?: (provider: SeatProvider, home: string | null) => boolean
+    verifyLogin?: (provider: SeatProvider, home: string | null) => Promise<boolean>
     connectTimeoutMs?: number
   }) {
     this.spawnProcess = deps.spawnProcess ?? nodeSpawn
@@ -67,7 +67,7 @@ export class SeatConnector {
     const entry: ActiveConnect = { child, output: '', verification: null, settle: () => {}, done: Promise.resolve() }
     entry.done = new Promise<void>((resolve) => { entry.settle = resolve })
     this.active.set(key, entry)
-    this.deps.seats.markConnecting(userId, provider)
+    void this.deps.seats.markConnecting(userId, provider)
     log.info('seat_connect_started', { userId, provider, command: spec.display })
 
     let resolveVerification: (result: SeatConnectStartResult) => void = () => {}
@@ -98,31 +98,34 @@ export class SeatConnector {
     }, this.deps.connectTimeoutMs ?? CONNECT_TIMEOUT_MS)
     timeout.unref()
 
-    const finish = (outcome: { code: number | null; signal: NodeJS.Signals | null } | { error: Error }) => {
+    const finish = async (outcome: { code: number | null; signal: NodeJS.Signals | null } | { error: Error }): Promise<void> => {
       clearTimeout(timeout)
       if (this.active.get(key) === entry) this.active.delete(key)
       const tail = entry.output.replace(ANSI_RE, '').trim().split(/\r?\n/).filter(Boolean).slice(-3).join('\n')
-      if ('error' in outcome) {
-        this.deps.seats.markFailed(userId, provider, outcome.error.message)
-        rejectVerification(outcome.error)
-      } else if (outcome.signal) {
-        this.deps.seats.markFailed(userId, provider, 'Sign-in was cancelled.')
-        rejectVerification(new Error('Sign-in was cancelled.'))
-      } else if (outcome.code !== 0) {
-        const message = `${seatProviderLabel(provider)} sign-in exited with code ${outcome.code ?? 'unknown'}${tail ? `:\n${tail}` : ''}`
-        this.deps.seats.markFailed(userId, provider, message)
-        rejectVerification(new Error(message))
-      } else if (!this.verifyLogin(provider, seatHome)) {
-        const message = `${seatProviderLabel(provider)} sign-in finished, but no credential was saved for your seat.`
-        this.deps.seats.markFailed(userId, provider, message)
-        rejectVerification(new Error(message))
-      } else {
-        this.deps.seats.markConnected(userId, provider, 'login')
+      try {
+        if ('error' in outcome) {
+          await this.deps.seats.markFailed(userId, provider, outcome.error.message)
+          rejectVerification(outcome.error)
+        } else if (outcome.signal) {
+          await this.deps.seats.markFailed(userId, provider, 'Sign-in was cancelled.')
+          rejectVerification(new Error('Sign-in was cancelled.'))
+        } else if (outcome.code !== 0) {
+          const message = `${seatProviderLabel(provider)} sign-in exited with code ${outcome.code ?? 'unknown'}${tail ? `:\n${tail}` : ''}`
+          await this.deps.seats.markFailed(userId, provider, message)
+          rejectVerification(new Error(message))
+        } else if (!await this.verifyLogin(provider, seatHome)) {
+          const message = `${seatProviderLabel(provider)} sign-in finished, but no credential was saved for your seat.`
+          await this.deps.seats.markFailed(userId, provider, message)
+          rejectVerification(new Error(message))
+        } else {
+          await this.deps.seats.markConnected(userId, provider, 'login')
+        }
+      } finally {
+        entry.settle()
       }
-      entry.settle()
     }
-    child.once('error', (error) => finish({ error }))
-    child.once('close', (code, signal) => finish({ code, signal }))
+    child.once('error', (error) => void finish({ error }))
+    child.once('close', (code, signal) => void finish({ code, signal }))
 
     const startTimeout = new Promise<never>((_, reject) => {
       const timer = setTimeout(() => reject(new Error(`${seatProviderLabel(provider)} did not print a sign-in link.`)), VERIFICATION_TIMEOUT_MS)

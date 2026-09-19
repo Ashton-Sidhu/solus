@@ -1,11 +1,11 @@
-import { execFileSync, spawn as nodeSpawn, type ChildProcess } from 'child_process'
+import { execFile, execFileSync, spawn as nodeSpawn, type ChildProcess } from 'child_process'
 import { existsSync, mkdirSync, readdirSync } from 'fs'
 import { mkdir, readdir, rm } from 'fs/promises'
 import { homedir } from 'os'
-import { basename, dirname, join } from 'path'
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'path'
 import { z } from 'zod'
 import { AGENT_BIN, type AgentId, type CloneAuth, type CloneProtocol, type DispatchHistoryRoot, type GitCommitIdentity, type GithubDelegatedCredential, type HostReadiness, type ServerCapabilities, type SetupAdoptProjectResult, type SetupAgent, type SetupAgentAuthCheckResult, type SetupCloneProjectResult, type SetupGithubRepo, type SetupGithubReposResult, type SetupLogEvent, type SetupPrepareProjectResult, type SetupSshAccessResult, type SetupStatusEvent, type SetupStepResult, type SetupStreamStep } from '@solus/contracts/types'
-import { providerLoginConnected } from '../../seats/seat-login'
+import { providerLoginConnected, type LoginProbe } from '../../seats/seat-login'
 import type { SolusServer, HandlerCtx } from '../server'
 import type { Principal } from '../principal'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
@@ -110,8 +110,8 @@ export interface SetupHandlerDeps extends AgentAuthProbeDeps {
 
 export interface AgentAuthProbeDeps {
   resolveAgentBinary?: typeof whichAgentBinary
-  hasClaudeAuth?: () => boolean
-  hasCodexAuth?: () => boolean
+  hasClaudeAuth?: () => Promise<boolean>
+  hasCodexAuth?: () => Promise<boolean>
 }
 
 export interface CapabilityProbeOptions {
@@ -123,20 +123,20 @@ export interface CapabilityProbeOptions {
 }
 
 export async function probeServerCapabilities(opts: CapabilityProbeOptions): Promise<ServerCapabilities> {
-  const projects = await listProjects().catch(() => [])
+  const projects = projectsVisibleTo(opts.principal, await listProjects().catch(() => []))
   return {
     headless: opts.headless,
     desktopHandlers: opts.desktopHandlers,
     agents: {
-      claude: !!whichAgentBinary('claude-code'),
-      codex: !!whichAgentBinary('codex'),
+      claude: !!await whichAgentBinary('claude-code'),
+      codex: !!await whichAgentBinary('codex'),
     },
     dictation: existsSync(join(PARAKEET_MODEL_DIR, '.installed')),
     platform: process.platform,
     version: opts.version,
     projectCount: projects.length,
     agentAuth: {
-      claude: hasClaudeAuth(),
+      claude: await hasClaudeAuth(),
     },
     gitAuth: {
       github: hasGithubAuth(),
@@ -148,25 +148,25 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
   }
 }
 
-/** Capability probes are synchronous and intentionally skip the launcher's cache. */
-function whichAgentBinary(agentId: AgentId): string | null {
+/** Capability probes intentionally skip the launcher's cache. Off the main
+ *  thread: the capability read is the renderer's first request, and a spawn
+ *  that blocks here holds the first transcript page behind it. */
+function whichAgentBinary(agentId: AgentId): Promise<string | null> {
   const bin = AGENT_BIN[agentId]
-  if (!bin) return null
-  try {
-    return execFileSync('which', [bin], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 }).trim() || null
-  } catch {
-    return null
-  }
+  if (!bin) return Promise.resolve(null)
+  return new Promise((resolve) => {
+    execFile('which', [bin], { encoding: 'utf8', env: getCliEnv(), timeout: 3000 }, (error, stdout) => {
+      resolve(error ? null : stdout.trim() || null)
+    })
+  })
 }
 
 /** The host login is the owner's seat: the seat module owns the one honest probe for it. */
-export function hasClaudeAuth(
-  succeeds?: (command: string, args: string[]) => boolean,
-): boolean {
-  return providerLoginConnected('claude-code', null, succeeds ? (command, args) => succeeds(command, args) : undefined)
+export function hasClaudeAuth(succeeds?: LoginProbe): Promise<boolean> {
+  return providerLoginConnected('claude-code', null, succeeds)
 }
 
-export function hasCodexAuth(): boolean {
+export function hasCodexAuth(): Promise<boolean> {
   return providerLoginConnected('codex', null)
 }
 
@@ -183,11 +183,11 @@ export function hasGithubAuth(): boolean {
  * and then push. Nothing here touches the network, so it stays cheap enough to
  * run every time the dialog opens.
  */
-export function probeHostReadiness(
+export async function probeHostReadiness(
   hasCommand: (command: string) => boolean = commandExists,
   agentDeps: AgentAuthProbeDeps = {},
   projectsRoot: string = setupProjectsRoot(),
-): HostReadiness {
+): Promise<HostReadiness> {
   // The version string decides nothing; running the probe is still how "is git
   // here at all?" gets answered.
   const gitInstalled = !!runProbe('git', ['--version'])
@@ -213,8 +213,8 @@ export function probeHostReadiness(
     },
     ssh: { publicKeys: listSshPublicKeys() },
     agents: {
-      claude: agentReadiness('claude', agentDeps),
-      codex: agentReadiness('codex', agentDeps),
+      claude: await agentReadiness('claude', agentDeps),
+      codex: await agentReadiness('codex', agentDeps),
     },
     installGit: gitInstalled ? null : buildPackageInstallCommand('git', { hasCommand }),
     installGh: ghCli ? null : buildPackageInstallCommand('gh', { hasCommand }),
@@ -257,14 +257,29 @@ const workspaceUserIdSchema = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/)
  * Where one person's projects land (managed-hosts.md §3). The host's root for its
  * owner and for the host's own work; a member of the organization gets a directory
  * of their own beneath it, named by their account id, so each person clones into a
- * workspace that is theirs. It is a default, not a boundary: members see every
- * session and work on the host (decision 2026-09-15), and may open any path.
+ * workspace that is theirs and two people never share one main checkout. It is a
+ * default and the member's view (`projectsVisibleTo`), not a boundary: a member may
+ * still open a path a shared session names.
  */
 export function projectsRootFor(principal: Principal | undefined, hostRoot = setupProjectsRoot()): string {
   if (principal?.kind !== 'org-member') return hostRoot
   const workspace = join(hostRoot, workspaceUserIdSchema.parse(principal.userId))
   mkdirSync(workspace, { recursive: true })
   return workspace
+}
+
+/**
+ * The projects a listing shows this principal: a member sees their own workspace
+ * only, so another person's checkout is never offered as theirs to open; the owner
+ * and the host itself see every project.
+ */
+export function projectsVisibleTo<T extends { path: string }>(principal: Principal | undefined, projects: T[], hostRoot = setupProjectsRoot()): T[] {
+  if (principal?.kind !== 'org-member') return projects
+  const workspace = projectsRootFor(principal, hostRoot)
+  return projects.filter((project) => {
+    const inside = relative(workspace, resolve(project.path))
+    return inside === '' || (!inside.startsWith('..') && !isAbsolute(inside))
+  })
 }
 
 export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDeps = {}): void {
@@ -336,7 +351,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     })
   })
 
-  server.register('setupCheckAgentAuth', (args): SetupAgentAuthCheckResult => {
+  server.register('setupCheckAgentAuth', (args): Promise<SetupAgentAuthCheckResult> => {
     const [request] = args
     const { agent: setupAgent } = setupAgentRequestSchema.parse(request)
     return checkAgentAuth(setupAgent, deps)
@@ -365,7 +380,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
     return { connected: true, repos }
   })
 
-  server.register('setupHostReadiness', (_args, ctx): HostReadiness => {
+  server.register('setupHostReadiness', (_args, ctx): Promise<HostReadiness> => {
     return probeHostReadiness(hasCommand, deps, projectsRootOf(ctx))
   })
 
@@ -699,23 +714,21 @@ function installStepForAgent(agent: SetupAgent): SetupStreamStep {
 }
 
 /** Readiness cares only about "can this host run the agent", so an unknown auth probe reads as not signed in. */
-function agentReadiness(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): HostReadiness['agents'][SetupAgent] {
-  const check = checkAgentAuth(agent, deps)
+async function agentReadiness(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): Promise<HostReadiness['agents'][SetupAgent]> {
+  const check = await checkAgentAuth(agent, deps)
   return { installed: check.installed, signedIn: check.installed && check.authenticated === true }
 }
 
-function checkAgentAuth(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): SetupAgentAuthCheckResult {
+async function checkAgentAuth(agent: SetupAgent, deps: AgentAuthProbeDeps = {}): Promise<SetupAgentAuthCheckResult> {
   const resolveBinary = deps.resolveAgentBinary ?? whichAgentBinary
   const checkClaudeAuth = deps.hasClaudeAuth ?? hasClaudeAuth
   const checkCodexAuth = deps.hasCodexAuth ?? hasCodexAuth
-  const installed = agent === 'claude'
-    ? !!resolveBinary('claude-code')
-    : !!resolveBinary('codex')
+  const installed = !!await resolveBinary(agent === 'claude' ? 'claude-code' : 'codex')
   return {
     agent,
     installed,
     authenticated: installed
-      ? (agent === 'claude' ? checkClaudeAuth() : checkCodexAuth())
+      ? await (agent === 'claude' ? checkClaudeAuth() : checkCodexAuth())
       : false,
   }
 }

@@ -13,6 +13,7 @@
   import type { PullRequest } from "@solus/contracts/providers";
   import { projectScopeOf, type IpcContext } from "@solus/contracts/types";
   import { getPullRequestsContext, getWorkspaceContext } from "../../contexts";
+  import { notificationsStore } from "../../contexts/notifications/notifications.store.svelte";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import {
@@ -33,8 +34,6 @@
     type ActionRowItem,
   } from "./MenuRow.svelte";
 
-  const DETAIL_REFRESH_INTERVAL_MS = 30_000;
-  const FOCUS_REFRESH_AGE_MS = 15_000;
   const ACTION_ICON = {
     merge: GitMergeIcon,
     "mark-ready": GitPullRequestIcon,
@@ -93,52 +92,12 @@
   let refreshingBeforeMerge = $state(false);
   let merged = $state(false);
 
-  // A detail response replaces the indexed summary object. Depend on the
-  // target's primitive identity so that replacement cannot restart these reads
-  // when the pull request and its head did not change.
+  // Depend on primitive identity, so updating the shared PR entry does not
+  // reinstall its interest unless the target or revision changed.
   const prNumber = $derived(pr.number);
   const prHeadSha = $derived(pr.headSha);
   const prServerId = $derived(serverId);
   const prProjectScope = $derived(projectScopeOf(ctx.session));
-
-  // A visible compact row is a live status surface, not a snapshot. Ordinary
-  // refreshes bypass the client's 30-second mirror; the server still coalesces
-  // them against its shorter detail lifetime. A push is different: it makes any
-  // remembered mergeability invalid immediately, so that path also clears the
-  // host's cache before it reads.
-  let lastDetailRefreshAt = 0;
-  let detailRefreshInFlight: Promise<void> | null = null;
-  let refreshHostAfterCurrent = false;
-
-  async function refreshDetail(forceHost = false): Promise<void> {
-    if (!active) return;
-    if (detailRefreshInFlight) {
-      if (forceHost) refreshHostAfterCurrent = true;
-      return detailRefreshInFlight;
-    }
-
-    const number = pr.number;
-    const project = pullRequests.projects.get(api, serverId, ctx);
-    const pullRequest = project.get(number);
-    const refresh = forceHost
-      ? pullRequest.refreshDetail()
-      : pullRequest.loadDetail({ force: true });
-    const operation = refresh
-      .then(() => {
-        if (pr.number === number) lastDetailRefreshAt = Date.now();
-      })
-      .catch(() => {});
-    detailRefreshInFlight = operation;
-    try {
-      await operation;
-    } finally {
-      if (detailRefreshInFlight === operation) detailRefreshInFlight = null;
-      if (refreshHostAfterCurrent) {
-        refreshHostAfterCurrent = false;
-        void refreshDetail(true);
-      }
-    }
-  }
 
   $effect(() => {
     const number = prNumber;
@@ -147,47 +106,32 @@
     const targetProjectScope = prProjectScope;
     const isActive = active;
     merged = false;
-    untrack(() => {
+    return untrack(() => {
       if (
         serverId !== targetServerId ||
         projectScopeOf(ctx.session) !== targetProjectScope
       )
         return;
-      if (isActive && document.visibilityState === "visible")
-        void refreshDetail();
       void pullRequests.guides
         .loadMetadata(api, targetServerId, ctx, { number, headSha })
         .catch(() => {});
+      if (!isActive) return;
+      return pullRequests.projects.watch(
+        pullRequests.projects.get(api, targetServerId, ctx),
+        { details: [number] },
+      );
     });
   });
 
-  // Expanding the Git section or returning to its mounted tab runs the effect
-  // above. A completed push forces the code-host read even if that visible read
-  // is still in flight.
+  // Background refresh belongs to the PR store. A completed push is an explicit
+  // state change and still invalidates the host before reading mergeability.
   $effect(() => {
     if (!active || !pushCompleted) return;
-    untrack(() => void refreshDetail(true));
+    untrack(() => {
+      void pullRequests.projects.get(api, serverId, ctx).get(pr.number)
+        .refreshDetail().catch(() => {});
+    });
   });
-
-  // The fallback exists only while the row can be seen. Browser visibility is
-  // checked too because an active Solus tab can sit behind another application.
-  $effect(() => {
-    if (!active) return;
-    const timer = setInterval(() => {
-      if (document.visibilityState === "visible") void refreshDetail();
-    }, DETAIL_REFRESH_INTERVAL_MS);
-    return () => clearInterval(timer);
-  });
-
-  function refreshOnWindowFocus() {
-    if (
-      !active ||
-      document.visibilityState !== "visible" ||
-      Date.now() - lastDetailRefreshAt < FOCUS_REFRESH_AGE_MS
-    )
-      return;
-    void refreshDetail();
-  }
 
   const guideStatus = $derived(
     pullRequests.guides.statusFor(serverId, ctx, pr.number),
@@ -258,6 +202,7 @@
             openPr("guide");
             return;
           }
+          if (!notificationsStore.wants("review_guide_ready")) return;
           toasts.success(`Review guide ready for PR #${number}`, {
             action: {
               label: "View",
@@ -472,7 +417,6 @@
   }
 </script>
 
-<svelte:window onfocus={refreshOnWindowFocus} />
 
 <div
   class="mx-2 mt-1.5 mb-1 h-px bg-[color-mix(in_srgb,var(--solus-container-border)_55%,transparent)]"

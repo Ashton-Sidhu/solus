@@ -1,7 +1,10 @@
 import { readWorkExternalComments, refreshWorkExternalComments, sendWorkExternalComment } from '../../folio/work-comments'
 import type { SolusServer } from '../server'
 import { createWork, duplicateWork, saveWork, loadWork, listWorks, deleteWork, agentSaveWork, loadWorkPrevious, revertWork, setWorkPinned, promoteWorkToProject, linkWorkSession } from '../../folio/works'
-import { loadWorkAnnotations, saveWorkAnnotations } from '../../folio/work-annotations'
+import { applyWorkComment, loadWorkAnnotations } from '../../folio/work-annotations'
+import { workCommentCommandSchema, type CommentActor } from '@solus/contracts/comment-commands'
+import { turnAuthorFor } from '../../presence/presence-manager'
+import { isHostAdmin, type Principal } from '../principal'
 import { importDocFromUrl, publishWork, pullWorkUpstream, refreshUpstreamState, unlinkWork } from '../../folio/work-sync'
 import { docProviderAdapter, docProviderStatuses } from '../../docs/registry'
 import { publishPlan, pullPlanUpstream, refreshPlanUpstream, unlinkPlanUpstream } from '../../plans/plan-sync'
@@ -85,9 +88,24 @@ export function registerFolioHandlers(server: SolusServer, deps: { shares?: Shar
     return loadWorkAnnotations(workId)
   })
 
-  server.register('saveWorkAnnotations', async (args) => {
-    const [ann] = args
-    return saveWorkAnnotations(ann)
+  // Who is changing the threads, as the host knows them: the same identity that
+  // names a prompt bubble, and the right to tidy other people's threads when the
+  // caller owns the work or administers the host.
+  const commentActor = (principal: Principal, workId: string): CommentActor => ({
+    person: turnAuthorFor(principal),
+    canModerate: isHostAdmin(principal) || (deps.shares?.roleFor(principal, { kind: 'work', id: workId }) ?? 'owner') === 'owner',
+    now: Date.now(),
+  })
+
+  server.register('applyWorkComment', async (args, ctx) => {
+    const [workId, rawCommand] = args
+    const command = workCommentCommandSchema.parse(rawCommand)
+    return applyWorkComment(workId, command, commentActor(ctx.principal, workId))
+  })
+
+  server.register('markWorkCommentRead', async (args, ctx) => {
+    const [workId, commentId] = args
+    return applyWorkComment(workId, { kind: 'read', commentId }, commentActor(ctx.principal, workId))
   })
 
   server.register('agentSaveWork', async (args) => {

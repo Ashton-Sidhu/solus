@@ -3,6 +3,7 @@ import {
   fenceIsSettled,
   fenceLanguage,
   fenceRenderMode,
+  htmlBlockFileName,
   isHtmlFence,
 } from '../../packages/workspace-ui/src/components/conversation/lib/html-block'
 
@@ -62,5 +63,18 @@ describe('a fence that is still being written', () => {
     expect(fenceIsSettled('~~~html\n<div>x</div>\n')).toBe(false)
     expect(fenceIsSettled('~~~html\n<div>x</div>\n~~~\n')).toBe(true)
     expect(fenceIsSettled('    <div>x</div>\n')).toBe(true)
+  })
+})
+
+describe('saving an html block to the device', () => {
+  test('the file is named after the render\'s own title', () => {
+    // WHY: a download folder full of `artifact.html` copies cannot be told
+    // apart. The render's <title> is the one name the reader already knows.
+    expect(htmlBlockFileName('<html><head><title>Runtime: Every Conversation</title></head></html>'))
+      .toBe('runtime_every_conversation.html')
+  })
+
+  test('a render with no title still gets a usable html file', () => {
+    expect(htmlBlockFileName('<div>hi</div>')).toMatch(/\.html$/)
   })
 })

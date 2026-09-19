@@ -4,6 +4,7 @@ import type { DesktopUpdateRelease } from "@solus/contracts/desktop-update-types
 import { LOCAL_SERVER_ID } from "@solus/client-core/server-registry";
 import { updatesStore } from "@solus/workspace-ui/contexts";
 import { toasts } from "@solus/workspace-ui/lib/toasts";
+import { notificationsStore } from "@solus/workspace-ui/contexts/notifications/notifications.store.svelte";
 import type { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
 
 type DesktopAppCore = ReturnType<typeof createAppCore>;
@@ -59,6 +60,9 @@ export function installDesktopUpdates(core: DesktopAppCore): void {
     const prompt = updatesStore.pendingPrompt;
     if (!prompt) return;
     if (prompt === "restart" && isLocalHostBusy) return;
+    // The prompt stays owed while the switch is off, so it shows if the user
+    // turns update notices back on. The Connections page lists it either way.
+    if (!notificationsStore.wants("update_available")) return;
     const release = updatesStore.release;
     if (!release) return;
     untrack(() => {

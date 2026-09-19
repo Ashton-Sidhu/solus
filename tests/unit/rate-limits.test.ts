@@ -96,6 +96,25 @@ describe('decorateRateLimit', () => {
 })
 
 describe('RateLimitState', () => {
+  test('a terminal error cannot erase a structured rejection reset', () => {
+    const state = new RateLimitState()
+    const structured = state.record('claude-session', {
+      type: 'rate_limit', status: 'rejected', resetsAt: 1789537200,
+      rateLimitType: 'five_hour', windowDurationMins: 300,
+    })
+    const terminal = state.record('claude-session', {
+      type: 'rate_limit', status: 'limited', resetsAt: null, rateLimitType: 'Claude',
+    })
+    expect(terminal?.resetsAt).toBe(structured?.resetsAt)
+    expect(terminal?.status).toBe('limited')
+    expect(state.peek('claude-session')?.info?.resetsAt).toBe(1789537200)
+    // A different, explicitly named window must not borrow the five-hour reset.
+    expect(state.record('claude-session', {
+      type: 'rate_limit', status: 'limited', resetsAt: null,
+      rateLimitType: 'seven_day', windowDurationMins: 10080,
+    })?.resetsAt).toBeNull()
+  })
+
   test('stores blocking events, expires current state, and clears sessions', () => {
     const state = new RateLimitState()
     const blocking: RateLimitEvent = {

@@ -1,4 +1,4 @@
-import type { PrepareSessionTaskResult, TaskSidebarPrLink } from '@solus/contracts/task-types'
+import type { PrepareSessionTaskResult } from '@solus/contracts/task-types'
 import {
   commentOnUpstreamTask,
   getUpstreamTask,
@@ -9,12 +9,13 @@ import {
 } from '../../tasks/upstream'
 import { createTask, listTasks } from '../../tasks/task-store'
 import { Task, taskSnapshot } from '../../tasks/task'
-import { readTaskPrLinks, readTasksLinkingTargets } from '../../tasks/task-links'
+import { readTasksLinkingTargets } from '../../tasks/task-links'
 import { attachLinkedContent } from '../../tasks/linked-content'
 import { attachArtifactToTask } from '../../tasks/task-artifacts'
 import { prepareSessionTask, rekeyTaskSessionLinks, taskSessions, tasksForSession } from '../../tasks/task-sessions'
 import { markTaskRead, recordTaskActivity } from '../../tasks/task-lifecycle'
 import { getDb } from '../../db'
+import { readTaskSidebarSnapshot } from '../../tasks/task-sidebar'
 import {
   importTaskTickets,
   listTaskCandidates,
@@ -23,12 +24,23 @@ import {
   startTaskSyncEngine,
   syncTasksNow,
 } from '../../tasks/sync-engine'
-import type { SolusServer } from '../server'
+import type { HandlerCtx, SolusServer } from '../server'
+import type { ShareManager } from '../../sharing/share-manager'
 import { listInboxUpstream } from '../../tasks/inbox'
+import type { Task as TaskRecord, TaskSidebarSnapshot } from '@solus/contracts/task-types'
 
-/** Global native-task RPCs plus project-scoped upstream-provider reads/writes. */
-export function registerTasksHandlers(server: SolusServer): void {
+/**
+ * Global native-task RPCs plus project-scoped upstream-provider reads/writes.
+ * A task is a shareable resource (docs/plans/multiplayer-sharing.md §3.4): whoever
+ * makes one owns it, and a listing shows a member only the tasks they may open.
+ */
+export function registerTasksHandlers(server: SolusServer, deps: { shares?: ShareManager } = {}): void {
   startTaskSyncEngine()
+  const claim = (task: TaskRecord | null, ctx: HandlerCtx): void => {
+    if (task) deps.shares?.claimOwner({ kind: 'task', id: task.id }, ctx.principal)
+  }
+  const visibleTasks = (ctx: HandlerCtx, tasks: TaskRecord[]): TaskRecord[] =>
+    deps.shares ? deps.shares.filterVisible(ctx.principal, 'task', tasks, (task) => task.id) : tasks
   server.register('tasksProviderStatus', (args) => {
     const [cwd, opts] = args
     return taskProviderStatus(cwd, opts ?? {})
@@ -84,26 +96,25 @@ export function registerTasksHandlers(server: SolusServer): void {
     return syncTasksNow(id)
   })
 
-  server.register('tasksList', (args) => {
+  server.register('tasksList', (args, ctx) => {
     const [filter] = args
-    return listTasks(filter)
+    const result = listTasks(filter)
+    return { ...result, tasks: visibleTasks(ctx, result.tasks) }
   })
 
-  server.register('tasksSidebarSnapshot', () => {
-    // Keep both reads inside one synchronous handler turn. This is the
-    // renderer's atomic ownership boundary; focused callers can still use the
-    // older list/link methods independently.
-    const prLinkListsByTask = readTaskPrLinks(getDb())
-    const prLinksByTask: Record<string, TaskSidebarPrLink> = {}
-    for (const [taskId, links] of Object.entries(prLinkListsByTask)) {
-      if (links[0]) prLinksByTask[taskId] = links[0]
-    }
-    return {
-      tasks: listTasks().tasks,
-      sessionsByTask: taskSessions(),
-      prLinksByTask,
-      prLinkListsByTask,
-    }
+  server.register('tasksSidebarSnapshot', (_args, ctx) => {
+    const snapshot = readTaskSidebarSnapshot()
+    const tasks = visibleTasks(ctx, snapshot.tasks)
+    if (tasks.length === snapshot.tasks.length) return snapshot
+    const visible = new Set(tasks.map((task) => task.id))
+    const keep = <T>(byTask: Record<string, T> | undefined): Record<string, T> | undefined =>
+      byTask && Object.fromEntries(Object.entries(byTask).filter(([taskId]) => visible.has(taskId)))
+    const filtered: TaskSidebarSnapshot = { tasks, sessionsByTask: keep(snapshot.sessionsByTask) ?? {} }
+    const prLinksByTask = keep(snapshot.prLinksByTask)
+    if (prLinksByTask) filtered.prLinksByTask = prLinksByTask
+    const prLinkListsByTask = keep(snapshot.prLinkListsByTask)
+    if (prLinkListsByTask) filtered.prLinkListsByTask = prLinkListsByTask
+    return filtered
   })
 
   server.register('tasksGet', async (args) => {
@@ -113,9 +124,11 @@ export function registerTasksHandlers(server: SolusServer): void {
     return details
   })
 
-  server.register('tasksCreate', (args) => {
+  server.register('tasksCreate', async (args, ctx) => {
     const [input] = args
-    return createTask(input)
+    const task = await createTask(input)
+    claim(task, ctx)
+    return task
   })
 
   server.register('tasksUpdate', async (args) => {
@@ -135,7 +148,9 @@ export function registerTasksHandlers(server: SolusServer): void {
 
   server.register('tasksDelete', async (args) => {
     const [id] = args
-    return (await Task.byId(id)).delete()
+    const deleted = await (await Task.byId(id)).delete()
+    if (deleted) deps.shares?.forget({ kind: 'task', id })
+    return deleted
   })
 
   server.register('tasksComment', async (args) => {
@@ -208,9 +223,10 @@ export function registerTasksHandlers(server: SolusServer): void {
    * both hosts and must name this one. The session link follows separately, once
    * the execution host has issued a session id.
    */
-  server.register('tasksPrepareForSession', async (args) => {
+  server.register('tasksPrepareForSession', async (args, ctx) => {
     const [input] = args
     const task = await prepareSessionTask(input)
+    claim(task, ctx)
     // The snapshot rides the same round trip a dispatching client already makes
     // (docs/plans/dispatch-parity.md): the execution host cannot read this
     // host's store, so the client ships the state — including linked works and

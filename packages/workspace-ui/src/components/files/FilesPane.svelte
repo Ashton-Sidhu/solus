@@ -51,6 +51,8 @@
   import ImageFilePreview from "./ImageFilePreview.svelte";
   import HtmlFilePreview from "./HtmlFilePreview.svelte";
   import FilesPaneSkeleton from "./FilesPaneSkeleton.svelte";
+  import CodeIntelPopover from "../code-intel/CodeIntelPopover.svelte";
+  import { FileSymbols } from "./lib/file-symbols.svelte";
   import FilesTreeContextMenu from "./FilesTreeContextMenu.svelte";
   import {
     addTreePath,
@@ -79,11 +81,12 @@
     ctx: IpcContext;
     cwd: string;
     isDark: boolean;
+    requestedFile?: { path?: string; line?: number };
     bordered?: boolean;
     onClose: () => void;
   }
 
-  let { api, ctx, cwd, isDark, bordered = true, onClose }: Props = $props();
+  let { api, ctx, cwd, isDark, requestedFile, bordered = true, onClose }: Props = $props();
   // Register the small offline icon subset used by file-type badges.
   ensureIconCollections();
 
@@ -136,6 +139,11 @@
   // Folder entries carry a trailing slash, which is how the tree tells them apart.
   let treePaths = $state<string[]>([]);
   const filePaths = $derived(treePaths.filter((path) => !isFolderPath(path)));
+  const symbols = new FileSymbols(() => ({ api, ctx, cwd: root || cwd, path: selectedPath }));
+  let revealEpoch = $state(0);
+  let selectedLine = $state<number | undefined>();
+  let fileLoadGeneration = 0;
+  let treeLoadGeneration = 0;
   let selectedPath = $state<string | null>(null);
   let selectedContents = $state<string | null>(null);
   let selectedSize = $state<number | null>(null);
@@ -258,31 +266,39 @@
   }
 
   async function loadFiles() {
+    const generation = ++treeLoadGeneration;
     loading = true;
     error = null;
     const result = await api.listProjectFiles(ctx, {
       cwd,
       includeEmptyDirectories: true,
     });
+    if (generation !== treeLoadGeneration) return;
     if (result.ok) {
       root = result.root;
       treePaths = [...result.files, ...(result.emptyDirectories ?? [])];
-      if (!selectedPath || !result.files.includes(selectedPath)) {
+      if (!requestedFile?.path && (!selectedPath || !result.files.includes(selectedPath))) {
         selectedPath = result.files[0] ?? null;
         if (selectedPath) void openFile(selectedPath);
       }
     } else {
       error = result.error;
       treePaths = [];
-      selectedPath = null;
-      selectedContents = null;
+      if (!requestedFile?.path) {
+        selectedPath = null;
+        selectedContents = null;
+      }
     }
     loading = false;
   }
 
-  async function openFile(path: string, focusEditor = false) {
+  async function openFile(path: string, focusEditor = false, line?: number) {
+    symbols.lookup = null;
+    const generation = ++fileLoadGeneration;
+    revealEpoch += 1;
     selectedPath = path;
-    markdownViewMode = initialMarkdownFileViewMode(path);
+    selectedLine = line;
+    markdownViewMode = initialMarkdownFileViewMode(path, line);
     htmlViewMode = initialHtmlFileViewMode(path);
     syncTreeSelection(path);
     selectedContents = null;
@@ -293,9 +309,11 @@
     selectedImageDataUrl = null;
     fileLoading = true;
     saveState = "idle";
-    const result = await api.readProjectFile(ctx, { path, cwd: root || cwd });
-    if (selectedPath !== path) return;
+    const result = await api.readProjectFile(ctx, { path, cwd });
+    if (generation !== fileLoadGeneration) return;
     if (result.ok) {
+      selectedPath = result.displayPath;
+      syncTreeSelection(selectedPath);
       selectedContents = result.contents;
       selectedImageDataUrl = result.imageDataUrl ?? null;
       htmlContents = result.contents;
@@ -321,7 +339,7 @@
       // Wait until that commit finishes or it can take focus back from the
       // editor, for both pointer clicks and Enter from the search field.
       requestAnimationFrame(() => {
-        if (selectedPath !== path) return;
+        if (generation !== fileLoadGeneration) return;
         if (isMarkdownFile(path)) markdownSurfaceRef?.focus();
         else filePreviewRef?.focus();
       });
@@ -344,6 +362,10 @@
     if (!treeInstance) return;
     isSyncingTreeSelection = true;
     try {
+      for (let parent = parentDirectoryOf(path); parent; parent = parentDirectoryOf(parent.slice(0, -1))) {
+        const directory = treeInstance.getItem(parent);
+        if (directory?.isDirectory()) directory.expand();
+      }
       const current = treeInstance.getSelectedPaths();
       if (current.length === 1 && current[0] === path) {
         treeInstance.scrollToPath(path, { offset: "nearest" });
@@ -573,7 +595,21 @@
     // The IPC context contains window and settings state. Neither changes the
     // filesystem target, so do not let an unrelated context update reload the
     // tree. A different host or directory still starts a fresh load.
-    untrack(() => void loadFiles());
+    untrack(() => {
+      root = "";
+      selectedPath = null;
+      selectedContents = null;
+      fileLoadGeneration += 1;
+      void loadFiles();
+    });
+  });
+
+  $effect(() => {
+    const request = requestedFile;
+    const path = request?.path;
+    void api;
+    void cwd;
+    if (path) untrack(() => void openFile(path, true, request?.line));
   });
 
   $effect(() => {
@@ -694,7 +730,6 @@
         isActive={(mode) => markdownViewMode === mode}
         onSelect={selectMarkdownView}
         ariaLabel="Markdown file view"
-        variant="bar"
         compact
       />
     {:else if isSelectedHtml && !selectedTruncated}
@@ -703,7 +738,6 @@
         isActive={(mode) => htmlViewMode === mode}
         onSelect={selectHtmlView}
         ariaLabel="HTML file view"
-        variant="bar"
         compact
       />
     {/if}
@@ -794,7 +828,7 @@
     />
 
     <Resizable.Pane order={2} minSize={stacked ? 45 : 0}>
-      <section class="flex h-full min-h-0 min-w-0 flex-col">
+      <section data-file-editor-pane class="flex h-full min-h-0 min-w-0 flex-col">
         {#if fileLoading || (loading && treePaths.length === 0)}
           <FilesPaneSkeleton variant="editor" />
         {:else if fileError}
@@ -814,6 +848,8 @@
               cwd={root || cwd}
               filePath={selectedPath}
               displayPath={selectedPath}
+              line={selectedLine}
+              {revealEpoch}
               contents={selectedContents}
               isReadOnly={selectedReadOnly}
               {isDark}
@@ -835,12 +871,16 @@
                   cwd={root || cwd}
                   filePath={selectedPath}
                   displayPath={selectedPath}
+                  line={selectedLine}
+                  {revealEpoch}
                   contents={selectedContents}
                   isReadOnly={selectedReadOnly}
                   {isDark}
                   onSaveStateChange={(state) => {
                     saveState = state;
                   }}
+                  onSymbolHit={symbols.hit}
+                  symbolAvailability={symbols.availability}
                   onContentsChange={(nextContents) => { htmlContents = nextContents; }}
                 />
               </div>
@@ -912,3 +952,9 @@
     --trees-status-deleted-override: var(--solus-status-error);
   }
 </style>
+
+<CodeIntelPopover
+  lookup={symbols.lookup}
+  onNavigate={(path, line) => { void openFile(path, true, line); }}
+  onClose={() => (symbols.lookup = null)}
+/>

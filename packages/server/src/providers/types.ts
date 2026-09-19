@@ -93,10 +93,12 @@ export interface ReviewProvider {
   listPullRequestsNeedingReview(repo: RepoRef, viewer: string): Promise<PullRequest[]>
   getPullRequest(repo: RepoRef, number: number): Promise<PullRequest>
   updatePullRequest(repo: RepoRef, number: number, patch: PullRequestUpdate): Promise<PullRequest>
-  getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview>
   getPullRequestDiffBase(repo: RepoRef, pullRequest: PullRequest): Promise<string>
-  getPullRequestDiff(repo: RepoRef, request: PrDiffRequest): Promise<PrDiffSlice>
-  getPullRequestDiffFileContents(repo: RepoRef, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
+  /** Take the pull request rather than its number, like `listReviewerCandidates`:
+   *  the caller holds the detail the page was opened with, and re-reading it
+   *  here cost a second host round trip per diff page. */
+  getPullRequestDiff(repo: RepoRef, pullRequest: PullRequest, request: PrDiffRequest): Promise<PrDiffSlice>
+  getPullRequestDiffFileContents(repo: RepoRef, pullRequest: PullRequest, request: PrDiffFileContentsRequest): Promise<PrDiffFileContents>
   listReviewThreads(repo: RepoRef, number: number): Promise<ReviewThread[]>
   listCommits(repo: RepoRef, number: number): Promise<PrCommit[]>
   listReviewers(repo: RepoRef, number: number): Promise<PrReviewer[]>

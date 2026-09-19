@@ -3,12 +3,21 @@ import { localApi } from '@solus/client-core/local-api'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { onServerRemoving } from '@solus/client-core/server-registry'
 import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
   attentionNotificationDedupKey,
+  notificationEventForAttentionKind,
+  notificationEventForSoundTrigger,
   notificationSessionRoute,
   payloadForAttentionEntry,
+  shouldDeliverNotification,
+  type AppNoticeEvent,
   type ClientNotificationRequest,
+  type NotificationPreferences,
+  type NotificationSoundLog,
+  type NotificationSoundTrigger,
 } from '@solus/contracts/notification-types'
 import type { AttentionEntry } from '@solus/contracts/attention-types'
+import notificationSrc from '../../../../../resources/notification.mp3'
 import { toasts } from '../../lib/toasts'
 import { requestInputFocus } from '../../lib/inputFocus'
 import { createActivityBadge } from './activity-badge'
@@ -24,10 +33,22 @@ export interface NotificationManagerDependencies {
   hostDisplay(serverId: string): NotificationHostDisplay
   isSessionFocused(serverId: string, sessionId: string): boolean
   openRoute(route: string): void
-  nativeNotificationsEnabled(): boolean
-  backgroundActivityToastsEnabled(): boolean
+  /** Read on every delivery, so a switch flipped in Settings applies at once. */
+  preferences(): NotificationPreferences
 }
 
+const notificationAudio = new Audio(notificationSrc)
+notificationAudio.volume = 1.0
+
+/** The one condition delivery turns on. In front: the toast. In the
+ *  background — hidden, minimized, or another app has focus: the sound and
+ *  the system alert. Settings present the channels under those two headings. */
+function isSolusInFront(): boolean {
+  return document.visibilityState === 'visible' && document.hasFocus()
+}
+
+/** The one place a notification is decided. Every channel — sound, toast,
+ * system alert — passes through the same event and channel switches. */
 class NotificationsStore {
   private activity = new BackgroundActivityTracker()
   private updateBadge: (sessionKeys: string[]) => void = () => {}
@@ -35,13 +56,53 @@ class NotificationsStore {
   private readonly snapshotRevisions = new Map<string, number>()
   private tracker = new AttentionNotificationTracker()
   private stopCurrent: (() => void) | null = null
+  /** Reactive so an effect that asks `wants` before `start` re-runs once the
+   *  shell has supplied the preferences. */
+  private deps = $state.raw<NotificationManagerDependencies | null>(null)
+
+  /** Whether an app notice (a toast raised outside a session) may be shown.
+   *  Singleton stores read this; they have no settings context of their own.
+   *  Before `start`, the defaults answer, and every notice is on. */
+  wants(event: AppNoticeEvent): boolean {
+    return (this.deps?.preferences() ?? DEFAULT_NOTIFICATION_PREFERENCES).events[event]
+  }
+
+  /** Plays the sound for a session event while the window is hidden. */
+  async playSound(sessionId: string, agentSessionId: string | null, trigger: NotificationSoundTrigger): Promise<void> {
+    const preferences = this.deps?.preferences()
+    if (!preferences || !shouldDeliverNotification(preferences, 'sound', notificationEventForSoundTrigger(trigger))) return
+    // The shell knows when its window is hidden to the tray; the document
+    // knows when another app is in front. Either is the background.
+    if ((await localApi.isVisible()) && isSolusInFront()) return
+    const row: NotificationSoundLog = {
+      event: 'notification_sound_play_requested',
+      sessionId,
+      agentSessionId,
+      trigger,
+    }
+    console.info('[Solus][NotificationSound]', row)
+    localApi.logNotificationSound?.(row)
+    notificationAudio.currentTime = 0
+    notificationAudio.play().catch((error) => {
+      const failure: NotificationSoundLog = {
+        event: 'notification_sound_play_failed',
+        sessionId,
+        agentSessionId,
+        trigger,
+        error: error instanceof Error ? error.message : String(error),
+      }
+      console.warn('[Solus][NotificationSound]', failure)
+      localApi.logNotificationSound?.(failure)
+    })
+  }
 
   start(deps: NotificationManagerDependencies): () => void {
     this.stop()
+    this.deps = deps
     this.generation += 1
     this.updateBadge = createActivityBadge()
     const acknowledge = () => { this.activity.acknowledge(); this.updateBadge([]) }
-    const onFocus = () => { if (document.visibilityState === 'visible' && document.hasFocus()) acknowledge() }
+    const onFocus = () => { if (isSolusInFront()) acknowledge() }
     window.addEventListener('focus', onFocus)
     document.addEventListener('visibilitychange', onFocus)
     const stopAcknowledged = localApi.onActivityAcknowledged?.(acknowledge)
@@ -86,6 +147,7 @@ class NotificationsStore {
       stopRemoval()
       window.removeEventListener('solus:push-received', pushDelivered)
       this.tracker = new AttentionNotificationTracker()
+      if (this.deps === deps) this.deps = null
       if (this.stopCurrent === stop) this.stopCurrent = null
     }
     this.stopCurrent = stop
@@ -112,11 +174,14 @@ class NotificationsStore {
     entries: AttentionEntry[],
     deps: NotificationManagerDependencies,
   ): void {
+    const preferences = deps.preferences()
+    const inFront = isSolusInFront()
     const activity = this.activity.applySnapshot(serverId, entries, deps.isSessionFocused)
-    if (document.visibilityState === 'visible' && document.hasFocus()) this.activity.acknowledge()
+    if (inFront) this.activity.acknowledge()
     this.updateBadge(this.activity.sessionKeys)
-    if (deps.backgroundActivityToastsEnabled() && document.visibilityState === 'visible' && document.hasFocus()) {
+    if (preferences.channels.toast && inFront) {
       for (const candidate of activity) {
+        if (!shouldDeliverNotification(preferences, 'toast', notificationEventForAttentionKind(candidate.entry.kind))) continue
         const host = deps.hostDisplay(serverId)
         const payload = payloadForAttentionEntry(candidate.entry, host.isPrimary ? {} : { hostLabel: host.label })
         toasts.show({
@@ -130,9 +195,13 @@ class NotificationsStore {
         })
       }
     }
+    // Applied even in front so the tracker records what it has seen; a session
+    // that needs you while Solus is in front is the toast's to announce.
     const candidates = this.tracker.applySnapshot(serverId, entries, deps.isSessionFocused)
-    if (deps.nativeNotificationsEnabled()) {
-      for (const candidate of candidates) void this.deliver(candidate.serverId, candidate.entry, deps).catch(() => {})
+    if (inFront) return
+    for (const candidate of candidates) {
+      if (!shouldDeliverNotification(preferences, 'system', notificationEventForAttentionKind(candidate.entry.kind))) continue
+      void this.deliver(candidate.serverId, candidate.entry, deps).catch(() => {})
     }
   }
 

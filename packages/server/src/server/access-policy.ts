@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { RPC_INVOKE_METHODS, type RpcMethod } from '@solus/contracts/rpc'
-import { resourceRoleAtLeast, type ResourceRole, type ShareResource } from '@solus/contracts/sharing'
+import { resourceRoleAtLeast, shareResourceSchema, type ResourceRole, type ShareResource } from '@solus/contracts/sharing'
 import { isManagedHost } from './managed-mode'
 import { isHostAdmin, isHostOwner, type Principal, type PrincipalKind } from './principal'
 
@@ -14,8 +14,8 @@ import { isHostAdmin, isHostOwner, type Principal, type PrincipalKind } from './
  * - `host-admin`  administers the machine: credentials, updates, host config.
  * - `host-wide`   the catalog and the tools of the host: projects, files, git,
  *                 tasks, PRs. Owners and organization members; never a guest.
- * - `resource`    names a session or a work. Checked against ownership and the
- *                 share list with the role the method needs.
+ * - `resource`    names a session, a work, or a task. Checked against ownership
+ *                 and the share list with the role the method needs.
  */
 export type RpcAccessClass = 'local-only' | 'host-admin' | 'host-wide' | 'resource'
 
@@ -56,9 +56,9 @@ const sessionFieldAt = (index: number, field: string): ArgLocator => (args) => {
   const request = fieldSchema(field).safeParse(args[index])
   return request.success ? { kind: 'session', id: request.data[field] } : null
 }
-const workFieldAt = (index: number, field: string): ArgLocator => (args) => {
-  const request = fieldSchema(field).safeParse(args[index])
-  return request.success ? { kind: 'work', id: request.data[field] } : null
+const taskIdAt = (index: number): ArgLocator => (args) => {
+  const id = idSchema.safeParse(args[index])
+  return id.success ? { kind: 'task', id: id.data } : null
 }
 
 const viewer = (locate: ArgLocator): ResourceRule => ({ locate, requires: 'viewer' })
@@ -72,6 +72,7 @@ const resourceRpcRules = {
   unwatchSession: viewer(sessionIdAt(0)),
   bindRuntimeSession: viewer(ctxAt(0)),
   loadSession: viewer(sessionIdAt(0)),
+  loadSessionPage: viewer(sessionFieldAt(0, 'sessionId')),
   loadSessionToolInputs: viewer(sessionFieldAt(0, 'sessionId')),
   loadSessionPreview: viewer(sessionIdAt(0)),
   loadSessionMessageWindow: viewer(sessionFieldAt(0, 'sessionId')),
@@ -104,6 +105,8 @@ const resourceRpcRules = {
   rateLimitDecision: editor(ctxAt(0)),
   cancelQueuedPrompt: editor(ctxAt(0)),
   editQueuedPrompt: editor(ctxAt(0)),
+  // Typing in a session is something only someone who may prompt it does.
+  presenceSetComposing: editor(sessionFieldAt(0, 'sessionId')),
   rewindFiles: editor(ctxAt(0)),
   writePlanFile: editor(optionalCtxAt(2)),
   attachFiles: editor(optionalCtxAt(0)),
@@ -130,15 +133,16 @@ const resourceRpcRules = {
   loadWork: viewer(workIdAt(0)),
   loadWorkPrevious: viewer(workIdAt(0)),
   loadWorkAnnotations: viewer(workIdAt(0)),
+  markWorkCommentRead: viewer(workIdAt(0)),
   readWorkGoogleComments: viewer(workIdAt(0)),
   readWorkExternalComments: viewer(workIdAt(0)),
-  shareGet: viewer(workOrSessionAt(0)),
+  shareGet: viewer(sharedResourceAt(0)),
   // Works — editing
   saveWork: editor(workIdAt(0)),
   agentSaveWork: editor(workIdAt(0)),
   revertWork: editor(workIdAt(0)),
   setWorkPinned: editor(workIdAt(0)),
-  saveWorkAnnotations: editor(workFieldAt(0, 'workId')),
+  applyWorkComment: editor(workIdAt(0)),
   linkWorkSession: editor(workIdAt(0)),
   duplicateWork: viewer(workIdAt(0)),
   promoteWorkToProject: editor(workIdAt(0)),
@@ -150,11 +154,27 @@ const resourceRpcRules = {
   pullWorkUpstream: editor(workIdAt(0)),
   refreshWorkUpstream: editor(workIdAt(0)),
   unlinkWorkUpstream: editor(workIdAt(0)),
-  shareSet: editor(workOrSessionAt(0)),
-  shareSetLink: editor(workOrSessionAt(0)),
+  shareSet: editor(sharedResourceAt(0)),
+  shareSetLink: editor(sharedResourceAt(0)),
+  // Tasks — a task shared with someone shares its page and everything linked to it (§3.4).
+  tasksGet: viewer(taskIdAt(0)),
+  tasksSessions: viewer(taskIdAt(0)),
+  tasksSnapshot: viewer(taskIdAt(0)),
+  tasksMarkRead: viewer(taskIdAt(0)),
+  tasksRecordActivity: viewer(taskIdAt(0)),
+  tasksUpdate: editor(taskIdAt(0)),
+  tasksComment: editor(taskIdAt(0)),
+  tasksDeleteComment: editor(taskIdAt(0)),
+  tasksPublishComments: editor(taskIdAt(0)),
+  tasksPublish: editor(taskIdAt(0)),
+  tasksSyncNow: editor(taskIdAt(0)),
+  tasksLink: editor(taskIdAt(0)),
+  tasksUnlink: editor(taskIdAt(0)),
+  tasksAttachArtifact: editor(taskIdAt(0)),
   // Owner only
   deleteWork: owner(workIdAt(0)),
-  shareTransfer: owner(workOrSessionAt(0)),
+  tasksDelete: owner(taskIdAt(0)),
+  shareTransfer: owner(sharedResourceAt(0)),
 } satisfies Partial<Record<RpcMethod, ResourceRule>>
 
 export const RESOURCE_RPC_RULES: ReadonlyMap<RpcMethod, ResourceRule> = new Map(
@@ -165,9 +185,9 @@ export const RESOURCE_RPC_RULES: ReadonlyMap<RpcMethod, ResourceRule> = new Map(
   ]),
 )
 
-const shareRequestSchema = z.object({ resource: z.object({ kind: z.enum(['session', 'work']), id: idSchema }) })
+const shareRequestSchema = z.object({ resource: shareResourceSchema })
 
-function workOrSessionAt(index: number): ArgLocator {
+function sharedResourceAt(index: number): ArgLocator {
   return (args) => {
     const request = shareRequestSchema.safeParse(args[index])
     return request.success ? request.data.resource : null
@@ -208,6 +228,7 @@ export const MANAGED_HOST_REFUSED_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<
 /** Credentials, updates, and host config: the machine's administrator only. */
 export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   'connectionsRevokeDevice',
+  'typeSafeKeySet',
   'configUpdate',
   'setAnalyticsConsent',
   'setProjectsBaseDirectory',
@@ -244,6 +265,13 @@ export const GUEST_HOST_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
   'getServerCapabilities',
   'activityLease',
   'listAttention',
+  // Its own client id and an empty host; the handler scopes a guest's focus to its one resource.
+  'presenceSnapshot',
+  'presenceSetFocus',
+  // The task page reads the sidebar snapshot; the handler filters it to what the caller may open,
+  // which for a guest is the one task its link names, or nothing.
+  'tasksSidebarSnapshot',
+  'tasksList',
 ])
 
 export function rpcAccessClass(method: RpcMethod): RpcAccessClass {

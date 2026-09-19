@@ -240,6 +240,7 @@ export class PullRequest implements Contracts.PullRequest {
       !!opts.force,
       () => this.api.prGetOverview(ctx, this.number),
     )
+    if (!this.store.mirrors.overview.holds(this.key, overview)) return overview
     this.store.mirrors.detail.seed(this.key, overview.pullRequest)
     this.store.mirrors.commits.seed(this.key, overview.commits)
     this.store.mirrors.reviewers.seed(this.key, overview.reviewers)
@@ -256,7 +257,7 @@ export class PullRequest implements Contracts.PullRequest {
       !!opts.force,
       () => this.api.prGetDetail(ctx, this.number),
     )
-    return this.store.absorb(detail)
+    return this.store.mirrors.detail.holds(this.key, detail) ? this.store.absorb(detail) : this
   }
 
   /**

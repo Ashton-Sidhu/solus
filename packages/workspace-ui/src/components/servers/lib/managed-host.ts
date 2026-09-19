@@ -21,6 +21,11 @@ export function isManagedHost(uplink: SavedServerUplink | undefined): boolean {
   return uplink?.kind === 'managed'
 }
 
+/** The same question of a resolved host row, which a forgotten host answers with no uplink at all. */
+export function hostIsManaged(host: { uplink?: SavedServerUplink } | { unknown: true } | null | undefined): boolean {
+  return !!host && 'uplink' in host && isManagedHost(host.uplink)
+}
+
 /**
  * The line under a managed host's name: `Managed · <team>` when the compute is ready,
  * `Managed · <state>` while it is not. Null for a personal host, whose line is its
@@ -32,6 +37,16 @@ export function managedHostSubtitle(uplink: SavedServerUplink | undefined, organ
   const state = uplink?.managedState ?? 'ready'
   if (state !== 'ready') return `Managed · ${LIFECYCLE_LABELS[state]}`
   return `Managed · ${organizationName ?? 'Team host'}`
+}
+
+/**
+ * The line under the picker's Cloud row while the compute is not ready ("Provisioning",
+ * "Stopped"), so a disabled row says why. Null when ready and for a personal host.
+ */
+export function managedHostStateLabel(uplink: SavedServerUplink | undefined): string | null {
+  if (!isManagedHost(uplink)) return null
+  const state = uplink?.managedState ?? 'ready'
+  return state === 'ready' ? null : LIFECYCLE_LABELS[state]
 }
 
 /** A managed host takes work only when its compute is ready; it stays listed the rest of the time so its state is visible. */

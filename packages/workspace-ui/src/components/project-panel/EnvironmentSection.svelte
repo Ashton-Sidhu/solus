@@ -179,7 +179,7 @@
   // opens a draft from that source, preserving its project and host.
   function destinationDraft() {
     return session.sessionDrafts.get(sourceId) ??
-      session.openSessionDraft({ sourceTabId: sourceId });
+      session.openSessionDraft({ sourceId });
   }
 
   async function selectBranch(branch: string) {

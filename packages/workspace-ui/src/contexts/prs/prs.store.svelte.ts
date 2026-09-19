@@ -1,6 +1,6 @@
 // Pull requests, keyed by project.
 //
-// A map and nothing else. Every operation names a project first, because a pull
+// Shared records and background refresh ownership. Every operation names a project first, because a pull
 // request only means anything inside one:
 //
 //   prsStore.get(api, serverId, ctx).list()          // this project's rows
@@ -12,10 +12,42 @@
 import type { HostApi } from '@solus/client-core/host-api'
 import { hostKey } from '@solus/client-core/host-key'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
+import { serverConnections } from '@solus/client-core/server-connections'
 import type { PrFilter } from '@solus/contracts/providers'
-import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
+import type { TaskPrSnapshot } from '@solus/contracts/task-types'
+import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap } from 'svelte/reactivity'
 import { ProjectPrs, projectPrsKey, type PrList } from './project-prs.svelte'
+import { afterStartupTranscriptPaint } from '../workspace/startup-transcript'
+import { linkedPrIdentity, latestPrObservation, type LinkedPr, type PrLink } from './linked-pr'
+
+export interface PrInterest {
+  /** Linked records must be recovered even when absent from the list page. */
+  linkedNumbers?: readonly number[]
+  branches?: readonly string[]
+  /** Saved links to enrich from the shared list; never a demand for details. */
+  numbers?: readonly number[]
+  /** Visible merge controls need detail fields even if the list knows the PR. */
+  details?: readonly number[]
+}
+
+interface PrObserver {
+  project: ProjectPrs
+  interest: PrInterest
+  changed?: () => void | Promise<void>
+}
+
+function listenForPrRefresh(refresh: () => void): () => void {
+  const visibleRefresh = () => {
+    if (document.visibilityState === 'visible') refresh()
+  }
+  const interval = window.setInterval(visibleRefresh, 60_000)
+  window.addEventListener('focus', visibleRefresh)
+  return () => {
+    window.clearInterval(interval)
+    window.removeEventListener('focus', visibleRefresh)
+  }
+}
 
 /** How many projects are read at once. Each is a host round trip that spends
  *  nearly all its time waiting, so the useful ceiling is well above the core
@@ -33,6 +65,72 @@ export interface PrProject {
 
 export class PrsStore {
   private readonly byProject = new SvelteMap<string, ProjectPrs>()
+  private readonly linkedSnapshots = new SvelteMap<string, TaskPrSnapshot>()
+  private readonly observers = new Set<PrObserver>()
+  private readonly pending = new Set<ProjectPrs>()
+  private draining: Promise<void> | undefined
+  private subscriptions = 0
+  private stopSubscriptions: (() => void) | undefined
+  private stopRefresh: (() => void) | undefined
+
+  constructor(
+    private readonly deferBackground: () => Promise<void> = afterStartupTranscriptPaint,
+    private readonly listenForRefresh: (refresh: () => void) => () => void = listenForPrRefresh,
+  ) {}
+
+  /** Surfaces declare interest; only this store schedules background reads.
+   * Removing a surface removes its interest, including work not started yet. */
+  watch(project: ProjectPrs, interest: PrInterest, changed?: () => void | Promise<void>): () => void {
+    const observer = { project, interest, changed }
+    this.observers.add(observer)
+    const release = this.subscribeLifecycleChanges()
+    this.stopRefresh ??= this.listenForRefresh(() => {
+      for (const { project: target } of this.observers) this.enqueue(target)
+    })
+    this.enqueue(project)
+    return () => {
+      if (!this.observers.delete(observer)) return
+      if (!this.observers.size) {
+        this.stopRefresh?.()
+        this.stopRefresh = undefined
+      }
+      release()
+    }
+  }
+
+  private enqueue(project: ProjectPrs): void {
+    if (![...this.observers].some((observer) => observer.project === project)) return
+    this.pending.add(project)
+    if (this.draining) return
+    this.draining = this.deferBackground().then(async () => {
+      while (this.pending.size) {
+        const projects = [...this.pending].slice(0, DEFAULT_CONCURRENCY)
+        for (const target of projects) this.pending.delete(target)
+        await Promise.all(projects.map((target) => this.refreshObserved(target)))
+      }
+    }).finally(() => {
+      this.draining = undefined
+      const next = this.pending.values().next().value
+      if (next) this.enqueue(next)
+    })
+  }
+
+  private async refreshObserved(project: ProjectPrs): Promise<void> {
+    const observers = [...this.observers].filter((observer) => observer.project === project)
+    if (!observers.length) return
+    const numbers = [...new Set(observers.flatMap(({ interest }) => [...interest.numbers ?? []]))]
+    const branches = [...new Set(observers.flatMap(({ interest }) => [...interest.branches ?? []]))]
+    const details = [...new Set(observers.flatMap(({ interest }) => [...interest.details ?? []]))]
+    const linkedNumbers = [...new Set(observers.flatMap(({ interest }) => [...interest.linkedNumbers ?? []]))]
+    try {
+      if (!await project.refreshObserved(numbers, branches, details, linkedNumbers)) return
+      for (const observer of observers) {
+        if (this.observers.has(observer)) await observer.changed?.()
+      }
+    } catch {
+      // Keep known records; focus, reconnect and the next poll can retry.
+    }
+  }
 
   /** Bumped on every `listAll`; a project's write is dropped if the generation
    *  it began under is no longer current — the guard against a slow host
@@ -53,7 +151,7 @@ export class PrsStore {
       existing.reachThrough(api, ctx)
       return existing
     }
-    const created = new ProjectPrs(api, serverId, ctx, projectScopeOf(ctx.session))
+    const created = new ProjectPrs(api, serverId, ctx, worktreeProjectRoot(projectScopeOf(ctx.session)))
     this.byProject.set(key, created)
     return created
   }
@@ -67,7 +165,51 @@ export class PrsStore {
    */
   at(serverId: string | null | undefined, projectScope: string | null | undefined): ProjectPrs | null {
     if (!serverId || !projectScope) return null
-    return this.byProject.get(hostKey(serverId, projectScope)) ?? null
+    return this.byProject.get(hostKey(serverId, worktreeProjectRoot(projectScope))) ?? null
+  }
+
+  /** Read a link without choosing a repository or starting work during render. */
+  linkedPr(serverId: string | null | undefined, link: PrLink, fallbackScope: string | null): LinkedPr | null {
+    const identity = linkedPrIdentity(link, fallbackScope)
+    if (!identity) return null
+    const live = this.at(serverId, identity.targetScope)?.prFor(identity.number)
+    const cached = serverId ? this.linkedSnapshots.get(hostKey(serverId, identity.key)) : undefined
+    const saved = latestPrObservation(cached, 'snapshot' in link ? link.snapshot : undefined)
+    const pullRequest = latestPrObservation(live, saved)
+    return {
+      ...identity,
+      title: pullRequest?.title || identity.title,
+      url: identity.url ?? pullRequest?.url ?? null,
+      pullRequest,
+    }
+  }
+
+  /** Own identity, batching and refresh for every surface displaying links.
+   * The caller supplies its host; the active project's branch is never inherited. */
+  watchLinkedPrs(api: HostApi, serverId: string, ctx: IpcContext, links: readonly PrLink[]): () => void {
+    const groups = new Map<string, Set<number>>()
+    for (const link of links) {
+      const identity = linkedPrIdentity(link, projectScopeOf(ctx.session))
+      if (!identity) continue
+      if ('snapshot' in link && link.snapshot) {
+        const key = hostKey(serverId, identity.key)
+        const previous = this.linkedSnapshots.get(key)
+        if (!previous || Date.parse(link.snapshot.updatedAt) > Date.parse(previous.updatedAt)) {
+          this.linkedSnapshots.set(key, link.snapshot)
+        }
+      }
+      const numbers = groups.get(identity.targetScope) ?? new Set<number>()
+      numbers.add(identity.number)
+      groups.set(identity.targetScope, numbers)
+    }
+    const releases = [...groups].map(([scope, numbers]) => {
+      const scoped = {
+        ...ctx,
+        session: { ...ctx.session, projectPath: scope, workingDirectory: scope, gitContext: null },
+      }
+      return this.watch(this.get(api, serverId, scoped), { linkedNumbers: [...numbers] })
+    })
+    return () => { for (const release of releases) release() }
   }
 
   get all(): ProjectPrs[] {
@@ -90,7 +232,8 @@ export class PrsStore {
     const generation = ++this.generation
     const named = new Set(targets.map((target) => projectPrsKey(target.serverId, target.ctx)))
     for (const key of this.byProject.keys()) {
-      if (!named.has(key) && key !== opts.keep) this.byProject.delete(key)
+      if (!named.has(key) && key !== opts.keep
+        && ![...this.observers].some(({ project }) => project.key === key)) this.byProject.delete(key)
     }
     const concurrency = Math.max(1, opts.concurrency ?? DEFAULT_CONCURRENCY)
     let index = 0
@@ -116,12 +259,46 @@ export class PrsStore {
   /** A lifecycle change anywhere reaches the project holding that pull request.
    *  Wired once, for the whole workspace. */
   subscribeLifecycleChanges(): () => void {
-    return subscribeAllHosts('pr.lifecycleChanged', (serverId, event) => {
-      // Updated, never created: an event for a project nothing has opened has
-      // nothing here to update, and inventing one would index a project the
-      // user never asked about.
-      this.at(serverId, event.projectRoot)?.applyPullRequest(event.detail)
+    if (this.subscriptions++ === 0) this.startSubscriptions()
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      if (--this.subscriptions === 0) this.stopSubscriptions?.()
+    }
+  }
+
+  private startSubscriptions(): void {
+    const changed = subscribeAllHosts('pr.lifecycleChanged', (serverId, event) => {
+      const { host, owner, repo } = event.detail.baseRepo
+      const projects = new Set([
+        this.at(serverId, event.projectRoot),
+        this.at(serverId, `${host}/${owner}/${repo}`.toLowerCase()),
+      ])
+      for (const project of projects) {
+        if (!project) continue
+        project.applyPullRequest(event.detail)
+        this.enqueue(project)
+      }
     })
+    const invalidated = subscribeAllHosts('prs.invalidated', (serverId, { projectRoot }) => {
+      const project = this.at(serverId, projectRoot)
+      project?.forgetAll()
+      if (project) this.enqueue(project)
+    })
+    const reconnected = serverConnections.onStatusChange((serverId, status) => {
+      if (status !== 'connected') return
+      for (const project of this.byProject.values()) {
+        if (project.serverId !== serverId) continue
+        project.forgetAll()
+        this.enqueue(project)
+      }
+    })
+    this.stopSubscriptions = () => {
+      changed()
+      invalidated()
+      reconnected()
+    }
   }
 }
 

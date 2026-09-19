@@ -353,7 +353,7 @@ export async function executeWorkTool(
             content,
             updatedAt: new Date().toISOString(),
           })
-          return { ok: true, text: `Updated "${title ?? foreign.title}". The change syncs to the task's host.` }
+          return { ok: true, text: `Updated "${title ?? foreign.title}"${foreign.workType === 'artifact' ? ` (artifact, id: ${workId})` : ''}. The change syncs to the task's host.` }
         }
         return { ok: false, text: `No work found with id "${workId}".` }
       }
@@ -396,7 +396,7 @@ export async function executeWorkTool(
         content: saved.content,
         updatedAt: saved.updatedAt,
       })
-      return { ok: true, text: `Updated "${saved.title}".` }
+      return { ok: true, text: `Updated "${saved.title}"${saved.type === 'artifact' ? ` (artifact, id: ${saved.id})` : ''}.` }
     }
 
     return { ok: false, text: `Unknown work tool: ${name}` }

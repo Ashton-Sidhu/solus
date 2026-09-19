@@ -1,3 +1,4 @@
+import { loadCodexHistoryPage } from './codex-history-page'
 import { BaseAgentBackend } from '../base-backend'
 import { loadCodexHistory, type CodexItemsListParams, type CodexItemsListResponse } from './codex-history'
 import { reconcileCodexSubagentHistory } from './codex-subagent-history'
@@ -804,6 +805,18 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     return messages
   }
 
+  async loadSessionPage(sessionId: string, _projectPath: string | undefined, limit: number, before?: string) {
+    const response = await this.readThread(sessionId)
+    const page = await loadCodexHistoryPage(sessionId, response.thread?.turns ?? [],
+      (params) => this.client.request<CodexItemsListResponse, CodexItemsListParams>('thread/items/list', params),
+      limit, before)
+    await reconcileCodexSubagentHistory(page.messages, async (threadId) => {
+      const child = await this.readThread(threadId)
+      return child.thread?.turns ?? []
+    })
+    return page
+  }
+
   async loadSessionPreview(sessionId: string): Promise<SessionPreviewResult> {
     // Picker previews need spoken text, not hidden tool history. Keep them on
     // the summary read even though opening the conversation now hydrates tools.
@@ -1217,7 +1230,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       const repoRoot = await resolveRepoRoot(workTree)
       if (!repoRoot) return
       handle.repoRoot = repoRoot
-      const head = getHeadCommit(workTree)
+      const head = await getHeadCommit(workTree)
       if (!head) return
       await initSessionBase(repoRoot, sessionId, head)
       await prepareTurnSnapshot(workTree, repoRoot, sessionId)

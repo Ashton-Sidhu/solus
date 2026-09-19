@@ -212,6 +212,97 @@ test('revealing a conversation clears unread across its tabs without selecting i
   await run('unread-visibility', executable(compileModule(transpiler.transformSync(harness), { filename: 'unread.svelte.js', generate: 'client' }).js.code))
 })
 
+test('session review guides are probed once per session, not per tab, settings change, or change set', async () => {
+  const source = readFileSync(new URL('packages/workspace-ui/src/components/review/lib/session-guide-tracker.svelte.ts', root), 'utf8')
+  const body = source.slice(source.indexOf('export function trackSessionReviewGuides'))
+  const harness = `
+    import assert from 'node:assert/strict';
+    import { flushSync, untrack } from 'svelte';
+    const loads = [];
+    const reviewGuideStore = { async loadSessions(api, serverId, probes) {
+      for (const probe of probes) loads.push([probe.ctx.sessionId, probe.identity.key]);
+    } };
+    const sessionGuideIdentity = (session) => session?.run.gitContext?.repoRoot && session.agentSessionId
+      ? { repoRoot: session.run.gitContext.repoRoot, key: 'session-' + session.agentSessionId } : null;
+    ${body}
+    const sessions = $state({
+      one: { id: 'one', agentSessionId: 'a1', run: { gitContext: { repoRoot: '/repo' } }, sessionChangedFiles: ['a.ts'] },
+      two: { id: 'two', agentSessionId: null, run: { gitContext: { repoRoot: '/repo' } }, sessionChangedFiles: [] },
+    });
+    const settings = $state({ activeAgent: 'claude-code' });
+    const tabOrder = $state(['first', 'duplicate', 'second']);
+    const workspace = {
+      get tabOrder() { return tabOrder; },
+      tabs: { first: 'one', duplicate: 'one', second: 'two' },
+      sessionFor(tabId) { return sessions[this.tabs[tabId]]; },
+      apiFor() { return {}; },
+      serverIdFor() { return 'host'; },
+      // Reads a global setting, as the real IpcContext builder does.
+      ctxFor(tabId) { return { sessionId: this.tabs[tabId], activeAgent: settings.activeAgent }; },
+    };
+    const destroy = $effect.root(() => trackSessionReviewGuides(workspace));
+    flushSync();
+    assert.deepEqual(loads, [['one', 'session-a1']], 'two tabs on one session share one probe; a session with no identity is skipped');
+    settings.activeAgent = 'codex'; flushSync();
+    assert.equal(loads.length, 1, 'a settings change is not a reason to re-probe');
+    sessions.one.sessionChangedFiles.push('b.ts'); flushSync();
+    assert.equal(loads.length, 1, 'a moved change set is not a reason to re-probe: staleness is checked when the guide opens');
+    sessions.two.agentSessionId = 'a2'; flushSync();
+    assert.deepEqual(loads.at(-1), ['two', 'session-a2'], 'a session probes once it has an identity');
+    assert.equal(loads.length, 2);
+    destroy();
+  `
+  await run('session-guide-tracker', executable(compileModule(transpiler.transformSync(harness), { filename: 'session-guide-tracker.svelte.js', generate: 'client' }).js.code))
+})
+
+test('branch review guides are probed once per shown source, not on every working-tree move', async () => {
+  const source = readFileSync(new URL('packages/workspace-ui/src/components/review/lib/branch-guide-tracker.svelte.ts', root), 'utf8')
+  const body = source.slice(source.indexOf('/** Sources whose branch guide is on screen'))
+  const reactivity = new URL('node_modules/svelte/src/reactivity/index-client.js', root).href
+  const harness = `
+    import assert from 'node:assert/strict';
+    import { flushSync, untrack } from 'svelte';
+    import { SvelteMap } from ${JSON.stringify(reactivity)};
+    const loads = [];
+    const reviewGuideStore = { async load(api, serverId, ctx, identity, scope) { loads.push([ctx.sourceId, identity.key, scope]); } };
+    const branchGuideIdentity = (environment) => environment.repoRoot && environment.branch
+      ? { repoRoot: environment.repoRoot, key: environment.branch + '__reviews', headSha: environment.status?.headSha } : null;
+    ${body}
+    const environments = $state({
+      main: { cwd: '/repo', checkout: null, repoRoot: '/repo', branch: 'main', status: { headSha: 'h1', uncommittedChanges: { files: [], insertions: 0, deletions: 0 } } },
+      draft: { cwd: '~', checkout: null, repoRoot: null, branch: null, status: null },
+    });
+    const runs = { first: 'main', companion: 'main', 'draft-1': 'draft' };
+    const workspace = {
+      runFor(sourceId) { return runs[sourceId]; },
+      apiFor() { return {}; },
+      serverIdFor() { return 'host'; },
+      ctxForEnvironment(cwd, checkout, sourceId) { return { sourceId }; },
+    };
+    const environmentStore = { environmentFor(run) { return environments[run]; } };
+    const destroy = $effect.root(() => trackBranchReviewGuides(workspace, environmentStore));
+    flushSync();
+    assert.deepEqual(loads, [], 'nothing probes until a Git section shows a source');
+    const releaseFirst = showBranchReviewGuide('first');
+    const releaseDraft = showBranchReviewGuide('draft-1');
+    flushSync();
+    assert.deepEqual(loads, [['first', 'main__reviews', 'branch']], 'a shown source probes once; a draft with no checkout is skipped');
+    environments.main.status.uncommittedChanges.files.push({ path: 'a.ts' });
+    environments.main.status.uncommittedChanges.insertions = 3; flushSync();
+    environments.main.status.headSha = 'h2'; flushSync();
+    assert.equal(loads.length, 1, 'a working-tree move or a commit is not a reason to re-probe: staleness is checked when the guide opens');
+    environments.main.branch = 'feature'; flushSync();
+    assert.deepEqual(loads.at(-1), ['first', 'feature__reviews', 'branch'], 'a different branch is a different guide');
+    const releaseCompanion = showBranchReviewGuide('companion'); flushSync();
+    assert.deepEqual(loads.at(-1), ['companion', 'feature__reviews', 'branch'], 'a second section on the same branch probes under its own source');
+    releaseCompanion(); releaseFirst(); releaseDraft(); flushSync();
+    environments.main.branch = 'main'; flushSync();
+    assert.equal(loads.length, 3, 'a source with no mounted section does not probe');
+    destroy();
+  `
+  await run('branch-guide-tracker', executable(compileModule(transpiler.transformSync(harness), { filename: 'branch-guide-tracker.svelte.js', generate: 'client' }).js.code))
+})
+
 test('artifact readiness resets for new content and explicit reloads', async () => {
   const source = readFileSync(new URL('packages/workspace-ui/src/components/artifact/SandboxFrame.svelte', root), 'utf8')
   const script = source.slice(source.indexOf('>') + 1, source.indexOf('</script>'))

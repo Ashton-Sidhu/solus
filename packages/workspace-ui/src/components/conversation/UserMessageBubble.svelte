@@ -5,6 +5,7 @@
   import MarkdownLink from "./MarkdownLink.svelte";
   import MarkdownText from "./MarkdownText.svelte";
   import MessageHoverRail from "./MessageHoverRail.svelte";
+  import TurnAuthorLabel from "../presence/TurnAuthorLabel.svelte";
   import MarkChip from "../browser/MarkChip.svelte";
   import { browserStore } from "../../contexts/browser/browser.store.svelte";
   import { browserMarkChips } from "../../lib/browser-annotation";
@@ -27,6 +28,7 @@
   import { formatWaited } from "./lib/queued-prompts";
   import { shouldCollapseUserMessage } from "./lib/user-message";
   import type { Message, OutboundPromptState } from "@solus/contracts/types";
+  import type { TurnAuthor } from "@solus/contracts/presence";
   import type { Component } from "svelte";
 
   const markdownRenderers = { link: MarkdownLink, codespan: CodeSpan, text: MarkdownText };
@@ -47,8 +49,11 @@
     /** The conversation this bubble belongs to. Image attachments resolve
      *  against its run host, which is not always the focused one. */
     tabId?: string;
+    /** Who wrote a held prompt, as the host named them. A sent message carries
+     *  its author on the message itself. */
+    author?: TurnAuthor;
   }
-  let { message, content, attachments, deliveryState = 'sent', ordinal, onEditSubmit, onRemove, skipMotion = false, tabId }: Props = $props();
+  let { message, content, attachments, deliveryState = 'sent', ordinal, onEditSubmit, onRemove, skipMotion = false, tabId, author }: Props = $props();
 
   const session = getWorkspaceContext();
   const attachmentTabId = $derived(tabId ?? session.focusedChatTabId ?? session.activeTabId);
@@ -286,6 +291,10 @@
  ? 'rounded-2xl bg-card px-3 pt-2.5 pb-2.5 shadow-[shadow:var(--solus-tx-hairline)]'
  : 'rounded-2xl bg-[color-mix(in_oklch,var(--foreground)_2%,transparent)] px-3 pt-2.5 pb-2.5'}"
       >
+        {#if !isAutomation}
+          <!-- Another person's prompt carries their name, held or sent; the reader's own do not. -->
+          <TurnAuthorLabel author={author ?? message?.author} serverId={imageServerId} />
+        {/if}
         {#if isAutomation}
           <!-- Required origin label: the only thing separating an agent-sent
                message from a person's is this line plus the missing fill. -->

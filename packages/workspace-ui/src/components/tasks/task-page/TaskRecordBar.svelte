@@ -5,6 +5,7 @@
     ChevronLeft as CaretLeftIcon,
     LoaderCircle as CircleNotchIcon,
     MoreHorizontal as DotsIcon,
+    Users as UsersIcon,
   } from "@lucide/svelte";
   import type { Task } from "@solus/contracts/task-types";
   import * as DropdownMenu from "../../ui/dropdown-menu";
@@ -35,6 +36,8 @@
     onOpenSource?: (() => void) | null;
     /** Replace an embedded detail panel with this task's standalone route. */
     onOpenPage?: () => void;
+    /** Open the share dialog for this task. Null where sharing has no home (a guest shell). */
+    onShare?: (() => void) | null;
     onOpenList: () => void;
   }
 
@@ -48,6 +51,7 @@
     onNext,
     onOpenSource,
     onOpenPage,
+    onShare = null,
     onOpenList,
   }: Props = $props();
 
@@ -118,6 +122,12 @@
         <DropdownMenu.Item onSelect={() => onOpenPage?.()}>
           <ArrowsOutSimpleIcon size={14} />
           <span class="flex-1 text-left">Open task page</span>
+        </DropdownMenu.Item>
+      {/if}
+      {#if onShare}
+        <DropdownMenu.Item onSelect={() => onShare?.()} data-testid="task-share">
+          <UsersIcon size={14} />
+          <span class="flex-1 text-left">Share…</span>
         </DropdownMenu.Item>
       {/if}
       <DropdownMenu.Separator />

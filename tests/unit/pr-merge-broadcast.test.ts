@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, mock, test } from 'bun:test'
+import { pullRequestFixture } from './__fixtures__/pull-request'
 import { TEST_HANDLER_CTX } from './helpers/handler-ctx'
 import { Database } from 'bun:sqlite'
 import type { PullRequest as PullRequestFacts } from '@solus/contracts/providers'
@@ -16,16 +17,10 @@ const repo: RepoRef = { host: 'github.com', owner: 'owner', repo: 'repo' }
 const HEAD_SHA = 'sha-1'
 
 function facts(state: PullRequestFacts['state']): PullRequestFacts {
-  // SAFETY: the merge handler reads only these fields; the rest of the record
-  // never leaves the mocked provider.
-  return {
-    number: 7,
-    state,
-    headSha: HEAD_SHA,
-    headRef: 'feature',
-    viewerPermissions: { actions: ['merge'] },
-    capabilities: { mergeMethods: ['squash'] },
-  } as unknown as PullRequestFacts
+  return pullRequestFixture(7, {
+    state, headSha: HEAD_SHA, headRef: 'feature', baseRepo: repo,
+    url: 'https://github.com/owner/repo/pull/7',
+  })
 }
 
 let mergedFacts = facts('merged')
@@ -56,7 +51,7 @@ mock.module('@solus/server/providers/registry', () => ({
   getProvider: () => provider,
 }))
 
-const { registerProviderHandlers } = await import('@solus/server/server/handlers/provider-handlers')
+const { registerProviderHandlers, reviewTargetFor } = await import('@solus/server/server/handlers/provider-handlers')
 
 const ctx = { session: { projectPath: '/repo', workingDirectory: '/repo' } } as IpcContext
 
@@ -72,6 +67,7 @@ function serverWithEvents(): { server: SolusServer; broadcasts: { type: string; 
   const server = new SolusServer()
   registerProviderHandlers(server, {
     isWorktreeInUse: () => false,
+    isSessionBusy: () => false,
     dispatcher: {} as AgentDispatcher,
     events,
   })
@@ -79,6 +75,14 @@ function serverWithEvents(): { server: SolusServer; broadcasts: { type: string; 
 }
 
 describe('merging a pull request', () => {
+  test('a linked repository scope bypasses the active checkout remote', async () => {
+    const target = await reviewTargetFor({
+      session: { projectPath: 'github.com/another/project', workingDirectory: '/repo' },
+    } as IpcContext)
+    expect(target.repo).toEqual({ host: 'github.com', owner: 'another', repo: 'project' })
+    expect((await reviewTargetFor(ctx)).repo).toEqual(repo)
+  })
+
   test('announces the lifecycle change, so every surface stops drawing it open', async () => {
     mergedFacts = facts('merged')
     mergeAnswer = { merged: true }

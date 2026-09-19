@@ -167,10 +167,10 @@
       </Table.Header>
       <!-- The app disables selection at the root, so the rows opt back in: a
            reader must be able to drag a prompt or an id out of the table. -->
-      <Table.Body class="select-text">
+      <Table.Body zebra class="select-text">
         {#each table.getRowModel().rows as row (row.original.rowIndex)}
           <Table.Row
-            class="h-10 border-0 shadow-[inset_0_-0.5px_0_var(--hairline)] transition-[background-color,box-shadow] hover:bg-[color-mix(in_oklch,var(--foreground)_3.5%,transparent)]"
+            class="h-10 border-0"
             oncontextmenu={openRowMenu}
           >
             {#each row.getVisibleCells() as cell (cell.id)}

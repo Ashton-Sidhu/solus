@@ -19,7 +19,7 @@ const { attachWebSocketTransport } = await import('@solus/server/transports/webs
 const { SolusServer } = await import('@solus/server/server/server')
 const { ClientEventRegistry } = await import('@solus/server/events/client-event-registry')
 const auth = await import('@solus/server/server/auth')
-const { projectsRootFor, setupProjectsRoot } = await import('@solus/server/server/handlers/setup-handlers')
+const { projectsRootFor, projectsVisibleTo, setupProjectsRoot } = await import('@solus/server/server/handlers/setup-handlers')
 
 // docs/plans/managed-hosts.md §1: on a managed host nothing is trusted by network
 // position, pairing does not exist, the link is system-owned, and the link tokens
@@ -159,6 +159,24 @@ describe('managed mode', () => {
     expect(projectsRootFor({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }, join(dataDir, 'projects'))).toBe(join(dataDir, 'projects'))
     expect(projectsRootFor(undefined, join(dataDir, 'projects'))).toBe(join(dataDir, 'projects'))
     expect(() => projectsRootFor({ ...member, userId: '../escape' }, join(dataDir, 'projects'))).toThrow()
+  })
+
+  test('a member\'s project listings show their workspace only; the owner sees every checkout (§3)', () => {
+    // WHY: two people on one host must never be handed the same main checkout. A
+    // project listed for a member is one that is theirs to open; the owner's own
+    // clone and another member's are not.
+    const root = join(dataDir, 'projects')
+    const member = { kind: 'org-member' as const, userId: 'user_abc123', organizationId: 'org', organizationRole: 'member' as const, teamIds: [], hostKind: 'managed' as const, displayName: 'Bob', deviceId: 'd', expiresAt: 0, deviceLabel: 'Solus cloud' }
+    const projects = [
+      { path: join(root, 'solus') },
+      { path: join(root, 'user_abc123', 'solus') },
+      { path: join(root, 'user_abc123') },
+      { path: join(root, 'user_other', 'solus') },
+      { path: join(root, 'user_abc123-not', 'solus') },
+    ]
+    expect(projectsVisibleTo(member, projects, root).map((project) => project.path)).toEqual([join(root, 'user_abc123', 'solus'), join(root, 'user_abc123')])
+    expect(projectsVisibleTo({ kind: 'local-owner', deviceId: null, deviceLabel: 'Mac' }, projects, root)).toHaveLength(5)
+    expect(projectsVisibleTo(undefined, projects, root)).toHaveLength(5)
   })
 
   test('the projects root follows SOLUS_PROJECTS_ROOT until an administrator sets one (§3)', () => {

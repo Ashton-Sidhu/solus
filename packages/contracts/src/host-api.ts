@@ -1,9 +1,10 @@
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot } from './types'
+import type { WorkCommentCommand } from './comment-commands'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLabel, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
-import type { SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
+import type { SessionHistoryPageRequest, SessionHistoryPage, SessionMessageWindow, SessionMessageWindowRequest, SessionPreviewResult, WireSessionLoadMessage, SessionToolInputsRequest, SessionToolInput } from './session-history'
 import type { AttentionEntry } from './attention-types'
 import type { ReviewLedger, ReviewContext, ReviewGuide, ReviewState, ReviewGuideStatusEvent, ReviewGuideRequestOptions, PrGuideMetadata, PrGuideMetadataRequest, ReviewTarget } from './review'
 import type { StackGraph } from './stack-types'
@@ -25,6 +26,7 @@ import type { HostUpdateStatus } from './host-update-types'
 import type { HostGrantResponse, HostKind, OrganizationDirectory, UplinkDirectory, UplinkEnrollmentTicket, UplinkLinkRequest, UplinkStatus } from './uplink'
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
+import type { PresenceSetComposingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
 
 /** How this host is reached and who this client is to it. */
 export interface ConnectionsServerInfo {
@@ -45,7 +47,8 @@ export interface ConnectionsServerInfo {
   organizationId?: string
   /** The name the host shows other people for a grant-admitted client. */
   displayName?: string
-  /** A guest's one resource and its role there; the guest shell renders nothing else. */
+  /** A guest's one resource and its role there; the guest shell renders nothing else.
+   *  A task resource reaches the task page and every session and work linked to it. */
   share?: { resource: ShareResource; role: ShareRole }
 }
 
@@ -131,6 +134,7 @@ export interface SolusAPI {
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
   searchSessions(request: SearchSessionsRequest): Promise<SessionSearchResult[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number, options?: { deferToolInputs?: boolean }): Promise<WireSessionLoadMessage[]>
+  loadSessionPage(request: SessionHistoryPageRequest): Promise<SessionHistoryPage>
   loadSessionToolInputs(request: SessionToolInputsRequest): Promise<SessionToolInput[]>
   loadSessionPreview(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId): Promise<SessionPreviewResult>
   /** The passage a search hit sits in: the message and its neighbours, from the index. */
@@ -218,8 +222,15 @@ export interface SolusAPI {
   seatDisconnect(request: SeatProviderRequest): Promise<SeatStatus>
   /** Host administrator: deletes a member's seat files, on removal from the team. */
   seatRemove(request: SeatRemoveRequest): Promise<{ removed: number }>
+  /** Presence (docs/plans/multiplayer-presence.md): who is on this host, and which participant the caller is. Changes arrive as `host.presenceChanged`. */
+  presenceSnapshot(): Promise<PresenceSnapshotResult>
+  /** What this client is looking at; a hint for "jump to", never an authorization. */
+  presenceSetFocus(request: PresenceSetFocusRequest): Promise<void>
+  /** This client has (or no longer has) a draft for the session; the room hears it as `session.presenceChanged`. */
+  presenceSetComposing(request: PresenceSetComposingRequest): Promise<void>
   setAnalyticsConsent(enabled: boolean): Promise<void>
   /** This host's durable config, plus whether any client has seeded it yet. */
+  typeSafeKeySet(apiKey: string | null): Promise<HostConfigSnapshot>
   configGet(): Promise<HostConfigSnapshot>
   configUpdate(patch: HostConfigPatch): Promise<HostConfigSnapshot>
   textGenerationSettingsGet(): Promise<TextGenerationSettingsSnapshot>
@@ -370,6 +381,10 @@ export interface SolusAPI {
   generateGuide(ctx: IpcContext, opts?: ReviewGuideRequestOptions): Promise<{ key: string; guide: ReviewGuide; persisted: boolean; outdated?: boolean } | null>
   requestReviewGuide(ctx: IpcContext, opts?: ReviewGuideRequestOptions): Promise<ReviewGuideStatusEvent | null>
   reviewGuideStatus(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope' | 'ownDeltaBase'>): Promise<ReviewGuideStatusEvent | null>
+  /** Session-scope status for many sessions in one round trip, answered in
+   * request order. A restored workspace probes every tab at once; one request
+   * per tab is one round trip per tab. */
+  sessionGuideStatuses(sessions: SessionCtx[]): Promise<(ReviewGuideStatusEvent | null)[]>
   cancelGenerateGuide(ctx: IpcContext, opts?: Pick<ReviewGuideRequestOptions, 'target' | 'scope' | 'ownDeltaBase'>): Promise<boolean>
   readGuide(ctx: IpcContext, key: string, target?: ReviewTarget): Promise<ReviewGuide | null>
   readReviewState(ctx: IpcContext, key: string): Promise<ReviewState | null>
@@ -384,7 +399,12 @@ export interface SolusAPI {
   linkWorkSession(id: string, sessionId: string, cwd?: string): Promise<void>
   promoteWorkToProject(id: string, projectRoot: string): Promise<Work>
   loadWorkAnnotations(workId: string): Promise<WorkAnnotations | null>
-  saveWorkAnnotations(ann: WorkAnnotations): Promise<void>
+  /** One change to a work's comment threads (docs/plans/multiplayer-comments.md). The
+   *  host stamps who did it and answers the whole sidecar; everyone who can open the
+   *  work hears `annotations.changed`. */
+  applyWorkComment(workId: string, command: WorkCommentCommand): Promise<WorkAnnotations>
+  /** The caller's own read mark on a thread; a viewer may leave one. */
+  markWorkCommentRead(workId: string, commentId: string): Promise<WorkAnnotations>
   readWorkGoogleComments(workId: string): Promise<WorkExternalComments>
   refreshWorkGoogleComments(workId: string): Promise<WorkExternalComments>
   sendWorkGoogleComment(workId: string, command: ExternalCommentCommand): Promise<WorkExternalComments>
@@ -479,6 +499,8 @@ export interface SolusAPI {
   automationListRuns(id: string): Promise<AutomationRun[]>
   automationReadRun(automationId: string, runId: string): Promise<AutomationRun | null>
 
+  skillsList(): Promise<import('./skill-types').SkillListResult>
+  skillsRemove(name: string): Promise<import('./skill-types').SkillRemoveResult>
   skillsSearch(query: string): Promise<RemoteSkill[]>
   skillsInstall(id: string): Promise<SkillInstallResult>
 

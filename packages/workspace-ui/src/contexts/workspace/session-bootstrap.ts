@@ -1,3 +1,7 @@
+import { materializeStartupTranscript } from './startup-session'
+import { afterPaint } from '../../lib/after-paint'
+import { markStartupTranscriptApplied } from './startup-transcript'
+import { requestSessionHistoryPage } from '@solus/client-core/session-history-page'
 import { defaultContextWindowFor, isSessionBusyStatus, type Message, type ModelConfig, type RunConfig, type Session, type SessionMeta } from '@solus/contracts/types'
 import { loadServers } from '@solus/client-core/server-registry'
 import { makePrompt, makeSession, makeTab } from './session.factories'
@@ -11,6 +15,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { projectsStore } from '../projects/projects.store.svelte'
 import { projectDirLabel } from '../../lib/paths'
 import { z } from 'zod'
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 
 const permissionModeSchema = z.enum(['ask', 'auto', 'plan']).catch('auto')
 
@@ -97,13 +102,39 @@ export function materializeTabs(ctx: WorkspaceContext): void {
   const persistedDrafts = loadPersistedSessionDrafts()
   if (persistedDrafts) ctx.restoreSessionDrafts(persistedDrafts)
   if (!snapshot?.tabs?.length) {
+    const hasCurrentDraftSnapshot = ctx.sessionDrafts.size > 0
     if (drafts) ctx.activeInput.text = drafts.activeInputText
+    restoreLocation(ctx, snapshot?.location)
+    const hasVisibleDraft = ctx.router.panes.some(
+      (pane) => pane.base?.name === 'draft'
+        && ctx.sessionDrafts.has(pane.base.params.draftId),
+    )
+    // Keep a restored page or artifact in place. Only replace the empty chat
+    // pool, which has no conversation to render in this state.
+    if (!hasVisibleDraft && (!ctx.router.leadingPane.base || ctx.router.leadingPane.base.name === 'chat')) {
+      let latestDraftId: string | null = null
+      for (const draftId of ctx.sessionDrafts.keys()) latestDraftId = draftId
+      if (latestDraftId) ctx.openDraft(latestDraftId)
+    }
     seedSessionDraft(ctx)
+    // Migrate the pre-session-draft text slot once. It no longer has a send
+    // path of its own, so leaving text there would make the new draft look
+    // empty while an invisible legacy composer still held the user's words.
+    if (!hasCurrentDraftSnapshot && ctx.activeInput.text) {
+      let latestDraftId: string | null = null
+      for (const draftId of ctx.sessionDrafts.keys()) latestDraftId = draftId
+      const draft = latestDraftId ? ctx.sessionDrafts.get(latestDraftId) : undefined
+      if (draft?.isEmpty) {
+        draft.prompt.text = ctx.activeInput.text
+        ctx.activeInput.text = ''
+      }
+    }
     ctx.hydrating = false
     return
   }
   _materializeTabs(ctx, snapshot.tabs, snapshot.tabOrder, snapshot.activeTabId, drafts)
   restoreLocation(ctx, snapshot.location)
+  materializeStartupTranscript(ctx, snapshot)
   seedSessionDraft(ctx)
   ctx.hydrating = false
 }
@@ -115,7 +146,7 @@ export function materializeTabs(ctx: WorkspaceContext): void {
  * trace.
  */
 function seedSessionDraft(ctx: WorkspaceContext): void {
-  if (ctx.tabOrder.some((tabId) => ctx.tabs[tabId])) return
+  if (ctx.hasOpenTabs()) return
   // A restored draft is already the thing the seed would have created.
   if (ctx.sessionDrafts.size > 0) return
   ctx.openSessionDraft({ reveal: false })
@@ -176,12 +207,13 @@ export async function bootstrapRuntimeTabs(ctx: WorkspaceContext): Promise<void>
     restoration.hydration = state
   }
 
-  startRestoredMetadataReads(ctx, snapshot.tabs, state)
   if (!ctx.tabs[ctx.activeTabId]) {
     ctx.activeTabId = ctx.tabOrder.find((tabId) => ctx.tabs[tabId]) ?? ''
   }
   ctx.pruneTabOrder()
-  if (ctx.activeTabId) await hydrateRestoredTab(ctx, state, ctx.activeTabId)
+  const activeHydration = ctx.activeTabId ? hydrateRestoredTab(ctx, state, ctx.activeTabId) : Promise.resolve()
+  void afterPaint().then(() => startRestoredMetadataReads(ctx, snapshot.tabs, state))
+  await activeHydration
 }
 
 /**
@@ -272,7 +304,9 @@ function restoredModelConfig(snapTab: PersistedTab): ModelConfig {
 export function applyRestoredSessionMeta(session: Session, meta: SessionMeta): void {
   if (meta.status) session.status = meta.status
   session.run.provider = meta.provider
-  if (meta.model) session.run.modelConfig.modelId = meta.model
+  if (meta.model && session.run.modelConfig.modelId !== AUTO_MODEL_ID) {
+    session.run.modelConfig.modelId = meta.model
+  }
   if (meta.reasoningEffort) session.run.modelConfig.reasoningEffort = meta.reasoningEffort
   session.currentTurnStartedAt = isSessionBusyStatus(session.status)
     ? meta.currentTurnStartedAt ?? session.currentTurnStartedAt
@@ -425,8 +459,10 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
   // below. A worktree transcript lives under its checkout, not the repo root.
   const loadPath = snapTab.gitContext?.worktreePath || displayCwd
   const history = snapTab.agentSessionId
-    ? api.loadSession(snapTab.agentSessionId, loadPath, ctx.ctxFor(snapTab.tabId), snapshotProvider,
-        RESTORED_TRANSCRIPT_LIMIT, ctx.deferHistoryToolInputs ? { deferToolInputs: true } : undefined)
+    ? requestSessionHistoryPage(api, {
+        sessionId: snapTab.agentSessionId, projectPath: loadPath, provider: snapshotProvider,
+        limit: RESTORED_TRANSCRIPT_LIMIT, deferToolInputs: ctx.deferHistoryToolInputs,
+      }, ctx.ctxFor(snapTab.tabId))
     : undefined
   // Observe an early rejection while lineage is pending; awaiting history below
   // still propagates it so selection/reconnect can retry the hydration.
@@ -443,36 +479,12 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     session.agentSessionId = activeMember.providerSessionId
   }
 
-  // Git is what the sidebar, home, and Git panel all read, and it depends on
-  // nothing below — so start it now rather than behind a transcript parse and a
-  // bind round-trip.
-  const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId }).catch(() => null)
-  const taskSessionId = handoff?.sessionId ?? session.id
-  const providerTaskSessionId = activeMember?.providerSessionId ?? snapTab.agentSessionId
-  const taskHydration = taskSessionId
-    ? ctx.tasksStore.ensureSessionBinding(taskSessionId, snapTab.taskServerId)
-        .then(async (task) => {
-          if (task || !providerTaskSessionId || providerTaskSessionId === taskSessionId) return task
-          const legacyTask = await ctx.tasksStore.ensureSessionBinding(
-            providerTaskSessionId,
-            snapTab.taskServerId,
-          )
-          if (!legacyTask) return null
-          ctx.tasksStore.rekeySessionBinding(
-            providerTaskSessionId,
-            taskSessionId,
-            snapTab.taskServerId,
-          )
-          return legacyTask
-        })
-        .catch(() => null)
-    : Promise.resolve(null)
 
   if (snapTab.agentSessionId || handoff) {
     const sessionId = handoff?.sessionId ?? snapTab.agentSessionId
     const provider = activeMember?.provider ?? snapshotProvider
     const tabId = snapTab.tabId
-    session.loadingHistory = true
+    session.loadingHistory = session.messages.length === 0
     try {
       const shouldApply = () => {
         const t = ctx.tabs[tabId]
@@ -492,15 +504,20 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
             history,
             shouldApply,
           })
-        : { messages: [], planIds: [], progress: null, truncated: false }
+        : { messages: [], planIds: [], progress: null, truncated: false, before: undefined, pendingMessages: undefined }
       if (!shouldApply()) return false
       const t = ctx.tabs[tabId]
       const s = t ? ctx.sessions[t.sessionId] : undefined
+      if (s) {
+        s.historyTruncated = transcript.truncated
+        s.historyCursor = transcript.before
+        s.historyPendingMessages = transcript.pendingMessages
+      }
       if (s && transcript.messages.length > 0) {
         replaceHydratedMessages(s, transcript.messages)
+        markStartupTranscriptApplied(tabId)
         ctx.eventReducer.rebuildAgentConversations(s)
         s.progress = transcript.progress
-        s.historyTruncated = transcript.truncated
         ctx.recomputeChangedFiles(tabId)
         for (const planId of transcript.planIds) void ctx.planStore.hydrateAnnotations(planId)
       }
@@ -526,6 +543,33 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
       if (s === session) s.loadingHistory = false
     }
   }
+
+  // Secondary reads run after the transcript can paint and never gate live attachment.
+  void afterPaint().then(async () => {
+    if (ctx.sessionFor(snapTab.tabId) !== session) return
+    const environmentRefresh = ctx.environment.refreshEnvironment(ctx, { sourceId: snapTab.tabId }).catch(() => null)
+    const taskSessionId = handoff?.sessionId ?? session.id
+    const providerTaskSessionId = activeMember?.providerSessionId ?? snapTab.agentSessionId
+    const taskHydration = taskSessionId
+      ? ctx.tasksStore.ensureSessionBinding(taskSessionId, snapTab.taskServerId)
+          .then(async (task) => {
+            if (task || !providerTaskSessionId || providerTaskSessionId === taskSessionId) return task
+            const legacyTask = await ctx.tasksStore.ensureSessionBinding(
+              providerTaskSessionId,
+              snapTab.taskServerId,
+            )
+            if (!legacyTask) return null
+            ctx.tasksStore.rekeySessionBinding(
+              providerTaskSessionId,
+              taskSessionId,
+              snapTab.taskServerId,
+            )
+            return legacyTask
+          })
+          .catch(() => null)
+      : Promise.resolve(null)
+    await Promise.all([environmentRefresh, taskHydration])
+  })
 
   if (session.agentSessionId) {
     // Join the live event stream only after durable history is in memory.
@@ -560,6 +604,5 @@ async function hydrateTab(ctx: WorkspaceContext, snapTab: PersistedTab): Promise
     void ctx.refreshThreadGoal(session.id)
   }
 
-  await Promise.all([environmentRefresh, taskHydration])
   return true
 }

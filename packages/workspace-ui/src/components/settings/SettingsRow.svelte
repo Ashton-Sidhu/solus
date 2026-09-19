@@ -1,8 +1,9 @@
 <script lang="ts">
   /** One setting inside a `SettingsSection` card: label + description on the
    *  left, control on the right, with an optional full-width `body` below.
-   *  The hairline is drawn with `first:border-t-0` rather than `last:border-b-0`
-   *  so it stays correct when rows are conditionally hidden by search. */
+   *  Drawn the way the cloud site draws a settings row: sixteen pixels in from
+   *  the card's edge, as tall as a table row (`--row-py`), and nothing drawn
+   *  between one row and the next. */
   import type { Snippet } from "svelte";
 
   interface Props {
@@ -42,14 +43,12 @@
 {#if visible}
   <div
     data-testid={testId}
-    class="border-t border-border px-4 py-3.5 transition-colors first:border-t-0 [.is-laptop-display_&]:px-3.5 [.is-laptop-display_&]:py-2.5 {comingSoon
- ? 'opacity-55'
- : '[@media(hover:hover)]:hover:bg-muted'}"
+    class="px-4 py-(--row-py) {comingSoon ? 'opacity-55' : ''}"
   >
     <div class="flex items-center gap-6 [.is-laptop-display_&]:gap-5">
       <div class="min-w-0 flex-1">
         <div
-          class="flex items-center gap-2 text-workspace-chrome font-medium text-(--solus-text-primary) [.is-laptop-display_&]:gap-1.5"
+          class="flex items-center gap-2 text-workspace-chrome text-(--solus-text-primary) [.is-laptop-display_&]:gap-1.5"
         >
           <span>{label}{@render labelExtra?.()}</span>
           {#if comingSoon}

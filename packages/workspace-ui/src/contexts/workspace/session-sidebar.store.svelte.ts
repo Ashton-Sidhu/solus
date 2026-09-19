@@ -1,7 +1,7 @@
 import { createAppContext } from '../app/create-app-context'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { untrack } from 'svelte'
-import { worktreeProjectRoot, type PinnedSession, type Session, type Tab } from '@solus/contracts/types'
+import { worktreeProjectRoot, type AgentId, type PinnedSession, type Session, type Tab } from '@solus/contracts/types'
 import type { Task, TaskSessionLink } from '@solus/contracts/task-types'
 import { parseGitHubPullRequestUrl } from '@solus/contracts/providers'
 import { existingTaskId, parentTaskId } from './session-draft.svelte'
@@ -12,11 +12,9 @@ import {
   maxTaskAttention,
   dedupePrChoices,
   prChipForChoices,
-  pullRequestForBranches,
   reconcileSidebarTasks,
   resolveTaskSidebarLifecycle,
   snoozedRowKeyForTab,
-  shouldCompleteTaskForPr,
   shouldShelveCompletedTask,
   shouldShowDurableSidebarTask,
   shouldShowSidebarChild,
@@ -50,18 +48,19 @@ import type { PlanStore } from '../plans/plan.store.svelte'
 import type { SettingsContext } from '../app/settings.context.svelte'
 import type { WorkspaceContext } from './workspace.context.svelte'
 import type { PrsStore } from '../prs/prs.store.svelte'
-import type { ProjectPrs } from '../prs/project-prs.svelte'
 import {
   closestOpenSidebarTabAfterClose,
   taskSessionTarget,
 } from './session-sidebar-selection'
 import {
   loadDismissedSidebarRowKeys,
+  loadDoneSidebarRowKeys,
   loadOpenSidebarTaskIds,
   loadSidebarRowSnoozes,
   persistSidebarRowSnoozes,
   type SidebarRowSnooze,
   persistDismissedSidebarRow,
+  persistDoneSidebarRowKeys,
   persistOpenSidebarTaskIds,
   removeDismissedSidebarRows,
 } from './tab-persistence'
@@ -72,20 +71,15 @@ import {
 import { serverConnections } from '@solus/client-core/server-connections'
 import { readSessionMeta } from '@solus/client-core/session-meta'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
-import type { HostApi } from '@solus/client-core/host-api'
 import {
-  needsDiscoveredPrLink,
   prLinkDiscoveryAttempts,
-  prLinkDiscoveryKey,
   type PrLinkDiscoveryAttempt,
-  type PrLinkDiscoveryInput,
 } from './pr-link-discovery'
 
 /** A running turn began at its prompt, so the tail-most user message dates it.
  *  Bounded because it only ever has to look at the turn in flight — a deep walk
  *  through a long transcript would run on every stream tick. */
 const TURN_START_SCAN_DEPTH = 200
-const SIDEBAR_PR_POLL_MS = 60_000
 
 function turnStartedAt(sess: Session): number {
   if (sess.currentTurnStartedAt) return sess.currentTurnStartedAt
@@ -129,7 +123,7 @@ export type SidebarSessionChild = {
   /** Session history mixes hosts, so each row has to carry the one it runs on. */
   serverId: string | null
   /** Agent and resolved model used by this session. */
-  provider?: string | null
+  provider?: AgentId | null
   modelId?: string | null
   /** Start of the turn in flight, for the elapsed readout. 0 unless running. */
   runStartedAt: number
@@ -223,9 +217,9 @@ export class SessionSidebarStore {
   })
 
   /** The user's own "I am finished with this", which nothing else in the app
-   *  knows. Deliberately not persisted: a completed task stays for the session
-   *  and drops out when it closes or the app restarts. */
-  private doneTaskIds = new SvelteSet<string>()
+   *  knows. Persisted like the snoozes: the tab comes back on reload, so the
+   *  mark must too. */
+  private doneTaskIds = new SvelteSet<string>(loadDoneSidebarRowKeys())
 
   /** Durable tasks remain in the task board after their sidebar row is closed.
    *  This is persisted view state only: closing a row must not rewrite the
@@ -239,8 +233,6 @@ export class SessionSidebarStore {
 
   /** Advances when the next snooze is due, so a shelved row returns on time. */
   lifecycleNow = $state(Date.now())
-  private observedPrLifecycle = new Set<string>()
-  private prDiscoveryInFlight = new Set<string>()
   readonly regeneratingPinnedSessionIds = new SvelteSet<string>()
 
   /** Tabs opened for a task that do not have a durable link yet. Children
@@ -527,44 +519,17 @@ export class SessionSidebarStore {
    * (dispatch-client step 2); a row's own host still routes its actions. */
   catalogTasks: SidebarTask[] = $derived(this.allTasks)
 
-  /** Transcript and status fields can rebuild sidebar rows. PR discovery only
-   * depends on task identity, host, project, linked PR, and branch inputs. */
-  private prDiscoveryInputKey: string = $derived.by(() => {
-    const inputs: PrLinkDiscoveryInput[] = []
-    for (const task of this.catalogTasks) {
-      if (!task.taskId) continue
-      const attempts = this.prDiscoveryAttemptsFor(task)
-      const branches = [
-        ...attempts
-          .filter((attempt) => !this.tabIdBySessionId.has(attempt.sessionId))
-          .map((attempt) => attempt.branchName),
-        task.branchName,
-      ]
-      const prUrls = this.mountedPrObservations(task)
-        .map((observation) => observation.prUrl)
-        .filter((url): url is string => !!url)
-      const prNumbers = [
-        ...this.session.tasksStore.get(task.taskId).prLinks.map((link) => link.number),
-        ...prUrls.flatMap((url) => {
-          const parsed = parseGitHubPullRequestUrl(url)
-          return parsed ? [parsed.number] : []
-        }),
-      ]
-      if (!prNumbers.length && !branches.some(Boolean)) continue
-      const serverId = this.session.tasksStore.get(task.taskId).serverId ?? task.serverId
-      if (!serverId) continue
-      inputs.push({
-        taskId: task.taskId,
-        serverId,
-        projectKey: task.projectKey,
-        prNumbers,
-        prUrls,
-        branches,
-        originSessionId: attempts.find((attempt) => !!attempt.branchName)?.sessionId ?? null,
-      })
-    }
-    return prLinkDiscoveryKey(inputs)
-  })
+  private linkedPrInterests = $derived(this.catalogTasks.flatMap((row) => {
+    if (!row.taskId) return []
+    const task = this.session.tasksStore.get(row.taskId)
+    const serverId = task.serverId ?? row.serverId
+    if (!serverId || !task.prLinks.length) return []
+    return [{
+      serverId, projectScope: row.projectKey, links: task.prLinks,
+    }]
+  }))
+  // Equal snapshot values must not restart subscriptions on task refresh.
+  private linkedPrInterestKey = $derived(JSON.stringify(this.linkedPrInterests))
 
   /** Root tasks any catalog host can restore through the sidebar picker.
    * Unlike `catalogTasks`, this includes rows the user dismissed earlier. */
@@ -575,21 +540,6 @@ export class SessionSidebarStore {
   /** Every open project, with the counts and the lead task the breadcrumb's
    *  picker lands on. */
   projectSummaries: ProjectSummary[] = $derived(buildProjectSummaries(this.catalogTasks))
-
-  /** With no active task row, the draft in the focused composer is the only
-   *  current project context. Keep the sidebar scoped to it instead of leaving
-   *  a completed task or an empty catalog to decide what project is current. */
-  private draftProjectChoice: ProjectFilterChoice | null = $derived.by(() => {
-    if (this.catalogTasks.some((task) => task.lifecycle === 'active')) return null
-    const sourceId = this.session.focusedSourceId
-    const draft = sourceId ? this.session.sessionDrafts.get(sourceId) : undefined
-    if (!draft) return null
-    const projectKey = environmentProjectKey(
-      this.session.environment.environmentFor(draft.run),
-      draft.run.projectGroupPath,
-    )
-    return { projectKey, label: projectLabel(projectKey), count: 0 }
-  })
 
   /**
    * The project the focused surface is working in, or null when it is working
@@ -627,9 +577,8 @@ export class SessionSidebarStore {
     resolveProjectFilter(this.settings.sidebarProjectFilter, this.catalogTasks),
   )
 
-  /** The project the trigger and the empty line name, or null while unfiltered. */
+  /** The saved filter controls the list even when the focused composer is a draft. */
   scopedProject: ProjectFilterChoice | null = $derived.by(() => {
-    if (this.draftProjectChoice) return this.draftProjectChoice
     const filter = this.openProjectFilter
     if (!filter) return null
     return this.projectFilterChoices.find((choice) => choice.projectKey === filter) ?? null
@@ -682,14 +631,7 @@ export class SessionSidebarStore {
   )
 
   /** The filter's own choices, over every project the column knows about. */
-  projectFilterChoices: ProjectFilterChoice[] = $derived.by(() => {
-    const choices = projectFilterChoices(this.catalogTasks)
-    const draftChoice = this.draftProjectChoice
-    if (draftChoice && !choices.some((choice) => choice.projectKey === draftChoice.projectKey)) {
-      choices.push(draftChoice)
-    }
-    return choices
-  })
+  projectFilterChoices: ProjectFilterChoice[] = $derived(projectFilterChoices(this.catalogTasks))
 
   /** Grouped by project, unfiltered — the phone lists projects as collapsible
    *  sections rather than filtering to one, and must not inherit a scope set on
@@ -817,31 +759,19 @@ export class SessionSidebarStore {
     return this.mountedPrObservations(task).flatMap((observation) => {
       const parsedUrl = observation.prUrl ? parseGitHubPullRequestUrl(observation.prUrl) : null
       if (!parsedUrl) return []
-      const pullRequest = this.pullRequestProjects
-        .at(serverId, task.projectKey)?.prFor(parsedUrl.number) ?? null
-      return [{
-        number: parsedUrl.number,
-        targetScope: task.projectKey,
-        title: pullRequest?.title || `#${parsedUrl.number}`,
-        url: parsedUrl.url,
-        pullRequest,
-      }]
+      const pr = this.pullRequestProjects.linkedPr(serverId, {
+        number: parsedUrl.number, url: parsedUrl.url,
+      }, task.projectKey)
+      return pr ? [pr] : []
     })
   }
 
   /** The pull requests this task's own record links. */
   private linkedPrChoices(task: SidebarTask, serverId: string): TaskPrChoice[] {
     if (!task.taskId) return []
-    return this.session.tasksStore.get(task.taskId).prLinks.map((link) => {
-      const targetScope = link.targetScope ?? task.projectKey
-      const pullRequest = this.pullRequestProjects.at(serverId, targetScope)?.prFor(link.number) ?? null
-      return {
-        number: link.number,
-        targetScope,
-        title: pullRequest?.title || link.title || `#${link.number}`,
-        url: link.url ?? pullRequest?.url ?? null,
-        pullRequest,
-      }
+    return this.session.tasksStore.get(task.taskId).prLinks.flatMap((link) => {
+      const pr = this.pullRequestProjects.linkedPr(serverId, link, task.projectKey)
+      return pr ? [pr] : []
     })
   }
 
@@ -855,7 +785,7 @@ export class SessionSidebarStore {
    * attempts at one pull request.
    *
    * Only the project's index is asked. A pull request the host detected for a
-   * mounted checkout is not read here: `refreshPrLinks` writes that observation
+   * mounted checkout is not read here: the host worker writes that observation
    * as a durable task link, so it arrives as one — and a link is the better
    * carrier, since it survives the tab being closed.
    */
@@ -931,6 +861,10 @@ export class SessionSidebarStore {
     this.openTaskIds = new SvelteSet(persistedOpenTaskIds ?? [])
     this.hasSeededOpenTasks = persistedOpenTaskIds !== null
     this.session.onPromptSubmitted = (tabId) => this.wakeSession(tabId)
+    this.session.setOpenTabPredicate((tabId) =>
+      !this.session.tasksStore.loaded
+      || this.activeTasks.some((task) => task.tabIds.includes(tabId)),
+    )
 
     // Wake the next snoozed row exactly when it is due. Without this the shelf
     // only empties on the next unrelated invalidation, so a row the user asked
@@ -985,178 +919,23 @@ export class SessionSidebarStore {
       if (openTasksChanged) persistOpenSidebarTaskIds(this.openTaskIds)
     })
     $effect(() => {
+      void this.linkedPrInterestKey
+      return untrack(() => {
+        const releases = this.linkedPrInterests.map(({ serverId, projectScope, links }) =>
+          this.pullRequestProjects.watchLinkedPrs(
+            serverConnections.apiFor(serverId), serverId,
+            this.session.ctxForEnvironment(projectScope, null), links,
+          ),
+        )
+        return () => { for (const release of releases) release() }
+      })
+    })
+    $effect(() => {
       // Depend on the answer arriving, not on the rows it produces: this is a
       // one-shot boot decision, not a rule that keeps re-running as tasks move.
       void this.session.tasksStore.loaded
       untrack(() => this.settleBootLocation())
     })
-    $effect(() => {
-      for (const task of this.session.tasksStore.tasks) {
-        const branches = new Set(
-          this.session.tasksStore.get(task.id).sessions
-            .map((attempt) => attempt.branch)
-            .filter((branch): branch is string => !!branch),
-        )
-        // This task's own scope, not whichever project a page happens to show.
-        const serverId = this.session.tasksStore.get(task.id).serverId
-        const linkedPrs = this.session.tasksStore.get(task.id).prLinks
-          .map((link) => this.pullRequestProjects
-            .at(serverId, link.targetScope ?? task.projectKey)
-            ?.prFor(link.number) ?? null)
-        const discoveredPr = [...branches]
-          .map((branch) => this.pullRequestProjects.at(serverId, task.projectKey)?.prForBranch(branch) ?? null)
-          .find((candidate) => !!candidate) ?? undefined
-        const prs = linkedPrs.length ? linkedPrs : [discoveredPr]
-        if (prs.some((pr) => !pr)) continue
-        const resolvedPrs = prs.flatMap((pr) => (pr ? [pr] : []))
-        const completionPr = resolvedPrs.length === 1
-          ? resolvedPrs[0]
-          : resolvedPrs.every((pr) => pr.state === 'merged')
-            ? resolvedPrs.toSorted((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))[0]
-            : undefined
-        if (!completionPr || !shouldCompleteTaskForPr(task, completionPr)) continue
-        const key = `${task.id}:${completionPr.state}`
-        if (this.observedPrLifecycle.has(key)) continue
-        this.observedPrLifecycle.add(key)
-        void this.session.tasksStore.get(task.id).setStatus('done')
-          .catch(() => this.observedPrLifecycle.delete(key))
-      }
-    })
-    $effect(() => {
-      void this.prDiscoveryInputKey
-      untrack(() => this.refreshPrLinks(false))
-    })
-  }
-
-  private refreshPrLinks(force: boolean): void {
-    const groups = new Map<string, {
-      api: HostApi
-      serverId: string
-      projectKey: string
-      tasks: Array<{
-        task: SidebarTask
-        taskId: string
-        branches: Array<{ headRef: string; originSessionId?: string; isolatedCheckout: boolean }>
-        mounted: MountedPrObservation[]
-      }>
-    }>()
-    for (const task of this.catalogTasks) {
-      if (!task.taskId) continue
-      const attempts = this.prDiscoveryAttemptsFor(task)
-      const mounted = this.mountedPrObservations(task)
-      const branches: Array<{ headRef: string; originSessionId?: string; isolatedCheckout: boolean }> = []
-      const seenBranches = new Set<string>()
-      for (const attempt of attempts) {
-        if (this.tabIdBySessionId.has(attempt.sessionId)) continue
-        if (!attempt.branchName || seenBranches.has(attempt.branchName)) continue
-        seenBranches.add(attempt.branchName)
-        branches.push({
-          headRef: attempt.branchName,
-          originSessionId: attempt.sessionId,
-          isolatedCheckout: attempt.isolatedCheckout,
-        })
-      }
-      // The row's own branch names no session, so nothing can vouch for the
-      // checkout it came from. It still warms the index; it never records.
-      if (task.branchName && !seenBranches.has(task.branchName)) {
-        branches.push({ headRef: task.branchName, isolatedCheckout: false })
-      }
-      const prNumbers = this.session.tasksStore.get(task.taskId).prLinks.map((link) => link.number)
-      if (!prNumbers.length && !branches.length && !mounted.some((observation) => observation.prUrl)) continue
-      // A row that names no host is skipped, never attributed to the primary.
-      const serverId = this.session.tasksStore.get(task.taskId).serverId ?? task.serverId
-      if (!serverId) continue
-      const key = `${serverId}:${task.projectKey}`
-      const existing = groups.get(key)
-      const entry = {
-        task,
-        taskId: task.taskId,
-        branches,
-        mounted,
-      }
-      if (existing) existing.tasks.push(entry)
-      else groups.set(key, {
-        api: serverConnections.apiFor(serverId),
-        serverId,
-        projectKey: task.projectKey,
-        tasks: [entry],
-      })
-    }
-
-    for (const [key, group] of groups) {
-      const lookupKey = `${key}:${this.prDiscoveryInputKey}`
-      if (this.prDiscoveryInFlight.has(lookupKey)) continue
-      this.prDiscoveryInFlight.add(lookupKey)
-      const ctx = this.session.ctxForDirectory(group.projectKey)
-      void Promise.all(group.tasks.map(async ({ task, taskId, branches, mounted }) => {
-        for (const observation of mounted) {
-          // A shared clone answers with its own HEAD for every tab open on it,
-          // so recording that answer lets whichever branch the user checked out
-          // claim every task in the sidebar. The row still shows the pull
-          // request through `prChoicesFor` for as long as the tab reports it.
-          if (!observation.isolatedCheckout) continue
-          const parsedUrl = observation.prUrl ? parseGitHubPullRequestUrl(observation.prUrl) : null
-          if (!parsedUrl) continue
-          const links = this.session.tasksStore.get(taskId).prLinks
-          if (!needsDiscoveredPrLink(links, parsedUrl)) continue
-          await this.session.tasksStore.get(taskId).link({
-            kind: 'pr',
-            targetScope: task.projectKey,
-            targetKey: String(parsedUrl.number),
-            title: `#${parsedUrl.number}`,
-            url: parsedUrl.url,
-            createdBy: 'system',
-            originSessionId: observation.originSessionId,
-          }).catch(() => null)
-        }
-        const linkedPrs = this.session.tasksStore.get(taskId).prLinks
-        // A task can link pull requests in more than one project. Warm each
-        // owning project here, outside the render path, so every surface reads
-        // the same provider record without creating reactive state while it
-        // renders.
-        const linkedNumbersByScope = new Map<string, number[]>()
-        for (const link of linkedPrs) {
-          const targetScope = link.targetScope ?? task.projectKey
-          const numbers = linkedNumbersByScope.get(targetScope)
-          if (numbers) numbers.push(link.number)
-          else linkedNumbersByScope.set(targetScope, [link.number])
-        }
-        for (const [targetScope, numbers] of linkedNumbersByScope) {
-          this.pullRequestProjects
-            .get(group.api, group.serverId, this.session.ctxForDirectory(targetScope))
-            .ensureNumbers(numbers)
-        }
-        // Branch discovery belongs to the task's project even when one of its
-        // explicit links points elsewhere.
-        const project = this.pullRequestProjects.get(group.api, group.serverId, ctx)
-        const linkedNumbers = new Set(linkedPrs
-          .filter((link) => (link.targetScope ?? task.projectKey) === task.projectKey)
-          .map((link) => link.number))
-        for (const { headRef, originSessionId, isolatedCheckout } of branches) {
-          const page = await project
-            .query({ state: 'all', head: headRef }, { force })
-            .catch(() => null)
-          const pr = page ? pullRequestForBranches([headRef], page.items) : undefined
-          if (!pr) continue
-          if (linkedNumbers.has(pr.number)) continue
-          // Warming the index above is what lets the row show an unrecorded
-          // pull request. Writing one down needs the branch to be the session's
-          // own worktree, for the same reason the mounted pass does.
-          if (!isolatedCheckout) continue
-          await this.session.tasksStore.get(taskId).link({
-            kind: 'pr',
-            targetScope: task.projectKey,
-            targetKey: String(pr.number),
-            title: `#${pr.number} ${pr.title}`,
-            createdBy: 'system',
-            originSessionId,
-          })
-          linkedNumbers.add(pr.number)
-        }
-      }))
-        .catch(() => null)
-        .finally(() => this.prDiscoveryInFlight.delete(lookupKey))
-    }
   }
 
   /** PR discovery is task-domain behavior, so sidebar projection and dismissal
@@ -1198,22 +977,6 @@ export class SessionSidebarStore {
       (sessionId): sessionId is string => !!sessionId,
     )
     this.sessionStatusFeed().clear(serverId, sessionIds)
-  }
-
-  /** Reconcile externally changed PR lifecycle while the sidebar stays mounted. */
-  subscribePrLifecycle(): () => void {
-    const refresh = () => {
-      if (document.visibilityState === 'visible') this.refreshPrLinks(true)
-    }
-    const unsubscribe = subscribeAllHosts('prs.invalidated', refresh)
-    const interval = window.setInterval(refresh, SIDEBAR_PR_POLL_MS)
-    window.addEventListener('focus', refresh)
-    refresh()
-    return () => {
-      unsubscribe()
-      window.clearInterval(interval)
-      window.removeEventListener('focus', refresh)
-    }
   }
 
   /** Hydrate the pinned list by fanning out over every connected host: pins
@@ -1371,12 +1134,29 @@ export class SessionSidebarStore {
     }
   }
 
+  /** Opening a task or one of its sessions is the read that clears a woken
+   * row. The task's read time carries only that signal, so a row that is not
+   * woken has nothing to record: writing it would make the host invalidate
+   * every task surface on every click. */
+  acknowledgeTask(taskId: string): void {
+    const task = this.session.tasksStore.peek(taskId)
+    const rootTaskId = task?.parentId ?? taskId
+    const row = this.catalogTasks.find((row) => row.taskId === rootTaskId)
+    // The row wakes on the root task's read time, so that is the one to write.
+    if (!row?.woke) return
+    void this.session.tasksStore.get(rootTaskId).markRead(true)
+  }
+
   /** Defer a row that has no task record. `until` of null wakes it now, which
    *  is what the row's own Wake button and the undo toast both call. */
   snoozeRow(rowKey: string, until: number | null, note = ''): void {
+    const activeTask = until === null
+      ? undefined
+      : this.activeTasks.find((task) => task.id === rowKey)
     if (until === null) this.rowSnoozes.delete(rowKey)
     else this.rowSnoozes.set(rowKey, { until, note: note.trim() || null })
     persistSidebarRowSnoozes(this.rowSnoozes)
+    if (activeTask) this.composeNextPromptIfNoActiveTask(activeTask)
   }
 
   /** Sending new input is an explicit return to the session, so its task or
@@ -1699,13 +1479,17 @@ export class SessionSidebarStore {
         .setStatus(durable.status === 'done' ? 'todo' : 'done')
       return
     }
-    if (!this.doneTaskIds.delete(taskId)) this.doneTaskIds.add(taskId)
+    const finishedTask = this.activeTasks.find((task) => task.id === taskId)
+    const reopened = this.doneTaskIds.delete(taskId)
+    if (!reopened) this.doneTaskIds.add(taskId)
+    persistDoneSidebarRowKeys(this.doneTaskIds)
+    if (!reopened && finishedTask) this.composeNextPromptIfNoActiveTask(finishedTask)
   }
 
   /** Close a sidebar task's mounted tabs while keeping its durable sessions
    *  available to resume from history. */
   closeTask(task: SidebarTask): void {
-    this.doneTaskIds.delete(task.id)
+    if (this.doneTaskIds.delete(task.id)) persistDoneSidebarRowKeys(this.doneTaskIds)
     const tabIdsToClose = task.tabIds.filter((tabId) =>
       !this.catalogTasks.some((candidate) =>
         candidate.id !== task.id && candidate.tabIds.includes(tabId),

@@ -92,7 +92,6 @@ describe('the maximize key across the whole secondary pane', () => {
     let markdownToggled = 0
     kb.register('pane.maximize', () => { maximized += 1 })
     kb.register('files-pane.toggle-markdown', () => { markdownToggled += 1 })
-    kb.register('file-editor.toggle-markdown', () => { markdownToggled += 1 })
 
     kb.dispatch(altM())
     expect([maximized, markdownToggled]).toEqual([1, 0])

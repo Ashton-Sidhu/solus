@@ -200,7 +200,7 @@
     class="text-transcript-meta browser-snapshot-reel @container flex max-w-full flex-col overflow-hidden rounded-2xl bg-[var(--card)] shadow-[shadow:var(--elev-lift),0_0_0_0.5px_var(--hairline-strong)] focus-visible:outline-none"
     style:--frame-aspect={aspect}
   >
-    <div class="flex items-center gap-1.5 px-3 py-2.5">
+    <div class="flex shrink-0 items-center gap-1.5 px-3 py-2.5">
       <!-- The plate's own mark, so the viewer reads as the card opened rather
            than as a second surface that arrived from somewhere. -->
       <span
@@ -368,7 +368,7 @@
          a set rather than a frame with two arrows on it. -->
     <div
       bind:this={stripEl}
-      class="scrollbar-on-hover flex items-center gap-2 overflow-x-auto py-2 pr-2 pl-3"
+      class="scrollbar-on-hover flex shrink-0 items-center gap-2 overflow-x-auto py-2 pr-2 pl-3"
       role="group"
       aria-label="Captures in this pass"
     >
@@ -415,11 +415,13 @@
      the width lives here and the frame fills it. */
   .browser-snapshot-reel {
     --frame-width: min(
-      88vw,
+      88dvw,
       64rem,
-      calc((88vh - 9.5rem) * var(--frame-aspect))
+      calc((88dvh - 9.5rem) * var(--frame-aspect))
     );
     width: var(--frame-width);
+    min-width: min(20rem, 100%);
+    max-height: calc(100dvh - 3rem);
     animation: snapshot-reel-in 180ms cubic-bezier(0.2, 0, 0, 1);
   }
 
@@ -430,9 +432,13 @@
     }
   }
 
-  .browser-snapshot-reel__frame {
+  /* Carousel.Root owns this element, so it does not have this component's
+     scope attribute. Keep the frame bounded even when the image is very tall. */
+  .browser-snapshot-reel :global(.browser-snapshot-reel__frame) {
     width: 100%;
     height: calc(var(--frame-width) / var(--frame-aspect));
+    min-height: 0;
+    overflow: hidden;
   }
 
   /* Equal cells, cut to the pass's shape, with a floor so a phone pass is a

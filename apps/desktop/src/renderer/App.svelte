@@ -12,6 +12,7 @@
   } from "./shell/desktop-attachments.svelte";
 
   import { untrack } from "svelte";
+  import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   import { Download as DownloadSimpleIcon } from "@lucide/svelte";
   import ConnectionStatusOverlay from "@solus/workspace-ui/components/servers/ConnectionStatusOverlay.svelte";
   import FatalErrorScene from "@solus/workspace-ui/components/servers/FatalErrorScene.svelte";
@@ -51,7 +52,7 @@
     typeof import("@solus/workspace-ui/components/layout/WorkspaceLayout.svelte");
   type WorkspaceLayoutComponent = WorkspaceLayoutModule["default"];
   const commandPaletteModulePromise =
-    import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte");
+    afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
   interface Props {
     initialWorkspaceLayout?: WorkspaceLayoutComponent;
   }

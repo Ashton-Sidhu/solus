@@ -6,20 +6,17 @@
     ChevronUp as CaretUpIcon,
     CornerUpLeft as ArrowBendUpLeftIcon,
   } from "@lucide/svelte";
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import { CommentComposer } from "../ui/comment-composer";
   import GuideFileDiff from "./guide/GuideFileDiff.svelte";
   import PrAvatar from "../prs/PrAvatar.svelte";
   import { Button } from "../ui/button";
-  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import {
     activityDiffPreview,
     dirName,
     fileName,
     hunkToPatch,
   } from "./lib/activity-data";
-  import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import { toasts } from "../../lib/toasts";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
   import { requestInputFocus } from "../../lib/inputFocus";
@@ -274,11 +271,8 @@
               >
             </div>
             <div class={bodyProseClass}>
-              <SvelteMarkdown
+              <GithubMarkdown
                 source={comment.body}
-                extensions={githubMarkdownExtensions}
-                renderers={githubMarkdownRenderers}
-                sanitizeUrl={remoteMarkdownSanitizeUrl}
               />
             </div>
           </div>

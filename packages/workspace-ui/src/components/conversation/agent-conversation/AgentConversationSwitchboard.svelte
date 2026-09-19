@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getTranscriptDisclosure } from "../lib/transcript-disclosure.svelte";
   import { Check as CheckIcon, Ellipsis as DotsThreeIcon } from "@lucide/svelte";
   import * as DropdownMenu from "../../ui/dropdown-menu";
   import ClaudeIcon from "../../ClaudeIcon.svelte";
@@ -91,9 +92,10 @@
     return best;
   });
 
-  let pickedId = $state<string | null>(null);
+  const disclosure = getTranscriptDisclosure();
+  const view = $derived(disclosure.forKey(`agents:${refs[0]?.exchanges[0]?.exchangeId ?? refs[0]?.agentSessionId}`));
   const selectedIndex = $derived.by(() => {
-    const picked = refs.findIndex((ref) => ref.agentSessionId === pickedId);
+    const picked = refs.findIndex((ref) => ref.agentSessionId === view.pickedId);
     return picked === -1 ? defaultIndex : picked;
   });
   const selected = $derived(refs[selectedIndex]);
@@ -267,7 +269,7 @@
         <button
           class="flex items-baseline gap-2.5 flex-1 min-w-0 overflow-hidden py-2 text-left cursor-pointer"
           onclick={() => {
-            pickedId = ref.agentSessionId;
+            view.pickedId = ref.agentSessionId;
             reopened = true;
           }}
         >
@@ -315,7 +317,7 @@
             : 'hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)]'}"
           style:--agent-accent={isLive ? agentAccent(index) : "var(--muted-foreground)"}
           aria-label={nameOf(ref)}
-          onclick={() => (pickedId = ref.agentSessionId)}
+          onclick={() => (view.pickedId = ref.agentSessionId)}
         >
           {#if (meta?.provider ?? ref.provider) === "codex"}
             <span
@@ -388,6 +390,7 @@
 
     {#if selectedLive && !isPendingAgent(selected)}
       <AgentExchangeFooter
+        draftKey={selected.exchanges[0]?.exchangeId ?? selected.agentSessionId}
         agentName={selectedName}
         needsYou={selectedState === "waiting"}
         answerInSessionOnly={selectedState === "waiting" &&

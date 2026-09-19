@@ -511,9 +511,12 @@
   <!-- The same crumb line every page head leads with, in this page's own band:
        Insights has no project scope (`metrics.db` is host-local), so the page
        menu is the first segment and the current question is the last.
-       Absent while a turn fills the page: that turn's own band carries the
-       whole path, and two bands on one edge showed through each other. -->
-  {#if !panelFullScreen}
+       Absent while a turn is open, split or full screen: that turn's own band
+       carries the whole path and the window controls, the way a pull request's
+       does. Kept beside the rail, this line sat in the centered page measure —
+       its title floated mid-rail and its ✕ hung over the panel — and the two
+       bands showed the same crumb and the same ✕ twice on one edge. -->
+  {#if !panelOpen}
   <!-- Match the Tasks header measure and keep the loading shell aligned. -->
   <div class="mx-auto w-full max-w-[72rem] shrink-0 px-8 @min-[90rem]:max-w-[82rem] @min-[110rem]:max-w-[94rem] @max-[44rem]:px-5 @max-[34rem]:px-4">
   <header
@@ -521,8 +524,8 @@
   >
     <PageCrumbLine
       page="insights"
-      trailingCrumb={splitList ? undefined : listLabel}
-      actions={splitList ? undefined : resetAction}
+      trailingCrumb={listLabel}
+      actions={resetAction}
       onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
       isLeading={pane.isLeading}
       onClose={closePage}
@@ -680,7 +683,9 @@
   </div>
 
   {#if splitList}
-    <div class="flex min-h-0 w-(--insights-list-width) flex-1 flex-col">
+    <!-- The rail now reaches the window's top edge, so it clears the window
+         controls itself, at the split measure the Pull Requests column uses. -->
+    <div class="flex min-h-0 w-(--insights-list-width) flex-1 flex-col pt-[max(26px,var(--solus-page-top-inset,0px))] [.is-laptop-display_&]:pt-[max(1.25rem,var(--solus-page-top-inset,0px))]">
       <InsightsRail
         items={railItems}
         heading={listLabel}

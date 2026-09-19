@@ -71,6 +71,7 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
       if (toolResultIsError) projected.errorHead = utf8Head(message.content)
       if (isQuestionTool(toolName) && message.content) projected.questionResult = utf8Head(message.content)
       Object.assign(projected, agentConversationProjection(toolName, message.content))
+      Object.assign(projected, artifactProjection(toolName, message.content, toolResultIsError))
       return projected
     }
 
@@ -89,8 +90,22 @@ export function projectSessionHistory(messages: SessionLoadMessage[]): WireSessi
     if (message.toolStatus === 'error') projected.errorHead = utf8Head(message.content)
     if (isQuestionTool(message.toolName)) projected.questionResult = utf8Head(message.content)
     Object.assign(projected, agentConversationProjection(message.toolName, message.content))
+    Object.assign(projected, artifactProjection(message.toolName, message.content, message.toolStatus === 'error'))
     return projected
   })
+}
+
+function artifactProjection(toolName: string | undefined, content: string, failed?: boolean): Pick<WireSessionLoadMessage, 'artifactWorkRef' | 'workUpdateSucceeded'> {
+  if (failed) return {}
+  const match = toolName?.endsWith('render_artifact')
+    ? /Rendered "([\s\S]*?)" in the conversation and saved it as an artifact \(id: ([^\s)]+)\)/.exec(content)
+    : toolName?.endsWith('update_work')
+      ? /Updated "([\s\S]*?)" \(artifact, id: ([^\s)]+)\)/.exec(content)
+      : null
+  const result: Pick<WireSessionLoadMessage, 'artifactWorkRef' | 'workUpdateSucceeded'> = {}
+  if (match) result.artifactWorkRef = { title: match[1], workId: match[2] }
+  if (toolName?.endsWith('update_work') && content.startsWith('Updated "')) result.workUpdateSucceeded = true
+  return result
 }
 
 function isSubagentTool(message: Pick<SessionLoadMessage, 'isSubagent' | 'toolName'>): boolean {

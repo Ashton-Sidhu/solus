@@ -900,6 +900,10 @@ CREATE INDEX session_thread_aliases_session ON session_thread_aliases(session_id
 ALTER TABLE sessions ADD COLUMN viewed_at INTEGER;
 `,
 
+  // Reserved: PR summaries are now host memory only. Keep this slot so a
+  // development host that applied the earlier migration retains its numbering.
+  `SELECT 1;`,
+
 ]
 
 export function runMigrations(db: DatabaseSync): void {

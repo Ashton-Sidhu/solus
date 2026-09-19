@@ -44,11 +44,12 @@
   import { liveActivityClock } from "@solus/workspace-ui/lib/shared-clock";
   import { formatElapsed } from "@solus/workspace-ui/components/session/lib/task-list";
   import { taskRef } from "@solus/workspace-ui/components/tasks/task-page/lib/task-page";
+  import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   import WebSidebarDrawer from "./WebSidebarDrawer.svelte";
   import MobilePlusMenu from "./MobilePlusMenu.svelte";
   import MobileComposerActions from "./MobileComposerActions.svelte";
-  import MobileServerSheet from "./MobileServerSheet.svelte";
-  import MobileTaskSheet from "./MobileTaskSheet.svelte";
+  const serverSheetComponent = afterPaint().then(() => import("./MobileServerSheet.svelte"));
+  const taskSheetComponent = afterPaint().then(() => import("./MobileTaskSheet.svelte"));
   import { virtualKeyboard } from "../../lib/virtual-keyboard.svelte";
   import { registerBackOverlay } from "../../lib/back-stack.svelte";
   import { mobileComposerMenu } from "./lib/mobile-composer-menu.svelte";
@@ -173,12 +174,10 @@
     const api = session.apiFor(session.activeTabId);
     const serverId = environmentServerId;
     const branch = currentBranch;
-    untrack(() => {
-      void pullRequests.projects
-        .get(api, serverId, ctx)
-        .loadBranch(branch, url)
-        .catch(() => {});
-    });
+    return untrack(() => pullRequests.projects.watch(
+      pullRequests.projects.get(api, serverId, ctx),
+      { branches: [branch] },
+    ));
   });
 
   const stateIcon = $derived(
@@ -466,12 +465,19 @@
   onOpenServers={() => (serverSheetOpen = true)}
 />
 
-<MobileServerSheet
+{#await serverSheetComponent then module}
+  {@const MobileServerSheet = module.default}
+  <MobileServerSheet
   open={serverSheetOpen}
   onClose={() => (serverSheetOpen = false)}
 />
+{:catch}
+  <p role="alert">Could not load this panel.</p>
+{/await}
 
-<MobileTaskSheet
+{#await taskSheetComponent then module}
+  {@const MobileTaskSheet = module.default}
+  <MobileTaskSheet
   open={taskSheetOpen}
   onClose={() => (taskSheetOpen = false)}
   onOpenServers={() => {
@@ -480,6 +486,9 @@
   }}
   {onReviewBranch}
 />
+{:catch}
+  <p role="alert">Could not load this panel.</p>
+{/await}
 
 <style>
   .mode-hidden { display: none !important; }

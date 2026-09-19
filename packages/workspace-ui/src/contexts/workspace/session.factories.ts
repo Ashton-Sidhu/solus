@@ -46,7 +46,6 @@ export function makeSession(
     permissionDenied: null,
     outboundPrompts: [],
     rateLimitInfo: null,
-    rateLimitStrategy: settings.rateLimitBehavior,
     lastResult: null,
     contextUsage: null,
     runUsage: null,

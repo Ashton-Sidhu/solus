@@ -17,6 +17,8 @@
 // security consequences that a generic patch must not be able to reach.
 
 import { z } from 'zod'
+import { DEFAULT_MODEL_ROUTING, modelRoutingSchema, type ModelRouting } from './model-routing'
+import { CONFIGURABLE_SOLUS_TOOL_NAMES, type SolusToolPreferences } from './agent-tools'
 import type {
   AgentId,
   AgentTaskLifecyclePolicy,
@@ -30,6 +32,12 @@ import type {
   TextGenerationModelSelection,
 } from './types'
 import { DEFAULT_SOURCE_CONTROL_WRITING, EDITOR_IDS, TERMINAL_APP_IDS } from './types'
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  mergeNotificationPreferences,
+  notificationPreferencesPatchSchema,
+  type NotificationPreferences,
+} from './notification-types'
 
 export type ThemeMode = 'system' | 'light' | 'dark'
 export type ResponseStreamingMode = 'buffered' | 'paragraph'
@@ -48,8 +56,8 @@ export const DEFAULT_REVIEW_MODEL = 'gpt-5.6-sol'
 export const DEFAULT_REVIEW_REASONING: ReasoningEffort = 'medium'
 
 export interface HostConfig {
+  solusTools: SolusToolPreferences
   themeMode: ThemeMode
-  soundEnabled: boolean
   voiceModeEnabled: boolean
   autoSendVoiceTranscripts: boolean
   vadSilenceMs: number
@@ -57,8 +65,10 @@ export interface HostConfig {
   fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
   defaultPermissionMode: 'ask' | 'auto' | 'plan'
-  backgroundActivityToasts: boolean
+  /** Which events notify, and through which channels. */
+  notifications: NotificationPreferences
   /** Per-agent model for new sessions; a missing entry means that agent's built-in default. */
+  modelRouting: ModelRouting
   defaultModels: Record<string, string>
   reviewAgent: AgentId
   reviewModel: string
@@ -192,8 +202,8 @@ function normalizeSourceControlWriting(
  * settings blob — only the one key that is wrong falls back to its default.
  */
 export const hostConfigPatchSchema = z.object({
+  solusTools: z.partialRecord(z.enum(CONFIGURABLE_SOLUS_TOOL_NAMES), z.boolean()),
   themeMode: z.enum(['system', 'light', 'dark']).catch('system'),
-  soundEnabled: z.boolean().catch(true),
   voiceModeEnabled: z.boolean().catch(false),
   autoSendVoiceTranscripts: z.boolean().catch(false),
   vadSilenceMs: z.number().transform((value) => Math.max(1000, Math.min(8000, value))).catch(1500),
@@ -201,7 +211,8 @@ export const hostConfigPatchSchema = z.object({
   fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
   activeAgent: z.enum(AGENT_IDS).catch('claude-code'),
   defaultPermissionMode: z.enum(['ask', 'auto', 'plan']).catch('auto'),
-  backgroundActivityToasts: z.boolean().catch(false),
+  notifications: notificationPreferencesPatchSchema.catch({}),
+  modelRouting: modelRoutingSchema.catch(DEFAULT_MODEL_ROUTING),
   defaultModels: z.record(z.string(), z.string()).catch({}),
   reviewAgent: z.enum(AGENT_IDS).catch(DEFAULT_REVIEW_AGENT),
   reviewModel: z.string().catch(DEFAULT_REVIEW_MODEL),
@@ -246,8 +257,8 @@ export type HostConfigPatch = z.infer<typeof hostConfigPatchSchema>
  * `HostConfigSnapshot.seeded`.
  */
 export const DEFAULT_HOST_CONFIG: HostConfig = {
+  solusTools: {},
   themeMode: 'system',
-  soundEnabled: true,
   voiceModeEnabled: false,
   autoSendVoiceTranscripts: false,
   vadSilenceMs: 1500,
@@ -255,7 +266,8 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
   fallbackTerminal: 'default-terminal',
   activeAgent: 'claude-code',
   defaultPermissionMode: 'auto',
-  backgroundActivityToasts: false,
+  notifications: DEFAULT_NOTIFICATION_PREFERENCES,
+  modelRouting: DEFAULT_MODEL_ROUTING,
   defaultModels: {},
   reviewAgent: DEFAULT_REVIEW_AGENT,
   reviewModel: DEFAULT_REVIEW_MODEL,
@@ -304,8 +316,8 @@ export const DEFAULT_HOST_CONFIG: HostConfig = {
  *   tool to be able to write.
  */
 export const HOST_CONFIG_AGENT_WRITABLE = {
+  solusTools: false,
   themeMode: true,
-  soundEnabled: true,
   voiceModeEnabled: true,
   autoSendVoiceTranscripts: true,
   vadSilenceMs: true,
@@ -313,7 +325,8 @@ export const HOST_CONFIG_AGENT_WRITABLE = {
   fallbackTerminal: true,
   activeAgent: true,
   defaultPermissionMode: false,
-  backgroundActivityToasts: true,
+  notifications: true,
+  modelRouting: true,
   defaultModels: true,
   reviewAgent: true,
   reviewModel: true,
@@ -369,7 +382,13 @@ export function isAgentWritableHostConfigKey(key: string): key is keyof HostConf
 /** The writable keys, for a tool that has to tell an agent what it may set. */
 export const AGENT_WRITABLE_HOST_CONFIG_KEYS: readonly string[] = [...AGENT_WRITABLE_KEYS].sort()
 
+export interface TypeSafeKeyStatus {
+  source: 'saved' | 'environment' | null
+}
+
 export interface HostConfigSnapshot {
+  /** Absent on older hosts. Contains no credential value. */
+  typeSafe?: TypeSafeKeyStatus
   config: HostConfig
   /**
    * False until a client has written config to this host. A client that finds
@@ -398,6 +417,10 @@ export function mergeHostConfig(base: HostConfig, patch: HostConfigPatch): HostC
       ...base.sourceControlWriting,
       ...patch.sourceControlWriting,
     })
+  }
+  if (patch.solusTools) next.solusTools = { ...base.solusTools, ...patch.solusTools }
+  if (patch.notifications) {
+    next.notifications = mergeNotificationPreferences(base.notifications, patch.notifications)
   }
   return next
 }

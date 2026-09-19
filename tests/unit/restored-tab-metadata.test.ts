@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { SessionMeta } from '@solus/contracts/types'
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 import { getAttentionState } from '@solus/workspace-ui/lib/sessionUtils'
 import { makeSession, makeTab } from '@solus/workspace-ui/contexts/workspace/session.factories'
 import { applyRestoredSessionMeta } from '@solus/workspace-ui/contexts/workspace/session-bootstrap'
@@ -104,6 +105,15 @@ describe('restored tab metadata', () => {
     expect(session.run.modelConfig.modelId).toBe('gpt-5.6-sol')
     expect(session.run.modelConfig.reasoningEffort).toBe('xhigh')
     expect(getAttentionState(session, makeTab(session.id))).toBe('running')
+  })
+
+  test('does not replace a persisted Auto preference with the resolved model', () => {
+    const session = restoredSession()
+    session.run.modelConfig.modelId = AUTO_MODEL_ID
+
+    applyRestoredSessionMeta(session, meta({ model: 'gpt-5.6-sol' }))
+
+    expect(session.run.modelConfig.modelId).toBe(AUTO_MODEL_ID)
   })
 
   test('restores terminal status icons and clears a stale running timer', () => {

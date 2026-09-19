@@ -6,6 +6,8 @@
 
   interface Props {
     label?: string;
+    /** One muted sentence under the label that applies to every row in the card. */
+    description?: string;
     visible?: boolean;
     /** Leads the label — a brand mark for a group that names a product. */
     icon?: Snippet;
@@ -14,7 +16,7 @@
     children: Snippet;
   }
 
-  let { label, visible = true, icon, action, children }: Props = $props();
+  let { label, description, visible = true, icon, action, children }: Props = $props();
 </script>
 
 {#if visible}
@@ -36,7 +38,12 @@
         {@render action?.()}
       </div>
     {/if}
-    <div class="overflow-hidden rounded-2xl border border-border bg-card shadow-xs [.is-laptop-display_&]:rounded-xl">
+    {#if description}
+      <p class="px-0.5 text-pretty text-[0.875em] text-muted-foreground">{description}</p>
+    {/if}
+    <!-- The cloud site's panel: a ring in the strong hairline, no border and
+         no drop shadow, so adjacent cards never double a line. -->
+    <div class="overflow-hidden rounded-xl bg-card shadow-[0_0_0_1px_var(--hairline-strong)]">
       {@render children()}
     </div>
   </section>

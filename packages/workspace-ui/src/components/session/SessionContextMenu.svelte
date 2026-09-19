@@ -190,8 +190,8 @@
     else session.closeTab(targetTabId);
   }
 
-  /** Sharing needs the session's host, which only an open tab names. */
-  const canShare = $derived(!!tabId && !!sess?.id);
+  /** Sharing needs the session's host, which only an open tab names, and that host linked to Solus cloud. */
+  const canShare = $derived(!!tabId && !!sess?.id && sharesStore.canShareFrom(session.serverIdFor(tabId)));
 
   function share() {
     const targetTabId = tabId;

@@ -34,6 +34,9 @@ function isPlanTarget(targetId: string): boolean {
 
 interface TargetThreads {
   label: string
+  /** An artifact is rendered HTML with no prose to quote: a comment on one is a
+   *  note on the whole render, or a pin the user dropped. */
+  isArtifact: boolean
   comments: PlanComment[]
   /** Threads that live in a linked external document (a work only). An agent
    *  answers one of these through a private local thread linked to it. */
@@ -58,6 +61,7 @@ async function resolveTarget(targetId: string): Promise<(TargetThreads & { conte
   const linked = link && snapshot && snapshot.provider === link.provider && snapshot.documentId === link.externalId && snapshot.externalKey === link.externalKey
   return {
     label: `work "${work.title}"`,
+    isArtifact: work.type === 'artifact',
     content: work.content,
     comments: existing?.comments ?? [],
     externalThreads: linked ? snapshot.threads.filter((thread) => !thread.deleted) : [],
@@ -96,6 +100,7 @@ async function resolvePlanTarget(targetId: string): Promise<(TargetThreads & { c
   }
   return {
     label: `plan "${base.title}"`,
+    isArtifact: false,
     content,
     comments: base.comments ?? [],
     externalThreads: [],
@@ -165,20 +170,26 @@ export function formatOpenThreads(comments: readonly PlanComment[]): string {
   const open = comments.filter((c) => !c.resolvedAt)
   if (!open.length) return ''
   const lines = open.map((c) => {
-    const anchor = c.nodeId
-      ? `On node "${c.selectedText}" (node id: ${c.nodeId})`
-      : c.edgeId
-        ? `On edge "${c.selectedText}" (edge id: ${c.edgeId})`
-        : `On "${c.selectedText}"`
-    const head = `- [${c.id}] ${anchor} — ${threadAuthor(c)}: ${c.comment}`
+    const head = `- [${c.id}] ${threadAnchorLabel(c)} — ${threadAuthor(c)}: ${c.comment}`
     const replies = (c.replies ?? []).map((r) => `  - ${threadAuthor(r)}: ${r.text}`)
     return [head, ...replies].join('\n')
   })
   return `\n\nOpen threads on this document (${lines.length}) — address them when revising, then resolve_comment each one:\n${lines.join('\n')}`
 }
 
-function threadAuthor(message: Pick<PlanComment, 'author' | 'authorAgent'>): string {
-  if ((message.author ?? 'you') !== 'solus') return 'User'
+/** Where a thread sits, in words an agent can act on. A pin is a point over an
+ *  artifact's render, given as percentages of its width and height. */
+export function threadAnchorLabel(c: Pick<PlanComment, 'selectedText' | 'nodeId' | 'edgeId' | 'pin'>): string {
+  if (c.nodeId) return `On node "${c.selectedText}" (node id: ${c.nodeId})`
+  if (c.edgeId) return `On edge "${c.selectedText}" (edge id: ${c.edgeId})`
+  if (c.pin) return `At ${Math.round(c.pin.x * 100)}% across, ${Math.round(c.pin.y * 100)}% down the render ("${c.selectedText}")`
+  return `On "${c.selectedText}"`
+}
+
+/** Who wrote a thread message: the agent that signed it, the person the host
+ *  stamped, or "User" for a thread written before works had people. */
+function threadAuthor(message: Pick<PlanComment, 'author' | 'authorAgent' | 'person'>): string {
+  if ((message.author ?? 'you') !== 'solus') return message.person?.displayName ?? 'User'
   return message.authorAgent?.title ?? 'Solus'
 }
 
@@ -214,7 +225,7 @@ const commentDocumentFields = {
   comments: z
     .array(
       z.object({
-        quote: z.string().describe('The exact passage to anchor to, copied verbatim from the document as it READS — plain text only. Markdown syntax (**, #, list markers) is not part of the rendered text and can never anchor. Quote enough words to be unique.'),
+        quote: z.string().describe('The exact passage to anchor to, copied verbatim from the document as it READS — plain text only. Markdown syntax (**, #, list markers) is not part of the rendered text and can never anchor. Quote enough words to be unique. On an artifact work there is no prose: pass a short caption naming what the note is about, and it lands on the render as a whole.'),
         comment: z.string().describe('The note itself: what is wrong or what to change.'),
         node_id: z.string().optional().describe('For diagram works: anchor to this node instead of to a text quote. Pass the node label as `quote`.'),
         edge_id: z.string().optional().describe('For diagram works: anchor to this edge instead of to a text quote. Pass the edge label as `quote`.'),
@@ -375,9 +386,10 @@ async function commentDocument(args: CommentToolArgs, deps: CommentToolDeps): Pr
     const nodeId = raw.node_id?.trim() || undefined
     const edgeId = raw.edge_id?.trim() || undefined
 
-    // A diagram comment anchors to a node/edge id, so there is no text to find.
+    // A diagram comment anchors to a node/edge id, and an artifact has no prose
+    // to quote — its note is on the whole render — so there is no text to find.
     let textOffset: number | undefined
-    if (!nodeId && !edgeId) {
+    if (!nodeId && !edgeId && !target.isArtifact) {
       if (target.content === null) return { ok: false, text: `The content of "${targetId}" could not be read, so no quote can be anchored.` }
       const anchor = anchorQuote(target.content, quote)
       if (!anchor.ok) {

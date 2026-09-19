@@ -51,6 +51,20 @@ export class RateLimitState {
   private active = new Map<string, RateLimitEvent>()
 
   record(sessionId: string, event: RateLimitEvent): RateLimitEvent | null {
+    const previous = this.active.get(sessionId)
+    // Claude follows its structured rejection with a terminal error that has
+    // no window or reset. Do not let that less specific event erase the timer.
+    if (isBlockingRateLimit(event) && event.resetsAt === null
+      && previous?.resetsAt != null
+      && (event.windowDurationMins === undefined || event.windowDurationMins === previous.windowDurationMins)) {
+      event = {
+        ...event,
+        resetsAt: previous.resetsAt,
+        rateLimitType: previous.rateLimitType,
+        windowDurationMins: previous.windowDurationMins,
+        info: undefined,
+      }
+    }
     const decorated = decorateRateLimit(event)
 
     if (isBlockingRateLimit(decorated)) {

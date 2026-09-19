@@ -419,33 +419,31 @@
 
   /* `:global` so a caller's own action button, handed in through the `actions`
      snippet, wears the same chrome as the frame's Expand. */
+  /* Quiet at rest: no shadow, a faint border, and a muted glyph, so the
+     cluster sits over a render's own header without competing with it. */
   .artifact-actions :global(.artifact-action) {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 1.875rem;
-    height: 1.875rem;
-    border-radius: 0.5rem;
+    width: 1.625rem;
+    height: 1.625rem;
+    border-radius: 0.375rem;
     border: 0.0625rem solid
-      color-mix(in srgb, var(--solus-tool-border) 65%, transparent);
-    background: color-mix(in srgb, var(--solus-container-bg) 70%, transparent);
-    backdrop-filter: blur(0.625rem) saturate(1.3);
-    -webkit-backdrop-filter: blur(0.625rem) saturate(1.3);
-    color: var(--solus-text-secondary);
+      color-mix(in srgb, var(--solus-tool-border) 40%, transparent);
+    background: color-mix(in srgb, var(--solus-container-bg) 80%, transparent);
+    backdrop-filter: blur(0.375rem);
+    -webkit-backdrop-filter: blur(0.375rem);
+    color: var(--muted-foreground);
     cursor: pointer;
-    box-shadow:
-      0 0.0625rem 0.125rem rgba(0, 0, 0, 0.08),
-      0 0.25rem 0.75rem rgba(0, 0, 0, 0.06);
     text-decoration: none;
     transition:
       background 0.16s ease,
       color 0.16s ease,
       border-color 0.16s ease,
-      box-shadow 0.16s ease,
       transform 0.12s ease;
   }
 
-  /* A labelled action (Source, Save as artifact) needs room for its word. */
+  /* A labelled action (a file preview's Save) needs room for its word. */
   .artifact-actions :global(.artifact-action.is-labelled) {
     width: auto;
     gap: 0.3125rem;
@@ -483,9 +481,6 @@
     background: var(--solus-surface-hover);
     border-color: var(--solus-accent-border-medium);
     color: var(--solus-accent);
-    box-shadow:
-      0 0.125rem 0.25rem rgba(0, 0, 0, 0.1),
-      0 0.375rem 1rem rgba(0, 0, 0, 0.08);
   }
 
   .artifact-actions :global(.artifact-action.is-copied) {
@@ -496,9 +491,6 @@
     );
     border-color: var(--solus-accent-border-medium);
     color: var(--solus-accent);
-    box-shadow:
-      0 0.125rem 0.25rem rgba(0, 0, 0, 0.1),
-      0 0.375rem 1rem rgba(0, 0, 0, 0.08);
   }
 
   .artifact-actions :global(.artifact-action:active) {

@@ -12,18 +12,15 @@
     Tag as TagIcon,
     Trash2 as TrashIcon,
   } from "@lucide/svelte";
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import type { PrCommit, ReviewComment, ReviewThread } from "@solus/contracts/providers";
   import {
     formatTimeAgoFromTimestamp,
     formatAbsoluteTimestamp,
   } from "../../lib/sessionUtils";
-  import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import * as TooltipUI from "@solus/workspace-ui/components/ui/tooltip";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { Button } from "../ui/button";
-  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import { Skeleton } from "../ui/skeleton";
   import PrAvatar from "../prs/PrAvatar.svelte";
   import ArtifactActivityCard from "../artifact/ArtifactActivityCard.svelte";
@@ -168,11 +165,8 @@
     class="mt-2 rounded-2xl border border-border bg-card px-3 py-2.5 [.is-laptop-display_&]:rounded-xl [.is-laptop-display_&]:px-2.5 [.is-laptop-display_&]:py-2"
   >
     <div class={bodyProseClass}>
-      <SvelteMarkdown
+      <GithubMarkdown
         source={body}
-        extensions={githubMarkdownExtensions}
-        renderers={githubMarkdownRenderers}
-        sanitizeUrl={remoteMarkdownSanitizeUrl}
       />
     </div>
   </div>

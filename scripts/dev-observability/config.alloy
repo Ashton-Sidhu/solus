@@ -1,0 +1,44 @@
+// Watch the directory so replacement/truncation at app boot is detected.
+loki.source.file "structured" {
+  targets = [{__path__ = "/var/log/solus/dev.log", service_name = "solus", source = "app"}]
+  forward_to = [loki.process.structured.receiver]
+}
+loki.process "structured" {
+  stage.json {
+    expressions = {level = "level", msg = "msg", ts = "ts", trace_id = "traceId", span_id = "spanId"}
+  }
+  stage.timestamp {
+    source = "ts"
+    format = "RFC3339Nano"
+  }
+  stage.template {
+    source = "streaming"
+    template = "{{ if and (eq .level `debug`) (or (eq .msg `raw_provider_event`) (eq .msg `session_event_bytes`) (eq .msg `host_event_published`)) }}true{{ else }}false{{ end }}"
+  }
+  stage.labels {
+    values = {level = "", streaming = ""}
+  }
+  stage.structured_metadata {
+    values = {trace_id = "", span_id = ""}
+  }
+  forward_to = [loki.write.local.receiver]
+}
+loki.source.file "console" {
+  targets = [{__path__ = "/var/log/solus/dev-console.log", service_name = "solus", source = "console"}]
+  forward_to = [loki.process.console.receiver]
+}
+loki.process "console" {
+  stage.decolorize {}
+  // Keep each diagnostic and its indented payload together for filtering.
+  stage.multiline {
+    firstline = "^([^ \t{]|$)"
+    max_wait_time = "2s"
+    max_lines = 512
+  }
+  forward_to = [loki.write.local.receiver]
+}
+loki.write "local" {
+  endpoint {
+    url = "http://lgtm:3100/loki/api/v1/push"
+  }
+}

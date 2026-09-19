@@ -4,13 +4,17 @@
   import { CommentComposer } from '../ui/comment-composer'
   import ExternalCommentPublish from '../work/ExternalCommentPublish.svelte'
   import CommentBody from './CommentBody.svelte'
+  import PresenceAvatar from '../presence/PresenceAvatar.svelte'
   import {
     authorLabel,
+    canChangeThread,
     commentAuthor,
     isResolved,
+    messagePerson,
     showsAuthor,
     visibleReplies,
   } from './lib/thread'
+  import { getCommentViewer } from './lib/comment-viewer'
 
   interface Props {
     externalWorkId?: string
@@ -60,6 +64,13 @@
   const author = $derived(commentAuthor(comment))
   const resolved = $derived(isResolved(comment))
   const replies = $derived(visibleReplies(comment))
+  // Who is reading (docs/plans/multiplayer-comments.md): another person's thread
+  // carries their face and name; the reader's own carries none, as it always did.
+  // Edit and Delete are offered only where the host would allow them.
+  const viewer = getCommentViewer()
+  const self = $derived(viewer().selfUserIds)
+  const person = $derived(messagePerson(comment, self))
+  const canChange = $derived(canChangeThread(comment, viewer()))
 
   // Resolved threads collapse to one sage row; "Show" re-expands this one
   // without unresolving it, so the reader can read a settled conversation.
@@ -141,7 +152,10 @@
            never tell you that you did not already know. -->
       {#if author === 'solus'}
         <span class="ctc__spark" aria-hidden="true">✦</span>
-        <span class="ctc__author">{authorLabel(comment)}</span>
+        <span class="ctc__author">{authorLabel(comment, self)}</span>
+      {:else if person}
+        <PresenceAvatar {person} size={16} />
+        <span class="ctc__author" data-testid="comment-person">{person.displayName}</span>
       {/if}
       {#if comment.createdAt}
         <span class="ctc__time">{threadTime(comment.createdAt, now)}</span>
@@ -156,7 +170,7 @@
       <!-- Verbs are type, never filled buttons — a thread is a note, not a
            toolbar. They appear on hover or focus and are gone otherwise. -->
       <div class="ctc__verbs">
-        {#if !editing}
+        {#if !editing && canChange}
           <button type="button" class="ctc-text-btn" onclick={onStartEdit}>Edit</button>
           <button type="button" class="ctc-text-btn" onclick={onDelete}>Delete</button>
         {/if}
@@ -211,14 +225,17 @@
       {/if}
 
       {#each shownReplies as reply, i (reply.id)}
+        {@const replyPerson = messagePerson(reply, self)}
         <div class="ctc__reply">
           {#if reply.author === 'solus'}
             <span class="ctc__spark ctc__spark--reply" aria-hidden="true">✦</span>
+          {:else if replyPerson}
+            <PresenceAvatar person={replyPerson} size={16} class="mt-px" />
           {/if}
           <div class="ctc__reply-text">
             {#if showsAuthor(shownReplies, i)}
-              {#if reply.author === 'solus'}
-                <span class="ctc__reply-author">{authorLabel(reply)}</span>
+              {#if reply.author === 'solus' || replyPerson}
+                <span class="ctc__reply-author">{authorLabel(reply, self)}</span>
               {/if}
               <span class="ctc__time">{threadTime(reply.createdAt, now)}</span>
             {/if}

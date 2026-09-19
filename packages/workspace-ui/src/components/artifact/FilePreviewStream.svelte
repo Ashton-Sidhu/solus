@@ -320,7 +320,7 @@
   let draftFormWrapper: HTMLDivElement | null = $state(null);
   let draftForm: ReturnType<typeof CommentComposer> | null = $state(null);
   let fileInstance: PierreFile<AnnotationMeta> | null = null;
-  let editor: Editor<AnnotationMeta> | null = null;
+  let editor: Editor<"file", AnnotationMeta> | null = null;
   let detachEditor: (() => void) | null = null;
   let fileFindPanelObserver: MutationObserver | null = null;
   let mountedComments: ReturnType<typeof mount>[] = [];
@@ -733,14 +733,13 @@
           lineAnnotations: buildAnnotations(),
         });
         if (!isReadOnly) {
-          editor = new Editor<AnnotationMeta>({
+          editor = new Editor<"file", AnnotationMeta>("file", {
             onAttach: installFileEditorFindStyles,
-            onChange: (file, annotations) => {
+            onChange: ({ file, lineAnnotations }) => {
               scheduleSave(file.contents);
-              // SAFETY: Pierre returns the same annotation metadata array supplied to this editor instance.
               applyRemappedAnnotations(
                 file.contents,
-                annotations as LineAnnotation<AnnotationMeta>[] | undefined,
+                lineAnnotations,
               );
             },
           });

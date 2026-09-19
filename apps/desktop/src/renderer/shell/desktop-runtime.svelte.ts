@@ -7,6 +7,7 @@ import {
   atlassianStore,
   connectRequestStore,
   seatsStore,
+  presenceStore,
   parseRoute,
   runtime,
 } from "@solus/workspace-ui/contexts";
@@ -248,8 +249,7 @@ export function installDesktopRuntime(core: DesktopAppCore) {
   $effect(() => {
     return untrack(() =>
       notificationsStore.start({
-        nativeNotificationsEnabled: () => settings.soundEnabled,
-        backgroundActivityToastsEnabled: () => settings.backgroundActivityToasts,
+        preferences: () => settings.notifications,
         hostDisplay: (serverId) => {
           const host = serversStore.hostFor(serverId);
           const display: import("@solus/workspace-ui/contexts/notifications/notifications.store.svelte").NotificationHostDisplay =
@@ -284,7 +284,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       );
       const unsubSessionStatuses =
         sessionSidebarStore.subscribeSessionStatuses();
-      const unsubPrLifecycle = sessionSidebarStore.subscribePrLifecycle();
       const defaultServerId = serverConnections.defaultServerId();
       if (defaultServerId) void voiceModelStore.refresh(defaultServerId);
       // The promoted settings tier lives on the host so it follows the user
@@ -347,6 +346,9 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       // A member's provider seat changes on the host, at a turn's end or in the
       // browser; the settings row and the connect card both read the store.
       const unsubSeats = seatsStore.listen();
+      // Who else is on each host, and what they are looking at; the rooms arrive
+      // as snapshots and every presence surface reads the one store.
+      const unsubPresence = presenceStore.listen();
       // The Atlassian sign-in finishes in a browser and lands on the host, not
       // on the tab that opened it — so the completion is heard app-wide too.
       const unsubAtlassian = atlassianStore.listenForOAuthCompletion();
@@ -366,7 +368,6 @@ export function installDesktopRuntime(core: DesktopAppCore) {
       return () => {
         unsubVoiceModel();
         unsubSessionStatuses();
-        unsubPrLifecycle();
         unsubUsage();
         unsubAutomations();
         unsubAnnotations();
@@ -379,12 +380,19 @@ export function installDesktopRuntime(core: DesktopAppCore) {
         unsubNeedsReview();
         unsubConnectRequests();
         unsubSeats();
+        unsubPresence();
         unsubHostConfig();
         unsubAtlassian();
         unsubShown();
       };
     }),
   );
+
+  // Tell the host which session or work the focused pane shows, so teammates
+  // can see where this person is and jump to them.
+  $effect(() => presenceStore.reportWorkspaceFocus(session));
+  // And go along with a followed teammate when they move.
+  $effect(() => presenceStore.syncFollow(session));
 
   const activeProjectScope = $derived(projectScopeOf(session.ctx.session));
 

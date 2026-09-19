@@ -353,7 +353,7 @@
 <aside
   class={inline
     ? "w-full text-workspace-chrome"
-    : "w-[330px] shrink-0 text-workspace-chrome [.is-laptop-display_&]:w-[292px]"}
+    : "w-[330px] shrink-0 pb-6 text-workspace-chrome [.is-laptop-display_&]:w-[292px]"}
 >
   <!-- The cap is what makes `sticky` safe. Pinned flush, a rail taller than the
        scrollport never moves, so everything past the fold — the tail of an

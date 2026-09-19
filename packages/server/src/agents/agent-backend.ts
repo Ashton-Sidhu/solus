@@ -13,7 +13,7 @@ import type {
   ThreadGoal,
   ThreadGoalSetRequest,
 } from '@solus/contracts/types'
-import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
+import type { ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import type { AgentRunRequest, AgentRunSessionState } from './agent-runner'
 import type { TurnSeat } from '../seats/seat-manager'
 
@@ -89,6 +89,7 @@ export interface AgentBackend extends EventEmitter {
   listSessions(projectPath: string, onBatch?: (sessions: SessionMeta[]) => void, limit?: number): Promise<SessionMeta[]>
   /** When `limit` is set, returns only the most recent `limit` messages (windowed load for fast hydration). */
   loadSession(sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]>
+  loadSessionPage?(sessionId: string, projectPath: string | undefined, limit: number, before?: string): Promise<ProviderHistoryPage>
   loadSessionPreview?(sessionId: string, projectPath?: string): Promise<SessionPreviewResult>
   listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]>
   invalidatePlanCache?(sessionId: string): void

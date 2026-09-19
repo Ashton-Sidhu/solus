@@ -205,7 +205,7 @@ export class SessionConfigController {
       (message) => message.agentChangedToProvider === provider,
     )
     if (pendingDivider) {
-      pendingDivider.agentChangedToModel = MODEL_PROFILES[provider]?.[modelId]?.label ?? modelId
+      pendingDivider.agentChangedToModel = modelLabelFor(provider, modelId) ?? modelId
     }
   }
 
@@ -349,11 +349,11 @@ export class SessionConfigController {
       session.run.permissionMode = mode
       return
     }
-    // Same draft/global split as the model above: a named draft is a composer
-    // pointed at on purpose, and the mode it starts on is its own.
+    // A mode picked before a session starts is a preference, not a one-off: the
+    // draft on screen takes it, and so does every composer opened after it.
     const draft = tabId ? this.deps.draftFor(tabId) : undefined
     if (draft) draft.run = { ...draft.run, permissionMode: mode }
-    else this.globalDefaults.permissionMode = mode
+    this.globalDefaults.permissionMode = mode
   }
 
   setWorktreeBaseBranch(branch: string | null): void {

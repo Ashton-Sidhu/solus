@@ -42,7 +42,7 @@ export interface WorktreeDeps {
 async function resolveGitCheckout(ctx: IpcContext) {
   let gitContext = ctx.session.gitContext ?? undefined
   if (!gitContext && ctx.session.workingDirectory && ctx.session.workingDirectory !== '~') {
-    const branch = getWorkingBranch(ctx.session.workingDirectory)
+    const branch = await getWorkingBranch(ctx.session.workingDirectory)
     const targetBranch = await getDefaultBranch(ctx.session.workingDirectory)
     if (branch) {
       gitContext = { branch, targetBranch }
@@ -266,14 +266,14 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     return listBranches(cwd, options)
   })
 
-  server.register('worktreeRestore', (args) => {
+  server.register('worktreeRestore', async (args) => {
     const [ctx, worktreePath] = args
     log.info('rpc_worktree_restore', { sessionId: ctx.session.sessionId })
     if (ctx.session.gitContext?.worktreePath && ctx.session.gitContext.worktreePath === worktreePath) {
       controlPlane.setSessionGitEnvironment(ctx.session.sessionId, worktreePath, ctx.session.gitContext)
       return ctx.session.gitContext
     }
-    const gitContext = restoreWorktree(worktreePath)
+    const gitContext = await restoreWorktree(worktreePath)
     if (gitContext) controlPlane.setSessionGitEnvironment(ctx.session.sessionId, worktreePath, gitContext)
     return gitContext
   })

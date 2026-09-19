@@ -1,6 +1,7 @@
 <script lang="ts">
   import { useOverlayTransition } from "./lib/overlay-transition.svelte";
-  import MobileSessionList from "./MobileSessionList.svelte";
+  import SessionSidebarSkeleton from "@solus/workspace-ui/components/session/SessionSidebarSkeleton.svelte";
+  import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
   import { blurActiveTextInputOnMobile } from "@solus/workspace-ui/lib/inputFocus";
   import { swipeDismiss } from "./lib/swipe-dismiss";
 
@@ -10,6 +11,7 @@
     onOpenServers: () => void;
   }
   let { open, onClose, onOpenServers }: Props = $props();
+  const sessionListComponent = afterPaint().then(() => import("./MobileSessionList.svelte"));
 
   let drawerEl: HTMLDivElement | undefined = $state();
   let backdropEl: HTMLDivElement | undefined = $state();
@@ -54,7 +56,17 @@
       ignoreWithin: "[data-swipe-actions]",
     }}
   >
-    <MobileSessionList active={open} onSessionSelect={onClose} {onOpenServers} />
+    {#await sessionListComponent}
+      <div class="flex justify-end px-3.5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-3">
+        <button class="min-h-11 px-3 text-workspace-chrome" onclick={onClose}>Close sidebar</button>
+      </div>
+      <SessionSidebarSkeleton />
+    {:then module}
+      <module.default active={open} onSessionSelect={onClose} {onOpenServers} />
+    {:catch}
+      <p role="alert">Could not load this panel.</p>
+      <button class="min-h-11 px-3 text-workspace-chrome" onclick={onClose}>Close sidebar</button>
+    {/await}
   </div>
 {/if}
 

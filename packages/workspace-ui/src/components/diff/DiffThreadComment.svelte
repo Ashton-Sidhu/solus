@@ -5,13 +5,10 @@
     CornerUpLeft as ArrowBendUpLeftIcon,
     ChevronDown as CaretDownIcon,
   } from "@lucide/svelte";
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
+  import GithubMarkdown from '../github-markdown/GithubMarkdown.svelte';
   import type { ReviewComment } from "@solus/contracts/providers";
   import { formatTimeAgoFromTimestamp } from "../../lib/sessionUtils";
-  import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
-  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
   import { toasts } from "../../lib/toasts";
-  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
   import { CommentComposer } from "../ui/comment-composer";
   import { Button } from "../ui/button";
   import PrAvatar from "../prs/PrAvatar.svelte";
@@ -169,11 +166,8 @@
               </span>
             </div>
             <div class={bodyProseClass}>
-              <SvelteMarkdown
+              <GithubMarkdown
                 source={comment.body}
-                extensions={githubMarkdownExtensions}
-                renderers={githubMarkdownRenderers}
-                sanitizeUrl={remoteMarkdownSanitizeUrl}
               />
             </div>
           </div>

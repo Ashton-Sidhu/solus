@@ -18,7 +18,6 @@ import {
   import { webState } from "../lib/web-state.svelte";
   import {
     FILE_PREVIEW_EVENT,
-    type FilePreviewRequest,
   } from "@solus/workspace-ui/lib/filePreview";
   import type { DiffScope } from "@solus/contracts/types";
   import type { ReviewView } from "@solus/workspace-ui/contexts/workspace/routing/route-registry";
@@ -51,6 +50,13 @@ import {
     for (const pane of router.panes) {
       const ref = visibleRef(pane);
       if (ref?.name === "work") return { paneId: pane.id, params: ref.params };
+    }
+    return null;
+  });
+  const activeFilesRoute = $derived.by(() => {
+    for (const pane of router.panes) {
+      const ref = visibleRef(pane);
+      if (ref?.name === "files") return { paneId: pane.id, params: ref.params };
     }
     return null;
   });
@@ -92,8 +98,6 @@ import {
   // Which of Map · Guide · Diff the mobile review is on. The desktop route
   // carries this; mobile has no location to put it in.
   let reviewView = $state<ReviewView>("map");
-  let editorFile = $state<FilePreviewRequest | null>(null);
-  const canShowSidePanel = $derived(canShowDiffPanel || !!editorFile);
   // Mobile always shows the diff full-screen.
 
   // Browser/OS back closes the topmost full-screen overlay on mobile, instead of
@@ -101,7 +105,6 @@ import {
   function closeDiffPanel() {
     diffPanelOpen = false;
 
-    editorFile = null;
   }
   // Settings, Folio and the work shell are routes now: each navigation pushes a
   // real history entry, so browser/OS back walks them without a sentinel. Only
@@ -131,7 +134,6 @@ import {
       if (isMobile) {
         diffPanelOpen = false;
 
-        editorFile = null;
       } else if (router.overlay?.name === "review") {
         router.closeOverlay();
       }
@@ -159,22 +161,7 @@ import {
         return;
       }
       sidePanelSourceTabId = sourceTabId;
-      // Mobile bespoke toggle.
-      if (editorFile) {
-        editorFile = null;
-        if (scope.kind === "session") {
-          diffPanelOpen = false;
-
-          return;
-        }
-        if (canShowSourceDiff) {
-          diffScope = scope;
-          diffPanelOpen = true;
-        }
-        return;
-      }
       if (canShowSourceDiff) {
-        editorFile = null;
         if (diffPanelOpen && diffScope?.kind === scope.kind) {
           diffPanelOpen = false;
         } else {
@@ -194,15 +181,8 @@ import {
       if (!detail?.path) return;
       const sourceTabId =
         detail.tabId ?? session.focusedChatTabId ?? session.activeTabId;
-      if (!isMobile) {
-        session.openFilePreview(detail, sourceTabId);
-        return;
-      }
-      router.closeGroup("page");
-      sidePanelSourceTabId = sourceTabId;
-      editorFile = detail;
-      diffScope = { kind: "session" };
-      diffPanelOpen = true;
+      if (isMobile) diffPanelOpen = false;
+      session.openFileInFiles(detail, sourceTabId);
     };
     window.addEventListener(FILE_PREVIEW_EVENT, handler);
     return () => window.removeEventListener(FILE_PREVIEW_EVENT, handler);
@@ -216,16 +196,9 @@ import {
   }
 
   function toggleDiff() {
-    if (editorFile) {
-      editorFile = null;
-      diffPanelOpen = false;
-
-      return;
-    }
     const sourceTabId = session.activeTabId;
     sidePanelSourceTabId = sourceTabId;
     if (session.sessionFor(sourceTabId)?.run.workingDirectory) {
-      editorFile = null;
       diffScope = { kind: "session" };
       diffPanelOpen = !diffPanelOpen;
 
@@ -239,7 +212,6 @@ import {
     if (!session.sessionFor(sourceTabId)?.run.workingDirectory) return;
     router.close("settings");
     sidePanelSourceTabId = sourceTabId;
-    editorFile = null;
     diffScope = undefined;
     reviewView = "diff";
     diffPanelOpen = true;
@@ -263,7 +235,16 @@ import {
 {/snippet}
 
 {#snippet chatContent()}
-  {#if router.at("browser") && browserPaneId}
+  {#if activeFilesRoute}
+    {#await import("@solus/workspace-ui/components/files/FilesTreePane.svelte")}
+      {@render loadingSurface("Loading files…")}
+    {:then filesModule}
+      {@const FilesTreePane = filesModule.default}
+      <div class="mobile-surface mobile-page-pane mobile-work-surface flex min-h-0 flex-1 flex-col">
+        <FilesTreePane params={activeFilesRoute.params} paneId={activeFilesRoute.paneId} />
+      </div>
+    {/await}
+  {:else if router.at("browser") && browserPaneId}
     {#await import("@solus/workspace-ui/components/browser/BrowserPane.svelte")}
       {@render loadingSurface("Loading browser…")}
     {:then browserModule}
@@ -377,20 +358,7 @@ import {
 {/snippet}
 
 {#snippet diffContent()}
-  {#if editorFile && sidePanelTab && sidePanelSession}
-    {#await import("@solus/workspace-ui/components/files/FileEditorPane.svelte")}
-      {@render loadingSurface("Loading file…")}
-    {:then fileEditorModule}
-      {@const FileEditorPane = fileEditorModule.default}
-      <FileEditorPane
-        ctx={session.ctxFor(sidePanelTab.id)}
-        cwd={sidePanelSession.run.gitContext?.worktreePath ?? sidePanelSession.run.workingDirectory}
-        isDark={session.settings.isDark}
-        file={editorFile}
-        onClose={closeDiffPanel}
-      />
-    {/await}
-  {:else if diffPanelOpen && sidePanelTab && sidePanelSession && canShowDiffPanel}
+  {#if diffPanelOpen && sidePanelTab && sidePanelSession && canShowDiffPanel}
     {#await import("@solus/workspace-ui/components/review/ReviewSurface.svelte")}
       <!-- The review surface opens onto the same skeleton it then shows while it
            resolves the change, so fetching the chunk and loading the diff read as
@@ -425,9 +393,9 @@ import {
       {chatContent}
       {diffContent}
       {onAttachFiles}
-      overlayOpen={!!activePlan || !!activeWorkRoute}
+      overlayOpen={!!activePlan || !!activeWorkRoute || !!activeFilesRoute}
       {diffPanelOpen}
-      canShowDiffPanel={canShowSidePanel}
+      {canShowDiffPanel}
       changedFilesCount={changedFiles.length}
       onToggleWorkspace={() => {
         router.close("settings");

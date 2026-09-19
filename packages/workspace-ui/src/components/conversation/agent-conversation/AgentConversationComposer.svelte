@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getTranscriptDisclosure } from "../lib/transcript-disclosure.svelte";
   import { ArrowUp as ArrowUpIcon } from "@lucide/svelte";
   import { Input } from "../../ui/input";
 
@@ -13,6 +14,7 @@
    */
   interface Props {
     placeholder: string;
+    draftKey: string;
     onSend: (text: string, scope: "one" | "all") => Promise<"sent" | "queued" | "failed">;
     /** A blocked agent's answer field: card fill and an explicit Send, because
      *  it is the one thing the card is asking the reader to do. */
@@ -20,20 +22,22 @@
     /** e.g. "Say it to all 3" — omitted on a single-agent card. */
     broadcastLabel?: string;
   }
-  let { placeholder, onSend, emphasis = false, broadcastLabel }: Props = $props();
+  let { placeholder, draftKey, onSend, emphasis = false, broadcastLabel }: Props = $props();
 
-  let draft = $state("");
+  const disclosure = getTranscriptDisclosure();
+  const view = $derived(disclosure.forKey(`agent-draft:${draftKey}`));
   let sending = $state(false);
   let notice = $state<string | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
 
   async function send(scope: "one" | "all") {
-    const text = draft.trim();
+    const target = view;
+    const text = target.draft.trim();
     if (!text || sending) return;
     sending = true;
     try {
       const result = await onSend(text, scope);
-      if (result !== "failed") draft = "";
+      if (result !== "failed" && target.draft.trim() === text) target.draft = "";
       notice = result === "failed" ? "failed to send" : result;
       setTimeout(() => (notice = null), 2500);
     } finally {
@@ -45,8 +49,8 @@
 
 <div class="flex min-w-0 flex-1 items-center gap-1">
   <Input
-    bind:this={inputEl}
-    bind:value={draft}
+    bind:ref={inputEl}
+    bind:value={view.draft}
     aria-label={placeholder}
     {placeholder}
     mic={emphasis || Boolean(broadcastLabel)}
@@ -68,7 +72,7 @@
   {#if broadcastLabel}
     <button
       class="h-7.5 shrink-0 cursor-pointer rounded-md px-2.5 text-transcript-meta text-muted-foreground hover:bg-[color-mix(in_oklch,var(--foreground)_6%,transparent)] hover:text-foreground disabled:opacity-40 [.is-laptop-display_&]:h-7 [.is-laptop-display_&]:px-2"
-      disabled={!draft.trim() || sending}
+      disabled={!view.draft.trim() || sending}
       onclick={() => send("all")}
     >
       {broadcastLabel}
@@ -78,7 +82,7 @@
   {#if emphasis}
     <button
       class="flex size-7.5 shrink-0 cursor-pointer items-center justify-center rounded-md bg-primary text-primary-foreground hover:brightness-105 disabled:opacity-40 [.is-laptop-display_&]:size-7"
-      disabled={!draft.trim() || sending}
+      disabled={!view.draft.trim() || sending}
       onclick={() => send("one")}
       aria-label="Send"
     >

@@ -225,11 +225,14 @@ describe('activating a line', () => {
     expect(lane.type === 'group' && lane.group.label).toBe('launch_run, git_state')
   })
 
-  test('a span with children unfolds on activation and opens its own detail', () => {
+  // WHY: `setup` is a container for its steps. A dock opened on it has nothing
+  // the steps do not say better, so activating it only folds — the dock is for
+  // a measurement, not a group.
+  test('a span with children only unfolds on activation — no detail of its own', () => {
     const tree = treeOf(setupWithSteps)
     const closed = flattenTree(tree, new Set())
     const setupLine = closed.find((line) => line.type === 'span' && line.row.spanId === 'setup')!
-    expect(activation(setupLine)).toEqual({ toggleId: 'setup', selectSpanId: 'setup' })
+    expect(activation(setupLine)).toEqual({ toggleId: 'setup', selectSpanId: null })
     expect(flattenTree(tree, new Set(['setup'])).length).toBeGreaterThan(closed.length)
   })
 

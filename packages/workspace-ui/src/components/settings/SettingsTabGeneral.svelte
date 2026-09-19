@@ -10,6 +10,9 @@
     Folder as FolderIcon,
     ChevronRight as CaretRightIcon,
     RotateCcw as ArrowCounterClockwiseIcon,
+    Sun as SunIcon,
+    Moon as MoonIcon,
+    Monitor as MonitorIcon,
   } from "@lucide/svelte";
   import DirectoryPicker from "../pickers/DirectoryPicker.svelte";
   import { abbreviateHome } from "../../lib/paths";
@@ -106,9 +109,9 @@
   });
 
   const themeModes = [
-    { value: "light" as const, label: "Light" },
-    { value: "dark" as const, label: "Dark" },
-    { value: "system" as const, label: "System" },
+    { value: "light" as const, label: "Light", icon: SunIcon },
+    { value: "dark" as const, label: "Dark", icon: MoonIcon },
+    { value: "system" as const, label: "System", icon: MonitorIcon },
   ];
 
   const rateLimitStrats: [string, string][] = [
@@ -314,10 +317,6 @@
       ],
     },
     {
-      id: "notification",
-      keywords: ["notification", "sound", "alert", "bell", "audio"],
-    },
-    {
       id: "font-family",
       keywords: [
         "font",
@@ -380,10 +379,6 @@
     {
       id: "default-permission",
       keywords: ["default", "permission", "ask", "auto", "plan", "mode"],
-    },
-    {
-      id: "background-activity",
-      keywords: ["background", "activity", "toast", "notification", "session"],
     },
     {
       id: "response-streaming",
@@ -790,13 +785,11 @@
   visible={[
     "agent-model",
     "default-permission",
-    "background-activity",
     "response-streaming",
     "ratelimit",
     "task-lifecycle",
     "completed-retention",
     "automation-retention",
-    "notification",
   ].some(isVisible)}
 >
   <SettingsRow
@@ -941,20 +934,6 @@
   </SettingsRow>
 
   <SettingsRow
-    label="Background activity toasts"
-    description="Show updates from other sessions with an Open session action."
-    visible={isVisible("background-activity")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.backgroundActivityToasts}
-        onCheckedChange={(checked) => theme.update({ backgroundActivityToasts: checked })}
-        aria-label="Background activity toasts"
-      />
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
     label="Response streaming"
     description="Show finished paragraphs and code blocks as they arrive, or wait for the current response segment."
     visible={isVisible("response-streaming")}
@@ -1015,21 +994,6 @@
           </DropdownMenu.RadioGroup>
         </DropdownMenu.Content>
       </DropdownMenu.Root>
-    {/snippet}
-  </SettingsRow>
-
-  <SettingsRow
-    label="Notifications"
-    description="Show an alert and play a sound when a session needs you."
-    visible={isVisible("notification")}
-  >
-    {#snippet control()}
-      <Switch
-        checked={theme.soundEnabled}
-        onCheckedChange={(next) => theme.update({ soundEnabled: next })}
-        size="default"
-        aria-label="Toggle notifications"
-      />
     {/snippet}
   </SettingsRow>
 </SettingsSection>

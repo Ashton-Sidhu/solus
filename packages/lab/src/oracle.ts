@@ -20,7 +20,7 @@ export async function checkNoLocalOwnerOnManaged(ctx: ScenarioContext, personaId
 }
 
 /** Ownership: exactly one owner, and the share list agrees with who may open it (§3.4). */
-export async function checkOwnership(ctx: ScenarioContext, resource: { kind: 'session' | 'work'; id: string }, expectedOwnerUserId: string, readers: Record<string, boolean>): Promise<void> {
+export async function checkOwnership(ctx: ScenarioContext, resource: { kind: 'session' | 'work' | 'task'; id: string }, expectedOwnerUserId: string, readers: Record<string, boolean>): Promise<void> {
   for (const [personaId, mayOpen] of Object.entries(readers)) {
     const client = await ctx.as(personaId)
     try {

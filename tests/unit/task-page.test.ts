@@ -1,3 +1,5 @@
+import { pullRequestFixture } from './__fixtures__/pull-request'
+import { linkedPrIdentity, type LinkedPr } from '@solus/workspace-ui/contexts/prs/linked-pr'
 import { describe, expect, test } from 'bun:test'
 import {
   commentSessionName,
@@ -329,6 +331,11 @@ describe('linked pull requests', () => {
     linkedAt: 1,
   })
 
+  const resolved = (link: TaskLink, title = link.title, state: 'open' | 'merged' = 'merged'): LinkedPr => ({
+    ...linkedPrIdentity(link, '/repo')!, title,
+    pullRequest: pullRequestFixture(Number(link.targetKey), { state, title }),
+  })
+
   test('PRs leave the Linked table, because their own section owns them', () => {
     // WHY: two places listing the same PR would disagree the moment one of them
     // learns the PR merged.
@@ -349,7 +356,7 @@ describe('linked pull requests', () => {
     // "Open" — a merged PR shown as open is worse than no badge at all.
     const rows = taskPrRows(
       [prLink('418', 'Unify picker index'), prLink('421', 'Delete file picker')],
-      (number) => (number === 418 ? { state: 'merged', draft: false } : null),
+      (link) => link.targetKey === '418' ? resolved(link) : null,
     )
     expect(rows.map((row) => row.ref)).toEqual(['#418', '#421'])
     expect(rows[0].state).toEqual({ state: 'merged', draft: false })
@@ -415,8 +422,7 @@ describe('linked pull requests', () => {
     })
     const [row] = taskPrRows(
       [prLink('418', '#418')],
-      () => null,
-      () => 'Unify picker index',
+      (link) => resolved(link, 'Unify picker index'),
     )
     expect(row.title).toBe('Unify picker index')
   })
@@ -426,8 +432,7 @@ describe('linked pull requests', () => {
     // reads under its old name on every task surface until the live read wins.
     const [row] = taskPrRows(
       [prLink('418', 'Old name from link time')],
-      () => null,
-      () => 'The name the PR has now',
+      (link) => resolved(link, 'The name the PR has now'),
     )
     expect(row.title).toBe('The name the PR has now')
   })

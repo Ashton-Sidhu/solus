@@ -78,7 +78,9 @@ export class PrMirror<T> {
     if (entry?.inFlight && (!force || entry.isInFlightForced)) return entry.inFlight
 
     const inFlight = load().then((value) => {
-      this.put(key, { value, readAt: Date.now() })
+      if (this.entries.get(key)?.inFlight === inFlight) {
+        this.put(key, { value, readAt: Date.now() })
+      }
       return value
     })
     // Kept on the entry so a rejection clears the flight without erasing the
@@ -97,6 +99,20 @@ export class PrMirror<T> {
    *  detail, its commits and its reviewers. */
   seed(key: string, value: T): void {
     this.put(key, { value, readAt: Date.now() })
+  }
+
+  /** A late response may finish after invalidation or a newer host event. */
+  holds(key: string, value: T): boolean {
+    return this.entries.get(key)?.value === value
+  }
+
+  /** Keep cached rows that a host event can patch, but reject older reads. */
+  invalidatePending(): void {
+    for (const [key, entry] of this.entries) {
+      if (!entry.inFlight) continue
+      if (entry.value === undefined) this.entries.delete(key)
+      else this.put(key, { value: entry.value, readAt: entry.readAt })
+    }
   }
 
   /** The value if it is still worth showing without asking again. Never loads,

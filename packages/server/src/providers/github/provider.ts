@@ -16,7 +16,6 @@ import type {
   Provider,
   PrFilter,
   PullRequest,
-  PullRequestOverview,
   PullRequestUpdate,
   RepoRef,
   ReviewComment,
@@ -1051,15 +1050,6 @@ export class GitHubProvider implements ReviewProvider {
     })
   }
 
-  async getPullRequestOverview(repo: RepoRef, number: number): Promise<PullRequestOverview> {
-    const [pullRequest, commits, reviewers] = await Promise.all([
-      this.getPullRequest(repo, number),
-      this.listCommits(repo, number),
-      this.listReviewers(repo, number),
-    ])
-    return { pullRequest, commits, reviewers }
-  }
-
   async getPullRequestDiffBase(repo: RepoRef, pullRequest: PullRequest): Promise<string> {
     const key = `${repo.host}/${repo.owner}/${repo.repo}:${pullRequest.number}:${pullRequest.baseSha}:${pullRequest.headSha}`
     let pending = this.diffBaseCache.get(key)
@@ -1083,8 +1073,7 @@ export class GitHubProvider implements ReviewProvider {
     return pending
   }
 
-  async getPullRequestDiff(repo: RepoRef, request: PrDiffRequest): Promise<PrDiffSlice> {
-    const detail = await this.getPullRequest(repo, request.number)
+  async getPullRequestDiff(repo: RepoRef, detail: PullRequest, request: PrDiffRequest): Promise<PrDiffSlice> {
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before reviewing the new diff.')
     }
@@ -1134,9 +1123,9 @@ export class GitHubProvider implements ReviewProvider {
 
   async getPullRequestDiffFileContents(
     repo: RepoRef,
+    detail: PullRequest,
     request: PrDiffFileContentsRequest,
   ): Promise<PrDiffFileContents> {
-    const detail = await this.getPullRequest(repo, request.number)
     if (detail.headSha !== request.headSha) {
       throw new Error('This pull request changed. Refresh it before loading file contents.')
     }

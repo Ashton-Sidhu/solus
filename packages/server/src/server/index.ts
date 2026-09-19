@@ -17,7 +17,10 @@ import type { UplinkLinkConfig } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './handlers/uplink-handlers'
 import { registerSharingHandlers } from './handlers/sharing-handlers'
 import { ShareManager } from '../sharing/share-manager'
+import { taskShareContents, tasksContaining } from '../tasks/task-sharing'
 import { registerSeatHandlers } from './handlers/seat-handlers'
+import { registerPresenceHandlers } from './handlers/presence-handlers'
+import { PresenceManager } from '../presence/presence-manager'
 import { SeatManager, seatUserFor, turnActorFor } from '../seats/seat-manager'
 import { SeatConnector } from '../seats/seat-connect'
 import { TurnLedger } from '../sessions/turn-ledger'
@@ -25,7 +28,8 @@ import { eventVisibleTo } from '../sharing/event-audience'
 import { getDb } from '../db'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
-import { getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
+import { getHostConfig, getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
+import { notificationEventForAttentionKind } from '@solus/contracts/notification-types'
 import { isLoopbackHost, resolveEffectiveServerOptions } from './bind-policy'
 import { isTrustedRequesterAddress } from './trusted-requesters'
 import { applyManagedMode, isManagedHost, readManagedLinkEnv } from './managed-mode'
@@ -210,6 +214,13 @@ export function acquireLock(host: string, port: number): { release(): void } | n
 }
 
 export async function bootServer(opts: BootOptions): Promise<BootedServer> {
+  // The renderer's first connection waits on this function. An empty store
+  // boots in tens of milliseconds; a real one has cost in the stores and the
+  // host handlers, so the phases report where it went.
+  const bootStartedAt = performance.now()
+  const phaseDone = (phase: 'db_opened' | 'host_handlers_registered' | 'domain_handlers_registered' | 'update_services_ready'): void => {
+    log.info('server_boot_phase', { phase, elapsedMs: Math.round(performance.now() - bootStartedAt) })
+  }
   // Before the database, the listeners, or any child process: the link tokens in
   // the environment must leave it first (managed-hosts.md §1, §2).
   applyManagedMode()
@@ -228,12 +239,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   const shares = new ShareManager({
     db: getDb(),
     canonicalSessionId: (sessionId) => opts.controlPlane.canonicalSessionId(sessionId),
+    taskContents: taskShareContents,
+    containingTasks: tasksContaining,
+    sessionExists: (sessionId) => opts.controlPlane.isKnownSession(sessionId),
   })
   server.useResourceAccess(shares)
   // Provider seats and the turn ledger (Step 2 plan): every turn runs on its
   // author's own login, and the host records whose it was.
   const seats = new SeatManager({ db: getDb() })
   const turnLedger = new TurnLedger(getDb())
+  phaseDone('db_opened')
   opts.controlPlane.useSeats(seats, turnLedger)
   const seatConnector = new SeatConnector({ seats })
   const clientEvents = new ClientEventRegistry((clientId, event) => {
@@ -241,6 +256,17 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     return !principal || eventVisibleTo(principal, event, shares)
   })
   const events = new HostEventPublisher(clientEvents)
+  // Who is here (docs/plans/multiplayer-presence.md): one entry per connected
+  // client, named from its principal at admission. The host room goes to every
+  // admitted client (the audience filter keeps it from guests); a session's room
+  // goes to that session's watchers, who are the room.
+  const presence = new PresenceManager({ describeSession: (sessionId) => opts.controlPlane.sessionActivityFor(sessionId) })
+  const publishHostPresence = (): void => { events.broadcast('host.presenceChanged', presence.hostSnapshot()) }
+  const publishSessionPresence = (sessionId: string): void => {
+    const watchers = opts.controlPlane.clientsWatching(sessionId)
+    if (!watchers.length) return
+    events.publish(watchers, 'session.presenceChanged', presence.sessionSnapshot(sessionId, watchers, opts.controlPlane.activeTurnFor(sessionId)))
+  }
   // Streamed browser frames bypass the typed-event envelope: the transport
   // registers a per-client binary delivery here, the browser registry publishes
   // only to the clients watching each page.
@@ -258,6 +284,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // event an in-Solus merge sends.
   const prReconciler = new PrReconciler({
     announce: (projectRoot, detail) => events.broadcast('pr.lifecycleChanged', { projectRoot, detail }),
+    isSessionBusy: (sessionId) => opts.controlPlane.isSessionBusy(sessionId),
   })
   prReconciler.start()
   const pushNotifications = new PushNotificationService()
@@ -293,9 +320,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     shares,
   })
   await opts.registerHostHandlers?.(server)
+  phaseDone('host_handlers_registered')
   registerFolioHandlers(server, { shares })
   registerSharingHandlers(server, { shares })
   registerSeatHandlers(server, { seats, connector: seatConnector })
+  registerPresenceHandlers(server, { presence, onHostChanged: publishHostPresence, onSessionChanged: publishSessionPresence })
   registerReviewHandlers(server, opts.controlPlane, events)
   registerAutomationHandlers(server)
   // Let session-bound automations run their prompt inside the chat thread they
@@ -352,7 +381,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   startMetricsRollover(() => getServerSettings().metricsRetentionDays)
   registerObservabilityHandlers(server, { controlPlane: opts.controlPlane })
   registerProjectConfigHandlers(server)
-  registerTasksHandlers(server)
+  registerTasksHandlers(server, { shares })
   registerOutboxHandlers(server)
   // Any host can own tasks (and their works), so the owner-side appliers
   // register unconditionally.
@@ -370,6 +399,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     dispatcher: opts.controlPlane,
     events,
     isWorktreeInUse: (path) => opts.controlPlane.listGitContexts().some((context) => context.worktreePath === path),
+    isSessionBusy: (sessionId) => opts.controlPlane.isSessionBusy(sessionId),
   })
   registerStackHandlers(server, events)
   const checksHandlers = registerChecksHandlers(server, { events })
@@ -386,9 +416,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerPinnedSessionsHandlers(server)
   registerSessionReadStateHandlers(server, { events })
   registerSavedPromptsHandlers(server)
+  phaseDone('domain_handlers_registered')
   const hostUpdates = new UpdateStatusService({
     currentVersion: packageJson.version,
-    install: detectInstallKind(),
+    install: isManagedHost() ? 'cloud' : detectInstallKind(),
     latest: (target) => fetchLatestRelease(target, packageJson.version),
     providerVersion: readProviderVersion,
     publish: (status) => { events.broadcast('host.updateStatusChanged', status) },
@@ -410,6 +441,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     }
     if (message.type === 'solus:stop-for-update' && remoteUpdates.canStop(message.operationId)) supervisor.shutdown()
   })
+  phaseDone('update_services_ready')
   startAutomationScheduler()
   server.register('hostInstallUpdate', () => { remoteUpdates.install(); return structuredClone(hostUpdates.status) })
   server.register('hostCancelUpdate', () => { remoteUpdates.cancel(); return structuredClone(hostUpdates.status) })
@@ -458,7 +490,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     lastAttentionKeys = nextKeys
     if (created.length === 0 || !pushNotifications.hasOfflineSubscription(isDeviceOnline)) return
 
+    // A device subscribes only while the system channel is on, so the host
+    // applies the event switches; the channel switch is applied by the device.
+    const { notifications } = getHostConfig().config
     for (const entry of created) {
+      if (!notifications.events[notificationEventForAttentionKind(entry.kind)]) continue
       void pushNotifications.sendToOfflineDevices(entry, isDeviceOnline, getInstallationId()).catch((err) => {
         log.warn('web_push_fanout_failed', { error: err instanceof Error ? err.message : String(err) })
       })
@@ -499,7 +535,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // client is watching.
   opts.controlPlane.on('session-status', (event: HostEventMap['session.statusChanged']) => {
     events.broadcast('session.statusChanged', event)
+    // A turn started or settled: the room's "whose turn" line follows the status,
+    // and so does the roster row of everyone who has the session focused.
+    publishSessionPresence(event.sessionId)
+    if (presence.isSessionFocused(event.sessionId)) publishHostPresence()
   })
+  opts.controlPlane.on('watchers-changed', (sessionId: string) => publishSessionPresence(sessionId))
 
   // Personal Uplink: the tunnel listener, the link to the control plane, and the
   // verifier for its grants. All three exist on every host; only a linked host uses them.
@@ -563,7 +604,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }))
   // Seats of members who ran nothing for thirty days are removed (plan §3.7).
   const seatSweepTimer = setInterval(() => {
-    try { seats.sweep() } catch (err) { log.warn('seat_sweep_failed', { error: err instanceof Error ? err.message : String(err) }) }
+    seats.sweep().catch((err) => log.warn('seat_sweep_failed', { error: err instanceof Error ? err.message : String(err) }))
   }, 24 * 60 * 60_000)
   seatSweepTimer.unref()
   let ws = attachWebSocketTransport(http, server, {
@@ -575,15 +616,40 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     responseBudget: responseReceiptBudget,
     onClientConnected: ({ clientId }) => {
       checksHandlers.handleClientConnected(clientId)
+      handlePresenceConnected(clientId)
     },
     onClientDisconnected: ({ clientId }) => {
       checksHandlers.handleClientDisconnected(clientId)
+      handlePresenceDisconnected(clientId)
     },
     onClientExpired: ({ clientId }) => {
       opts.controlPlane.handleClientExpired(clientId)
       void browserRegistry.dropClient(clientId)
     },
   })
+  // A client is in the rooms of the sessions it watches for exactly as long as
+  // its socket is up: gone from every avatar stack the moment it drops, back the
+  // moment it returns, even though the control plane keeps its watch through the
+  // grace period so its stream can be recovered.
+  function handlePresenceConnected(clientId: string): void {
+    const principal = ws.principalOf(clientId)
+    if (!principal) return
+    const deviceLabel = [...ws.sessions.values()].find((session) => session.clientId === clientId)?.deviceLabel ?? 'Web'
+    const joined = presence.join(clientId, principal, deviceLabel)
+    // The newcomer gets the room whether or not it is new: a reconnect has lost
+    // its copy. Everyone else hears only about a new face.
+    if (joined) publishHostPresence()
+    else events.publish(clientId, 'host.presenceChanged', presence.hostSnapshot())
+    for (const sessionId of opts.controlPlane.sessionsWatchedBy(clientId)) publishSessionPresence(sessionId)
+  }
+  function handlePresenceDisconnected(clientId: string): void {
+    const left = presence.leave(clientId)
+    if (!left) return
+    publishHostPresence()
+    const rooms = new Set(opts.controlPlane.sessionsWatchedBy(clientId))
+    if (left.composingSessionId) rooms.add(left.composingSessionId)
+    for (const sessionId of rooms) publishSessionPresence(sessionId)
+  }
   let sessionIndexPollTimer: ReturnType<typeof setTimeout> | null = null
   let sessionIndexPollFailures = 0
 
@@ -752,9 +818,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       responseBudget: responseReceiptBudget,
       onClientConnected: ({ clientId }) => {
         checksHandlers.handleClientConnected(clientId)
+        handlePresenceConnected(clientId)
       },
       onClientDisconnected: ({ clientId }) => {
         checksHandlers.handleClientDisconnected(clientId)
+        handlePresenceDisconnected(clientId)
       },
       onClientExpired: ({ clientId }) => {
         opts.controlPlane.handleClientExpired(clientId)

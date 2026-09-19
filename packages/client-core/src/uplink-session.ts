@@ -104,6 +104,7 @@ function uplinkOf(host: DirectoryHost, directoryUrl: string): SavedServerUplink 
   const uplink: SavedServerUplink = { hostId: host.hostId, directoryUrl }
   if (host.organizationId) uplink.organizationId = host.organizationId
   if (host.ownerName) uplink.ownerName = host.ownerName
+  if (host.ownerUserId) uplink.ownerUserId = host.ownerUserId
   if (host.kind) uplink.kind = host.kind
   if (host.managedState) uplink.managedState = host.managedState
   return uplink

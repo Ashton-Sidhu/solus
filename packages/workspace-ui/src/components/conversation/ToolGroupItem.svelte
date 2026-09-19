@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { getTranscriptDisclosure } from "./lib/transcript-disclosure.svelte";
   import { CircleAlert as WarningCircleIcon } from "@lucide/svelte";
   import { prettyToolName } from "../../contexts/workspace/session.utils";
   import ActivityRow from "./ActivityRow.svelte";
@@ -53,8 +54,8 @@
     backgroundWait = null,
   }: Props = $props();
 
-  let expanded = $state(false);
-  let expandedToolId = $state<string | null>(null);
+  const disclosure = getTranscriptDisclosure();
+  const view = $derived(disclosure.forKey(`tools:${tools[0]?.id}`));
 
   const runningTool = $derived(tools.find((t) => t.toolStatus === "running"));
   // A failure only owns the row while it is the last thing that happened. Once
@@ -127,12 +128,12 @@
   // No refocus: expanding the group means the user wants to read it, and
   // stealing focus back to the composer scrolls the transcript away.
   function toggleExpanded(): void {
-    expanded = !expanded;
-    if (expanded) void history?.load(tools);
+    view.expanded = !view.expanded;
+    if (view.expanded) void history?.load(tools);
   }
 
   function toggleToolExpanded(toolId: string): void {
-    expandedToolId = expandedToolId === toolId ? null : toolId;
+    view.selectedToolId = view.selectedToolId === toolId ? null : toolId;
   }
 </script>
 
@@ -150,7 +151,7 @@
      which would otherwise clip the row's rounded chassis flat. -->
 <div class="activity-host {skipMotion ? '' : 'animate-msg-in-side'}">
   <ActivityRow
-    {expanded}
+    expanded={view.expanded}
     nested={!working && !runningTool}
     onToggle={toggleExpanded}
     target={namedTarget ? targetText : undefined}
@@ -214,7 +215,7 @@
         {@const endMs = toolEndMs(tool)}
         {@const Glyph = KIND_ICONS[activityKind(tool.toolName)]}
         {@const failed = tool.toolStatus === "error"}
-        <div class:tool-step--expanded={expandedToolId === tool.id} class="tool-step">
+        <div class:tool-step--expanded={view.selectedToolId === tool.id} class="tool-step">
           <span class:tool-step-glyph--failed={failed} class="tool-step-glyph">
             {#if failed}
               <WarningCircleIcon size={13} />
@@ -224,9 +225,9 @@
           </span>
           <button
             type="button"
-            class:is-expanded={expandedToolId === tool.id}
+            class:is-expanded={view.selectedToolId === tool.id}
             class="tool-step-text text-tool-step font-mono"
-            aria-expanded={expandedToolId === tool.id}
+            aria-expanded={view.selectedToolId === tool.id}
             onclick={(e) => {
               // An expanded row wraps its full command or path, which is the
               // text worth copying. Releasing that drag must not collapse it.

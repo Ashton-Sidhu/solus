@@ -12,11 +12,13 @@ import { hostKey } from '@solus/client-core/host-key'
 import type { GitPullRequestStep } from '@solus/contracts/git-types'
 import type * as Contracts from '@solus/contracts/providers'
 import type { PrFilter, PrListPage } from '@solus/contracts/providers'
-import { projectScopeOf, type IpcContext } from '@solus/contracts/types'
+import { projectScopeOf, worktreeProjectRoot, type IpcContext } from '@solus/contracts/types'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import { prSurfaceError, type PrSurfaceError } from '../../components/prs/lib/pr-surface-error'
 import { PrMirrors } from './pr-mirror'
 import { PullRequest } from './pull-request.svelte'
+
+const BACKGROUND_RETRY_MS = 5 * 60_000
 
 /** A plain, detached copy of an argument bound for the host. A `$state` proxy
  *  cannot be structured-cloned by the transport, and a live one would let a
@@ -28,7 +30,7 @@ export function detached<T>(value: T): T {
 }
 
 export function projectPrsKey(serverId: string, ctx: IpcContext): string {
-  return hostKey(serverId, projectScopeOf(ctx.session))
+  return hostKey(serverId, worktreeProjectRoot(projectScopeOf(ctx.session)))
 }
 
 /** What one `query` was asked for — a page, and whether to go past what the
@@ -98,7 +100,9 @@ export class ProjectPrs {
   private readonly pendingEffortNumbers = new Set<number>()
   private effortBatch: Promise<void> | undefined
   /** What `ensure*` has already asked for, so it is safe on a render path. */
-  private hasReadAllPage = false
+  private allPageRead: Promise<void> | undefined
+  private revision = 0
+  private readonly backgroundRetryAt = new Map<string, number>()
   private readonly ensuredNumbers = new Set<number>()
 
   constructor(
@@ -173,6 +177,7 @@ export class ProjectPrs {
    * reading one cannot be left behind by another that read it some other way.
    */
   absorb(source: Contracts.PullRequest): PullRequest {
+    this.backgroundRetryAt.delete(`detail::${source.number}`)
     const pr = this.get(source.number)
     pr.apply(source)
     this.byBranch.set(source.headRef, source.number)
@@ -208,6 +213,10 @@ export class ProjectPrs {
   /** Apply a pull request the host reported, to the index and to every list
    *  page holding a row for it. */
   applyPullRequest(source: Contracts.PullRequest): PullRequest {
+    this.revision++
+    // A provider event or write supersedes reads already on the wire.
+    this.mirrors.list.invalidatePending()
+    this.mirrors.overview.delete(String(source.number))
     const pr = this.absorb(source)
     // The host has just said this, so it is also the answer to the next read —
     // otherwise an edit leaves a warm response holding the pre-edit snapshot.
@@ -261,6 +270,7 @@ export class ProjectPrs {
       const read: PrQuery = { page }
       if (opts.force !== undefined) read.force = opts.force
       const result = await this.query(filter, read)
+      if (!this.mirrors.list.holds(this.listKey(filter, page), result)) return
       if (this.listKey(this.filter) !== startedAt) return
       if (appending && this.nextPage !== page) return
       if (isCurrent && !isCurrent()) return
@@ -279,11 +289,12 @@ export class ProjectPrs {
    *  replacing it if it is the first. */
   private acceptPage(result: PrListPage, appending: boolean): void {
     for (const item of result.items) this.applyStoredEffort(item)
+    const items = result.items.map((item) => this.get(item.number))
     if (appending) {
       const known = new Set(this.items.map((item) => item.number))
-      for (const item of result.items) if (!known.has(item.number)) this.items.push(item)
+      for (const item of items) if (!known.has(item.number)) this.items.push(item)
     } else {
-      this.items = result.items
+      this.items = items
       this.loaded = true
     }
     this.hasMore = result.hasMore
@@ -307,16 +318,49 @@ export class ProjectPrs {
       !!opts.force,
       () => this.api.prList(ctx, safeFilter, page),
     )
-    for (const item of result.items) this.absorb(item)
+    if (this.mirrors.list.holds(this.listKey(safeFilter, page), result)) {
+      this.backgroundRetryAt.delete(`list::${this.listKey(safeFilter, page)}`)
+      // Keep the host's first branch match when several PRs reuse a branch.
+      for (const item of result.items.toReversed()) this.absorb(item)
+      if (safeFilter.head && !result.items.some((item) => item.headRef === safeFilter.head)) {
+        this.byBranch.delete(safeFilter.head)
+      }
+    }
     return result
   }
 
-  /** Git discovery names a possible pull request, including closed ones. Read
-   *  the open branch match without changing the list page. The project mirror
-   *  shares requests across surfaces and lets the next call retry a failed read. */
-  async loadBranch(headRef: string | null | undefined, prUrl: string | null | undefined): Promise<void> {
-    if (!headRef || !prUrl) return
-    await this.query({ state: 'open', head: headRef })
+  /** Share one summary page, then recover linked PRs absent from that page.
+   * Full detail surfaces can also request fields omitted from summaries. */
+  async refreshObserved(numbers: number[], branches: string[], details: number[] = [], linkedNumbers: number[] = []): Promise<boolean> {
+    const revision = this.revision
+    const needsPage = numbers.length > 0 || linkedNumbers.length > 0
+    const page = needsPage
+      ? await this.readBackground(`list::${this.listKey({ state: 'all' })}`, () => this.query({ state: 'all' }))
+      : null
+    // A failed project lookup cannot justify a fan-out of detail reads against
+    // that same unavailable project (including stale non-directory scopes).
+    if (needsPage && !page) return false
+    const missingLinks = linkedNumbers.filter((number) => !page?.items.some((pr) => pr.number === number))
+    for (const number of new Set([...details, ...missingLinks])) {
+      if (revision !== this.revision) return false
+      await this.readBackground(`detail::${number}`, () => this.get(number).loadDetail())
+    }
+    for (const head of branches) {
+      if (revision !== this.revision) return false
+      if (page && (!page.hasMore || page.items.some((pr) => pr.headRef === head))) continue
+      await this.readBackground(`list::${this.listKey({ state: 'all', head })}`, () => this.query({ state: 'all', head }))
+    }
+    return revision === this.revision
+  }
+
+  private async readBackground<T>(key: string, read: () => Promise<T>): Promise<T | undefined> {
+    if ((this.backgroundRetryAt.get(key) ?? 0) > Date.now()) return
+    const revision = this.revision
+    try {
+      return await read()
+    } catch {
+      if (revision === this.revision) this.backgroundRetryAt.set(key, Date.now() + BACKGROUND_RETRY_MS)
+    }
   }
 
   /**
@@ -326,26 +370,21 @@ export class ProjectPrs {
    * answers most numbers at once, only the stragglers cost an individual read,
    * and a number the provider refuses is remembered rather than re-requested.
    */
-  ensureNumbers(numbers: number[]): void {
+  ensureNumbers(numbers: number[]): Promise<void> {
     const wanted = numbers.filter((number) => number > 0)
-    if (wanted.length) void this.ensureNumbersAsync(wanted).catch(() => {})
+    return wanted.length ? this.ensureNumbersAsync(wanted).catch(() => {}) : Promise.resolve()
   }
 
   private async ensureNumbersAsync(numbers: number[]): Promise<void> {
-    const unknown = () => numbers.filter((number) => !this.prs.has(number) && !this.missing.has(number))
+    // Allocating an entity does not load its status. A linked PR remains
+    // unknown until a provider response describes it.
+    const unknown = () => numbers.filter((number) => !this.prFor(number) && !this.missing.has(number))
     if (!unknown().length) return
 
-    if (!this.hasReadAllPage) {
-      this.hasReadAllPage = true
-      try {
-        // `state: 'all'` because a linked pull request is as likely to be merged
-        // as open, and one page answers most of them in a single round trip.
-        await this.query({ state: 'all' })
-      } catch {
-        // A project with no provider, or an unreachable one, has no pull request
-        // facts to offer. Callers render from whatever they hold.
-      }
-    }
+    // Every row must wait for the shared page. A boolean set before the read
+    // completes lets later rows race ahead and request each detail separately.
+    this.allPageRead ??= this.query({ state: 'all' }).then(() => {}, () => {})
+    await this.allPageRead
 
     for (const number of unknown()) {
       if (this.ensuredNumbers.has(number)) continue
@@ -455,10 +494,12 @@ export class ProjectPrs {
 
   /** Forget everything read for this project, keeping its identity. */
   forgetAll(): void {
+    this.revision++
+    this.backgroundRetryAt.clear()
     this.mirrors.forgetPrefix('')
     this.mirrors.viewer.delete('viewer')
     this.effortByKey.clear()
-    this.hasReadAllPage = false
+    this.allPageRead = undefined
     this.ensuredNumbers.clear()
   }
 

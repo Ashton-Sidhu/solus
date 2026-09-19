@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import type {
     Task,
     TaskLink,
@@ -11,6 +11,7 @@
     getClientShellContext,
     getWorkspaceContext,
     getPullRequestsContext,
+    sharesStore,
   } from "../../../contexts";
   import { attemptServerId, findOpenTabForSession } from "../../../lib/sessionUtils";
   import { toasts } from "../../../lib/toasts";
@@ -41,7 +42,7 @@
     taskPublishTarget,
     taskUpstreamState,
   } from "./lib/task-upstream";
-  import { taskPrRows, prLifecycleOf } from "./lib/task-prs";
+  import { taskPrRows } from "./lib/task-prs";
   import { linkedPrNavigationTarget } from "./lib/linked-pr-navigation";
   import TaskActivityFeed from "./TaskActivityFeed.svelte";
   import TaskPrList from "./TaskPrList.svelte";
@@ -152,12 +153,18 @@
       : null,
   );
 
-  // A PR's title and state are a provider round trip the host deliberately
-  // keeps off the task read, so the page overlays them here — from the shared
-  // PR caches, never from the PRs page's own list, which belongs to whichever
-  // project it is showing.
+  // The PR store owns linked identity, saved observations and background reads.
   const prs = pullRequests.projects;
   const taskServerId = $derived(store.get(taskId).serverId);
+  // Sharing needs a host to ask and a workspace to share from; a guest shell has neither to offer.
+  const shareServerId = $derived(
+    shell.hasWorkspace ? (taskServerId ?? serverConnections.defaultServerId()) : null,
+  );
+  const canShare = $derived(!!shareServerId && sharesStore.canShareFrom(shareServerId));
+  function openShare(record: Task): void {
+    if (!shareServerId) return;
+    sharesStore.open({ serverId: shareServerId, resource: { kind: "task", id: record.id }, title: record.title });
+  }
   $effect(() => {
     const workIds = linkedWorkIds;
     if (!surfaceVisible || workIds.length === 0) return;
@@ -166,24 +173,22 @@
     // without shipping every document body across a remote connection.
     void session.worksStore.loadAll(projectCwd ?? "~");
   });
-  // A scope is one repository, so the number alone identifies the pull request
-  // here — no base-repo comparison is needed to tell #65 in this project from
-  // #65 in another one.
+  // Each link owns its repository; PR numbers are not unique across links.
   const prRows = $derived(
     taskPrRows(
       links,
-      (number) => prLifecycleOf(prs.at(taskServerId, projectCwd)?.prFor(number) ?? null),
-      (number) => prs.at(taskServerId, projectCwd)?.prFor(number)?.title || undefined,
+      (link) => prs.linkedPr(taskServerId, link, projectCwd),
     ),
   );
   $effect(() => {
     const serverId = taskServerId;
+    const linked = [...links, ...store.get(taskId).prLinks];
     const root = projectCwd;
-    const numbers = prRows.map((row) => row.number);
-    if (!serverId || !root || !numbers.length) return;
-    prs
-      .get(serverConnections.apiFor(serverId), serverId, session.ctxForDirectory(root))
-      .ensureNumbers(numbers);
+    if (!serverId || !surfaceVisible) return;
+    return untrack(() => prs.watchLinkedPrs(
+      serverConnections.apiFor(serverId), serverId,
+      session.ctxForEnvironment(root ?? "~", null), linked,
+    ));
   });
 
   // Auto-post is a project decision, not a per-task one: it is the same choice
@@ -821,6 +826,7 @@
         onNext={chromeNext}
         onOpenSource={chromeOpenSource}
         onOpenPage={embedded ? onOpenRoute : undefined}
+        onShare={canShare ? () => openShare(task) : null}
         onOpenList={chromeOpenList}
       />
     {:else}
@@ -835,6 +841,7 @@
         onMoveAcross={pane.inPane ? pane.moveAcross : undefined}
         isLeading={pane.isLeading}
         onOpenPage={embedded ? onOpenRoute : undefined}
+        {shareServerId}
         onOpenList={chromeOpenList}
         onClose={onRequestClose ?? (() => pane.close())}
       />

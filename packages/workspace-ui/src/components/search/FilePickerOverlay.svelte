@@ -108,7 +108,7 @@
 
   function openFile(file: FileMatch) {
     open = false;
-    session.openFilePreview({ path: file.path }, targetTabId);
+    session.openFileInFiles({ path: file.path }, targetTabId);
   }
 
   function onSearchKeydown(e: KeyboardEvent) {

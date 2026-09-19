@@ -732,14 +732,16 @@ export class TasksStore {
   /** Hydrate the complete lightweight tree for an opened session even when the
    * global snapshot already knows its owner. The targeted read carries sibling
    * subtasks and every linked session's display metadata; none of it requires a
-   * transcript. Fall back to a fresh global snapshot only when that focused
-   * read cannot resolve a newly-created link. */
+   * transcript. The host's answer is authoritative: a session it reports as
+   * taskless is taskless, and most sessions are, so that answer must not cost
+   * a full snapshot per restored tab. Fall back to the global snapshot only
+   * when the focused read itself failed. */
   async ensureSessionBinding(sessionId: string, serverId?: string): Promise<Task | null> {
     await (this.loadPromise ?? this.ensureLoaded())
     const existing = this.taskForSession(sessionId)
     const hydrated = await this.hydrateSessionTree(sessionId, serverId)
     if (hydrated) return hydrated
-    if (existing) return existing
+    if (hydrated === null || existing) return existing
     await this.load()
     return this.taskForSession(sessionId)
   }
@@ -748,13 +750,17 @@ export class TasksStore {
    * and every subtask under the root, each by name. The global snapshot
    * carries all of them whenever it succeeds; this is the read that still
    * answers when it did not, so a session restored from disk never renders as
-   * a loose row beside a parent whose subtasks are missing. */
-  private async hydrateSessionTree(sessionId: string, serverId?: string): Promise<Task | null> {
+   * a loose row beside a parent whose subtasks are missing.
+   *
+   * `null` is the host's answer that the session has no task; `undefined`
+   * means no host could answer. */
+  private async hydrateSessionTree(sessionId: string, serverId?: string): Promise<Task | null | undefined> {
     const ownerServerId = serverId ?? serverConnections.defaultServerId()
-    if (!ownerServerId) return null
+    if (!ownerServerId) return undefined
     const api = serverConnections.apiFor(ownerServerId)
-    const tree = await api.tasksForSession(sessionId).catch(() => null)
-    if (!tree) return null
+    const tree = await api.tasksForSession(sessionId).catch(() => undefined)
+    if (tree === undefined) return undefined
+    if (tree === null) return null
     return this.applySessionTree(sessionId, tree, serverId)
   }
 
@@ -774,16 +780,16 @@ export class TasksStore {
     return task
   }
 
-  /** Guarantee that a snapshot starts after any cold load already in flight.
-   * New session links use this after their optimistic same-frame projection. */
+  /** Read a session's binding after a write to its task host. New session
+   * links use this after their optimistic same-frame projection. The host
+   * broadcasts `tasks.invalidated` for the write, and that reloads the sidebar;
+   * this is the focused read that answers the caller now, so a session start
+   * does not cost a second full snapshot. It waits for any cold load in flight
+   * so the targeted rows merge into a complete collection, not an empty one. */
   async refreshSessionBinding(sessionId: string, serverId?: string): Promise<Task | null> {
     await (this.loadPromise ?? this.ensureLoaded())
-    await this.load()
-    const bound = this.taskForSession(sessionId)
-    if (bound || !serverId) return bound
-    // The global snapshot raced the link the task host has just written. Ask
-    // that host directly rather than leaving the session projected as loose.
-    return this.hydrateSessionTree(sessionId, serverId)
+    const hydrated = await this.hydrateSessionTree(sessionId, serverId)
+    return hydrated ?? this.taskForSession(sessionId)
   }
 
   /** `serverId` is the host the task belongs to — the one that owns the project

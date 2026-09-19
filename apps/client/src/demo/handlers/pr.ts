@@ -2,7 +2,7 @@ import { arg, optionalArg } from './args'
 import type { DraftReview } from '@solus/contracts/providers'
 import type { PrChecksSnapshot } from '@solus/contracts/checks-rpc-types'
 import type { PrInterdiffResult } from '@solus/contracts/git-types'
-import { projectScopeOf, type IpcContext, type PrReviewContext } from '@solus/contracts/types'
+import { projectScopeOf, type IpcContext, type PrReviewContext, type SessionCtx } from '@solus/contracts/types'
 import type { ReviewState } from '@solus/contracts/review'
 import { DEMO_PROJECT, DEMO_VIEWER, type DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
@@ -157,6 +157,8 @@ export function registerPrHandlers(backend: DemoServer, store: DemoStore): void 
       optionalArg<{ scope?: 'branch' | 'session' }>(args, 1)?.scope ?? 'branch',
     )
   backend.register('reviewGuideStatus', guideStatus)
+  backend.register('sessionGuideStatuses', (args) =>
+    arg<SessionCtx[]>(args, 0).map((session) => store.reviewGuideStatus({ session }, 'session')))
   backend.register('requestReviewGuide', guideStatus)
   backend.register('generateGuide', (args) => ({
     key: guideStatus(args).key,

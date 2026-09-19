@@ -2,7 +2,7 @@
 // Configured upstream tickets use the same normalized rendering contract while
 // retaining provider ownership.
 
-import type { WorkType } from './types'
+import type { AgentId, WorkType } from './types'
 
 export type TaskProviderId = 'github' | 'jira' | 'local'
 
@@ -123,8 +123,20 @@ export interface TaskPr {
   number: number
 }
 
+/** Last host observation for a linked PR. It is display state, not a merge permission. */
+export interface TaskPrSnapshot {
+  number: number
+  url: string
+  title: string
+  state: 'open' | 'closed' | 'merged'
+  draft: boolean
+  updatedAt: string
+  baseRepo: { host: string; owner: string; repo: string }
+}
+
 /** One durable PR edge needed by the lightweight sidebar snapshot. */
 export interface TaskSidebarPrLink {
+  snapshot?: TaskPrSnapshot
   number: number
   url?: string
   title?: string
@@ -575,9 +587,9 @@ export interface TaskSessionLink {
    *  session id. Stating the field forces that read to fail at compile time
    *  instead. `null` means "the session is not indexed yet" — a real answer. */
   sessionTitle: string | null
-  /** Agent that ran the session, as the session index stores it (`claude`,
-   *  `codex`, `opencode`). Null for a link whose session is not indexed yet. */
-  provider: string | null
+  /** Agent that ran the session, as the session index stores it. Null for a
+   *  link whose session is not indexed yet. */
+  provider: AgentId | null
   /** Resolved model that ran the session. Null until the session is indexed. */
   model: string | null
   /** Start of the stable Solus session lineage. Null when the session is not

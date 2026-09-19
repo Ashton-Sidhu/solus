@@ -30,7 +30,7 @@ export class UpdateStatusService {
     this.now = deps.now ?? Date.now
     this.status = {
       currentVersion: deps.currentVersion, install: deps.install, remediation: null, releaseUrl: null,
-      check: { kind: 'idle', reason: deps.install === 'source' ? 'Development build' : deps.install === 'desktop' ? 'Updates with the Solus app.' : null },
+      check: { kind: 'idle', reason: deps.install === 'source' ? 'Development build' : deps.install === 'desktop' ? 'Updates with the Solus app.' : deps.install === 'cloud' ? 'Kept up to date by Solus cloud.' : null },
       providers: (['claude', 'codex'] as const).map((agent) => ({ agent, installedVersion: null, check: { kind: 'idle', reason: null } })),
     }
   }
@@ -40,8 +40,10 @@ export class UpdateStatusService {
     if (!this.stopped) this.deps.publish(structuredClone(this.status))
   }
 
+  /** A cloud host never schedules a check: the control plane replaces its image, and
+   *  a notice about a release it cannot install would only be noise. */
   start(): void {
-    if (this.firstTimer || this.interval) return
+    if (this.firstTimer || this.interval || this.deps.install === 'cloud') return
     this.stopped = false
     this.firstTimer = setTimeout(() => { void this.check(false) }, FIRST_CHECK_DELAY_MS)
     this.interval = setInterval(() => { void this.check(false) }, CHECK_INTERVAL_MS)
@@ -58,6 +60,7 @@ export class UpdateStatusService {
   }
 
   check(manual = true): Promise<HostUpdateStatus> {
+    if (this.deps.install === 'cloud') return Promise.resolve(this.status)
     if (this.pending) return this.pending
     if (manual && this.now() - this.lastManualCheck < 60_000) return Promise.resolve(this.status)
     if (manual) this.lastManualCheck = this.now()
@@ -68,6 +71,7 @@ export class UpdateStatusService {
 
   /** An install must win over a version read started before it finished. */
   async providerInstalled(agent: SetupAgent): Promise<void> {
+    if (this.deps.install === 'cloud') return
     await this.providerChecks.get(agent)
     await this.refreshProvider(agent)
   }

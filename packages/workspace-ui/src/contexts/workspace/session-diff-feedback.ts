@@ -114,7 +114,7 @@ export async function submitDiffFeedbackToNewSession(ctx: WorkspaceContext, opts
   const newTabId = await ctx.createTab(workingDirectory, {
     gitContext,
     serverId,
-    sourceTabId,
+    sourceId: sourceTabId,
   })
   const newSession = ctx.sessionFor(newTabId)
   if (newSession) {

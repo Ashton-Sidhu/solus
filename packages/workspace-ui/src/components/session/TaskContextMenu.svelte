@@ -24,6 +24,7 @@
   import type { Task, TaskStatus } from "@solus/contracts/task-types";
   import type { PrReviewTab } from "../../contexts/prs/pr-view.svelte";
   import type { TaskPrChoice } from "./lib/task-list";
+  import TaskPrMenuLabel from "./TaskPrMenuLabel.svelte";
   import { taskPrMenuTitle } from "./lib/task-pr-menu";
   import { getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
@@ -211,7 +212,7 @@
 </script>
 
 {#snippet prActions(choice: TaskPrChoice)}
-  <ContextMenu.Item onSelect={() => select(() => onOpenPr?.(choice, "activity"))}>
+  <ContextMenu.Item onSelect={() => select(() => onOpenPr?.(choice))}>
     <GitPullRequestIcon />
     Open pull request
   </ContextMenu.Item>
@@ -289,19 +290,18 @@
           <GitPullRequestIcon />
           {prChoices.length === 1 ? `Pull request #${prChoices[0].number}` : `Pull requests (${prChoices.length})`}
         </ContextMenu.SubTrigger>
-        <ContextMenu.SubContent class="min-w-52">
+        <ContextMenu.SubContent class="w-80 min-w-0 max-w-[calc(100vw-2rem)] max-h-[min(24rem,var(--bits-context-menu-content-available-height))] overflow-y-auto overscroll-contain pointer-fine:[.is-laptop-display_&]:w-72">
           {#if prChoices.length === 1}
             {@render prActions(prChoices[0])}
           {:else}
             {#each prChoices as choice (`${choice.targetScope}:${choice.number}`)}
               <div class="flex items-center">
                 <ContextMenu.Item
-                  class="min-w-0 flex-1 text-workspace-chrome"
+                  class="h-auto min-w-0 flex-1 py-2 text-workspace-chrome"
                   title={`Open #${choice.number} ${taskPrMenuTitle(choice)}`}
-                  onSelect={() => select(() => onOpenPr?.(choice, "activity"))}
+                  onSelect={() => select(() => onOpenPr?.(choice))}
                 >
-                  <span class="shrink-0 tabular-nums text-muted-foreground">#{choice.number}</span>
-                  <span class="max-w-48 truncate">{taskPrMenuTitle(choice)}</span>
+                  <TaskPrMenuLabel {choice} />
                 </ContextMenu.Item>
                 <ContextMenu.Sub>
                   <ContextMenu.SubTrigger
@@ -311,9 +311,11 @@
                   >
                     <span aria-hidden="true">…</span>
                   </ContextMenu.SubTrigger>
-                  <ContextMenu.SubContent class="min-w-48">
-                    {@render prActions(choice)}
-                  </ContextMenu.SubContent>
+                  <ContextMenu.Portal to={portalTarget ?? undefined}>
+                    <ContextMenu.SubContent class="min-w-48">
+                      {@render prActions(choice)}
+                    </ContextMenu.SubContent>
+                  </ContextMenu.Portal>
                 </ContextMenu.Sub>
               </div>
             {/each}

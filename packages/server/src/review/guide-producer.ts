@@ -1,9 +1,10 @@
-import type { IpcContext, AgentId } from '@solus/contracts/types'
+import type { IpcContext, AgentId, SessionCtx } from '@solus/contracts/types'
+import { runBounded } from '../lib/concurrency'
 import { reviewGuideKeyForBase, type ReviewContext, type ReviewGuide, type ReviewGuideRequestOptions, type ReviewGuideStatus, type ReviewGuideStatusEvent, type ReviewProgressEvent, type ReviewProgressStep, type ReviewTarget } from '@solus/contracts/review'
 import { getDiff, getEpisodeDiff, getSessionSnapshotRange, resolvePrDiffBase } from '../git/session-snapshots'
 import { getHeadCommit } from '../git/worktree-manager'
 import { createLogger } from '../logger'
-import { readGuideByKey, readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide } from './ledger'
+import { readGuideByKey, readLedgerByKey, resolveReviewContext, reviewCheckout, writeGuide, type CheckoutFactsCache } from './ledger'
 import { runReviewAgent } from './review-agent'
 import { normalizeGuide } from './review-guide-tool'
 import { fingerprintReviewPatch, guideKeyForTarget, normalizedReviewTarget } from './review-target'
@@ -71,7 +72,7 @@ function resolveSessionGuideTarget(
   }
 }
 
-function branchGuideBase(ctx: IpcContext, review: ReviewContext, target: ReviewTarget): string {
+function branchGuideBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, target: ReviewTarget): string {
   // PR panes and the batch queue retain branch cache keys. Their prepared PR
   // base is authoritative; local main can be months behind the pull request.
   const prReview = ctx.session.prReview
@@ -85,7 +86,7 @@ function branchGuideBase(ctx: IpcContext, review: ReviewContext, target: ReviewT
 /** Resolve the target before dedupe/progress so concurrent base variants key
  * apart instead of coalescing onto one run. Session fallback keeps its requested
  * key; stacked generation resolves the parent/child merge-base once, up front. */
-async function resolveTargetBase(ctx: IpcContext, review: ReviewContext, opts: GenerateGuideOptions): Promise<Omit<GuideTarget, 'patch' | 'changeFingerprint'>> {
+async function resolveTargetBase(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<Omit<GuideTarget, 'patch' | 'changeFingerprint'>> {
   const sessionId = ctx.session.agentSessionId
   const target = normalizedReviewTarget(opts, sessionId)
   if (target.kind === 'session') return resolveSessionGuideTarget(review, target, sessionId)
@@ -165,7 +166,7 @@ async function changeSnapshotFor(
   }
 }
 
-async function resolveTarget(ctx: IpcContext, review: ReviewContext, opts: GenerateGuideOptions): Promise<GuideTarget> {
+async function resolveTarget(ctx: Pick<IpcContext, 'session'>, review: ReviewContext, opts: GenerateGuideOptions): Promise<GuideTarget> {
   const target = await resolveTargetBase(ctx, review, opts)
   const workTree = reviewCheckout(ctx) ?? review.repoRoot
   return { ...target, ...await changeSnapshotFor(workTree, review, target) }
@@ -358,25 +359,30 @@ export async function requestReviewGuide(
 }
 
 export async function getReviewGuideStatus(
-  ctx: IpcContext,
+  ctx: Pick<IpcContext, 'session'>,
   opts: Pick<GenerateGuideOptions, 'scope' | 'target' | 'ownDeltaBase'> = {},
+  factsCache?: CheckoutFactsCache,
 ): Promise<ReviewGuideStatusEvent | null> {
-  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId)
+  const review = await resolveReviewContext(reviewCheckout(ctx), ctx.session.agentSessionId, factsCache)
   if (!review) return null
-  const target = await resolveTarget(ctx, review, opts)
-  const statusKey = `${review.repoRoot}::${target.guideKey}`
-  const dedupeKey = `${statusKey}::${target.changeFingerprint}`
+  const base = await resolveTargetBase(ctx, review, opts)
+  const statusKey = `${review.repoRoot}::${base.guideKey}`
   const current = guideStatuses.get(statusKey)
-  const currentForHead = current?.changeFingerprint === target.changeFingerprint ? current : null
   const runningForKey = [...inFlight.values()].find((running) => running.statusKey === statusKey)
-  if (inFlight.has(dedupeKey) || runningForKey || currentForHead?.status === 'queued' || currentForHead?.status === 'generating') {
+  // The renderer probes on every working-tree change. With no guide to compare
+  // against, the answer is null, and the diff that fingerprints the change set
+  // is not needed to say so.
+  const cached = await readGuideByKey(review.repoRoot, base.guideKey)
+  if (!current && !runningForKey && !cached) return null
+  const workTree = reviewCheckout(ctx) ?? review.repoRoot
+  const target: GuideTarget = { ...base, ...await changeSnapshotFor(workTree, review, base) }
+  const currentForHead = current?.changeFingerprint === target.changeFingerprint ? current : null
+  if (runningForKey || currentForHead?.status === 'queued' || currentForHead?.status === 'generating') {
     return currentForHead ?? statusEvent(review, target, 'generating', { step: 'preparing' })
   }
   if (currentForHead) return currentForHead
 
-  const cached = await readGuideByKey(review.repoRoot, target.guideKey)
-  const workTree = reviewCheckout(ctx) ?? review.repoRoot
-  const headSha = getHeadCommit(workTree)
+  const headSha = await getHeadCommit(workTree)
   if (!cached) {
     return current
       ? setGuideStatus(statusKey, statusEvent(review, target, 'outdated'))
@@ -398,6 +404,27 @@ export async function getReviewGuideStatus(
     return setGuideStatus(statusKey, statusEvent(review, target, 'outdated'))
   }
   return setGuideStatus(statusKey, statusEvent(review, target, 'ready'))
+}
+
+/** Each probe costs a few git spawns and a diff. A restored workspace sends
+ * one probe per tab, so the batch is paced to leave the CPU to the transcript
+ * that is loading at the same time. */
+const SESSION_GUIDE_PROBE_CONCURRENCY = 4
+
+/** Session-scope status for many sessions, in request order. One session's
+ * failure answers null for that session and does not fail the batch. */
+export function getSessionGuideStatuses(sessions: SessionCtx[]): Promise<(ReviewGuideStatusEvent | null)[]> {
+  // Restored tabs mostly share one checkout. Its branch, target, and head are
+  // read once for the batch instead of once per session.
+  const factsCache: CheckoutFactsCache = new Map()
+  return runBounded(sessions.map((session) => async () => {
+    try {
+      return await getReviewGuideStatus({ session }, { scope: 'session' }, factsCache)
+    } catch (error) {
+      log.warn('session_guide_status_failed', { agentSessionId: session.agentSessionId, error: String(error) })
+      return null
+    }
+  }), SESSION_GUIDE_PROBE_CONCURRENCY)
 }
 
 export async function cancelGenerateGuide(
@@ -454,7 +481,7 @@ async function produceGuide(
   // We also keep the patch for coverage validation and the small-diff prompt.
   const workTree = reviewCheckout(ctx) ?? review.repoRoot
   const base = target.base
-  const headSha = resolvedGuideHead(target, workTree, review)
+  const headSha = await resolvedGuideHead(target, workTree, review)
 
   // Target resolution computed the exact patch before dedupe, so every author
   // run is tied to one content fingerprint.
@@ -545,9 +572,9 @@ async function finishGuide(workTree: string, review: ReviewContext, target: Guid
   return { key: target.guideKey, guide, persisted: ok }
 }
 
-function resolvedGuideHead(target: GuideTarget, workTree: string, review: ReviewContext): string {
+async function resolvedGuideHead(target: GuideTarget, workTree: string, review: ReviewContext): Promise<string> {
   if (target.head) return target.head
-  return getHeadCommit(workTree) ?? review.baseSha
+  return await getHeadCommit(workTree) ?? review.baseSha
 }
 
 const NOTHING_TO_REVIEW = 'No changes to review on this branch yet.'

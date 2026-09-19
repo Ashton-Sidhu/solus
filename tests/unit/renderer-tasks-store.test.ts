@@ -615,9 +615,40 @@ describe('renderer task hydration', () => {
     expect(store.get('task-1').prLinks).toHaveLength(2)
   })
 
-  test('refreshes the authoritative snapshot when an opened session binding is missing', async () => {
-    // WHY: a session may be opened after another actor created its task link.
-    // One missing-binding refresh recovers it without renderer-side tree merges.
+  test('a session the host reports as taskless does not cost a full snapshot', async () => {
+    // WHY: most restored tabs belong to no task, and every one of them asks for
+    // its binding on boot. The host's `tasksForSession` answer is authoritative,
+    // so "no task" must be accepted as-is: reloading the whole sidebar per
+    // taskless tab was one snapshot RPC per tab, serially, on every boot.
+    installStateRune()
+    let calls = 0
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksForSession: async () => null,
+          tasksSidebarSnapshot: async () => {
+            calls++
+            return { tasks: [], sessionsByTask: {} }
+          },
+        },
+      },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    const bound = await store.ensureSessionBinding('loose-session')
+
+    expect(bound).toBeNull()
+    expect(calls).toBe(1)
+  })
+
+  test('refreshes the authoritative snapshot only when the focused session read fails', async () => {
+    // WHY: the focused read is the cheap path, but a host that cannot answer it
+    // must not leave a restored session projected as loose when the snapshot
+    // still knows its task. The full reload is the fallback for a failed read,
+    // not for a "no task" answer.
     installStateRune()
     const parent = { ...task(), id: 'parent', title: 'Parent task' }
     const child = { ...task(), id: 'child', parentId: 'parent', title: 'Current subtask' }
@@ -627,7 +658,7 @@ describe('renderer task hydration', () => {
       writable: true,
       value: {
         solus: {
-          tasksForSession: async () => null,
+          tasksForSession: async () => { throw new Error('host unavailable') },
           tasksSidebarSnapshot: async () => calls++ === 0
             ? { tasks: [], sessionsByTask: {} }
             : {
@@ -645,8 +676,43 @@ describe('renderer task hydration', () => {
     await store.ensureSessionBinding('resumed-session')
 
     expect(store.taskForSession('resumed-session')?.id).toBe('child')
-    expect(store.tasks.map(({ id }) => id).sort()).toEqual(['child', 'parent'])
     expect(calls).toBe(2)
+  })
+
+  test('a session write refreshes its binding with the focused read, not a second snapshot', async () => {
+    // WHY: every session start and branch change writes to the task host, and
+    // the host broadcasts `tasks.invalidated` for that write. A full reload
+    // here on top of that broadcast doubled the snapshot traffic per session.
+    installStateRune()
+    const owner = { ...task(), id: 'owner', title: 'Owner task' }
+    let snapshots = 0
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      writable: true,
+      value: {
+        solus: {
+          tasksForSession: async () => ({
+            task: owner,
+            parent: null,
+            subtasks: [],
+            siblings: [],
+            attempts: [],
+          }),
+          tasksSidebarSnapshot: async () => {
+            snapshots++
+            return { tasks: [], sessionsByTask: {} }
+          },
+        },
+      },
+    })
+
+    const { TasksStore } = await import('@solus/workspace-ui/contexts/tasks/tasks.store.svelte')
+    const store = new TasksStore()
+    const bound = await store.refreshSessionBinding('started-session')
+
+    expect(bound?.id).toBe('owner')
+    expect(store.taskForSession('started-session')?.id).toBe('owner')
+    expect(snapshots).toBe(1)
   })
 
   test('hydrates the complete related tree when the snapshot already knows the selected session', async () => {

@@ -45,20 +45,33 @@ interface RendererMarks {
  */
 export function traceRendererMarks(contents: Electron.WebContents): void {
   if (!enabled) return
-  void contents
-    .executeJavaScript(
-      `JSON.stringify({timeOrigin:performance.timeOrigin,marks:performance.getEntriesByType('mark')
-        .filter(m=>m.name.startsWith('solus.boot.')).map(m=>({name:m.name,startTime:m.startTime}))})`,
-    )
-    .then((raw: string) => {
-      // SAFETY: `raw` is the return value of the literal expression above, so
-      // its shape is fixed here rather than supplied by the page.
-      const { timeOrigin, marks } = JSON.parse(raw) as RendererMarks
-      for (const mark of marks) {
-        process.stdout.write(
-          `SOLUS_STARTUP ${mark.name} ${Math.round(timeOrigin + mark.startTime)} ${mark.startTime.toFixed(1)}\n`,
-        )
-      }
-    })
-    .catch(() => {})
+  const emitted = new Set<string>()
+  const emit = (raw: string) => {
+    // SAFETY: the literal expressions below define the returned JSON shape.
+    const { timeOrigin, marks } = JSON.parse(raw) as RendererMarks
+    for (const mark of marks) {
+      if (emitted.has(mark.name)) continue
+      emitted.add(mark.name)
+      process.stdout.write(
+        `SOLUS_STARTUP ${mark.name} ${Math.round(timeOrigin + mark.startTime)} ${mark.startTime.toFixed(1)}\n`,
+      )
+    }
+  }
+  const snapshot = `JSON.stringify({timeOrigin:performance.timeOrigin,marks:performance.getEntriesByType('mark')
+    .filter(m=>m.name.startsWith('solus.boot.')).map(m=>({name:m.name,startTime:m.startTime}))})`
+  void contents.executeJavaScript(snapshot).then(emit).catch(() => {})
+  // The window can be ready before history arrives. Observe the later paint
+  // mark too, without polling or making the app wait for the trace collector.
+  void contents.executeJavaScript(`new Promise(resolve => {
+    if (!performance.getEntriesByName('solus.boot.transcript.requested').length ||
+        performance.getEntriesByName('solus.boot.transcript.painted').length) {
+      resolve(${snapshot}); return;
+    }
+    const finish = () => { observer.disconnect(); clearTimeout(timeout); resolve(${snapshot}); };
+    const observer = new PerformanceObserver(list => {
+      if (list.getEntries().some(mark => mark.name === 'solus.boot.transcript.painted')) finish();
+    });
+    const timeout = setTimeout(finish, 30000);
+    observer.observe({type:'mark', buffered:true});
+  })`).then(emit).catch(() => {})
 }

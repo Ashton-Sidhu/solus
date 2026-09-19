@@ -1,7 +1,5 @@
 <script lang="ts">
-  import SvelteMarkdown, {
-    type SanitizeUrlFn,
-  } from "@humanspeak/svelte-markdown";
+  import GithubMarkdown from '../../github-markdown/GithubMarkdown.svelte';
   import { SvelteSet } from "svelte/reactivity";
   import {
     ArrowUp as ArrowUpIcon,
@@ -18,12 +16,7 @@
     TaskSessionLink,
   } from "@solus/contracts/task-types";
   import ArtifactActivityCard from "../../artifact/ArtifactActivityCard.svelte";
-  import { githubMarkdownExtensions } from "../../../lib/githubMarkdown";
-  import { markdownSanitizeUrl } from "../../../lib/markdownSanitize";
-  import MarkdownImage from "../../conversation/MarkdownImage.svelte";
-  import { githubMarkdownRenderers } from "../../ui/markdown-renderers";
   import { authorInitials, relativeTime } from "../lib/tasks-api";
-  import { isInlineTaskImageUrl } from "./lib/task-image";
   import {
     activityFeed,
     commentSessionName,
@@ -93,18 +86,6 @@
       deleting.delete(commentId);
     }
   }
-
-  const taskMarkdownRenderers = {
-    ...githubMarkdownRenderers,
-    image: MarkdownImage,
-  };
-  // The task editor embeds pasted screenshots as data URLs. Keep that exception
-  // image-only and raster-only; links, SVG, and arbitrary payloads still use
-  // the shared protocol allowlist.
-  const taskMarkdownSanitizeUrl: SanitizeUrlFn = (url, context) => {
-    if (context.type === "image" && isInlineTaskImageUrl(url)) return url;
-    return markdownSanitizeUrl(url, context);
-  };
 
   let filter = $state<"all" | "comments">("all");
 
@@ -347,11 +328,9 @@
               {/if}
             </span>
             <div class="github-markdown prose-cloud prose-pr w-full">
-              <SvelteMarkdown
+              <GithubMarkdown
                 source={comment.body}
-                extensions={githubMarkdownExtensions}
-                renderers={taskMarkdownRenderers}
-                sanitizeUrl={taskMarkdownSanitizeUrl}
+                policy="local"
               />
             </div>
           </span>

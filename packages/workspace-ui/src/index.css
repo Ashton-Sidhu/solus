@@ -804,6 +804,14 @@
   /* wash-4 is the deepest inert fill — an empty histogram bar, a scrollbar
      thumb: present, but never mistakable for data. */
   --wash-4: color-mix(in oklch, var(--foreground) 11%, transparent);
+  /* Table rows, as the cloud site draws them: every other row washed, thin
+     enough that a hover still reads over it, and the hover itself as an inset
+     wash that composites over any fill the row already has. */
+  --zebra: color-mix(in oklch, var(--muted) 45%, transparent);
+  --hover-wash: inset 0 0 0 999px var(--muted);
+  /* The vertical padding of a table or settings row; the laptop display takes
+     the compact rung the cloud site offers as a choice. */
+  --row-py: 14px;
   /* Rules. The group-header rule is the quiet one; -strong is for section
      dividers that have to survive against a wash, and -strongest is the ring a
      board card takes while it is the selected one. */
@@ -1169,6 +1177,7 @@ html, body, #root {
    Coarse-pointer clients retain the touch-readable desktop size. */
 @media (pointer: fine) {
   html.is-laptop-display {
+    --row-py: 10px;
     --text-workspace-chrome: 0.75rem;
     --text-sidebar-time: 0.625rem;
     --text-conversation-gutter: 0.625rem;

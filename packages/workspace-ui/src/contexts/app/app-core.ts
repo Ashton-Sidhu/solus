@@ -24,7 +24,10 @@ import {
   reviewGuideStore,
   sessionGuideIdentity,
 } from '../../components/review/review-guide.store.svelte'
+import { trackSessionReviewGuides } from '../../components/review/lib/session-guide-tracker.svelte'
+import { trackBranchReviewGuides } from '../../components/review/lib/branch-guide-tracker.svelte'
 import { toasts } from '../../lib/toasts'
+import { notificationsStore } from '../notifications/notifications.store.svelte'
 
 export interface AppCore {
   settings: SettingsContext
@@ -72,12 +75,15 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   )
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects)
   session.trackVisibleConversations()
+  trackSessionReviewGuides(session)
+  trackBranchReviewGuides(session, sessionEnvironmentStore)
   session.onTabClosing = (tabId) => sessionSidebarStore.clearTabAttention(tabId)
   const voiceModelStore = new VoiceModelStore()
   statusBar.bind(session)
   statusBar.bindAgent(agent)
 
   const unsubscribeReviewGuideReady = reviewGuideStore.onReady((serverId, event) => {
+    if (!notificationsStore.wants('review_guide_ready')) return
     if (event.target?.kind === 'pr') {
       const target = event.target
       toasts.success(`Review guide ready for ${target.owner}/${target.repo} #${target.number}`, {
@@ -105,7 +111,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
         onAction: () => {
           if (!session.tabs[tabId]) return
           if (session.activeTabId !== tabId) session.selectTab(tabId)
-          session.enterReview('session', tabId)
+          session.enterReview('session', tabId, 'guide')
         },
       },
     })

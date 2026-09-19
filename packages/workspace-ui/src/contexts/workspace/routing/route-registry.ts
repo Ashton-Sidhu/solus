@@ -22,7 +22,9 @@ import { serverConnections } from '@solus/client-core/server-connections'
  */
 
 export type SettingsTab =
+  | 'model-routing'
   | 'general'
+  | 'notifications'
   | 'instructions'
   | 'source-control'
   | 'review'
@@ -37,7 +39,9 @@ export type SettingsTab =
   | 'keybindings'
 
 const SETTINGS_TABS: ReadonlySet<string> = new Set<SettingsTab>([
+  'model-routing',
   'general',
+  'notifications',
   'instructions',
   'source-control',
   'review',
@@ -128,8 +132,7 @@ export interface RouteParams {
   prDiff: { number: number; cwd?: string; serverId?: string }
   /** A file tree is a view of one directory on one host. Keep that target in
    *  the route so a draft becoming a session cannot change or reload the pane. */
-  files: { serverId: string; cwd: string }
-  fileEditor: { sourceId: string; path: string; line?: number }
+  files: { serverId: string; cwd: string; path?: string; line?: number }
   /** A sub-agent's nested transcript hangs off a message, and messages belong
    *  to the conversation. */
   subagent: { sessionId: string; messageId: string; serverId?: string }
@@ -523,31 +526,23 @@ export const ROUTES: RouteTable = {
   files: {
     parse: (s) => {
       const [serverId, ...rest] = s.split('/')
+      if (rest[0] === '@file') {
+        const [, encodedCwd, marker, ...segments] = rest
+        let cwd: string
+        try { cwd = decodeURIComponent(encodedCwd ?? '') } catch { return null }
+        const path = segments.join('/')
+        if (!serverId || !cwd || !path || (marker !== '-' && !/^[1-9]\d*$/.test(marker ?? ''))) return null
+        return marker === '-' ? { serverId, cwd, path } : { serverId, cwd, path, line: Number(marker) }
+      }
       const cwd = rest.join('/')
       return serverId && cwd ? { serverId, cwd } : null
     },
-    serialize: (p) => `${p.serverId}/${p.cwd}`,
+    serialize: (p) => p.path
+      ? `${p.serverId}/@file/${encodeURIComponent(p.cwd)}/${p.line ?? '-'}/${p.path}`
+      : `${p.serverId}/${p.cwd}`,
     placement: 'overlay',
     defaultWeight: 0.6,
     component: () => import('../../../components/files/FilesTreePane.svelte'),
-  },
-  fileEditor: {
-    // `<source>/<line|->/<path>`. The line sits in a fixed slot because a path
-    // may contain anything a filesystem allows, including a `:12` suffix. A
-    // second segment that is neither `-` nor digits is a path segment from a
-    // location serialized before the slot existed, so it parses line-less.
-    parse: (s) => {
-      const [sourceId, marker, ...rest] = s.split('/')
-      const hasLineSlot = marker === '-' || /^\d+$/.test(marker ?? '')
-      const path = hasLineSlot ? rest.join('/') : [marker, ...rest].join('/')
-      if (!sourceId || !path) return null
-      const line = hasLineSlot && marker !== '-' ? Number(marker) : undefined
-      return line === undefined ? { sourceId, path } : { sourceId, path, line }
-    },
-    serialize: (p) => `${p.sourceId}/${p.line ?? '-'}/${p.path}`,
-    placement: 'overlay',
-    defaultWeight: 0.6,
-    component: () => import('../../../components/files/FileEditorHostPane.svelte'),
   },
   subagent: {
     parse: (s) => {

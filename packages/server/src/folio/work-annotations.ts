@@ -1,6 +1,8 @@
 import { getDb } from '../db'
 import type { WorkExternalComments } from '@solus/contracts/work-comments'
 import type { WorkAnnotations } from '@solus/contracts/types'
+import { applyCommentCommand, type CommentActor, type WorkCommentCommand } from '@solus/contracts/comment-commands'
+import { notifyAnnotationsChanged } from '../annotations/annotation-events'
 
 interface WorkAnnotationRow {
   data: string | null
@@ -26,6 +28,20 @@ export function saveExternalComments(workId: string, externalComments: WorkExter
 export async function saveWorkAnnotations(ann: WorkAnnotations): Promise<void> {
   const current = loadWorkAnnotations(ann.workId)
   writeAnnotations({ version: 1, workId: ann.workId, comments: ann.comments, updatedAt: ann.updatedAt, externalComments: current?.externalComments, googleComments: current?.googleComments })
+}
+
+/**
+ * One person's change to a work's threads (docs/plans/multiplayer-comments.md).
+ * Read, apply, write, with no await between: two people commenting at once each
+ * land on the other's result instead of over it. Everyone who can open the work
+ * is told, so their rails re-read.
+ */
+export function applyWorkComment(workId: string, command: WorkCommentCommand, actor: CommentActor): WorkAnnotations {
+  const current = loadWorkAnnotations(workId) ?? { version: 1, workId, comments: [], updatedAt: 0 }
+  const next: WorkAnnotations = { ...current, comments: applyCommentCommand(current.comments, command, actor) }
+  writeAnnotations(next)
+  notifyAnnotationsChanged({ kind: 'work', targetId: workId })
+  return loadWorkAnnotations(workId) ?? next
 }
 
 function writeAnnotations(ann: WorkAnnotations): void {

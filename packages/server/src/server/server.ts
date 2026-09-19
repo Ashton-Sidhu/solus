@@ -48,11 +48,14 @@ export class SolusServer {
     assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
-      if (method === 'publishWork') {
+      if (method === 'typeSafeKeySet') {
+        log.debug('rpc_method_invoked', { method, clientId: ctx.clientId })
+      } else if (method === 'publishWork') {
         // SAFETY: Runtime dispatch pairs this method with publishWork's tuple.
         const request = args[1] as WorkPublishRequest | undefined
         log.debug('rpc_method_invoked', {
           method,
+          clientId: ctx.clientId,
           workId: args[0],
           diagrams: request?.diagramAssets?.map((asset) => ({ workId: asset.workId, bytes: asset.base64.length })),
         })
@@ -61,18 +64,27 @@ export class SolusServer {
         const request = args[0] as PlanPublishRequest
         log.debug('rpc_method_invoked', {
           method,
+          clientId: ctx.clientId,
           sessionId: request.sessionId,
           planToolUseId: request.planToolUseId,
           contentLength: request.content.length,
           diagrams: request.diagramAssets?.map((asset) => ({ workId: asset.workId, bytes: asset.base64.length })),
         })
       } else {
-        log.debug('rpc_method_invoked', { method, args })
+        log.debug('rpc_method_invoked', { method, clientId: ctx.clientId, args })
       }
     }
     const handler = this.handlers.get(method)
     if (!handler) throw new Error(`SolusServer: no handler for "${method}"`)
-    return await handler(args, ctx)
+    if (!isDebugEnabled()) return await handler(args, ctx)
+    // The part of a handler that runs before its first await is the part that
+    // blocks every other request. Debug builds report it when it is long
+    // enough to matter, so a slow boot names the handler that held the loop.
+    const startedAt = performance.now()
+    const pending = handler(args, ctx)
+    const blockedMs = Math.round(performance.now() - startedAt)
+    if (blockedMs >= 20) log.warn('rpc_handler_blocked_loop', { method, clientId: ctx.clientId, blockedMs })
+    return await pending
   }
 
   hasHandler(method: string): method is RpcMethod {

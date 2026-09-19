@@ -82,7 +82,10 @@
       {onDesignMode}
     />
   {:else if ref && descriptor?.component}
-    {#key routeLoadAttempt}
+    <!-- An await block can keep its previous component until the next loader
+         settles. Drop it before a different route supplies incompatible params.
+         Keep same-route updates mounted so they retain their local state. -->
+    {#key `${ref.name}:${routeLoadAttempt}`}
     {#await descriptor.component()}
       {#if ref.name === "settings"}
         <SettingsPageSkeleton />
@@ -137,14 +140,14 @@
             closeLabel="Close loading diff"
           />
         </div>
-      {:else if ref.name === "files" || ref.name === "fileEditor"}
+      {:else if ref.name === "files"}
         <div class="relative h-full min-h-0 w-full">
-          <FilesRouteSkeleton variant={ref.name === "files" ? "tree" : "editor"} />
+          <FilesRouteSkeleton variant="tree" />
           <PaneChrome
             onClose={actions.closeOverlay}
             onOpenInSplit={!actions.isLeading ? actions.moveAcross : undefined}
             isLeading={actions.isLeading}
-            closeLabel={ref.name === "files" ? "Close loading files" : "Close loading file"}
+            closeLabel="Close loading files"
           />
         </div>
       {:else if ref.name === "subagent"}

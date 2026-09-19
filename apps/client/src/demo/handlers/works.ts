@@ -1,5 +1,6 @@
 import { arg, optionalArg } from './args'
-import type { AgentId, Work, WorkAnnotations } from '@solus/contracts/types'
+import type { AgentId, Work } from '@solus/contracts/types'
+import type { WorkCommentCommand } from '@solus/contracts/comment-commands'
 import type { DemoServer } from '../fixtures/types'
 import type { DemoStore } from '../store'
 
@@ -30,7 +31,8 @@ export function registerWorksHandlers(backend: DemoServer, store: DemoStore): vo
     store.setWorkPinned(id, pinned)
   })
   backend.register('loadWorkAnnotations', (args) => store.loadWorkAnnotations(arg<string>(args, 0)))
-  backend.register('saveWorkAnnotations', (args) => store.saveWorkAnnotations(arg<WorkAnnotations>(args, 0)))
+  backend.register('applyWorkComment', (args) => store.applyWorkComment(arg<string>(args, 0), arg<WorkCommentCommand>(args, 1)))
+  backend.register('markWorkCommentRead', (args) => store.applyWorkComment(arg<string>(args, 0), { kind: 'read', commentId: arg<string>(args, 1) }))
   backend.register('loadWorkPrevious', (args) => store.loadWorkPrevious(arg<string>(args, 0)))
   // The demo connects to nothing, so the publish menu shows the same "not
   // connected" answer a real host with no provider would give — an unhandled

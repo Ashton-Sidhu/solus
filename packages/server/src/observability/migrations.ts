@@ -34,6 +34,10 @@ CREATE TABLE log_events (
 CREATE INDEX log_events_trace_time ON log_events(trace_id, occurred_at);
 CREATE INDEX log_events_span_time ON log_events(span_id, occurred_at);
 CREATE INDEX log_events_name_time ON log_events(name, occurred_at);
+`, `
+-- Retention rollover deletes by time alone. Without this index that is a full
+-- scan of the spans table, twice, on the main thread at every boot.
+CREATE INDEX spans_time ON spans(started_at);
 `]
 
 export function runMetricsMigrations(db: DatabaseSync): void {

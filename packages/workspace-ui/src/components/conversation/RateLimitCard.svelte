@@ -12,12 +12,12 @@
     queueRateLimitedWait,
   } from "../../lib/rate-limit-actions";
   import {
+    needsRateLimitDecision,
     formatClock,
     formatLimitWindow,
     formatReleaseTime,
   } from "./lib/queued-prompts";
   import InterruptCard from "./InterruptCard.svelte";
-  import TranscriptChip from "./TranscriptChip.svelte";
   import { liveActivityClock } from "../../lib/shared-clock";
 
   interface Props {
@@ -32,29 +32,7 @@
   const resetsAt = $derived(rateLimitInfo?.resetsAt);
   const limitWindow = $derived(formatLimitWindow(rateLimitInfo?.rateLimitType));
 
-  // A held prompt is the decision, already made and durable across a reload —
-  // so it, not a local flag, is what retires the card. The flag only covers the
-  // gap between the click and the prompt_queued event landing.
-  const hasQueuedPrompt = $derived(
-    (sess?.outboundPrompts ?? []).some(
-      (prompt) => prompt.state === "queued" && prompt.reason === "rate_limit",
-    ),
-  );
-  let userChoseQueue = $state(false);
-
-  $effect(() => {
-    if (sess?.status !== "rate_limited") userChoseQueue = false;
-  });
-
-  // Purely a decision surface. Once the prompt is queued — by choice here, or by
-  // the 'queue' strategy that never asks — the queued bubbles state it instead,
-  // so the card leaves rather than repeating them.
-  const isVisible = $derived(
-    rateLimitInfo != null &&
-      sess?.status === "rate_limited" &&
-      !userChoseQueue &&
-      !hasQueuedPrompt,
-  );
+  const isVisible = $derived(needsRateLimitDecision(sess));
   let now = $state(Date.now());
   const secondsLeft = $derived(
     resetsAt ? Math.max(0, Math.ceil(resetsAt - now / 1000)) : 0,
@@ -76,7 +54,6 @@
   });
 
   async function handleQueueIt() {
-    userChoseQueue = true;
     await queueRateLimitedWait(
       session.apiFor(tabId),
       session.ctxFor(tabId),

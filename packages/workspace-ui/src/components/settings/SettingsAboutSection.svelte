@@ -13,12 +13,9 @@
   /** About Solus: the running version and, on desktop, the update status with
    *  its commands. Web and mobile show the version row only; a browser cannot
    *  replace the binary that serves it (`docs/plans/desktop-updates.md`). */
-  import SvelteMarkdown from "@humanspeak/svelte-markdown";
   import { CLIENT_VERSION } from "@solus/client-core/version-skew";
   import { updatesStore } from "../../contexts";
-  import { githubMarkdownRenderers } from "../ui/markdown-renderers";
-  import { githubMarkdownExtensions } from "../../lib/githubMarkdown";
-  import { remoteMarkdownSanitizeUrl } from "../../lib/markdownSanitize";
+  import GithubMarkdown from "../github-markdown/GithubMarkdown.svelte";
   import { Button } from "../ui/button";
   import { Switch } from "../ui/switch";
   import SettingsSection from "./SettingsSection.svelte";
@@ -87,12 +84,7 @@
               Release notes for {updatesStore.release?.version}
             </summary>
             <div class="github-markdown prose-cloud mt-2 text-[0.875em]">
-              <SvelteMarkdown
-                source={releaseNotes}
-                extensions={githubMarkdownExtensions}
-                renderers={githubMarkdownRenderers}
-                sanitizeUrl={remoteMarkdownSanitizeUrl}
-              />
+              <GithubMarkdown source={releaseNotes} />
             </div>
           </details>
         {/if}

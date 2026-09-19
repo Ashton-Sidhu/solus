@@ -51,9 +51,10 @@
     track,
   } from "@solus/workspace-ui/lib/analytics";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
-  import CommandPalette from "@solus/workspace-ui/components/command-palette/CommandPalette.svelte";
+  import { afterPaint } from "@solus/workspace-ui/lib/after-paint";
+  const commandPaletteComponent = afterPaint().then(() => import("@solus/workspace-ui/components/command-palette/CommandPalette.svelte"));
   import ShareDialog from "@solus/workspace-ui/components/sharing/ShareDialog.svelte";
-  import { activeSessionShareTarget, seatsStore, sharesStore } from "@solus/workspace-ui/contexts";
+  import { activeSessionShareTarget, presenceStore, seatsStore, sharesStore } from "@solus/workspace-ui/contexts";
   import type { Command } from "@solus/workspace-ui/components/command-palette/lib/commands";
   import { comboHint } from "@solus/workspace-ui/lib/keybindings/manifest";
   import { createWebAttachments } from "./components/input/lib/attachments";
@@ -298,18 +299,30 @@
       // A member's provider seat changes on the host, at a turn's end or in the
       // browser; the settings row and the connect card both read the store.
       const unsubSeats = seatsStore.listen();
+      // Who else is on each host, and what they are looking at; the rooms arrive
+      // as snapshots and every presence surface reads the one store.
+      const unsubPresence = presenceStore.listen();
       return () => {
         unsubVoiceModel();
         unsubSessionStatuses();
         unsubAutomations();
         unsubUsage();
         unsubSeats();
+        unsubPresence();
       };
     }),
   );
 
+  // Tell the host which session or work the focused pane shows, so teammates
+  // can see where this person is and jump to them.
+  $effect(() => presenceStore.reportWorkspaceFocus(session));
+  // And go along with a followed teammate when they move.
+  $effect(() => presenceStore.syncFollow(session));
+
+  // Web push is the system channel for a device that is away, so the
+  // subscription follows that one switch.
   $effect(() => {
-    const enabled = settings.soundEnabled;
+    const enabled = settings.notifications.channels.system;
     untrack(() => void webPushState.syncEnabled(enabled).catch((error) =>
       toasts.error(error instanceof Error ? error.message : "Notifications could not be updated"),
     ));
@@ -317,8 +330,7 @@
 
   $effect(() => {
     return untrack(() => notificationsStore.start({
-      nativeNotificationsEnabled: () => settings.soundEnabled,
-      backgroundActivityToastsEnabled: () => settings.backgroundActivityToasts,
+      preferences: () => settings.notifications,
       hostDisplay: (serverId) => {
         const host = serversStore.hostFor(serverId);
         const display: import("@solus/workspace-ui/contexts/notifications/notifications.store.svelte").NotificationHostDisplay = {
@@ -700,7 +712,12 @@
   <WebLayout onAttachFile={handleAttachFile} onAttachFiles={handleAttachFiles} />
 </div>
 
-<CommandPalette bind:open={commandPaletteOpen} commands={paletteCommands} />
+{#await commandPaletteComponent then module}
+  {@const CommandPalette = module.default}
+  <CommandPalette bind:open={commandPaletteOpen} commands={paletteCommands} />
+{:catch}
+  <p role="alert">Could not load the command palette.</p>
+{/await}
 <ShareDialog />
 
 {#if hasMountedDirectoryPicker && projectPicker.directoryPickerApi}

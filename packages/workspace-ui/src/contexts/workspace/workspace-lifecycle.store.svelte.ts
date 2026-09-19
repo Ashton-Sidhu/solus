@@ -1,3 +1,4 @@
+import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { type AgentId, type AgentMetadata, type IpcContext, type Message, type QueuedPromptSnapshot, type RunConfig, type Session, type StartInfo, type TurnSnapshot } from '@solus/contracts/types'
 import type { GitRefreshResult } from '../git/session-environment.store.svelte'
 import { loadCachedStart, saveCachedStart } from './tab-persistence'
@@ -51,7 +52,9 @@ export interface WorkspaceLifecycleStoreDeps {
     provider: AgentId
     ctx: IpcContext
     limit?: number
-  }): Promise<{ messages: Session['messages']; progress: Session['progress']; planIds: string[]; truncated?: boolean }>
+    before?: string
+    pendingMessages?: WireSessionLoadMessage[]
+  }): Promise<{ messages: Session['messages']; progress: Session['progress']; planIds: string[]; truncated?: boolean; before?: string | null; pendingMessages?: WireSessionLoadMessage[] }>
   rebuildAgentConversations(session: Session): void
 }
 
@@ -366,7 +369,13 @@ export class WorkspaceLifecycleStore {
       await existing
       if (!opts?.full) return
     }
-    const expansion = this.expandHistoryOnce(tabId, !opts?.full)
+    const target = this.deps.registry.sessionFor(tabId)
+    const expansion = (async () => {
+      do {
+        await this.expandHistoryOnce(tabId, !opts?.full)
+      } while (opts?.full && target === this.deps.registry.sessionFor(tabId)
+        && target?.historyTruncated && target.historyCursor != null)
+    })()
     this.historyExpansions.set(tabId, expansion)
     try {
       await expansion
@@ -375,10 +384,39 @@ export class WorkspaceLifecycleStore {
     }
   }
 
+  private async prependHistoryPage(tabId: string, session: Session, agentSessionId: string, before: string): Promise<void> {
+    const transcript = await this.deps.loadTranscript({
+      sessionId: session.handoffId ?? agentSessionId,
+      loadPath: session.run.gitContext?.worktreePath || session.run.workingDirectory,
+      displayCwd: session.run.workingDirectory,
+      provider: session.run.provider ?? this.deps.settings.activeAgent,
+      ctx: this.deps.ctxFor(tabId), limit: HISTORY_PAGE_LIMIT, before,
+      pendingMessages: session.historyPendingMessages,
+    })
+    if (this.deps.registry.sessionFor(tabId) !== session
+      || session.agentSessionId !== agentSessionId || session.historyCursor !== before) return
+    if (transcript.before === before) throw new Error('History paging made no progress.')
+    // Pages are disjoint. Timestamp-based deduplication could discard two
+    // distinct messages that share a provider timestamp.
+    const older = transcript.messages
+    for (let end = older.length; end > 0; end -= 1000) {
+      session.messages.unshift(...older.slice(Math.max(0, end - 1000), end))
+    }
+    session.historyCursor = transcript.before ?? null
+    session.historyPendingMessages = transcript.pendingMessages
+    session.historyTruncated = session.historyCursor !== null
+    this.deps.rebuildAgentConversations(session)
+    this.recomputeChangedFiles(tabId)
+    for (const planId of transcript.planIds) void this.deps.planStore.hydrateAnnotations(planId)
+  }
+
   private async expandHistoryOnce(tabId: string, bounded: boolean): Promise<void> {
     const session = this.deps.registry.sessionFor(tabId)
     if (!session?.agentSessionId || !session.historyTruncated) return
     const agentSessionId = session.agentSessionId
+    if (session.historyCursor != null) {
+      return this.prependHistoryPage(tabId, session, agentSessionId, session.historyCursor)
+    }
     // Grow off the previous window rather than the rendered message count: a
     // page of tool results can collapse into no new rows, and the next request
     // still has to reach further back or the caller loops forever.
@@ -423,6 +461,8 @@ export class WorkspaceLifecycleStore {
     this.deps.rebuildAgentConversations(s)
     s.progress = handoffFrom ? progressFromMessages(reconciled) : transcript.progress
     s.historyTruncated = !!predecessorTranscript?.truncated || !!transcript.truncated
+    s.historyCursor = transcript.before
+    s.historyPendingMessages = transcript.pendingMessages
     if (limit && s.historyTruncated) this.historyWindowLimits.set(agentSessionId, limit)
     else this.historyWindowLimits.delete(agentSessionId)
     this.recomputeChangedFiles(tabId)

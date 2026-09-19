@@ -1,5 +1,6 @@
 import type { AgentId, GitCheckout, ModelConfig, PendingHostDispatch, RunConfig, WorktreeEntry } from '@solus/contracts/types'
 import { MODEL_PROFILES, worktreeProjectRoot } from '@solus/contracts/types'
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
 
 /**
  * The rules that operate on a `RunConfig` — where a session starts and what it
@@ -45,6 +46,54 @@ export function inheritRunConfig(
   }
 }
 
+export interface NewRunTarget {
+  freshTask?: boolean
+  workingDirectory?: string
+  gitContext?: GitCheckout | null
+  serverId?: string
+}
+
+/**
+ * Resolve the complete run for a newly opened tab or draft.
+ *
+ * The source answers what carries forward. The target answers what the opening
+ * gesture selected explicitly, and therefore always wins. Keeping this rule
+ * here prevents tabs and drafts from disagreeing about the same gesture.
+ */
+export function resolveNewRunConfig(
+  defaults: RunConfig,
+  source: RunConfig | null | undefined,
+  target: NewRunTarget = {},
+): RunConfig {
+  const run = inheritRunConfig(defaults, target.freshTask ? null : source)
+
+  if (target.freshTask) {
+    const projectRoot = projectRootOf(source)
+    if (projectRoot) run.workingDirectory = projectRoot
+    if (source) {
+      run.serverId = source.serverId
+      run.taskServerId = source.taskServerId
+      run.projectGroupPath = source.projectGroupPath
+    }
+    run.gitContext = null
+  }
+
+  if (target.serverId) {
+    run.serverId = target.serverId
+    run.taskServerId = target.serverId
+    run.projectGroupPath = null
+  }
+
+  if (target.workingDirectory !== undefined) {
+    run.workingDirectory = target.workingDirectory
+    run.gitContext = target.gitContext ?? null
+  } else if (target.gitContext !== undefined) {
+    run.gitContext = target.gitContext ? { ...target.gitContext } : null
+  }
+
+  return run
+}
+
 /**
  * Keep the provider and its model as one choice at every draft boundary.
  *
@@ -74,6 +123,7 @@ function knownProviderForModel(modelId: string | null): AgentId | null {
 
 /** The reasoning effort a model ships with, or null when it declares none. */
 function modelDefaultEffort(run: RunConfig): RunConfig['modelConfig']['reasoningEffort'] | null {
+  if (run.modelConfig.modelId === AUTO_MODEL_ID) return 'medium'
   if (!run.modelConfig.modelId || !run.provider) return null
   const profiles = MODEL_PROFILES[run.provider]
   return profiles?.[run.modelConfig.modelId]?.defaultReasoningEffort ?? null

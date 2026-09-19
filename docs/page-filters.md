@@ -9,3 +9,5 @@ Workspace, Automations, and Tasks group controls that change which records are s
 The row uses the Pull Requests toolbar sizing: 32 px search and buttons, 40 px on narrow panes. Sort precedes Filters. Filter choices use dropdown submenus.
 
 These controls use shared UI across desktop, web, and mobile. They keep the existing filter state and data loading behavior.
+
+The session sidebar uses its saved project filter. Changing the active session or draft does not change its scope, including when there are no active task rows. A saved project that is no longer in the sidebar catalog falls back to All projects. The mobile session list shows active tasks across projects; its Snoozed and Completed shelves use the shared sidebar filter.

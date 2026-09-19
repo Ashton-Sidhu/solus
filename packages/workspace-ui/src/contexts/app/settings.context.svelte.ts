@@ -22,6 +22,17 @@ import {
 import type { HostConfig } from '@solus/contracts/host-config'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import type { DocumentFontFamily, RateLimitBehavior, ResponseStreamingMode, TabGroupMode, ThemeMode } from '@solus/contracts/host-config'
+import {
+  DEFAULT_NOTIFICATION_PREFERENCES,
+  NOTIFICATION_CHANNELS,
+  NOTIFICATION_EVENTS,
+  mergeNotificationPreferences,
+  notificationPreferencesPatchSchema,
+  type NotificationChannel,
+  type NotificationEvent,
+  type NotificationPreferences,
+  type NotificationPreferencesPatch,
+} from '@solus/contracts/notification-types'
 
 // Host-config vocabulary lives in the contract, because the host validates the
 // same values. Re-exported so renderer call sites keep one import.
@@ -51,7 +62,6 @@ const DEFAULT_PROJECT_PANEL_COLLAPSED = {
 
 export type SettingsFields = {
   themeMode: ThemeMode
-  soundEnabled: boolean
   voiceModeEnabled: boolean
   autoSendVoiceTranscripts: boolean
   vadSilenceMs: number
@@ -59,7 +69,7 @@ export type SettingsFields = {
   fallbackTerminal: TerminalAppId | null
   activeAgent: AgentId
   defaultPermissionMode: HostConfig['defaultPermissionMode']
-  backgroundActivityToasts: boolean
+  notifications: NotificationPreferences
   defaultModels: Record<string, string>  // per-agent model for new sessions; missing → that agent's built-in default
   reviewAgent: AgentId
   reviewModel: string
@@ -264,13 +274,13 @@ const SETTINGS_KEY = 'solus-settings'
  *  a second device sees the change while the user is still looking at it. */
 const HOST_PUSH_DEBOUNCE_MS = 400
 
-/** The promoted tier. Typed against `HostConfig`, so adding a key to the
- *  contract without listing it here fails the typecheck rather than silently
- *  leaving that key device-local. */
+/** Settings mirrored on this device. Host-only controls, including Solus tool
+ *  choices, use their own host-scoped stores and must not be seeded from here. */
+type MirroredHostConfig = Pick<HostConfig, Extract<keyof SettingsFields, keyof HostConfig>>
 const HOST_CONFIG_KEY_MAP = {
-  themeMode: true, soundEnabled: true, voiceModeEnabled: true, autoSendVoiceTranscripts: true,
+  themeMode: true, voiceModeEnabled: true, autoSendVoiceTranscripts: true,
   vadSilenceMs: true, defaultEditor: true, fallbackTerminal: true, activeAgent: true,
-  defaultPermissionMode: true, backgroundActivityToasts: true,
+  defaultPermissionMode: true, notifications: true,
   defaultModels: true, reviewAgent: true, reviewModel: true, reviewReasoning: true,
   reviewGuideInstructions: true,
   stackedPrsEnabled: true, generatePrGuidesOnOpen: true, reviewWarmingByProject: true,
@@ -281,9 +291,9 @@ const HOST_CONFIG_KEY_MAP = {
   modelInstructions: true, analyticsEnabled: true, tabGroupMode: true,
   sidebarCompletedRetentionDays: true,
   archivedAutomationRetentionDays: true,
-} satisfies Record<keyof HostConfig, true>
+} satisfies Record<keyof MirroredHostConfig, true>
 
-function isHostConfigKey(key: string): key is keyof HostConfig {
+function isHostConfigKey(key: string): key is keyof MirroredHostConfig {
   return key in HOST_CONFIG_KEY_MAP
 }
 
@@ -320,9 +330,14 @@ const projectPanelCollapsedSchema = z.object({
   automations: z.boolean().optional(),
 }).transform((collapsed) => ({ ...DEFAULT_PROJECT_PANEL_COLLAPSED, ...collapsed }))
 
+/** The whole object is stored, so a malformed blob heals to the defaults;
+ *  a well-formed partial is completed by the merge below. */
+const notificationPreferencesSchema = notificationPreferencesPatchSchema
+  .transform((patch) => mergeNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES, patch))
+  .catch(DEFAULT_NOTIFICATION_PREFERENCES)
+
 const savedSettingsSchema = z.object({
   themeMode: z.enum(['light', 'dark', 'system']).catch('system'),
-  soundEnabled: z.boolean().catch(true),
   voiceModeEnabled: z.boolean().catch(false),
   autoSendVoiceTranscripts: z.boolean().catch(false),
   vadSilenceMs: z.number().transform((value) => Math.max(1000, Math.min(8000, value))).catch(1500),
@@ -330,7 +345,7 @@ const savedSettingsSchema = z.object({
   fallbackTerminal: z.enum(TERMINAL_APP_IDS).nullable().catch(null),
   activeAgent: z.enum(VALID_AGENTS).catch('claude-code'),
   defaultPermissionMode: z.enum(['ask', 'auto', 'plan']).catch('auto'),
-  backgroundActivityToasts: z.boolean().catch(false),
+  notifications: notificationPreferencesSchema.optional(),
   defaultModels: z.record(z.string(), z.string()).catch({}),
   reviewAgent: z.enum(VALID_AGENTS).catch(DEFAULT_REVIEW_AGENT),
   reviewModel: z.string().catch(DEFAULT_REVIEW_MODEL),
@@ -372,6 +387,25 @@ const savedSettingsSchema = z.object({
  * fallback for sessions with no attached terminal. Keep the old pick. */
 const legacyTerminalSchema = z.object({ defaultTerminal: z.enum(TERMINAL_APP_IDS) })
 
+/** `soundEnabled` gated the sound and the system alert together, and
+ * `backgroundActivityToasts` gated toasts, before `notifications` replaced them.
+ * A blob without the new key keeps the choices the old flags recorded. */
+const legacyNotificationFlagsSchema = z.object({
+  soundEnabled: z.boolean().optional(),
+  backgroundActivityToasts: z.boolean().optional(),
+})
+type LegacyNotificationFlags = z.infer<typeof legacyNotificationFlagsSchema>
+
+function notificationsFromLegacyFlags(flags: LegacyNotificationFlags): NotificationPreferences {
+  const channels: NonNullable<NotificationPreferencesPatch['channels']> = {}
+  if (flags.soundEnabled !== undefined) {
+    channels.sound = flags.soundEnabled
+    channels.system = flags.soundEnabled
+  }
+  if (flags.backgroundActivityToasts !== undefined) channels.toast = flags.backgroundActivityToasts
+  return mergeNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES, { channels })
+}
+
 /** True when this boot found a settings blob. Only a first run may seed the
  *  screen-derived zoom, and it persists the result immediately. */
 let hasStoredSettings = false
@@ -388,13 +422,18 @@ function loadSettings(): SettingsFields {
           const legacy = legacyTerminalSchema.safeParse(stored)
           if (legacy.success) parsed.data.fallbackTerminal = legacy.data.defaultTerminal
         }
-        return parsed.data
+        const legacyFlags = legacyNotificationFlagsSchema.safeParse(stored)
+        return {
+          ...parsed.data,
+          notifications:
+            parsed.data.notifications ??
+            (legacyFlags.success ? notificationsFromLegacyFlags(legacyFlags.data) : DEFAULT_NOTIFICATION_PREFERENCES),
+        }
       }
     }
   } catch {}
   return {
     themeMode: 'system',
-    soundEnabled: true,
     voiceModeEnabled: false,
     autoSendVoiceTranscripts: false,
     vadSilenceMs: 1500,
@@ -402,7 +441,7 @@ function loadSettings(): SettingsFields {
     fallbackTerminal: 'default-terminal',
     activeAgent: 'claude-code',
     defaultPermissionMode: 'auto',
-    backgroundActivityToasts: false,
+    notifications: DEFAULT_NOTIFICATION_PREFERENCES,
     defaultModels: {},
     reviewAgent: DEFAULT_REVIEW_AGENT,
     reviewModel: DEFAULT_REVIEW_MODEL,
@@ -443,7 +482,6 @@ function loadSettings(): SettingsFields {
 
 export class SettingsContext {
   themeMode = $state<ThemeMode>('system')
-  soundEnabled = $state(true)
   voiceModeEnabled = $state(false)
   autoSendVoiceTranscripts = $state(false)
   vadSilenceMs = $state(1500)
@@ -451,7 +489,7 @@ export class SettingsContext {
   fallbackTerminal = $state<TerminalAppId | null>(null)
   activeAgent = $state<AgentId>('claude-code')
   defaultPermissionMode = $state<HostConfig['defaultPermissionMode']>('auto')
-  backgroundActivityToasts = $state(false)
+  notifications = $state<NotificationPreferences>(mergeNotificationPreferences(DEFAULT_NOTIFICATION_PREFERENCES, {}))
   defaultModels = $state<Record<string, string>>({})
   reviewAgent = $state<AgentId>(DEFAULT_REVIEW_AGENT)
   reviewModel = $state(DEFAULT_REVIEW_MODEL)
@@ -494,14 +532,13 @@ export class SettingsContext {
   /** The host that owns the promoted tier, once `hydrateFromHost` has run. */
   private hostConfigServerId: string | null = null
   /** Which promoted keys are waiting to be pushed. Values are read at flush. */
-  private readonly pendingHostKeys = new Set<keyof HostConfig>()
+  private readonly pendingHostKeys = new Set<keyof MirroredHostConfig>()
   private hostPushTimer: ReturnType<typeof setTimeout> | null = null
   private applyingFromHost = false
 
   constructor() {
     const saved = loadSettings()
     this.themeMode = saved.themeMode
-    this.soundEnabled = saved.soundEnabled
     this.voiceModeEnabled = saved.voiceModeEnabled
     this.autoSendVoiceTranscripts = saved.autoSendVoiceTranscripts
     this.vadSilenceMs = saved.vadSilenceMs
@@ -509,7 +546,7 @@ export class SettingsContext {
     this.fallbackTerminal = saved.fallbackTerminal
     this.activeAgent = saved.activeAgent
     this.defaultPermissionMode = saved.defaultPermissionMode
-    this.backgroundActivityToasts = saved.backgroundActivityToasts
+    this.notifications = mergeNotificationPreferences(saved.notifications, {})
     this.defaultModels = saved.defaultModels
     this.reviewAgent = saved.reviewAgent
     this.reviewModel = saved.reviewModel
@@ -585,7 +622,6 @@ export class SettingsContext {
     return {
       themeMode: this.themeMode,
       isDark: this.isDark,
-      soundEnabled: this.soundEnabled,
       voiceModeEnabled: this.voiceModeEnabled,
       vadSilenceMs: this.vadSilenceMs,
       defaultEditor: this.defaultEditor,
@@ -631,7 +667,6 @@ export class SettingsContext {
       const resolved = patch.themeMode === 'system' ? this._systemIsDark : patch.themeMode === 'dark'
       applyTheme(resolved)
     }
-    if (patch.soundEnabled !== undefined) this.soundEnabled = patch.soundEnabled
     if (patch.voiceModeEnabled !== undefined) this.voiceModeEnabled = patch.voiceModeEnabled
     if (patch.autoSendVoiceTranscripts !== undefined) this.autoSendVoiceTranscripts = patch.autoSendVoiceTranscripts
     if (patch.vadSilenceMs !== undefined) this.vadSilenceMs = Math.max(1000, Math.min(8000, patch.vadSilenceMs))
@@ -639,7 +674,7 @@ export class SettingsContext {
     if (patch.fallbackTerminal !== undefined) this.fallbackTerminal = patch.fallbackTerminal
     if (patch.activeAgent !== undefined) this.activeAgent = patch.activeAgent
     if (patch.defaultPermissionMode !== undefined) this.defaultPermissionMode = patch.defaultPermissionMode
-    if (patch.backgroundActivityToasts !== undefined) this.backgroundActivityToasts = patch.backgroundActivityToasts
+    if (patch.notifications !== undefined) this.adoptNotifications(patch.notifications)
     if (patch.defaultModels !== undefined) this.defaultModels = patch.defaultModels
     if (patch.reviewAgent !== undefined) this.reviewAgent = patch.reviewAgent
     if (patch.reviewModel !== undefined) this.reviewModel = patch.reviewModel
@@ -718,6 +753,24 @@ export class SettingsContext {
     this.scheduleHostPush(patch)
   }
 
+  /** Written per flag so a `$derived` on one switch does not wake for the others. */
+  private adoptNotifications(next: NotificationPreferences): void {
+    for (const channel of NOTIFICATION_CHANNELS) this.notifications.channels[channel] = next.channels[channel]
+    for (const event of NOTIFICATION_EVENTS) this.notifications.events[event] = next.events[event]
+  }
+
+  setNotificationChannel(channel: NotificationChannel, enabled: boolean): void {
+    this.notifications.channels[channel] = enabled
+    this.saveSettings()
+    this.scheduleHostPush({ notifications: this.notifications })
+  }
+
+  setNotificationEvent(event: NotificationEvent, enabled: boolean): void {
+    this.notifications.events[event] = enabled
+    this.saveSettings()
+    this.scheduleHostPush({ notifications: this.notifications })
+  }
+
   // OS-supplied system theme; not persisted.
   zoomIn(): void {
     this.setZoomFactor(stepZoomFactor(this.zoomFactor, 1))
@@ -750,10 +803,9 @@ export class SettingsContext {
    * on web), pane widths, panel collapse state, the sidebar filter, and the
    * onboarding flag.
    */
-  get hostConfig(): HostConfig {
+  get hostConfig(): MirroredHostConfig {
     return {
       themeMode: this.themeMode,
-      soundEnabled: this.soundEnabled,
       voiceModeEnabled: this.voiceModeEnabled,
       autoSendVoiceTranscripts: this.autoSendVoiceTranscripts,
       vadSilenceMs: this.vadSilenceMs,
@@ -767,7 +819,6 @@ export class SettingsContext {
       stackedPrsEnabled: this.stackedPrsEnabled,
       generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
       defaultPermissionMode: this.defaultPermissionMode,
-      backgroundActivityToasts: this.backgroundActivityToasts,
       responseStreamingMode: this.responseStreamingMode,
       rateLimitBehavior: this.rateLimitBehavior,
       autoRenameSessions: this.autoRenameSessions,
@@ -789,6 +840,7 @@ export class SettingsContext {
       defaultModels: $state.snapshot(this.defaultModels),
       modelInstructions: $state.snapshot(this.modelInstructions),
       reviewWarmingByProject: $state.snapshot(this.reviewWarmingByProject),
+      notifications: $state.snapshot(this.notifications),
     }
   }
 
@@ -860,7 +912,7 @@ export class SettingsContext {
     if (!serverId || changed.length === 0) return
     // Values are read at flush time, so the last one the user landed on wins.
     const config = this.hostConfig
-    const patch: Partial<HostConfig> = {}
+    const patch: Partial<MirroredHostConfig> = {}
     for (const key of changed) Object.assign(patch, { [key]: config[key] })
     try {
       await serverConnections.apiFor(serverId).configUpdate(patch)
@@ -873,13 +925,13 @@ export class SettingsContext {
     try {
       localStorage.setItem(SETTINGS_KEY, JSON.stringify({
         themeMode: this.themeMode,
-        soundEnabled: this.soundEnabled,
         voiceModeEnabled: this.voiceModeEnabled,
         autoSendVoiceTranscripts: this.autoSendVoiceTranscripts,
         vadSilenceMs: this.vadSilenceMs,
         defaultEditor: this.defaultEditor,
         fallbackTerminal: this.fallbackTerminal,
         activeAgent: this.activeAgent,
+        notifications: this.notifications,
         defaultModels: this.defaultModels,
         reviewAgent: this.reviewAgent,
         reviewModel: this.reviewModel,
@@ -889,7 +941,6 @@ export class SettingsContext {
         generatePrGuidesOnOpen: this.generatePrGuidesOnOpen,
         reviewWarmingByProject: this.reviewWarmingByProject,
         defaultPermissionMode: this.defaultPermissionMode,
-        backgroundActivityToasts: this.backgroundActivityToasts,
         responseStreamingMode: this.responseStreamingMode,
         rateLimitBehavior: this.rateLimitBehavior,
         autoRenameSessions: this.autoRenameSessions,

@@ -38,9 +38,14 @@
     withProjectHost,
   } from "../../contexts/workspace/run-config";
   import { runTarget } from "./lib/run-target";
-  import { canRunOnHost, managedHostSubtitle } from "./lib/managed-host";
+  import {
+    canRunOnHost,
+    hostIsManaged,
+    isManagedHost,
+    managedHostStateLabel,
+  } from "./lib/managed-host";
   import { homeGitDetails } from "../../lib/git-context";
-  import { getSessionEnvironmentStore, sharesStore } from "../../contexts";
+  import { getSessionEnvironmentStore } from "../../contexts";
   import { hostOnboardingStore } from "./host-onboarding.store.svelte";
   import HostOperatingSystemIcon from "./HostOperatingSystemIcon.svelte";
 
@@ -118,6 +123,7 @@
       ? selectedServer.os
       : undefined,
   );
+  const selectedHostManaged = $derived(hostIsManaged(selectedServer));
   const onRemoteHost = $derived(!!selectedServer && !selectedServer.local);
   // On desktop you are sitting at the machine, so "Local" says it best. A
   // browser has no machine of its own — "Local" would claim the phone in your
@@ -239,21 +245,20 @@
   /**
    * A host is named for where the work runs, and "runs here" is what local
    * means — the device's own name ("This Mac") is only interesting on surfaces
-   * that list it beside other people's machines.
+   * that list it beside other people's machines. A managed host's row already
+   * reads "Cloud" (`hostRowLabel`): its label and team belong to Connections.
    */
   function hostLabel(server: ServerItem | UnknownRemoteHost | null | undefined) {
     return !server || server.local ? stayLabel : server.label;
   }
 
-  /** The line under a remote host's name: the team of a managed host, or whose
-   *  machine a shared personal host is. The owner's own hosts carry none. */
+  /** The line under a remote host's name: the state of a managed host whose
+   *  compute is not ready, or whose machine a shared personal host is. The
+   *  owner's own hosts and a ready Cloud row carry none. */
   function hostSubtitle(server: ServerItem): string | null {
     if (server.local) return null;
-    return (
-      managedHostSubtitle(server.uplink, sharesStore.directories.get(server.id)?.name) ??
-      server.uplink?.ownerName ??
-      null
-    );
+    if (isManagedHost(server.uplink)) return managedHostStateLabel(server.uplink);
+    return server.uplink?.ownerName ?? null;
   }
 
   /** Send *this* project's work to another machine. The repository travels as a
@@ -408,9 +413,10 @@
     {#if affinity}
       {@const HostIcon = affinity.icon}
       <HostIcon size={14} class="shrink-0 {affinity.className}" />
-    {:else if !server.local && server.os}
+    {:else if !server.local && (server.os || isManagedHost(server.uplink))}
       <HostOperatingSystemIcon
         os={server.os}
+        managed={isManagedHost(server.uplink)}
         size={14}
         class="shrink-0 text-(--solus-text-tertiary)"
       />
@@ -418,8 +424,8 @@
       <DesktopTowerIcon size={14} class="shrink-0 text-(--solus-text-tertiary)" />
     {/if}
     <!-- A host shared with the account says whose machine it is, and a managed
-         host says whose team it serves; the owner's own hosts carry no name, so
-         their rows stay one line. -->
+         host that is not ready says its state; the owner's own hosts and a ready
+         Cloud row carry no second line. -->
     {#if subtitle}
       <span class="flex min-w-0 flex-1 flex-col leading-tight">
         <span class="truncate">{hostLabel(server)}</span>
@@ -484,9 +490,9 @@
                 size={14}
                 class="shrink-0 {selectedAffinity.className}"
               />
-            {:else if selectedHostOs}
+            {:else if selectedHostOs || selectedHostManaged}
               <HostOperatingSystemIcon
-                os={selectedHostOs}
+                os={selectedHostOs} managed={selectedHostManaged}
                 size={14}
                 class="shrink-0"
               />
@@ -531,9 +537,9 @@
  ? 'opacity-100'
  : 'opacity-70'} {selectedAffinity.className}"
                       />
-                    {:else if selectedHostOs}
+                    {:else if selectedHostOs || selectedHostManaged}
                       <HostOperatingSystemIcon
-                        os={selectedHostOs}
+                        os={selectedHostOs} managed={selectedHostManaged}
                         size={14}
                         class="shrink-0 text-(--solus-text-tertiary) transition-opacity duration-[var(--duration-quick)] group-hover:opacity-100 {open
  ? 'opacity-100'
@@ -576,9 +582,9 @@
                         size={14}
                         class="shrink-0 {selectedAffinity.className}"
                       />
-                    {:else if selectedHostOs}
+                    {:else if selectedHostOs || selectedHostManaged}
                       <HostOperatingSystemIcon
-                        os={selectedHostOs}
+                        os={selectedHostOs} managed={selectedHostManaged}
                         size={14}
                         class="shrink-0"
                       />

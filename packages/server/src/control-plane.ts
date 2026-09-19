@@ -1,3 +1,6 @@
+import { AUTO_MODEL_ID } from '@solus/contracts/model-routing'
+import { installedRoutingProviders, routeModelPrompt } from './agents/model-routing'
+import { loadHistoryPage, type HistorySegment } from './sessions/history-page'
 import { EventEmitter } from 'events'
 import { appendFile, mkdir, stat } from 'fs/promises'
 import { dirname, join } from 'path'
@@ -27,8 +30,9 @@ import { buildSystemPrompt } from './agents/system-hint'
 import { isWindowClosed, RateLimitState } from './rate-limits'
 import { UsageLimitsStore } from './usage/usage-store'
 import { AttentionService, attentionActionForStatus } from './attention/attention-service'
+import { finishedSummary } from './attention/finished-summary'
 import type { AttentionKind } from '@solus/contracts/attention-types'
-import { prepareSessionTask, rekeyTaskSessionLinks, tasksForSession } from './tasks/task-sessions'
+import { prepareSessionTask, rekeyTaskSessionLinks, taskIdForSession, tasksForSession } from './tasks/task-sessions'
 import { Task, taskSnapshot } from './tasks/task'
 import { formatTaskContext } from './tasks/task-context'
 import { ResponseTextBuffer } from './sessions/response-text-buffer'
@@ -90,11 +94,13 @@ import { defaultContextWindowFor, encodePathAsFolder, gitCheckoutFromState, isSe
 import { solusDir } from './platform/paths'
 import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
-import type { SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
+import type { SessionHistoryPageRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
 import { SeatRequiredError, type SeatManager, type TurnSeat } from './seats/seat-manager'
 import { type TurnActor, type TurnLedger } from './sessions/turn-ledger'
 import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
+import { sessionActivityStateOf, type SessionActiveTurn, type SessionActivity } from '@solus/contracts/presence'
+import { activeTurnFor, turnAuthorOf } from './presence/presence-manager'
 import { SPAN_SERVICES } from './observability/registries'
 
 const CODEX_RATE_LIMIT_SEND_BUFFER_SECONDS = 2 * 60
@@ -373,6 +379,15 @@ export class ControlPlane extends EventEmitter {
   /** The stable id a share list is keyed on, for a session named by either id space. */
   canonicalSessionId(id: string): string {
     return this._sessionIdFor(id) ?? id
+  }
+
+  /**
+   * Whether this host has any record of a session, by either id: something live on
+   * its behalf, a lineage, or an index row. The share manager treats an unknown id
+   * as a session being started, which its starter may do.
+   */
+  isKnownSession(id: string): boolean {
+    return this._sessionIdFor(id) !== undefined || getIndexedSession(id) !== null
   }
 
   /** Solus's id for a session named by either id space. The provider-id arm is
@@ -710,11 +725,19 @@ export class ControlPlane extends EventEmitter {
             return
           }
 
-          this._setStatus(session.sessionId, 'rate_limited')
           this.sessionEmitter.acceptRateLimit(session.sessionId, event.rateLimitType)
+          if (run && run.options.promptSource !== 'agent' && run.options.promptSource !== 'automation') {
+            // Host settings can change while a user turn is running. Read the
+            // current preference here; an old client snapshot is not the policy.
+            const settings = getHostConfig()
+            if (settings.seeded) run.input.rateLimitBehavior = settings.config.rateLimitBehavior
+          }
           if (run?.input.rateLimitBehavior === 'queue') {
             this._queueActiveRateLimitedRequest(session.sessionId)
           }
+          // Publish the queue before the status so clients cannot briefly show
+          // a decision card for a retry the host already chose to queue.
+          this._setStatus(session.sessionId, 'rate_limited')
         }
       }
 
@@ -936,7 +959,10 @@ export class ControlPlane extends EventEmitter {
       clients = new Set()
       this.watches.set(sessionId, clients)
     }
-    clients.add(clientId)
+    if (!clients.has(clientId)) {
+      clients.add(clientId)
+      this.emit('watchers-changed', sessionId)
+    }
     log.info('session_watched', { sessionId, clientId, watchers: clients.size })
     if (!input.attachRuntime || !input.agentSessionId) return { sessionId }
     // Same order a separate bind would follow: drained, joined, then replayed.
@@ -958,9 +984,43 @@ export class ControlPlane extends EventEmitter {
     return clients ? [...clients] : []
   }
 
+  /** The sessions one client has open, for the rooms to republish when it comes or goes. */
+  sessionsWatchedBy(clientId: string): string[] {
+    const sessionIds: string[] = []
+    for (const [sessionId, clients] of this.watches) if (clients.has(clientId)) sessionIds.push(sessionId)
+    return sessionIds
+  }
+
+  /** The turn in flight, as the session room reports it: whose prompt, on which provider. */
+  activeTurnFor(sessionId: string): SessionActiveTurn | null {
+    const run = this.activeRunRequests.get(sessionId)
+    return run ? activeTurnFor(run.actor, run.input.provider) : null
+  }
+
+  /**
+   * What a session is doing, for the host roster: its name and task from the
+   * index, its state from the live session. The index is keyed by the provider's
+   * thread, so the lineage answers which thread is current; a session not yet
+   * indexed has no name and rests.
+   */
+  sessionActivityFor(sessionId: string): SessionActivity {
+    const providerSessionId = resolveSessionLineageById(sessionId)?.active.providerSessionId
+      ?? this._agentSessionIdFor(sessionId)
+      ?? sessionId
+    const meta = getIndexedSession(providerSessionId)
+    return {
+      sessionId,
+      title: meta?.customTitle || meta?.firstMessage?.replace(/\s+/g, ' ') || meta?.slug || null,
+      taskId: taskIdForSession(sessionId),
+      state: sessionActivityStateOf(this.activeSessions.get(sessionId)?.status),
+      activeTurn: this.activeTurnFor(sessionId),
+    }
+  }
+
   private _dropWatch(sessionId: string, clientId: string): void {
     const clients = this.watches.get(sessionId)
     if (!clients?.delete(clientId)) return
+    this.emit('watchers-changed', sessionId)
     if (clients.size) return
     this.watches.delete(sessionId)
     // Keep pending text for clients that reconnect during this turn.
@@ -1154,6 +1214,41 @@ export class ControlPlane extends EventEmitter {
   resolveSessionLineage(agentId: AgentId, providerSessionId: string): SessionLineageResolution | null {
     return resolveSessionLineage(agentId, providerSessionId)
       ?? resolveSessionLineageById(providerSessionId)
+  }
+
+  async loadSessionPage(request: SessionHistoryPageRequest): Promise<ProviderHistoryPage> {
+    const { provider, sessionId, projectPath } = request
+    const lineage = this.resolveSessionLineage(provider, sessionId)
+    const segments: HistorySegment[] = lineage ? lineage.members.map((member, index) => {
+      const previous = lineage.members[index - 1]
+      return {
+        provider: member.provider,
+        sessionId: member.providerSessionId,
+        projectPath: member.cwd || projectPath,
+        divider: previous ? {
+          messageId: `handoff:${lineage.sessionId}:${member.position}`,
+          role: 'system',
+          content: `Switched to ${AGENT_DISPLAY_NAMES.get(member.provider)}`,
+          agentChangedTo: AGENT_DISPLAY_NAMES.get(member.provider),
+          agentChangedFromProvider: previous.provider,
+          agentChangedToProvider: member.provider,
+          agentChangedFromModel: modelLabelFor(previous.provider, previous.providerSessionId
+            ? getIndexedSession(previous.providerSessionId)?.model : undefined) ?? undefined,
+          agentChangedToModel: modelLabelFor(member.provider, member.providerSessionId
+            ? getIndexedSession(member.providerSessionId)?.model : undefined) ?? undefined,
+          timestamp: member.startedAt,
+        } : undefined,
+      }
+    }) : [{ provider, sessionId, projectPath }]
+    return loadHistoryPage(
+      JSON.stringify(lineage ? [lineage.sessionId] : [provider, sessionId]), segments,
+      request.limit ?? 200, request.before,
+      async (segment, limit, before) => {
+        const backend = this._backendFor(segment.provider)
+        if (!backend.loadSessionPage) throw new Error('This provider does not support history pages.')
+        return backend.loadSessionPage(segment.sessionId!, segment.projectPath, limit, before)
+      },
+    )
   }
 
   async loadSession(agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
@@ -1376,6 +1471,12 @@ export class ControlPlane extends EventEmitter {
       meta.lastTimestamp = new Date(active.lastActivityAt).toISOString()
     }
     return meta
+  }
+
+  /** True while the session is mid-turn or parked on input it still owes an answer to. */
+  isSessionBusy(sessionId: string): boolean {
+    const status = this.activeSessions.get(sessionId)?.status
+    return status !== undefined && isSessionBusyStatus(status)
   }
 
   liveSessionStatus(agentSessionId: string): SessionStatus | null {
@@ -1734,7 +1835,7 @@ export class ControlPlane extends EventEmitter {
               // Legacy senders withheld their bubble for a steer verdict but
               // cannot match the normal confirmation without a prompt id.
               if (request.sourceClientId && wasRunningAtDispatch && !request.options.clientPromptId) {
-                this._emit(sessionId, this._userMessageEvent(request.options), { only: request.sourceClientId })
+                this._emit(sessionId, this._userMessageEvent(request.options, undefined, request.actor), { only: request.sourceClientId })
               }
               return this._startRunLifecycle(request)
             }
@@ -1763,12 +1864,17 @@ export class ControlPlane extends EventEmitter {
   private _userMessageEvent(
     options: PromptOptions,
     delivery?: PromptDelivery,
+    actor?: TurnActor,
   ): NormalizedEvent {
     const event: Extract<NormalizedEvent, { type: 'user_message' }> = {
       type: 'user_message',
       text: options.displayPrompt ?? options.prompt,
     }
     if (delivery) event.delivery = delivery
+    // Every client labels the bubble with its author; the host's own work
+    // (automations, follow-ups) carries no name, and neither does a history reload.
+    const author = turnAuthorOf(actor)
+    if (author) event.author = author
     if (options.clientPromptId) event.clientPromptId = options.clientPromptId
     // Refs win: they name bytes the host already holds, so the echo every client
     // receives stays small. Inline images are only what an older client sent.
@@ -1800,7 +1906,7 @@ export class ControlPlane extends EventEmitter {
 
     session.promptCount = (session.promptCount ?? 0) + 1
     session.lastActivityAt = Date.now()
-    const userMessage = this._userMessageEvent(request.options, 'steer')
+    const userMessage = this._userMessageEvent(request.options, 'steer', request.actor)
     this._emit(session.sessionId, userMessage)
 
     const done = handle.runPromise.then(() => (
@@ -1831,7 +1937,7 @@ export class ControlPlane extends EventEmitter {
     // No seat, no turn: refused here, before the prompt is echoed or queued, so the
     // client can show the connect card instead of a bubble that never answers.
     const provider = ctx.session.provider ?? resolveSessionLineageById(proposedSessionId)?.active.provider
-    if (provider) this.seatForTurn(origin?.actor, provider)
+    if (provider && ctx.session.preferredModel !== AUTO_MODEL_ID) this.seatForTurn(origin?.actor, provider)
     if (options.clientPromptId) {
       const dedupeKey = `${proposedSessionId}:${options.clientPromptId}`
       if (this.acceptedClientPromptIds.has(dedupeKey)) {
@@ -1879,6 +1985,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.automations,
         solusToolbox.connections,
         solusToolbox.insights,
+        solusToolbox.intelligence,
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
@@ -1956,6 +2063,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.automations,
         solusToolbox.connections,
         solusToolbox.insights,
+        solusToolbox.intelligence,
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
@@ -2049,6 +2157,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.automations,
         solusToolbox.connections,
         solusToolbox.insights,
+        solusToolbox.intelligence,
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
@@ -2153,6 +2262,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.automations,
         solusToolbox.connections,
         solusToolbox.insights,
+        solusToolbox.intelligence,
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
@@ -2203,6 +2313,7 @@ export class ControlPlane extends EventEmitter {
         solusToolbox.artifact,
         solusToolbox.connections,
         solusToolbox.insights,
+        solusToolbox.intelligence,
         solusToolbox.browser,
         solusToolbox.sessions,
         solusToolbox.tasks,
@@ -2253,6 +2364,9 @@ export class ControlPlane extends EventEmitter {
     request.completionRoutes ??= []
     const runStartedAt = Date.now()
     const promptSource = request.options.promptSource ?? 'typed'
+    // Read before dispatch: Auto routing overwrites `preferredModel` with the
+    // model it picked, and the turn must still say what the user asked for.
+    const requestedModel = request.input.preferredModel ?? undefined
     const turnTraceId = this.sessionEmitter.beginTurn({
       sessionId: request.sessionId,
       prompt: request.options.displayPrompt ?? request.options.prompt,
@@ -2303,6 +2417,7 @@ export class ControlPlane extends EventEmitter {
     this.sessionEmitter.completeSetup(request.sessionId, {
       provider: run.input.provider,
       model: run.input.model,
+      requestedModel,
       projectRoot: run.input.projectPath || run.input.workingDirectory,
       origin: promptSource,
       reasoningEffort: run.input.reasoningEffort,
@@ -2613,6 +2728,10 @@ export class ControlPlane extends EventEmitter {
       clientPromptId: options.clientPromptId,
     }
     if (options.via) queuedEvent.via = options.via
+    // A held prompt names its author like a sent one: the queue is read by
+    // everyone in the room, and a drained turn runs under this person's seat.
+    const author = turnAuthorOf(run.actor)
+    if (author) queuedEvent.author = author
     this._emit(queueKey, queuedEvent)
 
     let resolveDone!: () => void
@@ -2653,6 +2772,53 @@ export class ControlPlane extends EventEmitter {
   private async _launchRun(request: SessionRunRequest): Promise<StartedRun> {
     const { input, target, options, sessionId, sourceClientId } = request
     this.failedSetupPrompts.delete(sessionId)
+    if (input.preferredModel === AUTO_MODEL_ID) {
+      if (target.kind !== 'new-session' || input.agentSessionId || input.forked
+        || resolveSessionLineageById(sessionId)?.active.providerSessionId) {
+        throw new Error('Auto can only select a model for a new session.')
+      }
+      if (this.pendingSetupControllers.has(sessionId)) throw new Error('This session is already selecting a model.')
+      const controller = new AbortController()
+      this.pendingSetupControllers.set(sessionId, controller)
+      this._setStatus(sessionId, 'connecting')
+      try {
+        // Auto's selection is Solus work the turn waits on before any provider
+        // starts, so it is a dispatch step: the insights waterfall shows the
+        // time it took and the model it settled on.
+        const route = await dispatchStep(
+          'model_route',
+          { requestedModel: AUTO_MODEL_ID, fn: 'routeModelPrompt', file: 'control-plane.ts' },
+          async (annotate) => {
+            const metadata = await installedRoutingProviders([...this.backends.values()].map(backend => backend.metadata))
+            controller.signal.throwIfAborted()
+            const available = metadata.filter(agent => {
+              try { this.seatForTurn(request.actor, agent.id); return true }
+              catch (error) { if (error instanceof SeatRequiredError) return false; throw error }
+            })
+            const route = await routeModelPrompt(options.displayPrompt ?? options.prompt, getHostConfig().config.modelRouting, available, controller.signal)
+            annotate({ provider: route.provider, modelId: route.modelId, category: route.category, usedFallback: route.usedFallback })
+            return route
+          },
+        )
+        Object.assign(input, hostModelInputFor(route.provider, route.modelId), {
+          provider: route.provider,
+          reasoningEffort: 'medium',
+          fastMode: false,
+        })
+        this._emit(sessionId, {
+          type: 'model_routed',
+          provider: route.provider,
+          modelConfig: { modelId: route.modelId, reasoningEffort: input.reasoningEffort, contextWindow: input.contextWindow, fastMode: false },
+          usedFallback: route.usedFallback,
+        })
+        log.info('model_routed', { sessionId, ...route })
+      } catch (error) {
+        if (!controller.signal.aborted) this._setStatus(sessionId, 'failed')
+        throw error
+      } finally {
+        if (this.pendingSetupControllers.get(sessionId) === controller) this.pendingSetupControllers.delete(sessionId)
+      }
+    }
     const pendingHandoff = this._pendingHandoffFor(sessionId)
     if (pendingHandoff) {
       const activeMember = resolveSessionLineageById(sessionId)?.active
@@ -2966,7 +3132,7 @@ export class ControlPlane extends EventEmitter {
     // from ours, leaving a pending steer instead of an optimistic message.
     // Clients reconcile by clientPromptId. Keep the legacy exclusion for
     // senders without an id, whose optimistic message cannot be matched.
-    this._emit(sessionId, this._userMessageEvent(options), {
+    this._emit(sessionId, this._userMessageEvent(options, undefined, request.actor), {
       except: request.servedQueueId || options.clientPromptId ? undefined : sourceClientId,
     })
 
@@ -3269,6 +3435,7 @@ export class ControlPlane extends EventEmitter {
       solusToolbox.automations,
       solusToolbox.connections,
       solusToolbox.insights,
+      solusToolbox.intelligence,
       solusToolbox.browser,
       solusToolbox.sessions,
       solusToolbox.tasks,
@@ -3837,6 +4004,7 @@ export class ControlPlane extends EventEmitter {
         rateLimitType: r.rateLimitType,
         images: r.run.options.imageAttachments,
         imageRefs: r.run.options.imageAttachmentRefs,
+        author: turnAuthorOf(r.run.actor) ?? undefined,
       }))
   }
 
@@ -3978,12 +4146,14 @@ export class ControlPlane extends EventEmitter {
     this.attention.set({
       sessionId: agentSessionId,
       kind: action.kind,
-      summary: this._attentionSummary(action.kind, pendingEvent),
+      summary: action.kind === 'finished'
+        ? finishedSummary(getIndexedSession(agentSessionId), projectKey)
+        : this._attentionSummary(action.kind, pendingEvent),
       projectKey,
     })
   }
 
-  private _attentionSummary(kind: AttentionKind, event?: NormalizedEvent): string {
+  private _attentionSummary(kind: Exclude<AttentionKind, 'finished'>, event?: NormalizedEvent): string {
     switch (kind) {
       case 'needs_approval':
         return event?.type === 'permission_request'
@@ -3993,8 +4163,6 @@ export class ControlPlane extends EventEmitter {
         const q = event?.type === 'question_request' ? event.questions[0]?.question : undefined
         return q ? `Question: ${q.length > 120 ? `${q.slice(0, 117)}…` : q}` : 'Waiting on your answer'
       }
-      case 'finished':
-        return 'Turn finished'
       case 'failed':
         return 'Run failed'
     }
