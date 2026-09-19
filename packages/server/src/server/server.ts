@@ -54,7 +54,7 @@ export class SolusServer {
     if (!ctx?.principal) throw new Error(`SolusServer: "${method}" was called without a principal`)
     // The host calling itself crosses no plane; a client's call must land on one this host serves.
     if (ctx.principal.kind !== 'system') assertPlaneServed(method, this.roles)
-    assertRpcAccess(method, ctx.principal, args, this.resources)
+    await assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {
       if (method === 'typeSafeKeySet') {

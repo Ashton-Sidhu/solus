@@ -39,7 +39,7 @@ mock.module('@solus/server/git/git-helpers', () => ({
 const completedScopes: string[] = []
 beforeEach(() => { completedScopes.length = 0 })
 mock.module('@solus/server/tasks/sync-engine', () => ({
-  completeTasksForMergedPullRequest: async (scope: string) => { completedScopes.push(scope); return [] },
+  completeTasksForMergedPullRequest: async (organizationId: string, scope: string) => { completedScopes.push(`${organizationId}:${scope}`); return [] },
 }))
 
 let mergeAnswer = { merged: true }
@@ -90,7 +90,7 @@ describe('merging a pull request', () => {
 
     await server.handle('prMerge', [ctx, 7, 'squash', HEAD_SHA], TEST_HANDLER_CTX)
 
-    expect(completedScopes).toEqual(['github.com/owner/repo'])
+    expect(completedScopes).toEqual(['local:github.com/owner/repo'])
     expect(broadcasts).toEqual([
       { type: 'pr.lifecycleChanged', payload: { projectRoot: '/repo', detail: mergedFacts } },
     ])

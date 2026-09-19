@@ -14,7 +14,10 @@
   import SaveFilePicker from "../pickers/SaveFilePicker.svelte";
   import RouteLoadError from "../ui/RouteLoadError.svelte";
   import { hostPolicy } from "@solus/client-core/host-policy";
-  import type { WorkExportRequest } from "./lib/work-export";
+  import { storedExportExtension, type WorkExportRequest } from "./lib/work-export";
+  import { exportFileName } from "../pickers/lib/export-file-name";
+  import type { FilePayload } from "../diagram/lib/diagram-export";
+  import { toasts } from "../../lib/toasts";
 
   let { params, paneId }: RouteSurfaceProps<"work"> = $props();
 
@@ -90,7 +93,9 @@
   // signal (edge-glow + ephemeral pill). Cleared on a timer so the animation
   // runs once per agent update.
   let justUpdated = $state(false);
-  let exportDraft = $state<WorkExportRequest | null>(null);
+  // The save picker in flight: the file a shell encoded, or a `null` payload
+  // when the host writes the stored work itself.
+  let exportDraft = $state<{ fileName: string; payload: FilePayload | null } | null>(null);
   let justUpdatedTimer: ReturnType<typeof setTimeout> | null = null;
   let trackedWorkId: string | null = null;
   let trackedAgentRev = 0;
@@ -165,10 +170,7 @@
   }
 
   async function handleRevert() {
-    const reverted = await session.worksStore.revert(
-      params.workId,
-      sess?.run.workingDirectory,
-    );
+    const reverted = await session.worksStore.revert(params.workId);
     if (!reverted) return;
     // Reload the shell off the reverted content (shells parse content at mount).
     shellDirty = false;
@@ -191,7 +193,15 @@
 
   function handleExport(request: WorkExportRequest) {
     if (!work || !exportStartPath) return;
-    exportDraft = request;
+    exportDraft = "payload" in request
+      ? request
+      : { fileName: exportFileName(work.title, storedExportExtension(work.type)), payload: null };
+  }
+
+  /** The work's host writes its stored content to the path the picker chose. */
+  async function exportStoredTo(path: string) {
+    const result = await session.worksStore.exportToPath(params.workId, path);
+    toasts.success("Exported", { description: result.path });
   }
 </script>
 
@@ -251,7 +261,6 @@
               onRevert={handleRevert}
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
-              workStorage={work.storage}
               onExport={exportStartPath ? handleExport : undefined}
               {hostIsRemote}
             />
@@ -275,13 +284,12 @@
             onRevert={handleRevert}
             onDelete={handleDelete}
             onDuplicate={handleDuplicate}
-            workStorage={work.storage}
             onExport={exportStartPath ? handleExport : undefined}
             {hostIsRemote}
           />
         {:else}
           {#await import("../document-modal/DocumentModal.svelte")}
-            <DocumentModalSkeleton inline title={work.title} workStorage={work.storage} />
+            <DocumentModalSkeleton inline title={work.title} />
           {:then documentModule}
             {@const DocumentModal = documentModule.default}
             <!-- workId is optional-chained on purpose: props compile to lazy
@@ -309,7 +317,6 @@
               onRevert={handleRevert}
               onDelete={handleDelete}
               onDuplicate={handleDuplicate}
-              workStorage={work.storage}
               onExport={exportStartPath ? handleExport : undefined}
               {hostIsRemote}
             />
@@ -352,7 +359,7 @@
   {#if workMetadata?.type === "diagram"}
     <DiagramShellSkeleton />
   {:else}
-    <DocumentModalSkeleton inline title={workMetadata?.title} workStorage={workMetadata?.storage} />
+    <DocumentModalSkeleton inline title={workMetadata?.title} />
   {/if}
 {/if}
 
@@ -379,8 +386,10 @@
     ctx={session.ctxForDirectory(exportStartPath)}
     initialPath={exportStartPath}
     fileName={exportDraft.fileName}
-    content={exportDraft.payload.contents}
-    encoding={exportDraft.payload.encoding}
+    content={exportDraft.payload?.contents}
+    encoding={exportDraft.payload?.encoding}
+    onPick={exportDraft.payload ? undefined : exportStoredTo}
+    title={exportDraft.payload ? undefined : "Export"}
   />
 {/if}
 

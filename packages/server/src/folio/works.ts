@@ -1,79 +1,35 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { readFile, writeFile, mkdir, rm } from 'node:fs/promises'
-import { isAbsolute, join, resolve } from 'node:path'
-import type { DatabaseSync } from 'node:sqlite'
+import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { createLogger } from '../logger'
-import { getDb, withTx } from '../db'
+import { getDatabase, type Db } from '../db/database'
 import { workPreview } from '@solus/contracts/work-preview'
-import { git } from '../git/exec'
-import { solusDir } from '../platform/paths'
-import { isInsideRoot } from '../paths'
-import type { AgentId, Work, WorkMeta, WorksManifest, WorkPrevious, WorkStorage, WorkType } from '@solus/contracts/types'
+import type { AgentId, Work, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
 import type { WorkExternalLink } from '@solus/contracts/docs'
 import { documentContentHash } from '../docs/content-hash'
 import { workExternalLinkSchema } from '../docs/schema'
+import { workAnnotations, workRevisions, works } from './schema'
 
-export type { Work, WorkMeta, WorksManifest, WorkPrevious }
+export type { Work, WorkMeta, WorkPrevious }
+
+/**
+ * Works: documents, slide decks, diagrams, and artifacts
+ * (docs/plans/cloud-service-model.md). Every work is a row of `works`; its one
+ * previous version is the newest row of `work_revisions`. Every read and write
+ * names the organization it is scoped to, and a work of another organization
+ * is simply not found.
+ */
 
 const log = createLogger('folio', 'works.ts')
-const LOCAL_ROOT = join(solusDir(), 'works')
-const MANIFEST_FILE = 'works-manifest.json'
-const PROJECT_WORKS_DIR = join('.solus', 'works')
-
-type LocalWorkLocator = {
-  root: string
-  storage: Extract<WorkStorage, { kind: 'local' }>
-}
-
-type ProjectWorkLocator = {
-  root: string
-  storage: Extract<WorkStorage, { kind: 'project' }>
-}
-
-type WorkLocator = LocalWorkLocator | ProjectWorkLocator
-type FoundWork =
-  | { locator: LocalWorkLocator; row: WorkRow; meta: WorkMeta }
-  | { locator: ProjectWorkLocator; manifest: WorksManifest; meta: WorkMeta }
 
 const agentProviderSchema = z.enum(['claude-code', 'codex', 'opencode'])
 const workTypeSchema = z.enum(['doc', 'slides', 'diagram', 'artifact'])
-const workStorageSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('local') }),
-  z.object({
-    kind: z.literal('project'),
-    projectRoot: z.string().optional(),
-    relativePath: z.string(),
-  }),
-])
-const workMetaSchema = z.object({
-  title: z.string(),
-  preview: z.string(),
-  type: workTypeSchema,
-  createdAt: z.string(),
-  updatedAt: z.string(),
-  sessionId: z.string().optional(),
-  sessionIds: z.array(z.string()).optional(),
-  agentProvider: agentProviderSchema,
-  cwd: z.string(),
-  storage: workStorageSchema.optional(),
-  pinned: z.boolean().optional(),
-  mirroredDoc: workExternalLinkSchema.optional(),
-})
-const worksManifestSchema = z.object({
-  version: z.number(),
-  works: z.record(z.string(), workMetaSchema),
-})
 const workExtraSchema = z.object({
   sessionIds: z.array(z.string()).optional(),
   mirroredDoc: workExternalLinkSchema.optional(),
 })
-const workContentSchema = z.object({ content: z.string() })
-const workPreviousSchema = z.object({ content: z.string(), updatedAt: z.string() })
 const workRowSchema = z.object({
   id: z.string(),
-  storage: z.string(),
   title: z.string().nullable(),
   preview: z.string().nullable(),
   type: workTypeSchema.nullable(),
@@ -104,7 +60,8 @@ function isoTime(value: number): string {
   return new Date(value).toISOString()
 }
 
-function localMetaJson(meta: WorkMeta): string {
+/** The fields that ride the `meta` JSON column: everything without a column of its own. */
+function metaJson(meta: WorkMeta): string {
   const {
     title: _title,
     preview: _preview,
@@ -114,7 +71,6 @@ function localMetaJson(meta: WorkMeta): string {
     sessionId: _sessionId,
     agentProvider: _agentProvider,
     cwd: _cwd,
-    storage: _storage,
     pinned: _pinned,
     ...extra
   } = meta
@@ -133,25 +89,38 @@ function metaFromRow(row: WorkRow): WorkMeta {
     sessionId: row.session_id ?? undefined,
     agentProvider: row.agent_provider ?? 'claude-code',
     cwd: row.cwd ?? '~',
-    storage: { kind: 'local' },
     pinned: row.pinned === null ? undefined : row.pinned === 1,
   }
 }
 
-function localWorkRow(id: string): WorkRow | undefined {
-  return workRowSchema.nullish().parse(
-    database().prepare("SELECT * FROM works WHERE id = ? AND storage = 'local'").get(id),
-  ) ?? undefined
+const database = getDatabase
+
+async function workRow(db: Db, organizationId: string, id: string): Promise<WorkRow | undefined> {
+  return workRowSchema.nullish().parse(await db.get(sql`
+    SELECT id, title, preview, type, session_id, agent_provider, cwd, pinned, content, created_at, updated_at, meta
+    FROM ${works}
+    WHERE id = ${id} AND organization_id = ${organizationId}
+  `)) ?? undefined
 }
 
-function insertLocalWork(db: DatabaseSync, id: string, meta: WorkMeta, content: string): void {
-  db.prepare(`
-    INSERT INTO works (
+async function requireWorkRow(db: Db, organizationId: string, id: string): Promise<WorkRow> {
+  const row = await workRow(db, organizationId, id)
+  if (!row) throw new Error(`Work not found: ${id}`)
+  return row
+}
+
+async function insertWork(db: Db, organizationId: string, id: string, meta: WorkMeta, content: string): Promise<void> {
+  // `storage` is a legacy column with no default on a hand-made table; every row is `'local'`.
+  await db.run(sql`
+    INSERT INTO ${works} (
       id, storage, title, preview, type, session_id, agent_provider, cwd,
-      pinned, content, created_at, updated_at, meta
-    ) VALUES (?, 'local', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      pinned, content, created_at, updated_at, meta, organization_id
+    ) VALUES (
+      ${id}, 'local', ${meta.title}, ${meta.preview}, ${meta.type}, ${meta.sessionId ?? null},
+      ${meta.agentProvider}, ${meta.cwd}, ${meta.pinned === undefined ? null : meta.pinned ? 1 : 0},
+      ${content}, ${epochMs(meta.createdAt)}, ${epochMs(meta.updatedAt)}, ${metaJson(meta)}, ${organizationId}
+    )
     ON CONFLICT(id) DO UPDATE SET
-      storage = excluded.storage,
       title = excluded.title,
       preview = excluded.preview,
       type = excluded.type,
@@ -162,167 +131,49 @@ function insertLocalWork(db: DatabaseSync, id: string, meta: WorkMeta, content: 
       content = excluded.content,
       created_at = excluded.created_at,
       updated_at = excluded.updated_at,
-      meta = excluded.meta
-  `).run(
-    id,
-    meta.title,
-    meta.preview,
-    meta.type,
-    meta.sessionId ?? null,
-    meta.agentProvider,
-    meta.cwd,
-    meta.pinned === undefined ? null : meta.pinned ? 1 : 0,
-    content,
-    epochMs(meta.createdAt),
-    epochMs(meta.updatedAt),
-    localMetaJson(meta),
-  )
+      meta = excluded.meta,
+      organization_id = excluded.organization_id
+  `)
 }
 
-function updateLocalWork(db: DatabaseSync, id: string, meta: WorkMeta, content?: string): void {
-  db.prepare(`
-    UPDATE works SET
-      title = ?,
-      preview = ?,
-      type = ?,
-      session_id = ?,
-      agent_provider = ?,
-      cwd = ?,
-      pinned = ?,
-      updated_at = ?,
-      meta = ?
-    WHERE id = ? AND storage = 'local'
-  `).run(
-    meta.title,
-    meta.preview,
-    meta.type,
-    meta.sessionId ?? null,
-    meta.agentProvider,
-    meta.cwd,
-    meta.pinned === undefined ? null : meta.pinned ? 1 : 0,
-    epochMs(meta.updatedAt),
-    localMetaJson(meta),
-    id,
-  )
+async function updateWorkMeta(db: Db, id: string, meta: WorkMeta, content?: string): Promise<void> {
+  await db.run(sql`
+    UPDATE ${works} SET
+      title = ${meta.title},
+      preview = ${meta.preview},
+      type = ${meta.type},
+      session_id = ${meta.sessionId ?? null},
+      agent_provider = ${meta.agentProvider},
+      cwd = ${meta.cwd},
+      pinned = ${meta.pinned === undefined ? null : meta.pinned ? 1 : 0},
+      updated_at = ${epochMs(meta.updatedAt)},
+      meta = ${metaJson(meta)}
+    WHERE id = ${id}
+  `)
   if (content !== undefined) {
-    db.prepare("UPDATE works SET content = ? WHERE id = ? AND storage = 'local'").run(content, id)
+    await db.run(sql`UPDATE ${works} SET content = ${content} WHERE id = ${id}`)
   }
 }
 
-function latestRevision(db: DatabaseSync, id: string): RevisionRow | undefined {
-  return revisionRowSchema.nullish().parse(db.prepare(`
+async function latestRevision(db: Db, id: string): Promise<RevisionRow | undefined> {
+  return revisionRowSchema.nullish().parse(await db.get(sql`
     SELECT content, updated_at
-    FROM work_revisions
-    WHERE work_id = ?
+    FROM ${workRevisions}
+    WHERE work_id = ${id}
     ORDER BY rev DESC
     LIMIT 1
-  `).get(id)) ?? undefined
+  `)) ?? undefined
 }
 
-function insertRevision(db: DatabaseSync, id: string, content: string, updatedAt: string): void {
-  db.prepare(`
-    INSERT INTO work_revisions (work_id, rev, content, updated_at)
-    VALUES (?, COALESCE((SELECT MAX(rev) + 1 FROM work_revisions WHERE work_id = ?), 1), ?, ?)
-  `).run(id, id, content, epochMs(updatedAt))
-}
-
-const database = getDb
-
-async function ensureDir(root: string): Promise<void> {
-  if (!existsSync(root)) {
-    await mkdir(root, { recursive: true })
-  }
-}
-
-function manifestPath(root: string): string {
-  return join(root, MANIFEST_FILE)
-}
-
-async function readManifest(root: string): Promise<WorksManifest> {
-  const path = manifestPath(root)
-  if (!existsSync(path)) {
-    return { version: 1, works: {} }
-  }
-  const text = await readFile(path, 'utf8')
-  return worksManifestSchema.parse(JSON.parse(text))
-}
-
-async function writeManifest(root: string, manifest: WorksManifest): Promise<void> {
-  await ensureDir(root)
-  await writeFile(manifestPath(root), JSON.stringify(manifest, null, 2), 'utf8')
-}
-
-function contentPath(root: string, id: string): string {
-  return join(root, `${id}.json`)
-}
-
-function prevPath(root: string, id: string): string {
-  return join(root, `${id}.prev.json`)
-}
-
-function localLocator(): LocalWorkLocator {
-  return { root: LOCAL_ROOT, storage: { kind: 'local' } }
-}
-
-function projectLocator(projectRoot: string): ProjectWorkLocator {
-  const root = join(projectRoot, PROJECT_WORKS_DIR)
-  return {
-    root,
-    storage: { kind: 'project', projectRoot, relativePath: PROJECT_WORKS_DIR },
-  }
-}
-
-function normalizeStorage(meta: WorkMeta, locator: WorkLocator): WorkMeta {
-  return { ...meta, storage: locator.storage.kind === 'project' ? locator.storage : (meta.storage ?? locator.storage) }
-}
-
-function manifestMeta(meta: WorkMeta, locator: WorkLocator): WorkMeta {
-  if (locator.storage.kind !== 'project') return meta
-  return {
-    ...meta,
-    storage: { kind: 'project', relativePath: PROJECT_WORKS_DIR },
-  }
-}
-
-function projectRootForCwd(cwd?: string): string | null {
-  if (!cwd || cwd === '~') return null
-  try {
-    return git(['rev-parse', '--show-toplevel'], cwd, { timeout: 5_000 })
-  } catch {
-    return isAbsolute(cwd) ? cwd : null
-  }
-}
-
-function assertInsideProject(projectRoot: string, target: string): void {
-  if (!isInsideRoot(projectRoot, target)) {
-    throw new Error(`Path escapes project root: ${target}`)
-  }
-}
-
-async function findWork(id: string, cwd?: string): Promise<FoundWork | null> {
-  const localRow = localWorkRow(id)
-  if (localRow) return { locator: localLocator(), row: localRow, meta: metaFromRow(localRow) }
-
-  const projectRoot = projectRootForCwd(cwd)
-  if (!projectRoot) return null
-  const project = projectLocator(projectRoot)
-  const projectManifest = await readManifest(project.root)
-  const projectMeta = projectManifest.works[id]
-  if (!projectMeta) return null
-  return { locator: project, manifest: projectManifest, meta: normalizeStorage(projectMeta, project) }
-}
-
-/** Snapshot the current project content as the single "previous version" before
- * an agent-driven overwrite. Best-effort — never blocks the save. */
-async function snapshotPreviousProjectContent(id: string, found: FoundWork): Promise<void> {
-  try {
-    const raw = await readFile(contentPath(found.locator.root, id), 'utf8')
-    const { content } = workContentSchema.parse(JSON.parse(raw))
-    const prev: WorkPrevious = { content, updatedAt: found.meta.updatedAt }
-    await writeFile(prevPath(found.locator.root, id), JSON.stringify(prev), 'utf8')
-  } catch (err: any) {
-    log.warn('work_previous_snapshot_failed', { workId: id, error: err instanceof Error ? err.message : String(err) })
-  }
+async function insertRevision(db: Db, organizationId: string, id: string, content: string, updatedAt: string): Promise<void> {
+  await db.run(sql`
+    INSERT INTO ${workRevisions} (work_id, rev, content, updated_at, organization_id)
+    VALUES (
+      ${id},
+      COALESCE((SELECT MAX(rev) + 1 FROM ${workRevisions} WHERE work_id = ${id}), 1),
+      ${content}, ${epochMs(updatedAt)}, ${organizationId}
+    )
+  `)
 }
 
 export const GOOGLE_WORK_READ_ONLY = 'This work is linked to Google Docs and is read-only in Solus. Edit it in Google Docs, then Pull latest. Comments remain available.'
@@ -331,109 +182,78 @@ export function assertWorkEditable(meta: WorkMeta): void {
   if (meta.mirroredDoc?.provider === 'gdrive') throw new Error(GOOGLE_WORK_READ_ONLY)
 }
 
+type WorkUpdates = Partial<Pick<Work, 'title' | 'preview' | 'content'>>
+
+async function writeWork(db: Db, id: string, row: WorkRow, updates: WorkUpdates): Promise<Work> {
+  const meta = { ...metaFromRow(row), updatedAt: new Date().toISOString() }
+  if (updates.title !== undefined) meta.title = updates.title
+  if (updates.preview !== undefined) meta.preview = updates.preview
+  await updateWorkMeta(db, id, meta, updates.content)
+  return { id, content: updates.content ?? row.content ?? '', ...meta }
+}
+
 /** Provider reads are the only body writes allowed for a Google-linked work. */
-export async function savePulledWork(id: string, updates: Pick<Work, 'title' | 'preview' | 'content'>, cwd?: string): Promise<Work> {
-  return saveWorkRevision(id, updates, cwd, true)
+export async function savePulledWork(organizationId: string, id: string, updates: Pick<Work, 'title' | 'preview' | 'content'>): Promise<Work> {
+  return agentSaveWork(organizationId, id, updates, true)
 }
 
 /** Save driven by the agent — snapshots the prior content first so the user can
  * review "what the agent changed". User-initiated saves go through saveWork and
- * stay snapshot-free. */
-async function saveWorkRevision(
+ * stay snapshot-free. `upstreamRead` is the provider pull, which may write a
+ * Google-linked work nobody else may. */
+export async function agentSaveWork(
+  organizationId: string,
   id: string,
-  updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>,
-  cwd?: string,
+  updates: WorkUpdates,
   upstreamRead = false,
 ): Promise<Work> {
-  const found = await findWork(id, cwd)
-  if (!found) throw new Error(`Work not found: ${id}`)
-
-  if (!upstreamRead) assertWorkEditable(found.meta)
-
-  if (found.locator.storage.kind === 'local') {
-    return withTx(() => {
-      const db = database()
-      const row = workRowSchema.nullish().parse(
-        db.prepare("SELECT * FROM works WHERE id = ? AND storage = 'local'").get(id),
-      )
-      if (!row) throw new Error(`Work not found: ${id}`)
-      const meta = metaFromRow(row)
-      if (!upstreamRead) assertWorkEditable(meta)
-      if (updates.content !== undefined) insertRevision(db, id, row.content ?? '', meta.updatedAt)
-      return saveLocalWork(db, id, meta, row.content ?? '', updates)
-    })
-  }
-
-  if (updates.content !== undefined) await snapshotPreviousProjectContent(id, found)
-  return saveProjectWork(id, found, updates)
+  return database().transaction(async (db) => {
+    const row = await requireWorkRow(db, organizationId, id)
+    const meta = metaFromRow(row)
+    if (!upstreamRead) assertWorkEditable(meta)
+    if (updates.content !== undefined) await insertRevision(db, organizationId, id, row.content ?? '', meta.updatedAt)
+    return writeWork(db, id, row, updates)
+  })
 }
 
-export async function agentSaveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, cwd?: string): Promise<Work> {
-  const found = await findWork(id, cwd)
-  if (!found) throw new Error(`Work not found: ${id}`)
-  assertWorkEditable(found.meta)
-  return saveWorkRevision(id, updates, cwd)
-}
 
 /** Restore the single previous snapshot as the current content. The swap is
  * re-invertable: the content being replaced becomes the new snapshot, so a
  * second revert undoes the first. Returns null when there is nothing to revert
  * to. */
-export async function revertWork(id: string, cwd?: string): Promise<Work | null> {
-  const found = await findWork(id, cwd)
-  if (!found) return null
-  assertWorkEditable(found.meta)
+export async function revertWork(organizationId: string, id: string): Promise<Work | null> {
+  return database().transaction(async (db) => {
+    const row = await workRow(db, organizationId, id)
+    if (!row) return null
+    const meta = metaFromRow(row)
+    assertWorkEditable(meta)
+    const previous = await latestRevision(db, id)
+    if (!previous) return null
 
-  if (found.locator.storage.kind === 'local') {
-    return withTx(() => {
-      const db = database()
-      const row = workRowSchema.nullish().parse(
-        db.prepare("SELECT * FROM works WHERE id = ? AND storage = 'local'").get(id),
-      )
-      if (!row) return null
-      const meta = metaFromRow(row)
-      assertWorkEditable(meta)
-      const previous = latestRevision(db, id)
-      if (!previous) return null
+    await db.run(sql`
+      UPDATE ${workRevisions}
+      SET content = ${row.content ?? ''}, updated_at = ${epochMs(meta.updatedAt)}
+      WHERE work_id = ${id} AND rev = (SELECT MAX(rev) FROM ${workRevisions} WHERE work_id = ${id})
+    `)
 
-      db.prepare(`
-        UPDATE work_revisions
-        SET content = ?, updated_at = ?
-        WHERE work_id = ? AND rev = (SELECT MAX(rev) FROM work_revisions WHERE work_id = ?)
-      `).run(row.content ?? '', epochMs(meta.updatedAt), id, id)
-
-      const preview = workPreview(meta.type, previous.content ?? '')
-      return saveLocalWork(db, id, meta, row.content ?? '', { content: previous.content ?? '', preview })
-    })
-  }
-
-  const current = await loadWork(id, cwd)
-  const prev = await loadWorkPrevious(id, cwd)
-  if (!current || !prev) return null
-  const nextPrev: WorkPrevious = { content: current.content, updatedAt: current.updatedAt }
-  await writeFile(prevPath(found.locator.root, id), JSON.stringify(nextPrev), 'utf8')
-  const preview = workPreview(current.type, prev.content)
-  return saveProjectWork(id, found, { content: prev.content, preview })
+    const preview = workPreview(meta.type, previous.content ?? '')
+    return writeWork(db, id, row, { content: previous.content ?? '', preview })
+  })
 }
 
-export async function loadWorkPrevious(id: string, cwd?: string): Promise<WorkPrevious | null> {
+export async function loadWorkPrevious(organizationId: string, id: string): Promise<WorkPrevious | null> {
   try {
-    const found = await findWork(id, cwd)
-    if (!found) return null
-    if (found.locator.storage.kind === 'local') {
-      const previous = latestRevision(database(), id)
-      return previous ? { content: previous.content ?? '', updatedAt: isoTime(previous.updated_at) } : null
-    }
-
-    const file = prevPath(found.locator.root, id)
-    if (!existsSync(file)) return null
-    return workPreviousSchema.parse(JSON.parse(await readFile(file, 'utf8')))
+    const db = database()
+    if (!await workRow(db, organizationId, id)) return null
+    const previous = await latestRevision(db, id)
+    return previous ? { content: previous.content ?? '', updatedAt: isoTime(previous.updated_at) } : null
   } catch {
     return null
   }
 }
 
 export async function createWork(
+  organizationId: string,
   title: string,
   type: WorkType,
   content: string = '',
@@ -441,7 +261,7 @@ export async function createWork(
   sessionId: string | undefined,
   agentProvider: AgentId,
   cwd: string = '~',
-  id: string = randomUUID()
+  id: string = randomUUID(),
 ): Promise<Work> {
   const now = new Date().toISOString()
   const meta: WorkMeta = {
@@ -454,30 +274,21 @@ export async function createWork(
     sessionIds: sessionId ? [sessionId] : [],
     agentProvider,
     cwd,
-    storage: { kind: 'local' },
   }
 
-  insertLocalWork(database(), id, meta, content)
+  await insertWork(database(), organizationId, id, meta, content)
   return { id, content, ...meta }
 }
 
-export async function duplicateWork(id: string, cwd?: string): Promise<Work> {
-  const found = await findWork(id, cwd)
-  if (!found) throw new Error(`Work not found: ${id}`)
-
-  let content: string
-  if (found.locator.storage.kind === 'local') {
-    content = localWorkRow(id)?.content ?? ''
-  } else {
-    const raw = await readFile(contentPath(found.locator.root, id), 'utf8')
-    content = workContentSchema.parse(JSON.parse(raw)).content
-  }
-
+export async function duplicateWork(organizationId: string, id: string): Promise<Work> {
+  const db = database()
+  const row = await requireWorkRow(db, organizationId, id)
+  const content = row.content ?? ''
   const duplicateId = randomUUID()
   const now = new Date().toISOString()
   const meta: WorkMeta = {
-    ...found.meta,
-    title: `${found.meta.title} copy`,
+    ...metaFromRow(row),
+    title: `${row.title ?? ''} copy`,
     createdAt: now,
     updatedAt: now,
     sessionId: undefined,
@@ -487,82 +298,18 @@ export async function duplicateWork(id: string, cwd?: string): Promise<Work> {
     // doc would overwrite each other with no way to tell which won.
     mirroredDoc: undefined,
   }
-
-  if (found.locator.storage.kind === 'local') {
-    insertLocalWork(database(), duplicateId, meta, content)
-  } else {
-    const manifest = found.manifest
-    manifest.works[duplicateId] = manifestMeta(meta, found.locator)
-    await writeManifest(found.locator.root, manifest)
-    await writeFile(contentPath(found.locator.root, duplicateId), JSON.stringify({ content }), 'utf8')
-  }
-
+  await insertWork(db, organizationId, duplicateId, meta, content)
   return { id: duplicateId, content, ...meta }
 }
 
-function saveLocalWork(
-  db: DatabaseSync,
-  id: string,
-  originalMeta: WorkMeta,
-  originalContent: string,
-  updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>,
-): Work {
-  const meta = { ...originalMeta, updatedAt: new Date().toISOString() }
-  if (updates.title !== undefined) meta.title = updates.title
-  if (updates.preview !== undefined) meta.preview = updates.preview
-  updateLocalWork(db, id, meta, updates.content)
-  return { id, content: updates.content ?? originalContent, ...meta }
+export async function saveWork(organizationId: string, id: string, updates: WorkUpdates): Promise<Work> {
+  return database().transaction(async (db) => {
+    const row = await requireWorkRow(db, organizationId, id)
+    assertWorkEditable(metaFromRow(row))
+    return writeWork(db, id, row, updates)
+  })
 }
 
-async function saveProjectWork(
-  id: string,
-  found: FoundWork,
-  updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>,
-): Promise<Work> {
-  const meta = found.meta
-  if (updates.title !== undefined) meta.title = updates.title
-  if (updates.preview !== undefined) meta.preview = updates.preview
-  meta.updatedAt = new Date().toISOString()
-
-  const manifest = found.manifest
-  manifest.works[id] = manifestMeta(meta, found.locator)
-  await writeManifest(found.locator.root, manifest)
-
-  let content: string
-  if (updates.content !== undefined) {
-    await writeFile(contentPath(found.locator.root, id), JSON.stringify({ content: updates.content }), 'utf8')
-    content = updates.content
-  } else {
-    const raw = await readFile(contentPath(found.locator.root, id), 'utf8')
-    content = workContentSchema.parse(JSON.parse(raw)).content
-  }
-  return { id, content, ...meta }
-}
-
-export async function saveWork(
-  id: string,
-  updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>,
-  cwd?: string
-): Promise<Work> {
-  const found = await findWork(id, cwd)
-  if (!found) throw new Error(`Work not found: ${id}`)
-  assertWorkEditable(found.meta)
-  if (found.locator.storage.kind === 'local') {
-    return withTx(() => {
-      const db = database()
-      const row = workRowSchema.nullish().parse(
-        db.prepare("SELECT * FROM works WHERE id = ? AND storage = 'local'").get(id),
-      )
-      if (!row) throw new Error(`Work not found: ${id}`)
-      assertWorkEditable(metaFromRow(row))
-      return saveLocalWork(db, id, metaFromRow(row), row.content ?? '', updates)
-    })
-  }
-  return saveProjectWork(id, found, updates)
-}
-
-/** The identity of published content. Comparing it to what a work holds now is
- * the whole definition of `dirty`, so publish and the UI must agree on it. */
 /**
  * `dirty` cannot be stored, only derived: a work's content changes without the
  * link being touched. Every state the provider owns — conflict, error, upstream
@@ -576,71 +323,45 @@ function withDerivedSyncState(meta: WorkMeta, content: string): WorkMeta {
   return { ...meta, mirroredDoc: { ...link, syncState: dirty ? 'dirty' : 'ok' } }
 }
 
-export async function loadWork(id: string, cwd?: string): Promise<Work | null> {
+export async function loadWork(organizationId: string, id: string): Promise<Work | null> {
   try {
-    const found = await findWork(id, cwd)
-    if (!found) return null
-    if (found.locator.storage.kind === 'local') {
-      const localContent = found.row.content ?? ''
-      return { id, content: localContent, ...withDerivedSyncState(found.meta, localContent) }
-    }
-
-    const raw = await readFile(contentPath(found.locator.root, id), 'utf8')
-    const { content } = workContentSchema.parse(JSON.parse(raw))
-    return { id, content, ...withDerivedSyncState(found.meta, content) }
+    const row = await workRow(database(), organizationId, id)
+    if (!row) return null
+    const content = row.content ?? ''
+    return { id, content, ...withDerivedSyncState(metaFromRow(row), content) }
   } catch (err: any) {
     log.error('work_load_failed', { workId: id, error: err instanceof Error ? err.message : String(err) })
     return null
   }
 }
 
-export async function listWorks(cwd?: string): Promise<(WorkMeta & { id: string })[]> {
+export async function listWorks(organizationId: string): Promise<(WorkMeta & { id: string })[]> {
   try {
-    const rows = workRowSchema.array().parse(
-      database().prepare("SELECT * FROM works WHERE storage = 'local'").all(),
-    )
-    const entries: (WorkMeta & { id: string })[] = rows.map((row) => ({
+    const rows = workRowSchema.array().parse(await database().all(sql`
+      SELECT id, title, preview, type, session_id, agent_provider, cwd, pinned, content, created_at, updated_at, meta
+      FROM ${works}
+      WHERE organization_id = ${organizationId}
+      ORDER BY updated_at DESC, id
+    `))
+    return rows.map((row) => ({
       id: row.id,
       ...withDerivedSyncState(metaFromRow(row), row.content ?? ''),
     }))
-
-    const projectRoot = projectRootForCwd(cwd)
-    if (projectRoot) {
-      const project = projectLocator(projectRoot)
-      const projectManifest = await readManifest(project.root)
-      entries.push(...Object.entries(projectManifest.works).map(([id, meta]) => ({ id, ...normalizeStorage(meta, project) })))
-    }
-
-    return entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   } catch (err: any) {
     log.error('works_list_failed', { error: err instanceof Error ? err.message : String(err) })
     return []
   }
 }
 
-export async function setWorkPinned(id: string, pinned: boolean, cwd?: string): Promise<void> {
-  const found = await findWork(id, cwd)
-  if (!found) return
-
-  if (found.locator.storage.kind === 'local') {
-    withTx(() => {
-      const db = database()
-      const row = workRowSchema.nullish().parse(
-        db.prepare("SELECT * FROM works WHERE id = ? AND storage = 'local'").get(id),
-      )
-      if (!row) return
-      const meta = metaFromRow(row)
-      if (pinned) meta.pinned = true
-      else delete meta.pinned
-      updateLocalWork(db, id, meta)
-    })
-  } else {
-    if (pinned) found.meta.pinned = true
-    else delete found.meta.pinned
-    const manifest = found.manifest
-    manifest.works[id] = manifestMeta(found.meta, found.locator)
-    await writeManifest(found.locator.root, manifest)
-  }
+export async function setWorkPinned(organizationId: string, id: string, pinned: boolean): Promise<void> {
+  await database().transaction(async (db) => {
+    const row = await workRow(db, organizationId, id)
+    if (!row) return
+    const meta = metaFromRow(row)
+    if (pinned) meta.pinned = true
+    else delete meta.pinned
+    await updateWorkMeta(db, id, meta)
+  })
 }
 
 /**
@@ -651,132 +372,47 @@ export async function setWorkPinned(id: string, pinned: boolean, cwd?: string): 
  * Writes only the link, so it cannot bump `updatedAt` and make a work look
  * locally edited when all that happened was a publish.
  */
-export async function setWorkMirroredDoc(
-  id: string,
-  link: WorkExternalLink | null,
-  cwd?: string,
-): Promise<void> {
-  const found = await findWork(id, cwd)
-  if (!found) throw new Error(`Work not found: ${id}`)
-
-  if (found.locator.storage.kind === 'local') {
-    withTx(() => {
-      const db = database()
-      const row = workRowSchema.nullish().parse(
-        db.prepare("SELECT * FROM works WHERE id = ? AND storage = 'local'").get(id),
-      )
-      if (!row) throw new Error(`Work not found: ${id}`)
-      const meta = metaFromRow(row)
-      if (link) meta.mirroredDoc = link
-      else delete meta.mirroredDoc
-      db.prepare("UPDATE works SET meta = ? WHERE id = ? AND storage = 'local'").run(localMetaJson(meta), id)
-    })
-    return
-  }
-
-  if (link) found.meta.mirroredDoc = link
-  else delete found.meta.mirroredDoc
-  const manifest = found.manifest
-  manifest.works[id] = manifestMeta(found.meta, found.locator)
-  await writeManifest(found.locator.root, manifest)
-}
-
-export async function linkWorkSession(id: string, sessionId: string, cwd?: string): Promise<void> {
-  const found = await findWork(id, cwd)
-  if (!found) return
-
-  if (found.locator.storage.kind === 'local') {
-    withTx(() => {
-      const db = database()
-      const row = workRowSchema.nullish().parse(
-        db.prepare("SELECT * FROM works WHERE id = ? AND storage = 'local'").get(id),
-      )
-      if (!row) return
-      const meta = metaFromRow(row)
-      const localSessionIds = meta.sessionIds ?? (meta.sessionId ? [meta.sessionId] : [])
-      if (!localSessionIds.includes(sessionId)) localSessionIds.push(sessionId)
-      meta.sessionIds = localSessionIds
-      if (!meta.sessionId) meta.sessionId = sessionId
-      updateLocalWork(db, id, meta)
-    })
-  } else {
-    const sessionIds = found.meta.sessionIds ?? (found.meta.sessionId ? [found.meta.sessionId] : [])
-    if (!sessionIds.includes(sessionId)) sessionIds.push(sessionId)
-    found.meta.sessionIds = sessionIds
-    if (!found.meta.sessionId) found.meta.sessionId = sessionId
-    const manifest = found.manifest
-    manifest.works[id] = manifestMeta(found.meta, found.locator)
-    await writeManifest(found.locator.root, manifest)
-  }
-}
-
-/** Permanently remove a work and its previous revisions. */
-export async function deleteWork(id: string, cwd?: string): Promise<void> {
-  const found = await findWork(id, cwd)
-  if (!found) throw new Error(`Work not found: ${id}`)
-
-  if (found.locator.storage.kind === 'local') {
-    withTx(() => {
-      const db = database()
-      db.prepare('DELETE FROM work_annotations WHERE work_id = ?').run(id)
-      db.prepare("DELETE FROM works WHERE id = ? AND storage = 'local'").run(id)
-    })
-    return
-  }
-
-  const manifest = found.manifest
-  delete manifest.works[id]
-  await writeManifest(found.locator.root, manifest)
-  await rmWorkFiles(found.locator.root, id)
-  database().prepare('DELETE FROM work_annotations WHERE work_id = ?').run(id)
-}
-
-export async function promoteWorkToProject(id: string, projectRoot: string): Promise<Work> {
-  const resolvedRoot = resolve(projectRoot)
-  const project = projectLocator(resolvedRoot)
-  assertInsideProject(resolvedRoot, project.root)
-
-  const localRow = localWorkRow(id)
-  if (!localRow) {
-    const existing = await loadWork(id, resolvedRoot)
-    if (existing?.storage?.kind === 'project') return existing
-    throw new Error(`Work not found: ${id}`)
-  }
-
-  const content = localRow.content ?? ''
-  const now = new Date().toISOString()
-  const meta: WorkMeta = {
-    ...metaFromRow(localRow),
-    updatedAt: now,
-    storage: project.storage,
-  }
-
-  const projectManifest = await readManifest(project.root)
-  projectManifest.works[id] = manifestMeta(meta, project)
-  await writeManifest(project.root, projectManifest)
-  await writeFile(contentPath(project.root, id), JSON.stringify({ content }), 'utf8')
-
-  const previous = latestRevision(database(), id)
-  if (previous) {
-    const value: WorkPrevious = { content: previous.content ?? '', updatedAt: isoTime(previous.updated_at) }
-    await writeFile(prevPath(project.root, id), JSON.stringify(value), 'utf8')
-  }
-
-  withTx(() => {
-    const db = database()
-    db.prepare("DELETE FROM works WHERE id = ? AND storage = 'local'").run(id)
+export async function setWorkMirroredDoc(organizationId: string, id: string, link: WorkExternalLink | null): Promise<void> {
+  await database().transaction(async (db) => {
+    const row = await requireWorkRow(db, organizationId, id)
+    const meta = metaFromRow(row)
+    if (link) meta.mirroredDoc = link
+    else delete meta.mirroredDoc
+    await db.run(sql`UPDATE ${works} SET meta = ${metaJson(meta)} WHERE id = ${id}`)
   })
-
-  return { id, content, ...meta }
 }
 
-async function rmWorkFiles(root: string, id: string): Promise<void> {
-  const path = contentPath(root, id)
-  if (existsSync(path)) {
-    await rm(path)
-  }
-  const prev = prevPath(root, id)
-  if (existsSync(prev)) {
-    await rm(prev)
+export async function linkWorkSession(organizationId: string, id: string, sessionId: string): Promise<void> {
+  await database().transaction(async (db) => {
+    const row = await workRow(db, organizationId, id)
+    if (!row) return
+    const meta = metaFromRow(row)
+    const sessionIds = meta.sessionIds ?? (meta.sessionId ? [meta.sessionId] : [])
+    if (!sessionIds.includes(sessionId)) sessionIds.push(sessionId)
+    meta.sessionIds = sessionIds
+    if (!meta.sessionId) meta.sessionId = sessionId
+    await updateWorkMeta(db, id, meta)
+  })
+}
+
+/** Permanently remove a work, its previous revisions, and its annotations. */
+export async function deleteWork(organizationId: string, id: string): Promise<void> {
+  await database().transaction(async (db) => {
+    await requireWorkRow(db, organizationId, id)
+    await db.run(sql`DELETE FROM ${workAnnotations} WHERE work_id = ${id}`)
+    await db.run(sql`DELETE FROM ${works} WHERE id = ${id}`)
+  })
+}
+
+/** The file a work exports as: the content is already in that form. */
+export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' {
+  switch (type) {
+    case 'doc':
+      return 'md'
+    case 'artifact':
+      return 'html'
+    case 'diagram':
+    case 'slides':
+      return 'json'
   }
 }

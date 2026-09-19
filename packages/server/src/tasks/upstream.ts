@@ -48,6 +48,7 @@ function isTaskSyncField(field: string): field is TaskSyncField {
 }
 
 async function readUpstreamCache(
+  organizationId: string,
   projectKey: string,
   provider: string,
   externalKey: string,
@@ -56,7 +57,8 @@ async function readUpstreamCache(
   const parsedRow = upstreamTaskCacheRowSchema.safeParse(await getDatabase().get(sql`
     SELECT fetched_at, truncated, tasks
     FROM ${upstreamTaskCache}
-    WHERE project_key = ${projectKey} AND provider = ${provider} AND external_key = ${externalKey} AND scope = ${cacheScope}
+    WHERE organization_id = ${organizationId} AND project_key = ${projectKey}
+      AND provider = ${provider} AND external_key = ${externalKey} AND scope = ${cacheScope}
   `))
   if (!parsedRow.success) return null
   const row: UpstreamTaskCacheRow = parsedRow.data
@@ -78,7 +80,11 @@ async function readUpstreamCache(
   }
 }
 
+/** The row is keyed by project path and provider scope, which a host knows
+ * one organization for; the write stamps the organization so the read, which
+ * filters on it, only ever serves an organization its own snapshot. */
 async function writeUpstreamCache(
+  organizationId: string,
   projectKey: string,
   provider: string,
   externalKey: string,
@@ -87,15 +93,17 @@ async function writeUpstreamCache(
   cacheScope = CACHE_SCOPE,
 ): Promise<void> {
   await getDatabase().run(sql`
-    INSERT INTO ${upstreamTaskCache}(project_key, provider, external_key, scope, fetched_at, truncated, tasks)
+    INSERT INTO ${upstreamTaskCache}(project_key, provider, external_key, scope, fetched_at, truncated, tasks, organization_id)
     VALUES (
       ${projectKey}, ${provider}, ${externalKey}, ${cacheScope}, ${fetchedAt},
-      ${result.truncated === undefined ? null : result.truncated ? 1 : 0}, ${JSON.stringify(result.tasks)}
+      ${result.truncated === undefined ? null : result.truncated ? 1 : 0}, ${JSON.stringify(result.tasks)},
+      ${organizationId}
     )
     ON CONFLICT(project_key, provider, external_key, scope) DO UPDATE SET
       fetched_at = excluded.fetched_at,
       truncated = excluded.truncated,
-      tasks = excluded.tasks
+      tasks = excluded.tasks,
+      organization_id = excluded.organization_id
   `)
 }
 
@@ -115,8 +123,8 @@ function withProjectKey(task: Task, projectKey: string): Task {
  * faithful snapshot of the provider and linking a ticket later hides it without
  * needing another fetch.
  */
-async function withoutMirroredTickets(tasks: Task[], target: TaskPublishTarget): Promise<Task[]> {
-  const mirrored = await linkedExternalIds(target.adapter.id, target.ref.externalKey)
+async function withoutMirroredTickets(organizationId: string, tasks: Task[], target: TaskPublishTarget): Promise<Task[]> {
+  const mirrored = await linkedExternalIds(organizationId, target.adapter.id, target.ref.externalKey)
   return mirrored.size ? tasks.filter((task) => !mirrored.has(task.id)) : tasks
 }
 
@@ -156,6 +164,7 @@ function taskFromTicket(ticket: NormalizedTicket, projectKey: string): Task {
 /** Read the configured upstream alongside native Solus tasks. Local remains the
  * durable source for Solus-owned work; these rows retain provider ownership. */
 export async function listUpstreamTasks(
+  organizationId: string,
   cwd: string,
   opts: { involvement?: InboxInvolvement; query?: string } | null = {},
 ): Promise<TaskListResult> {
@@ -169,7 +178,7 @@ export async function listUpstreamTasks(
   // the complete one. A failed search reports the failure instead.
   const cached = query
     ? null
-    : await readUpstreamCache(projectKey, target.adapter.id, target.ref.externalKey, cacheScope)
+    : await readUpstreamCache(organizationId, projectKey, target.adapter.id, target.ref.externalKey, cacheScope)
 
   // Match the original task-provider contract: every list read asks the
   // provider for current issues. SQLite is an offline fallback, never the
@@ -181,11 +190,11 @@ export async function listUpstreamTasks(
     })
     const fetchedAt = Date.now()
     if (!query) {
-      await writeUpstreamCache(projectKey, target.adapter.id, target.ref.externalKey, result, fetchedAt, cacheScope)
+      await writeUpstreamCache(organizationId, projectKey, target.adapter.id, target.ref.externalKey, result, fetchedAt, cacheScope)
     }
     return {
       ...result,
-      tasks: (await withoutMirroredTickets(result.tasks, target)).map((task) => withProjectKey(task, cwd)),
+      tasks: (await withoutMirroredTickets(organizationId, result.tasks, target)).map((task) => withProjectKey(task, cwd)),
       fetchedAt,
     }
   } catch (error) {
@@ -198,7 +207,7 @@ export async function listUpstreamTasks(
       })
       return {
         ...cached,
-        tasks: (await withoutMirroredTickets(cached.tasks, target)).map((task) => withProjectKey(task, cwd)),
+        tasks: (await withoutMirroredTickets(organizationId, cached.tasks, target)).map((task) => withProjectKey(task, cwd)),
         fromCache: true,
       }
     }

@@ -116,12 +116,12 @@ beforeAll(async () => {
 })
 
 async function newWork(content = '# Local', type: 'doc' | 'slides' = 'doc'): Promise<string> {
-  const work = await works.createWork('Spec', type, content, '', undefined, 'claude-code', '~')
+  const work = await works.createWork('local', 'Spec', type, content, '', undefined, 'claude-code', '~')
   return work.id
 }
 
 async function linkOf(id: string) {
-  return (await works.loadWork(id))?.mirroredDoc
+  return (await works.loadWork('local', id))?.mirroredDoc
 }
 
 const ENGINEERING = { provider: 'confluence' as const, scope: 'ENG', label: 'Engineering' }
@@ -140,14 +140,14 @@ beforeEach(async () => {
 
 describe('publishWork', () => {
   test('asks for a destination on the first publish rather than guessing one', async () => {
-    const result = await workSync.publishWork(workId)
+    const result = await workSync.publishWork('local', workId)
 
     expect(result.ok).toBe(false)
     expect(await linkOf(workId)).toBeUndefined()
   })
 
   test('remembers the chosen destination so later publishes need no picker', async () => {
-    const result = await workSync.publishWork(workId, { destination: ENGINEERING })
+    const result = await workSync.publishWork('local', workId, { destination: ENGINEERING })
 
     expect(result.ok).toBe(true)
     expect(upstream.lastScope).toBe('ENG')
@@ -157,34 +157,34 @@ describe('publishWork', () => {
   })
 
   test('reads back as dirty once the document moves on from what was published', async () => {
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     expect((await linkOf(workId))?.syncState).toBe('ok')
 
-    await works.saveWork(workId, { content: '# Local, edited' })
+    await works.saveWork('local', workId, { content: '# Local, edited' })
 
     // Derived from the content, not stored: an edit never touches the link.
     expect((await linkOf(workId))?.syncState).toBe('dirty')
   })
 
   test('Google-linked works refuse repeat publish even for version-only changes', async () => {
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     const link = await linkOf(workId)
     if (!link) throw new Error('Missing test link')
-    await works.setWorkMirroredDoc(workId, { ...link, provider: 'gdrive' })
+    await works.setWorkMirroredDoc('local', workId, { ...link, provider: 'gdrive' })
     upstream.version = '9'
-    const result = await workSync.publishWork(workId)
+    const result = await workSync.publishWork('local', workId)
     expect(result).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
     expect(upstream.lastPatch).toBeNull()
   })
 
   test('Google review updates still reject a changed upstream body', async () => {
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     const link = await linkOf(workId)
     if (!link) throw new Error('Missing test link')
-    await works.setWorkMirroredDoc(workId, { ...link, provider: 'gdrive' })
+    await works.setWorkMirroredDoc('local', workId, { ...link, provider: 'gdrive' })
     upstream.version = '9'
     upstream.markdown = '# Changed by reviewer'
-    const result = await workSync.publishWork(workId)
+    const result = await workSync.publishWork('local', workId)
     expect(result).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
     expect(upstream.lastPatch).toBeNull()
   })
@@ -192,18 +192,18 @@ describe('publishWork', () => {
   test('refuses a deck — v1 publishes documents only', async () => {
     const slidesId = await newWork('# Deck', 'slides')
 
-    const result = await workSync.publishWork(slidesId, { destination: ENGINEERING })
+    const result = await workSync.publishWork('local', slidesId, { destination: ENGINEERING })
 
     expect(result).toMatchObject({ ok: false })
     expect(upstream.lastScope).toBeNull()
   })
 
   test('reports a conflict, and does not overwrite, when upstream moved', async () => {
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     upstream.version = '9'
-    await works.saveWork(workId, { content: '# Local, edited' })
+    await works.saveWork('local', workId, { content: '# Local, edited' })
 
-    const result = await workSync.publishWork(workId)
+    const result = await workSync.publishWork('local', workId)
 
     expect(result).toMatchObject({ ok: false, conflict: true })
     // Stored, so the header still says conflict after a reload.
@@ -211,11 +211,11 @@ describe('publishWork', () => {
   })
 
   test('publishes over an upstream change only when the user chose to', async () => {
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     upstream.version = '9'
-    await works.saveWork(workId, { content: '# Local, edited' })
+    await works.saveWork('local', workId, { content: '# Local, edited' })
 
-    const result = await workSync.publishWork(workId, { force: true })
+    const result = await workSync.publishWork('local', workId, { force: true })
 
     expect(result.ok).toBe(true)
     expect(upstream.lastPatch?.expectedVersion).toBeUndefined()
@@ -225,7 +225,7 @@ describe('publishWork', () => {
   test('flattens an embedded diagram and says so, instead of publishing a Solus token', async () => {
     const withDiagram = await newWork(`# Spec\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`)
 
-    const result = await workSync.publishWork(withDiagram, { destination: ENGINEERING })
+    const result = await workSync.publishWork('local', withDiagram, { destination: ENGINEERING })
 
     expect(result.ok && result.lossyParts).toEqual(['diagram: Architecture'])
   })
@@ -238,7 +238,7 @@ describe('publishWork', () => {
       `# Spec\n\n${serializeWorkEmbed({ workId: 'a1', title: 'Latency', type: 'artifact' })}\n`,
     )
 
-    const result = await workSync.publishWork(withArtifact, { destination: ENGINEERING })
+    const result = await workSync.publishWork('local', withArtifact, { destination: ENGINEERING })
 
     expect(result.ok && result.lossyParts).toEqual(['artifact: Latency'])
     expect(upstream.lastDraft?.markdown).toContain('_Artifact: Latency — view it in Solus._')
@@ -258,7 +258,7 @@ describe('publishWork', () => {
     ].join('\n')
     const withBoth = await newWork(content)
 
-    const result = await workSync.publishWork(withBoth, {
+    const result = await workSync.publishWork('local', withBoth, {
       destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
       diagramAssets: [{
         workId: 'd1',
@@ -283,7 +283,7 @@ describe('publishWork', () => {
       base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
     }
 
-    const result = await workSync.publishWork(withDiagram, {
+    const result = await workSync.publishWork('local', withDiagram, {
       destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
       diagramAssets: [asset],
     })
@@ -301,20 +301,20 @@ describe('publishWork', () => {
     const withDiagram = await newWork(content)
     const asset: DocDiagramAsset = { workId: 'd1', title: 'Architecture', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }
 
-    await workSync.publishWork(withDiagram, {
+    await workSync.publishWork('local', withDiagram, {
       destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
       diagramAssets: [asset],
     })
     expect((await linkOf(withDiagram))?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
 
     upstream.version = '9'
-    await workSync.pullWorkUpstream(withDiagram)
+    await workSync.pullWorkUpstream('local', withDiagram)
     expect(upstream.lastReadHints?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
   })
 
   test('a renamed diagram survives the Google caption round trip', async () => {
     const withDiagram = await newWork(serializeDiagramEmbed({ workId: 'd1', title: 'Old label' }))
-    await workSync.publishWork(withDiagram, {
+    await workSync.publishWork('local', withDiagram, {
       destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
       diagramAssets: [{ workId: 'd1', title: 'Current diagram title', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }],
     })
@@ -328,14 +328,14 @@ describe('publishWork', () => {
     }, link?.diagrams)
     expect(converted.lossyParts).toEqual([])
     upstream.markdown = converted.markdown
-    const pulled = await workSync.pullWorkUpstream(withDiagram)
+    const pulled = await workSync.pullWorkUpstream('local', withDiagram)
     expect(pulled.ok && pulled.content).toContain(serializeDiagramEmbed({ workId: 'd1', title: 'Current diagram title' }))
   })
 })
 
 describe('plan mirror', () => {
   test('persists a plan revision link and uses it for later updates', async () => {
-    await annotations.saveAnnotations({
+    await annotations.saveAnnotations('local', {
       version: 1,
       sessionId: 'session-plan',
       planToolUseId: 'tool-1',
@@ -348,7 +348,7 @@ describe('plan mirror', () => {
       updatedAt: Date.now(),
     })
 
-    const first = await planSync.publishPlan({
+    const first = await planSync.publishPlan('local', {
       sessionId: 'session-plan',
       planToolUseId: 'tool-1',
       title: 'Plan',
@@ -356,10 +356,10 @@ describe('plan mirror', () => {
       destination: ENGINEERING,
     })
     expect(first.ok).toBe(true)
-    expect((await annotations.loadAnnotations('session-plan', 'tool-1'))?.mirroredDoc?.externalId).toBe('new-page')
+    expect((await annotations.loadAnnotations('local', 'session-plan', 'tool-1'))?.mirroredDoc?.externalId).toBe('new-page')
 
     upstream.version = '1'
-    const update = await planSync.publishPlan({
+    const update = await planSync.publishPlan('local', {
       sessionId: 'session-plan',
       planToolUseId: 'tool-1',
       title: 'Plan',
@@ -370,7 +370,7 @@ describe('plan mirror', () => {
   })
 
   test('carries an embedded diagram PNG through the plan mirror', async () => {
-    await annotations.saveAnnotations({
+    await annotations.saveAnnotations('local', {
       version: 1,
       sessionId: 'session-plan-png',
       planToolUseId: 'tool-png',
@@ -390,7 +390,7 @@ describe('plan mirror', () => {
       base64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB',
     }
 
-    const result = await planSync.publishPlan({
+    const result = await planSync.publishPlan('local', {
       sessionId: 'session-plan-png',
       planToolUseId: 'tool-png',
       title: 'Plan with diagram',
@@ -406,7 +406,7 @@ describe('plan mirror', () => {
   test('merges the mirror link into annotations changed during publish', async () => {
     // WHY: publishing waits on the provider. Comments and review state saved in
     // that interval must not be replaced by the pre-request annotation copy.
-    await annotations.saveAnnotations({
+    await annotations.saveAnnotations('local', {
       version: 1,
       sessionId: 'session-plan-race',
       planToolUseId: 'tool-race',
@@ -418,7 +418,7 @@ describe('plan mirror', () => {
       bookmarked: false,
       updatedAt: Date.now(),
     })
-    const first = await planSync.publishPlan({
+    const first = await planSync.publishPlan('local', {
       sessionId: 'session-plan-race',
       planToolUseId: 'tool-race',
       title: 'Plan',
@@ -428,9 +428,9 @@ describe('plan mirror', () => {
     expect(first.ok).toBe(true)
     upstream.version = '1'
     upstream.beforeUpdate = async () => {
-      const current = await annotations.loadAnnotations('session-plan-race', 'tool-race')
+      const current = await annotations.loadAnnotations('local', 'session-plan-race', 'tool-race')
       if (!current) throw new Error('missing plan annotations')
-      await annotations.saveAnnotations({
+      await annotations.saveAnnotations('local', {
         ...current,
         title: 'Reviewed title',
         status: 'accepted',
@@ -439,14 +439,14 @@ describe('plan mirror', () => {
       })
     }
 
-    await planSync.publishPlan({
+    await planSync.publishPlan('local', {
       sessionId: 'session-plan-race',
       planToolUseId: 'tool-race',
       title: 'Plan',
       content: '# Revised plan',
     })
 
-    const saved = await annotations.loadAnnotations('session-plan-race', 'tool-race')
+    const saved = await annotations.loadAnnotations('local', 'session-plan-race', 'tool-race')
     expect(saved).toMatchObject({
       title: 'Reviewed title',
       status: 'accepted',
@@ -459,15 +459,15 @@ describe('plan mirror', () => {
 
 describe('pullWorkUpstream', () => {
   test('writes upstream content as a revertable local version and settles the link', async () => {
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     upstream.version = '9'
 
-    const result = await workSync.pullWorkUpstream(workId)
+    const result = await workSync.pullWorkUpstream('local', workId)
 
     expect(result.ok).toBe(true)
-    expect((await works.loadWork(workId))?.content).toBe('# Upstream')
+    expect((await works.loadWork('local', workId))?.content).toBe('# Upstream')
     // A pull the user dislikes has to be one revert away.
-    expect((await works.loadWorkPrevious(workId))?.content).toBe('# Local')
+    expect((await works.loadWorkPrevious('local', workId))?.content).toBe('# Local')
     const link = await linkOf(workId)
     expect(link?.upstreamVersion).toBe('9')
     expect(link?.syncState).toBe('ok')
@@ -476,14 +476,14 @@ describe('pullWorkUpstream', () => {
 
 describe('refreshUpstreamState', () => {
   test('flags an upstream change without downloading over the local content', async () => {
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     upstream.version = '9'
     upstream.markdown = '# Upstream, edited by someone else'
 
-    const link = await workSync.refreshUpstreamState(workId)
+    const link = await workSync.refreshUpstreamState('local', workId)
 
     expect(link?.syncState).toBe('upstream_changed')
-    expect((await works.loadWork(workId))?.content).toBe('# Local')
+    expect((await works.loadWork('local', workId))?.content).toBe('# Local')
     // The guard keeps the version it last published against, so a publish
     // over that edit is still refused as a conflict.
     expect(link?.upstreamVersion).toBe('1')
@@ -494,10 +494,10 @@ describe('refreshUpstreamState', () => {
     // version rises within seconds of a publish while the document still says
     // exactly what Solus sent. Reporting that as someone else's edit put every
     // freshly published work into "upstream changed" immediately.
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     upstream.version = '9'
 
-    const link = await workSync.refreshUpstreamState(workId)
+    const link = await workSync.refreshUpstreamState('local', workId)
 
     expect(link?.syncState).toBe('ok')
     // Recorded, so the same unchanged doc is not re-compared on every poll.
@@ -509,14 +509,14 @@ describe('refreshUpstreamState', () => {
     // the markdown differs from the pull's and every check reports a change.
     const content = `# Spec\n\n${serializeDiagramEmbed({ workId: 'd1', title: 'Architecture' })}\n`
     const withDiagram = await newWork(content)
-    await workSync.publishWork(withDiagram, {
+    await workSync.publishWork('local', withDiagram, {
       destination: { provider: 'gdrive', scope: 'root', label: 'My Drive' },
       diagramAssets: [{ workId: 'd1', title: 'Architecture', mimeType: 'image/png', base64: 'iVBORw0KGgo=' }],
     })
     upstream.lastReadHints = null
     upstream.version = '9'
 
-    await workSync.refreshUpstreamState(withDiagram)
+    await workSync.refreshUpstreamState('local', withDiagram)
 
     expect(upstream.lastReadHints?.diagrams).toEqual([{ workId: 'd1', title: 'Architecture' }])
   })
@@ -524,10 +524,10 @@ describe('refreshUpstreamState', () => {
 
 describe('unlinkWork', () => {
   test('drops the link without touching the upstream page', async () => {
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     upstream.lastPatch = null
 
-    await workSync.unlinkWork(workId)
+    await workSync.unlinkWork('local', workId)
 
     expect(await linkOf(workId)).toBeUndefined()
     expect(upstream.lastPatch).toBeNull()
@@ -536,7 +536,7 @@ describe('unlinkWork', () => {
 
 describe('importDocFromUrl', () => {
   test('creates a linked work even when the adapter has no comment capability', async () => {
-    const imported = await workSync.importDocFromUrl('https://acme.atlassian.net/wiki/spaces/ENG/pages/98765/Spec')
+    const imported = await workSync.importDocFromUrl('local', 'https://acme.atlassian.net/wiki/spaces/ENG/pages/98765/Spec')
 
     expect(imported.work.title).toBe('Upstream title')
     const link = await linkOf(imported.work.id)
@@ -544,7 +544,7 @@ describe('importDocFromUrl', () => {
     expect(link?.syncState).toBe('ok')
     expect(link?.upstreamContentHash).toBeDefined()
     upstream.version = '9'
-    expect((await workSync.refreshUpstreamState(imported.work.id))?.syncState).toBe('ok')
+    expect((await workSync.refreshUpstreamState('local', imported.work.id))?.syncState).toBe('ok')
   })
 })
 
@@ -552,36 +552,36 @@ describe('importDocFromUrl', () => {
 describe('Google-linked work read-only policy', () => {
   test('first Google publish links the work and immediately prevents further edits', async () => {
     upstream.createdProvider = 'gdrive'
-    const result = await workSync.publishWork(workId, { destination: { provider: 'gdrive', scope: 'root' } })
+    const result = await workSync.publishWork('local', workId, { destination: { provider: 'gdrive', scope: 'root' } })
     expect(result.ok).toBe(true)
     expect((await linkOf(workId))?.provider).toBe('gdrive')
-    await expect(works.agentSaveWork(workId, { content: '# Later edit' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    expect((await works.loadWork(workId))?.content).toBe('# Local')
+    await expect(works.agentSaveWork('local', workId, { content: '# Later edit' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    expect((await works.loadWork('local', workId))?.content).toBe('# Local')
   })
 
   test('blocks local and agent writes and restore, but allows pull, comments and unlink', async () => {
-    await works.agentSaveWork(workId, { content: '# Before linking' })
-    await workSync.publishWork(workId, { destination: ENGINEERING })
+    await works.agentSaveWork('local', workId, { content: '# Before linking' })
+    await workSync.publishWork('local', workId, { destination: ENGINEERING })
     const link = await linkOf(workId)
     if (!link) throw new Error('Missing test link')
-    await works.setWorkMirroredDoc(workId, { ...link, provider: 'gdrive' })
-    await expect(works.saveWork(workId, { content: '# Blocked' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    await expect(works.saveWork(workId, { title: 'Blocked' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    await expect(works.agentSaveWork(workId, { content: '# Blocked agent' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    await expect(works.revertWork(workId)).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
-    expect(await workSync.publishWork(workId, { force: true })).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
+    await works.setWorkMirroredDoc('local', workId, { ...link, provider: 'gdrive' })
+    await expect(works.saveWork('local', workId, { content: '# Blocked' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    await expect(works.saveWork('local', workId, { title: 'Blocked' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    await expect(works.agentSaveWork('local', workId, { content: '# Blocked agent' })).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    await expect(works.revertWork('local', workId)).rejects.toThrow(works.GOOGLE_WORK_READ_ONLY)
+    expect(await workSync.publishWork('local', workId, { force: true })).toMatchObject({ ok: false, error: works.GOOGLE_WORK_READ_ONLY })
     expect(upstream.lastPatch).toBeNull()
-    expect((await works.loadWork(workId))?.content).toBe('# Before linking')
+    expect((await works.loadWork('local', workId))?.content).toBe('# Before linking')
 
     const localComments = await import('@solus/server/folio/work-annotations')
-    await localComments.saveWorkAnnotations({ version: 1, updatedAt: Date.now(), workId, comments: [{ id: 'private', comment: 'Keep commenting', author: 'you', createdAt: Date.now() }] })
+    await localComments.saveWorkAnnotations('local', { version: 1, updatedAt: Date.now(), workId, comments: [{ id: 'private', comment: 'Keep commenting', author: 'you', createdAt: Date.now() }] })
     upstream.markdown = '# Edited in Google'
     upstream.title = 'Google title'
-    expect((await workSync.pullWorkUpstream(workId)).ok).toBe(true)
-    expect((await works.loadWork(workId))?.content).toBe(upstream.markdown)
-    expect((await localComments.loadWorkAnnotations(workId))?.comments).toHaveLength(1)
-    await workSync.unlinkWork(workId)
-    await works.saveWork(workId, { content: '# Editable again' })
-    expect((await works.loadWork(workId))?.content).toBe('# Editable again')
+    expect((await workSync.pullWorkUpstream('local', workId)).ok).toBe(true)
+    expect((await works.loadWork('local', workId))?.content).toBe(upstream.markdown)
+    expect((await localComments.loadWorkAnnotations('local', workId))?.comments).toHaveLength(1)
+    await workSync.unlinkWork('local', workId)
+    await works.saveWork('local', workId, { content: '# Editable again' })
+    expect((await works.loadWork('local', workId))?.content).toBe('# Editable again')
   })
 })

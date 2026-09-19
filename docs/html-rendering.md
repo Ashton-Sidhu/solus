@@ -45,7 +45,10 @@ rendered by hand keeps a Show source action as its way back.
 The artifact pane has no source view either. Its header carries Save as HTML:
 on a local host it opens the save picker; on a remote host the browser
 downloads the file. The overflow menu keeps the same HTML format under Save
-as and Download.
+as and Download, and adds Export…, which has the work's host write the stored
+work to a path chosen in the same picker (`worksExport`). Every work type has
+Export…: Markdown for a document, JSON for a diagram or slides, HTML for an
+artifact.
 
 HTML file panes retain the source editor after its first use. Preview reads
 its current contents and flushes pending saves before switching. A failed save

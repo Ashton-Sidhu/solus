@@ -1,5 +1,6 @@
 import { Task } from './task'
 import { PermanentApplyError, registerOutboxApplier } from '../outbox/outbox-store'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
 import { z } from 'zod'
 
@@ -45,9 +46,10 @@ export function registerTaskOutboxApplier(): void {
   })
 }
 
+/** An op is applied on the task's owner host, whose database is one organization's. */
 async function taskOrPermanentError(taskId: string): Promise<Task> {
   try {
-    return await Task.byId(taskId)
+    return await Task.byId(LOCAL_ORGANIZATION_ID, taskId)
   } catch {
     throw new PermanentApplyError(`Task ${taskId} no longer exists on its owner host.`)
   }

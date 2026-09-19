@@ -1,10 +1,11 @@
-# Cloud service model — P0 slice 1: engine, `Db`, and the tasks port
+# Cloud service model — P0: engine, `Db`, and the ported domains
 
 Solus runs the same server binary on a laptop and in the cloud. A host keeps
 SQLite in its data directory with no configuration; the cloud runs one
 Postgres for every instance. The domain managers are the same code on both.
-This slice lays the storage layer and ports one domain, tasks, as the pattern
-every later domain follows.
+P0 lays the storage layer and ports the collaboration-plane domains — tasks,
+works, plans, sharing, and session records — as the pattern every later
+domain follows.
 
 ## 1. Vocabulary
 
@@ -26,12 +27,14 @@ every later domain follows.
   place clients connect first, backed by Postgres.
 - **runner** — a process with the `execution` role: a machine with checkouts
   and agent processes. A laptop is a workspace service and a runner at once.
+- **organization** — the scope every ported row belongs to. A host's database
+  holds one organization, `local`; the cloud's Postgres holds many, one per
+  organization the control plane knows.
 - **cloud-owned** — a record whose home is the cloud Postgres (a task in a
   cloud organization). **runner-owned** — a record whose home is one machine
   (a session transcript, a worktree). **mirror / mirrored** — a copy of a
-  runner-owned record kept where the collaboration plane can read it (a
-  session's title and provider beside a task link). Mirrors are a later
-  slice; this one names them so ports do not invent synonyms.
+  runner-owned record kept where the collaboration plane can read it: a
+  session record is the mirror of a transcript (§12).
 
 ## 2. The engine rule
 
@@ -120,9 +123,41 @@ Write only what both engines run unchanged:
 A read that needs a table from a domain not yet ported is a separate
 statement on `getDb()`, never a JOIN from a ported query — see
 `packages/server/src/tasks/host-records.ts` (session titles and providers,
-work, automation, and plan titles).
+automation titles) and `db/session-indexer.ts` (the transcript index beside
+the session records, §12).
 
-## 6. The tasks port (the pattern)
+## 6. Organization scoping
+
+Every ported store function takes an explicit `organizationId` as its first
+argument and scopes every read and write by it: a row of another organization
+is not found, not refused. Inserts stamp `organization_id`; reads keyed by
+anything other than a task or work id already checked against the
+organization (a session id, a link target, a listing) filter on it. A child
+row keyed by a verified parent id (a task's comments, a work's revisions)
+follows its parent.
+
+`organizationOf(principal)` in `server/principal.ts` decides the value:
+
+- `local-owner`, `remote-owner`, `system`, `guest` → `local`.
+- `org-member` on a `personal` or `managed` host → `local`. A host's database
+  is one organization's own; the member's grant names the organization the
+  host belongs to, and every row the host itself writes (an agent tool, an
+  automation, the indexer) is `local`. Mapping members to their grant there
+  would hide the host's own rows from them.
+- `org-member` on a `cloud` host → the grant's organization: one database
+  serves many organizations, and the grant is the only thing that tells them
+  apart.
+
+Handlers pass `organizationOf(ctx.principal)`. Code that acts for the host —
+the control plane, agent tools, the indexer, outbox appliers, PR discovery —
+passes `LOCAL_ORGANIZATION_ID`: the runner's records are its own.
+
+Two rows stay unscoped on purpose. `task_counters` hands out `short_id`, which
+is unique across the whole database, so a short id names one task wherever it
+is read; `asset_publications` is keyed by the content digest and the provider
+target, and the same bytes are the same upload for anyone.
+
+## 7. The tasks port (the pattern)
 
 Tables in `packages/server/src/tasks/schema.ts`: `tasks`, `task_counters`,
 `task_session_links`, `task_comments`, `task_links`, `task_events`,
@@ -134,43 +169,158 @@ earlier migration and nothing reads it, so it was not carried over.
 
 Every store function in the tasks folder is `async` over `Db`; in-transaction
 cores take the transaction as their first argument; public writes open one
-with `database().transaction(...)`. Callers `await` them (task handlers, the
-control plane, presence — `hostSnapshot()` is now async because a roster row
-names the session's task — PR discovery and reconciliation, session tools).
-
-`task-sharing.ts` is the one exception: `ShareManager.roleFor` is synchronous
-and runs inside every RPC's access check, so those two reads stay on the
-SQLite connection. On Postgres they return nothing until the sharing domain is
-ported, so a task's share reaches only its own page there.
+with `database().transaction(...)`. `Task` instances carry their organization
+in a private field, so the record that crosses RPC never does. Callers `await`
+them (task handlers, the control plane, presence, PR discovery and
+reconciliation, session tools). The sync engine's background poll walks every
+organization's external links (`listExternalLinksForPoll`) and syncs each
+task under its own organization.
 
 The hand-written SQLite migrations keep their slots (`PRAGMA user_version` is
-an index into them); slots that created or changed task tables are reserved
-`SELECT 1;` entries. The generated SQLite migration uses `IF NOT EXISTS`, so a
+an index into them); slots that created or changed ported tables are reserved
+`SELECT 1;` entries. The generated SQLite migrations use `IF NOT EXISTS`, so a
 developer's existing `solus.db`, which already holds these tables in their
-last hand-made shape, opens unchanged; it simply lacks `organization_id`,
-which no query names yet.
+last hand-made shape, opens unchanged; `runSqliteSchemaMigrations` then adds
+every declared column the hand-made table lacks (`organization_id` first
+among them, with its default), so every ported query can name every declared
+column. A share table made before tasks could be shared carries a `CHECK`
+SQLite cannot widen; it is set aside, recreated by the generated migration,
+and its rows copied back.
 
-## 7. Porting the next domain
+## 8. Porting the next domain
 
 1. Declare the tables with `defineTable` in `<domain>/schema.ts`, add
    `organization_id`, and list them in `db/schema/index.ts`, `sqlite.ts`, and
    `postgres.ts`.
 2. `bun run db:generate --name <domain>` writes both migrations and patches
-   the SQLite one to `IF NOT EXISTS`.
+   the SQLite one to `IF NOT EXISTS`. Engine-specific DDL (an index type one
+   engine has) goes in a custom migration: `bunx drizzle-kit generate --custom
+   --name <tag> --config drizzle.<engine>.config.ts` in `packages/server`.
 3. Replace the hand-written DDL for those tables in `db/migrations.ts` with
    reserved slots; keep every other slot.
 4. Rewrite the domain's queries as `sql` templates over `Db` in the portable
-   subset; make each function `async`; ripple `await` to callers.
+   subset; make each function `async` and give it `organizationId`; ripple
+   `await` to callers.
 5. Move any JOIN to an unported table into a separate `getDb()` read.
 6. Reset per test with `tests/unit/helpers/test-db.ts` (`resetTestDatabase`)
    and seed ported tables through `getDatabase().run(...)`, not `getDb()`.
 
-## 8. Running tests on both engines
+## 9. The works port
+
+Tables in `packages/server/src/folio/schema.ts`: `works`, `work_revisions`,
+`work_annotations`. **Every work is a database row (decision D3).** The
+repository-file storage (`kind: 'project'` works under `<repo>/.solus/works`,
+`works-manifest.json`, `promoteWorkToProject`) is gone: the contract has no
+`WorkStorage`, `WorksManifest`, or `WorkMeta.storage`, the RPCs that took a
+`cwd` locator no longer do, and the client has no storage-kind control. In
+its place one execution-plane RPC, `worksExport({ workId, path })`, writes a
+work's stored content to a path on the host that runs the call — Markdown for
+a document, JSON for a diagram or slides, HTML for an artifact — and the
+work's overflow menu offers it as "Export…" beside "Save as", on desktop, web,
+and mobile. The `storage` column stays declared (`'local'`, with a default)
+because a hand-made `works` table declares it `NOT NULL` with no default.
+
+Full-text search is behind `SearchIndex` in `db/search-index.ts`, chosen by
+engine: on SQLite the `works_fts` FTS5 table keyed by `work_id` and kept in
+step by triggers on `works` (the `works_search` custom migration; a host that
+already had them keeps them); on Postgres a stored `tsvector` column on
+`works`, title at weight A and content at weight B, under a GIN index, queried
+with `websearch_to_tsquery`. `folio/work-search.ts` asks the index and formats
+one hit shape. Agent tools (`work-tools`, `artifact-tools`, `doc-tools`,
+`comment-tools`), the outbox applier, and the automation prompt composer read
+works through the organization; a referenced work in an automation prompt is
+named by the id `read_work` takes, not a file path.
+
+## 10. The plans port
+
+Tables in `packages/server/src/plans/schema.ts`: `plan_annotations` (the review
+state a person owns: status, title, bookmark, comments, the mirrored doc link),
+`indexed_plans` and `plan_index_providers` (the query model the provider
+transcript readers keep in step). `plans/annotations.ts` and
+`plans/plan-index.ts` are `async` over `Db` with `organizationId`; the Claude
+and Codex backends, the indexer, the control plane's live plan index, the
+history handlers, and the review tools await them. `plan_index_providers` is
+keyed by provider alone: which providers a runner has indexed in full is that
+runner's fact.
+
+## 11. The sharing port
+
+Tables in `packages/server/src/sharing/schema.ts`: `resource_owner` and
+`share_grant`, both with `organization_id`. `ShareManager` takes a `Db`, every
+method is `async`, and each derives the organization from the principal it is
+given (`forget` and `ownerOf` take it explicitly; `resolveLinkSecret` looks a
+hash up across the database, since a secret is unique). The semantics are the
+ones docs/plans/multiplayer-sharing.md §3.4 states: organization members are
+editors on every resource of a managed host, the owner alone transfers or
+deletes, a guest link is scoped to one resource.
+
+Because `roleFor` is a read now, everything above it is asynchronous:
+`assertRpcAccess` and `SolusServer.handle` await the access check;
+`eventVisibleTo` awaits the role; `ClientEventRegistry.deliver` returns a
+promise and hands events to one client in publish order (a per-client queue,
+so a slower audience check never lets a later event overtake);
+`HostEventPublisher.publish`/`broadcast` resolve to the delivered count; the
+list filters (`filterVisible`) and ownership claims are awaited by their
+handlers; the session listing's streamed batches are filtered one after
+another. `tasks/task-sharing.ts` answers what a task's share reaches from the
+ported tables on either engine. The host's guest paths are unchanged (P4).
+
+## 12. Session records
+
+`packages/server/src/sessions/schema.ts` declares `session_records`: one row per
+session with `session_id` (PK), `organization_id`, `owner_user_id`,
+`provider`, `project_path`, `project_remote`, `runner_host_id`, `title`,
+`custom_title`, `status` (`idle` | `running` | `interrupted`), `model`,
+`reasoning_effort`, `parent_session_id`, `root_session_id`, `created_at`,
+`last_activity_at`, `size`. `project_path` is the provider's project folder
+key, the same spelling the transcript index uses, so the picker's filters are
+unchanged. `sessions/session-records.ts` is the store: `upsertSessionRecord`
+merges a report into the row (a field left out keeps the stored value; a
+field given as null clears it; activity never runs backwards),
+`listSessionRecords` keeps the picker's filters (provider, project path,
+worktrees beneath it, limit), `setSessionRecordStatus`,
+`setSessionRecordTitle`, `deleteSessionRecord`, and
+`markOwnRunningSessionRecordsInterrupted` for boot.
+
+On a host the records are fed in-process: the transcript indexer upserts one
+per swept Claude file and per cached Codex thread, `persistIndexedSessionStart`
+reports a start as `running`, `persistRemoteSessionStart` records the runner a
+dispatched session ran on, `setSessionCustomTitle` lands the name on the
+record, the control plane's status changes map to `running`/`idle`/
+`interrupted`, and a session the file no longer lists loses its record. At
+boot the host marks every record it left `running` as `interrupted`; a record
+another runner reported is that runner's to settle.
+
+The picker and history list (`listIndexedSessions`,
+`listIndexedCodexSessions`, and so the `listSessions` handler behind the
+session sidebar) read `session_records` for which sessions and in what order,
+then fill in what only the transcript index on this machine knows — the
+working directory, the slug, the branch, the lineage — with one separate
+`getDb()` read. A record whose transcript this machine does not hold still
+lists, with what the record carries.
+
+Two collaboration RPCs: `sessionRecordList(filter)` for members and owners,
+and `sessionRecordUpsert(record)`, the `system-only` access class: the host
+itself today, and a runner of the same organization once the uplink's runner
+principal claim exists (the one-line hook is in `assertRpcAccess`).
+
+## 13. What stays runner-local
+
+The transcript index — `sessions`, `session_messages`, `session_fts`,
+`session_files`, the lineage and thread-alias tables — stays in the host's
+SQLite file on `getDb()` on either engine; transcripts are P2. Pinned
+sessions, saved prompts, session read state (`viewed_at`), automations,
+projects, project config, the outbox, browser profiles, seats, and the turn
+ledger are runner-local for now. Where a ported domain shows a fact from one
+of these (a session's title beside a task link, an automation's name on a
+link), it reads it in a separate `getDb()` statement.
+
+## 14. Running tests on both engines
 
 ```sh
 bun scripts/test-unit.ts <filters>                          # SQLite, the default
-docker run -d -e POSTGRES_PASSWORD=solus -p 54329:5432 postgres:17
-POSTGRES_ADMIN_URL=postgres://postgres:solus@localhost:54329/postgres \
+docker run -d -e POSTGRES_PASSWORD=solus -p 54332:5432 postgres:17
+POSTGRES_ADMIN_URL=postgres://postgres:solus@localhost:54332/postgres \
   bun scripts/test-unit.ts --engine=postgres <filters>       # one database per file
 ```
 

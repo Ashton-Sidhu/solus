@@ -19,10 +19,9 @@
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { formatInlineComments } from "../../contexts/workspace/session.utils";
-  import { workBreadcrumb } from "./lib/breadcrumb";
   import { openThreads } from "../comments/lib/thread";
   import { setCommentViewer, workCommentViewer } from "../comments/lib/comment-viewer";
-  import type { PlanComment, PlanCommentReply, SessionMeta, WorkStorage } from "@solus/contracts/types";
+  import type { PlanComment, PlanCommentReply, SessionMeta } from "@solus/contracts/types";
 
   interface DocumentModalProps {
     document: { title: string; content: string };
@@ -41,7 +40,6 @@
     onDelete?: () => void;
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
-    workStorage?: WorkStorage;
     /** Opens the save picker on a chosen format; absent when there is no host. */
     onExport?: (request: WorkExportRequest) => void;
     /** The save picker's filesystem is not this device's — see WorkHeaderActions. */
@@ -51,7 +49,7 @@
     onOpenWorkspace?: () => void;
   }
 
-  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, workStorage, onExport, hostIsRemote = false, onRename, onOpenWorkspace }: DocumentModalProps = $props();
+  let { document: doc, workId, onSave, onDirtyChange, onClose, inline = false, minimizeOutline = false, onOpenChat, originalSessionMeta, onRevert, onDelete, onDuplicate, onExport, hostIsRemote = false, onRename, onOpenWorkspace }: DocumentModalProps = $props();
 
   const session = getWorkspaceContext();
   const clientShell = getClientShellContext();
@@ -252,7 +250,6 @@
 <DocumentShell
   bind:this={shell}
   title={doc.title}
-  breadcrumb={workBreadcrumb(workStorage)}
   {onOpenWorkspace}
   content={doc.content}
   onRenameTitle={readOnly ? undefined : onRename}
@@ -326,7 +323,6 @@
       onRevert={readOnly ? undefined : onRevert}
       {onDelete}
       {onDuplicate}
-      {workStorage}
       {exportFormats}
       {onExport}
       {hostIsRemote}

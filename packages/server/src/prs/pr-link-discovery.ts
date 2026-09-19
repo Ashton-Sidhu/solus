@@ -3,6 +3,7 @@ import { readTaskPrLinks } from '../tasks/task-links'
 import { listTasks, emitChanged } from '../tasks/task-store'
 import { taskSessions } from '../tasks/task-sessions'
 import { Task } from '../tasks/task'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
 import { createLogger } from '../logger'
@@ -40,8 +41,8 @@ export class PrLinkDiscovery {
   private async interests(): Promise<Map<string, BranchInterest>> {
     const interests = new Map<string, BranchInterest>()
     const hosts = new Map<string, CodeHost | null>()
-    const sessions = await taskSessions()
-    for (const task of (await listTasks()).tasks) {
+    const sessions = await taskSessions(LOCAL_ORGANIZATION_ID)
+    for (const task of (await listTasks(LOCAL_ORGANIZATION_ID)).tasks) {
       if (!task.projectKey || task.status === 'done' || task.status === 'dropped') continue
       const attempts = (sessions[task.id] ?? []).filter((attempt) =>
         attempt.isolatedCheckout && attempt.branch)
@@ -70,14 +71,14 @@ export class PrLinkDiscovery {
     if (!pr) return
     prIndex.pullRequest(host.repo, host.provider, pr.number).seed(pr)
     emitChanged()
-    const links = await readTaskPrLinks(getDatabase())
-    const currentSessions = await taskSessions()
+    const links = await readTaskPrLinks(getDatabase(), LOCAL_ORGANIZATION_ID)
+    const currentSessions = await taskSessions(LOCAL_ORGANIZATION_ID)
     for (const owner of owners) {
       if (!currentSessions[owner.taskId]?.some((attempt) => attempt.sessionId === owner.sessionId
         && attempt.isolatedCheckout && attempt.branch === branch)) continue
       if (links[owner.taskId]?.some((link) => link.number === pr.number
         && link.targetScope === repoKeyOf(host.repo).toLowerCase())) continue
-      const task = await Task.byId(owner.taskId)
+      const task = await Task.byId(LOCAL_ORGANIZATION_ID, owner.taskId)
       if (task.status === 'done' || task.status === 'dropped') continue
       await task.linkPullRequest({
         number: pr.number, url: pr.url, title: pr.title,

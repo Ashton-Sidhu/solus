@@ -90,11 +90,11 @@ describe('managed mode', () => {
     expect(isLanDiscoveryDisabled({})).toBe(false)
   })
 
-  test('the link and the pairing RPCs are refused with MANAGED_HOST, even for a local owner', () => {
+  test('the link and the pairing RPCs are refused with MANAGED_HOST, even for a local owner', async () => {
     const owner = { kind: 'local-owner' as const, deviceId: null, deviceLabel: 'Mac' }
     for (const method of ['uplinkLink', 'uplinkUnlink', 'connectionsGeneratePairToken', 'connectionsSetTrustLocalNetwork', 'connectionsSetRemoteAccess'] as const) {
       let refusal: unknown
-      try { assertRpcAccess(method, owner, [{}]) } catch (err) { refusal = err }
+      try { await assertRpcAccess(method, owner, [{}]) } catch (err) { refusal = err }
       expect(refusal).toBeInstanceOf(RpcAccessError)
       if (refusal instanceof RpcAccessError) {
         expect(refusal.code).toBe('MANAGED_HOST')
@@ -102,8 +102,8 @@ describe('managed mode', () => {
       }
     }
     // The status stays readable; a personal host keeps the ordinary policy.
-    expect(() => assertRpcAccess('uplinkStatus', owner, [])).not.toThrow()
-    expect(() => assertRpcAccess('uplinkLink', owner, [{}], undefined, false)).not.toThrow()
+    await expect(assertRpcAccess('uplinkStatus', owner, [])).resolves.toBeUndefined()
+    await expect(assertRpcAccess('uplinkLink', owner, [{}], undefined, false)).resolves.toBeUndefined()
   })
 
   test('the ordinary listener demands a credential and has no pairing door', async () => {

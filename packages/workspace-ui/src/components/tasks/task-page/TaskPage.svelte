@@ -127,7 +127,7 @@
   $effect(() => {
     const link = pinnedArtifact;
     if (!link || !surfaceVisible) return;
-    void session.worksStore.ensureContent(link.targetKey, "task-pinned-artifact", projectCwd);
+    void session.worksStore.ensureContent(link.targetKey, "task-pinned-artifact");
   });
 
   setMarkdownImageContext({
@@ -171,7 +171,7 @@
     // The link table carries identity and title, not Folio mirror metadata.
     // Refresh only when the page has linked works; listWorks returns metadata
     // without shipping every document body across a remote connection.
-    void session.worksStore.loadAll(projectCwd ?? "~");
+    void session.worksStore.loadAll();
   });
   // Each link owns its repository; PR numbers are not unique across links.
   const prRows = $derived(
@@ -420,7 +420,7 @@
 
   async function attachArtifact(link: TaskLink) {
     try {
-      await store.get(link.taskId).attachArtifact(link.targetKey, projectCwd);
+      await store.get(link.taskId).attachArtifact(link.targetKey);
       toasts.success(
         upstream?.canSync
           ? `Preview queued for ${upstream.provider}`
@@ -939,7 +939,7 @@
               linkedWorkProvider(link, (workId) => session.worksStore.get(workId))}
             artifactHtml={(link) => session.worksStore.get(link.targetKey)?.content || null}
             onExpandArtifact={(link) =>
-              void session.worksStore.ensureContent(link.targetKey, "task-artifact-preview", projectCwd)}
+              void session.worksStore.ensureContent(link.targetKey, "task-artifact-preview")}
             previewsEnabled={surfaceVisible}
             onAttachArtifact={attachArtifact}
             attachLabel={upstream?.canSync ? `Send to ${upstream.provider}` : "Attach preview"}

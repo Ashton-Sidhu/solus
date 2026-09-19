@@ -42,7 +42,8 @@ async function activityStep(ctx: ScenarioContext, alice: LabClient, bob: LabClie
   // that the host named the session at all, not which prompt it chose.
   const waitingTitle = waitingActivity?.title ?? undefined
   ctx.check('the indexed session now has a name from the host', (waitingTitle?.length ?? 0) > 0, waitingTitle)
-  ctx.check('bob hears the same row about himself', bob.received('host.presenceChanged').some((event) => bobRow(event)?.activity?.state === 'waiting'))
+  // Delivered to bob on his own socket, a frame behind alice's at most: waited for, not assumed already read.
+  await expectOk(ctx, 'bob hears the same row about himself', bob.waitForEvent('host.presenceChanged', (event) => bobRow(event)?.activity?.state === 'waiting'))
   // The seats scenario expects alice without a seat on a managed host; leave it as found.
   if (ctx.hostKind !== 'personal') await expectOk(ctx, 'alice disconnects the seat again', alice.rpc('seatDisconnect', { provider: 'claude-code' }))
 }

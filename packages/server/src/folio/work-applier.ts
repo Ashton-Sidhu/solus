@@ -1,6 +1,7 @@
 import { createWork, loadWork, agentSaveWork } from './works'
 import { workPreview } from '@solus/contracts/work-preview'
 import { Task } from '../tasks/task'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { PermanentApplyError, registerOutboxApplier } from '../outbox/outbox-store'
 import { createLogger } from '../logger'
 import type { OutboxOp, WorkCreateOpPayload, WorkUpdateOpPayload } from '@solus/contracts/outbox-types'
@@ -37,9 +38,10 @@ export function registerWorkOutboxApplier(): void {
   registerOutboxApplier('works', async (op: OutboxOp) => {
     if (op.name === 'create') {
       const payload: WorkCreateOpPayload = workCreatePayloadSchema.parse(op.payload)
-      const existing = await loadWork(op.resourceId)
+      const existing = await loadWork(LOCAL_ORGANIZATION_ID, op.resourceId)
       if (!existing) {
         await createWork(
+          LOCAL_ORGANIZATION_ID,
           payload.title,
           payload.docType,
           payload.content,
@@ -50,7 +52,7 @@ export function registerWorkOutboxApplier(): void {
           op.resourceId,
         )
       }
-      await Task.byId(payload.taskId)
+      await Task.byId(LOCAL_ORGANIZATION_ID, payload.taskId)
         .then((task) => task.link({
           kind: 'work',
           targetScope: '',
@@ -71,16 +73,16 @@ export function registerWorkOutboxApplier(): void {
     }
     if (op.name === 'update') {
       const payload: WorkUpdateOpPayload = workUpdatePayloadSchema.parse(op.payload)
-      const existing = await loadWork(op.resourceId)
+      const existing = await loadWork(LOCAL_ORGANIZATION_ID, op.resourceId)
       if (!existing) {
         throw new PermanentApplyError(`Work ${op.resourceId} no longer exists on its owner host.`)
       }
-      const update: Parameters<typeof agentSaveWork>[1] = {
+      const update: Parameters<typeof agentSaveWork>[2] = {
         content: payload.content,
         preview: workPreview(existing.type, payload.content),
       }
       if (payload.title !== undefined) update.title = payload.title
-      await agentSaveWork(op.resourceId, update)
+      await agentSaveWork(LOCAL_ORGANIZATION_ID, op.resourceId, update)
       return
     }
     // An unknown verb is a version-skew problem a retry may fix once this host

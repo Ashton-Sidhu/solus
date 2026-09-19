@@ -203,7 +203,7 @@
   function load() {
     const ipcCtx = untrack(() => session.ctx);
     void planStore.getDescriptors(undefined, true, ipcCtx).catch(() => {});
-    void session.worksStore.loadAll(projectScope?.projectRoot ?? "~");
+    void session.worksStore.loadAll();
   }
 
   // ── Filter + view state ──
@@ -309,7 +309,7 @@
       void refreshCatalogFromRecents(serverId);
       const ipcCtx = session.ctx;
       void planStore.refreshAllDescriptors(ipcCtx).catch(() => {});
-      void session.worksStore.loadAll(projectScope?.projectRoot ?? "~");
+      void session.worksStore.loadAll();
     }),
   );
 

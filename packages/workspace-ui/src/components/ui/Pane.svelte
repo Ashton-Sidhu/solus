@@ -114,11 +114,7 @@
         {#if work?.type === "diagram"}
           <DiagramShellSkeleton />
         {:else}
-          <DocumentModalSkeleton
-            inline
-            title={work?.title}
-            workStorage={work?.storage}
-          />
+          <DocumentModalSkeleton inline title={work?.title} />
         {/if}
       {:else if ref.name === "review"}
         <div class="relative h-full min-h-0 w-full">

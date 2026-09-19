@@ -8,6 +8,7 @@ import { encodePathAsFolder } from '../utils'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { resolveHomePath } from '../../platform/paths'
 import { loadAllAnnotations } from '../../plans/annotations'
+import { LOCAL_ORGANIZATION_ID } from '../../server/principal'
 import {
   isPlanIndexComplete,
   listIndexedPlans,
@@ -609,7 +610,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
     // Picker reads must stay on the local index. The server poll and
     // turn/completed notifications refresh that index independently; awaiting
     // thread/list here blocks the picker and competes with interactive RPCs.
-    const sessions = listIndexedCodexSessions(cacheKey, limit)
+    const sessions = await listIndexedCodexSessions(cacheKey, limit)
     if (limit === undefined) this.sessionListCache.set(cacheKey, sessions)
     onBatch?.(sessions)
     return sessions
@@ -686,10 +687,10 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
         .map((thread) => this.threadToSessionMeta(thread, thread.cwd!, { scanActivity: false })),
     )
     if (sessions.length > 0) {
-      cacheIndexedSessions(sessions)
+      await cacheIndexedSessions(sessions)
       this.mergeSessionListCache(sessions)
       const threadsById = new Map(candidates.map((thread) => [thread.id!, thread]))
-      const planAnnotations = await loadAllAnnotations()
+      const planAnnotations = await loadAllAnnotations(LOCAL_ORGANIZATION_ID)
       // Throttle the thread/read fan-out: a new user's first sweep can span
       // thousands of threads, and reading them all at once spikes the RPC channel.
       await runWithConcurrency(sessions, CODEX_INDEX_READ_CONCURRENCY, async (session) => {
@@ -697,7 +698,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
           const thread = threadsById.get(session.sessionId)
           if (thread) {
             const plans = await scanCodexPlans(thread, planAnnotations)
-            replaceIndexedPlansForSession('codex', session.sessionId, plans.map(indexedCodexPlan))
+            await replaceIndexedPlansForSession(LOCAL_ORGANIZATION_ID, 'codex', session.sessionId, plans.map(indexedCodexPlan))
           }
           const response: CodexThreadReadResponse = await this.client.request('thread/read', {
             threadId: session.sessionId,
@@ -833,14 +834,14 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]> {
-    if (isPlanIndexComplete('codex')) {
-      return listIndexedPlans('codex', projectPath, allProjects)
+    if (await isPlanIndexComplete(LOCAL_ORGANIZATION_ID, 'codex')) {
+      return listIndexedPlans(LOCAL_ORGANIZATION_ID, 'codex', projectPath, allProjects)
     }
     const cacheKey = allProjects ? 'all' : projectPath || process.cwd()
     return this.planListCache.getOrLoad(cacheKey, async () => {
       const projectRoot = projectPath?.replace(/\/$/, '')
       const threads = await this.listAllThreads(allProjects ? undefined : projectRoot)
-      const annotations = await loadAllAnnotations()
+      const annotations = await loadAllAnnotations(LOCAL_ORGANIZATION_ID)
       const scanned: ScannedCodexPlan[] = []
 
       const candidates = threads.filter((thread) => {
@@ -853,7 +854,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
       })
 
       if (allProjects) {
-        replaceIndexedPlansForProvider('codex', scanned.map(indexedCodexPlan))
+        await replaceIndexedPlansForProvider(LOCAL_ORGANIZATION_ID, 'codex', scanned.map(indexedCodexPlan))
       }
       return groupCodexPlansBySession(scanned)
     })
@@ -866,7 +867,7 @@ export class CodexBackend extends BaseAgentBackend<CodexRunHandle> implements Ag
   }
 
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
-    const indexed = loadIndexedPlanContent('codex', sessionId, planToolUseId)
+    const indexed = await loadIndexedPlanContent(LOCAL_ORGANIZATION_ID, 'codex', sessionId, planToolUseId)
     if (indexed !== null) return indexed
     const threads = await this.listAllThreads(projectPath.replace(/\/$/, ''))
     const thread = threads.find((candidate) => candidate.id === sessionId)

@@ -1,3 +1,4 @@
+import type { WorkType } from "@solus/contracts/types";
 import type { FilePayload } from "../../diagram/lib/diagram-export";
 
 /** One thing a work can be written out as, offered by the shell that owns it. */
@@ -18,10 +19,19 @@ export interface WorkCopyFormat {
   copy: () => Promise<void>;
 }
 
-/** What the header hands back when the user picks a format to save. */
-export interface WorkExportRequest {
-  fileName: string;
-  payload: FilePayload;
+/** What the header hands back when the user picks a way to save. */
+export type WorkExportRequest =
+  /** "Save as": the shell encoded the current content, and the picker writes it. */
+  | { fileName: string; payload: FilePayload }
+  /** "Export…": the host writes the work's stored content itself (`worksExport`). */
+  | { source: "host" };
+
+/** The file the host writes for an exported work: Markdown for a document,
+ *  JSON for a diagram or slides, HTML for an artifact. */
+export function storedExportExtension(type: WorkType): string {
+  if (type === "doc") return "md";
+  if (type === "artifact") return "html";
+  return "json";
 }
 
 /**

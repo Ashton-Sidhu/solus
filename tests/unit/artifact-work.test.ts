@@ -77,8 +77,8 @@ describe('render_artifact persists a work', () => {
   test('create_work automatically links a session-authored work to its task', async () => {
     // WHY: the Link control is the manual way in and out. It must not replace
     // the default filing rule for a work created inside a task-owned session.
-    const record = await taskStore.createTask({ title: 'Draft release notes' })
-    const task = await tasks.Task.byId(record.id)
+    const record = await taskStore.createTask('local', { title: 'Draft release notes' })
+    const task = await tasks.Task.byId('local', record.id)
     await task.linkSession(SESSION_ID)
 
     const created: Array<{ workId: string }> = []
@@ -117,14 +117,14 @@ describe('render_artifact persists a work', () => {
     expect(artifact.title).toBe('Latency & throughput')
     expect(result.text).toContain(artifact.workId)
 
-    const stored = await works.loadWork(artifact.workId)
+    const stored = await works.loadWork('local', artifact.workId)
     expect(stored).toMatchObject({
       type: 'artifact',
       title: 'Latency & throughput',
       content: HTML,
       sessionIds: [SESSION_ID],
     })
-    expect((await works.listWorks()).map((work) => work.id)).toContain(artifact.workId)
+    expect((await works.listWorks('local')).map((work) => work.id)).toContain(artifact.workId)
   })
 
   test('an artifact is not filed on the task unless asked', async () => {
@@ -133,8 +133,8 @@ describe('render_artifact persists a work', () => {
     // on the ticket turned the task's Linked list into a gallery of throwaway
     // renders. The reader links or pins from the rail; the agent passes
     // link_to_task when the user asked for it on the task.
-    const record = await taskStore.createTask({ title: 'Report latency' })
-    const task = await tasks.Task.byId(record.id)
+    const record = await taskStore.createTask('local', { title: 'Report latency' })
+    const task = await tasks.Task.byId('local', record.id)
     await task.linkSession(SESSION_ID)
 
     const emitted: Array<{ workId: string }> = []
@@ -164,7 +164,7 @@ describe('render_artifact persists a work', () => {
   test('empty html is refused before anything is written', async () => {
     const result = await artifactTools.executeArtifactTool({ html: '   ' })
     expect(result.ok).toBe(false)
-    expect(await works.listWorks()).toHaveLength(0)
+    expect(await works.listWorks('local')).toHaveLength(0)
   })
 
   test('the agent tool emits artifact_created with the work behind it', async () => {
@@ -227,9 +227,9 @@ describe('an artifact on a ticket', () => {
   test('only an artifact work can be attached', async () => {
     // WHY: a document has no render to take a still of; refusing names the
     // kind rather than drawing an empty page.
-    const record = await taskStore.createTask({ title: 'Report latency' })
-    const doc = await works.createWork('Notes', 'doc', '# Notes', 'Notes', undefined, 'claude-code', '~')
-    await expect(taskArtifacts.attachArtifactToTask(record.id, doc.id)).rejects.toThrow(/is a doc, not an artifact/)
-    await expect(taskArtifacts.attachArtifactToTask(record.id, 'missing-work')).rejects.toThrow(/no longer exists/)
+    const record = await taskStore.createTask('local', { title: 'Report latency' })
+    const doc = await works.createWork('local', 'Notes', 'doc', '# Notes', 'Notes', undefined, 'claude-code', '~')
+    await expect(taskArtifacts.attachArtifactToTask('local', record.id, doc.id)).rejects.toThrow(/is a doc, not an artifact/)
+    await expect(taskArtifacts.attachArtifactToTask('local', record.id, 'missing-work')).rejects.toThrow(/no longer exists/)
   })
 })

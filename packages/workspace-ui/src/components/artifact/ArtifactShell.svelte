@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { SessionMeta, WorkStorage } from "@solus/contracts/types";
+  import type { SessionMeta } from "@solus/contracts/types";
   import WorkHeaderActions from "../work/WorkHeaderActions.svelte";
   import ParentPageCrumb from "../ui/list-page/ParentPageCrumb.svelte";
   import type { WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
@@ -35,7 +35,6 @@
     onRevert?: () => void;
     onDelete?: () => void;
     onDuplicate?: () => void | Promise<void>;
-    workStorage?: WorkStorage;
     /** Opens the save picker on a chosen format; absent when there is no host. */
     onExport?: (request: WorkExportRequest) => void;
     /** The save picker's filesystem is not this device's — see WorkHeaderActions. */
@@ -55,7 +54,6 @@
     onRevert,
     onDelete,
     onDuplicate,
-    workStorage,
     onExport,
     hostIsRemote = false,
     onOpenWorkspace,
@@ -314,7 +312,6 @@
       {onRevert}
       {onDelete}
       {onDuplicate}
-      {workStorage}
     />
   </div>
 

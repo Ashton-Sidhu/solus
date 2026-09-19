@@ -204,7 +204,7 @@ export class SessionEventReducer {
           session.forkExcludeLatestTurn = false
         }
         if (session.boundWorkId) {
-          this.deps.worksStore.linkSession(session.run.workingDirectory, session.boundWorkId, event.sessionId)
+          this.deps.worksStore.linkSession(session.boundWorkId, event.sessionId)
         }
         // The task host owns the durable link, and only now is there a session
         // id to write into it — the execution host issues that, and on a

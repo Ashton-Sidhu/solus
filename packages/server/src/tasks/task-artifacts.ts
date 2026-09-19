@@ -48,9 +48,13 @@ export function artifactFileBase(title: string): string {
   return title.replace(/[^\w.\- ]+/g, '_').trim().slice(0, 80) || 'artifact'
 }
 
-export async function attachArtifactToTask(taskId: string, workId: string, cwd?: string): Promise<TaskDetails> {
-  const task = await Task.byId(taskId)
-  const work = await loadWork(workId, cwd)
+export async function attachArtifactToTask(
+  organizationId: string,
+  taskId: string,
+  workId: string,
+): Promise<TaskDetails> {
+  const task = await Task.byId(organizationId, taskId)
+  const work = await loadWork(organizationId, workId)
   if (!work) throw new Error('This artifact no longer exists.')
   if (work.type !== 'artifact') throw new Error(`"${work.title}" is a ${work.type}, not an artifact.`)
   if (!work.content.trim()) throw new Error(`"${work.title}" is empty; there is nothing to render.`)

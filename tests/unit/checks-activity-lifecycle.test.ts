@@ -66,6 +66,8 @@ describe('PR checks client lifecycle', () => {
 
     lifecycle.handleClientConnected(clientId)
     const stale = server.handle('prChecksActivity', [ctx, false, false], localOwnerCtx(clientId))
+    // The access gate is a read; the lookup is under way once it has passed.
+    await new Promise((resolve) => setTimeout(resolve, 0))
     lifecycle.handleClientDisconnected(clientId)
     lifecycle.handleClientConnected(clientId)
     releaseLookup()

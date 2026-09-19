@@ -100,6 +100,7 @@ async function listPullRequests(
 }
 
 async function readScope(
+  organizationId: string,
   scope: BoundScope,
   involvement: InboxInvolvement,
 ): Promise<InboxUpstreamScope> {
@@ -107,7 +108,7 @@ async function readScope(
   if (!projectKey) return { ...scope, tickets: [], pullRequests: [] }
   const pullRequestCacheKey = `${scope.externalKey}\0${involvement}`
   const [ticketResult, pullRequestResult] = await Promise.allSettled([
-    listUpstreamTasks(projectKey, { involvement }),
+    listUpstreamTasks(organizationId, projectKey, { involvement }),
     listPullRequests(scope, involvement),
   ])
   const result: InboxUpstreamScope = {
@@ -141,8 +142,9 @@ async function readScope(
 
 /** One host-side fan-out for every distinct bound task scope on this host. */
 export async function listInboxUpstream(
+  organizationId: string,
   involvement: InboxInvolvement,
 ): Promise<InboxUpstreamResult> {
   const scopes = await boundScopes()
-  return { scopes: await Promise.all(scopes.map((scope) => readScope(scope, involvement))) }
+  return { scopes: await Promise.all(scopes.map((scope) => readScope(organizationId, scope, involvement))) }
 }

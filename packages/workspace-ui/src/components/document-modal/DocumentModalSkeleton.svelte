@@ -1,8 +1,6 @@
 <script lang="ts">
   import { Skeleton } from "../ui/skeleton";
   import { portal } from "../portal";
-  import { workBreadcrumb } from "./lib/breadcrumb";
-  import type { WorkStorage } from "@solus/contracts/types";
 
   // Stands in for DocumentModal from the moment a document work opens until the
   // modal's own chunk (Tiptap and all) has loaded. Same contract as
@@ -16,15 +14,12 @@
     inline?: boolean;
     /** Known before the content is, so it stays real type rather than a ghost. */
     title?: string;
-    workStorage?: WorkStorage;
     /** The comment margin the real page reserves. "0px" where there are no
      *  comments (an ad-hoc preview), matching DocumentModal's own railWidth. */
     railWidth?: string;
   }
 
-  let { inline = false, title, workStorage, railWidth = "18.8125rem" }: Props = $props();
-
-  const breadcrumb = $derived(workBreadcrumb(workStorage));
+  let { inline = false, title, railWidth = "18.8125rem" }: Props = $props();
 
   // Fixed widths, not random ones: the placeholder must not reshuffle on a
   // re-render while the chunk is still in flight.
@@ -52,9 +47,6 @@
  ? 'h-(--solus-chrome-row-h,2.5rem) pl-[max(1.375rem,var(--solus-chrome-lead-inset,0px))]'
  : 'h-(--solus-chrome-row-h,2.5rem) pl-[1.375rem]'}"
     >
-      {#if breadcrumb}
-        <span class="doc-skeleton-breadcrumb">{breadcrumb} /</span>
-      {/if}
       {#if title}
         <span
           class="min-w-0 truncate text-workspace-chrome font-medium text-(--solus-text-primary)"
@@ -146,18 +138,6 @@
 {/if}
 
 <style>
-  .doc-skeleton-breadcrumb {
-    flex-shrink: 0;
-    max-width: 12rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-family: 'Geist Mono', var(--solus-code-font-family);
-    font-size: var(--text-xs);
-
-    color: var(--solus-text-tertiary);
-  }
-
   /* The measure ladder and the comment margin, copied off the real doc column
      (index.css) rather than approximated — both are `cqi` on the shell
      container, which is what makes a split pane narrow the column instead of

@@ -209,15 +209,15 @@ function mergedNow(overrides: Partial<MergedPullRequestCompletion> = {}): Merged
 }
 
 async function linkedTask() {
-  const created = await taskStore.createTask({
+  const created = await taskStore.createTask('local', {
     title: adapter.remote.title,
     body: adapter.remote.body,
     status: 'todo',
     projectKey: '/workspace/solus',
     labels: adapter.remote.labels,
   })
-  await syncStore.writeExternalLink(taskStore.database(), created.id, adapter.remote, 1)
-  return tasks.Task.byId(created.id)
+  await syncStore.writeExternalLink(taskStore.database(), 'local', created.id, adapter.remote, 1)
+  return tasks.Task.byId('local', created.id)
 }
 
 function engine(): InstanceType<SyncEngineModule['TaskSyncEngine']> {
@@ -235,13 +235,13 @@ describe('task sync engine', () => {
     const unsubscribe = taskStore.onTasksChanged(() => changeCount++)
 
     try {
-      await sync.syncTask(task.id)
+      await sync.syncTask('local', task.id)
       expect(changeCount).toBe(0)
 
       adapter.remote = ticket({
         comments: [{ externalId: 'remote-comment', author: 'octo', body: 'Remote note', createdAt: 2 }],
       })
-      await sync.syncTask(task.id)
+      await sync.syncTask('local', task.id)
       expect(changeCount).toBe(1)
     } finally {
       unsubscribe()
@@ -256,7 +256,7 @@ describe('task sync engine', () => {
     await task.update({ priority: 'urgent' })
     expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['priority'])
 
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     expect(adapter.pushes).toEqual([])
     expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
@@ -274,7 +274,7 @@ describe('task sync engine', () => {
 
     expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['title', 'body'])
 
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     expect(adapter.pushes).toEqual([{ title: 'Local title', body: 'Local body' }])
     expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
@@ -292,7 +292,7 @@ describe('task sync engine', () => {
 
     expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['assignee'])
 
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     expect(adapter.pushes).toEqual([{ assignee: 'octocat' }])
     expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
@@ -308,9 +308,9 @@ describe('task sync engine', () => {
     await task.update({ title: 'Unsynced local title' })
     adapter.remote = ticket({ title: 'New remote title', externalUpdatedAt: 'remote-new' })
 
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
-    expect((await tasks.Task.byId(task.id)).title).toBe('New remote title')
+    expect((await tasks.Task.byId('local', task.id)).title).toBe('New remote title')
     expect(adapter.pushes).toHaveLength(0)
     expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({ dirtyFields: [], syncState: 'ok' })
   })
@@ -322,9 +322,9 @@ describe('task sync engine', () => {
     await task.update({ priority: 'urgent' }, { actor: 'system' }, { markSyncDirty: false })
     adapter.remote = ticket({ priorityHint: 'low', externalUpdatedAt: 'remote-new' })
 
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
-    expect((await tasks.Task.byId(task.id)).priority).toBe('low')
+    expect((await tasks.Task.byId('local', task.id)).priority).toBe('low')
   })
 
   test('does not clear a local edit that arrives while a push is in flight', async () => {
@@ -334,7 +334,7 @@ describe('task sync engine', () => {
     await task.update({ title: 'First edit' })
     adapter.beforePushReturn = () => task.update({ body: 'Second edit' })
 
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     expect(adapter.pushes).toEqual([{ title: 'First edit' }])
     expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
@@ -350,9 +350,9 @@ describe('task sync engine', () => {
     await task.update({ status: 'in_review' })
     adapter.remote = ticket({ status: 'in_progress', externalUpdatedAt: 'remote-new' })
 
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
-    expect((await tasks.Task.byId(task.id)).status).toBe('in_review')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('in_review')
     expect(adapter.pushes).toHaveLength(0)
   })
 
@@ -363,17 +363,17 @@ describe('task sync engine', () => {
     adapter.remote = ticket({
       comments: [{ externalId: 'remote-comment', author: 'octo', body: 'Remote note', createdAt: 2 }],
     })
-    await engine().syncTask(task.id)
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
+    await engine().syncTask('local', task.id)
     await task.comment('Private note')
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     expect(adapter.posted).toEqual([])
     expect((await task.details()).comments.filter((comment) => comment.externalId === 'remote-comment'))
       .toHaveLength(1)
 
     await task.comment('Publish this note', { pushToExternal: true })
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     expect(adapter.posted).toEqual(['Publish this note'])
     expect((await task.details()).comments.find((comment) => comment.body === 'Publish this note'))
@@ -385,7 +385,7 @@ describe('task sync engine', () => {
     // the row itself, a task the user just published keeps reading as local.
     const task = await linkedTask()
 
-    const listed = (await taskStore.listTasks()).tasks.find((row) => row.id === task.id)
+    const listed = (await taskStore.listTasks('local')).tasks.find((row) => row.id === task.id)
 
     expect(listed?.mirroredTicket).toEqual({
       provider: 'github',
@@ -401,16 +401,16 @@ describe('task sync engine', () => {
     // it on an already-posted comment must not put a second copy on the ticket.
     const task = await linkedTask()
     await task.comment('Held back')
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
     expect(adapter.posted).toEqual([])
 
     const held = (await task.details()).comments.find((comment) => comment.body === 'Held back')!
     await task.publishComments([held.id])
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
     expect(adapter.posted).toEqual(['Held back'])
 
     await task.publishComments([held.id])
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
     expect(adapter.posted).toEqual(['Held back'])
   })
 
@@ -423,7 +423,7 @@ describe('task sync engine', () => {
     adapter.publishAsset = (body) => body.replace(`asset://${assetId}`, 'https://github.test/asset')
     const task = await linkedTask()
     await task.comment(`Look: ![shot](asset://${assetId})`, { pushToExternal: true })
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     expect(adapter.posted).toEqual(['Look: ![shot](https://github.test/asset)'])
     const stored = (await task.details()).comments.at(-1)!
@@ -438,7 +438,7 @@ describe('task sync engine', () => {
     adapter.publishAsset = () => 'rewritten upstream body'
     const task = await linkedTask()
     await task.update({ body: `Body ![shot](asset://${assetId})` })
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     expect(adapter.pushes.at(-1)?.body).toBe('rewritten upstream body')
     const link = (await syncStore.externalLinkForTask(task.id))!
@@ -453,14 +453,14 @@ describe('task sync engine', () => {
     const task = await linkedTask()
     adapter.postedExternalId = () => '2384927'
     await task.comment('Same note', { pushToExternal: true })
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
     expect(adapter.posted).toEqual(['Same note'])
 
     adapter.remote = ticket({
       externalUpdatedAt: 'remote-new',
       comments: [{ externalId: 'IC_kwDO1', author: 'you', body: 'Same note', createdAt: 3 }],
     })
-    await engine().syncTask(task.id)
+    await engine().syncTask('local', task.id)
 
     const bodies = (await task.details()).comments.filter((comment) => comment.body === 'Same note')
     expect(bodies).toHaveLength(1)
@@ -470,7 +470,7 @@ describe('task sync engine', () => {
   test('refuses to publish comments for a task with no linked ticket', async () => {
     // WHY: marking rows nothing will ever read would leave the page claiming a
     // push is queued when there is nowhere to push to.
-    const task = await tasks.Task.byId((await taskStore.createTask({ title: 'Local only' })).id)
+    const task = await tasks.Task.byId('local', (await taskStore.createTask('local', { title: 'Local only' })).id)
     await task.comment('Note')
     const comment = (await task.details()).comments[0]
     expect(task.publishComments([comment.id])).rejects.toThrow(/not linked/i)
@@ -483,7 +483,7 @@ describe('task sync engine', () => {
     adapter.fetchError = new Error(`${TASKS_AUTH_ERROR_PREFIX}Reconnect GitHub.`)
     const sync = engine()
 
-    await sync.syncTask(task.id, { retryAuth: false })
+    await sync.syncTask('local', task.id, { retryAuth: false })
     expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
       syncState: 'auth_error',
       syncError: 'Reconnect GitHub.',
@@ -491,10 +491,10 @@ describe('task sync engine', () => {
     expect(adapter.fetches).toBe(1)
 
     adapter.fetchError = null
-    await sync.syncTask(task.id, { retryAuth: false })
+    await sync.syncTask('local', task.id, { retryAuth: false })
     expect(adapter.fetches).toBe(1)
 
-    await sync.syncTask(task.id, { retryAuth: true })
+    await sync.syncTask('local', task.id, { retryAuth: true })
     expect(adapter.fetches).toBe(2)
     expect((await syncStore.externalLinkForTask(task.id))?.syncState).toBe('ok')
   })
@@ -508,9 +508,9 @@ describe('task sync engine', () => {
     await task.update({ projectKey: projectRoot, status: 'todo' })
     await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
 
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
+    expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
       .toEqual([task.id])
-    expect((await tasks.Task.byId(task.id)).status).toBe('done')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
     expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toContain('status')
   })
 
@@ -525,9 +525,9 @@ describe('task sync engine', () => {
     await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
     const mergedBeforeTouch = new Date(Date.now() - 60_000).toISOString()
 
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ mergedAt: mergedBeforeTouch })))
+    expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, mergedNow({ mergedAt: mergedBeforeTouch })))
       .toEqual([])
-    expect((await tasks.Task.byId(task.id)).status).toBe('todo')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('todo')
   })
 
   test('waits while a session working on the task is still busy', async () => {
@@ -543,29 +543,29 @@ describe('task sync engine', () => {
 
     const busy = new Set(['working-session'])
     const completion = mergedNow({ isSessionBusy: (sessionId) => busy.has(sessionId) })
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, completion)).toEqual([])
-    expect((await tasks.Task.byId(task.id)).status).toBe('in_progress')
+    expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, completion)).toEqual([])
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('in_progress')
 
     busy.clear()
     busy.add('referenced-session')
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, completion)).toEqual([task.id])
-    expect((await tasks.Task.byId(task.id)).status).toBe('done')
+    expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, completion)).toEqual([task.id])
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
   })
 
   test('uses each linked task project setting and does not complete another repository', async () => {
     const { saveProjectConfig } = await import('@solus/server/project-config/project-config')
     const disabledRoot = join(dataDir, 'disabled-project')
     await saveProjectConfig(disabledRoot, { taskDoneOnMerge: false })
-    const disabled = await taskStore.createTask({ title: 'Manual completion', projectKey: disabledRoot })
-    await (await tasks.Task.byId(disabled.id)).linkPullRequest({ number: 17, targetScope: disabledRoot, url: PR_URL(17) })
-    const other = await taskStore.createTask({ title: 'Different repository', projectKey: dataDir })
-    await (await tasks.Task.byId(other.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: 'https://github.com/owner/other/pull/17' })
-    const enabled = await taskStore.createTask({ title: 'Automatic completion', projectKey: dataDir })
-    await (await tasks.Task.byId(enabled.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: PR_URL(17) })
+    const disabled = await taskStore.createTask('local', { title: 'Manual completion', projectKey: disabledRoot })
+    await (await tasks.Task.byId('local', disabled.id)).linkPullRequest({ number: 17, targetScope: disabledRoot, url: PR_URL(17) })
+    const other = await taskStore.createTask('local', { title: 'Different repository', projectKey: dataDir })
+    await (await tasks.Task.byId('local', other.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: 'https://github.com/owner/other/pull/17' })
+    const enabled = await taskStore.createTask('local', { title: 'Automatic completion', projectKey: dataDir })
+    await (await tasks.Task.byId('local', enabled.id)).linkPullRequest({ number: 17, targetScope: dataDir, url: PR_URL(17) })
 
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ isMerged: alwaysMerged }))).toEqual([enabled.id])
-    expect((await tasks.Task.byId(disabled.id)).status).toBe('todo')
-    expect((await tasks.Task.byId(other.id)).status).toBe('todo')
+    expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, mergedNow({ isMerged: alwaysMerged }))).toEqual([enabled.id])
+    expect((await tasks.Task.byId('local', disabled.id)).status).toBe('todo')
+    expect((await tasks.Task.byId('local', other.id)).status).toBe('todo')
   })
 
   test('leaves a task alone while any of its other pull requests is unmerged', async () => {
@@ -576,21 +576,21 @@ describe('task sync engine', () => {
     await task.linkPullRequest({ number: 17, targetScope: projectRoot, url: PR_URL(17) })
     await task.linkPullRequest({ number: 18, targetScope: projectRoot, url: PR_URL(18) })
 
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
+    expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
       .toEqual([])
-    expect((await tasks.Task.byId(task.id)).status).toBe('in_review')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('in_review')
 
     // #18 merges too, and the task has nothing left outstanding.
-    expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 18, mergedNow({ isMerged: alwaysMerged })))
+    expect(await syncEngine.completeTasksForMergedPullRequest('local', 'github.com/owner/repo', 18, mergedNow({ isMerged: alwaysMerged })))
       .toEqual([task.id])
-    expect((await tasks.Task.byId(task.id)).status).toBe('done')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
   })
 })
 
 describe('polling many links', () => {
   /** A second linked task in the same scope, on its own issue. */
   async function linkedTaskFor(externalId: string) {
-    const created = await taskStore.createTask({
+    const created = await taskStore.createTask('local', {
       title: `Issue ${externalId}`,
       body: '',
       status: 'todo',
@@ -599,11 +599,12 @@ describe('polling many links', () => {
     })
     await syncStore.writeExternalLink(
       taskStore.database(),
+      'local',
       created.id,
       ticket({ externalId, externalUpdatedAt: `remote-${externalId}` }),
       1,
     )
-    return tasks.Task.byId(created.id)
+    return tasks.Task.byId('local', created.id)
   }
 
   // WHY: the poll used to ask the provider about every link on every interval,
@@ -626,7 +627,7 @@ describe('polling many links', () => {
 
     expect(adapter.changedQueries).toEqual([10])
     expect(adapter.fetches).toBe(1)
-    expect((await tasks.Task.byId(changedTask.id)).title).toBe('Remote title')
+    expect((await tasks.Task.byId('local', changedTask.id)).title).toBe('Remote title')
   })
 
   test('touches nothing on a scope where nothing moved', async () => {

@@ -63,7 +63,7 @@ export interface HttpServerOptions {
    *  Absent on a host that is not linked: grants are then simply not a credential here. */
   verifyHostGrant?: (grant: string) => Promise<GrantVerdict>
   /** A guest grant is worth nothing without the share secret naming one resource (§3.4). */
-  resolveShareSecret?: (secret: string) => ResolvedLinkShare | null
+  resolveShareSecret?: (secret: string) => Promise<ResolvedLinkShare | null>
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
@@ -394,7 +394,7 @@ export async function ticketForGrant(
   const expiresAt = claims.exp * 1000
   if (claims.access === 'guest' || subject.kind === 'guest') {
     if (!body?.shareSecret || !resolveShareSecret) return { ok: false, reason: 'guest-needs-secret' }
-    const share = resolveShareSecret(body.shareSecret)
+    const share = await resolveShareSecret(body.shareSecret)
     if (!share) return { ok: false, reason: 'not-shared' }
     const displayName = normalizeDisplayName(claims.displayName) ?? 'Guest'
     return {

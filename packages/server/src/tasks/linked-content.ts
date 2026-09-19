@@ -16,11 +16,11 @@ const log = createLogger('main', 'linked-content.ts')
  * Best effort per item: a work or plan that no longer resolves is skipped with
  * a log line, never allowed to fail the prompt that ships the snapshot.
  */
-export async function attachLinkedContent(snapshot: TaskSnapshot): Promise<TaskSnapshot> {
+export async function attachLinkedContent(organizationId: string, snapshot: TaskSnapshot): Promise<TaskSnapshot> {
   const linked: TaskLinkedItemSnapshot[] = []
   for (const link of snapshot.details.links) {
     if (link.kind === 'work') {
-      const work = await loadWork(link.targetKey).catch(() => null)
+      const work = await loadWork(organizationId, link.targetKey).catch(() => null)
       if (!work) {
         log.warn('linked_work_unreadable', { taskId: snapshot.details.task.id, workId: link.targetKey })
         continue

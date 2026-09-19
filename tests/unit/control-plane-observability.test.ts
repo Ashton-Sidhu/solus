@@ -598,8 +598,8 @@ describe.serial('ControlPlane observability hooks', () => {
     // first records no task and "what did this task cost" cannot be asked.
     const taskStore = await import('@solus/server/tasks/task-store')
     const { Task } = await import('@solus/server/tasks/task')
-    const record = await taskStore.createTask({ title: 'Thread open in insights' })
-    await (await Task.byId(record.id)).linkSession('thread-1')
+    const record = await taskStore.createTask('local', { title: 'Thread open in insights' })
+    await (await Task.byId('local', record.id)).linkSession('thread-1')
 
     const backend = new Backend()
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
@@ -625,12 +625,12 @@ describe.serial('ControlPlane observability hooks', () => {
     // Task ownership is linked when the provider initializes its thread.
     // Automatic naming later resolves the provider alias to that same link.
     const taskSessions = await import('@solus/server/tasks/task-sessions')
-    const record = await taskSessions.prepareSessionTask({ prompt: 'Raw first prompt' })
+    const record = await taskSessions.prepareSessionTask('local', { prompt: 'Raw first prompt' })
     if (!record) throw new Error('Expected a session-born task')
 
     const backend = new Backend()
     backend.onStart = () => {
-      void taskSessions.taskSessions(record.id).then((links) => expect(links[record.id] ?? []).toEqual([]))
+      void taskSessions.taskSessions('local', record.id).then((links) => expect(links[record.id] ?? []).toEqual([]))
     }
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
     plane.on('error', () => {})
@@ -641,10 +641,10 @@ describe.serial('ControlPlane observability hooks', () => {
     })
     expect(await lifecycle.agentSessionId).toMatchObject({ agentSessionId: 'thread-1' })
 
-    expect((await taskSessions.taskSessions(record.id))[record.id]).toEqual([
+    expect((await taskSessions.taskSessions('local', record.id))[record.id]).toEqual([
       expect.objectContaining({ sessionId: 'solus-task' }),
     ])
-    expect(await taskSessions.updateGeneratedMetadataForSession(
+    expect(await taskSessions.updateGeneratedMetadataForSession('local', 
       'thread-1',
       'Generated task title',
       'Generated task description.',

@@ -482,8 +482,8 @@ export class Task implements TaskRecord {
 
   /** File a linked artifact's still (and its HTML, where the ticket takes it)
    *  as a comment bound for the ticket. The host renders the still. */
-  async attachArtifact(workId: string, cwd?: string): Promise<TaskDetails> {
-    const details = await this.#api.tasksAttachArtifact(this.id, workId, cwd)
+  async attachArtifact(workId: string): Promise<TaskDetails> {
+    const details = await this.#api.tasksAttachArtifact(this.id, workId)
     this.applyDetails(details)
     return details
   }

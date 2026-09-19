@@ -10,21 +10,21 @@ import type { ShareManager } from './share-manager'
  * hear everything. A member hears host-wide facts plus the sessions and works they
  * can open. A guest hears its one resource and nothing about the host.
  */
-export function eventVisibleTo(principal: Principal, event: HostEvent, shares: ShareManager): boolean {
+export async function eventVisibleTo(principal: Principal, event: HostEvent, shares: ShareManager): Promise<boolean> {
   if (principal.kind === 'system' || isHostOwner(principal)) return true
   const resource = eventResource(event)
   if (event.type === 'share.changed') {
-    if (shares.roleFor(principal, event.payload.resource) !== 'none') return true
+    if (await shares.roleFor(principal, event.payload.resource) !== 'none') return true
     // The person whose access was just removed still hears about it once.
     return principal.kind === 'org-member' && event.payload.removedUserIds.includes(principal.userId)
   }
   if (principal.kind === 'guest') {
     // A guest on a task page re-reads it when tasks change; that event names nothing.
     if (event.type === 'tasks.invalidated') return principal.share.resource.kind === 'task'
-    return resource !== null && shares.roleFor(principal, resource) !== 'none'
+    return resource !== null && await shares.roleFor(principal, resource) !== 'none'
   }
   if (!resource) return !GUEST_ONLY_HIDDEN.has(event.type) || principal.kind === 'org-member'
-  return shares.roleFor(principal, resource) !== 'none'
+  return await shares.roleFor(principal, resource) !== 'none'
 }
 
 /** Events that carry no resource id and describe the host as a whole; members hear them, guests never do. */

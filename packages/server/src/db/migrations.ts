@@ -32,49 +32,9 @@ CREATE TABLE automation_runs (
 );
 CREATE INDEX runs_by_automation ON automation_runs(automation_id, started_at DESC);
 
-CREATE TABLE works (
-  id TEXT PRIMARY KEY,
-  storage TEXT NOT NULL,
-  title TEXT,
-  preview TEXT,
-  type TEXT,
-  session_id TEXT,
-  agent_provider TEXT,
-  cwd TEXT,
-  pinned INTEGER,
-  content TEXT,
-  created_at INTEGER,
-  updated_at INTEGER,
-  meta TEXT
-);
-
-CREATE TABLE work_revisions (
-  work_id TEXT NOT NULL REFERENCES works(id) ON DELETE CASCADE,
-  rev INTEGER NOT NULL,
-  content TEXT,
-  updated_at INTEGER,
-  PRIMARY KEY (work_id, rev)
-);
-
-CREATE TABLE work_annotations (
-  work_id TEXT PRIMARY KEY,
-  data TEXT,
-  updated_at INTEGER
-);
-
-CREATE TABLE plan_annotations (
-  session_id TEXT NOT NULL,
-  plan_tool_use_id TEXT NOT NULL,
-  status TEXT,
-  title TEXT,
-  bookmarked INTEGER,
-  bookmarked_at INTEGER,
-  project_path TEXT,
-  cwd TEXT,
-  comments TEXT,
-  updated_at INTEGER,
-  PRIMARY KEY (session_id, plan_tool_use_id)
-);
+-- works, work_revisions, work_annotations, and plan_annotations were made here
+-- once; they are generated from the ported schemas now
+-- (packages/server/src/folio/schema.ts, packages/server/src/plans/schema.ts).
 
 CREATE TABLE pinned_sessions (
   session_id TEXT PRIMARY KEY,
@@ -161,38 +121,9 @@ ALTER TABLE sessions ADD COLUMN reasoning_effort TEXT;
 ALTER TABLE sessions ADD COLUMN project_root TEXT;
 CREATE INDEX sessions_by_project_root ON sessions(project_root, last_timestamp DESC);
 `,
-  // Full-text index over locally-stored works, for find_works. Standalone
-  // (not content='works') on purpose: works.id is a TEXT primary key, so the
-  // works rowid is implicit and not guaranteed stable — keying on work_id avoids
-  // that coupling. Works are few and small, so the duplicated text costs little.
-  // Project-storage works live in files, not this table, and are searched by
-  // reading them (see folio/work-search.ts).
-  `
-CREATE VIRTUAL TABLE works_fts USING fts5(
-  work_id UNINDEXED,
-  title,
-  content,
-  tokenize='porter unicode61'
-);
-
-INSERT INTO works_fts(work_id, title, content)
-  SELECT id, COALESCE(title, ''), COALESCE(content, '') FROM works WHERE storage = 'local';
-
-CREATE TRIGGER works_fts_ai AFTER INSERT ON works WHEN new.storage = 'local' BEGIN
-  INSERT INTO works_fts(work_id, title, content)
-    VALUES (new.id, COALESCE(new.title, ''), COALESCE(new.content, ''));
-END;
-
-CREATE TRIGGER works_fts_ad AFTER DELETE ON works BEGIN
-  DELETE FROM works_fts WHERE work_id = old.id;
-END;
-
-CREATE TRIGGER works_fts_au AFTER UPDATE ON works BEGIN
-  DELETE FROM works_fts WHERE work_id = old.id;
-  INSERT INTO works_fts(work_id, title, content)
-    SELECT new.id, COALESCE(new.title, ''), COALESCE(new.content, '') WHERE new.storage = 'local';
-END;
-`,
+  // Reserved: this slot held the works search index. It is the generated
+  // `works_search` migration now (packages/server/src/db/search-index.ts).
+  `SELECT 1;`,
   // Composer drafts parked for later, scoped to a project. Attachments ride in
   // one JSON column: they are only ever read and written as the whole set
   // belonging to a prompt, so a child table would buy N inserts per save for no
@@ -331,44 +262,12 @@ CREATE UNIQUE INDEX session_lineage_member_provider_session
   ON session_lineage_members(provider, provider_session_id)
   WHERE provider_session_id IS NOT NULL;
 `,
-  // Workspace plan rows are a query model, not a second source of truth. Provider
-  // transcript readers update this table when a transcript changes; annotations
-  // remain authoritative for review status, titles, comments, and bookmarks.
-  // This makes opening Workspace proportional to its result set instead of the
-  // total size of every provider transcript on the host.
-  `
-CREATE TABLE indexed_plans (
-  provider TEXT NOT NULL,
-  session_id TEXT NOT NULL,
-  plan_tool_use_id TEXT NOT NULL,
-  project_path TEXT NOT NULL,
-  cwd TEXT NOT NULL,
-  project_root TEXT NOT NULL,
-  timestamp INTEGER NOT NULL,
-  title TEXT NOT NULL,
-  excerpt TEXT NOT NULL,
-  plan_file_path TEXT,
-  content TEXT NOT NULL,
-  derived_status TEXT NOT NULL,
-  PRIMARY KEY (provider, session_id, plan_tool_use_id)
-);
-CREATE INDEX indexed_plans_by_project
-  ON indexed_plans(provider, project_root, timestamp DESC);
-CREATE INDEX indexed_plans_by_cwd
-  ON indexed_plans(provider, cwd, timestamp DESC);
-
-CREATE TABLE plan_index_providers (
-  provider TEXT PRIMARY KEY,
-  completed_at INTEGER NOT NULL
-);
-`,
-  // A saved plan outlives its provider transcript. Claude can remove session
-  // history after 30 days, so retain the artifact and record that its source
-  // conversation can no longer be resumed.
-  `
-ALTER TABLE indexed_plans
-  ADD COLUMN session_available INTEGER NOT NULL DEFAULT 1;
-`,
+  // Reserved: this slot held the plan index tables. Plans tables are now
+  // generated from packages/server/src/plans/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a plan index migration. Plans tables are now
+  // generated from packages/server/src/plans/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
   // Saved Insights queries. Durable user config, so it lives here — exempt from
   // metrics.db rollover. Exactly one form owns a row: a builder-editable
   // QuerySpec (JSON in `spec`) or editor-owned SQL text; SQL never round-trips
@@ -400,12 +299,9 @@ ALTER TABLE sessions ADD COLUMN branch TEXT;
   // Reserved: this slot held a tasks migration. Tasks tables are now generated
   // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
   `SELECT 1;`,
-  // A plan revision can mirror the same provider document as a Folio work.
-  // Keep the link with the plan's durable review annotations because provider
-  // transcript content is an index, not the owner of user-managed state.
-  `
-ALTER TABLE plan_annotations ADD COLUMN mirrored_doc TEXT;
-`,
+  // Reserved: this slot held a plan annotations migration. Plans tables are now
+  // generated from packages/server/src/plans/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
   // Reserved: this slot held a tasks migration. Tasks tables are now generated
   // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
   `SELECT 1;`,

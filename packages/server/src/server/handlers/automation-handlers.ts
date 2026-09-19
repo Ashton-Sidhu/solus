@@ -1,4 +1,5 @@
 import type { SolusServer } from '../server'
+import { organizationOf } from '../principal'
 import {
   createAutomation,
   listAutomations,
@@ -14,10 +15,13 @@ import { createLogger } from '../../logger'
 
 const log = createLogger('main', 'automation-handlers')
 
-async function linkAutomationToSessionTask(automation: Awaited<ReturnType<typeof loadAutomation>>): Promise<void> {
+async function linkAutomationToSessionTask(
+  organizationId: string,
+  automation: Awaited<ReturnType<typeof loadAutomation>>,
+): Promise<void> {
   const sessionId = automation?.createdBy.sessionId
   if (!automation || !sessionId) return
-  await Task.linkArtifactForSession(sessionId, {
+  await Task.linkArtifactForSession(organizationId, sessionId, {
     kind: 'automation',
     targetKey: automation.id,
     title: automation.name,
@@ -33,10 +37,10 @@ async function linkAutomationToSessionTask(automation: Awaited<ReturnType<typeof
 /** RPC surface for the renderer to drive the same automation operations the
  *  agent tools expose. Phase 1: run-now only (no scheduling). */
 export function registerAutomationHandlers(server: SolusServer): void {
-  server.register('automationCreate', async (args) => {
+  server.register('automationCreate', async (args, ctx) => {
     const [name, action, createdBy, enabled, trigger] = args
     const automation = await createAutomation(name, action, createdBy, enabled ?? true, trigger ?? { type: 'manual' })
-    await linkAutomationToSessionTask(automation)
+    await linkAutomationToSessionTask(organizationOf(ctx.principal), automation)
     return automation
   })
 
@@ -47,10 +51,10 @@ export function registerAutomationHandlers(server: SolusServer): void {
     return loadAutomation(id)
   })
 
-  server.register('automationUpdate', async (args) => {
+  server.register('automationUpdate', async (args, ctx) => {
     const [id, patch] = args
     const automation = await updateAutomation(id, patch)
-    await linkAutomationToSessionTask(automation)
+    await linkAutomationToSessionTask(organizationOf(ctx.principal), automation)
     return automation
   })
 
@@ -59,10 +63,10 @@ export function registerAutomationHandlers(server: SolusServer): void {
     return deleteAutomation(id)
   })
 
-  server.register('automationSetEnabled', async (args) => {
+  server.register('automationSetEnabled', async (args, ctx) => {
     const [id, enabled] = args
     const automation = await updateAutomation(id, { enabled })
-    await linkAutomationToSessionTask(automation)
+    await linkAutomationToSessionTask(organizationOf(ctx.principal), automation)
     return automation
   })
 

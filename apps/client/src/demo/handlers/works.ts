@@ -34,6 +34,10 @@ export function registerWorksHandlers(backend: DemoServer, store: DemoStore): vo
   backend.register('applyWorkComment', (args) => store.applyWorkComment(arg<string>(args, 0), arg<WorkCommentCommand>(args, 1)))
   backend.register('markWorkCommentRead', (args) => store.applyWorkComment(arg<string>(args, 0), { kind: 'read', commentId: arg<string>(args, 1) }))
   backend.register('loadWorkPrevious', (args) => store.loadWorkPrevious(arg<string>(args, 0)))
+  // There is no host filesystem behind the demo to write a copy to.
+  backend.register('worksExport', () => {
+    throw new Error('Exporting works is not available in the demo.')
+  })
   // The demo connects to nothing, so the publish menu shows the same "not
   // connected" answer a real host with no provider would give — an unhandled
   // method would hand the menu a null list instead.

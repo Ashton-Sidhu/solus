@@ -25,7 +25,7 @@ The host parses claims with the contract schema. A narrower schema strips the me
 
 ## §3.4 Ownership and share lists
 
-`packages/server/src/sharing/share-manager.ts` owns two tables in the host database and nothing else joins them: `resource_owner (kind, id, owner_user_id)` and `share_grant (kind, id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id)`. Ownership lives in its own table rather than on the `sessions` and `works` rows because the transcript indexer rewrites session rows and a project work has no row.
+`packages/server/src/sharing/share-manager.ts` owns two tables and nothing else joins them: `resource_owner (organization_id, kind, id, owner_user_id)` and `share_grant (organization_id, kind, id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id)`, declared in `sharing/schema.ts` for both engines (docs/plans/cloud-service-model.md). Ownership lives in its own table rather than on the `sessions` and `works` rows because the transcript indexer rewrites session rows. Every manager method is asynchronous and scopes its rows by the organization the caller's principal names (`organizationOf`); `roleFor`, the access policy, the event audience, and every list filter await it.
 
 Rules the code enforces:
 

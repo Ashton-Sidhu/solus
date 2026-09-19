@@ -4,6 +4,7 @@
     ChevronDown as CaretDownIcon,
     RotateCcw as ArrowCounterClockwiseIcon,
     Download as DownloadSimpleIcon,
+    FileOutput as FileOutputIcon,
     Folder as FolderIcon,
     Pen as PencilSimpleIcon,
     Sparkles as SparkleIcon,
@@ -22,7 +23,7 @@
   import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
   import { getClientShellContext, getWorkspaceContext, sharesStore } from "../../contexts";
-  import type { SessionMeta, WorkStorage } from "@solus/contracts/types";
+  import type { SessionMeta } from "@solus/contracts/types";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import {
     downloadPayload,
@@ -49,8 +50,9 @@
     /** Additional clipboard formats in the overflow menu. */
     copyFormats?: WorkCopyFormat[];
     /**
-     * Opens the save picker on the chosen format. Absent when the work has no
-     * host to write to, which also hides the Save group.
+     * Opens the save picker: on a chosen format for "Save as", or for the host
+     * to write the stored work for "Export…". Absent when the work has no host
+     * to write to, which hides both.
      */
     onExport?: (request: WorkExportRequest) => void;
     /**
@@ -64,7 +66,6 @@
     onDelete?: () => void;
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
-    workStorage?: WorkStorage;
     /** Flushes the editor before a publish reads its content. */
     flushSave?: () => Promise<void>;
   }
@@ -86,7 +87,6 @@
     onRevert,
     onDelete,
     onDuplicate,
-    workStorage,
     flushSave,
   }: Props = $props();
 
@@ -100,6 +100,8 @@
   let overflowOpen = $state(false);
 
   const canSave = $derived(!!onExport && exportFormats.length > 0);
+  // The host writes the work as it is stored, whatever the shell can encode.
+  const canExport = $derived(!!onExport);
   // On desktop-local the picker writes to this very machine, so a download
   // beside it would be two names for one outcome.
   const canDownload = $derived(hostIsRemote && exportFormats.length > 0);
@@ -148,12 +150,11 @@
     const id = workId;
     const contentKey = currentContent; // re-run when persisted content advances
     if (!id) return;
-    const cwd = workStorage?.kind === "project" ? workStorage.projectRoot : undefined;
-    void session.worksStore.loadPrevious(id, cwd, contentKey);
+    void session.worksStore.loadPrevious(id, contentKey);
   });
 
   const hasChanges = $derived(!!previous && previous.content !== currentContent);
-  const hasOutput = $derived(canSave || canDownload || copyFormats.length > 0);
+  const hasOutput = $derived(canSave || canExport || canDownload || copyFormats.length > 0);
 
   // Sharing (docs/plans/multiplayer-sharing.md §4.1): the work's host owns its share
   // list; the dialog is one per app, opened from here.
@@ -267,6 +268,11 @@
         <DropdownMenu.Label>Save &amp; export</DropdownMenu.Label>
         {#if canSave}
           {@render formatGroup("save", "Save as", exportFormats, save)}
+        {/if}
+        {#if canExport}
+          <DropdownMenu.Item data-testid="export-work" onSelect={() => onExport?.({ source: "host" })}>
+            <FileOutputIcon size={14} /><span class="flex-1 text-left">Export…</span>
+          </DropdownMenu.Item>
         {/if}
         {#if copyFormats.length > 0}
           {#if copyFormats.length === 1}

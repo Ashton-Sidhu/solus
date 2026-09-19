@@ -209,6 +209,30 @@ export function principalDisplayName(principal: Principal): string {
   }
 }
 
+/**
+ * The organization a host's own database belongs to
+ * (docs/plans/cloud-service-model.md). A host keeps one organization's records
+ * in its data directory, so every row it writes is scoped to this one.
+ */
+export const LOCAL_ORGANIZATION_ID = 'local'
+
+/**
+ * The organization a principal's records are scoped to. Every ported store
+ * function takes it explicitly and reads or writes rows of that organization
+ * only.
+ *
+ * A host's database is one organization's own: the person at the machine, the
+ * owner over the tunnel, the host acting for itself, and a member admitted to a
+ * personal or managed host all read and write `local`. Only in the cloud, where
+ * one database serves many organizations, does a member's grant name the
+ * organization. A guest is bound to one resource on the host that admitted it.
+ */
+export function organizationOf(principal: Principal): string {
+  if (principal.kind !== 'org-member') return LOCAL_ORGANIZATION_ID
+  if (principal.hostKind === 'personal' || principal.hostKind === 'managed') return LOCAL_ORGANIZATION_ID
+  return principal.organizationId
+}
+
 /** Grant-admitted sockets end at the grant's expiry; the others live as long as the connection. */
 export function principalExpiresAt(principal: Principal): number | null {
   return principal.kind === 'remote-owner' || principal.kind === 'org-member' || principal.kind === 'guest'

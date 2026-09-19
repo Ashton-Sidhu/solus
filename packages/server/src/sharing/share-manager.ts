@@ -1,5 +1,5 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
-import type { DatabaseSync } from 'node:sqlite'
+import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import {
   HOST_OWNER_USER_ID,
@@ -19,8 +19,10 @@ import {
   type ShareSetRequest,
   type ShareTransferRequest,
 } from '@solus/contracts/sharing'
+import type { Db } from '../db/database'
 import { createLogger } from '../logger'
-import { isHostOwner, principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
+import { isHostOwner, organizationOf, principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
+import { resourceOwner, shareGrant } from './schema'
 
 const log = createLogger('main', 'share-manager')
 
@@ -32,44 +34,17 @@ const log = createLogger('main', 'share-manager')
 const SCOPE_ROLE: ShareRole = 'editor'
 
 /**
- * Who may open which session or work on this host
+ * Who may open which session, work, or task
  * (docs/plans/multiplayer-sharing.md §3.4). This file owns every row it reads: the
- * owner of each resource and the share list. Nothing else joins these tables, and the
- * database handle is injected, so a managed host that moves to Postgres ports this
- * one file (§13).
+ * owner of each resource and the share list. Nothing else joins these tables. Both
+ * live in the ported schema (`./schema.ts`), so the same code answers on a host's
+ * SQLite and in the cloud's Postgres, where every row is scoped to the
+ * organization the caller's principal names (docs/plans/cloud-service-model.md).
  *
  * Ownership is recorded here rather than on the `sessions` and `works` rows because a
- * session's index row is rewritten by the transcript indexer and a project work has no
- * row at all. One table, one key `(kind, id)`, covers both.
+ * session's index row is rewritten by the transcript indexer. One table, one key
+ * `(kind, id)`, covers every kind.
  */
-
-const RESOURCE_KINDS_SQL = "('session', 'work', 'task')"
-
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS resource_owner (
-  resource_kind TEXT NOT NULL CHECK (resource_kind IN ${RESOURCE_KINDS_SQL}),
-  resource_id TEXT NOT NULL,
-  owner_user_id TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (resource_kind, resource_id)
-);
-
-CREATE TABLE IF NOT EXISTS share_grant (
-  id TEXT PRIMARY KEY,
-  resource_kind TEXT NOT NULL CHECK (resource_kind IN ${RESOURCE_KINDS_SQL}),
-  resource_id TEXT NOT NULL,
-  subject_kind TEXT NOT NULL CHECK (subject_kind IN ('user', 'team', 'organization', 'everyone')),
-  subject_id TEXT NOT NULL DEFAULT '',
-  role TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
-  link_secret_hash TEXT,
-  link_secret TEXT,
-  granted_by_user_id TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  UNIQUE (resource_kind, resource_id, subject_kind, subject_id)
-);
-CREATE INDEX IF NOT EXISTS share_grant_resource_idx ON share_grant(resource_kind, resource_id);
-CREATE INDEX IF NOT EXISTS share_grant_secret_idx ON share_grant(link_secret_hash) WHERE link_secret_hash IS NOT NULL;
-`
 
 const grantRowSchema = z.object({
   resource_kind: z.enum(['session', 'work', 'task']),
@@ -84,9 +59,6 @@ const grantRowSchema = z.object({
   created_at: z.number(),
 })
 type GrantRow = z.infer<typeof grantRowSchema>
-
-const columnRowSchema = z.object({ name: z.string() })
-const tableSqlRowSchema = z.object({ name: z.string(), sql: z.string() })
 
 const ownerRowSchema = z.object({ owner_user_id: z.string() })
 const ownerRowsSchema = z.array(z.object({ resource_id: z.string() }))
@@ -137,7 +109,7 @@ export interface ShareChange extends ShareChangedEvent {
 }
 
 export interface ShareManagerDeps {
-  db: DatabaseSync
+  db: Db
   /**
    * A session is addressed by its stable Solus id, but some calls carry a provider
    * thread id. The lineage table maps one to the other; identity when it has no row.
@@ -148,8 +120,8 @@ export interface ShareManagerDeps {
    * one task, and the tasks a session or work is linked to. The tasks domain
    * answers both; without it a task shares only its own page.
    */
-  taskContents?: (taskId: string) => ShareResource[]
-  containingTasks?: (resource: ShareResource) => ContainingTask[]
+  taskContents?: (organizationId: string, taskId: string) => Promise<ShareResource[]>
+  containingTasks?: (organizationId: string, resource: ShareResource) => Promise<ContainingTask[]>
   /**
    * Whether the host has any record of a session. A session nobody has recorded
    * yet is new, and the member starting it may: the access check runs before the
@@ -166,36 +138,7 @@ export function hashLinkSecret(secret: string): string {
 export class ShareManager {
   private readonly listeners = new Set<(change: ShareChange) => void>()
 
-  constructor(private readonly deps: ShareManagerDeps) {
-    // A table made before tasks could be shared carries a CHECK that refuses the
-    // kind; SQLite cannot alter a constraint, so the table is rebuilt with its rows.
-    for (const table of ['resource_owner', 'share_grant']) {
-      const existing = tableSqlRowSchema.nullish().parse(
-        deps.db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(table),
-      )
-      if (existing && !existing.sql.includes("'task'")) {
-        deps.db.exec(`ALTER TABLE ${table} RENAME TO ${table}_before_tasks`)
-      }
-    }
-    deps.db.exec(SCHEMA)
-    for (const table of ['resource_owner', 'share_grant']) {
-      const renamed = tableSqlRowSchema.nullish().parse(
-        deps.db.prepare("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name = ?").get(`${table}_before_tasks`),
-      )
-      if (!renamed) continue
-      const columns = columnRowSchema.array().parse(deps.db.prepare(`PRAGMA table_info(${table}_before_tasks)`).all()).map((column) => column.name).join(', ')
-      deps.db.exec(`INSERT INTO ${table} (${columns}) SELECT ${columns} FROM ${table}_before_tasks`)
-      deps.db.exec(`DROP TABLE ${table}_before_tasks`)
-      // The old table took its indexes with it under their names; make them again.
-      deps.db.exec(SCHEMA)
-      log.info('share_table_rebuilt_for_tasks', { table })
-    }
-    // A table made before the host kept link secrets: add the column, leave the rows.
-    const columns = columnRowSchema.array().parse(deps.db.prepare('PRAGMA table_info(share_grant)').all())
-    if (!columns.some((column) => column.name === 'link_secret')) {
-      deps.db.exec('ALTER TABLE share_grant ADD COLUMN link_secret TEXT')
-    }
-  }
+  constructor(private readonly deps: ShareManagerDeps) {}
 
   onChanged(listener: (change: ShareChange) => void): () => void {
     this.listeners.add(listener)
@@ -211,12 +154,12 @@ export class ShareManager {
 
   // ── Ownership ───────────────────────────────────────────────────────────
 
-  ownerOf(resource: ShareResource): string | null {
+  async ownerOf(organizationId: string, resource: ShareResource): Promise<string | null> {
     const canonical = this.canonical(resource)
-    const row = ownerRowSchema.nullish().parse(
-      this.deps.db.prepare('SELECT owner_user_id FROM resource_owner WHERE resource_kind = ? AND resource_id = ?')
-        .get(canonical.kind, canonical.id),
-    )
+    const row = ownerRowSchema.nullish().parse(await this.deps.db.get(sql`
+      SELECT owner_user_id FROM ${resourceOwner}
+      WHERE organization_id = ${organizationId} AND resource_kind = ${canonical.kind} AND resource_id = ${canonical.id}
+    `))
     return row?.owner_user_id ?? null
   }
 
@@ -228,40 +171,42 @@ export class ShareManager {
    * host serves: the machine is the team's, so its work is visible to the team
    * until the owner narrows it. A personal host's resources start private.
    */
-  claimOwner(resource: ShareResource, principal: Principal): string | null {
+  async claimOwner(resource: ShareResource, principal: Principal): Promise<string | null> {
+    const organizationId = organizationOf(principal)
     const ownerUserId = principalOwnerId(principal)
-    if (!ownerUserId) return this.ownerOf(resource)
+    if (!ownerUserId) return this.ownerOf(organizationId, resource)
     const canonical = this.canonical(resource)
-    const inserted = this.deps.db.prepare(`
-      INSERT INTO resource_owner (resource_kind, resource_id, owner_user_id, created_at)
-      VALUES (?, ?, ?, ?)
+    const inserted = await this.deps.db.run(sql`
+      INSERT INTO ${resourceOwner} (resource_kind, resource_id, owner_user_id, created_at, organization_id)
+      VALUES (${canonical.kind}, ${canonical.id}, ${ownerUserId}, ${this.now()}, ${organizationId})
       ON CONFLICT(resource_kind, resource_id) DO NOTHING
-    `).run(canonical.kind, canonical.id, ownerUserId, this.now())
-    if (Number(inserted.changes) > 0 && principal.kind === 'org-member' && principal.hostKind === 'managed') {
-      this.deps.db.prepare(`
-        INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at)
-        VALUES (?, ?, ?, 'organization', ?, ?, NULL, ?, ?)
+    `)
+    if (inserted.changes > 0 && principal.kind === 'org-member' && principal.hostKind === 'managed') {
+      await this.deps.db.run(sql`
+        INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
+        VALUES (${randomUUID()}, ${canonical.kind}, ${canonical.id}, 'organization', ${principal.organizationId}, ${SCOPE_ROLE}, NULL, ${ownerUserId}, ${this.now()}, ${organizationId})
         ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO NOTHING
-      `).run(randomUUID(), canonical.kind, canonical.id, principal.organizationId, SCOPE_ROLE, ownerUserId, this.now())
+      `)
     }
-    return this.ownerOf(canonical)
+    return this.ownerOf(organizationId, canonical)
   }
 
   /** Only the owner may hand a resource to another member; the change is announced to everyone with access. */
-  transfer(request: ShareTransferRequest, principal: Principal): ShareList {
+  async transfer(request: ShareTransferRequest, principal: Principal): Promise<ShareList> {
+    const organizationId = organizationOf(principal)
     const resource = this.canonical(request.resource)
-    if (this.roleFor(principal, request.resource) !== 'owner') {
+    if (await this.roleFor(principal, request.resource) !== 'owner') {
       throw new ShareAccessError('FORBIDDEN', 'Only the owner can transfer ownership')
     }
-    const previousOwner = this.ownerOf(resource)
-    this.deps.db.prepare(`
-      INSERT INTO resource_owner (resource_kind, resource_id, owner_user_id, created_at)
-      VALUES (?, ?, ?, ?)
+    const previousOwner = await this.ownerOf(organizationId, resource)
+    await this.deps.db.run(sql`
+      INSERT INTO ${resourceOwner} (resource_kind, resource_id, owner_user_id, created_at, organization_id)
+      VALUES (${resource.kind}, ${resource.id}, ${request.toUserId}, ${this.now()}, ${organizationId})
       ON CONFLICT(resource_kind, resource_id) DO UPDATE SET owner_user_id = excluded.owner_user_id
-    `).run(resource.kind, resource.id, request.toUserId, this.now())
+    `)
     log.info('share_ownership_transferred', { kind: resource.kind, resourceId: resource.id, toUserId: request.toUserId })
-    this.announce(resource, principal, previousOwner && previousOwner !== request.toUserId ? [previousOwner] : [], false)
-    return this.buildList(resource, this.roleFor(principal, request.resource), request.resource)
+    await this.announce(organizationId, resource, principal, previousOwner && previousOwner !== request.toUserId ? [previousOwner] : [], false)
+    return this.buildList(organizationId, resource, await this.roleFor(principal, request.resource), request.resource)
   }
 
   // ── Roles ───────────────────────────────────────────────────────────────
@@ -271,31 +216,33 @@ export class ShareManager {
    * or work also holds what the tasks it is linked to give, short of ownership: a
    * task shared with someone shares everything in it.
    */
-  roleFor(principal: Principal, resource: ShareResource): ResourceRole {
+  async roleFor(principal: Principal, resource: ShareResource): Promise<ResourceRole> {
     const canonical = this.canonical(resource)
     if (principal.kind === 'system') return 'owner'
     if (isHostOwner(principal)) return 'owner'
+    const organizationId = organizationOf(principal)
     if (principal.kind === 'guest') {
       const bound = this.canonical(principal.share.resource)
       const reaches = sameResource(bound, canonical)
-        || (bound.kind === 'task' && this.taskContents(bound.id).some((item) => sameResource(item, canonical)))
+        || (bound.kind === 'task' && (await this.taskContents(organizationId, bound.id)).some((item) => sameResource(item, canonical)))
       if (!reaches) return 'none'
       // The link the guest arrived with must still exist unchanged.
-      const row = this.grantRows(bound).find((grant) => grant.subject_kind === 'everyone')
+      const row = (await this.grantRows(organizationId, bound)).find((grant) => grant.subject_kind === 'everyone')
       if (!row || row.link_secret_hash !== principal.share.linkSecretHash) return 'none'
       return row.role
     }
-    let role = this.ownRoleFor(principal, canonical)
-    for (const task of this.containingTasks(resource, canonical)) {
+    let role = await this.ownRoleFor(principal, canonical)
+    for (const task of await this.containingTasks(organizationId, resource, canonical)) {
       if (role === 'owner') break
-      role = higherResourceRole(role, inheritedRole(this.ownRoleFor(principal, { kind: 'task', id: task.taskId })))
+      role = higherResourceRole(role, inheritedRole(await this.ownRoleFor(principal, { kind: 'task', id: task.taskId })))
     }
     return role
   }
 
   /** A member's standing on one resource from its owner record and its own rows alone. */
-  private ownRoleFor(principal: Extract<Principal, { kind: 'org-member' }>, canonical: ShareResource): ResourceRole {
-    const owner = this.ownerOf(canonical)
+  private async ownRoleFor(principal: Extract<Principal, { kind: 'org-member' }>, canonical: ShareResource): Promise<ResourceRole> {
+    const organizationId = organizationOf(principal)
+    const owner = await this.ownerOf(organizationId, canonical)
     if (owner === principal.userId) return 'owner'
     // A session the host has never seen is being started right now: it is the
     // starter's, and the prompt that follows records that.
@@ -304,32 +251,32 @@ export class ShareManager {
     // or the organization. The host's own work on a managed host — automations,
     // which no person owns — is the team's to edit.
     let role: ResourceRole = 'none'
-    for (const row of this.grantRows(canonical)) {
+    for (const row of await this.grantRows(organizationId, canonical)) {
       if (rowAdmits(row, principal)) role = higherResourceRole(role, row.role)
     }
     if (role === 'none' && owner === null && principal.hostKind === 'managed') return SCOPE_ROLE
     return role
   }
 
-  private taskContents(taskId: string): ShareResource[] {
-    return (this.deps.taskContents?.(taskId) ?? []).map((item) => this.canonical(item))
+  private async taskContents(organizationId: string, taskId: string): Promise<ShareResource[]> {
+    return (await this.deps.taskContents?.(organizationId, taskId) ?? []).map((item) => this.canonical(item))
   }
 
   /**
    * The tasks a session or work sits in. A task link may hold either the stable
    * session id or the provider thread id, so both spellings are asked for.
    */
-  private containingTasks(resource: ShareResource, canonical: ShareResource): ContainingTask[] {
+  private async containingTasks(organizationId: string, resource: ShareResource, canonical: ShareResource): Promise<ContainingTask[]> {
     if (!this.deps.containingTasks || canonical.kind === 'task') return []
     const tasks = new Map<string, ContainingTask>()
     for (const spelling of sameResource(resource, canonical) ? [canonical] : [canonical, resource]) {
-      for (const task of this.deps.containingTasks(spelling)) tasks.set(task.taskId, task)
+      for (const task of await this.deps.containingTasks(organizationId, spelling)) tasks.set(task.taskId, task)
     }
     return [...tasks.values()]
   }
 
-  assertRole(principal: Principal, resource: ShareResource, required: ResourceRole): void {
-    if (!resourceRoleAtLeast(this.roleFor(principal, resource), required)) {
+  async assertRole(principal: Principal, resource: ShareResource, required: ResourceRole): Promise<void> {
+    if (!resourceRoleAtLeast(await this.roleFor(principal, resource), required)) {
       throw new ShareAccessError('FORBIDDEN', `This ${resource.kind} is not shared with you`)
     }
   }
@@ -340,47 +287,54 @@ export class ShareManager {
    * member's set is what they own and what a row names them on; the host's own
    * unowned work on a managed host is added by `filterVisible`, which sees the items.
    */
-  visibleIds(principal: Principal, kind: ShareResourceKind): 'all' | Set<string> {
+  async visibleIds(principal: Principal, kind: ShareResourceKind): Promise<'all' | Set<string>> {
+    const organizationId = organizationOf(principal)
     if (principal.kind === 'guest') {
       const bound = this.canonical(principal.share.resource)
-      if (this.roleFor(principal, bound) === 'none') return new Set()
+      if (await this.roleFor(principal, bound) === 'none') return new Set()
       const ids = new Set<string>()
       if (bound.kind === kind) ids.add(bound.id)
-      if (bound.kind === 'task') for (const item of this.taskContents(bound.id)) if (item.kind === kind) ids.add(item.id)
+      if (bound.kind === 'task') for (const item of await this.taskContents(organizationId, bound.id)) if (item.kind === kind) ids.add(item.id)
       return ids
     }
     if (principal.kind !== 'org-member') return 'all'
-    const ids = this.ownVisibleIds(principal, kind)
+    const ids = await this.ownVisibleIds(principal, kind)
     // What a shared task holds is visible with it.
     if (kind !== 'task') {
-      for (const taskId of this.ownVisibleIds(principal, 'task')) {
-        for (const item of this.taskContents(taskId)) if (item.kind === kind) ids.add(item.id)
+      for (const taskId of await this.ownVisibleIds(principal, 'task')) {
+        for (const item of await this.taskContents(organizationId, taskId)) if (item.kind === kind) ids.add(item.id)
       }
     }
     return ids
   }
 
   /** The ids of one kind a member owns or is named on, before any task inheritance. */
-  private ownVisibleIds(principal: Extract<Principal, { kind: 'org-member' }>, kind: ShareResourceKind): Set<string> {
+  private async ownVisibleIds(principal: Extract<Principal, { kind: 'org-member' }>, kind: ShareResourceKind): Promise<Set<string>> {
+    const organizationId = organizationOf(principal)
     const ids = new Set<string>()
-    const owned = ownerRowsSchema.parse(
-      this.deps.db.prepare('SELECT resource_id FROM resource_owner WHERE resource_kind = ? AND owner_user_id = ?').all(kind, principal.userId),
-    )
+    const owned = ownerRowsSchema.parse(await this.deps.db.all(sql`
+      SELECT resource_id FROM ${resourceOwner}
+      WHERE organization_id = ${organizationId} AND resource_kind = ${kind} AND owner_user_id = ${principal.userId}
+    `))
     for (const row of owned) ids.add(row.resource_id)
-    const granted = grantRowSchema.array().parse(
-      this.deps.db.prepare("SELECT * FROM share_grant WHERE resource_kind = ? AND subject_kind != 'everyone'").all(kind),
-    )
+    const granted = grantRowSchema.array().parse(await this.deps.db.all(sql`
+      SELECT * FROM ${shareGrant}
+      WHERE organization_id = ${organizationId} AND resource_kind = ${kind} AND subject_kind <> 'everyone'
+    `))
     for (const row of granted) if (rowAdmits(row, principal)) ids.add(row.resource_id)
     return ids
   }
 
   /** Filters a listing to what the caller may open, matching either the stable or the provider session id. */
-  filterVisible<T>(principal: Principal, kind: ShareResourceKind, items: T[], idOf: (item: T) => string): T[] {
-    const visible = this.visibleIds(principal, kind)
+  async filterVisible<T>(principal: Principal, kind: ShareResourceKind, items: T[], idOf: (item: T) => string): Promise<T[]> {
+    const visible = await this.visibleIds(principal, kind)
     if (visible === 'all') return items
     // On a managed host, a resource nobody owns is the host's own work and the team's to see.
     const owned = principal.kind === 'org-member' && principal.hostKind === 'managed'
-      ? new Set(ownerRowsSchema.parse(this.deps.db.prepare('SELECT resource_id FROM resource_owner WHERE resource_kind = ?').all(kind)).map((row) => row.resource_id))
+      ? new Set(ownerRowsSchema.parse(await this.deps.db.all(sql`
+          SELECT resource_id FROM ${resourceOwner}
+          WHERE organization_id = ${organizationOf(principal)} AND resource_kind = ${kind}
+        `)).map((row) => row.resource_id))
       : null
     return items.filter((item) => {
       const id = idOf(item)
@@ -392,16 +346,21 @@ export class ShareManager {
 
   // ── The share list ──────────────────────────────────────────────────────
 
-  list(resourceInput: ShareResource, principal: Principal): ShareList {
+  async list(resourceInput: ShareResource, principal: Principal): Promise<ShareList> {
     const resource = this.canonical(resourceInput)
-    const callerRole = this.roleFor(principal, resourceInput)
+    const callerRole = await this.roleFor(principal, resourceInput)
     if (callerRole === 'none') throw new ShareAccessError('FORBIDDEN', `This ${resource.kind} is not shared with you`)
-    return this.buildList(resource, callerRole, resourceInput)
+    return this.buildList(organizationOf(principal), resource, callerRole, resourceInput)
   }
 
   /** A write answers with the list as it now stands, even when the writer just removed their own access. */
-  private buildList(resource: ShareResource, callerRole: ResourceRole, requested: ShareResource = resource): ShareList {
-    const rows = this.grantRows(resource)
+  private async buildList(
+    organizationId: string,
+    resource: ShareResource,
+    callerRole: ResourceRole,
+    requested: ShareResource = resource,
+  ): Promise<ShareList> {
+    const rows = await this.grantRows(organizationId, resource)
     const link = rows.find((row) => row.subject_kind === 'everyone')
     const grants: ShareGrant[] = rows
       .filter((row) => row.subject_kind !== 'everyone')
@@ -420,55 +379,56 @@ export class ShareManager {
     if (shareLink && link?.link_secret && resourceRoleAtLeast(callerRole, 'editor')) shareLink.secret = link.link_secret
     const list: ShareList = {
       resource,
-      ownerUserId: this.ownerOf(resource) ?? HOST_OWNER_USER_ID,
+      ownerUserId: await this.ownerOf(organizationId, resource) ?? HOST_OWNER_USER_ID,
       grants,
       callerRole,
       link: shareLink,
     }
     // A task that is itself shared reaches this resource; the dialog says so.
-    const inherited = this.containingTasks(requested, resource).filter((task) => this.grantRows({ kind: 'task', id: task.taskId }).length > 0)
+    const inherited: ContainingTask[] = []
+    for (const task of await this.containingTasks(organizationId, requested, resource)) {
+      if ((await this.grantRows(organizationId, { kind: 'task', id: task.taskId })).length > 0) inherited.push(task)
+    }
     if (inherited.length) list.inheritedFrom = inherited
     return list
   }
 
   /** Replaces every named row. The owner and editors may share; a viewer may not (§3.4).
    *  A row removed for a team or the organization names nobody: only a person's own row does. */
-  setGrants(request: ShareSetRequest, principal: Principal): ShareList {
+  async setGrants(request: ShareSetRequest, principal: Principal): Promise<ShareList> {
+    const organizationId = organizationOf(principal)
     const resource = this.canonical(request.resource)
-    this.assertRole(principal, request.resource, 'editor')
+    await this.assertRole(principal, request.resource, 'editor')
     const grantedBy = principalOwnerId(principal) ?? HOST_OWNER_USER_ID
-    const before = this.grantRows(resource).filter((row) => row.subject_kind !== 'everyone')
     const next = new Map<string, { subject: ShareNamedSubject; role: ShareRole }>()
     for (const grant of request.grants) {
       const subject = shareNamedSubjectSchema.parse(grant.subject)
       next.set(`${subject.kind}:${subject.id}`, { subject, role: grant.role })
     }
     const removedUserIds: string[] = []
-    const db = this.deps.db
-    db.exec('BEGIN IMMEDIATE')
-    try {
+    await this.deps.db.transaction(async (db) => {
+      const before = (await this.grantRows(organizationId, resource, db)).filter((row) => row.subject_kind !== 'everyone')
       for (const row of before) {
         const key = `${row.subject_kind}:${row.subject_id}`
         if (next.has(key)) continue
-        db.prepare('DELETE FROM share_grant WHERE resource_kind = ? AND resource_id = ? AND subject_kind = ? AND subject_id = ?')
-          .run(resource.kind, resource.id, row.subject_kind, row.subject_id)
+        await db.run(sql`
+          DELETE FROM ${shareGrant}
+          WHERE organization_id = ${organizationId} AND resource_kind = ${resource.kind} AND resource_id = ${resource.id}
+            AND subject_kind = ${row.subject_kind} AND subject_id = ${row.subject_id}
+        `)
         if (row.subject_kind === 'user') removedUserIds.push(row.subject_id)
       }
       for (const { subject, role } of next.values()) {
-        db.prepare(`
-          INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at)
-          VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)
+        await db.run(sql`
+          INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
+          VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, ${subject.kind}, ${subject.id}, ${role}, NULL, ${grantedBy}, ${this.now()}, ${organizationId})
           ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO UPDATE SET role = excluded.role
-        `).run(randomUUID(), resource.kind, resource.id, subject.kind, subject.id, role, grantedBy, this.now())
+        `)
       }
-      db.exec('COMMIT')
-    } catch (error) {
-      db.exec('ROLLBACK')
-      throw error
-    }
+    })
     log.info('share_grants_set', { kind: resource.kind, resourceId: resource.id, grants: next.size, removed: removedUserIds.length })
-    this.announce(resource, principal, removedUserIds, false)
-    return this.buildList(resource, this.roleFor(principal, request.resource), request.resource)
+    await this.announce(organizationId, resource, principal, removedUserIds, false)
+    return this.buildList(organizationId, resource, await this.roleFor(principal, request.resource), request.resource)
   }
 
   /**
@@ -476,46 +436,52 @@ export class ShareManager {
    * share list to the owner and editors. Turning the link off or regenerating it
    * disconnects every guest at once (§3.4).
    */
-  setLink(request: ShareSetLinkRequest, principal: Principal): ShareLink | null {
+  async setLink(request: ShareSetLinkRequest, principal: Principal): Promise<ShareLink | null> {
+    const organizationId = organizationOf(principal)
     const resource = this.canonical(request.resource)
-    this.assertRole(principal, request.resource, 'editor')
-    const existing = this.grantRows(resource).find((row) => row.subject_kind === 'everyone')
+    await this.assertRole(principal, request.resource, 'editor')
+    const existing = (await this.grantRows(organizationId, resource)).find((row) => row.subject_kind === 'everyone')
     const db = this.deps.db
     if (request.role === null) {
       if (!existing) return null
-      db.prepare("DELETE FROM share_grant WHERE resource_kind = ? AND resource_id = ? AND subject_kind = 'everyone'")
-        .run(resource.kind, resource.id)
+      await db.run(sql`
+        DELETE FROM ${shareGrant}
+        WHERE organization_id = ${organizationId} AND resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND subject_kind = 'everyone'
+      `)
       log.info('share_link_removed', { kind: resource.kind, resourceId: resource.id })
-      this.announce(resource, principal, [], true)
+      await this.announce(organizationId, resource, principal, [], true)
       return null
     }
     const rotate = !existing || request.regenerate === true
     const secret = rotate ? randomBytes(32).toString('base64url') : null
     const grantedBy = principalOwnerId(principal) ?? HOST_OWNER_USER_ID
-    if (rotate) {
-      db.prepare(`
-        INSERT INTO share_grant (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, link_secret, granted_by_user_id, created_at)
-        VALUES (?, ?, ?, 'everyone', '', ?, ?, ?, ?, ?)
+    if (secret) {
+      await db.run(sql`
+        INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, link_secret, granted_by_user_id, created_at, organization_id)
+        VALUES (${randomUUID()}, ${resource.kind}, ${resource.id}, 'everyone', '', ${request.role}, ${hashLinkSecret(secret)}, ${secret}, ${grantedBy}, ${this.now()}, ${organizationId})
         ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO UPDATE SET
           role = excluded.role, link_secret_hash = excluded.link_secret_hash, link_secret = excluded.link_secret, granted_by_user_id = excluded.granted_by_user_id
-      `).run(randomUUID(), resource.kind, resource.id, request.role, hashLinkSecret(secret!), secret, grantedBy, this.now())
+      `)
     } else {
-      db.prepare("UPDATE share_grant SET role = ? WHERE resource_kind = ? AND resource_id = ? AND subject_kind = 'everyone'")
-        .run(request.role, resource.kind, resource.id)
+      await db.run(sql`
+        UPDATE ${shareGrant} SET role = ${request.role}
+        WHERE organization_id = ${organizationId} AND resource_kind = ${resource.kind} AND resource_id = ${resource.id} AND subject_kind = 'everyone'
+      `)
     }
     log.info('share_link_set', { kind: resource.kind, resourceId: resource.id, role: request.role, rotated: rotate })
     // A regenerated secret ends the old guests; a role change alone lets them stay with the new role.
-    this.announce(resource, principal, [], rotate && !!existing)
+    await this.announce(organizationId, resource, principal, [], rotate && !!existing)
     if (!secret) return null
     return { role: request.role, secret }
   }
 
-  /** Admission: the secret names one resource and one role, or nothing. */
-  resolveLinkSecret(secret: string): ResolvedLinkShare | null {
+  /** Admission: the secret names one resource and one role, or nothing. The hash
+   *  is unique across the database, so the lookup needs no organization. */
+  async resolveLinkSecret(secret: string): Promise<ResolvedLinkShare | null> {
     const hash = hashLinkSecret(secret)
-    const row = grantRowSchema.nullish().parse(
-      this.deps.db.prepare("SELECT * FROM share_grant WHERE subject_kind = 'everyone' AND link_secret_hash = ?").get(hash),
-    )
+    const row = grantRowSchema.nullish().parse(await this.deps.db.get(sql`
+      SELECT * FROM ${shareGrant} WHERE subject_kind = 'everyone' AND link_secret_hash = ${hash}
+    `))
     if (!row) return null
     return {
       resource: { kind: row.resource_kind, id: row.resource_id },
@@ -526,25 +492,38 @@ export class ShareManager {
   }
 
   /** Removes every row and the owner record when a resource is deleted. */
-  forget(resource: ShareResource): void {
+  async forget(organizationId: string, resource: ShareResource): Promise<void> {
     const canonical = this.canonical(resource)
-    this.deps.db.prepare('DELETE FROM share_grant WHERE resource_kind = ? AND resource_id = ?').run(canonical.kind, canonical.id)
-    this.deps.db.prepare('DELETE FROM resource_owner WHERE resource_kind = ? AND resource_id = ?').run(canonical.kind, canonical.id)
+    await this.deps.db.run(sql`
+      DELETE FROM ${shareGrant}
+      WHERE organization_id = ${organizationId} AND resource_kind = ${canonical.kind} AND resource_id = ${canonical.id}
+    `)
+    await this.deps.db.run(sql`
+      DELETE FROM ${resourceOwner}
+      WHERE organization_id = ${organizationId} AND resource_kind = ${canonical.kind} AND resource_id = ${canonical.id}
+    `)
   }
 
   // ── Internals ───────────────────────────────────────────────────────────
 
-  private grantRows(resource: ShareResource): GrantRow[] {
-    return grantRowSchema.array().parse(
-      this.deps.db.prepare('SELECT * FROM share_grant WHERE resource_kind = ? AND resource_id = ? ORDER BY created_at, id')
-        .all(resource.kind, resource.id),
-    )
+  private async grantRows(organizationId: string, resource: ShareResource, db: Db = this.deps.db): Promise<GrantRow[]> {
+    return grantRowSchema.array().parse(await db.all(sql`
+      SELECT * FROM ${shareGrant}
+      WHERE organization_id = ${organizationId} AND resource_kind = ${resource.kind} AND resource_id = ${resource.id}
+      ORDER BY created_at, id
+    `))
   }
 
-  private announce(resource: ShareResource, principal: Principal, removedUserIds: string[], guestsRevoked: boolean): void {
+  private async announce(
+    organizationId: string,
+    resource: ShareResource,
+    principal: Principal,
+    removedUserIds: string[],
+    guestsRevoked: boolean,
+  ): Promise<void> {
     const change: ShareChange = {
       resource,
-      ownerUserId: this.ownerOf(resource) ?? HOST_OWNER_USER_ID,
+      ownerUserId: await this.ownerOf(organizationId, resource) ?? HOST_OWNER_USER_ID,
       changedBy: { userId: principalOwnerId(principal) ?? HOST_OWNER_USER_ID, displayName: principalDisplayName(principal) },
       removedUserIds,
       guestsRevoked,

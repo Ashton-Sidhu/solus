@@ -12,6 +12,7 @@ import { Task } from '../../tasks/task'
 import { providerForRepo } from '../../providers/registry'
 import { prIndex } from '../../prs/pr-index'
 import type { SolusServer } from '../server'
+import { organizationOf } from '../principal'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { resolveSourceControlWritingPolicy } from '../../git/source-control-writing'
 import { generateWorktreeName } from '../../git/worktree-name'
@@ -204,7 +205,7 @@ export function registerWorktreeHandlers(server: SolusServer, deps: WorktreeDeps
     const pullRequest = result.pullRequest
     const sessionId = ctx.session.agentSessionId
     if (sessionId && pullRequest.status !== 'skipped' && pullRequest.number !== null) {
-      const task = await Task.forSession(sessionId)
+      const task = await Task.forSession(organizationOf(handlerCtx.principal), sessionId)
       await task?.linkPullRequest({
         number: pullRequest.number,
         url: pullRequest.url,

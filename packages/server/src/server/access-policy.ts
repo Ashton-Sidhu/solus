@@ -16,8 +16,10 @@ import { isHostAdmin, isHostOwner, type Principal, type PrincipalKind } from './
  *                 tasks, PRs. Owners and organization members; never a guest.
  * - `resource`    names a session, a work, or a task. Checked against ownership
  *                 and the share list with the role the method needs.
+ * - `system-only` a report from a runner to the collaboration plane
+ *                 (docs/plans/cloud-service-model.md). The host itself today.
  */
-export type RpcAccessClass = 'local-only' | 'host-admin' | 'host-wide' | 'resource'
+export type RpcAccessClass = 'local-only' | 'host-admin' | 'host-wide' | 'resource' | 'system-only'
 
 export interface ResourceRule {
   /** Where the resource id sits in the call. */
@@ -55,6 +57,10 @@ const workIdAt = (index: number): ArgLocator => (args) => {
 const sessionFieldAt = (index: number, field: string): ArgLocator => (args) => {
   const request = fieldSchema(field).safeParse(args[index])
   return request.success ? { kind: 'session', id: request.data[field] } : null
+}
+const workFieldAt = (index: number): ArgLocator => (args) => {
+  const request = fieldSchema('workId').safeParse(args[index])
+  return request.success ? { kind: 'work', id: request.data.workId } : null
 }
 const taskIdAt = (index: number): ArgLocator => (args) => {
   const id = idSchema.safeParse(args[index])
@@ -145,7 +151,7 @@ const resourceRpcRules = {
   applyWorkComment: editor(workIdAt(0)),
   linkWorkSession: editor(workIdAt(0)),
   duplicateWork: viewer(workIdAt(0)),
-  promoteWorkToProject: editor(workIdAt(0)),
+  worksExport: viewer(workFieldAt(0)),
   refreshWorkGoogleComments: editor(workIdAt(0)),
   sendWorkGoogleComment: editor(workIdAt(0)),
   refreshWorkExternalComments: editor(workIdAt(0)),
@@ -259,6 +265,14 @@ export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
   'browserImportCookies',
 ])
 
+/**
+ * Writes only a process acting for the host makes: a runner reporting a session
+ * record to the collaboration plane. No person's connection may call these.
+ */
+export const SYSTEM_ONLY_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
+  'sessionRecordUpsert',
+])
+
 /** The few host-wide calls a guest client needs to boot and keep its socket: nothing about the host leaks through them. */
 export const GUEST_HOST_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   'connectionsGetServerInfo',
@@ -277,6 +291,7 @@ export const GUEST_HOST_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
 export function rpcAccessClass(method: RpcMethod): RpcAccessClass {
   if (LOCAL_ONLY_RPC_METHODS.has(method)) return 'local-only'
   if (HOST_ADMIN_RPC_METHODS.has(method)) return 'host-admin'
+  if (SYSTEM_ONLY_RPC_METHODS.has(method)) return 'system-only'
   if (RESOURCE_RPC_RULES.has(method)) return 'resource'
   return 'host-wide'
 }
@@ -300,7 +315,7 @@ export class RpcAccessError extends Error {
 }
 
 export interface ResourceAccess {
-  roleFor(principal: Principal, resource: ShareResource): ResourceRole
+  roleFor(principal: Principal, resource: ShareResource): Promise<ResourceRole>
 }
 
 /** Managed-hosts.md §1: the system-owned methods are refused before any standing is weighed, the host's own calls included. */
@@ -314,11 +329,14 @@ function assertManagedHostOffers(method: RpcMethod, principal: Principal): void 
  * in-process path before the share manager exists; there every caller is the local
  * owner, for whom the resource class is a no-op.
  */
-export function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = isManagedHost()): void {
+export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = isManagedHost()): Promise<void> {
   if (managed) assertManagedHostOffers(method, principal)
   if (principal.kind === 'system') return
   const accessClass = rpcAccessClass(method)
   switch (accessClass) {
+    case 'system-only':
+      // Runner hook: a `runner` principal (the uplink runner claim) of the caller's own organization is admitted here once the principal exists.
+      throw new RpcAccessError(method, principal.kind, `"${method}" is only available to the host itself`)
     case 'local-only':
       if (principal.kind !== 'local-owner') throw new RpcAccessError(method, principal.kind, `"${method}" is only available to a local connection`)
       return
@@ -342,7 +360,7 @@ export function assertRpcAccess(method: RpcMethod, principal: Principal, args: r
       // The personal host's owner has every role on every resource: they own the disk (§3.4).
       if (isHostOwner(principal)) return
       if (!resources) throw new RpcAccessError(method, principal.kind, 'Sharing is not available on this host')
-      const role = resources.roleFor(principal, resource)
+      const role = await resources.roleFor(principal, resource)
       if (!resourceRoleAtLeast(role, rule.requires)) {
         throw new RpcAccessError(method, principal.kind, role === 'none'
           ? `This ${resource.kind} is not shared with you`

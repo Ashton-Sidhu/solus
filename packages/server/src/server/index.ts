@@ -26,7 +26,9 @@ import { SeatConnector } from '../seats/seat-connect'
 import { TurnLedger } from '../sessions/turn-ledger'
 import { eventVisibleTo } from '../sharing/event-audience'
 import { getDb } from '../db'
-import { closeDatabase } from '../db/database'
+import { closeDatabase, getDatabase } from '../db/database'
+import { markOwnRunningSessionRecordsInterrupted } from '../sessions/session-records'
+import { LOCAL_ORGANIZATION_ID } from './principal'
 import { resolveRoles } from './roles'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
@@ -240,7 +242,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // policy consults them on every resource call, and the event stream is filtered
   // to what each connected principal may see.
   const shares = new ShareManager({
-    db: getDb(),
+    db: getDatabase(),
     canonicalSessionId: (sessionId) => opts.controlPlane.canonicalSessionId(sessionId),
     taskContents: taskShareContents,
     containingTasks: tasksContaining,
@@ -251,6 +253,10 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // author's own login, and the host records whose it was.
   const seats = new SeatManager({ db: getDb() })
   const turnLedger = new TurnLedger(getDb())
+  // A record this host left `running` names a turn the previous process never settled.
+  void markOwnRunningSessionRecordsInterrupted(LOCAL_ORGANIZATION_ID).catch((error) => {
+    log.warn('session_records_interrupt_sweep_failed', { error: String(error) })
+  })
   phaseDone('db_opened')
   opts.controlPlane.useSeats(seats, turnLedger)
   const seatConnector = new SeatConnector({ seats })

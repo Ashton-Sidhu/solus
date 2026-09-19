@@ -5,10 +5,9 @@ import { basename, dirname, join, relative } from 'node:path'
 import { z } from 'zod'
 import type { SessionLoadMessage, SessionMessageWindow } from '@solus/contracts/session-history'
 import { SNIPPET_HIT_CLOSE, SNIPPET_HIT_OPEN } from '@solus/contracts/search-snippet'
-import type { AgentId, ReasoningEffort, SessionMeta, SessionSearchResult } from '@solus/contracts/types'
+import type { AgentId, ReasoningEffort, SessionMeta, SessionRecord, SessionSearchResult } from '@solus/contracts/types'
 import {
   encodePathAsFolder,
-  isSolusWorktreePath,
   SOLUS_WORKTREE_ENCODED_MARKER,
   worktreeProjectRoot,
 } from '@solus/contracts/types'
@@ -20,6 +19,13 @@ import {
   type IndexedPlanInput,
 } from '../plans/plan-index'
 import { createLogger } from '../logger'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
+import {
+  deleteSessionRecord,
+  listSessionRecords,
+  setSessionRecordTitle,
+  upsertSessionRecord,
+} from '../sessions/session-records'
 import { sanitizeFtsQuery } from './fts'
 import { getDb, withTx } from '.'
 
@@ -143,10 +149,22 @@ function deleteSessionFile(filePath: string): void {
       WHERE session_id = ? AND model IS NULL AND reasoning_effort IS NULL
     `).run(sessionId)
     db.prepare('DELETE FROM session_files WHERE path = ?').run(filePath)
-    // Plans are durable Workspace artifacts even after Claude's transcript
-    // retention removes the source session. Keep the plan, but make resume
-    // attempts fail before they create an empty conversation tab.
-    markIndexedPlanSessionUnavailable('claude-code', sessionId)
+  })
+  // Plans are durable Workspace artifacts even after Claude's transcript
+  // retention removes the source session. Keep the plan, but make resume
+  // attempts fail before they create an empty conversation tab.
+  markIndexedPlanSessionUnavailable(LOCAL_ORGANIZATION_ID, 'claude-code', sessionId).catch((error) => {
+    log.warn('plan_index_session_unavailable_failed', { sessionId, error: String(error) })
+  })
+  forgetSessionRecordWithRow(sessionId)
+}
+
+/** The record follows the index row: a session the file no longer lists is not in the picker either. */
+function forgetSessionRecordWithRow(sessionId: string): void {
+  const row = getDb().prepare('SELECT 1 AS present FROM sessions WHERE session_id = ?').get(sessionId)
+  if (row) return
+  deleteSessionRecord(LOCAL_ORGANIZATION_ID, sessionId).catch((error) => {
+    log.warn('session_record_delete_failed', { sessionId, error: String(error) })
   })
 }
 
@@ -468,6 +486,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
       SET last_offset = ?, indexed_at = ?
       WHERE path = ?
     `).run(fileStat.size, Date.now(), filePath)
+    forgetSessionRecordWithRow(sessionId)
     return true
   }
 
@@ -508,6 +527,15 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
       WHERE path = ?
     `).run(fileStat.size, mtime, lastIndexedOffset, Date.now(), filePath)
   })
+  // The collaboration plane's record of the session, fed by the same sweep.
+  await upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
+    sessionId,
+    provider: 'claude-code',
+    projectPath,
+    title: meta.firstMessage ?? meta.slug ?? undefined,
+    lastActivityAt: mtime,
+    size: fileStat.size,
+  })
   const scannedPlans = await scanPlanFile(filePath, sessionId, projectPath, meta.cwd ?? projectPath)
   const indexedPlans: IndexedPlanInput[] = scannedPlans.map((plan) => ({
     provider: 'claude-code',
@@ -522,7 +550,7 @@ async function indexFile(filePath: string, activeGeneration: number): Promise<bo
     content: plan.content,
     derivedStatus: plan.derivedStatus,
   }))
-  replaceIndexedPlansForSession('claude-code', sessionId, indexedPlans)
+  await replaceIndexedPlansForSession(LOCAL_ORGANIZATION_ID, 'claude-code', sessionId, indexedPlans)
   return true
 }
 
@@ -786,6 +814,18 @@ export function persistIndexedSessionStart(
     reasoningEffort,
     branch,
   )
+  void upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
+    sessionId,
+    provider,
+    projectPath,
+    title: firstMessage ?? undefined,
+    model,
+    reasoningEffort,
+    status: 'running',
+    lastActivityAt: Date.now(),
+  }).catch((error) => {
+    log.warn('session_record_start_failed', { sessionId, error: String(error) })
+  })
 }
 
 /**
@@ -824,6 +864,15 @@ export function persistRemoteSessionStart(
     Date.now(),
     serverId,
   )
+  void upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
+    sessionId,
+    provider,
+    projectPath: projectRoot ? encodePathAsFolder(projectRoot) : '',
+    runnerHostId: serverId,
+    lastActivityAt: Date.now(),
+  }).catch((error) => {
+    log.warn('session_record_remote_start_failed', { sessionId, error: String(error) })
+  })
 }
 
 /** Record the checkout owned by one session attempt. The row is created by
@@ -846,43 +895,59 @@ export function setSessionBranch(sessionId: string, branch: string): void {
 /** Name a session, or clear the name back to the derived one with null. Only
  *  ever an UPDATE: every session that can be renamed is already a row (live
  *  sessions land one at session_init, history sessions come from the index). */
-export function setSessionCustomTitle(sessionId: string, title: string | null): void {
+export async function setSessionCustomTitle(sessionId: string, title: string | null): Promise<void> {
   getDb().prepare('UPDATE sessions SET custom_title = ? WHERE session_id = ?').run(title, sessionId)
+  await setSessionRecordTitle(LOCAL_ORGANIZATION_ID, sessionId, title)
 }
 
-export function listIndexedSessions(projectPaths: string[], limit?: number): SessionMeta[] {
+/**
+ * The picker's list: the collaboration plane's records decide which sessions
+ * and in what order (docs/plans/cloud-service-model.md); the transcript index
+ * on this machine, when it holds the session, fills in what only a runner
+ * knows — the working directory, the slug, the branch, the lineage.
+ */
+async function sessionsFromRecords(records: SessionRecord[]): Promise<SessionMeta[]> {
+  if (records.length === 0) return []
+  const placeholders = records.map(() => '?').join(', ')
+  const rows = sessionRowSchema.array().parse(getDb().prepare(`
+    SELECT ${SESSION_SELECT} FROM sessions WHERE session_id IN (${placeholders})
+  `).all(...records.map((record) => record.sessionId)))
+  const rowsById = new Map(rows.map((row) => [row.session_id, row]))
+  return records.map((record) => {
+    const row = rowsById.get(record.sessionId)
+    if (row) return rowToSession(row)
+    return {
+      provider: record.provider,
+      sessionId: record.sessionId,
+      slug: null,
+      firstMessage: record.title,
+      customTitle: record.customTitle ?? undefined,
+      lastTimestamp: new Date(record.lastActivityAt).toISOString(),
+      size: record.size,
+      cwd: '',
+      projectPath: record.projectPath,
+      model: record.model ?? undefined,
+      reasoningEffort: record.reasoningEffort ?? undefined,
+      serverId: record.runnerHostId ?? undefined,
+    }
+  })
+}
+
+export async function listIndexedSessions(projectPaths: string[], limit?: number): Promise<SessionMeta[]> {
   if (projectPaths.length === 0) return []
-  const placeholders = projectPaths.map(() => '?').join(', ')
-  const rows = sessionRowSchema.array().parse(getDb().prepare(`
-    SELECT ${SESSION_SELECT}
-    FROM sessions
-    WHERE provider = 'claude' AND project_path IN (${placeholders})
-    ORDER BY last_timestamp DESC
-    ${limit === undefined ? '' : 'LIMIT ?'}
-  `).all(...projectPaths, ...(limit === undefined ? [] : [limit])))
-  return rows.map(rowToSession)
+  return sessionsFromRecords(await listSessionRecords(LOCAL_ORGANIZATION_ID, { provider: 'claude-code', projectPaths, limit }))
 }
 
-export function listIndexedCodexSessions(projectPath: string, limit?: number): SessionMeta[] {
-  const normalizedPath = projectPath.replace(/\/$/, '')
-  const encodedPath = encodePathAsFolder(normalizedPath)
-  const includeWorktrees = !isSolusWorktreePath(normalizedPath)
-  const rows = sessionRowSchema.array().parse(getDb().prepare(`
-    SELECT ${SESSION_SELECT}
-    FROM sessions
-    WHERE provider = 'codex'
-      AND (project_path = ?${includeWorktrees ? ' OR project_path LIKE ?' : ''})
-    ORDER BY last_timestamp DESC
-    ${limit === undefined ? '' : 'LIMIT ?'}
-  `).all(
-    encodedPath,
-    ...(includeWorktrees ? [`${encodedPath}${SOLUS_WORKTREE_ENCODED_MARKER}%`] : []),
-    ...(limit === undefined ? [] : [limit]),
-  ))
-  return rows.map(rowToSession)
+export async function listIndexedCodexSessions(projectPath: string, limit?: number): Promise<SessionMeta[]> {
+  return sessionsFromRecords(await listSessionRecords(LOCAL_ORGANIZATION_ID, {
+    provider: 'codex',
+    projectPath,
+    includeWorktrees: true,
+    limit,
+  }))
 }
 
-export function cacheIndexedSessions(sessions: SessionMeta[]): void {
+export async function cacheIndexedSessions(sessions: SessionMeta[]): Promise<void> {
   if (sessions.length === 0) return
   withTx(() => {
     const upsert = getDb().prepare(`
@@ -919,6 +984,16 @@ export function cacheIndexedSessions(sessions: SessionMeta[]): void {
       )
     }
   })
+  for (const session of sessions) {
+    await upsertSessionRecord(LOCAL_ORGANIZATION_ID, {
+      sessionId: session.sessionId,
+      provider: session.provider,
+      projectPath: session.projectPath,
+      title: session.firstMessage ?? session.slug ?? undefined,
+      lastActivityAt: new Date(session.lastTimestamp).getTime(),
+      size: session.size,
+    })
+  }
 }
 
 export function getCodexSessionIndexWatermark(): number | null {

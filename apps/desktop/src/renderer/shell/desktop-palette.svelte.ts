@@ -122,8 +122,6 @@ export function createDesktopPalette(
   let paletteProjects = $state<ProjectEntry[]>([]);
   $effect(() => {
     if (!ui.commandPaletteOpen) return;
-    const cwd = session.galleryProjectPath;
-    const scopedCwd = cwd === "~" ? undefined : cwd;
     const taskCwd = session.tasksProjectCwd;
     const ctx = untrack(() => session.ctx);
     session.planStore
@@ -134,7 +132,7 @@ export function createDesktopPalette(
       .catch(() => {
         palettePlans = [];
       });
-    void session.worksStore.loadAll(scopedCwd);
+    void session.worksStore.loadAll();
     void session.automationsStore.loadAll();
     if (taskCwd) void session.tasksStore.ensureLoaded();
     const projectApi = session.apiForContext(ctx);

@@ -1,9 +1,11 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
 import type { AgentConversationUpdate, NormalizedEvent, PermissionOption, SessionMeta } from '@solus/contracts/types'
+
+import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -39,6 +41,10 @@ beforeAll(async () => {
   sessionTools = await import('@solus/server/sessions/session-tools')
   annotations = await import('@solus/server/plans/annotations')
   ;({ closeDb } = await import('@solus/server/db'))
+})
+afterEach(async () => {
+  await resetTestDatabase()
+  for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 afterAll(() => {
   closeDb?.()
@@ -201,7 +207,7 @@ describe('review_plan — the ruling is recorded', () => {
   test('the decision and its comment land on the plan, so the gallery reads like a human ruling', async () => {
     installController([planEvent(CLAUDE_OPTIONS)])
     await run({ session_id: 'peer-1', decision: 'request_changes', comment: 'measure first' })
-    const saved = await annotations.loadAnnotations('peer-1', 'toolu_1')
+    const saved = await annotations.loadAnnotations('local', 'peer-1', 'toolu_1')
     expect(saved?.status).toBe('rejected')
     expect(saved?.title).toBe('Evict on write')
     expect(saved?.comments).toHaveLength(1)
@@ -213,7 +219,7 @@ describe('review_plan — the ruling is recorded', () => {
   test('an approval is recorded as accepted', async () => {
     installController([planEvent(CLAUDE_OPTIONS)])
     await run({ session_id: 'peer-1', decision: 'approve' })
-    expect((await annotations.loadAnnotations('peer-1', 'toolu_1'))?.status).toBe('accepted')
+    expect((await annotations.loadAnnotations('local', 'peer-1', 'toolu_1'))?.status).toBe('accepted')
   })
 
   test('a ruling flips the caller card to answered', async () => {

@@ -322,7 +322,7 @@ describe('Socket.IO transport', () => {
     second.start()
     await Promise.all([waitForStatus(first, 'connected'), waitForStatus(second, 'connected')])
     const clientId = `ws:local:${getClientInstanceId(first)}`
-    expect(harness.events.publish(clientId, 'session.eventReceived', {
+    expect(await harness.events.publish(clientId, 'session.eventReceived', {
       sessionId: 'session-1',
       event: { type: 'assistant_message', text: 'hello' },
     })).toBe(1)

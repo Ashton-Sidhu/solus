@@ -5,6 +5,7 @@ import type { AgentTool } from '../agents/tools/agent-tool'
 import { formatAnswer } from '@solus/contracts/question-answer'
 import { extractPlanTitle } from '../agents/plan-text'
 import { loadAnnotations, saveAnnotations } from '../plans/annotations'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { describePendingInput, type PendingInputDescription } from './pending-input'
 import {
   findSession,
@@ -148,7 +149,7 @@ async function recordPlanDecision(
   deps: SessionToolDeps,
 ): Promise<void> {
   if (!plan.planToolUseId) return
-  const existing = await loadAnnotations(meta.sessionId, plan.planToolUseId)
+  const existing = await loadAnnotations(LOCAL_ORGANIZATION_ID, meta.sessionId, plan.planToolUseId)
   const title = extractPlanTitle(plan.planContent)
   const author = await callerAgent(deps.ctx)
   const thread: PlanComment[] = []
@@ -178,7 +179,7 @@ async function recordPlanDecision(
     updatedAt: Date.now(),
   }
   if (existing?.bookmarkedAt !== undefined) annotations.bookmarkedAt = existing.bookmarkedAt
-  await saveAnnotations(annotations)
+  await saveAnnotations(LOCAL_ORGANIZATION_ID, annotations)
   getSessionController()?.invalidatePlanCaches(meta.sessionId)
   notifyAnnotationsChanged({ kind: 'plan', targetId: `${meta.sessionId}__${plan.planToolUseId}` })
 }

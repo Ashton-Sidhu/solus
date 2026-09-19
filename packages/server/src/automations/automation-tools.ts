@@ -14,6 +14,7 @@ import {
 import { validateTrigger } from './automation-schedule'
 import { hasActiveRun, triggerAutomationRun } from './automation-runner'
 import { Task } from '../tasks/task'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { foreignTaskLinksFor } from '../tasks/foreign-tasks'
 import { resolveAutomationCwd } from './automation-cwd'
 
@@ -302,7 +303,7 @@ export async function executeAutomationTool(
           : `Scheduled (${created.trigger.type})${created.nextRunAt ? `; next run ${created.nextRunAt}` : ''}.`
       const where = created.action.sessionId ? ' Runs in this chat thread with full context.' : ''
       if (deps.ctx?.sessionId) {
-        await Task.linkArtifactForSession(deps.ctx.sessionId, {
+        await Task.linkArtifactForSession(LOCAL_ORGANIZATION_ID, deps.ctx.sessionId, {
           kind: 'automation',
           targetKey: created.id,
           title: created.name,
@@ -361,7 +362,7 @@ export async function executeAutomationTool(
       if (triggerPatch) automationPatch.trigger = triggerPatch
       const updated = await updateAutomation(id, automationPatch)
       if (updated && deps.ctx?.sessionId) {
-        await Task.linkArtifactForSession(deps.ctx.sessionId, {
+        await Task.linkArtifactForSession(LOCAL_ORGANIZATION_ID, deps.ctx.sessionId, {
           kind: 'automation',
           targetKey: updated.id,
           title: updated.name,

@@ -35,19 +35,22 @@ const db = {
   async get(query: SQL) {
     const { sql, params } = dialect.sqlToQuery(query)
     if (!sql.includes('SELECT fetched_at')) throw new Error(`Unexpected get: ${sql}`)
-    const [projectKey, provider, externalKey, scope] = params as string[]
+    // Every read names the caller's organization first (docs/plans/cloud-service-model.md).
+    const [organizationId, projectKey, provider, externalKey, scope] = params as string[]
+    expect(organizationId).toBe('local')
     return cacheRows.get(cacheKey(projectKey!, provider!, externalKey!, scope!))
   },
   async all(query: SQL) {
     const { sql, params } = dialect.sqlToQuery(query)
     if (!sql.includes('FROM "task_external_links"')) throw new Error(`Unexpected all: ${sql}`)
-    expect(params).toEqual(['github', 'example/repo'])
+    expect(params).toEqual(['local', 'github', 'example/repo'])
     return [...mirroredExternalIds].map((external_id) => ({ external_id }))
   },
   async run(query: SQL) {
     const { sql, params } = dialect.sqlToQuery(query)
     if (!sql.includes('INSERT INTO "upstream_task_cache"')) throw new Error(`Unexpected run: ${sql}`)
-    const [projectKey, provider, externalKey, scope, fetchedAt, truncated, tasks] = params as [string, string, string, string, number, number | null, string]
+    const [projectKey, provider, externalKey, scope, fetchedAt, truncated, tasks, organizationId] = params as [string, string, string, string, number, number | null, string, string]
+    expect(organizationId).toBe('local')
     cacheRows.set(cacheKey(projectKey, provider, externalKey, scope), { fetched_at: fetchedAt, truncated, tasks })
     return { changes: 1 }
   },
@@ -174,7 +177,7 @@ describe('upstream task reads', () => {
   test('polls GitHub when the issue list opens', async () => {
     // WHY: the task page must start current like the PR page; SQLite is only an
     // offline fallback and must not make every normal page entry look stale.
-    const result = await service.listUpstreamTasks('/workspace/solus')
+    const result = await service.listUpstreamTasks('local', '/workspace/solus')
 
     expect(result.tasks).toEqual([
       expect.objectContaining({ id: '42', providerId: 'github', projectKey: '/workspace/solus' }),
@@ -190,7 +193,7 @@ describe('upstream task reads', () => {
     // a user sees right after pressing Publish.
     mirroredExternalIds = new Set(['42'])
 
-    const result = await service.listUpstreamTasks('/workspace/solus')
+    const result = await service.listUpstreamTasks('local', '/workspace/solus')
 
     expect(result.tasks).toEqual([])
     expect(listCalls).toBe(1)
@@ -199,11 +202,11 @@ describe('upstream task reads', () => {
   test('still serves an unlinked ticket from the offline cache without its owner', async () => {
     // WHY: the filter must apply to the cached answer too, or a provider outage
     // resurrects the duplicate it was meant to remove.
-    await service.listUpstreamTasks('/workspace/solus')
+    await service.listUpstreamTasks('local', '/workspace/solus')
     mirroredExternalIds = new Set(['42'])
     listError = new Error('offline')
 
-    const cached = await service.listUpstreamTasks('/workspace/solus')
+    const cached = await service.listUpstreamTasks('local', '/workspace/solus')
 
     expect(cached.fromCache).toBe(true)
     expect(cached.tasks).toEqual([])
@@ -212,7 +215,7 @@ describe('upstream task reads', () => {
   test('keeps local-only projects from making an upstream request', async () => {
     config = { version: 1, taskProvider: 'local' }
 
-    expect(await service.listUpstreamTasks('/workspace/solus')).toEqual({ tasks: [] })
+    expect(await service.listUpstreamTasks('local', '/workspace/solus')).toEqual({ tasks: [] })
     expect(listCalls).toBe(0)
   })
 
@@ -220,26 +223,26 @@ describe('upstream task reads', () => {
     // WHY: changing an origin remote must not silently repoint provider-owned
     // rows or future publishes. The picker is the only binding owner.
     config = { version: 1, taskProvider: 'github' }
-    await expect(service.listUpstreamTasks('/workspace/solus')).rejects.toThrow(/needs a repository/i)
+    await expect(service.listUpstreamTasks('local', '/workspace/solus')).rejects.toThrow(/needs a repository/i)
     expect(listCalls).toBe(0)
   })
 
   test('keys offline snapshots by the pinned external scope', async () => {
-    await service.listUpstreamTasks('/workspace/solus')
+    await service.listUpstreamTasks('local', '/workspace/solus')
     config = {
       version: 1,
       taskProvider: 'github',
       taskProviderConfig: { owner: 'example', repo: 'other' },
     }
     listError = new Error('offline')
-    await expect(service.listUpstreamTasks('/workspace/solus')).rejects.toThrow('offline')
+    await expect(service.listUpstreamTasks('local', '/workspace/solus')).rejects.toThrow('offline')
   })
 
   test('treats transport-null list options as the default scope', async () => {
     // WHY: optional RPC arguments cross JSON transports as null, and a missing
     // filter must still load the project's complete GitHub issue list.
-    await service.listUpstreamTasks('/workspace/solus')
-    const result = await service.listUpstreamTasks('/workspace/solus', null)
+    await service.listUpstreamTasks('local', '/workspace/solus')
+    const result = await service.listUpstreamTasks('local', '/workspace/solus', null)
 
     expect(result.tasks).toEqual([
       expect.objectContaining({ id: '42', projectKey: '/workspace/solus' }),
@@ -249,10 +252,10 @@ describe('upstream task reads', () => {
   test('keeps the last successful GitHub snapshot visible when refresh fails', async () => {
     // WHY: a temporary upstream failure must not make GitHub rows disappear
     // beside native tasks after the local-first task migration.
-    const live = await service.listUpstreamTasks('/workspace/solus')
+    const live = await service.listUpstreamTasks('local', '/workspace/solus')
     listError = new Error('temporary GitHub failure')
 
-    const cached = await service.listUpstreamTasks('/workspace/solus')
+    const cached = await service.listUpstreamTasks('local', '/workspace/solus')
 
     expect(live.fromCache).toBeUndefined()
     expect(cached).toEqual(expect.objectContaining({
@@ -266,7 +269,7 @@ describe('upstream task reads', () => {
     // WHY: an unstored row has no local source of truth. The cache keeps an
     // offline list visible, but a detail page must show the provider's current
     // body, comments, and workflow state.
-    await service.listUpstreamTasks('/workspace/solus')
+    await service.listUpstreamTasks('local', '/workspace/solus')
     const task = await service.getUpstreamTask('/workspace/solus', '42')
 
     expect(task).toEqual(expect.objectContaining({ id: '42', projectKey: '/workspace/solus' }))
@@ -300,7 +303,7 @@ describe('searching the provider', () => {
   // loaded answers "no such issue" for anything older, so the text has to reach
   // the provider.
   test('hands the query to the adapter', async () => {
-    await service.listUpstreamTasks('/workspace/solus', { query: '  payment retry  ' })
+    await service.listUpstreamTasks('local', '/workspace/solus', { query: '  payment retry  ' })
 
     expect(listOptions).toEqual([{ involvement: undefined, query: 'payment retry' }])
   })
@@ -308,9 +311,9 @@ describe('searching the provider', () => {
   // A search result is not the project's list. Storing it would make the
   // offline fallback a filtered subset of the project, silently.
   test('never writes a search result into the offline snapshot', async () => {
-    await service.listUpstreamTasks('/workspace/solus')
+    await service.listUpstreamTasks('local', '/workspace/solus')
     const afterList = cacheRows.size
-    await service.listUpstreamTasks('/workspace/solus', { query: 'payment' })
+    await service.listUpstreamTasks('local', '/workspace/solus', { query: 'payment' })
 
     expect(cacheRows.size).toBe(afterList)
   })
@@ -318,10 +321,10 @@ describe('searching the provider', () => {
   // And never reads from it either: answering a search from the cached full
   // list would return rows that do not match what was asked.
   test('reports a failed search instead of serving the cached list', async () => {
-    await service.listUpstreamTasks('/workspace/solus')
+    await service.listUpstreamTasks('local', '/workspace/solus')
     listError = new Error('Jira is unreachable')
 
-    await expect(service.listUpstreamTasks('/workspace/solus', { query: 'payment' }))
+    await expect(service.listUpstreamTasks('local', '/workspace/solus', { query: 'payment' }))
       .rejects.toThrow(/unreachable/)
   })
 })

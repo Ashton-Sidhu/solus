@@ -34,18 +34,17 @@ function publishableWork(work: Work | null, workId: string): Work {
 }
 
 async function markLink(
+  organizationId: string,
   workId: string,
   link: WorkExternalLink,
   patch: Partial<WorkExternalLink>,
-  cwd?: string,
 ): Promise<WorkExternalLink> {
   const next: WorkExternalLink = { ...link, ...patch }
-  await setWorkMirroredDoc(workId, next, cwd)
+  await setWorkMirroredDoc(organizationId, workId, next)
   return next
 }
 
 export interface PublishWorkOptions {
-  cwd?: string
   /** Required on first publish — the destination picker's answer. Ignored
    *  afterwards: the link remembers where the doc lives. */
   destination?: DocDestination
@@ -54,10 +53,10 @@ export interface PublishWorkOptions {
   force?: boolean
 }
 
-export async function publishWork(workId: string, options: PublishWorkOptions = {}): Promise<WorkPublishResult> {
-  const { cwd, destination, diagramAssets, force } = options
+export async function publishWork(organizationId: string, workId: string, options: PublishWorkOptions = {}): Promise<WorkPublishResult> {
+  const { destination, diagramAssets, force } = options
   try {
-    const work = publishableWork(await loadWork(workId, cwd), workId)
+    const work = publishableWork(await loadWork(organizationId, workId), workId)
     assertWorkEditable(work)
     const result = await publishMirror({
       title: work.title,
@@ -67,7 +66,7 @@ export async function publishWork(workId: string, options: PublishWorkOptions = 
       diagramAssets,
       force,
     })
-    if (result.link) await setWorkMirroredDoc(workId, result.link, cwd)
+    if (result.link) await setWorkMirroredDoc(organizationId, workId, result.link)
     if (result.ok) log.info('work_published', { workId, provider: result.link.provider, lossy: result.lossyParts?.length ?? 0 })
     return result
   } catch (err) {
@@ -82,31 +81,27 @@ export async function publishWork(workId: string, options: PublishWorkOptions = 
  * works already keep a previous version, so a pull the user dislikes is one
  * revert away.
  */
-export async function pullWorkUpstream(workId: string, cwd?: string): Promise<WorkPullResult> {
-  const work = await loadWork(workId, cwd)
+export async function pullWorkUpstream(organizationId: string, workId: string): Promise<WorkPullResult> {
+  const work = await loadWork(organizationId, workId)
   if (!work) return { ok: false, error: `No work found with id "${workId}".` }
   const link = work.mirroredDoc
   if (!link) return { ok: false, error: `"${work.title}" is not linked to an upstream document.` }
 
   try {
     const pulled = await pullMirror(link)
-    const saved = await savePulledWork(
-      workId,
-      {
-        content: pulled.doc.markdown,
-        preview: workPreview(work.type, pulled.doc.markdown),
-        title: pulled.doc.title,
-      },
-      cwd,
-    )
-    await setWorkMirroredDoc(workId, pulled.link, cwd)
+    const saved = await savePulledWork(organizationId, workId, {
+      content: pulled.doc.markdown,
+      preview: workPreview(work.type, pulled.doc.markdown),
+      title: pulled.doc.title,
+    })
+    await setWorkMirroredDoc(organizationId, workId, pulled.link)
     return { ...pulled.result, title: saved.title, content: saved.content }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
-    await markLink(workId, link, {
+    await markLink(organizationId, workId, link, {
       syncState: err instanceof DocProviderUnavailableError ? 'auth_error' : 'error',
       syncError: message,
-    }, cwd)
+    })
     log.warn('work_pull_failed', { workId, error: message })
     return { ok: false, error: message }
   }
@@ -117,19 +112,19 @@ export async function pullWorkUpstream(workId: string, cwd?: string): Promise<Wo
  * Called only while a linked work is on screen — see the presence-scoped poll —
  * so the chip can say "upstream changed" before a publish is refused.
  */
-export async function refreshUpstreamState(workId: string, cwd?: string): Promise<WorkExternalLink | null> {
-  const work = await loadWork(workId, cwd)
+export async function refreshUpstreamState(organizationId: string, workId: string): Promise<WorkExternalLink | null> {
+  const work = await loadWork(organizationId, workId)
   const link = work?.mirroredDoc
   if (!link) return null
 
   const refreshed = await refreshMirror(link)
-  if (refreshed !== link) await setWorkMirroredDoc(workId, refreshed, cwd)
+  if (refreshed !== link) await setWorkMirroredDoc(organizationId, workId, refreshed)
   return refreshed
 }
 
-export async function unlinkWork(workId: string, cwd?: string): Promise<void> {
+export async function unlinkWork(organizationId: string, workId: string): Promise<void> {
   // Deliberately one-sided: the upstream doc is not deleted, moved, or emptied.
-  await setWorkMirroredDoc(workId, null, cwd)
+  await setWorkMirroredDoc(organizationId, workId, null)
 }
 
 export interface ImportedDoc {
@@ -150,6 +145,7 @@ export interface ImportDocOptions {
  * so a pasted URL is the whole import: no browser, no picker.
  */
 export async function importDocFromUrl(
+  organizationId: string,
   url: string,
   options: ImportDocOptions = {},
 ): Promise<ImportedDoc> {
@@ -160,6 +156,7 @@ export async function importDocFromUrl(
 
   const doc = await resolved.adapter.read(resolved.ref)
   const work = await createWork(
+    organizationId,
     doc.title,
     'doc',
     doc.markdown,
@@ -177,8 +174,8 @@ export async function importDocFromUrl(
     syncState: 'ok',
   }
   if (doc.version !== undefined) link.upstreamVersion = doc.version
-  await setWorkMirroredDoc(work.id, link, options.cwd)
-  if (resolved.adapter.comments) await refreshWorkExternalComments(work.id)
+  await setWorkMirroredDoc(organizationId, work.id, link)
+  if (resolved.adapter.comments) await refreshWorkExternalComments(organizationId, work.id)
 
   log.info('doc_imported', { workId: work.id, provider: doc.ref.provider })
   const result: ImportedDoc = { work: { ...work, mirroredDoc: link }, link }

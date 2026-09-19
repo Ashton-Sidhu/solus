@@ -8,6 +8,41 @@
       "when": 1789783152132,
       "tag": "0000_tasks",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789785282905,
+      "tag": "0001_works",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789785288598,
+      "tag": "0002_works_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789785594802,
+      "tag": "0003_plans",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789786046595,
+      "tag": "0004_sharing",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789786487819,
+      "tag": "0005_session_records",
+      "breakpoints": true
     }
   ]
 }

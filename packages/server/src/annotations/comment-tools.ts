@@ -4,6 +4,7 @@ import { createLogger } from '../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { loadWork } from '../folio/works'
 import { loadWorkAnnotations, saveWorkAnnotations } from '../folio/work-annotations'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { loadAnnotations, saveAnnotations } from '../plans/annotations'
 import { extractPlanTitle } from '../agents/plan-text'
 import { findSession, getSessionController, type SessionToolCtx } from '../sessions/session-tools'
@@ -51,9 +52,9 @@ interface TargetThreads {
 async function resolveTarget(targetId: string): Promise<(TargetThreads & { content: string | null }) | null> {
   if (isPlanTarget(targetId)) return resolvePlanTarget(targetId)
 
-  const work = await loadWork(targetId)
+  const work = await loadWork(LOCAL_ORGANIZATION_ID, targetId)
   if (!work) return null
-  const existing = await loadWorkAnnotations(targetId)
+  const existing = await loadWorkAnnotations(LOCAL_ORGANIZATION_ID, targetId)
   // Only the snapshot of the document the work is linked to right now: a
   // relinked work must not answer threads of the document it used to mirror.
   const link = work.mirroredDoc
@@ -67,7 +68,7 @@ async function resolveTarget(targetId: string): Promise<(TargetThreads & { conte
     externalThreads: linked ? snapshot.threads.filter((thread) => !thread.deleted) : [],
     externalLabel: link?.provider === 'confluence' ? 'Confluence' : 'Google Docs',
     save: async (comments) => {
-      await saveWorkAnnotations({ version: 1, workId: targetId, comments, updatedAt: Date.now() })
+      await saveWorkAnnotations(LOCAL_ORGANIZATION_ID, { version: 1, workId: targetId, comments, updatedAt: Date.now() })
       notifyAnnotationsChanged({ kind: 'work', targetId })
     },
   }
@@ -82,7 +83,7 @@ async function resolvePlanTarget(targetId: string): Promise<(TargetThreads & { c
   const meta = await findSession(sessionId)
   if (!meta) return null
   const content = await controller.loadPlanContent(meta.provider, sessionId, meta.projectPath || meta.cwd, planToolUseId)
-  const existing = await loadAnnotations(sessionId, planToolUseId)
+  const existing = await loadAnnotations(LOCAL_ORGANIZATION_ID, sessionId, planToolUseId)
   // A plan nobody has annotated yet has no row at all — the first comment on it
   // creates one, exactly as the first comment from the user's rail does.
   if (!existing && content === null) return null
@@ -106,7 +107,7 @@ async function resolvePlanTarget(targetId: string): Promise<(TargetThreads & { c
     externalThreads: [],
     externalLabel: '',
     save: async (comments) => {
-      await saveAnnotations({ ...base, comments, updatedAt: Date.now() })
+      await saveAnnotations(LOCAL_ORGANIZATION_ID, { ...base, comments, updatedAt: Date.now() })
       controller.invalidatePlanCaches(sessionId)
       notifyAnnotationsChanged({ kind: 'plan', targetId })
     },
@@ -329,7 +330,7 @@ async function readPlan(args: CommentToolArgs, deps: CommentToolDeps = {}): Prom
   const content = await controller.loadPlanContent(meta.provider, sessionId, meta.projectPath || meta.cwd, planToolUseId)
   if (content === null) return { ok: false, text: `Plan ${planToolUseId} could not be read for session ${sessionId}.` }
 
-  const annotations = await loadAnnotations(sessionId, planToolUseId)
+  const annotations = await loadAnnotations(LOCAL_ORGANIZATION_ID, sessionId, planToolUseId)
   const title = annotations?.title || extractPlanTitle(content)
   const status = annotations?.status ?? 'pending'
   return {

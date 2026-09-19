@@ -103,19 +103,20 @@ function linkFromRow(row: TaskLinkRow, live: Map<string, { title: string | null;
 
 /** The snapshot label, so a row renders even once its target is gone. Resolved
  * from the target's own table when the caller did not supply one. */
-function snapshotTitle(input: TaskLinkInput): string {
+async function snapshotTitle(organizationId: string, input: TaskLinkInput): Promise<string> {
   const supplied = input.title?.trim()
   if (supplied) return supplied
   const targetScope = input.targetScope ?? ''
   const fallback = { work: 'Untitled doc', automation: 'Untitled automation', plan: 'Untitled plan' }
   if (input.kind === 'pr') return `#${input.targetKey}`
   const target = { kind: input.kind, targetScope: input.kind === 'plan' ? targetScope : '', targetKey: input.targetKey }
-  const record = linkTargetRecordsFor([target]).get(linkTargetRecordKey(target))
+  const record = (await linkTargetRecordsFor(organizationId, [target])).get(linkTargetRecordKey(target))
   return record?.title?.trim() || fallback[input.kind]
 }
 
 export async function writeTaskLink(
   db: Db,
+  organizationId: string,
   taskId: string,
   input: TaskLinkInput,
   actor: EventActor = {},
@@ -124,7 +125,7 @@ export async function writeTaskLink(
   const targetKey = input.targetKey.trim()
   if (!targetKey) throw new Error('A task link needs a target.')
   const targetScope = (input.targetScope ?? '').trim()
-  const title = snapshotTitle({ ...input, targetKey, targetScope })
+  const title = await snapshotTitle(organizationId, { ...input, targetKey, targetScope })
 
   // A pin is a choice, and `undefined` is the absence of one: a re-link that
   // knows nothing about pinning must leave the existing pin alone. NULL is how
@@ -134,11 +135,11 @@ export async function writeTaskLink(
   await db.run(sql`
     INSERT INTO ${taskLinks}(
       task_id, kind, target_scope, target_key, title, url, created_by,
-      origin_session_id, linked_at, pinned
+      origin_session_id, linked_at, pinned, organization_id
     ) VALUES (
       ${taskId}, ${input.kind}, ${targetScope}, ${targetKey}, ${title}, ${input.url?.trim() || null},
       ${input.createdBy ?? actor.actor ?? 'user'}, ${input.originSessionId?.trim() || null}, ${now},
-      COALESCE(${pinned}, 0)
+      COALESCE(${pinned}, 0), ${organizationId}
     )
     ON CONFLICT(task_id, kind, target_scope, target_key) DO UPDATE SET
       title = excluded.title,
@@ -156,7 +157,7 @@ export async function writeTaskLink(
     `)
   }
   await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
-  await appendTaskEvent(db, taskId, {
+  await appendTaskEvent(db, organizationId, taskId, {
     ...actor,
     kind: 'linked',
     targetKind: input.kind,
@@ -203,6 +204,7 @@ export async function setTaskLinkPin(
  * change broadcast on a no-op. */
 export async function deleteTaskLink(
   db: Db,
+  organizationId: string,
   taskId: string,
   kind: TaskLinkKind,
   targetKey: string,
@@ -222,7 +224,7 @@ export async function deleteTaskLink(
   `)
   await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
   // Carries the title so the feed still reads "unlinked <name>" afterwards.
-  await appendTaskEvent(db, taskId, {
+  await appendTaskEvent(db, organizationId, taskId, {
     ...actor,
     kind: 'unlinked',
     targetKind: kind,
@@ -233,13 +235,16 @@ export async function deleteTaskLink(
   return true
 }
 
-export async function readTaskLinks(db: Db, taskId: string): Promise<TaskLink[]> {
+export async function readTaskLinks(db: Db, organizationId: string, taskId: string): Promise<TaskLink[]> {
   const rows = taskLinkRowSchema.array().parse(await db.all(sql`
     SELECT * FROM ${taskLinks}
     WHERE task_id = ${taskId}
     ORDER BY linked_at DESC, kind, target_key
   `))
-  const live = linkTargetRecordsFor(rows.map((row) => ({ kind: row.kind, targetScope: row.target_scope, targetKey: row.target_key })))
+  const live = await linkTargetRecordsFor(
+    organizationId,
+    rows.map((row) => ({ kind: row.kind, targetScope: row.target_scope, targetKey: row.target_key })),
+  )
   return rows.map((row) => linkFromRow(row, live))
 }
 
@@ -253,7 +258,11 @@ export async function readTaskLinks(db: Db, taskId: string): Promise<TaskLink[]>
  * rather than failing the read: a card missing a label is recoverable, a
  * transcript with no labels is not.
  */
-export async function readTasksLinkingTargets(db: Db, targets: TaskLinkTarget[]): Promise<TaskLinkedTask[]> {
+export async function readTasksLinkingTargets(
+  db: Db,
+  organizationId: string,
+  targets: TaskLinkTarget[],
+): Promise<TaskLinkedTask[]> {
   const wanted = targets.slice(0, LINKED_TASKS_TARGET_CAP)
   if (!wanted.length) return []
   const clause = sql.join(wanted.map((target) =>
@@ -264,7 +273,7 @@ export async function readTasksLinkingTargets(db: Db, targets: TaskLinkTarget[])
       tasks.title, tasks.status, tasks.short_id, tasks.project_key
     FROM ${taskLinks}
     JOIN ${tasks} ON tasks.id = task_links.task_id
-    WHERE ${clause}
+    WHERE tasks.organization_id = ${organizationId} AND (${clause})
     ORDER BY task_links.linked_at DESC
   `))
   return rows.map((row) => {
@@ -291,12 +300,13 @@ export async function readTasksLinkingTargets(db: Db, targets: TaskLinkTarget[])
  * asking what became of its pull request. Distinct, because several tasks
  * commonly link one pull request and it is one question either way.
  */
-export async function readActivePrLinkTargets(db: Db): Promise<PrLinkTarget[]> {
+export async function readActivePrLinkTargets(db: Db, organizationId: string): Promise<PrLinkTarget[]> {
   const rows = prLinkTargetRowSchema.array().parse(await db.all(sql`
     SELECT DISTINCT task_links.target_scope, task_links.target_key
     FROM ${taskLinks}
     JOIN ${tasks} ON tasks.id = task_links.task_id
-    WHERE task_links.kind = 'pr'
+    WHERE tasks.organization_id = ${organizationId}
+      AND task_links.kind = 'pr'
       AND tasks.status NOT IN ('done', 'dropped')
       AND task_links.target_scope <> ''
   `))
@@ -320,11 +330,11 @@ function toTaskPrSnapshot(detail: PullRequest): TaskPrSnapshot {
 
 /** Compact PR edges for the sidebar's cold-start snapshot. Links are newest
  * first. Invalid legacy keys stay out of the renderer contract. */
-export async function readTaskPrLinks(db: Db): Promise<TaskSidebarPrLinks> {
+export async function readTaskPrLinks(db: Db, organizationId: string): Promise<TaskSidebarPrLinks> {
   const rows = taskPrLinkRowSchema.array().parse(await db.all(sql`
     SELECT task_id, target_scope, target_key, title, url, created_by, origin_session_id
     FROM ${taskLinks}
-    WHERE kind = 'pr'
+    WHERE kind = 'pr' AND organization_id = ${organizationId}
     ORDER BY linked_at DESC, task_id, target_scope, target_key DESC
   `))
   const links: TaskSidebarPrLinks = {}

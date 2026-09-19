@@ -1,6 +1,6 @@
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
-import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot } from './types'
+import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot } from './types'
 import type { PrDiffFileContents, PrDiffFileContentsRequest, PrDiffRequest, PrDiffSlice, PrEffortRequest, PrEffortResult, PrFilter, PrLabel, PrLifecycleAction, PrListPage, PrReviewer, PrReviewerCandidate, PrReviewTarget, PullRequest, PullRequestOverview, PullRequestUpdate, ReviewThread, ReviewComment, PrCommit, PrConversationItem, DraftReview, ProviderViewer } from './providers'
 import type { CandidateTicket, PrepareSessionTaskRequest, PrepareSessionTaskResult, SessionExecutionHost, Task, TaskAssigneeCandidate, TaskCandidateOptions, TaskCreateInput, TaskDetails, TaskExternalLink, TaskForSessionResult, TaskLinkInput, TaskLinkKind, TaskLinkTarget, TaskLinkedTask, TaskListFilter, TaskListResult, TaskProviderStatus, TaskSessionLink, TaskSessionRole, TaskSidebarSnapshot, TaskSnapshot, TaskUpdatePatch } from './task-types'
 import type { OutboxApplyResult, OutboxOp } from './outbox-types'
@@ -132,6 +132,10 @@ export interface SolusAPI {
   bindRuntimeSession(ctx: IpcContext): Promise<RuntimeSessionInfo | null>
   resetSession(ctx: IpcContext): Promise<void>
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
+  /** Collaboration plane: the session records of the caller's organization (docs/plans/cloud-service-model.md). */
+  sessionRecordList(filter?: SessionRecordListFilter): Promise<SessionRecord[]>
+  /** Collaboration plane: a runner's report of one session. The host itself and, later, a runner of the organization. */
+  sessionRecordUpsert(record: SessionRecordUpsert): Promise<SessionRecord>
   searchSessions(request: SearchSessionsRequest): Promise<SessionSearchResult[]>
   loadSession(sessionId: string, projectPath?: string, ctx?: IpcContext, provider?: AgentId, limit?: number, options?: { deferToolInputs?: boolean }): Promise<WireSessionLoadMessage[]>
   loadSessionPage(request: SessionHistoryPageRequest): Promise<SessionHistoryPage>
@@ -391,13 +395,14 @@ export interface SolusAPI {
   writeReviewState(ctx: IpcContext, state: ReviewState): Promise<boolean>
 
   createWork(title: string, type: WorkType, content: string | undefined, preview: string | undefined, sessionId: string | undefined, agentProvider: AgentId, cwd?: string, id?: string): Promise<Work>
-  saveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, cwd?: string): Promise<Work>
-  loadWork(id: string, cwd?: string): Promise<Work | null>
-  listWorks(cwd?: string): Promise<(WorkMeta & { id: string })[]>
-  deleteWork(id: string, cwd?: string): Promise<void>
-  duplicateWork(id: string, cwd?: string): Promise<Work>
-  linkWorkSession(id: string, sessionId: string, cwd?: string): Promise<void>
-  promoteWorkToProject(id: string, projectRoot: string): Promise<Work>
+  saveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>): Promise<Work>
+  loadWork(id: string): Promise<Work | null>
+  listWorks(): Promise<(WorkMeta & { id: string })[]>
+  deleteWork(id: string): Promise<void>
+  duplicateWork(id: string): Promise<Work>
+  linkWorkSession(id: string, sessionId: string): Promise<void>
+  /** Execution plane: the host writes the work's content to one of its own paths. */
+  worksExport(request: WorkExportRequest): Promise<WorkExportResult>
   loadWorkAnnotations(workId: string): Promise<WorkAnnotations | null>
   /** One change to a work's comment threads (docs/plans/multiplayer-comments.md). The
    *  host stamps who did it and answers the whole sidecar; everyone who can open the
@@ -411,20 +416,20 @@ export interface SolusAPI {
   readWorkExternalComments(workId: string): Promise<WorkExternalComments>
   refreshWorkExternalComments(workId: string): Promise<WorkExternalComments>
   sendWorkExternalComment(workId: string, command: ExternalCommentCommand): Promise<WorkExternalComments>
-  agentSaveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>, cwd?: string): Promise<Work>
-  loadWorkPrevious(workId: string, cwd?: string): Promise<WorkPrevious | null>
-  revertWork(id: string, cwd?: string): Promise<Work | null>
-  setWorkPinned(id: string, pinned: boolean, cwd?: string): Promise<void>
+  agentSaveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>): Promise<Work>
+  loadWorkPrevious(workId: string): Promise<WorkPrevious | null>
+  revertWork(id: string): Promise<Work | null>
+  setWorkPinned(id: string, pinned: boolean): Promise<void>
 
   docProviderStatuses(): Promise<DocProviderStatus[]>
   docDestinations(provider: DocProviderId): Promise<DocDestination[]>
   /** `destination` is required on the first publish and ignored afterwards;
    *  `force` publishes over an upstream change the user chose to discard. */
   publishWork(id: string, opts?: WorkPublishRequest): Promise<WorkPublishResult>
-  pullWorkUpstream(id: string, cwd?: string): Promise<WorkPullResult>
+  pullWorkUpstream(id: string): Promise<WorkPullResult>
   /** Version metadata only — the presence-scoped staleness check. */
-  refreshWorkUpstream(id: string, cwd?: string): Promise<WorkExternalLink | null>
-  unlinkWorkUpstream(id: string, cwd?: string): Promise<void>
+  refreshWorkUpstream(id: string): Promise<WorkExternalLink | null>
+  unlinkWorkUpstream(id: string): Promise<void>
   publishPlan(request: PlanPublishRequest): Promise<WorkPublishResult>
   pullPlanUpstream(sessionId: string, planToolUseId: string): Promise<WorkPullResult>
   refreshPlanUpstream(sessionId: string, planToolUseId: string): Promise<WorkExternalLink | null>
@@ -482,7 +487,7 @@ export interface SolusAPI {
   /** Render a linked `artifact` work to a still and file it, with the HTML
    *  where the provider takes files, as a task comment queued for the ticket.
    *  `cwd` locates a project-stored work. */
-  tasksAttachArtifact(taskId: string, workId: string, cwd?: string): Promise<TaskDetails>
+  tasksAttachArtifact(taskId: string, workId: string): Promise<TaskDetails>
 
   outboxList(): Promise<OutboxOp[]>
   outboxAck(appliedIds: string[], failures?: Array<{ id: string; error: string }>): Promise<void>

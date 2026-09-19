@@ -1,22 +1,11 @@
-import { join } from 'node:path'
 import { loadWork } from '../folio/works'
-import { solusDir } from '../platform/paths'
-import type { AutomationAction, Work } from '@solus/contracts/types'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
+import type { AutomationAction } from '@solus/contracts/types'
 
 // Mirrors the renderer's PromptComposer: plan/work references are rendered as
 // pointer blocks appended to the prompt. Plans use the source captured at save
-// time; works are located fresh so the agent always reads the latest file.
-
-function workFilePath(work: Work): string {
-  const fileName = `${work.id}.json`
-  if (work.storage?.kind === 'project') {
-    const base = work.storage.projectRoot
-      ? join(work.storage.projectRoot, work.storage.relativePath)
-      : work.storage.relativePath
-    return join(base, fileName)
-  }
-  return join(solusDir(), 'works', fileName)
-}
+// time; a work is named by the id `read_work` takes, since it is a database
+// row and not a file the agent could open.
 
 /**
  * Expand an automation's plan (`#`) and work (`%`) references into context
@@ -35,9 +24,9 @@ export async function composeAutomationPrompt(action: AutomationAction): Promise
   }
 
   for (const ref of action.workRefs ?? []) {
-    const work = await loadWork(ref.workId, action.cwd).catch(() => null)
+    const work = await loadWork(LOCAL_ORGANIZATION_ID, ref.workId).catch(() => null)
     const parts = [`[Referenced Work: ${ref.title}]`, `Type: ${work?.type ?? ref.type}`]
-    if (work) parts.push(`File path: ${workFilePath(work)}`)
+    if (work) parts.push(`Work id: ${work.id} (read it with read_work)`)
     else parts.push('(Work unavailable — it may have been deleted)')
     blocks.push(parts.join('\n'))
   }

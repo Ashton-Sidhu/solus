@@ -37,6 +37,8 @@ import { Task, taskSnapshot } from './tasks/task'
 import { formatTaskContext } from './tasks/task-context'
 import { ResponseTextBuffer } from './sessions/response-text-buffer'
 import { getHostConfig } from './server/settings'
+import { LOCAL_ORGANIZATION_ID } from './server/principal'
+import { sessionRecordStatusOf, setSessionRecordStatus } from './sessions/session-records'
 import { clearForeignTaskSnapshot, foreignTaskFor, setForeignTaskSnapshot } from './tasks/foreign-tasks'
 import type { TaskSnapshot } from '@solus/contracts/task-types'
 import { getIndexedSession, persistIndexedSessionStart, setSessionBranch } from './db/session-indexer'
@@ -632,21 +634,24 @@ export class ControlPlane extends EventEmitter {
         } else if (event.type === 'plan') {
           const cwd = session.runInput?.workingDirectory ?? getIndexedSession(agentSessionId)?.cwd ?? '~'
           if (event.planToolUseId && event.planContent.trim()) {
-            indexLivePlan({
+            const planToolUseId = event.planToolUseId
+            void indexLivePlan(LOCAL_ORGANIZATION_ID, {
               provider: backend.id,
               sessionId: agentSessionId,
-              planToolUseId: event.planToolUseId,
+              planToolUseId,
               projectPath: encodePathAsFolder(cwd),
               cwd,
               timestamp: Date.now(),
               planFilePath: event.planFilePath || undefined,
               content: event.planContent,
+            }).catch((error) => {
+              log.warn('plan_index_live_failed', { agentSessionId, planToolUseId, error: String(error) })
             })
           }
           // The task store indexes artifacts by the provider's thread id, which
           // is what a transcript row on disk carries.
           if (event.planToolUseId) {
-            void Task.linkArtifactForSession(agentSessionId, {
+            void Task.linkArtifactForSession(LOCAL_ORGANIZATION_ID, agentSessionId, {
               kind: 'plan',
               targetScope: agentSessionId,
               targetKey: event.planToolUseId,
@@ -1011,7 +1016,7 @@ export class ControlPlane extends EventEmitter {
     return {
       sessionId,
       title: meta?.customTitle || meta?.firstMessage?.replace(/\s+/g, ' ') || meta?.slug || null,
-      taskId: await taskIdForSession(sessionId),
+      taskId: await taskIdForSession(LOCAL_ORGANIZATION_ID, sessionId),
       state: sessionActivityStateOf(this.activeSessions.get(sessionId)?.status),
       activeTurn: this.activeTurnFor(sessionId),
     }
@@ -1130,7 +1135,7 @@ export class ControlPlane extends EventEmitter {
     const pendingHandoff = this._pendingHandoffFor(sessionId)
     if (pendingHandoff) {
       const restoredHandoff = cancelProvisionalSessionHandoff(sessionId)
-      if (!restoredHandoff) await rekeyTaskSessionLinks(sessionId, pendingHandoff.fromSessionId)
+      if (!restoredHandoff) await rekeyTaskSessionLinks(LOCAL_ORGANIZATION_ID, sessionId, pendingHandoff.fromSessionId)
     }
     this.pendingHandoffs.delete(sessionId)
 
@@ -3070,7 +3075,7 @@ export class ControlPlane extends EventEmitter {
         fn: 'tasksForSession',
         file: 'control-plane.ts',
       }, async (annotate) => {
-        const found = await tasksForSession(sessionId)
+        const found = await tasksForSession(LOCAL_ORGANIZATION_ID, sessionId)
         annotate({ taskId: found?.task.id ?? '' })
         return found
       })
@@ -3085,7 +3090,7 @@ export class ControlPlane extends EventEmitter {
         fn: 'sessionTaskPreparer',
         file: 'control-plane.ts',
       }, async (annotate) => {
-        const prepared = await this.sessionTaskPreparer({
+        const prepared = await this.sessionTaskPreparer(LOCAL_ORGANIZATION_ID, {
         // A provider handoff is a new backend conversation, not a new Solus
         // session. Treat the prior provider id as the structural no-mint gate;
         // the existing task link (when present) is copied on session_init.
@@ -3258,7 +3263,7 @@ export class ControlPlane extends EventEmitter {
     }
     if (options.taskId) {
       try {
-        return { id: options.taskId, title: (await Task.byId(options.taskId)).title }
+        return { id: options.taskId, title: (await Task.byId(LOCAL_ORGANIZATION_ID, options.taskId)).title }
       } catch {
         return { id: options.taskId }
       }
@@ -3266,7 +3271,7 @@ export class ControlPlane extends EventEmitter {
     const agentSessionId = run.input.agentSessionId
     if (!agentSessionId) return null
     try {
-      const task = await Task.forSession(agentSessionId)
+      const task = await Task.forSession(LOCAL_ORGANIZATION_ID, agentSessionId)
       return task ? { id: task.id, title: task.title } : null
     } catch {
       return null
@@ -3280,7 +3285,7 @@ export class ControlPlane extends EventEmitter {
     // host, where the dispatching client writes this link itself.
     if (run.options.taskSnapshot) return
     try {
-      await (await Task.byId(taskId)).linkSession(sessionId, 'working', {
+      await (await Task.byId(LOCAL_ORGANIZATION_ID, taskId)).linkSession(sessionId, 'working', {
         originSessionId: sessionId,
       })
     } catch (err) {
@@ -3307,7 +3312,7 @@ export class ControlPlane extends EventEmitter {
     }
     setForeignTaskSnapshot(sessionId, null)
     try {
-      const snapshot = await taskSnapshot(taskId)
+      const snapshot = await taskSnapshot(LOCAL_ORGANIZATION_ID, taskId)
       return formatTaskContext(snapshot.details, snapshot.parent, snapshot.sessions, lifecyclePolicy)
     } catch (err) {
       // On a dispatch this once failed silently — the task's row lives on
@@ -4222,6 +4227,12 @@ export class ControlPlane extends EventEmitter {
     }
 
     log.info('session_status_changed', { sessionId, agentSessionId, oldStatus, newStatus })
+    // The collaboration plane's record keeps one fact of this: a turn open or not.
+    if (agentSessionId) {
+      void setSessionRecordStatus(LOCAL_ORGANIZATION_ID, agentSessionId, sessionRecordStatusOf(newStatus)).catch((error) => {
+        log.warn('session_record_status_failed', { sessionId, agentSessionId, error: String(error) })
+      })
+    }
     this._emit(sessionId, { type: 'status_change', status: newStatus, oldStatus })
     if (
       session &&

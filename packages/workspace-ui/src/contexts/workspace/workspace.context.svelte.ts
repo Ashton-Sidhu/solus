@@ -3106,19 +3106,18 @@ export class WorkspaceContext {
    *  secondary slot if one is already open); `secondary: true` forces it beside
    *  the conversation in the secondary pane (used by the project panel). */
   async openWorkModal(workId: string, title?: string, opts: { secondary?: boolean; via?: Via } = {}): Promise<void> {
-    const cwd = this.sessionFor(this.activeTabId)?.run.workingDirectory
     let resolvedId = workId
     if (workId) {
-      // Start the read with the originating directory, then show the pane's
-      // loading state while it completes. WorkPane shares this pending read.
-      void this.worksStore.ensureContent(workId, 'open-work-modal', cwd)
+      // Start the read, then show the pane's loading state while it
+      // completes. WorkPane shares this pending read.
+      void this.worksStore.ensureContent(workId, 'open-work-modal')
     } else {
       if (!title) return
-      // workId not yet resolved (historical message) — load manifest once, find by title
-      await this.worksStore.loadAll(cwd)
+      // workId not yet resolved (historical message) — load the list once, find by title
+      await this.worksStore.loadAll()
       const entry = Object.entries(this.worksStore.works).find(([, w]) => w.title === title)
       if (!entry) return
-      void this.worksStore.ensureContent(entry[0], 'open-work-modal-title-fallback', cwd)
+      void this.worksStore.ensureContent(entry[0], 'open-work-modal-title-fallback')
       resolvedId = entry[0]
     }
     this.router.close('folio')
@@ -3257,7 +3256,7 @@ export class WorkspaceContext {
     let targetTabId: string | null = null
     let resumed = false
     this.openWork(workId, 'aside')
-    void this.worksStore.ensureContent(workId, 'open-chat-for-work', this.sessionFor(this.activeTabId)?.run.workingDirectory)
+    void this.worksStore.ensureContent(workId, 'open-chat-for-work')
     if (mode === 'resume' && resumeSid) {
       // find an open tab with this session on the work's own host, else resume
       const openTab = this.tabIdForAgentSession(resumeSid, this.worksStore.hostFor(workId) ?? undefined)
@@ -3297,7 +3296,7 @@ export class WorkspaceContext {
       if (s) {
         s.boundWorkId = workId
         if (s.agentSessionId) {
-          this.worksStore.linkSession(s.run.workingDirectory, workId, s.agentSessionId)
+          this.worksStore.linkSession(workId, s.agentSessionId)
         }
       }
     }
@@ -3319,11 +3318,7 @@ export class WorkspaceContext {
 
     this.router.closeGroup('page')
     this.openWork(workId, 'aside')
-    void this.worksStore.ensureContent(
-      workId,
-      'send-message-to-work',
-      this.sessionFor(this.activeTabId)?.run.workingDirectory,
-    )
+    void this.worksStore.ensureContent(workId, 'send-message-to-work')
 
     const draft = this.createSessionDraft(
       owningTask ? { taskId: owningTask.taskId, workId } : { withoutTask: true, workId },

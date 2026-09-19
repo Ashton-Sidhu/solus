@@ -21,7 +21,7 @@
   import type { WorkCopyFormat, WorkExportFormat, WorkExportRequest } from "../work/lib/work-export";
   import { downloadPayload } from "../work/lib/work-export";
   import { dataUrlToPayload, renderDiagramPng, renderDiagramSvg } from "./lib/diagram-export";
-  import type { PlanComment, SessionMeta, WorkStorage } from "@solus/contracts/types";
+  import type { PlanComment, SessionMeta } from "@solus/contracts/types";
   import { getClientShellContext, getWorkspaceContext, getSettingsContext, runtime } from "../../contexts";
   import { serverConnections } from "@solus/client-core/server-connections";
   import { setMarkdownImageContext } from "../conversation/lib/markdown-image";
@@ -140,7 +140,6 @@
     onDelete?: () => void;
     /** Duplicate the work into a new independent copy. */
     onDuplicate?: () => void | Promise<void>;
-    workStorage?: WorkStorage;
     /** Opens the save picker on a chosen format; absent when there is no host. */
     onExport?: (request: WorkExportRequest) => void;
     /** The save picker's filesystem is not this device's — see WorkHeaderActions. */
@@ -178,7 +177,6 @@
     onRevert,
     onDelete,
     onDuplicate,
-    workStorage,
     onExport,
     hostIsRemote = false,
     onRename,
@@ -2534,7 +2532,6 @@
       {onRevert}
       {onDelete}
       {onDuplicate}
-      {workStorage}
       {exportFormats}
       {copyFormats}
       {onExport}

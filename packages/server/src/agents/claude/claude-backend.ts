@@ -13,6 +13,7 @@ import { PermissionManager } from './claude-permissions'
 import { BaseAgentBackend } from '../base-backend'
 import { encodePathAsFolder } from '../utils'
 import { loadAllAnnotations } from '../../plans/annotations'
+import { LOCAL_ORGANIZATION_ID } from '../../server/principal'
 import {
   isPlanIndexComplete,
   listIndexedPlans,
@@ -429,7 +430,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     }
 
     if (sessionIndexComplete()) {
-      const sessions = listIndexedSessions(dirsToScan.map((dir) => dir.encodedPath), limit)
+      const sessions = await listIndexedSessions(dirsToScan.map((dir) => dir.encodedPath), limit)
       onBatch?.(sessions)
       return sessions
     }
@@ -606,14 +607,14 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   }
 
   async listPlans(projectPath: string | undefined, allProjects: boolean): Promise<PlanDescriptor[]> {
-    if (isPlanIndexComplete('claude-code')) {
-      return listIndexedPlans('claude-code', projectPath, allProjects)
+    if (await isPlanIndexComplete(LOCAL_ORGANIZATION_ID, 'claude-code')) {
+      return listIndexedPlans(LOCAL_ORGANIZATION_ID, 'claude-code', projectPath, allProjects)
     }
     const cacheKey = `${allProjects ? 'all' : projectPath || process.cwd()}`
 
     const projectsRoot = join(homedir(), '.claude', 'projects')
     if (!existsSync(projectsRoot)) {
-      if (allProjects) replaceIndexedPlansForProvider('claude-code', [])
+      if (allProjects) await replaceIndexedPlansForProvider(LOCAL_ORGANIZATION_ID, 'claude-code', [])
       return []
     }
 
@@ -624,7 +625,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
     if (inFlight) return inFlight
 
     const scan = (async () => {
-      const annotationIndex = await loadAllAnnotations()
+      const annotationIndex = await loadAllAnnotations(LOCAL_ORGANIZATION_ID)
       const allScanned: AnnotatedPlan[] = []
       const indexedPlans: IndexedPlanInput[] = []
       const collect = (scanned: ScannedPlan[]) => {
@@ -675,7 +676,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
 
       const descriptors = groupBySession(allScanned)
       descriptors.sort((a, b) => b.timestamp - a.timestamp)
-      if (allProjects) replaceIndexedPlansForProvider('claude-code', indexedPlans)
+      if (allProjects) await replaceIndexedPlansForProvider(LOCAL_ORGANIZATION_ID, 'claude-code', indexedPlans)
       _planListCache.set(cacheKey, descriptors)
       return descriptors
     })()
@@ -694,7 +695,7 @@ export class ClaudeBackend extends BaseAgentBackend<ClaudeRunHandle> implements 
   }
 
   async loadPlanContent(sessionId: string, projectPath: string, planToolUseId: string): Promise<string | null> {
-    const indexed = loadIndexedPlanContent('claude-code', sessionId, planToolUseId)
+    const indexed = await loadIndexedPlanContent(LOCAL_ORGANIZATION_ID, 'claude-code', sessionId, planToolUseId)
     if (indexed !== null) return indexed
     const filePath = this.sessionFilePath(sessionId, projectPath)
     if (!filePath) return null

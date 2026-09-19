@@ -353,7 +353,7 @@ export class ReferenceIndex {
     }
 
     if (Object.keys(session.worksStore.works).length === 0) {
-      void session.worksStore.loadAll(workingDirectory).catch(() => {})
+      void session.worksStore.loadAll().catch(() => {})
     }
 
     if (!session.automationsStore.loaded) void session.automationsStore.loadAll().catch(() => {})

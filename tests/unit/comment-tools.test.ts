@@ -95,7 +95,7 @@ async function seedPlan(): Promise<void> {
     bookmarked: false,
     updatedAt: Date.now(),
   }
-  await planAnnotations.saveAnnotations(annotations)
+  await planAnnotations.saveAnnotations('local', annotations)
 }
 
 function run(name: string, args: Parameters<CommentToolsModule['executeCommentTool']>[1]) {
@@ -120,7 +120,7 @@ describe('anchoring', () => {
       comments: [{ quote: 'sweep holds the lock', comment: 'only during the swap, surely?' }],
     })
     expect(result.ok).toBe(true)
-    const saved = await planAnnotations.loadAnnotations('peer-1', 'toolu_1')
+    const saved = await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1')
     const comment = saved!.comments[0]
     expect(comment.selectedText).toBe('sweep holds the lock')
     expect(commentTools.renderedText(PLAN_TEXT).slice(comment.textOffset!)).toStartWith('sweep holds the lock')
@@ -135,7 +135,7 @@ describe('anchoring', () => {
     })
     expect(result.ok).toBe(false)
     expect(result.text).toContain('RENDERED text')
-    expect((await planAnnotations.loadAnnotations('peer-1', 'toolu_1'))!.comments).toHaveLength(0)
+    expect((await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1'))!.comments).toHaveLength(0)
   })
 
   test('an ambiguous quote is refused — it would anchor to the wrong place', async () => {
@@ -145,7 +145,7 @@ describe('anchoring', () => {
     })
     expect(result.ok).toBe(false)
     expect(result.text).toContain('more than once')
-    expect((await planAnnotations.loadAnnotations('peer-1', 'toolu_1'))!.comments).toHaveLength(0)
+    expect((await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1'))!.comments).toHaveLength(0)
   })
 
   test('one bad quote in a batch writes none of them', async () => {
@@ -159,7 +159,7 @@ describe('anchoring', () => {
       ],
     })
     expect(result.ok).toBe(false)
-    expect((await planAnnotations.loadAnnotations('peer-1', 'toolu_1'))!.comments).toHaveLength(0)
+    expect((await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1'))!.comments).toHaveLength(0)
   })
 })
 
@@ -169,7 +169,7 @@ describe('authorship', () => {
       target_id: PLAN_ID,
       comments: [{ quote: 'Swap under a read lock', comment: 'and the writers?' }],
     })
-    const saved = await planAnnotations.loadAnnotations('peer-1', 'toolu_1')
+    const saved = await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1')
     expect(saved!.comments[0]).toMatchObject({
       author: 'solus',
       authorAgent: { sessionId: 'caller-1', title: 'caller', provider: 'codex' },
@@ -188,7 +188,7 @@ describe('authorship', () => {
       target_id: PLAN_ID,
       comments: [{ quote: 'Swap under a read lock', comment: 'and the writers?' }],
     })
-    const saved = await planAnnotations.loadAnnotations('peer-1', 'toolu_1')
+    const saved = await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1')
     expect(saved!.comments[0].authorAgent).toEqual({ sessionId: 'caller-1', provider: 'codex' })
   })
 })
@@ -196,26 +196,26 @@ describe('authorship', () => {
 describe('replies and resolution round-trip through both stores', () => {
   test('a plan thread takes a reply and then resolves', async () => {
     await run('comment_document', { target_id: PLAN_ID, comments: [{ quote: 'Swap under a read lock', comment: 'and the writers?' }] })
-    const commentId = (await planAnnotations.loadAnnotations('peer-1', 'toolu_1'))!.comments[0].id
+    const commentId = (await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1'))!.comments[0].id
 
     expect((await run('reply_comment', { target_id: PLAN_ID, comment_id: commentId, text: 'writers take the write lock' })).ok).toBe(true)
-    const replied = await planAnnotations.loadAnnotations('peer-1', 'toolu_1')
+    const replied = await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1')
     expect(replied!.comments[0].replies).toMatchObject([{ author: 'solus', text: 'writers take the write lock' }])
 
     expect((await run('resolve_comment', { target_id: PLAN_ID, comment_id: commentId })).ok).toBe(true)
-    const resolvedThread = (await planAnnotations.loadAnnotations('peer-1', 'toolu_1'))!.comments[0]
+    const resolvedThread = (await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1'))!.comments[0]
     expect(typeof resolvedThread.resolvedAt).toBe('number')
     expect(resolvedThread.resolvedBy).toBe('solus')
   })
 
   test('a work thread takes a reply and then resolves', async () => {
-    const work = await works.createWork('Spec', 'doc', 'The eviction pass runs on write.', '', 'peer-1', 'claude-code', CWD)
+    const work = await works.createWork('local', 'Spec', 'doc', 'The eviction pass runs on write.', '', 'peer-1', 'claude-code', CWD)
     expect((await run('comment_document', { target_id: work.id, comments: [{ quote: 'eviction pass runs on write', comment: 'on read too' }] })).ok).toBe(true)
-    const commentId = (await workAnnotations.loadWorkAnnotations(work.id))!.comments[0].id
+    const commentId = (await workAnnotations.loadWorkAnnotations('local', work.id))!.comments[0].id
 
     await run('reply_comment', { target_id: work.id, comment_id: commentId, text: 'read path is separate' })
     await run('resolve_comment', { target_id: work.id, comment_id: commentId })
-    const thread = (await workAnnotations.loadWorkAnnotations(work.id))!.comments[0]
+    const thread = (await workAnnotations.loadWorkAnnotations('local', work.id))!.comments[0]
     expect(thread.replies).toHaveLength(1)
     expect(typeof thread.resolvedAt).toBe('number')
   })
@@ -223,7 +223,7 @@ describe('replies and resolution round-trip through both stores', () => {
   test('a plan nobody has annotated yet takes its first thread, creating the row', async () => {
     // WHY: reading a plan does not create an annotations row, so requiring one
     // would make commenting fail on exactly the plans an agent reviews.
-    await planAnnotations.saveAnnotations({
+    await planAnnotations.saveAnnotations('local', {
       version: 1, sessionId: 'other', projectPath: CWD, cwd: CWD, planToolUseId: 'x',
       title: 't', status: 'pending', comments: [], bookmarked: false, updatedAt: Date.now(),
     })
@@ -232,7 +232,7 @@ describe('replies and resolution round-trip through both stores', () => {
       comments: [{ quote: 'Swap under a read lock', comment: 'and the writers?' }],
     })
     expect(result.ok).toBe(true)
-    const saved = await planAnnotations.loadAnnotations('peer-1', 'toolu_fresh')
+    const saved = await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_fresh')
     expect(saved).toMatchObject({ title: 'Evict on write', status: 'pending', cwd: CWD })
     expect(saved!.comments).toHaveLength(1)
   })
@@ -243,9 +243,9 @@ describe('replies and resolution round-trip through both stores', () => {
     // which the user then published beside the thread instead of into it. The
     // answer belongs on a local thread linked to the provider thread, so the
     // rail can publish it as a reply — and nothing may be sent from here.
-    const work = await works.createWork('Spec', 'doc', 'The launch date is Friday.', '', 'peer-1', 'claude-code', CWD)
-    await works.setWorkMirroredDoc(work.id, { provider: 'gdrive', externalId: 'doc-1', externalKey: 'root', scope: 'root', url: 'https://docs.google.com/document/d/doc-1/edit', syncState: 'ok' })
-    workAnnotations.saveExternalComments(work.id, {
+    const work = await works.createWork('local', 'Spec', 'doc', 'The launch date is Friday.', '', 'peer-1', 'claude-code', CWD)
+    await works.setWorkMirroredDoc('local', work.id, { provider: 'gdrive', externalId: 'doc-1', externalKey: 'root', scope: 'root', url: 'https://docs.google.com/document/d/doc-1/edit', syncState: 'ok' })
+    await workAnnotations.saveExternalComments('local', work.id, {
       provider: 'gdrive', externalKey: 'root', documentId: 'doc-1', operations: [],
       threads: [{ id: 'AAAA', text: 'Is Friday right?', quote: 'launch date is Friday', author: { name: 'Reviewer', isMe: false }, createdAt: '', modifiedAt: '', resolved: false, deleted: false, replies: [] }],
     })
@@ -253,18 +253,18 @@ describe('replies and resolution round-trip through both stores', () => {
     const first = await run('reply_comment', { target_id: work.id, comment_id: 'AAAA', text: 'Yes, confirmed.' })
     expect(first.ok).toBe(true)
     expect(first.text).toContain('private')
-    let threads = (await workAnnotations.loadWorkAnnotations(work.id))!.comments
+    let threads = (await workAnnotations.loadWorkAnnotations('local', work.id))!.comments
     expect(threads).toHaveLength(1)
     expect(threads[0]).toMatchObject({ externalThreadId: 'AAAA', selectedText: 'launch date is Friday', comment: 'Yes, confirmed.', author: 'solus' })
     expect(typeof threads[0].textOffset).toBe('number')
 
     // A second answer joins the same linked thread rather than opening another.
     expect((await run('reply_comment', { target_id: work.id, comment_id: 'AAAA', text: 'And Monday is the backup.' })).ok).toBe(true)
-    threads = (await workAnnotations.loadWorkAnnotations(work.id))!.comments
+    threads = (await workAnnotations.loadWorkAnnotations('local', work.id))!.comments
     expect(threads).toHaveLength(1)
     expect(threads[0].replies).toMatchObject([{ author: 'solus', text: 'And Monday is the backup.' }])
     // The provider snapshot is untouched: publishing is the user's call.
-    expect((await workAnnotations.loadWorkAnnotations(work.id))!.externalComments?.operations).toEqual([])
+    expect((await workAnnotations.loadWorkAnnotations('local', work.id))!.externalComments?.operations).toEqual([])
   })
 
   test('an unknown target and an unknown thread are both refused by name', async () => {
@@ -287,7 +287,7 @@ describe('read_plan', () => {
     // WHY: re-serving a settled thread reads as a fresh request and the agent
     // does the work twice.
     await run('comment_document', { target_id: PLAN_ID, comments: [{ quote: 'Measure p99 before and after', comment: 'against which baseline?' }] })
-    const commentId = (await planAnnotations.loadAnnotations('peer-1', 'toolu_1'))!.comments[0].id
+    const commentId = (await planAnnotations.loadAnnotations('local', 'peer-1', 'toolu_1'))!.comments[0].id
     await run('resolve_comment', { target_id: PLAN_ID, comment_id: commentId })
     const result = await run('read_plan', { session_id: 'peer-1' })
     expect(result.text).not.toContain('against which baseline?')

@@ -25,12 +25,12 @@ async function locked<T>(workId: string, action: () => Promise<T>): Promise<T> {
   try { return await next } finally { if (locks.get(workId) === next) locks.delete(workId) }
 }
 
-async function context(workId: string) {
-  const work = await loadWork(workId)
+async function context(organizationId: string, workId: string) {
+  const work = await loadWork(organizationId, workId)
   if (work?.type !== 'doc' || !work.mirroredDoc) throw new Error('This work is not linked to an external document.')
   const documentId = work.mirroredDoc.externalId
   const { provider, externalKey } = work.mirroredDoc
-  const annotations = await loadWorkAnnotations(workId)
+  const annotations = await loadWorkAnnotations(organizationId, workId)
   const stored = annotations?.externalComments
   const legacy = provider === 'gdrive' && annotations?.googleComments?.documentId === documentId ? annotations.googleComments : undefined
   const state: WorkExternalComments = stored?.documentId === documentId && stored.provider === provider && stored.externalKey === externalKey
@@ -41,27 +41,27 @@ async function context(workId: string) {
   return { ref: work.mirroredDoc, comments, state }
 }
 
-async function persist(workId: string, state: WorkExternalComments): Promise<void> {
+async function persist(organizationId: string, workId: string, state: WorkExternalComments): Promise<void> {
   // A work may be unlinked or linked elsewhere while the request is in flight.
-  const work = await loadWork(workId)
+  const work = await loadWork(organizationId, workId)
   if (work?.mirroredDoc?.provider !== state.provider || work.mirroredDoc.externalId !== state.documentId || work.mirroredDoc.externalKey !== state.externalKey) throw new Error('The external document link changed. Refresh this work.')
-  saveExternalComments(workId, state)
+  await saveExternalComments(organizationId, workId, state)
   notifyAnnotationsChanged({ kind: 'work', targetId: workId })
 }
 
-export async function readWorkExternalComments(workId: string): Promise<WorkExternalComments> {
-  return (await context(workId)).state
+export async function readWorkExternalComments(organizationId: string, workId: string): Promise<WorkExternalComments> {
+  return (await context(organizationId, workId)).state
 }
 
-export async function refreshWorkExternalComments(workId: string): Promise<WorkExternalComments> {
+export async function refreshWorkExternalComments(organizationId: string, workId: string): Promise<WorkExternalComments> {
   return locked(workId, async () => {
-    const { ref, comments, state } = await context(workId)
+    const { ref, comments, state } = await context(organizationId, workId)
     try {
       state.threads = await comments.list(ref)
       state.checkedAt = Date.now()
       delete state.error
     } catch (error) { state.error = error instanceof Error ? error.message : String(error) }
-    await persist(workId, state)
+    await persist(organizationId, workId, state)
     return state
   })
 }
@@ -82,10 +82,10 @@ function requireThreadAction(command: ExternalCommentCommand, state: WorkExterna
 }
 
 /** Explicit outbound operation. A recorded request is never posted twice, even after restart. */
-export async function sendWorkExternalComment(workId: string, input: ExternalCommentCommand): Promise<WorkExternalComments> {
+export async function sendWorkExternalComment(organizationId: string, workId: string, input: ExternalCommentCommand): Promise<WorkExternalComments> {
   const command = commandSchema.parse(input)
   return locked(workId, async () => {
-    const { ref, comments, state } = await context(workId)
+    const { ref, comments, state } = await context(organizationId, workId)
     validateCommandTarget(command, state)
     const existing = state.operations.find(operation => operation.requestId === command.requestId)
     if (existing) {
@@ -103,7 +103,7 @@ export async function sendWorkExternalComment(workId: string, input: ExternalCom
     operation.status = 'sending'
     delete operation.error
     if (!existing) state.operations.push(operation)
-    await persist(workId, state)
+    await persist(organizationId, workId, state)
     try {
       operation.result = await comments.mutate(ref, command.kind === 'share'
         ? { action: 'create', text: command.text, quote: command.quote }
@@ -116,13 +116,13 @@ export async function sendWorkExternalComment(workId: string, input: ExternalCom
       operation.error = error instanceof Error ? error.message : String(error)
     }
     // Persist acknowledgement BEFORE read-back; failed refresh must never cause reposting.
-    await persist(workId, state)
+    await persist(organizationId, workId, state)
     try {
       state.threads = await comments.list(ref)
       state.checkedAt = Date.now()
       delete state.error
     } catch (error) { state.error = error instanceof Error ? error.message : String(error) }
-    await persist(workId, state)
+    await persist(organizationId, workId, state)
     return state
   })
 }

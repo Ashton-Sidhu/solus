@@ -6,8 +6,10 @@ import { listRecentProjects, trackRecentProject } from '../../recent-projects'
 import { createLogger, isDebugEnabled } from '../../logger'
 import { recordOtelDuration } from '../../otel'
 import type { HandlerCtx, SolusServer } from '../server'
+import { organizationOf } from '../principal'
 import type { ShareManager } from '../../sharing/share-manager'
 import { getIndexedSession, getSessionMessageWindow, searchIndexedSessions, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
+import { listSessionRecords, upsertSessionRecord } from '../../sessions/session-records'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { projectsVisibleTo } from './setup-handlers'
 import { generateSessionMetadata } from '../../sessions/session-title'
@@ -30,7 +32,7 @@ export interface HistoryDeps {
 
 export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps): void {
   const { controlPlane, events, agentIdFromContext } = deps
-  const visibleSessions = <T>(handlerCtx: HandlerCtx, sessions: T[], sessionIdOf: (item: T) => string): T[] =>
+  const visibleSessions = async <T>(handlerCtx: HandlerCtx, sessions: T[], sessionIdOf: (item: T) => string): Promise<T[]> =>
     deps.shares ? deps.shares.filterVisible(handlerCtx.principal, 'session', sessions, sessionIdOf) : sessions
 
   server.register('listSessions', async (args, handlerCtx) => {
@@ -44,35 +46,45 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     try {
       let batchBuffer: SessionMeta[] = []
       let flushScheduled = false
+      // Batches are filtered and sent one after another, in order: the share
+      // filter is a read, and a later batch must not overtake an earlier one.
+      let flushChain: Promise<void> = Promise.resolve()
       const BATCH_SIZE = 20
 
-      function flushBatch() {
+      async function flushOne() {
         if (batchBuffer.length === 0) return
-        const sessions = visibleSessions(handlerCtx, batchBuffer.splice(0, BATCH_SIZE), (session) => session.sessionId)
+        const sessions = await visibleSessions(handlerCtx, batchBuffer.splice(0, BATCH_SIZE), (session) => session.sessionId)
         if (handlerCtx.clientId && sessions.length) {
           if (streamId) {
-            events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'batch', sessions } satisfies SessionScanEvent)
+            await events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'batch', sessions } satisfies SessionScanEvent)
           }
         }
+      }
+
+      function flushBatch(): Promise<void> {
         flushScheduled = false
+        flushChain = flushChain.then(flushOne, flushOne)
+        return flushChain
       }
 
       const onBatch = streamId && limitPerProvider === undefined
         ? (sessions: SessionMeta[]) => {
             batchBuffer.push(...sessions)
             if (batchBuffer.length >= BATCH_SIZE) {
-              while (batchBuffer.length >= BATCH_SIZE) flushBatch()
+              while (batchBuffer.length >= BATCH_SIZE * 2) batchBuffer.splice(0, 0)
+              void flushBatch()
             } else if (!flushScheduled) {
               flushScheduled = true
-              queueMicrotask(flushBatch)
+              queueMicrotask(() => void flushBatch())
             }
           }
         : undefined
-      const sessions = visibleSessions(handlerCtx, await controlPlane.listSessionsForProviders(controlPlane.getBackendIds(), projectPath, onBatch, limitPerProvider), (session) => session.sessionId)
+      const sessions = await visibleSessions(handlerCtx, await controlPlane.listSessionsForProviders(controlPlane.getBackendIds(), projectPath, onBatch, limitPerProvider), (session) => session.sessionId)
       if (streamId) {
-        while (batchBuffer.length > 0) flushBatch()
+        while (batchBuffer.length > 0) await flushBatch()
+        await flushChain
         if (handlerCtx.clientId) {
-          events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'done', totalSessions: sessions.length } satisfies SessionScanEvent)
+          await events.publish(handlerCtx.clientId, 'session.scanProgressed', { streamId, type: 'done', totalSessions: sessions.length } satisfies SessionScanEvent)
         }
       }
       recordOtelDuration('list_sessions', Date.now() - t0, { count: sessions.length })
@@ -91,7 +103,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   server.register('searchSessions', async (args, handlerCtx) => {
     const [request] = args
     try {
-      return visibleSessions(handlerCtx, searchIndexedSessions(request.query, {
+      return await visibleSessions(handlerCtx, searchIndexedSessions(request.query, {
         projectRoot: request.projectRoot,
         providers: request.providers,
         role: request.role,
@@ -102,6 +114,22 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       log.error('search_sessions_failed', { error: String(err) })
       return []
     }
+  })
+
+  // The collaboration plane's session records (docs/plans/cloud-service-model.md).
+  server.register('sessionRecordList', async (args, ctx) => {
+    const [filter] = args
+    return listSessionRecords(organizationOf(ctx.principal), {
+      provider: filter?.provider,
+      projectPath: filter?.projectPath,
+      includeWorktrees: filter?.includeWorktrees,
+      limit: filter?.limit,
+    })
+  })
+
+  server.register('sessionRecordUpsert', async (args, ctx) => {
+    const [record] = args
+    return upsertSessionRecord(organizationOf(ctx.principal), record)
   })
 
   server.register('listRecentProjects', async (_args, ctx) => {
@@ -257,16 +285,17 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     return generateSessionMetadata(controlPlane, promptText, cwd, context)
   })
 
-  server.register('setSessionTitle', async (args) => {
+  server.register('setSessionTitle', async (args, ctx) => {
     const [sessionId, title, source = 'manual', generatedDescription, publishEvent = true] = args
     const trimmed = title?.trim()
     const customTitle = trimmed || null
-    setSessionCustomTitle(sessionId, customTitle)
+    await setSessionCustomTitle(sessionId, customTitle)
     let taskCatalogChanged = false
     try {
       if (source === 'generated') {
         if (trimmed && generatedDescription) {
           taskCatalogChanged = !!await updateGeneratedMetadataForSession(
+            organizationOf(ctx.principal),
             sessionId,
             trimmed,
             generatedDescription,
@@ -337,20 +366,20 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('loadPlanAnnotations', async (args) => {
+  server.register('loadPlanAnnotations', async (args, ctx) => {
     const [sessionId, planToolUseId] = args
     try {
-      return await loadAnnotations(sessionId, planToolUseId)
+      return await loadAnnotations(organizationOf(ctx.principal), sessionId, planToolUseId)
     } catch (err) {
       log.error('load_plan_annotations_failed', { error: String(err), sessionId, planToolUseId })
       return null
     }
   })
 
-  server.register('savePlanAnnotations', async (args) => {
+  server.register('savePlanAnnotations', async (args, ctx) => {
     const [annotations] = args
     try {
-      await saveAnnotations(annotations)
+      await saveAnnotations(organizationOf(ctx.principal), annotations)
       controlPlane.invalidatePlanCaches(annotations.sessionId)
       return { ok: true }
     } catch (err) {
@@ -359,9 +388,9 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('toggleBookmarkPlan', async (args) => {
+  server.register('toggleBookmarkPlan', async (args, ctx) => {
     const [sessionId, projectPath, cwd, planToolUseId, title] = args
-    const merged = await toggleBookmarkAnnotations(sessionId, projectPath, cwd, planToolUseId, title)
+    const merged = await toggleBookmarkAnnotations(organizationOf(ctx.principal), sessionId, projectPath, cwd, planToolUseId, title)
     controlPlane.invalidatePlanCaches(sessionId)
     return merged
   })

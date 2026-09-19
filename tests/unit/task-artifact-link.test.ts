@@ -49,8 +49,8 @@ describe('artifact linking across the session id boundary', () => {
     // keyed on the stable Solus id. Without lineage resolution the lookup finds
     // nothing, the link is skipped without an error, and the created work never
     // appears on the task that produced it.
-    const record = await taskStore.createTask({ title: 'Drive integration' })
-    const task = await tasks.Task.byId(record.id)
+    const record = await taskStore.createTask('local', { title: 'Drive integration' })
+    const task = await tasks.Task.byId('local', record.id)
     await task.linkSession(SOLUS_SESSION_ID)
     lineage.registerSessionLineage({
       sessionId: SOLUS_SESSION_ID,
@@ -59,7 +59,7 @@ describe('artifact linking across the session id boundary', () => {
       cwd: '/repo',
     })
 
-    const details = await tasks.Task.linkArtifactForSession(PROVIDER_SESSION_ID, {
+    const details = await tasks.Task.linkArtifactForSession('local', PROVIDER_SESSION_ID, {
       kind: 'work',
       targetKey: 'work-613e21e7',
       title: 'Plan: Drive integration',
@@ -73,11 +73,11 @@ describe('artifact linking across the session id boundary', () => {
   test('the stable Solus id still resolves its own task', async () => {
     // WHY: the renderer and ControlPlane already pass the stable id. Resolving
     // the provider alias must not cost them their direct match.
-    const record = await taskStore.createTask({ title: 'Drive integration' })
-    const task = await tasks.Task.byId(record.id)
+    const record = await taskStore.createTask('local', { title: 'Drive integration' })
+    const task = await tasks.Task.byId('local', record.id)
     await task.linkSession(SOLUS_SESSION_ID)
 
-    const resolved = await tasks.Task.forSession(SOLUS_SESSION_ID)
+    const resolved = await tasks.Task.forSession('local', SOLUS_SESSION_ID)
 
     expect(resolved?.id).toBe(record.id)
   })
@@ -86,8 +86,8 @@ describe('artifact linking across the session id boundary', () => {
     // WHY: a task page opens with exactly one render above its linked table.
     // Two rows claiming the slot means the page picks arbitrarily, and the
     // reader has no way to tell which pin they last set.
-    const record = await taskStore.createTask({ title: 'Report latency' })
-    const task = await tasks.Task.byId(record.id)
+    const record = await taskStore.createTask('local', { title: 'Report latency' })
+    const task = await tasks.Task.byId('local', record.id)
     await task.linkWork('work-a', { title: 'A', pinned: true })
     await task.linkWork('work-b', { title: 'B', pinned: true })
 
@@ -99,8 +99,8 @@ describe('artifact linking across the session id boundary', () => {
     // WHY: every other path that writes a link — a rename snapshot, an agent
     // re-linking the work it just revised — knows nothing about pinning. If
     // absence meant "unpin", the reader's choice would not survive a save.
-    const record = await taskStore.createTask({ title: 'Report latency' })
-    const task = await tasks.Task.byId(record.id)
+    const record = await taskStore.createTask('local', { title: 'Report latency' })
+    const task = await tasks.Task.byId('local', record.id)
     await task.linkWork('work-b', { title: 'B', pinned: true })
     await task.linkWork('work-b', { title: 'B renamed' })
 
@@ -111,8 +111,8 @@ describe('artifact linking across the session id boundary', () => {
   test('unpinning leaves the link, and adds no second linked event', async () => {
     // WHY: a pin is not a link. Re-running the link write for it would append
     // "linked B" to the activity feed every time the reader changed the pin.
-    const record = await taskStore.createTask({ title: 'Report latency' })
-    const task = await tasks.Task.byId(record.id)
+    const record = await taskStore.createTask('local', { title: 'Report latency' })
+    const task = await tasks.Task.byId('local', record.id)
     await task.linkWork('work-b', { title: 'B', pinned: true })
     await task.linkWork('work-b', { title: 'B', pinned: false })
 
@@ -124,7 +124,7 @@ describe('artifact linking across the session id boundary', () => {
   test('a session with no task links nothing', async () => {
     // WHY: loose conversations that predate session-born tasks are ordinary,
     // not an error, so the link stays a no-op instead of throwing.
-    const linked = await tasks.Task.linkArtifactForSession('loose-session', {
+    const linked = await tasks.Task.linkArtifactForSession('local', 'loose-session', {
       kind: 'work',
       targetKey: 'work-orphan',
       title: 'Orphan',

@@ -13,6 +13,7 @@ import type { AgentId, WorkType } from '@solus/contracts/types'
 import { createLogger } from '../logger'
 import type { AgentTool } from '../agents/tools/agent-tool'
 import { Task } from '../tasks/task'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { randomUUID } from 'node:crypto'
 import {
   applyWorkOpToForeignTask,
@@ -181,6 +182,7 @@ export async function createAgentWork(
   }
 
   const created = await createWork(
+    LOCAL_ORGANIZATION_ID,
     title,
     docType,
     content,
@@ -191,7 +193,7 @@ export async function createAgentWork(
   )
 
   if (ctx?.sessionId && linkToTask) {
-    await Task.linkArtifactForSession(ctx.sessionId, {
+    await Task.linkArtifactForSession(LOCAL_ORGANIZATION_ID, ctx.sessionId, {
       kind: 'work',
       targetKey: created.id,
       title: created.title,
@@ -225,7 +227,7 @@ export async function executeWorkTool(
       // No query is the list: every open work, titles only. A query searches
       // content too, which is the only way to answer "that doc about X".
       if (!query) {
-        const works = await listWorks(deps.ctx?.cwd)
+        const works = await listWorks(LOCAL_ORGANIZATION_ID)
         // A dispatched session's linked works live on the task's host; the
         // shipped copies are the only view of them this host has.
         const foreignWorks = foreignLinkedItemsFor(deps.ctx?.solusSessionId).filter((item) => item.kind === 'work')
@@ -234,7 +236,7 @@ export async function executeWorkTool(
         }
         const lines = [
           ...works.map(
-            (w) => `- ${w.id} — "${w.title}" (${w.type}, ${w.storage?.kind ?? 'local'}), updated ${w.updatedAt}${embedTokenNote(w.id, w.title, w.type)}`,
+            (w) => `- ${w.id} — "${w.title}" (${w.type}), updated ${w.updatedAt}${embedTokenNote(w.id, w.title, w.type)}`,
           ),
           ...foreignWorks.map(
             (w) => `- ${w.key} — "${w.title}" (${w.workType ?? 'doc'}, shipped from the task's host, read-only), updated ${w.updatedAt ?? 'unknown'}`,
@@ -247,11 +249,11 @@ export async function executeWorkTool(
       const type = rawType === 'any' ? undefined : rawType
       const limit = args.limit === undefined ? 10 : Math.min(20, Math.max(1, Math.floor(args.limit)))
 
-      const hits = await searchWorks(query, { type, cwd: deps.ctx?.cwd, limit })
+      const hits = await searchWorks(LOCAL_ORGANIZATION_ID, query, { type, limit })
       if (!hits.length) return { ok: true, text: `No works match "${query}".` }
       const lines = hits.map(
         (hit) =>
-          `- ${hit.id} — "${hit.title}" (${hit.type}, ${hit.storage}), cwd ${hit.cwd}, updated ${hit.updatedAt}\n  ${hit.snippet}`,
+          `- ${hit.id} — "${hit.title}" (${hit.type}), cwd ${hit.cwd}, updated ${hit.updatedAt}\n  ${hit.snippet}`,
       )
       const nextStep = '→ To read any result in full, call read_work with its id.'
       return { ok: true, text: `Works matching "${query}":\n${lines.join('\n')}\n\n${nextStep}` }
@@ -260,7 +262,7 @@ export async function executeWorkTool(
     if (name === 'read_work') {
       const workId = String(args.work_id ?? '')
       if (!workId) return { ok: false, text: 'read_work requires a work_id.' }
-      const work = await loadWork(workId, deps.ctx?.cwd)
+      const work = await loadWork(LOCAL_ORGANIZATION_ID, workId)
       if (!work) {
         const foreign = foreignLinkedItemFor(deps.ctx?.solusSessionId, 'work', workId)
         if (foreign) {
@@ -274,8 +276,8 @@ export async function executeWorkTool(
       // Surface the open threads alongside the content so the agent sees
       // feedback without the user having to paste it into chat. Rendered by the
       // same formatter as read_plan, so both read identically.
-      if (work.mirroredDoc) await refreshWorkExternalComments(workId)
-      const annotations = await loadWorkAnnotations(workId)
+      if (work.mirroredDoc) await refreshWorkExternalComments(LOCAL_ORGANIZATION_ID, workId)
+      const annotations = await loadWorkAnnotations(LOCAL_ORGANIZATION_ID, workId)
       return {
         ok: true,
         text: `Work "${work.title}" (${work.type}, id: ${work.id})${embedTokenNote(work.id, work.title, work.type)}${work.mirroredDoc?.provider === 'gdrive' ? `\n${GOOGLE_WORK_READ_ONLY}` : ''}:\n\n${work.content}${formatOpenThreads(annotations?.comments ?? [])}${formatExternalThreads(work.mirroredDoc?.provider === annotations?.externalComments?.provider && work.mirroredDoc?.externalId === annotations?.externalComments?.documentId && work.mirroredDoc?.externalKey === annotations?.externalComments?.externalKey ? annotations?.externalComments : undefined, work.mirroredDoc?.url)}`,
@@ -322,7 +324,7 @@ export async function executeWorkTool(
       if (!content.trim()) return { ok: false, text: 'update_work requires non-empty content.' }
       const title = args.title
 
-      const existing = await loadWork(workId, deps.ctx?.cwd)
+      const existing = await loadWork(LOCAL_ORGANIZATION_ID, workId)
       if (!existing) {
         // A shipped (or op-created) work on a dispatched session: the row
         // lives on the task's host, so the update travels as an outbox op.
@@ -373,10 +375,10 @@ export async function executeWorkTool(
 
       const preview = workPreview(existing.type, content)
       const update = { content, preview, title }
-      const saved = await agentSaveWork(workId, update, deps.ctx?.cwd)
+      const saved = await agentSaveWork(LOCAL_ORGANIZATION_ID, workId, update)
 
       if (deps.ctx?.sessionId) {
-        await Task.linkArtifactForSession(deps.ctx.sessionId, {
+        await Task.linkArtifactForSession(LOCAL_ORGANIZATION_ID, deps.ctx.sessionId, {
           kind: 'work',
           targetKey: saved.id,
           title: saved.title,

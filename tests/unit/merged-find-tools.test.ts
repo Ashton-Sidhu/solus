@@ -56,7 +56,7 @@ afterAll(() => {
 
 describe('find_works answers with or without a query', () => {
   test('no query lists the open works; a query searches their content', async () => {
-    await works.createWork(
+    await works.createWork('local', 
       'Rate limit handling',
       'doc',
       'The queue drains after a dead transport.',
@@ -128,7 +128,7 @@ describe('find_sessions answers with or without a query', () => {
 
 describe('link_task carries the session kind', () => {
   test('kind=session with no target links the calling session', async () => {
-    const task = await createTask({ title: 'Bind me', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'Bind me', projectKey: '/p', body: '' })
 
     const linked = await taskTools.linkTaskAgentTool.execute(
       { task_id: task.id, kind: 'session' },
@@ -143,7 +143,7 @@ describe('link_task carries the session kind', () => {
     // WHY: session_id survives on this tool for kind=plan, where it names the
     // plan's owning session. Reading it for kind=session too would keep the old
     // link_task_session call shape alive as a second way to say the same thing.
-    const task = await createTask({ title: 'One way to name it', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'One way to name it', projectKey: '/p', body: '' })
 
     const linked = await taskTools.linkTaskAgentTool.execute(
       { task_id: task.id, kind: 'session', session_id: 'not-the-target' },
@@ -158,7 +158,7 @@ describe('link_task carries the session kind', () => {
   test('every other kind still demands its target', async () => {
     // WHY: making target_id optional for the session default must not make it
     // optional for a work or a PR, where there is nothing to fall back to.
-    const task = await createTask({ title: 'Needs a target', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'Needs a target', projectKey: '/p', body: '' })
 
     const linked = await taskTools.linkTaskAgentTool.execute(
       { task_id: task.id, kind: 'work' },
@@ -167,6 +167,6 @@ describe('link_task carries the session kind', () => {
 
     expect(linked.ok).toBe(false)
     expect(linked.text).toContain('target_id')
-    expect((await TaskModule.Task.byId(task.id)).links ?? []).toHaveLength(0)
+    expect((await TaskModule.Task.byId('local', task.id)).links ?? []).toHaveLength(0)
   })
 })

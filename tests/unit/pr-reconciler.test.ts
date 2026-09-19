@@ -59,8 +59,8 @@ interface Announcement {
  *  poll's cost is part of what these tests pin. */
 async function project(name: string, status: 'in_review' | 'todo' = 'in_review') {
   const projectScope = `github.com/owner/${name}`
-  const created = await taskStore.createTask({ title: 'Work on #1', status: 'todo', projectKey: join(dataDir, name) })
-  const task = await tasks.Task.byId(created.id)
+  const created = await taskStore.createTask('local', { title: 'Work on #1', status: 'todo', projectKey: join(dataDir, name) })
+  const task = await tasks.Task.byId('local', created.id)
   await task.update({ status })
   // With the URL supplied, linking stays local: resolving one is a code-host
   // round trip, and these tests are about the poll, not about linking.
@@ -113,12 +113,12 @@ describe('reconciling pull requests changed outside Solus', () => {
 
     first.host.state = 'merged'
     await first.reconciler.poll()
-    expect((await tasks.Task.byId(first.task.id)).status).toBe('in_review')
+    expect((await tasks.Task.byId('local', first.task.id)).status).toBe('in_review')
 
     second.host.state = 'merged'
     await second.reconciler.poll()
-    expect((await tasks.Task.byId(first.task.id)).status).toBe('done')
-    expect((await tasks.Task.byId(second.task.id)).status).toBe('done')
+    expect((await tasks.Task.byId('local', first.task.id)).status).toBe('done')
+    expect((await tasks.Task.byId('local', second.task.id)).status).toBe('done')
   })
 
   test('announces a merge made on the code host and completes the task waiting on it', async () => {
@@ -136,7 +136,7 @@ describe('reconciling pull requests changed outside Solus', () => {
     expect(announced).toHaveLength(1)
     expect(announced[0]?.projectRoot).toBe(projectScope)
     expect(announced[0]?.detail.state).toBe('merged')
-    expect((await tasks.Task.byId(task.id)).status).toBe('done')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
   })
 
   test('finishes a task on a later poll once its busy session settles, without another host read', async () => {
@@ -146,8 +146,8 @@ describe('reconciling pull requests changed outside Solus', () => {
     const { getDb } = await import('@solus/server/db')
     const busy = new Set<string>()
     const scope = 'github.com/owner/busy-session'
-    const created = await taskStore.createTask({ title: 'Work on #1', status: 'in_progress', projectKey: join(dataDir, 'busy-session') })
-    const task = await tasks.Task.byId(created.id)
+    const created = await taskStore.createTask('local', { title: 'Work on #1', status: 'in_progress', projectKey: join(dataDir, 'busy-session') })
+    const task = await tasks.Task.byId('local', created.id)
     await task.linkPullRequest({ number: 1, targetScope: scope, url: 'https://github.com/owner/busy-session/pull/1' })
     getDb().prepare(`INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, message_count, size)
       VALUES ('busy-1', 'claude', 0, ?, 0, 0)`).run(Date.now())
@@ -167,11 +167,11 @@ describe('reconciling pull requests changed outside Solus', () => {
 
     busy.add('busy-1')
     await reconciler.poll()
-    expect((await tasks.Task.byId(task.id)).status).toBe('in_progress')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('in_progress')
 
     busy.clear()
     await reconciler.poll()
-    expect((await tasks.Task.byId(task.id)).status).toBe('done')
+    expect((await tasks.Task.byId('local', task.id)).status).toBe('done')
     expect(host.reads).toBe(1)
   })
 
@@ -197,9 +197,9 @@ describe('reconciling pull requests changed outside Solus', () => {
     const links = await import('@solus/server/tasks/task-links')
     const going = await project('watch-list-active', 'in_review')
     const finished = await project('watch-list-finished', 'todo')
-    await (await tasks.Task.byId(finished.task.id)).update({ status: 'done' })
+    await (await tasks.Task.byId('local', finished.task.id)).update({ status: 'done' })
 
-    const watched = await links.readActivePrLinkTargets(getDatabase())
+    const watched = await links.readActivePrLinkTargets(getDatabase(), 'local')
 
     expect(watched).toContainEqual({ projectScope: going.projectScope, number: 1 })
     expect(watched).not.toContainEqual({ projectScope: finished.projectScope, number: 1 })
@@ -210,16 +210,17 @@ describe('host memory PR summaries on boot and reload', () => {
   test('100 task links render with host memory summaries and reload without provider reads', async () => {
     const fixture = await project('many-links')
     const { readTaskSidebarSnapshot } = await import('@solus/server/tasks/task-sidebar')
+    const { organizationOf } = await import('@solus/server/server/principal')
     const { SolusServer } = await import('@solus/server/server/server')
     const { TEST_HANDLER_CTX } = await import('./helpers/handler-ctx')
     const server = new SolusServer()
-    server.register('tasksSidebarSnapshot', readTaskSidebarSnapshot)
+    server.register('tasksSidebarSnapshot', (_args, ctx) => readTaskSidebarSnapshot(organizationOf(ctx.principal)))
     const { getDb } = await import('@solus/server/db')
     expect(getDb().prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'pr_snapshots'").all()).toEqual([])
     // One PR linked by many tasks is one host interest, never one request per row.
     for (let i = 0; i < 99; i++) {
-      const created = await taskStore.createTask({ title: `Linked task ${i}`, status: 'todo' })
-      await (await tasks.Task.byId(created.id)).linkPullRequest({
+      const created = await taskStore.createTask('local', { title: `Linked task ${i}`, status: 'todo' })
+      await (await tasks.Task.byId('local', created.id)).linkPullRequest({
         number: 1, targetScope: fixture.projectScope,
         url: 'https://github.com/owner/many-links/pull/1',
       })
@@ -263,7 +264,7 @@ describe('host memory PR summaries on boot and reload', () => {
     })
     for (let i = 0; i < 3; i++) {
       await restarted.poll()
-      expect((await readTaskPrLinks(getDatabase()))[fixture.task.id]?.[0]?.snapshot?.state).toBe('open')
+      expect((await readTaskPrLinks(getDatabase(), 'local'))[fixture.task.id]?.[0]?.snapshot?.state).toBe('open')
     }
     expect(fixture.host.reads).toBe(2)
     fixture.host.now += 300_001
@@ -331,18 +332,18 @@ test('host branch discovery links local isolated attempts once per repository an
   } } as unknown as Provider)
   const owners: string[] = []
   for (const [index, isolated] of [true, true, false, true].entries()) {
-    const created = await taskStore.createTask({ title: 'Branch task', projectKey: scope, status: 'todo' })
+    const created = await taskStore.createTask('local', { title: 'Branch task', projectKey: scope, status: 'todo' })
     owners.push(created.id)
     getDb().prepare(`INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, message_count, size, branch)
       VALUES (?, 'codex', ?, ?, 0, 0, 'feature')`).run(`discovery-${index}`, isolated ? 1 : 0, Date.now())
     if (index === 3) getDb().prepare('UPDATE sessions SET server_id = ? WHERE session_id = ?').run('remote-host', `discovery-${index}`)
-    await (await tasks.Task.byId(created.id)).linkSession(`discovery-${index}`, 'working', {})
+    await (await tasks.Task.byId('local', created.id)).linkSession(`discovery-${index}`, 'working', {})
   }
   const discovery = new PrLinkDiscovery()
   await discovery.poll()
   await discovery.poll()
   expect(lists).toBe(1)
-  const links = await readTaskPrLinks(getDatabase())
+  const links = await readTaskPrLinks(getDatabase(), 'local')
   expect(links[owners[0]!]?.[0]?.number).toBe(4)
   expect(links[owners[1]!]?.[0]?.number).toBe(4)
   expect(links[owners[2]!]).toBeUndefined()
@@ -373,10 +374,10 @@ test('branch discovery discards ownership that changed while the provider read w
   const { getDatabase } = await import('@solus/server/db/database')
   const { PrLinkDiscovery } = await import('@solus/server/prs/pr-link-discovery')
   const { readTaskPrLinks } = await import('@solus/server/tasks/task-links')
-  const created = await taskStore.createTask({ title: 'Branch moved', projectKey: 'github.com/owner/moved-branch', status: 'todo' })
+  const created = await taskStore.createTask('local', { title: 'Branch moved', projectKey: 'github.com/owner/moved-branch', status: 'todo' })
   getDb().prepare(`INSERT INTO sessions(session_id, provider, is_worktree, last_timestamp, message_count, size, branch)
     VALUES ('moved-session', 'claude', 1, ?, 0, 0, 'old')`).run(Date.now())
-  await (await tasks.Task.byId(created.id)).linkSession('moved-session', 'working', {})
+  await (await tasks.Task.byId('local', created.id)).linkSession('moved-session', 'working', {})
   let release!: () => void
   let started!: () => void
   const ready = new Promise<void>((resolve) => { started = resolve })
@@ -396,7 +397,7 @@ test('branch discovery discards ownership that changed while the provider read w
   getDb().prepare("UPDATE sessions SET branch = 'new' WHERE session_id = 'moved-session'").run()
   release()
   await poll
-  expect((await readTaskPrLinks(getDatabase()))[created.id]).toBeUndefined()
+  expect((await readTaskPrLinks(getDatabase(), 'local'))[created.id]).toBeUndefined()
 })
 
 test('a fresh merged summary from branch discovery completes work without another provider read', async () => {
@@ -408,5 +409,5 @@ test('a fresh merged summary from branch discovery completes work without anothe
   }))
   await fixture.reconciler.poll()
   expect(fixture.host.reads).toBe(0)
-  expect((await tasks.Task.byId(fixture.task.id)).status).toBe('done')
+  expect((await tasks.Task.byId('local', fixture.task.id)).status).toBe('done')
 })

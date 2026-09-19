@@ -173,17 +173,17 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
   }
 
   /** The person who started the session owns it (docs/plans/multiplayer-sharing.md §3.4). */
-  function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx): void {
-    if (sessionId) deps.shares?.claimOwner({ kind: 'session', id: sessionId }, handlerCtx.principal)
+  async function claimSession(sessionId: string | null | undefined, handlerCtx: HandlerCtx): Promise<void> {
+    if (sessionId) await deps.shares?.claimOwner({ kind: 'session', id: sessionId }, handlerCtx.principal)
   }
 
-  server.register('watchSession', (args, handlerCtx) => {
+  server.register('watchSession', async (args, handlerCtx) => {
     const [input] = args
     const resolved = controlPlane.watchSession(input ?? {}, requireClientId(handlerCtx))
     log.info('rpc_watch_session', { sessionId: resolved.sessionId, requested: input?.sessionId ?? null })
     // A guest or member can only watch a session that was shared with them, so a
     // claim here never gives them one; it records the owner of a brand-new session.
-    claimSession(resolved.sessionId, handlerCtx)
+    await claimSession(resolved.sessionId, handlerCtx)
     return resolved
   })
 
@@ -197,17 +197,17 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const [request] = args
     log.info('rpc_create_headless_session', { provider: request.provider })
     const created = await controlPlane.createSession(request, turnActorFor(handlerCtx.principal))
-    claimSession(created.agentSessionId, handlerCtx)
+    await claimSession(created.agentSessionId, handlerCtx)
     return created
   })
 
-  server.register('bindRuntimeSession', (args, handlerCtx) => {
+  server.register('bindRuntimeSession', async (args, handlerCtx) => {
     const [ctx] = args
     log.info('rpc_bind_runtime_session', {
       sessionId: ctx.session.sessionId,
       agentSessionId: ctx.session.agentSessionId,
     })
-    claimSession(ctx.session.sessionId, handlerCtx)
+    await claimSession(ctx.session.sessionId, handlerCtx)
     return controlPlane.bindRuntimeSession(ctx, requireClientId(handlerCtx))
   })
 
@@ -235,7 +235,7 @@ export function registerSessionHandlers(server: SolusServer, deps: SessionDeps):
     const sessionId = ctx.session.sessionId
     log.info('rpc_prompt', { sessionId })
     if (!sessionId) throw new Error('No sessionId provided — prompt rejected')
-    claimSession(sessionId, handlerCtx)
+    await claimSession(sessionId, handlerCtx)
     try {
       // The turn runs on its author's provider seat (Step 2 plan §3.3).
       return await controlPlane.submitPrompt(ctx, options, {

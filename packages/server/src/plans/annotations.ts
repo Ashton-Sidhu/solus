@@ -1,8 +1,9 @@
-import type { DatabaseSync } from 'node:sqlite'
+import { sql } from 'drizzle-orm'
 import type { PlanAnnotations } from '@solus/contracts/types'
-import { getDb, withTx } from '../db'
+import { getDatabase, type Db } from '../db/database'
 import { z } from 'zod'
 import { workExternalLinkSchema } from '../docs/schema'
+import { planAnnotations } from './schema'
 
 const commentAgentAuthorSchema = z.object({
   sessionId: z.string(),
@@ -49,21 +50,10 @@ const annotationRowSchema = z.object({
 
 type AnnotationRow = z.infer<typeof annotationRowSchema>
 
-function toRowValues(ann: PlanAnnotations): [string, string, string, string, number, number | null, string, string, string, string | null, number] {
-  return [
-    ann.sessionId,
-    ann.planToolUseId,
-    ann.status,
-    ann.title,
-    ann.bookmarked ? 1 : 0,
-    ann.bookmarkedAt ?? null,
-    ann.projectPath,
-    ann.cwd,
-    JSON.stringify(ann.comments),
-    ann.mirroredDoc ? JSON.stringify(ann.mirroredDoc) : null,
-    ann.updatedAt,
-  ]
-}
+const ANNOTATION_COLUMNS = sql`
+  session_id, plan_tool_use_id, status, title, bookmarked,
+  bookmarked_at, project_path, cwd, comments, mirrored_doc, updated_at
+`
 
 function fromRow(row: AnnotationRow): PlanAnnotations {
   const annotation: PlanAnnotations = {
@@ -83,22 +73,30 @@ function fromRow(row: AnnotationRow): PlanAnnotations {
   return annotation
 }
 
-function annotationRow(db: DatabaseSync, sessionId: string, planToolUseId: string): AnnotationRow | undefined {
-  const parsed = annotationRowSchema.safeParse(db.prepare(`
-    SELECT session_id, plan_tool_use_id, status, title, bookmarked,
-           bookmarked_at, project_path, cwd, comments, mirrored_doc, updated_at
-    FROM plan_annotations
-    WHERE session_id = ? AND plan_tool_use_id = ?
-  `).get(sessionId, planToolUseId))
+async function annotationRow(
+  db: Db,
+  organizationId: string,
+  sessionId: string,
+  planToolUseId: string,
+): Promise<AnnotationRow | undefined> {
+  const parsed = annotationRowSchema.safeParse(await db.get(sql`
+    SELECT ${ANNOTATION_COLUMNS}
+    FROM ${planAnnotations}
+    WHERE organization_id = ${organizationId} AND session_id = ${sessionId} AND plan_tool_use_id = ${planToolUseId}
+  `))
   return parsed.success ? parsed.data : undefined
 }
 
-function writeAnnotations(db: DatabaseSync, ann: PlanAnnotations): void {
-  db.prepare(`
-    INSERT INTO plan_annotations (
+async function writeAnnotations(db: Db, organizationId: string, ann: PlanAnnotations): Promise<void> {
+  await db.run(sql`
+    INSERT INTO ${planAnnotations} (
       session_id, plan_tool_use_id, status, title, bookmarked,
-      bookmarked_at, project_path, cwd, comments, mirrored_doc, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      bookmarked_at, project_path, cwd, comments, mirrored_doc, updated_at, organization_id
+    ) VALUES (
+      ${ann.sessionId}, ${ann.planToolUseId}, ${ann.status}, ${ann.title}, ${ann.bookmarked ? 1 : 0},
+      ${ann.bookmarkedAt ?? null}, ${ann.projectPath}, ${ann.cwd}, ${JSON.stringify(ann.comments)},
+      ${ann.mirroredDoc ? JSON.stringify(ann.mirroredDoc) : null}, ${ann.updatedAt}, ${organizationId}
+    )
     ON CONFLICT(session_id, plan_tool_use_id) DO UPDATE SET
       status = excluded.status,
       title = excluded.title,
@@ -108,34 +106,39 @@ function writeAnnotations(db: DatabaseSync, ann: PlanAnnotations): void {
       cwd = excluded.cwd,
       comments = excluded.comments,
       mirrored_doc = excluded.mirrored_doc,
-      updated_at = excluded.updated_at
-  `).run(...toRowValues(ann))
+      updated_at = excluded.updated_at,
+      organization_id = excluded.organization_id
+  `)
 }
 
-export async function loadAnnotations(sessionId: string, planToolUseId: string): Promise<PlanAnnotations | null> {
+export async function loadAnnotations(
+  organizationId: string,
+  sessionId: string,
+  planToolUseId: string,
+): Promise<PlanAnnotations | null> {
   try {
-    const row = annotationRow(getDb(), sessionId, planToolUseId)
+    const row = await annotationRow(getDatabase(), organizationId, sessionId, planToolUseId)
     return row ? fromRow(row) : null
   } catch {
     return null
   }
 }
 
-export async function saveAnnotations(ann: PlanAnnotations): Promise<void> {
+export async function saveAnnotations(organizationId: string, ann: PlanAnnotations): Promise<void> {
   const merged: PlanAnnotations = { ...ann, updatedAt: Date.now() }
-  writeAnnotations(getDb(), merged)
+  await writeAnnotations(getDatabase(), organizationId, merged)
 }
 
 export async function toggleBookmarkAnnotations(
+  organizationId: string,
   sessionId: string,
   projectPath: string,
   cwd: string,
   planToolUseId: string,
   title: string,
 ): Promise<PlanAnnotations> {
-  return withTx(() => {
-    const db = getDb()
-    const row = annotationRow(db, sessionId, planToolUseId)
+  return getDatabase().transaction(async (db) => {
+    const row = await annotationRow(db, organizationId, sessionId, planToolUseId)
     const existing = row ? fromRow(row) : null
     const bookmarked = !existing?.bookmarked
     const merged: PlanAnnotations = {
@@ -152,7 +155,7 @@ export async function toggleBookmarkAnnotations(
     }
     if (bookmarked) merged.bookmarkedAt = Date.now()
     if (existing?.mirroredDoc) merged.mirroredDoc = existing.mirroredDoc
-    writeAnnotations(db, merged)
+    await writeAnnotations(db, organizationId, merged)
     return merged
   })
 }
@@ -160,12 +163,12 @@ export async function toggleBookmarkAnnotations(
 export type AnnotationIndex = Map<string, PlanAnnotations>
 
 /** Load every annotation into a map keyed by `${sessionId}__${planToolUseId}`. Used once by the indexer. */
-export async function loadAllAnnotations(): Promise<AnnotationIndex> {
-  const rows = z.array(annotationRowSchema).parse(getDb().prepare(`
-    SELECT session_id, plan_tool_use_id, status, title, bookmarked,
-           bookmarked_at, project_path, cwd, comments, mirrored_doc, updated_at
-    FROM plan_annotations
-  `).all())
+export async function loadAllAnnotations(organizationId: string): Promise<AnnotationIndex> {
+  const rows = z.array(annotationRowSchema).parse(await getDatabase().all(sql`
+    SELECT ${ANNOTATION_COLUMNS}
+    FROM ${planAnnotations}
+    WHERE organization_id = ${organizationId}
+  `))
   const out: AnnotationIndex = new Map()
   for (const row of rows) {
     try {

@@ -57,7 +57,6 @@ function work(id: string, title = id): Work {
     sessionIds: [],
     agentProvider: 'claude-code',
     cwd: '/repo',
-    storage: { kind: 'local' },
   }
 }
 

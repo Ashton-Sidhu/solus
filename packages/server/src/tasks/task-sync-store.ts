@@ -26,6 +26,7 @@ const externalLinkRowSchema = z.object({
   last_synced_at: z.number().nullable(),
   retry_at: z.number().nullable(),
   failure_count: z.number(),
+  organization_id: z.string(),
 })
 
 const dirtyCommentRowSchema = z.object({ id: z.string(), body: z.string() })
@@ -40,16 +41,23 @@ interface DirtyCommentRow {
 }
 
 type SyncField = TaskExternalLink['dirtyFields'][number]
-type DirtyListener = (taskId: string) => void
+type DirtyListener = (organizationId: string, taskId: string) => void
 const dirtyListeners = new Set<DirtyListener>()
+
+/** A link with the organization it belongs to: what the background poll, which
+ * walks every organization's links, hands to the per-task sync. */
+export interface ExternalLinkRecord {
+  organizationId: string
+  link: TaskExternalLink
+}
 
 export function onTaskSyncDirty(listener: DirtyListener): () => void {
   dirtyListeners.add(listener)
   return () => dirtyListeners.delete(listener)
 }
 
-export function notifyTaskSyncDirty(taskId: string): void {
-  for (const listener of dirtyListeners) listener(taskId)
+export function notifyTaskSyncDirty(organizationId: string, taskId: string): void {
+  for (const listener of dirtyListeners) listener(organizationId, taskId)
 }
 
 function parseSnapshot(value: string | null): TaskExternalLink['snapshot'] {
@@ -97,26 +105,38 @@ export async function externalLinkForTask(
 }
 
 export async function externalLinkForTicket(
+  organizationId: string,
   ref: Pick<ExternalTicketRef, 'provider' | 'externalKey' | 'externalId'>,
   db: Db = getDatabase(),
 ): Promise<TaskExternalLink | null> {
   const row = externalLinkRowSchema.safeParse(await db.get(sql`
     SELECT * FROM ${taskExternalLinks}
-    WHERE provider = ${ref.provider} AND external_key = ${ref.externalKey} AND external_id = ${ref.externalId}
+    WHERE organization_id = ${organizationId}
+      AND provider = ${ref.provider} AND external_key = ${ref.externalKey} AND external_id = ${ref.externalId}
   `))
   return row.success ? linkFromRow(row.data) : null
 }
 
 export async function listExternalLinks(
+  organizationId: string,
   taskId?: string,
   db: Db = getDatabase(),
 ): Promise<TaskExternalLink[]> {
   const rows = taskId
-    ? await db.all(sql`SELECT * FROM ${taskExternalLinks} WHERE task_id = ${taskId}`)
-    : await db.all(sql`SELECT * FROM ${taskExternalLinks} ORDER BY task_id`)
+    ? await db.all(sql`SELECT * FROM ${taskExternalLinks} WHERE organization_id = ${organizationId} AND task_id = ${taskId}`)
+    : await db.all(sql`SELECT * FROM ${taskExternalLinks} WHERE organization_id = ${organizationId} ORDER BY task_id`)
   return rows.flatMap((row) => {
     const parsed = externalLinkRowSchema.safeParse(row)
     return parsed.success ? [linkFromRow(parsed.data)] : []
+  })
+}
+
+/** Every link in the database with its organization: the poll's list. */
+export async function listExternalLinksForPoll(db: Db = getDatabase()): Promise<ExternalLinkRecord[]> {
+  const rows = await db.all(sql`SELECT * FROM ${taskExternalLinks} ORDER BY organization_id, task_id`)
+  return rows.flatMap((row) => {
+    const parsed = externalLinkRowSchema.safeParse(row)
+    return parsed.success ? [{ organizationId: parsed.data.organization_id, link: linkFromRow(parsed.data) }] : []
   })
 }
 
@@ -124,13 +144,14 @@ export async function listExternalLinks(
  *  list reads this to leave those tickets out: a published or imported issue is
  *  the same work as the task that owns it, not a second item beside it. */
 export async function linkedExternalIds(
+  organizationId: string,
   provider: string,
   externalKey: string,
   db: Db = getDatabase(),
 ): Promise<Set<string>> {
   const rows = await db.all(sql`
     SELECT external_id FROM ${taskExternalLinks}
-    WHERE provider = ${provider} AND external_key = ${externalKey}
+    WHERE organization_id = ${organizationId} AND provider = ${provider} AND external_key = ${externalKey}
   `)
   return new Set(rows.flatMap((row) => {
     const parsed = externalIdRowSchema.safeParse(row)
@@ -140,6 +161,7 @@ export async function linkedExternalIds(
 
 export async function writeExternalLink(
   db: Db,
+  organizationId: string,
   taskId: string,
   ticket: NormalizedTicket,
   now = Date.now(),
@@ -148,11 +170,11 @@ export async function writeExternalLink(
     INSERT INTO ${taskExternalLinks}(
       task_id, provider, external_key, external_id, url,
       external_updated_at, snapshot, dirty_fields, sync_state, sync_error,
-      last_synced_at, retry_at, failure_count
+      last_synced_at, retry_at, failure_count, organization_id
     ) VALUES (
       ${taskId}, ${ticket.provider}, ${ticket.externalKey}, ${ticket.externalId}, ${ticket.url},
       ${ticket.externalUpdatedAt}, ${ticket.snapshot === undefined ? null : JSON.stringify(ticket.snapshot)},
-      '[]', 'ok', NULL, ${now}, NULL, 0
+      '[]', 'ok', NULL, ${now}, NULL, 0, ${organizationId}
     )
     ON CONFLICT(task_id) DO UPDATE SET
       provider = excluded.provider,
@@ -168,7 +190,7 @@ export async function writeExternalLink(
       retry_at = NULL,
       failure_count = 0
   `)
-  await insertExternalComments(db, taskId, ticket.comments)
+  await insertExternalComments(db, organizationId, taskId, ticket.comments)
   const link = await externalLinkForTask(taskId, db)
   if (!link) throw new Error(`Failed to persist external link for task ${taskId}`)
   return link
@@ -311,6 +333,7 @@ export async function markCommentSynced(
 
 export async function insertExternalComments(
   db: Db,
+  organizationId: string,
   taskId: string,
   comments: NormalizedTaskComment[],
 ): Promise<number> {
@@ -336,10 +359,10 @@ export async function insertExternalComments(
     const inserted = await db.run(sql`
       INSERT INTO ${taskComments}(
         id, task_id, author, source, external_id, origin_session_id, body,
-        created_at, dirty
+        created_at, dirty, organization_id
       ) VALUES (
         ${`external:${comment.externalId}`}, ${taskId}, ${comment.author ?? null}, 'external',
-        ${comment.externalId}, NULL, ${comment.body}, ${comment.createdAt}, 0
+        ${comment.externalId}, NULL, ${comment.body}, ${comment.createdAt}, 0, ${organizationId}
       )
       ON CONFLICT DO NOTHING
     `)

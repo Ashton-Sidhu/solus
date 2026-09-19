@@ -22,8 +22,8 @@ test('a known work opens beside the conversation before its content read complet
     activeTabId: 'tab',
     sessionFor: () => ({ run: { workingDirectory: '/project' } }),
     worksStore: {
-      ensureContent(workId: string, source: string, cwd: string) {
-        expect([workId, source, cwd]).toEqual(['work', 'open-work-modal', '/project'])
+      ensureContent(workId: string, source: string) {
+        expect([workId, source]).toEqual(['work', 'open-work-modal'])
         calls.push('read')
         return pending
       },

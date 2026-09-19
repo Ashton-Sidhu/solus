@@ -1,7 +1,9 @@
+import { sql, type SQL } from 'drizzle-orm'
 import { z } from 'zod'
 import { worktreeProjectRoot, type AgentId, type PlanDescriptor, type PlanRevisionSummary } from '@solus/contracts/types'
-import { getDb, withTx } from '../db'
+import { getDatabase, type Db } from '../db/database'
 import { extractPlanTitle } from '../agents/plan-text'
+import { indexedPlans, planAnnotations, planIndexProviders } from './schema'
 
 const planStatusSchema = z.enum(['pending', 'accepted', 'rejected'])
 const indexedPlanRowSchema = z.object({
@@ -41,12 +43,21 @@ export interface IndexedPlanInput {
   derivedStatus: 'pending' | 'accepted' | 'rejected'
 }
 
-export function indexLivePlan(input: Omit<IndexedPlanInput, 'title' | 'excerpt' | 'derivedStatus'>): void {
+/**
+ * The plan index is a query model over the provider transcripts this machine
+ * holds (docs/plans/cloud-service-model.md): every read and write names the
+ * organization, and a runner writes its own.
+ */
+
+export async function indexLivePlan(
+  organizationId: string,
+  input: Omit<IndexedPlanInput, 'title' | 'excerpt' | 'derivedStatus'>,
+): Promise<void> {
   const lines = input.content
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter((line) => line && !/^#{1,6}\s/.test(line))
-  upsertIndexedPlan({
+  await upsertIndexedPlan(organizationId, {
     ...input,
     title: extractPlanTitle(input.content),
     excerpt: lines.join(' ').replace(/[*_`]/g, '').slice(0, 240),
@@ -54,12 +65,16 @@ export function indexLivePlan(input: Omit<IndexedPlanInput, 'title' | 'excerpt' 
   })
 }
 
-function insertPlan(input: IndexedPlanInput): void {
-  getDb().prepare(`
-    INSERT INTO indexed_plans (
+async function insertPlan(db: Db, organizationId: string, input: IndexedPlanInput): Promise<void> {
+  await db.run(sql`
+    INSERT INTO ${indexedPlans} (
       provider, session_id, plan_tool_use_id, project_path, cwd, project_root,
-      timestamp, title, excerpt, plan_file_path, content, derived_status, session_available
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)
+      timestamp, title, excerpt, plan_file_path, content, derived_status, session_available, organization_id
+    ) VALUES (
+      ${input.provider}, ${input.sessionId}, ${input.planToolUseId}, ${input.projectPath}, ${input.cwd},
+      ${worktreeProjectRoot(input.cwd)}, ${input.timestamp}, ${input.title}, ${input.excerpt},
+      ${input.planFilePath ?? null}, ${input.content}, ${input.derivedStatus}, 1, ${organizationId}
+    )
     ON CONFLICT(provider, session_id, plan_tool_use_id) DO UPDATE SET
       project_path = excluded.project_path,
       cwd = excluded.cwd,
@@ -70,64 +85,70 @@ function insertPlan(input: IndexedPlanInput): void {
       plan_file_path = excluded.plan_file_path,
       content = excluded.content,
       derived_status = excluded.derived_status,
-      session_available = 1
-  `).run(
-    input.provider,
-    input.sessionId,
-    input.planToolUseId,
-    input.projectPath,
-    input.cwd,
-    worktreeProjectRoot(input.cwd),
-    input.timestamp,
-    input.title,
-    input.excerpt,
-    input.planFilePath ?? null,
-    input.content,
-    input.derivedStatus,
-  )
+      session_available = 1,
+      organization_id = excluded.organization_id
+  `)
 }
 
-export function upsertIndexedPlan(input: IndexedPlanInput): void {
-  insertPlan(input)
+export async function upsertIndexedPlan(organizationId: string, input: IndexedPlanInput): Promise<void> {
+  await insertPlan(getDatabase(), organizationId, input)
 }
 
-export function replaceIndexedPlansForSession(
+export async function replaceIndexedPlansForSession(
+  organizationId: string,
   provider: AgentId,
   sessionId: string,
   plans: IndexedPlanInput[],
-): void {
-  withTx(() => {
-    getDb().prepare('DELETE FROM indexed_plans WHERE provider = ? AND session_id = ?').run(provider, sessionId)
-    for (const plan of plans) insertPlan(plan)
+): Promise<void> {
+  await getDatabase().transaction(async (db) => {
+    await db.run(sql`
+      DELETE FROM ${indexedPlans}
+      WHERE organization_id = ${organizationId} AND provider = ${provider} AND session_id = ${sessionId}
+    `)
+    for (const plan of plans) await insertPlan(db, organizationId, plan)
   })
 }
 
-export function replaceIndexedPlansForProvider(provider: AgentId, plans: IndexedPlanInput[]): void {
-  withTx(() => {
+export async function replaceIndexedPlansForProvider(
+  organizationId: string,
+  provider: AgentId,
+  plans: IndexedPlanInput[],
+): Promise<void> {
+  await getDatabase().transaction(async (db) => {
     // A full provider rebuild reconciles live transcripts only. Rows already
     // marked unavailable are durable saved artifacts whose source transcript
     // cannot be rediscovered, so a rebuild must not erase them.
-    getDb().prepare(`
-      DELETE FROM indexed_plans
-      WHERE provider = ? AND session_available = 1
-    `).run(provider)
-    for (const plan of plans) insertPlan(plan)
-    getDb().prepare(`
-      INSERT INTO plan_index_providers(provider, completed_at) VALUES (?, ?)
-      ON CONFLICT(provider) DO UPDATE SET completed_at = excluded.completed_at
-    `).run(provider, Date.now())
+    await db.run(sql`
+      DELETE FROM ${indexedPlans}
+      WHERE organization_id = ${organizationId} AND provider = ${provider} AND session_available = 1
+    `)
+    for (const plan of plans) await insertPlan(db, organizationId, plan)
+    await db.run(sql`
+      INSERT INTO ${planIndexProviders}(provider, completed_at, organization_id)
+      VALUES (${provider}, ${Date.now()}, ${organizationId})
+      ON CONFLICT(provider) DO UPDATE SET
+        completed_at = excluded.completed_at,
+        organization_id = excluded.organization_id
+    `)
   })
 }
 
-export function markIndexedPlanSessionUnavailable(provider: AgentId, sessionId: string): void {
-  getDb().prepare(`
-    UPDATE indexed_plans SET session_available = 0
-    WHERE provider = ? AND session_id = ?
-  `).run(provider, sessionId)
+export async function markIndexedPlanSessionUnavailable(
+  organizationId: string,
+  provider: AgentId,
+  sessionId: string,
+): Promise<void> {
+  await getDatabase().run(sql`
+    UPDATE ${indexedPlans} SET session_available = 0
+    WHERE organization_id = ${organizationId} AND provider = ${provider} AND session_id = ${sessionId}
+  `)
 }
 
-export function isPlanIndexComplete(provider: AgentId): boolean {
-  return !!getDb().prepare('SELECT 1 FROM plan_index_providers WHERE provider = ?').get(provider)
+export async function isPlanIndexComplete(organizationId: string, provider: AgentId): Promise<boolean> {
+  return !!await getDatabase().get(sql`
+    SELECT 1 AS present FROM ${planIndexProviders}
+    WHERE organization_id = ${organizationId} AND provider = ${provider}
+  `)
 }
 
 function commentCount(raw: string | null): number {
@@ -194,40 +215,48 @@ function rowsToDescriptors(rows: IndexedPlanRow[]): PlanDescriptor[] {
   return descriptors
 }
 
-export function listIndexedPlans(
+export async function listIndexedPlans(
+  organizationId: string,
   provider: AgentId,
   projectPath: string | undefined,
   allProjects: boolean,
-): PlanDescriptor[] {
+): Promise<PlanDescriptor[]> {
   const scopedProjectPath = allProjects ? undefined : projectPath ?? process.cwd()
-  const projectFilter = scopedProjectPath ? 'AND p.project_root = ?' : ''
-  const params = scopedProjectPath
-    ? [provider, worktreeProjectRoot(scopedProjectPath)]
-    : [provider]
-  const rows = indexedPlanRowSchema.array().parse(getDb().prepare(`
+  const projectFilter: SQL = scopedProjectPath
+    ? sql`AND indexed_plans.project_root = ${worktreeProjectRoot(scopedProjectPath)}`
+    : sql``
+  const rows = indexedPlanRowSchema.array().parse(await getDatabase().all(sql`
     SELECT
-      p.provider, p.session_id, p.plan_tool_use_id, p.project_path, p.cwd, p.project_root,
-      p.timestamp, p.title, p.excerpt, p.plan_file_path, p.content,
-      p.derived_status, p.session_available, a.status AS annotation_status,
-      a.title AS annotation_title, a.bookmarked, a.bookmarked_at, a.comments
-    FROM indexed_plans p
-    LEFT JOIN plan_annotations a
-      ON a.session_id = p.session_id
-     AND a.plan_tool_use_id = p.plan_tool_use_id
-    WHERE p.provider = ? ${projectFilter}
-    ORDER BY p.timestamp DESC
-  `).all(...params))
+      indexed_plans.provider, indexed_plans.session_id, indexed_plans.plan_tool_use_id,
+      indexed_plans.project_path, indexed_plans.cwd, indexed_plans.project_root,
+      indexed_plans.timestamp, indexed_plans.title, indexed_plans.excerpt, indexed_plans.plan_file_path,
+      indexed_plans.content, indexed_plans.derived_status, indexed_plans.session_available,
+      plan_annotations.status AS annotation_status,
+      plan_annotations.title AS annotation_title,
+      plan_annotations.bookmarked, plan_annotations.bookmarked_at, plan_annotations.comments
+    FROM ${indexedPlans}
+    LEFT JOIN ${planAnnotations}
+      ON plan_annotations.session_id = indexed_plans.session_id
+     AND plan_annotations.plan_tool_use_id = indexed_plans.plan_tool_use_id
+     AND plan_annotations.organization_id = indexed_plans.organization_id
+    WHERE indexed_plans.organization_id = ${organizationId}
+      AND indexed_plans.provider = ${provider}
+      ${projectFilter}
+    ORDER BY indexed_plans.timestamp DESC
+  `))
   return rowsToDescriptors(rows)
 }
 
-export function loadIndexedPlanContent(
+export async function loadIndexedPlanContent(
+  organizationId: string,
   provider: AgentId,
   sessionId: string,
   planToolUseId: string,
-): string | null {
-  const row = z.object({ content: z.string() }).nullish().parse(getDb().prepare(`
-    SELECT content FROM indexed_plans
-    WHERE provider = ? AND session_id = ? AND plan_tool_use_id = ?
-  `).get(provider, sessionId, planToolUseId))
+): Promise<string | null> {
+  const row = z.object({ content: z.string() }).nullish().parse(await getDatabase().get(sql`
+    SELECT content FROM ${indexedPlans}
+    WHERE organization_id = ${organizationId} AND provider = ${provider}
+      AND session_id = ${sessionId} AND plan_tool_use_id = ${planToolUseId}
+  `))
   return row?.content ?? null
 }

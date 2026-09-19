@@ -162,8 +162,12 @@ export class Task implements TaskRecord {
   triagedAt?: number
   doneAt?: number
   raw?: unknown
+  /** The organization every read and write of this task is scoped to. A
+   * private field: not part of the record, so it never crosses RPC. */
+  readonly #organizationId: string
 
-  private constructor(record: TaskRecord) {
+  private constructor(organizationId: string, record: TaskRecord) {
+    this.#organizationId = organizationId
     this.hydrate(record)
   }
 
@@ -179,8 +183,8 @@ export class Task implements TaskRecord {
 
   /** Loads the row. Throws when the id is unknown — the `requireTask` contract,
    * now with the operations attached. */
-  static async byId(id: string): Promise<Task> {
-    return new Task(taskFromRow(await requireTask(id)))
+  static async byId(organizationId: string, id: string): Promise<Task> {
+    return new Task(organizationId, taskFromRow(await requireTask(organizationId, id)))
   }
 
   /** Resolve the task that owns a session before invoking task-owned domain
@@ -188,12 +192,13 @@ export class Task implements TaskRecord {
    * tools carry the provider thread id, while the attempt row is keyed on the
    * stable Solus id once the session enters a lineage, so asking with the raw
    * id alone silently found nothing and the artifact stayed unlinked. */
-  static async forSession(sessionId: string): Promise<Task | null> {
+  static async forSession(organizationId: string, sessionId: string): Promise<Task | null> {
     const stableSessionId = stableSessionIdForProviderThread(sessionId) ?? sessionId
     const parsed = taskIdRowSchema.safeParse(await database().get(sql`
       SELECT task_id
       FROM ${taskSessionLinks}
-      WHERE task_session_links.session_id IN (${sessionId}, ${stableSessionId})
+      WHERE task_session_links.organization_id = ${organizationId}
+        AND task_session_links.session_id IN (${sessionId}, ${stableSessionId})
       ORDER BY CASE task_session_links.role WHEN 'working' THEN 0 ELSE 1 END,
         task_session_links.linked_at DESC
       LIMIT 1
@@ -204,17 +209,18 @@ export class Task implements TaskRecord {
       log.debug('task_for_session_unresolved', { sessionId, stableSessionId })
       return null
     }
-    return Task.byId(parsed.data.task_id)
+    return Task.byId(organizationId, parsed.data.task_id)
   }
 
   /** Attach an object produced inside a session to that session's owning task.
    * Sessions without a task are intentionally left alone (for example, legacy
    * conversations that predate session-born tasks). */
   static async linkArtifactForSession(
+    organizationId: string,
     sessionId: string,
     input: Omit<TaskLinkInput, 'createdBy' | 'originSessionId'>,
   ): Promise<TaskDetails | null> {
-    const task = await Task.forSession(sessionId)
+    const task = await Task.forSession(organizationId, sessionId)
     if (!task) return null
     return task.link({
       ...input,
@@ -229,7 +235,7 @@ export class Task implements TaskRecord {
   }
 
   private async refresh(): Promise<this> {
-    this.hydrate(taskFromRow(await requireTask(this.id)))
+    this.hydrate(taskFromRow(await requireTask(this.#organizationId, this.id)))
     return this
   }
 
@@ -238,9 +244,9 @@ export class Task implements TaskRecord {
     const externalLink = await externalLinkForTask(this.id, db)
     const details: TaskDetails = {
       task: this.record(),
-      subtasks: await listTaskChildren(this.id),
+      subtasks: await listTaskChildren(this.#organizationId, this.id),
       comments: await commentsForTask(this.id, db),
-      links: await readTaskLinks(db, this.id),
+      links: await readTaskLinks(db, this.#organizationId, this.id),
       events: await readTaskEvents(db, this.id),
     }
     if (externalLink) details.externalLink = externalLink
@@ -248,7 +254,7 @@ export class Task implements TaskRecord {
   }
 
   async links(): Promise<TaskLink[]> {
-    return readTaskLinks(database(), this.id)
+    return readTaskLinks(database(), this.#organizationId, this.id)
   }
 
   async events(): Promise<TaskEvent[]> {
@@ -262,7 +268,7 @@ export class Task implements TaskRecord {
   ): Promise<this> {
     let syncDirty = false
     await database().transaction(async (db) => {
-      const existing = await requireTask(this.id, db)
+      const existing = await requireTask(this.#organizationId, this.id, db)
       const now = Date.now()
       let parentId = existing.parent_id
       let projectKey = existing.project_key
@@ -270,7 +276,7 @@ export class Task implements TaskRecord {
       if (patch.parentId !== undefined) {
         parentId = normalizedOptional(patch.parentId)
         if (parentId) {
-          const parent = await parentForChild(parentId, this.id, db)
+          const parent = await parentForChild(this.#organizationId, parentId, this.id, db)
           projectKey = parent.project_key
         }
       }
@@ -307,8 +313,8 @@ export class Task implements TaskRecord {
 
       // One diff of the whole row is the only place field history is produced,
       // so no field can be changed here and silently go unrecorded.
-      const updated = await requireTask(this.id, db)
-      await diffTaskEvents(db, this.id, existing, updated, actor, now)
+      const updated = await requireTask(this.#organizationId, this.id, db)
+      await diffTaskEvents(db, this.#organizationId, this.id, existing, updated, actor, now)
       if (options.markSyncDirty !== false) {
         const provider = (await externalLinkForTask(this.id, db))?.provider ?? null
         const changedFields: string[] = []
@@ -324,14 +330,14 @@ export class Task implements TaskRecord {
       }
     })
     emitChanged()
-    if (syncDirty) notifyTaskSyncDirty(this.id)
+    if (syncDirty) notifyTaskSyncDirty(this.#organizationId, this.id)
     return this.refresh()
   }
 
   async comment(body: string, options: AddTaskCommentOptions = {}): Promise<TaskDetails> {
     const text = body.trim()
     if (!text) throw new Error('Task comment cannot be empty.')
-    const existing = await requireTask(this.id)
+    const existing = await requireTask(this.#organizationId, this.id)
     const autoPush = existing.project_key
       ? (await loadProjectConfig(existing.project_key))?.tasksAutoPushComments === true
       : false
@@ -340,17 +346,18 @@ export class Task implements TaskRecord {
       && (options.pushToExternal === true || autoPush)
       && !blockedAssetReferences(text, link.provider).length
     await database().transaction(async (db) => {
-      await requireTask(this.id, db)
+      await requireTask(this.#organizationId, this.id, db)
       const now = Date.now()
       // A redelivered outbox op inserts under the same id, so the conflict is a no-op.
       await db.run(sql`
         INSERT INTO ${taskComments}(
           id, task_id, author, source, external_id, origin_session_id, body,
-          created_at, dirty
+          created_at, dirty, organization_id
         ) VALUES (
           ${options.id ?? ulid(now)}, ${this.id}, ${options.author === undefined ? 'You' : options.author},
           ${options.source ?? 'local'}, ${normalizedOptional(options.externalId)},
-          ${normalizedOptional(options.originSessionId)}, ${text}, ${now}, ${shouldPush ? 1 : 0}
+          ${normalizedOptional(options.originSessionId)}, ${text}, ${now}, ${shouldPush ? 1 : 0},
+          ${this.#organizationId}
         )
         ON CONFLICT DO NOTHING
       `)
@@ -359,14 +366,14 @@ export class Task implements TaskRecord {
       await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${this.id}`)
     })
     emitChanged()
-    if (shouldPush) notifyTaskSyncDirty(this.id)
+    if (shouldPush) notifyTaskSyncDirty(this.#organizationId, this.id)
     await this.refresh()
     return this.details()
   }
 
   async deleteComment(commentId: string): Promise<TaskDetails> {
     const deleted = await database().transaction(async (db) => {
-      await requireTask(this.id, db)
+      await requireTask(this.#organizationId, this.id, db)
       const comment = commentSourceRowSchema.nullish().parse(await db.get(sql`
         SELECT source, external_id FROM ${taskComments} WHERE id = ${commentId} AND task_id = ${this.id}
       `))
@@ -394,7 +401,7 @@ export class Task implements TaskRecord {
    * marking rows that nothing will ever read.
    */
   async publishComments(commentIds: string[]): Promise<TaskDetails> {
-    await requireTask(this.id)
+    await requireTask(this.#organizationId, this.id)
     const link = await externalLinkForTask(this.id)
     if (!link) {
       throw new Error('This task is not linked to an upstream ticket.')
@@ -412,7 +419,7 @@ export class Task implements TaskRecord {
     const queued = await database().transaction((db) => markCommentsDirty(db, this.id, commentIds))
     if (queued) {
       emitChanged()
-      notifyTaskSyncDirty(this.id)
+      notifyTaskSyncDirty(this.#organizationId, this.id)
     }
     return this.details()
   }
@@ -475,7 +482,7 @@ export class Task implements TaskRecord {
    * methods keep target identity explicit instead of exposing storage keys. */
   private async linkWorkspaceObject(input: TaskLinkInput, actor: EventActor): Promise<TaskDetails> {
     const changed = await database().transaction(async (db) => {
-      await requireTask(this.id, db)
+      await requireTask(this.#organizationId, this.id, db)
       const target = {
         kind: input.kind,
         targetScope: input.targetScope ?? '',
@@ -493,7 +500,7 @@ export class Task implements TaskRecord {
           ? false
           : setTaskLinkPin(db, this.id, target, input.pinned)
       }
-      await writeTaskLink(db, this.id, input, actor)
+      await writeTaskLink(db, this.#organizationId, this.id, input, actor)
       return true
     })
     if (changed) {
@@ -539,7 +546,7 @@ export class Task implements TaskRecord {
     const targetKey = String(input.number)
     const originSessionId = normalizedOptional(input.originSessionId)
     const changed = await database().transaction(async (db) => {
-      const task = await requireTask(this.id, db)
+      const task = await requireTask(this.#organizationId, this.id, db)
       const existingLink = existingPrLinkRowSchema.nullish().parse(await db.get(sql`
         SELECT target_scope, url, title, origin_session_id
         FROM ${taskLinks}
@@ -601,7 +608,7 @@ export class Task implements TaskRecord {
         `)
       }
 
-      await writeTaskLink(db, this.id, {
+      await writeTaskLink(db, this.#organizationId, this.id, {
         kind: 'pr',
         targetScope,
         targetKey,
@@ -629,8 +636,8 @@ export class Task implements TaskRecord {
     actor: EventActor = { actor: 'user' },
   ): Promise<TaskDetails> {
     const removed = await database().transaction(async (db) => {
-      await requireTask(this.id, db)
-      return deleteTaskLink(db, this.id, kind, targetKey, targetScope, actor)
+      await requireTask(this.#organizationId, this.id, db)
+      return deleteTaskLink(db, this.#organizationId, this.id, kind, targetKey, targetScope, actor)
     })
     if (removed) {
       emitChanged()
@@ -645,7 +652,7 @@ export class Task implements TaskRecord {
     role: TaskSessionRole = 'working',
     details: SessionLinkDetails = {},
   ): Promise<void> {
-    await database().transaction((db) => writeSessionLink(db, this.id, sessionId, role, details, Date.now()))
+    await database().transaction((db) => writeSessionLink(db, this.#organizationId, this.id, sessionId, role, details, Date.now()))
     emitChanged()
     await this.refresh()
   }
@@ -655,7 +662,7 @@ export class Task implements TaskRecord {
     sessionId: string,
     actor: EventActor = { actor: 'user' },
   ): Promise<void> {
-    const removed = await database().transaction((db) => deleteSessionLink(db, this.id, sessionId, actor))
+    const removed = await database().transaction((db) => deleteSessionLink(db, this.#organizationId, this.id, sessionId, actor))
     if (removed) {
       emitChanged()
       await this.refresh()
@@ -663,7 +670,9 @@ export class Task implements TaskRecord {
   }
 
   async delete(): Promise<boolean> {
-    const deleted = (await database().run(sql`DELETE FROM ${tasks} WHERE id = ${this.id}`)).changes > 0
+    const deleted = (await database().run(sql`
+      DELETE FROM ${tasks} WHERE id = ${this.id} AND organization_id = ${this.#organizationId}
+    `)).changes > 0
     if (deleted) emitChanged()
     return deleted
   }
@@ -673,10 +682,10 @@ export class Task implements TaskRecord {
  * `formatTaskContext` consumes, read on the task's own host
  * (docs/plans/dispatch-parity.md). The RPC layer attaches linked-item content
  * (`attachLinkedContent`) before shipping, so this stays a pure store read. */
-export async function taskSnapshot(taskId: string): Promise<TaskSnapshot> {
-  const details = await (await Task.byId(taskId)).details()
+export async function taskSnapshot(organizationId: string, taskId: string): Promise<TaskSnapshot> {
+  const details = await (await Task.byId(organizationId, taskId)).details()
   const parent = details.task.parentId
-    ? await (await Task.byId(details.task.parentId)).details()
+    ? await (await Task.byId(organizationId, details.task.parentId)).details()
     : null
-  return { details, parent, sessions: (await taskSessions(taskId))[taskId] ?? [] }
+  return { details, parent, sessions: (await taskSessions(organizationId, taskId))[taskId] ?? [] }
 }

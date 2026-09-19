@@ -4,6 +4,7 @@ import { createLogger } from '../logger'
 import { completeTasksForMergedPullRequest } from '../tasks/sync-engine'
 import { emitChanged } from '../tasks/task-store'
 import { readActivePrLinkTargets, type PrLinkTarget } from '../tasks/task-links'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { codeHostFor, type CodeHost } from './code-host'
 import { prIndex, repoKeyOf } from './pr-index'
 import { PrLinkDiscovery } from './pr-link-discovery'
@@ -49,7 +50,7 @@ export class PrReconciler {
   private polling: Promise<void> | null = null
 
   constructor(private readonly deps: PrReconcilerDeps) {
-    this.watchList = deps.watchList ?? (() => readActivePrLinkTargets(getDatabase()))
+    this.watchList = deps.watchList ?? (() => readActivePrLinkTargets(getDatabase(), LOCAL_ORGANIZATION_ID))
     this.codeHost = deps.codeHost ?? codeHostFor
     this.isSessionBusy = deps.isSessionBusy ?? (() => false)
     this.intervalMs = deps.intervalMs ?? POLL_INTERVAL_MS
@@ -127,7 +128,7 @@ export class PrReconciler {
 
   private async completeMerged(scope: string, number: number, detail: Contracts.PullRequest): Promise<void> {
     if (detail.state !== 'merged') return
-    await completeTasksForMergedPullRequest(scope, number, {
+    await completeTasksForMergedPullRequest(LOCAL_ORGANIZATION_ID, scope, number, {
       mergedAt: detail.updatedAt,
       isSessionBusy: this.isSessionBusy,
       isMerged: async (other) => prIndex.lastRead(other.projectScope, other.number)?.state === 'merged',

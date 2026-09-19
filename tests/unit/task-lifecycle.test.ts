@@ -46,8 +46,8 @@ afterAll(() => {
 describe('task sidebar lifecycle', () => {
   test('completion and reopening use the canonical task status', async () => {
     // WHY: the sidebar must not invent a second lifecycle beside TaskStatus.
-    const task = await taskStore.createTask({ title: 'Review later', status: 'in_review' })
-    const completed = await (await tasks.Task.byId(task.id)).update({ status: 'done' })
+    const task = await taskStore.createTask('local', { title: 'Review later', status: 'in_review' })
+    const completed = await (await tasks.Task.byId('local', task.id)).update({ status: 'done' })
     expect(completed.record()).toMatchObject({ status: 'done', doneAt: expect.any(Number) })
 
     const reopened = await completed.update({ status: 'todo' })
@@ -57,20 +57,20 @@ describe('task sidebar lifecycle', () => {
 
   test('read state changes without becoming task activity', async () => {
     // WHY: visiting a conversation must not reorder the task as if new work happened.
-    const task = await taskStore.createTask({ title: 'Read state' })
+    const task = await taskStore.createTask('local', { title: 'Read state' })
     const updatedAt = task.updatedAt
-    const read = await lifecycle.markTaskRead(task.id, true)
+    const read = await lifecycle.markTaskRead('local', task.id, true)
     expect(read.lastReadAt).toEqual(expect.any(Number))
     expect(read.updatedAt).toBe(updatedAt)
-    expect((await lifecycle.markTaskRead(task.id, false)).lastReadAt).toBeUndefined()
+    expect((await lifecycle.markTaskRead('local', task.id, false)).lastReadAt).toBeUndefined()
   })
 
   test('a linked conversation prompt reopens completed and dropped tasks', async () => {
     // WHY: typing another turn means work resumed. The agent must not need to
     // repair the task status before it can continue the user's request.
     for (const status of ['done', 'dropped'] as const) {
-      const task = await taskStore.createTask({ title: `Resume ${status}`, status })
-      const active = await lifecycle.recordTaskActivity(task.id)
+      const task = await taskStore.createTask('local', { title: `Resume ${status}`, status })
+      const active = await lifecycle.recordTaskActivity('local', task.id)
 
       expect(active.status).toBe('in_progress')
       expect(active.doneAt).toBeUndefined()
@@ -86,8 +86,8 @@ describe('task sidebar lifecycle', () => {
   })
 
   test('a linked conversation prompt keeps an open task in its current status', async () => {
-    const task = await taskStore.createTask({ title: 'Keep review state', status: 'in_review' })
+    const task = await taskStore.createTask('local', { title: 'Keep review state', status: 'in_review' })
 
-    expect((await lifecycle.recordTaskActivity(task.id)).status).toBe('in_review')
+    expect((await lifecycle.recordTaskActivity('local', task.id)).status).toBe('in_review')
   })
 })

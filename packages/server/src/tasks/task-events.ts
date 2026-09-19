@@ -79,6 +79,7 @@ function eventFromRow(row: TaskEventRow): TaskEvent {
  * an event must commit or roll back with the mutation that caused it. */
 export async function appendTaskEvent(
   db: Db,
+  organizationId: string,
   taskId: string,
   event: TaskEventInput,
   now = Date.now(),
@@ -86,11 +87,11 @@ export async function appendTaskEvent(
   await db.run(sql`
     INSERT INTO ${taskEvents}(
       id, task_id, kind, actor, actor_label, from_value, to_value,
-      target_kind, target_scope, target_key, target_title, created_at
+      target_kind, target_scope, target_key, target_title, created_at, organization_id
     ) VALUES (
       ${ulid(now)}, ${taskId}, ${event.kind}, ${event.actor ?? 'user'}, ${event.actorLabel ?? null},
       ${event.from ?? null}, ${event.to ?? null}, ${event.targetKind ?? null}, ${event.targetScope ?? null},
-      ${event.targetKey ?? null}, ${event.targetTitle ?? null}, ${now}
+      ${event.targetKey ?? null}, ${event.targetTitle ?? null}, ${now}, ${organizationId}
     )
   `)
 }
@@ -125,6 +126,7 @@ const DIFFED_FIELDS: Array<{ column: keyof TaskFieldsForDiff; kind: TaskEventKin
  * machine bookkeeping nobody asked to see. */
 export async function diffTaskEvents(
   db: Db,
+  organizationId: string,
   taskId: string,
   before: TaskFieldsForDiff,
   after: TaskFieldsForDiff,
@@ -135,7 +137,7 @@ export async function diffTaskEvents(
     const from = field.column === 'labels' ? sortedLabels(before.labels) : before[field.column]
     const to = field.column === 'labels' ? sortedLabels(after.labels) : after[field.column]
     if (from === to) continue
-    await appendTaskEvent(db, taskId, { ...actor, kind: field.kind, from, to }, now)
+    await appendTaskEvent(db, organizationId, taskId, { ...actor, kind: field.kind, from, to }, now)
   }
 }
 

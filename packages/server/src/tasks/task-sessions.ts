@@ -125,13 +125,14 @@ export interface SessionLinkDetails {
  * caller's transaction. The public write is the `Task` object's `linkSession`. */
 export async function writeSessionLink(
   db: Db,
+  organizationId: string,
   taskId: string,
   sessionId: string,
   role: TaskSessionRole,
   details: SessionLinkDetails,
   now: number,
 ): Promise<void> {
-  await requireTask(taskId, db)
+  await requireTask(organizationId, taskId, db)
   const execution = details.execution ?? null
   const executionServerId = normalizedOptional(execution?.serverId)
   // The session record is what later reads ask, so a machine this host cannot
@@ -151,10 +152,10 @@ export async function writeSessionLink(
   const isNewLink = !(await db.get(sql`
     SELECT 1 AS present FROM ${taskSessionLinks} WHERE task_id = ${taskId} AND session_id = ${sessionId}
   `))
-  if (role === 'working') await transferSessionOwnership(db, taskId, sessionId, now)
+  if (role === 'working') await transferSessionOwnership(db, organizationId, taskId, sessionId, now)
   await db.run(sql`
-    INSERT INTO ${taskSessionLinks}(task_id, session_id, role, linked_at)
-    VALUES (${taskId}, ${sessionId}, ${role}, ${now})
+    INSERT INTO ${taskSessionLinks}(task_id, session_id, role, linked_at, organization_id)
+    VALUES (${taskId}, ${sessionId}, ${role}, ${now}, ${organizationId})
     ON CONFLICT(task_id, session_id) DO UPDATE SET
       role = excluded.role
   `)
@@ -166,7 +167,7 @@ export async function writeSessionLink(
   `)
 
   if (isNewLink) {
-    await appendTaskEvent(db, taskId, {
+    await appendTaskEvent(db, organizationId, taskId, {
       kind: 'session_started',
       actor: 'agent',
       targetKind: 'session',
@@ -188,6 +189,7 @@ export async function writeSessionLink(
  */
 async function transferSessionOwnership(
   db: Db,
+  organizationId: string,
   taskId: string,
   sessionId: string,
   now: number,
@@ -196,12 +198,13 @@ async function transferSessionOwnership(
     SELECT task_session_links.task_id, tasks.source, tasks.origin_session_id
     FROM ${taskSessionLinks}
     JOIN ${tasks} ON tasks.id = task_session_links.task_id
-    WHERE task_session_links.session_id = ${sessionId}
+    WHERE tasks.organization_id = ${organizationId}
+      AND task_session_links.session_id = ${sessionId}
       AND task_session_links.role = 'working'
       AND task_session_links.task_id <> ${taskId}
   `))
   for (const owner of previousOwners) {
-    await deleteSessionLink(db, owner.task_id, sessionId, {}, now)
+    await deleteSessionLink(db, organizationId, owner.task_id, sessionId, {}, now)
     if (owner.source !== 'session' || owner.origin_session_id !== sessionId) continue
     // The placeholder minted for this session is empty once the session leaves
     // it: nothing else links to it, nothing hangs under it, nobody wrote on it.
@@ -224,12 +227,13 @@ async function transferSessionOwnership(
  * `unlinkSession`. */
 export async function deleteSessionLink(
   db: Db,
+  organizationId: string,
   taskId: string,
   sessionId: string,
   actor: EventActor = {},
   now = Date.now(),
 ): Promise<boolean> {
-  await requireTask(taskId, db)
+  await requireTask(organizationId, taskId, db)
   const removed = (await db.run(sql`
     DELETE FROM ${taskSessionLinks} WHERE task_id = ${taskId} AND session_id = ${sessionId}
   `)).changes > 0
@@ -237,7 +241,7 @@ export async function deleteSessionLink(
   await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
   // Carries the session's display title so the feed still reads
   // "unlinked <name>" after the link is gone. Null when it was never indexed.
-  await appendTaskEvent(db, taskId, {
+  await appendTaskEvent(db, organizationId, taskId, {
     ...actor,
     kind: 'unlinked',
     targetKind: 'session',
@@ -249,18 +253,22 @@ export async function deleteSessionLink(
 
 /** Move the existing task attempt onto the stable Solus id when that session
  * first enters a new handoff chain. Ordinary and older sessions are untouched. */
-export async function rekeyTaskSessionLinks(sourceSessionId: string, targetSessionId: string): Promise<void> {
+export async function rekeyTaskSessionLinks(
+  organizationId: string,
+  sourceSessionId: string,
+  targetSessionId: string,
+): Promise<void> {
   if (sourceSessionId === targetSessionId) return
   const changed = await database().transaction(async (db) => {
     const rows = rekeySessionLinkRowSchema.array().parse(await db.all(sql`
       SELECT task_id, role, pr, linked_at
       FROM ${taskSessionLinks}
-      WHERE session_id = ${sourceSessionId}
+      WHERE organization_id = ${organizationId} AND session_id = ${sourceSessionId}
     `))
     for (const row of rows) {
       await db.run(sql`
-        INSERT INTO ${taskSessionLinks}(task_id, session_id, role, pr, linked_at)
-        VALUES (${row.task_id}, ${targetSessionId}, ${row.role}, ${row.pr}, ${row.linked_at})
+        INSERT INTO ${taskSessionLinks}(task_id, session_id, role, pr, linked_at, organization_id)
+        VALUES (${row.task_id}, ${targetSessionId}, ${row.role}, ${row.pr}, ${row.linked_at}, ${organizationId})
         ON CONFLICT(task_id, session_id) DO UPDATE SET
           role = excluded.role,
           pr = COALESCE(excluded.pr, task_session_links.pr),
@@ -271,9 +279,12 @@ export async function rekeyTaskSessionLinks(sourceSessionId: string, targetSessi
       `)
     }
     if (rows.length) {
-      await db.run(sql`DELETE FROM ${taskSessionLinks} WHERE session_id = ${sourceSessionId}`)
       await db.run(sql`
-        UPDATE ${tasks} SET origin_session_id = ${targetSessionId} WHERE origin_session_id = ${sourceSessionId}
+        DELETE FROM ${taskSessionLinks} WHERE organization_id = ${organizationId} AND session_id = ${sourceSessionId}
+      `)
+      await db.run(sql`
+        UPDATE ${tasks} SET origin_session_id = ${targetSessionId}
+        WHERE organization_id = ${organizationId} AND origin_session_id = ${sourceSessionId}
       `)
     }
     return rows.length > 0
@@ -282,25 +293,26 @@ export async function rekeyTaskSessionLinks(sourceSessionId: string, targetSessi
 }
 
 /** Task-keyed attempts for either one task or the complete global store. */
-export async function taskSessions(taskId?: string): Promise<TaskSessionsByTask> {
+export async function taskSessions(organizationId: string, taskId?: string): Promise<TaskSessionsByTask> {
   const rowValues = taskId
     ? await getDatabase().all(sql`
         SELECT task_id, session_id, role, pr, linked_at FROM ${taskSessionLinks}
-        WHERE task_id = ${taskId}
+        WHERE organization_id = ${organizationId} AND task_id = ${taskId}
         ORDER BY linked_at, session_id
       `)
     : await getDatabase().all(sql`
         SELECT task_id, session_id, role, pr, linked_at FROM ${taskSessionLinks}
+        WHERE organization_id = ${organizationId}
         ORDER BY linked_at, task_id, session_id
       `)
   return linksFromRows(taskSessionLinkRowSchema.array().parse(rowValues))
 }
 
 /** The task a session works on: its owner first, a later `referenced` relationship never outranks it. */
-export async function taskIdForSession(sessionId: string): Promise<string | null> {
+export async function taskIdForSession(organizationId: string, sessionId: string): Promise<string | null> {
   const link = taskIdRowSchema.nullish().parse(await getDatabase().get(sql`
     SELECT task_id FROM ${taskSessionLinks}
-    WHERE session_id = ${sessionId}
+    WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
     ORDER BY CASE role WHEN 'working' THEN 0 ELSE 1 END, linked_at DESC
     LIMIT 1
   `))
@@ -309,17 +321,17 @@ export async function taskIdForSession(sessionId: string): Promise<string | null
 
 /** Resolve a session into the durable two-level task tree without loading or
  * starting any sibling sessions. */
-export async function tasksForSession(sessionId: string): Promise<TaskForSessionResult | null> {
-  const taskId = await taskIdForSession(sessionId)
+export async function tasksForSession(organizationId: string, sessionId: string): Promise<TaskForSessionResult | null> {
+  const taskId = await taskIdForSession(organizationId, sessionId)
   if (!taskId) return null
 
-  const task = await loadTaskRecord(taskId)
+  const task = await loadTaskRecord(organizationId, taskId)
   if (!task) return null
-  const parent = task.parentId ? await loadTaskRecord(task.parentId) : null
+  const parent = task.parentId ? await loadTaskRecord(organizationId, task.parentId) : null
   const rootId = parent?.id ?? task.id
-  const subtasks = await listTaskChildren(rootId)
+  const subtasks = await listTaskChildren(organizationId, rootId)
   const siblings = task.parentId ? subtasks.filter((subtask) => subtask.id !== task.id) : []
-  const attemptsByTask = await taskSessions()
+  const attemptsByTask = await taskSessions(organizationId)
   const attempts = [rootId, ...subtasks.map((subtask) => subtask.id)]
     .flatMap((id) => attemptsByTask[id] ?? [])
   return { task, parent, subtasks, siblings, attempts }
@@ -349,7 +361,7 @@ interface PrepareSessionTaskInput {
  * existing one, in a single transaction with the optional session link. Returns
  * null for a resumed provider session — the no-backfill rule — in which case no
  * read, write, notification, or repair happens. */
-export async function prepareSessionTask(input: PrepareSessionTaskInput): Promise<Task | null> {
+export async function prepareSessionTask(organizationId: string, input: PrepareSessionTaskInput): Promise<Task | null> {
   if (input.existingAgentSessionId) return null
   const task = await database().transaction(async (db) => {
     const now = Date.now()
@@ -364,7 +376,7 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
     const projectKey = rawProjectKey ? worktreeProjectRoot(rawProjectKey) : null
     let task: Task
     if (existingTaskId) {
-      const existing = await requireTask(existingTaskId, db)
+      const existing = await requireTask(organizationId, existingTaskId, db)
       await db.run(sql`
         UPDATE ${tasks} SET
           project_key = COALESCE(project_key, ${projectKey}),
@@ -378,11 +390,11 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
       `)
       // This promotes inbox/todo straight to in_progress without going through
       // updateTask, so the diff has to happen here or the move is unrecorded.
-      const updated = await requireTask(existingTaskId, db)
-      await diffTaskEvents(db, existingTaskId, existing, updated, { actor: 'agent' }, now)
+      const updated = await requireTask(organizationId, existingTaskId, db)
+      await diffTaskEvents(db, organizationId, existingTaskId, existing, updated, { actor: 'agent' }, now)
       task = taskFromRow(updated)
     } else {
-      task = await writeTask(db, {
+      task = await writeTask(db, organizationId, {
         title: promptTitle(input.prompt),
         projectKey,
         parentId: parentTaskId,
@@ -395,10 +407,10 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
     }
 
     if (input.sessionId) {
-      await writeSessionLink(db, task.id, input.sessionId, 'working', {
+      await writeSessionLink(db, organizationId, task.id, input.sessionId, 'working', {
         originSessionId: input.originSessionId,
       }, now)
-      task = taskFromRow(await requireTask(task.id, db))
+      task = taskFromRow(await requireTask(organizationId, task.id, db))
     }
     return task
   })
@@ -415,6 +427,7 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
  * while an edit to one field does not prevent generated metadata filling the
  * other. Linked attempts cannot rename or describe an existing parent task. */
 export async function updateGeneratedMetadataForSession(
+  organizationId: string,
   sessionId: string,
   title: string,
   description: string,
@@ -428,7 +441,8 @@ export async function updateGeneratedMetadataForSession(
       SELECT tasks.id, tasks.title_source, tasks.body
       FROM ${tasks}
       JOIN ${taskSessionLinks} ON task_session_links.task_id = tasks.id
-      WHERE task_session_links.session_id = ${taskSessionId}
+      WHERE tasks.organization_id = ${organizationId}
+        AND task_session_links.session_id = ${taskSessionId}
         AND task_session_links.role = 'working'
         AND tasks.source = 'session'
         AND tasks.origin_session_id = task_session_links.session_id
@@ -448,7 +462,7 @@ export async function updateGeneratedMetadataForSession(
         updated_at = ${now}
       WHERE id = ${row.id}
     `)
-    return taskFromRow(await requireTask(row.id, db))
+    return taskFromRow(await requireTask(organizationId, row.id, db))
   })
   if (task) emitChanged()
   return task

@@ -1,5 +1,9 @@
+import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { getDb } from '../db'
+import { getDatabase } from '../db/database'
+import { works } from '../folio/schema'
+import { planAnnotations } from '../plans/schema'
 
 /**
  * The display fields tasks read from domains that are not ported yet
@@ -97,18 +101,22 @@ export function linkTargetRecordKey(target: LinkTargetKey): string {
   return `${target.kind}\0${target.targetScope}\0${target.targetKey}`
 }
 
-/** Live title and status per linked target whose table lives on this host.
- * `pr` targets are a GitHub round trip and are never looked up here. */
-export function linkTargetRecordsFor(targets: LinkTargetKey[]): Map<string, LinkTargetRecord> {
+/** Live title and status per linked target. Works and plans are ported
+ * domains, so their reads are `Db` queries scoped to the organization;
+ * automations still live in the host's file. `pr` targets are a GitHub round
+ * trip and are never looked up here. */
+export async function linkTargetRecordsFor(organizationId: string, targets: LinkTargetKey[]): Promise<Map<string, LinkTargetRecord>> {
   const records = new Map<string, LinkTargetRecord>()
   const workIds = [...new Set(targets.filter((target) => target.kind === 'work').map((target) => target.targetKey))]
   const automationIds = [...new Set(targets.filter((target) => target.kind === 'automation').map((target) => target.targetKey))]
   const plans = targets.filter((target) => target.kind === 'plan')
   const db = getDb()
   if (workIds.length) {
-    const rows = workRowSchema.array().parse(db.prepare(
-      'SELECT id, title, type FROM works WHERE id IN (SELECT value FROM json_each(?))',
-    ).all(JSON.stringify(workIds)))
+    const rows = workRowSchema.array().parse(await getDatabase().all(sql`
+      SELECT id, title, type FROM ${works}
+      WHERE organization_id = ${organizationId}
+        AND id IN (${sql.join(workIds.map((id) => sql`${id}`), sql`, `)})
+    `))
     for (const row of rows) {
       records.set(linkTargetRecordKey({ kind: 'work', targetScope: '', targetKey: row.id }), { title: row.title, status: row.type })
     }
@@ -125,13 +133,15 @@ export function linkTargetRecordsFor(targets: LinkTargetKey[]): Map<string, Link
     }
   }
   if (plans.length) {
-    const rows = planRowSchema.array().parse(db.prepare(`
-      SELECT plan_annotations.session_id, plan_annotations.plan_tool_use_id, plan_annotations.title, plan_annotations.status
-      FROM plan_annotations
-      JOIN json_each(?) AS wanted
-        ON json_extract(wanted.value, '$.scope') = plan_annotations.session_id
-       AND json_extract(wanted.value, '$.key') = plan_annotations.plan_tool_use_id
-    `).all(JSON.stringify(plans.map((plan) => ({ scope: plan.targetScope, key: plan.targetKey })))))
+    const wanted = sql.join(
+      plans.map((plan) => sql`(session_id = ${plan.targetScope} AND plan_tool_use_id = ${plan.targetKey})`),
+      sql` OR `,
+    )
+    const rows = planRowSchema.array().parse(await getDatabase().all(sql`
+      SELECT session_id, plan_tool_use_id, title, status
+      FROM ${planAnnotations}
+      WHERE organization_id = ${organizationId} AND (${wanted})
+    `))
     for (const row of rows) {
       records.set(linkTargetRecordKey({ kind: 'plan', targetScope: row.session_id, targetKey: row.plan_tool_use_id }), {
         title: row.title,

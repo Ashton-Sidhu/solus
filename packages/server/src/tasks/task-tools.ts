@@ -7,7 +7,8 @@ import { Task } from './task'
 import { applyOpToForeignTask, foreignTaskFor } from './foreign-tasks'
 import { formatTaskLink } from './task-context'
 import { recordOutboxOp } from '../outbox/outbox-store'
-import { getHostConfig, getServerSettings } from '../server/settings'
+import { getHostConfig } from '../server/settings'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
 import type {
   Task as TaskRecord,
@@ -164,12 +165,15 @@ async function executeTaskTool(
 ): Promise<TaskToolResult> {
   const cwd = deps.ctx.cwd
   const projectKey = await resolveRepoRoot(cwd) ?? cwd
+  // An agent runs on the machine that holds its session; the tasks it reads
+  // and writes are that machine's own (docs/plans/cloud-service-model.md).
+  const organizationId = LOCAL_ORGANIZATION_ID
   try {
     if (name === 'list_tasks') {
       const input = listTasksInputSchema.parse(args)
       const status = input.status ?? 'all'
       const requestedScope = input.scope ?? 'project'
-      const result = await listTasks({
+      const result = await listTasks(organizationId, {
         projectKey: requestedScope === 'project' ? projectKey : undefined,
         scope: requestedScope,
         status: status === 'all' ? undefined : status,
@@ -193,7 +197,7 @@ async function executeTaskTool(
       // A foreign task (dispatched session) answers from the shipped snapshot,
       // overlaid with this session's own not-yet-delivered writes.
       const foreign = foreignTaskFor(deps.ctx.solusSessionId, id)
-      const details = foreign ? foreign.details : await (await Task.byId(id)).details()
+      const details = foreign ? foreign.details : await (await Task.byId(organizationId, id)).details()
       const task = details.task
       return {
         ok: true,
@@ -228,7 +232,7 @@ async function executeTaskTool(
         applyOpToForeignTask(deps.ctx.solusSessionId, op)
         return { ok: true, text: `Task ${id} is now "${status}".` }
       }
-      const updated = await (await Task.byId(id)).update(
+      const updated = await (await Task.byId(organizationId, id)).update(
         { status },
         { actor: 'agent', actorLabel: deps.ctx.sessionId },
       )
@@ -258,7 +262,7 @@ async function executeTaskTool(
         source: 'agent',
         originSessionId: deps.ctx.sessionId ?? null,
       }
-      const task = await createTask(input)
+      const task = await createTask(organizationId, input)
       deps.onTaskCreated?.({ taskId: task.id, title: task.title, url: task.url ?? null })
       return {
         ok: true,
@@ -278,7 +282,7 @@ async function executeTaskTool(
         applyOpToForeignTask(deps.ctx.solusSessionId, op)
         return { ok: true, text: `Comment added to task ${id}.` }
       }
-      await (await Task.byId(id)).comment(body, {
+      await (await Task.byId(organizationId, id)).comment(body, {
         author: 'agent',
         originSessionId: deps.ctx.sessionId,
       })
@@ -300,7 +304,7 @@ async function executeTaskTool(
       if (kind === 'session') {
         const sessionId = input.target_id?.trim() || deps.ctx.sessionId
         if (!sessionId) return { ok: false, text: 'link_task with kind=session requires target_id when no calling session id is available.' }
-        await (await Task.byId(taskId)).linkSession(sessionId, input.role ?? 'working')
+        await (await Task.byId(organizationId, taskId)).linkSession(sessionId, input.role ?? 'working')
         return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
       }
 
@@ -323,7 +327,7 @@ async function executeTaskTool(
         if (externalPr) targetKey = String(externalPr.number)
       }
 
-      await (await Task.byId(taskId)).link({
+      await (await Task.byId(organizationId, taskId)).link({
         kind,
         targetScope,
         targetKey,

@@ -107,7 +107,7 @@ describe('agent task lifecycle policy', () => {
 
   test('none prevents every agent status change', async () => {
     serverSettings.setHostConfig({ agentTaskLifecyclePolicy: 'none' })
-    const task = await createTask({ title: 'User controlled', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'User controlled', projectKey: '/p', body: '' })
 
     const result = await taskTools.updateTaskStatusAgentTool.execute(
       { task_id: task.id, status: 'in_progress' },
@@ -116,11 +116,11 @@ describe('agent task lifecycle policy', () => {
 
     expect(result.ok).toBe(false)
     expect(result.text).toContain('user controls')
-    expect((await TaskModule.Task.byId(task.id)).status).toBe('todo')
+    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('todo')
   })
 
   test('moderate permits progress but prevents Done', async () => {
-    const task = await createTask({ title: 'User closes this', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'User closes this', projectKey: '/p', body: '' })
     const reviewed = await taskTools.updateTaskStatusAgentTool.execute(
       { task_id: task.id, status: 'in_review' },
       toolContext('moderate-policy'),
@@ -133,12 +133,12 @@ describe('agent task lifecycle policy', () => {
     expect(reviewed.ok).toBe(true)
     expect(done.ok).toBe(false)
     expect(done.text).toContain('Moderate mode')
-    expect((await TaskModule.Task.byId(task.id)).status).toBe('in_review')
+    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('in_review')
   })
 
   test('autonomous permits Done', async () => {
     serverSettings.setHostConfig({ agentTaskLifecyclePolicy: 'autonomous' })
-    const task = await createTask({ title: 'Agent controlled', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'Agent controlled', projectKey: '/p', body: '' })
 
     const result = await taskTools.updateTaskStatusAgentTool.execute(
       { task_id: task.id, status: 'done' },
@@ -146,7 +146,7 @@ describe('agent task lifecycle policy', () => {
     )
 
     expect(result.ok).toBe(true)
-    expect((await TaskModule.Task.byId(task.id)).status).toBe('done')
+    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('done')
   })
 })
 
@@ -154,7 +154,7 @@ describe('the host outbox (ADR-0007)', () => {
   test('record → list → apply → ack is the whole lifecycle, and redelivery is a no-op', async () => {
     // WHY: the op id is the idempotence key end to end. A lost ack means the
     // client redelivers, and the applied-ops guard must make that harmless.
-    const task = await createTask({ title: 'Owned here', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'Owned here', projectKey: '/p', body: '' })
     const op = outbox.recordOutboxOp({
       domain: 'tasks',
       resourceId: task.id,
@@ -170,7 +170,7 @@ describe('the host outbox (ADR-0007)', () => {
     const redelivered = await outbox.applyOutboxOps([op])
     expect(redelivered.applied).toEqual([op.id])
 
-    const details = await (await TaskModule.Task.byId(task.id)).details()
+    const details = await (await TaskModule.Task.byId('local', task.id)).details()
     const matching = details.comments.filter((comment) => comment.id === op.id)
     expect(matching.length).toBe(1)
     expect(matching[0].body).toBe('from the borrowed machine')
@@ -182,7 +182,7 @@ describe('the host outbox (ADR-0007)', () => {
   test('a replayed status op cannot regress a later human change', async () => {
     // WHY: last-write-wins must mean "last recorded", not "last delivered". The
     // guard skips an already-applied op instead of trusting timestamps.
-    const task = await createTask({ title: 'Status races', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'Status races', projectKey: '/p', body: '' })
     const op = outbox.recordOutboxOp({
       domain: 'tasks',
       resourceId: task.id,
@@ -191,25 +191,25 @@ describe('the host outbox (ADR-0007)', () => {
       sessionId: 'session-1',
     })
     await outbox.applyOutboxOps([op])
-    expect((await TaskModule.Task.byId(task.id)).status).toBe('in_review')
+    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('in_review')
 
     // A human moves it afterwards; the same op redelivers (lost ack).
-    await (await TaskModule.Task.byId(task.id)).update({ status: 'done' })
+    await (await TaskModule.Task.byId('local', task.id)).update({ status: 'done' })
     const redelivered = await outbox.applyOutboxOps([op])
     expect(redelivered.applied).toEqual([op.id])
-    expect((await TaskModule.Task.byId(task.id)).status).toBe('done')
+    expect((await TaskModule.Task.byId('local', task.id)).status).toBe('done')
     outbox.ackOutboxOps([op.id])
   })
 
   test('an op against a deleted task dead-letters instead of redelivering forever', async () => {
-    const task = await createTask({ title: 'Doomed', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'Doomed', projectKey: '/p', body: '' })
     const op = outbox.recordOutboxOp({
       domain: 'tasks',
       resourceId: task.id,
       name: 'comment',
       payload: { body: 'too late', author: 'agent' },
     })
-    await (await TaskModule.Task.byId(task.id)).delete()
+    await (await TaskModule.Task.byId('local', task.id)).delete()
 
     const result = await outbox.applyOutboxOps([op])
     expect(result.failed.length).toBe(1)
@@ -297,14 +297,14 @@ describe('task tools on a dispatched session (foreign task)', () => {
   })
 
   test('a local task is untouched by the foreign branch', async () => {
-    const task = await createTask({ title: 'Local as ever', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'Local as ever', projectKey: '/p', body: '' })
     const commented = await taskTools.commentTaskAgentTool.execute(
       { task_id: task.id, body: 'plain local comment' },
       toolContext(sessionId),
     )
     expect(commented.ok).toBe(true)
     expect(outbox.pendingOutboxOpsFor('tasks', task.id).length).toBe(0)
-    const details = await (await TaskModule.Task.byId(task.id)).details()
+    const details = await (await TaskModule.Task.byId('local', task.id)).details()
     expect(details.comments.some((comment) => comment.body === 'plain local comment')).toBe(true)
   })
 })
@@ -456,7 +456,7 @@ describe('works from a dispatched session travel through the outbox', () => {
   test('create_work records an op, reads back pre-drain, and lands linked on the owner host', async () => {
     // WHY: before this, a dispatched create_work persisted onto the borrowed
     // machine and vanished from the user's world when that machine did.
-    const task = await createTask({ title: 'Owns the doc', projectKey: '/p', body: '' })
+    const task = await createTask('local', { title: 'Owns the doc', projectKey: '/p', body: '' })
     foreignTasks.setForeignTaskSnapshot(sessionId, shippedSnapshot(task.id))
 
     const created = await workTools.createWorkAgentTool.execute(
@@ -468,7 +468,7 @@ describe('works from a dispatched session travel through the outbox', () => {
     expect(workId).not.toBe('')
 
     // Not persisted on the execution host — the op is the write.
-    expect(await works.loadWork(workId)).toBeNull()
+    expect(await works.loadWork('local', workId)).toBeNull()
 
     // The agent reads its own creation back before the courier delivers…
     const read = await workTools.readWorkAgentTool.execute({ work_id: workId }, toolContext(sessionId))
@@ -486,9 +486,9 @@ describe('works from a dispatched session travel through the outbox', () => {
     expect(pending.length).toBe(1)
     const first = await outbox.applyOutboxOps(pending)
     expect(first.applied).toEqual(pending.map((op) => op.id))
-    const landed = await works.loadWork(workId)
+    const landed = await works.loadWork('local', workId)
     expect(landed?.content).toBe('# Authored elsewhere')
-    const details = await (await TaskModule.Task.byId(task.id)).details()
+    const details = await (await TaskModule.Task.byId('local', task.id)).details()
     expect(details.links.some((link) => link.kind === 'work' && link.targetKey === workId)).toBe(true)
 
     // Redelivery (lost ack) is a no-op.
@@ -511,7 +511,7 @@ describe('works from a dispatched session travel through the outbox', () => {
   })
 
   test('an update op re-applies convergently on the owner host', async () => {
-    const created = await works.createWork('Owner doc', 'doc', 'v1', '', undefined, 'claude-code', '/p')
+    const created = await works.createWork('local', 'Owner doc', 'doc', 'v1', '', undefined, 'claude-code', '/p')
     const op = outbox.recordOutboxOp({
       domain: 'works',
       resourceId: created.id,
@@ -520,7 +520,7 @@ describe('works from a dispatched session travel through the outbox', () => {
     })
     const result = await outbox.applyOutboxOps([op])
     expect(result.applied).toEqual([op.id])
-    expect((await works.loadWork(created.id))?.content).toBe('v2')
+    expect((await works.loadWork('local', created.id))?.content).toBe('v2')
     const again = await outbox.applyOutboxOps([op])
     expect(again.applied).toEqual([op.id])
     outbox.ackOutboxOps([op.id])
@@ -544,27 +544,27 @@ describe('the task host ships linked content with the snapshot', () => {
   test('attachLinkedContent carries the full content of every linked work', async () => {
     // WHY: the execution host cannot read this host's folio store, so the
     // snapshot is the only way a dispatched agent can read the task's docs.
-    const created = await works.createWork('Design doc', 'doc', '# The plan', '', undefined, 'claude-code', '/p')
-    const task = await createTask({ title: 'Task with a doc', projectKey: '/p', body: '' })
-    await (await TaskModule.Task.byId(task.id)).link({
+    const created = await works.createWork('local', 'Design doc', 'doc', '# The plan', '', undefined, 'claude-code', '/p')
+    const task = await createTask('local', { title: 'Task with a doc', projectKey: '/p', body: '' })
+    await (await TaskModule.Task.byId('local', task.id)).link({
       kind: 'work',
       targetScope: '',
       targetKey: created.id,
       title: created.title,
       createdBy: 'agent',
     })
-    const snapshot = await linkedContent.attachLinkedContent(await TaskModule.taskSnapshot(task.id))
+    const snapshot = await linkedContent.attachLinkedContent('local', await TaskModule.taskSnapshot('local', task.id))
     expect(snapshot.linked?.map((item) => item.key)).toEqual([created.id])
     expect(snapshot.linked?.[0].content).toBe('# The plan')
     expect(snapshot.linked?.[0].workType).toBe('doc')
   })
 
   test('an unresolvable plan link is skipped, and a PR link ships no content', async () => {
-    const task = await createTask({ title: 'Task with dead links', projectKey: '/p', body: '' })
-    const bound = await TaskModule.Task.byId(task.id)
+    const task = await createTask('local', { title: 'Task with dead links', projectKey: '/p', body: '' })
+    const bound = await TaskModule.Task.byId('local', task.id)
     await bound.link({ kind: 'plan', targetScope: 'gone-session', targetKey: 'plan-x', title: 'Lost plan', createdBy: 'agent' })
     await bound.link({ kind: 'pr', targetScope: '/p', targetKey: '7', title: '#7', url: 'https://github.com/acme/app/pull/7', createdBy: 'agent' })
-    const snapshot = await linkedContent.attachLinkedContent(await TaskModule.taskSnapshot(task.id))
+    const snapshot = await linkedContent.attachLinkedContent('local', await TaskModule.taskSnapshot('local', task.id))
     expect(snapshot.linked ?? []).toEqual([])
   })
 })

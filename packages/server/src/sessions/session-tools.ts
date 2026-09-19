@@ -11,6 +11,7 @@ import type { AgentConversationUpdate, AgentId, AgentTarget, NormalizedEvent, Pl
 import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { Task } from '../tasks/task'
 import { listTaskChildren } from '../tasks/task-store'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 
 const log = createLogger('sessions', 'session-tools.ts')
 
@@ -320,11 +321,11 @@ async function taskContextForSession(sessionId: string): Promise<{
   summary: string
   details: string[]
 } | null> {
-  const boundTask = await Task.forSession(sessionId)
+  const boundTask = await Task.forSession(LOCAL_ORGANIZATION_ID, sessionId)
   if (!boundTask) return null
   const task = boundTask.record()
-  const parent = task.parentId ? (await Task.byId(task.parentId)).record() : null
-  const subtasks = await listTaskChildren(parent?.id ?? task.id)
+  const parent = task.parentId ? (await Task.byId(LOCAL_ORGANIZATION_ID, task.parentId)).record() : null
+  const subtasks = await listTaskChildren(LOCAL_ORGANIZATION_ID, parent?.id ?? task.id)
   const siblings = parent ? subtasks.filter((candidate) => candidate.id !== task.id) : []
   const relationship = parent ? `subtask of ${parent.id}` : 'top-level task'
   const details = [`task: ${task.id} [${task.status}] ${task.title} (${relationship})`]

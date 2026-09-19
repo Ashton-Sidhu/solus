@@ -552,11 +552,7 @@ export class UnifiedAutocompleteController {
           provider: descriptor.provider,
         });
     } else if (token.kind === "work") {
-      void this.deps.session.worksStore.ensureContent(
-        token.workId,
-        "composer-work-select",
-        this.deps.workingDirectory(),
-      );
+      void this.deps.session.worksStore.ensureContent(token.workId, "composer-work-select");
     }
     if (token.kind === "plan" || token.kind === "work" || token.kind === "session")
       this.syncRefs();

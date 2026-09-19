@@ -17,6 +17,7 @@ import type { Provider, RepoRef } from '../../providers/types'
 import type { PrEffortRequest, PrEffortResult, PrListPage, PrReviewTarget, DraftReview, PullRequestUpdate } from '@solus/contracts/providers'
 import { projectScopeOf, type GithubDelegatedCredential, type IpcContext, type PrCheckoutContext, type PrConflictResolutionResult, type PrMergeResult } from '@solus/contracts/types'
 import { LOCAL_DEVICE_LABEL, type SolusServer } from '../server'
+import { organizationOf } from '../principal'
 import { attachReviewAttention } from './review-attention'
 import type { AgentDispatcher } from '../../agents/agent-runner'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
@@ -306,7 +307,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
 
   // ─── PR review mode ─────────────────────────────────────────────────────────
 
-  server.register('prList', async (args) => {
+  server.register('prList', async (args, handlerCtx) => {
     const [ctx, filter, page = 1] = args
     const { repo, provider } = await reviewTargetFor(ctx)
     const viewer = await provider.review.getViewer(repo)
@@ -326,7 +327,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     // same pull request. Only a session's own worktree speaks for its branch.
     const isolatedCheckout = !!ctx.session.gitContext?.worktreePath
     if (cwd && sessionId && sessionPullRequest && isolatedCheckout) {
-      const task = await Task.forSession(sessionId)
+      const task = await Task.forSession(organizationOf(handlerCtx.principal), sessionId)
       await task?.linkPullRequest({
         number: sessionPullRequest.number,
         title: `#${sessionPullRequest.number} ${sessionPullRequest.title}`,
@@ -444,7 +445,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return preparePrCheckout(ctx, target)
   })
 
-  server.register('prMerge', async (args): Promise<PrMergeResult> => {
+  server.register('prMerge', async (args, handlerCtx): Promise<PrMergeResult> => {
     const [ctx, number, method, expectedHeadSha] = args
     return writePullRequest(ctx, number, async ({ repo, provider, pullRequest }) => {
       const detail = await pullRequest.readFresh()
@@ -457,7 +458,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       if (!result.merged) return result
       const projectPath = projectScopeOf(ctx.session)
       const detailAfterMerge = await pullRequest.readFresh()
-      await completeTasksForMergedPullRequest(repoKeyOf(repo).toLowerCase(), number, {
+      await completeTasksForMergedPullRequest(organizationOf(handlerCtx.principal), repoKeyOf(repo).toLowerCase(), number, {
         mergedAt: detailAfterMerge.updatedAt,
         isSessionBusy: deps.isSessionBusy,
       })
@@ -549,7 +550,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
     return detail
   })
 
-  server.register('prUpdate', async (args) => {
+  server.register('prUpdate', async (args, handlerCtx) => {
     const [ctx, number, patch] = args
     const title = patch.title?.trim()
     if (patch.title !== undefined && !title) throw new Error('A pull request title cannot be empty.')
@@ -560,7 +561,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       provider.review.updatePullRequest(repo, number, updates))
     const sessionId = ctx.session.agentSessionId
     if (sessionId) {
-      await Task.linkArtifactForSession(sessionId, {
+      await Task.linkArtifactForSession(organizationOf(handlerCtx.principal), sessionId, {
         kind: 'pr',
         targetScope: projectScopeOf(ctx.session),
         targetKey: String(number),

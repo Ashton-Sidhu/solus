@@ -11,18 +11,18 @@ const MEMBER: Principal = { kind: 'org-member', userId: 'bob', organizationId: '
 const GUEST: Principal = { kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's1' }, role: 'viewer', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }
 
 const shares = {
-  roleFor: (_principal: Principal, resource: { kind: string; id: string }) => (resource.id === 's1' ? 'viewer' : 'none'),
+  roleFor: async (_principal: Principal, resource: { kind: string; id: string }) => (resource.id === 's1' ? 'viewer' : 'none'),
 } as unknown as ShareManager
 
 const sessionRoom = (sessionId: string): HostEvent => ({ type: 'session.presenceChanged', payload: { sessionId, participants: [], activeTurn: null }, occurredAt: 0 })
 const hostRoom: HostEvent = { type: 'host.presenceChanged', payload: { participants: [] }, occurredAt: 0 }
 
 describe('presence audiences', () => {
-  test('a session room follows the session share; the host room never reaches a guest', () => {
-    expect(eventVisibleTo(GUEST, sessionRoom('s1'), shares)).toBe(true)
-    expect(eventVisibleTo(GUEST, sessionRoom('s2'), shares)).toBe(false)
-    expect(eventVisibleTo(MEMBER, sessionRoom('s2'), shares)).toBe(false)
-    expect(eventVisibleTo(GUEST, hostRoom, shares)).toBe(false)
-    expect(eventVisibleTo(MEMBER, hostRoom, shares)).toBe(true)
+  test('a session room follows the session share; the host room never reaches a guest', async () => {
+    expect(await eventVisibleTo(GUEST, sessionRoom('s1'), shares)).toBe(true)
+    expect(await eventVisibleTo(GUEST, sessionRoom('s2'), shares)).toBe(false)
+    expect(await eventVisibleTo(MEMBER, sessionRoom('s2'), shares)).toBe(false)
+    expect(await eventVisibleTo(GUEST, hostRoom, shares)).toBe(false)
+    expect(await eventVisibleTo(MEMBER, hostRoom, shares)).toBe(true)
   })
 })

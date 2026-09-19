@@ -13,6 +13,7 @@ import { providerForRepo } from '../providers/registry'
 import { writeAssetUpload } from '../server/assets'
 import { storedAssetPath } from '../server/asset-paths'
 import { Task } from '../tasks/task'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { browserRegistry } from './browser-registry'
 import { pullRequestNumber } from './pull-request-link'
 
@@ -85,7 +86,8 @@ export async function attachEvidence(
   const caption = context.caption?.trim() || describeCapture(context.page)
 
   if (target.kind === 'task') {
-    const task = await Task.byId(target.taskId)
+    // Evidence is filed on the host that holds the page, on that host's own task.
+    const task = await Task.byId(LOCAL_ORGANIZATION_ID, target.taskId)
     // A local asset URI, on purpose: Solus renders it inline, and the task
     // domain already refuses to push a body containing one to an upstream
     // ticket, where the link would resolve to nothing.

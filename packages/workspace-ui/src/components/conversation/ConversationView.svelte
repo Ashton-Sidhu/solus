@@ -424,11 +424,7 @@
         // Skip provisional (streaming) ids — their content lives in the store and
         // there is nothing to load from disk yet.
         if (workId && !session.worksStore.streaming[workId]) {
-          void session.worksStore.ensureContent(
-            workId,
-            "conversation-view",
-            sess?.run.workingDirectory,
-          );
+          void session.worksStore.ensureContent(workId, "conversation-view");
         }
       }
     }

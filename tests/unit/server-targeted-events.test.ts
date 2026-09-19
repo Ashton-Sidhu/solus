@@ -13,13 +13,13 @@ function captureClient(registry: ClientEventRegistry, clientId: string): {
 }
 
 describe('HostEventPublisher', () => {
-  test('publishes to one client without leaking to another client', () => {
+  test('publishes to one client without leaking to another client', async () => {
     const registry = new ClientEventRegistry()
     const publisher = new HostEventPublisher(registry)
     const clientA = captureClient(registry, 'ws:a')
     const clientB = captureClient(registry, 'ws:b')
 
-    expect(publisher.publish('ws:a', 'session.eventReceived', {
+    expect(await publisher.publish('ws:a', 'session.eventReceived', {
       sessionId: 'session-a',
       event: { type: 'assistant_message', text: 'A' },
     })).toBe(1)
@@ -32,7 +32,7 @@ describe('HostEventPublisher', () => {
     expect(clientB.events).toEqual([])
   })
 
-  test('one session watched by two clients is one publish carrying one payload', () => {
+  test('one session watched by two clients is one publish carrying one payload', async () => {
     // WHY: the fan-out rule at the transport. Two panes on one renderer are one
     // client and receive one frame; desktop and web are two clients and receive
     // the same frame — never one publish per view.
@@ -45,7 +45,7 @@ describe('HostEventPublisher', () => {
       event: { type: 'assistant_message' as const, text: 'once' },
     }
 
-    expect(publisher.publish(['ws:desktop', 'ws:web'], 'session.eventReceived', payload)).toBe(2)
+    expect(await publisher.publish(['ws:desktop', 'ws:web'], 'session.eventReceived', payload)).toBe(2)
 
     expect(desktop.events).toHaveLength(1)
     expect(web.events).toHaveLength(1)
@@ -53,26 +53,26 @@ describe('HostEventPublisher', () => {
     expect(web.events[0].payload).toEqual(payload)
   })
 
-  test('accepts many client ids and deduplicates them', () => {
+  test('accepts many client ids and deduplicates them', async () => {
     const registry = new ClientEventRegistry()
     const publisher = new HostEventPublisher(registry)
     const clientA = captureClient(registry, 'ws:a')
     const clientB = captureClient(registry, 'ws:b')
 
-    expect(publisher.publish(['ws:a', 'ws:b', 'ws:a'], 'tasks.invalidated', {})).toBe(2)
+    expect(await publisher.publish(['ws:a', 'ws:b', 'ws:a'], 'tasks.invalidated', {})).toBe(2)
 
     expect(clientA.events).toHaveLength(1)
     expect(clientB.events).toHaveLength(1)
   })
 
-  test('reports only routable recipients and broadcasts to every registered client', () => {
+  test('reports only routable recipients and broadcasts to every registered client', async () => {
     const registry = new ClientEventRegistry()
     const publisher = new HostEventPublisher(registry)
     const clientA = captureClient(registry, 'ws:a')
     const clientB = captureClient(registry, 'ws:b')
 
-    expect(publisher.publish(['ws:a', 'ws:missing'], 'tasks.invalidated', {})).toBe(1)
-    expect(publisher.broadcast('tasks.invalidated', {})).toBe(2)
+    expect(await publisher.publish(['ws:a', 'ws:missing'], 'tasks.invalidated', {})).toBe(1)
+    expect(await publisher.broadcast('tasks.invalidated', {})).toBe(2)
 
     expect(clientA.events.map((event) => event.payload)).toEqual([
       {},
@@ -81,30 +81,30 @@ describe('HostEventPublisher', () => {
     expect(clientB.events.map((event) => event.payload)).toEqual([{}])
   })
 
-  test('treats an empty recipient list as a successful no-op', () => {
+  test('treats an empty recipient list as a successful no-op', async () => {
     const publisher = new HostEventPublisher(new ClientEventRegistry())
-    expect(publisher.publish([], 'tasks.invalidated', {})).toBe(0)
+    expect(await publisher.publish([], 'tasks.invalidated', {})).toBe(0)
   })
 
-  test('continues after one client delivery endpoint throws', () => {
+  test('continues after one client delivery endpoint throws', async () => {
     const registry = new ClientEventRegistry()
     const publisher = new HostEventPublisher(registry)
     registry.register('ws:broken', () => { throw new Error('broken endpoint') })
     const healthy = captureClient(registry, 'ws:healthy')
 
-    expect(publisher.publish(['ws:broken', 'ws:healthy'], 'tasks.invalidated', {})).toBe(1)
+    expect(await publisher.publish(['ws:broken', 'ws:healthy'], 'tasks.invalidated', {})).toBe(1)
     expect(healthy.events).toHaveLength(1)
   })
 
-  test('routes to the newest registration and removes it safely', () => {
+  test('routes to the newest registration and removes it safely', async () => {
     const registry = new ClientEventRegistry()
     const publisher = new HostEventPublisher(registry)
     const older = captureClient(registry, 'ws:a')
     const replacement = captureClient(registry, 'ws:a')
 
-    publisher.publish('ws:a', 'tasks.invalidated', {})
+    await publisher.publish('ws:a', 'tasks.invalidated', {})
     replacement.unsubscribe()
-    expect(publisher.publish('ws:a', 'tasks.invalidated', {})).toBe(0)
+    expect(await publisher.publish('ws:a', 'tasks.invalidated', {})).toBe(0)
     older.unsubscribe()
 
     expect(replacement.events.map((event) => event.payload)).toEqual([{}])

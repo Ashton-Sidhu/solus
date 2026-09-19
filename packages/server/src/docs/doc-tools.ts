@@ -4,6 +4,7 @@ import type { AgentTool, AgentToolContext } from '../agents/tools/agent-tool'
 import { createLogger } from '../logger'
 import { importDocFromUrl, publishWork, pullWorkUpstream } from '../folio/work-sync'
 import { loadWork } from '../folio/works'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { docProviderAdapter, docProviderIds, docProviderStatuses, resolveDocUrl } from './registry'
 import type { DocProviderAdapter } from './types'
 
@@ -196,7 +197,7 @@ export const importExternalDocAgentTool = docTool(
   false,
   async (args, context) => {
     if (!args.url) throw new Error('import_external_doc requires a url.')
-    const imported = await importDocFromUrl(args.url, {
+    const imported = await importDocFromUrl(LOCAL_ORGANIZATION_ID, args.url, {
       cwd: context.cwd,
       sessionId: context.sessionId(),
       agentProvider: context.provider,
@@ -220,10 +221,10 @@ export const publishWorkAgentTool = docTool(
   true,
   async (args, context) => {
     if (!args.work_id) throw new Error('publish_work requires a work_id.')
-    const work = await loadWork(args.work_id, context.cwd)
+    const work = await loadWork(LOCAL_ORGANIZATION_ID, args.work_id)
     if (!work) throw new Error(`No work found with id "${args.work_id}".`)
 
-    const options: Parameters<typeof publishWork>[1] = { cwd: context.cwd }
+    const options: Parameters<typeof publishWork>[2] = {}
     if (args.overwrite) options.force = true
     if (!work.mirroredDoc) {
       if (!args.provider || !args.scope) {
@@ -233,7 +234,7 @@ export const publishWorkAgentTool = docTool(
       options.destination = { provider: adapter.id, scope: args.scope, label: args.scope }
     }
 
-    const result = await publishWork(args.work_id, options)
+    const result = await publishWork(LOCAL_ORGANIZATION_ID, args.work_id, options)
     if (result.ok) {
       const lossy = result.lossyParts?.length
         ? ` The published page could not carry: ${result.lossyParts.join(', ')}.`
@@ -256,7 +257,7 @@ export const pullWorkUpstreamAgentTool = docTool(
   false,
   async (args, context) => {
     if (!args.work_id) throw new Error('pull_work_upstream requires a work_id.')
-    const result = await pullWorkUpstream(args.work_id, context.cwd)
+    const result = await pullWorkUpstream(LOCAL_ORGANIZATION_ID, args.work_id)
     if (!result.ok) throw new Error(result.error)
     const lossy = result.lossyParts?.length
       ? ` Parts of the page could not be converted to markdown: ${result.lossyParts.join(', ')}.`

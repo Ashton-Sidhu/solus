@@ -1279,10 +1279,6 @@ export interface Message {
  *  `artifact` (the `render_artifact` tool's output, shown in a sandbox). */
 export type WorkType = 'doc' | 'slides' | 'diagram' | 'artifact'
 
-export type WorkStorage =
-  | { kind: 'local' }
-  | { kind: 'project'; projectRoot?: string; relativePath: string }
-
 export interface WorkMeta {
   title: string
   preview: string
@@ -1295,8 +1291,6 @@ export interface WorkMeta {
   sessionIds?: string[]
   agentProvider: AgentId
   cwd: string
-  /** Where this work is persisted. Missing means legacy local storage. */
-  storage?: WorkStorage
   /** Pinned works sort to the top of the gallery. */
   pinned?: boolean
   /** The upstream doc this work mirrors, when the user has published or
@@ -1304,14 +1298,24 @@ export interface WorkMeta {
   mirroredDoc?: WorkExternalLink
 }
 
-export interface WorksManifest {
-  version: number
-  works: Record<string, WorkMeta>
-}
-
 export interface Work extends WorkMeta {
   id: string
   content: string
+}
+
+/** `worksExport`: write a work's stored content to a path on the host that
+ *  runs the call — Markdown for a document, JSON for a diagram or slides, HTML
+ *  for an artifact. The work row stays where it is; the file is a copy. */
+export interface WorkExportRequest {
+  workId: string
+  /** The destination file, absolute or `~`-relative on the host. */
+  path: string
+}
+
+export interface WorkExportResult {
+  /** The resolved host path the file was written to. */
+  path: string
+  bytes: number
 }
 
 export interface WorkReference {
@@ -2148,6 +2152,64 @@ export interface SessionDelegation {
   depth: number
   intent: 'delegate' | 'fire_and_forget'
   createdAt: number
+}
+
+// ─── Session records (collaboration plane) ───
+
+/** What a session is doing, as the collaboration plane knows it: a runner
+ *  reports `running` while a turn is open and `idle` once it settles; a record
+ *  still `running` when its runner restarts is `interrupted`. */
+export type SessionRecordStatus = 'idle' | 'running' | 'interrupted'
+
+/**
+ * The collaboration plane's record of a session
+ * (docs/plans/cloud-service-model.md): the facts every client lists and
+ * filters by, kept where people read together. The transcript stays on the
+ * runner that holds it. `projectPath` is the provider's project folder key,
+ * the same spelling the transcript index uses, so the picker's filters are
+ * unchanged.
+ */
+export interface SessionRecord {
+  sessionId: string
+  /** The account that started the session, when one is known; null on a host's own sessions. */
+  ownerUserId: string | null
+  provider: AgentId
+  projectPath: string
+  /** The project's remote URL, when the runner knows one; how two runners name the same repository. */
+  projectRemote: string | null
+  /** The runner holding the transcript; null for the host answering the read. */
+  runnerHostId: string | null
+  /** The derived name: the first prompt, or the provider's slug. */
+  title: string | null
+  customTitle: string | null
+  status: SessionRecordStatus
+  model: string | null
+  reasoningEffort: ReasoningEffort | null
+  parentSessionId: string | null
+  rootSessionId: string | null
+  createdAt: number
+  lastActivityAt: number
+  /** Transcript bytes, as the runner last reported. */
+  size: number
+}
+
+/** `sessionRecordUpsert`: a field left out keeps the stored value; `lastActivityAt`
+ *  is always the caller's. The organization is the caller's, never an argument. */
+export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessionId' | 'provider' | 'projectPath' | 'lastActivityAt'>> {
+  sessionId: string
+  provider: AgentId
+  projectPath: string
+  lastActivityAt: number
+}
+
+/** `sessionRecordList`: the picker's filters. `projectPath` is a plain path; the
+ *  host encodes it as the provider does, and `includeWorktrees` adds the
+ *  project's worktree folders beneath it. */
+export interface SessionRecordListFilter {
+  provider?: AgentId
+  projectPath?: string
+  includeWorktrees?: boolean
+  limit?: number
 }
 
 export interface SessionSearchResult extends SessionSearchHit {

@@ -1,6 +1,10 @@
 // drizzle-kit's SQLite entry: every ported table as a `sqlite-core` table.
 // drizzle-kit reads named exports only, so each table is listed by hand; a
 // ported domain adds its tables here and in `postgres.ts`.
+import * as folioSchema from '../../folio/schema'
+import * as plansSchema from '../../plans/schema'
+import * as sessionsSchema from '../../sessions/schema'
+import * as sharingSchema from '../../sharing/schema'
 import * as tasksSchema from '../../tasks/schema'
 
 export const tasks = tasksSchema.tasks.sqlite
@@ -12,3 +16,12 @@ export const task_events = tasksSchema.taskEvents.sqlite
 export const task_external_links = tasksSchema.taskExternalLinks.sqlite
 export const upstream_task_cache = tasksSchema.upstreamTaskCache.sqlite
 export const asset_publications = tasksSchema.assetPublications.sqlite
+export const works = folioSchema.works.sqlite
+export const work_revisions = folioSchema.workRevisions.sqlite
+export const work_annotations = folioSchema.workAnnotations.sqlite
+export const plan_annotations = plansSchema.planAnnotations.sqlite
+export const indexed_plans = plansSchema.indexedPlans.sqlite
+export const plan_index_providers = plansSchema.planIndexProviders.sqlite
+export const resource_owner = sharingSchema.resourceOwner.sqlite
+export const share_grant = sharingSchema.shareGrant.sqlite
+export const session_records = sessionsSchema.sessionRecords.sqlite

@@ -42,7 +42,11 @@
     if (!trimmed || importing) return;
     importing = true;
     try {
-      const work = await session.worksStore.importFromUrl(trimmed);
+      // The active session's directory is the imported work's origin.
+      const work = await session.worksStore.importFromUrl(
+        trimmed,
+        session.sessionFor(session.activeTabId)?.run.workingDirectory,
+      );
       toasts.success(`Imported “${work.title}”`);
       url = "";
       onClose();

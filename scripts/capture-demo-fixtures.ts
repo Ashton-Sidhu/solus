@@ -17,7 +17,6 @@ import type {
   SessionMeta,
   WorkAnnotations,
   WorkMeta,
-  WorkPrevious,
 } from '@solus/contracts/types'
 import { DEMO_PROJECT, type DemoFixtures } from '../apps/client/src/demo/fixtures/types'
 
@@ -378,7 +377,7 @@ function capturePlans(sessions: DemoFixtures['sessions'], db: Database | null): 
 async function captureWorks(workspace: string, db: Database | null): Promise<DemoFixtures['works']> {
   const works: DemoFixtures['works'] = []
   const annotationRows = new Map(query(db, 'SELECT work_id, data FROM work_annotations').map((row) => [String(row.work_id), parseJson<WorkAnnotations | undefined>(row.data, undefined)]))
-  for (const row of query(db, "SELECT * FROM works WHERE storage = 'local' AND cwd = ?", [workspace])) {
+  for (const row of query(db, 'SELECT * FROM works WHERE cwd = ?', [workspace])) {
     const extra = parseJson<Partial<WorkMeta>>(row.meta, {})
     // SAFETY: `works.type` is written only from `WorkMeta['type']`.
     const type = row.type as WorkMeta['type']
@@ -388,25 +387,10 @@ async function captureWorks(workspace: string, db: Database | null): Promise<Dem
       ...extra, id: String(row.id), title: String(row.title ?? ''), preview: String(row.preview ?? ''),
       type, createdAt: new Date(Number(row.created_at)).toISOString(),
       updatedAt: new Date(Number(row.updated_at)).toISOString(), sessionId: row.session_id ? String(row.session_id) : undefined,
-      agentProvider, cwd: String(row.cwd), storage: { kind: 'local' },
+      agentProvider, cwd: String(row.cwd),
     }
     if (row.pinned !== null) meta.pinned = row.pinned === 1
     works.push({ meta, content: String(row.content ?? ''), annotations: annotationRows.get(meta.id) })
-  }
-  const root = join(workspace, '.solus', 'works')
-  const manifestPath = join(root, 'works-manifest.json')
-  if (existsSync(manifestPath)) {
-    const manifest = parseJson<{ works: Record<string, WorkMeta> }>(await readFile(manifestPath, 'utf8'), { works: {} })
-    for (const [id, storedMeta] of Object.entries(manifest.works).sort(([a], [b]) => a.localeCompare(b))) {
-      const current = parseJson<{ content: string }>(await readFile(join(root, `${id}.json`), 'utf8'), { content: '' })
-      let previous: WorkPrevious | undefined
-      const previousPath = join(root, `${id}.prev.json`)
-      if (existsSync(previousPath)) previous = parseJson<WorkPrevious | undefined>(await readFile(previousPath, 'utf8'), undefined)
-      // SAFETY: the manifest key is the work id, so spreading it over the stored meta
-      // produces a `WorkMeta` that carries its id.
-      const meta = { ...storedMeta, id } as WorkMeta & { id: string }
-      works.push({ meta, content: current.content, annotations: annotationRows.get(id), previous })
-    }
   }
   // SAFETY: every entry pushed above was built with an `id`.
   return works.sort((a, b) => (a.meta as WorkMeta & { id: string }).id.localeCompare((b.meta as WorkMeta & { id: string }).id))

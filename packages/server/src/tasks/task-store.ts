@@ -183,33 +183,43 @@ const TASK_SELECT = sql`
   LEFT JOIN ${taskExternalLinks} ON task_external_links.task_id = tasks.id
 `
 
-async function taskRow(id: string, db: Db = database()): Promise<TaskRow | undefined> {
-  return taskRowSchema.nullish().parse(await db.get(sql`${TASK_SELECT} WHERE tasks.id = ${id}`)) ?? undefined
+/**
+ * Every read names the organization the caller works in
+ * (docs/plans/cloud-service-model.md): a task of another organization is not
+ * found, not refused. A task id is a ULID, so a child row keyed by a task id
+ * this check has passed is already the organization's own.
+ */
+async function taskRow(organizationId: string, id: string, db: Db = database()): Promise<TaskRow | undefined> {
+  return taskRowSchema.nullish().parse(await db.get(sql`
+    ${TASK_SELECT} WHERE tasks.id = ${id} AND tasks.organization_id = ${organizationId}
+  `)) ?? undefined
 }
 
 /** Internal record read used by the session-link store. */
-export async function loadTaskRecord(id: string): Promise<Task | null> {
-  const row = await taskRow(id)
+export async function loadTaskRecord(organizationId: string, id: string): Promise<Task | null> {
+  const row = await taskRow(organizationId, id)
   return row ? taskFromRow(row) : null
 }
 
-export async function listTaskChildren(parentId: string): Promise<Task[]> {
+export async function listTaskChildren(organizationId: string, parentId: string): Promise<Task[]> {
   const rows = taskRowSchema.array().parse(await database().all(sql`
     ${TASK_SELECT}
-    WHERE tasks.parent_id = ${parentId}
+    WHERE tasks.parent_id = ${parentId} AND tasks.organization_id = ${organizationId}
     ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
   `))
   return rows.map(taskFromRow)
 }
 
-export async function requireTask(id: string, db: Db = database()): Promise<TaskRow> {
-  const row = await taskRow(id, db)
+export async function requireTask(organizationId: string, id: string, db: Db = database()): Promise<TaskRow> {
+  const row = await taskRow(organizationId, id, db)
   if (!row) throw new Error(`Task ${id} not found.`)
   return row
 }
 
 /** One upsert on the counter row: atomic on both engines (see `taskCounters`).
- * `WHERE true` keeps SQLite from reading `ON CONFLICT` as part of the SELECT. */
+ * `WHERE true` keeps SQLite from reading `ON CONFLICT` as part of the SELECT.
+ * The counter is one for the whole database: `short_id` is unique across it,
+ * so a short id names one task wherever it is read. */
 async function nextShortId(db: Db): Promise<number> {
   const row = nextShortIdRowSchema.parse(await db.get(sql`
     INSERT INTO ${taskCounters}(name, value)
@@ -229,12 +239,17 @@ export function assertTaskStatus(status: TaskStatus): void {
   if (!TASK_STATUSES.has(status)) throw new Error(`Invalid task status: ${status}`)
 }
 
-export async function parentForChild(parentId: string, childId: string | undefined, db: Db): Promise<TaskRow> {
+export async function parentForChild(
+  organizationId: string,
+  parentId: string,
+  childId: string | undefined,
+  db: Db,
+): Promise<TaskRow> {
   if (parentId === childId) throw new Error('A task cannot be its own parent.')
-  const parent = await requireTask(parentId, db)
+  const parent = await requireTask(organizationId, parentId, db)
   if (parent.parent_id !== null) throw new Error('Subtasks cannot contain nested subtasks.')
   if (childId) {
-    const child = await requireTask(childId, db)
+    const child = await requireTask(organizationId, childId, db)
     const nested = await db.get(sql`SELECT 1 AS present FROM ${tasks} WHERE parent_id = ${childId} LIMIT 1`)
     if (nested) throw new Error('A task with subtasks cannot itself become a subtask.')
     if (child.id === parent.id) throw new Error('A task cannot be its own parent.')
@@ -251,7 +266,7 @@ const ACTOR_BY_SOURCE = {
   import: 'system',
 } satisfies Record<TaskSource, TaskActor>
 
-export async function writeTask(db: Db, input: TaskCreateInput & {
+export async function writeTask(db: Db, organizationId: string, input: TaskCreateInput & {
   titleSource: TaskTitleSource
   status: TaskStatus
   source: TaskSource
@@ -264,7 +279,7 @@ export async function writeTask(db: Db, input: TaskCreateInput & {
   let projectKey = normalizedOptional(input.projectKey)
   const parentId = normalizedOptional(input.parentId)
   if (parentId) {
-    const parent = await parentForChild(parentId, undefined, db)
+    const parent = await parentForChild(organizationId, parentId, undefined, db)
     if (projectKey !== null && projectKey !== parent.project_key) {
       throw new Error('A subtask must belong to the same project as its parent.')
     }
@@ -279,25 +294,26 @@ export async function writeTask(db: Db, input: TaskCreateInput & {
       id, short_id, project_key, parent_id, title, title_source, body, status,
       kind, assignee, due_date, priority, labels,
       source, origin_session_id, origin_automation_id, created_at, updated_at,
-      triaged_at, done_at
+      triaged_at, done_at, organization_id
     ) VALUES (
       ${id}, ${await nextShortId(db)}, ${projectKey}, ${parentId}, ${title}, ${input.titleSource},
       ${input.body ?? ''}, ${input.status}, ${input.kind === 'epic' ? 'epic' : 'task'},
       ${normalizedOptional(input.assignee)}, ${normalizedOptional(input.dueDate)}, ${input.priority ?? null},
       ${JSON.stringify(input.labels ?? [])}, ${input.source}, ${normalizedOptional(input.originSessionId)},
-      ${normalizedOptional(input.originAutomationId)}, ${input.now}, ${input.now}, ${triagedAt}, ${doneAt}
+      ${normalizedOptional(input.originAutomationId)}, ${input.now}, ${input.now}, ${triagedAt}, ${doneAt},
+      ${organizationId}
     )
   `)
-  await appendTaskEvent(db, id, {
+  await appendTaskEvent(db, organizationId, id, {
     kind: 'created',
     actor: ACTOR_BY_SOURCE[input.source] ?? 'user',
     to: input.status,
   }, input.now)
-  return taskFromRow(await requireTask(id, db))
+  return taskFromRow(await requireTask(organizationId, id, db))
 }
 
-export async function listTasks(filter: TaskListFilter = {}): Promise<TaskListResult> {
-  const clauses: SQL[] = []
+export async function listTasks(organizationId: string, filter: TaskListFilter = {}): Promise<TaskListResult> {
+  const clauses: SQL[] = [sql`tasks.organization_id = ${organizationId}`]
   const hasProjectKey = Object.prototype.hasOwnProperty.call(filter, 'projectKey')
   const hasParentId = Object.prototype.hasOwnProperty.call(filter, 'parentId')
 
@@ -321,10 +337,9 @@ export async function listTasks(filter: TaskListFilter = {}): Promise<TaskListRe
   if (filter.scope === 'project') clauses.push(sql`project_key IS NOT NULL`)
   if (filter.scope === 'up_next') clauses.push(sql`status IN ('todo', 'in_progress', 'in_review')`)
 
-  const where = clauses.length ? sql`WHERE ${sql.join(clauses, sql` AND `)}` : sql``
   const rows = taskRowSchema.array().parse(await database().all(sql`
     ${TASK_SELECT}
-    ${where}
+    WHERE ${sql.join(clauses, sql` AND `)}
     ORDER BY tasks.updated_at DESC, tasks.created_at DESC, tasks.id
   `))
   return { tasks: rows.map(taskFromRow) }
@@ -339,12 +354,12 @@ export async function commentsForTask(taskId: string, db: Db): Promise<TaskComme
   return rows.map(commentFromRow)
 }
 
-export async function createTask(input: TaskCreateInput): Promise<Task> {
+export async function createTask(organizationId: string, input: TaskCreateInput): Promise<Task> {
   const task = await database().transaction((db) => {
     const projectKey = normalizedOptional(input.projectKey)
     const source = input.source ?? 'user'
     const status = input.status ?? (projectKey === null ? 'inbox' : 'todo')
-    return writeTask(db, {
+    return writeTask(db, organizationId, {
       ...input,
       projectKey,
       source,

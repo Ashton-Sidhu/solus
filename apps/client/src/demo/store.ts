@@ -302,7 +302,6 @@ export class DemoStore {
       sessionIds: sessionId ? [sessionId] : [],
       agentProvider,
       cwd: cwd ?? DEMO_PROJECT,
-      storage: { kind: 'local' },
     }
     const { content: storedContent, ...meta } = work
     this.fixtures.works.push({ meta, content: storedContent })

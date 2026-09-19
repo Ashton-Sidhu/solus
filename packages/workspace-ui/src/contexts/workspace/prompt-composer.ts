@@ -35,8 +35,13 @@ export class PromptComposer {
     if (input.workRefs.length > 0) {
       const workCtx = input.workRefs.map((ref) => {
         const work = this.worksStore.get(ref.workId)
-        const parts = [`[Referenced Work: ${ref.title}]`, `Type: ${work?.type ?? ref.type}`]
-        parts.push(`File path: ${workFilePath(work?.id ?? ref.workId, work?.storage)}`)
+        // A work is a row on its host, not a file: the agent reads it through
+        // read_work, the same way the bound-work block below points at it.
+        const parts = [
+          `[Referenced Work: ${ref.title}]`,
+          `Type: ${work?.type ?? ref.type}`,
+          `Work id: ${work?.id ?? ref.workId} (read it with read_work)`,
+        ]
         return parts.join('\n')
       }).join('\n\n')
       fullPrompt = fullPrompt ? `${fullPrompt}\n\n${workCtx}` : workCtx
@@ -191,15 +196,4 @@ export function composeAttachmentContext(attachments: Attachment[], serverId: st
     }
     return `[Attached ${attachment.type}: ${path}]`
   }).join('\n')
-}
-
-function workFilePath(workId: string, storage: { kind: 'local' } | { kind: 'project'; projectRoot?: string; relativePath: string } | undefined): string {
-  const fileName = `${workId}.json`
-  if (storage?.kind === 'project') {
-    const base = storage.projectRoot
-      ? `${storage.projectRoot}/${storage.relativePath}`
-      : storage.relativePath
-    return `${base}/${fileName}`
-  }
-  return `~/.solus/works/${fileName}`
 }

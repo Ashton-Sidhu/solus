@@ -145,7 +145,6 @@ export interface WorkExternalLink extends DocRef {
 /** What a publish call carries. `destination` answers the first publish only;
  *  afterwards the link remembers where the doc lives. */
 export interface WorkPublishRequest {
-  cwd?: string
   destination?: DocDestination
   /** Renderer-prepared diagram PNGs. Google Docs inserts them as inline
    * images, Confluence as page attachments; a publish that carries none —
@@ -157,7 +156,7 @@ export interface WorkPublishRequest {
 
 /** A plan body is not a Folio work, so its publish request carries the plan
  * identity and current content. Its link is persisted in PlanAnnotations. */
-export interface PlanPublishRequest extends Omit<WorkPublishRequest, 'cwd'> {
+export interface PlanPublishRequest extends WorkPublishRequest {
   sessionId: string
   planToolUseId: string
   title: string

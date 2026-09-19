@@ -1,5 +1,5 @@
 import { ExternalCommentsStore } from './external-comments.store.svelte'
-import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
+import type { AgentId, PlanComment, PlanCommentReply, Work, WorkAnnotations, WorkExportResult, WorkMeta, WorkPrevious, WorkType } from '@solus/contracts/types'
 import type { NewWorkComment, WorkCommentCommand } from '@solus/contracts/comment-commands'
 import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
@@ -22,7 +22,6 @@ import { reconcileComments } from './comment-sync'
 export class WorksStore {
   readonly externalComments = new ExternalCommentsStore(workId => this.apiForWork(workId), workId => this.get(workId)?.mirroredDoc)
   works = $state<Record<string, Work>>({})
-  activeCwd = $state<string | undefined>(undefined)
   /** A work pending deletion from the open-work view, held while the undo toast
    *  is visible. The work is removed from disk only on commit (toast dismiss). */
   pendingWorkDelete = $state<Work | null>(null)
@@ -43,7 +42,8 @@ export class WorksStore {
   private annotationLoadTokens = new Map<string, number>()
   private previousLoadTokens = new Map<string, number>()
   private nextLoadToken = 0
-  private listLoads = new Map<string | undefined, Promise<void>>()
+  /** The in-flight listWorks load, shared by every caller that asks meanwhile. */
+  private listLoad: Promise<void> | null = null
   /** In-flight ensureContent loads, keyed by workId. Concurrent callers (a
    *  grouped-invalidation burst re-runs the hydration effect while a load is
    *  pending) share the same promise instead of firing duplicate loadWork IPC. */
@@ -72,7 +72,6 @@ export class WorksStore {
       sessionIds: [],
       agentProvider,
       cwd,
-      storage: { kind: 'local' },
     }
     this.streaming[tempId] = true
     if (serverId) this.hostByWorkId.set(tempId, serverId)
@@ -98,7 +97,6 @@ export class WorksStore {
       sessionIds: [],
       agentProvider: 'claude-code',
       cwd: '~',
-      storage: { kind: 'local' },
     }
     if (tempId && tempId !== realId) {
       delete this.works[tempId]
@@ -259,11 +257,11 @@ export class WorksStore {
     }
   }
 
-  async loadPrevious(workId: string, cwd?: string, contentKey = ''): Promise<WorkPrevious | null> {
+  async loadPrevious(workId: string, contentKey = ''): Promise<WorkPrevious | null> {
     const token = ++this.nextLoadToken
     this.previousLoadTokens.set(workId, token)
     try {
-      const previous = await this.apiForWork(workId).loadWorkPrevious(workId, cwd)
+      const previous = await this.apiForWork(workId).loadWorkPrevious(workId)
       if (this.previousLoadTokens.get(workId) !== token) return this.previousSnapshots[workId] ?? null
       this.previousSnapshots[workId] = previous
       return previous
@@ -276,7 +274,7 @@ export class WorksStore {
   async save(workId: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>): Promise<void> {
     const work = this.works[workId]
     const write = this.withDerivedTitle(work, updates)
-    const updated = await this.apiForWork(workId).saveWork(workId, write, this.activeCwd)
+    const updated = await this.apiForWork(workId).saveWork(workId, write)
     const existing = this.works[workId]
     if (existing) {
       if (write.title !== undefined) existing.title = updated.title
@@ -318,18 +316,15 @@ export class WorksStore {
       this.agentRevisions[workId] = (this.agentRevisions[workId] ?? 0) + 1
       return
     }
-    const work = await this.apiForWork(workId).loadWork(workId, this.activeCwd)
+    const work = await this.apiForWork(workId).loadWork(workId)
     if (work) {
       this.works[workId] = work
       this.agentRevisions[workId] = (this.agentRevisions[workId] ?? 0) + 1
     }
   }
 
-  loadAll(cwd?: string): Promise<void> {
-    const targetCwd = cwd ?? this.activeCwd
-    const pending = this.listLoads.get(targetCwd)
-    if (pending) return pending
-    this.activeCwd = targetCwd
+  loadAll(): Promise<void> {
+    if (this.listLoad) return this.listLoad
     const load = (async () => {
       try {
         const serverIds = serverConnections.connectedServerIds().filter(
@@ -337,13 +332,12 @@ export class WorksStore {
         )
         const results = await Promise.all(serverIds.map(async (serverId) => {
           try {
-            return { serverId, metas: await serverConnections.apiFor(serverId).listWorks(targetCwd) }
+            return { serverId, metas: await serverConnections.apiFor(serverId).listWorks() }
           } catch (error) {
-            logWorkLoad('error', 'work list host load failed', { serverId, cwd: targetCwd, error: formatError(error) })
+            logWorkLoad('error', 'work list host load failed', { serverId, error: formatError(error) })
             return { serverId, error }
           }
         }))
-        if (this.activeCwd !== targetCwd) return
         for (const result of results) {
           if (!result.metas) continue
           const liveIds = new Set<string>()
@@ -368,19 +362,18 @@ export class WorksStore {
           }
         }
       } catch (err) {
-        logWorkLoad('error', 'work list load failed', { cwd: targetCwd, error: formatError(err) })
+        logWorkLoad('error', 'work list load failed', { error: formatError(err) })
       } finally {
-        this.listLoads.delete(targetCwd)
-        this.listLoading = this.listLoads.size > 0
+        this.listLoad = null
+        this.listLoading = false
       }
     })()
-    this.listLoads.set(targetCwd, load)
+    this.listLoad = load
     this.listLoading = true
     return load
   }
 
-  async ensureContent(workId: string, source = 'unknown', cwd?: string): Promise<Work | null> {
-    if (cwd) this.activeCwd = cwd
+  async ensureContent(workId: string, source = 'unknown'): Promise<Work | null> {
     const existing = this.works[workId]
     if (existing?.content) return existing
     const pending = this.contentLoads.get(workId)
@@ -403,7 +396,7 @@ export class WorksStore {
       updatedAt: existing?.updatedAt,
     })
     try {
-      const work = await this.apiForWork(workId).loadWork(workId, this.activeCwd)
+      const work = await this.apiForWork(workId).loadWork(workId)
       if (work) {
         this.works[workId] = work
         logWorkLoad('info', 'loaded content from disk', {
@@ -436,11 +429,11 @@ export class WorksStore {
 
   async remove(workId: string): Promise<void> {
     try {
-      await this.apiForWork(workId).deleteWork(workId, this.activeCwd)
+      await this.apiForWork(workId).deleteWork(workId)
     } catch (err) {
       if (!isMissingWorkError(err)) throw err
     } finally {
-      await this.loadAll(this.activeCwd)
+      await this.loadAll()
       delete this.works[workId]
       delete this.streaming[workId]
       this.hostByWorkId.delete(workId)
@@ -469,13 +462,11 @@ export class WorksStore {
   }
 
   async duplicate(workId: string): Promise<Work> {
-    const existing = this.works[workId]
-    const cwd = existing?.storage?.kind === 'project' ? existing.storage.projectRoot : (existing?.cwd ?? this.activeCwd)
     const api = this.apiForWork(workId)
     // The same choice `apiForWork` just made, so the copy is remembered on the
     // host that holds the original.
     const ownerServerId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
-    const duplicated = await api.duplicateWork(workId, cwd)
+    const duplicated = await api.duplicateWork(workId)
     this.works[duplicated.id] = duplicated
     if (ownerServerId) this.hostByWorkId.set(duplicated.id, ownerServerId)
     return duplicated
@@ -484,29 +475,22 @@ export class WorksStore {
   async setPinned(workId: string, pinned: boolean): Promise<void> {
     const w = this.works[workId]
     if (w) w.pinned = pinned
-    await this.apiForWork(workId).setWorkPinned(workId, pinned, this.activeCwd)
+    await this.apiForWork(workId).setWorkPinned(workId, pinned)
   }
 
-  async promoteToProject(workId: string, projectRoot: string): Promise<Work> {
-    const promoted = await this.apiForWork(workId).promoteWorkToProject(workId, projectRoot)
-    const existing = this.works[workId]
-    if (existing) {
-      applyMeta(existing, promoted)
-      existing.content = promoted.content
-    } else {
-      this.works[workId] = promoted
-    }
-    this.activeCwd = projectRoot
-    return promoted
+  /** The work's host writes the stored content to `path` on its own filesystem
+   *  and answers the resolved path. The work row is untouched: the file is a copy. */
+  exportToPath(workId: string, path: string): Promise<WorkExportResult> {
+    return this.apiForWork(workId).worksExport({ workId, path })
   }
 
-  linkSession(cwd: string, workId: string, sessionId: string): void {
+  linkSession(workId: string, sessionId: string): void {
     this.linkSessionLocal(workId, sessionId)
-    void this.apiForWork(workId).linkWorkSession(workId, sessionId, cwd)
+    void this.apiForWork(workId).linkWorkSession(workId, sessionId)
   }
 
-  async revert(workId: string, cwd?: string): Promise<Work | null> {
-    const reverted = await this.apiForWork(workId).revertWork(workId, cwd)
+  async revert(workId: string): Promise<Work | null> {
+    const reverted = await this.apiForWork(workId).revertWork(workId)
     if (!reverted) return null
     const existing = this.works[workId]
     if (existing) {
@@ -560,7 +544,6 @@ export class WorksStore {
    */
   async publish(workId: string, options: { destination?: DocDestination; diagramAssets?: WorkPublishRequest['diagramAssets']; force?: boolean } = {}): Promise<WorkPublishResult> {
     const opts: WorkPublishRequest = {}
-    if (this.activeCwd) opts.cwd = this.activeCwd
     if (options.destination) opts.destination = options.destination
     if (options.diagramAssets?.length) opts.diagramAssets = options.diagramAssets
     if (options.force) opts.force = true
@@ -571,7 +554,7 @@ export class WorksStore {
   }
 
   async pullUpstream(workId: string): Promise<WorkPullResult> {
-    const result = await this.apiForWork(workId).pullWorkUpstream(workId, this.activeCwd)
+    const result = await this.apiForWork(workId).pullWorkUpstream(workId)
     if (!result.ok) return result
     const existing = this.works[workId]
     if (existing) {
@@ -582,14 +565,14 @@ export class WorksStore {
     }
     // The pulled content replaced the local one, so the snapshot the revert
     // action offers has changed.
-    void this.loadPrevious(workId, this.activeCwd)
+    void this.loadPrevious(workId)
     return result
   }
 
   /** Version metadata only, and only while the work is on screen. */
   async refreshUpstream(workId: string): Promise<void> {
     try {
-      const link = await this.apiForWork(workId).refreshWorkUpstream(workId, this.activeCwd)
+      const link = await this.apiForWork(workId).refreshWorkUpstream(workId)
       if (link) this.applyLink(workId, link)
     } catch (err) {
       logWorkLoad('warn', 'upstream refresh failed', { workId, error: formatError(err) })
@@ -598,15 +581,16 @@ export class WorksStore {
 
   /** Stops tracking the upstream doc. The page itself is never touched. */
   async unlinkUpstream(workId: string): Promise<void> {
-    await this.apiForWork(workId).unlinkWorkUpstream(workId, this.activeCwd)
+    await this.apiForWork(workId).unlinkWorkUpstream(workId)
     const existing = this.works[workId]
     if (existing) existing.mirroredDoc = undefined
   }
 
-  async importFromUrl(url: string, serverId?: string): Promise<Work> {
+  /** `cwd` is the imported work's origin, recorded on its row. */
+  async importFromUrl(url: string, cwd?: string, serverId?: string): Promise<Work> {
     const targetServerId = serverId ?? serverConnections.defaultServerId()
     if (!targetServerId) throw new Error('Primary Solus connection has not been registered')
-    const work = await serverConnections.apiFor(targetServerId).importDocFromUrl(url, this.activeCwd)
+    const work = await serverConnections.apiFor(targetServerId).importDocFromUrl(url, cwd)
     this.works[work.id] = work
     this.hostByWorkId.set(work.id, targetServerId)
     return work
@@ -661,7 +645,6 @@ function applyMeta(work: Work, meta: WorkMeta & { id: string }): void {
   work.sessionIds = meta.sessionIds
   work.agentProvider = meta.agentProvider
   work.cwd = meta.cwd
-  work.storage = meta.storage ?? { kind: 'local' }
   work.pinned = meta.pinned
   work.mirroredDoc = meta.mirroredDoc
 }
