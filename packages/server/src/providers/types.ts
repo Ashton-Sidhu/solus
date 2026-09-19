@@ -72,7 +72,7 @@ export interface ProviderAuth {
    */
   hasCredential(host: string, cwd?: string): Promise<boolean>
   /** Forget the stored credential. */
-  disconnect(): void
+  disconnect(): Promise<void>
 }
 
 // ─── Review operations ────────────────────────────────────────────────────────

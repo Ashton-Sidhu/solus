@@ -29,6 +29,7 @@ import { createLogger } from '../logger'
 import { captureServerEvent } from '../analytics'
 import { isInsideRoot } from '../paths'
 import { completeGoogleOAuthCallback } from '../google/oauth'
+import { ATLASSIAN_CALLBACK_PATH, answerOAuthCallback as answerAtlassianOAuthCallback } from '../atlassian/oauth'
 import { listProjects } from '../project-config/projects-manifest'
 import { readWav } from '../transcription/wav'
 import { MAX_VOICE_WAV_BYTES } from '@solus/contracts/voice-audio'
@@ -205,6 +206,13 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.get('/oauth/google/callback', async (c) => {
     const result = await completeGoogleOAuthCallback(new URL(c.req.url).searchParams)
     return c.html(result.html, result.status)
+  })
+
+  // The workspace service's Atlassian callback (cloud-service-model.md §22); a
+  // host's sign-in lands on the loopback listener and never reaches this route.
+  app.get(ATLASSIAN_CALLBACK_PATH, async (c) => {
+    const page = await answerAtlassianOAuthCallback(new URL(c.req.url).searchParams)
+    return c.html(page.html, page.status)
   })
 
   app.post('/pair', async (c) => {

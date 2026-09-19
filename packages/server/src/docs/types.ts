@@ -34,7 +34,7 @@ export interface DocProviderAdapter {
   update(ref: DocRef, patch: DocPatch): Promise<NormalizedDoc>
   /** Parse a provider-native URL into a ref, or null when the URL is not ours.
    *  Users hand agents links, not ids. */
-  resolveUrl(url: string): DocRef | null
+  resolveUrl(url: string): DocRef | null | Promise<DocRef | null>
 }
 
 /** An upstream write that lost a race. Thrown by `update` so publish can offer

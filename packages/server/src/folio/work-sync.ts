@@ -149,7 +149,7 @@ export async function importDocFromUrl(
   url: string,
   options: ImportDocOptions = {},
 ): Promise<ImportedDoc> {
-  const resolved = resolveDocUrl(url)
+  const resolved = await resolveDocUrl(url)
   if (!resolved) {
     throw new Error(`"${url}" is not a Confluence page or Google Doc link Solus can import.`)
   }

@@ -293,13 +293,14 @@ export const RPC_PLANES = {
   atlassianDisconnect: 'collaboration',
   atlassianJiraProjects: 'collaboration',
 
-  // Git provider auth
-  providerStatus: 'execution',
-  providerConnect: 'execution',
-  providerCancelConnect: 'execution',
-  providerDisconnect: 'execution',
+  // Git provider auth: a connection needs no checkout, so a person makes theirs on
+  // the workspace service too. Exporting the host's token is the host's alone.
+  providerStatus: 'collaboration',
+  providerConnect: 'collaboration',
+  providerCancelConnect: 'collaboration',
+  providerDisconnect: 'collaboration',
   githubExportCredential: 'execution',
-  providerViewer: 'execution',
+  providerViewer: 'collaboration',
 
   // PR records
   prList: 'collaboration',

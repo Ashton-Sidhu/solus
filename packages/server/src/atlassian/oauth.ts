@@ -3,6 +3,7 @@ import { createServer, type Server } from 'http'
 import { z } from 'zod'
 import type { AtlassianOAuthCompleted } from '@solus/contracts/atlassian'
 import { createLogger } from '../logger'
+import { currentCredentialUserId, withCredentialScope } from '../vault/credential-scope'
 import { ATLASSIAN_CLIENT_ID } from './client-id'
 import { ATLASSIAN_CLIENT_SECRET } from './client-secret'
 import {
@@ -26,10 +27,14 @@ const RESOURCES_URL = 'https://api.atlassian.com/oauth/token/accessible-resource
  *
  * A fixed port is the price of the exact-match rule. Nothing listens here
  * except while a sign-in is in flight.
+ *
+ * The workspace service has no loopback to offer a browser: its app registers
+ * `<service origin>/oauth/atlassian/callback` and the sign-in lands on that
+ * route instead (cloud-service-model.md §22).
  */
 export const CALLBACK_PORT = 51789
-const CALLBACK_PATH = '/oauth/atlassian/callback'
-export const REGISTERED_REDIRECT_URI = `http://127.0.0.1:${CALLBACK_PORT}${CALLBACK_PATH}`
+export const ATLASSIAN_CALLBACK_PATH = '/oauth/atlassian/callback'
+export const REGISTERED_REDIRECT_URI = `http://127.0.0.1:${CALLBACK_PORT}${ATLASSIAN_CALLBACK_PATH}`
 
 /**
  * `offline_access` is what makes the grant survive the first hour. The rest is
@@ -89,6 +94,11 @@ const accessibleResourceSchema = z.object({
 interface PendingFlow {
   verifier: string
   expiresAt: number
+  /** The exact URI the authorize request named; the exchange must repeat it. */
+  redirectUri: string
+  /** Whose connection this becomes: the callback carries no principal, so the flow remembers (§22). */
+  userId: string | null
+  timer: ReturnType<typeof setTimeout>
 }
 
 /** Keyed by the state nonce. In memory only: a flow that does not complete
@@ -108,8 +118,15 @@ export function isOAuthConfigured(): boolean {
 
 function cleanupExpiredFlows(now = Date.now()): void {
   for (const [state, flow] of pendingFlows) {
-    if (flow.expiresAt < now) pendingFlows.delete(state)
+    if (flow.expiresAt < now) dropFlow(state)
   }
+}
+
+function dropFlow(state: string): void {
+  const flow = pendingFlows.get(state)
+  if (!flow) return
+  clearTimeout(flow.timer)
+  pendingFlows.delete(state)
 }
 
 interface AtlassianOAuthStartResult {
@@ -121,6 +138,12 @@ interface AtlassianOAuthFlowOptions {
   /** Test seam for the fixed-port listener. Production always uses the real
    * loopback listener; unit tests can exercise flow state without binding it. */
   listenForCallback?: () => Promise<void>
+  /**
+   * Route mode: the sign-in lands on `GET /oauth/atlassian/callback` at this
+   * origin instead of the loopback listener. The workspace service passes the
+   * origin the client reached it by; the app registration must name it.
+   */
+  callbackBaseUrl?: string
 }
 
 export class AtlassianCallbackPortBusyError extends Error {
@@ -128,6 +151,12 @@ export class AtlassianCallbackPortBusyError extends Error {
     super(`Solus needs port ${CALLBACK_PORT} to finish an Atlassian sign-in, and something else is using it. Close that program and try again.`)
     this.name = 'AtlassianCallbackPortBusyError'
   }
+}
+
+function routeRedirectUri(callbackBaseUrl: string): string {
+  const url = new URL(callbackBaseUrl)
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('The Atlassian callback origin must be http or https.')
+  return `${url.protocol}//${url.host}${ATLASSIAN_CALLBACK_PATH}`
 }
 
 /**
@@ -143,34 +172,42 @@ export async function startOAuthFlow(
 ): Promise<AtlassianOAuthStartResult> {
   if (!isOAuthConfigured()) throw new AtlassianOAuthUnconfiguredError()
   cleanupExpiredFlows()
-  // One listener represents one browser flow. Once a new attempt takes its
-  // place, no callback from an older tab may spend the new listener.
-  stopListening()
-  pendingFlows.clear()
+  const userId = currentCredentialUserId()
+  const routeMode = options.callbackBaseUrl !== undefined
+  if (routeMode) {
+    // The service serves many people at once; only this person's earlier attempt is superseded.
+    cancelOAuthFlow()
+  } else {
+    // One listener represents one browser flow. Once a new attempt takes its
+    // place, no callback from an older tab may spend the new listener.
+    stopListening()
+    for (const state of pendingFlows.keys()) dropFlow(state)
+  }
 
   const verifier = randomBytes(32).toString('base64url')
   const challenge = createHash('sha256').update(verifier).digest('base64url')
   const state = randomBytes(24).toString('base64url')
   const expiresAt = Date.now() + PENDING_FLOW_TTL_MS
+  const redirectUri = routeMode ? routeRedirectUri(options.callbackBaseUrl!) : REGISTERED_REDIRECT_URI
 
-  await (options.listenForCallback ?? listenForCallback)()
-  pendingFlows.set(state, { verifier, expiresAt })
-  activeCallbackTimer = setTimeout(() => {
-    pendingFlows.clear()
-    stopListening()
+  if (!routeMode) await (options.listenForCallback ?? listenForCallback)()
+  const timer = setTimeout(() => {
+    dropFlow(state)
+    if (!routeMode) stopListening()
     onCompleted?.({
       connected: false,
       error: 'The Atlassian sign-in expired. Try again.',
     })
   }, PENDING_FLOW_TTL_MS)
-  activeCallbackTimer.unref?.()
+  timer.unref?.()
+  pendingFlows.set(state, { verifier, expiresAt, redirectUri, userId, timer })
 
   const authUrl = new URL(AUTHORIZE_URL)
   authUrl.search = new URLSearchParams({
     audience: 'api.atlassian.com',
     client_id: ATLASSIAN_CLIENT_ID,
     scope: OAUTH_SCOPES.join(' '),
-    redirect_uri: REGISTERED_REDIRECT_URI,
+    redirect_uri: redirectUri,
     state,
     response_type: 'code',
     prompt: 'consent',
@@ -185,7 +222,6 @@ type OAuthCompletedListener = (event: AtlassianOAuthCompleted) => void
 
 let onCompleted: OAuthCompletedListener | null = null
 let activeCallbackServer: Server | null = null
-let activeCallbackTimer: ReturnType<typeof setTimeout> | null = null
 
 /** Wired once at startup so a finished sign-in reaches every mounted client. */
 export function setOAuthCompletedListener(listener: OAuthCompletedListener): void {
@@ -193,10 +229,6 @@ export function setOAuthCompletedListener(listener: OAuthCompletedListener): voi
 }
 
 function stopListening(): void {
-  if (activeCallbackTimer) {
-    clearTimeout(activeCallbackTimer)
-    activeCallbackTimer = null
-  }
   activeCallbackServer?.close()
   activeCallbackServer = null
 }
@@ -210,18 +242,14 @@ function listenForCallback(): Promise<void> {
   return new Promise((resolve, reject) => {
     const server = createServer((request, response) => {
       const url = new URL(request.url ?? '/', REGISTERED_REDIRECT_URI)
-      if (url.pathname !== CALLBACK_PATH) {
+      if (url.pathname !== ATLASSIAN_CALLBACK_PATH) {
         response.writeHead(404).end('Not found')
         return
       }
-      void completeOAuthCallback(url.searchParams).then((outcome) => {
-        const page = renderOAuthResult(outcome)
+      void answerOAuthCallback(url.searchParams).then((page) => {
         response.writeHead(page.status, { 'content-type': 'text/html; charset=utf-8' })
         response.end(page.html)
         stopListening()
-        const event: AtlassianOAuthCompleted = { connected: outcome.kind === 'connected' }
-        if (outcome.kind !== 'connected') event.error = page.title
-        onCompleted?.(event)
       })
     })
     server.on('error', (error: NodeJS.ErrnoException) => {
@@ -236,10 +264,13 @@ function listenForCallback(): Promise<void> {
   })
 }
 
-/** Abandons an in-flight sign-in and frees the port. */
+/** Abandons the caller's in-flight sign-in and frees the port. */
 export function cancelOAuthFlow(): void {
   stopListening()
-  pendingFlows.clear()
+  const userId = currentCredentialUserId()
+  for (const [state, flow] of pendingFlows) {
+    if (flow.userId === userId) dropFlow(state)
+  }
 }
 
 export type AtlassianOAuthCallbackOutcome =
@@ -255,7 +286,7 @@ export async function completeOAuthCallback(params: URLSearchParams): Promise<At
   const state = params.get('state')
   const flow = state ? pendingFlows.get(state) : undefined
   if (!state || !flow) return { kind: 'expired' }
-  pendingFlows.delete(state)
+  dropFlow(state)
 
   if (params.get('error')) return { kind: 'denied' }
   const code = params.get('code')
@@ -267,7 +298,7 @@ export async function completeOAuthCallback(params: URLSearchParams): Promise<At
       client_id: ATLASSIAN_CLIENT_ID,
       client_secret: ATLASSIAN_CLIENT_SECRET,
       code,
-      redirect_uri: REGISTERED_REDIRECT_URI,
+      redirect_uri: flow.redirectUri,
       code_verifier: flow.verifier,
     })
     if (!token.refresh_token) {
@@ -288,13 +319,28 @@ export async function completeOAuthCallback(params: URLSearchParams): Promise<At
       scopes: granted,
     }
     if (site.name) credential.siteName = site.name
-    persistCredential(credential)
+    // The browser's request names nobody; the flow does.
+    await withCredentialScope(flow.userId, () => persistCredential(credential))
     return { kind: 'connected', siteUrl: site.url, products: credential.products }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     log.warn('atlassian_oauth_callback_failed', { error })
     return { kind: 'failed', error }
   }
+}
+
+/**
+ * The page the browser lands on, once the callback is spent and every mounted
+ * client has heard the outcome. The loopback listener and the service's route
+ * both answer through this.
+ */
+export async function answerOAuthCallback(params: URLSearchParams): Promise<AtlassianOAuthResultPage> {
+  const outcome = await completeOAuthCallback(params)
+  const page = renderOAuthResult(outcome)
+  const event: AtlassianOAuthCompleted = { connected: outcome.kind === 'connected' }
+  if (outcome.kind !== 'connected') event.error = page.title
+  onCompleted?.(event)
+  return page
 }
 
 interface AtlassianOAuthResultPage {
@@ -454,7 +500,8 @@ async function resolvePrimarySite(accessToken: string): Promise<AtlassianSite | 
 }
 
 /**
- * The refresh in flight, shared by every caller that arrives while it runs.
+ * The refresh in flight, shared by every caller that arrives while it runs —
+ * one per person, since each person's grant is their own (§22).
  *
  * Atlassian rotates the refresh token on every use and invalidates the previous
  * one immediately. Two concurrent refreshes therefore spend the same token
@@ -463,7 +510,7 @@ async function resolvePrimarySite(accessToken: string): Promise<AtlassianSite | 
  * plus a burst of parallel calls could that way cost the user the whole
  * connection. One in-flight refresh, shared, is the only safe number.
  */
-let refreshInFlight: Promise<AtlassianStoredCredential | null> | null = null
+const refreshInFlight = new Map<string, Promise<AtlassianStoredCredential | null>>()
 
 /**
  * Returns a credential whose access token is valid now, refreshing and
@@ -473,16 +520,17 @@ let refreshInFlight: Promise<AtlassianStoredCredential | null> | null = null
  * eventually use an expired token.
  */
 export async function currentCredential(): Promise<AtlassianStoredCredential | null> {
-  const credential = loadCredential()
+  const credential = await loadCredential()
   if (!credential) return null
   if (credential.expiresAt - REFRESH_MARGIN_MS > Date.now()) return credential
 
-  const current = refreshInFlight
+  const key = currentCredentialUserId() ?? 'host'
+  const current = refreshInFlight.get(key)
   if (current) return current
   const pending = refreshCredential(credential).finally(() => {
-    if (refreshInFlight === pending) refreshInFlight = null
+    if (refreshInFlight.get(key) === pending) refreshInFlight.delete(key)
   })
-  refreshInFlight = pending
+  refreshInFlight.set(key, pending)
   return pending
 }
 
@@ -504,7 +552,7 @@ async function refreshCredential(
       refreshToken: token.refresh_token ?? credential.refreshToken,
       expiresAt: Date.now() + (token.expires_in ?? 3600) * 1000,
     }
-    persistCredential(refreshed)
+    await persistCredential(refreshed)
     return refreshed
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
@@ -518,7 +566,7 @@ async function refreshCredential(
     // A network failure or a 5xx is not that, and must not cost the user their
     // connection.
     const rejected = err instanceof AtlassianTokenRejectedError && err.status >= 400 && err.status < 500
-    if (rejected) clearCredential()
+    if (rejected) await clearCredential()
     log.warn('atlassian_token_refresh_failed', { error, discardedGrant: rejected })
     return null
   }

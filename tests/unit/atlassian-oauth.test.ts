@@ -164,7 +164,7 @@ describe('Atlassian OAuth grant', () => {
     const outcome = await oauth.completeOAuthCallback(new URLSearchParams({ state, code: 'auth-code' }))
     expect(outcome).toMatchObject({ kind: 'connected', siteUrl: 'https://acme.atlassian.net' })
 
-    const stored = tokenStore.loadCredential()
+    const stored = await tokenStore.loadCredential()
     expect(stored).toMatchObject({
       cloudId: 'cloud-1',
       accessToken: 'access-1',

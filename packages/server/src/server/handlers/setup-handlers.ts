@@ -139,7 +139,7 @@ export async function probeServerCapabilities(opts: CapabilityProbeOptions): Pro
       claude: await hasClaudeAuth(),
     },
     gitAuth: {
-      github: hasGithubAuth(),
+      github: await hasGithubAuth(),
     },
     // A member's pickers open on their own workspace; the owner's on the host setting.
     projectsBaseDirectory: opts.principal?.kind === 'org-member' ? projectsRootFor(opts.principal) : getServerSettings().projectsBaseDirectory,
@@ -170,12 +170,8 @@ export function hasCodexAuth(): Promise<boolean> {
   return providerLoginConnected('codex', null)
 }
 
-export function hasGithubAuth(): boolean {
-  try {
-    return !!loadGithubToken()
-  } catch {
-    return false
-  }
+export async function hasGithubAuth(): Promise<boolean> {
+  return !!(await safeLoadGithubToken())
 }
 
 /**
@@ -191,7 +187,7 @@ export async function probeHostReadiness(
   // The version string decides nothing; running the probe is still how "is git
   // here at all?" gets answered.
   const gitInstalled = !!runProbe('git', ['--version'])
-  const token = safeLoadGithubToken()
+  const token = await safeLoadGithubToken()
   const ghCli = hasCommand('gh')
   return {
     platform: process.platform,
@@ -361,7 +357,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   // host login is the owner's seat, so the wizard and a member's row share one relay.
 
   server.register('setupListGithubRepos', async (): Promise<SetupGithubReposResult> => {
-    if (!hasGithubAuth()) return { connected: false }
+    if (!(await hasGithubAuth())) return { connected: false }
 
     const client = await buildClient(new GitHubAuth())
     const res = await client.rest.repos.listForAuthenticatedUser({
@@ -454,7 +450,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
   })
 
   server.register('setupAuthorizeGhCli', async () => {
-    const token = safeLoadGithubToken()
+    const token = await safeLoadGithubToken()
     if (!token) throw new Error('Connect GitHub on this host before authorizing the gh CLI.')
     if (!hasCommand('gh')) throw new Error('The GitHub CLI (gh) is not installed on this host.')
     if (!hasGithubCliScopes(parseGithubScopes(token.scope))) {
@@ -570,7 +566,7 @@ export function registerSetupHandlers(server: SolusServer, deps: SetupHandlerDep
         const attemptParts = parseCloneUrlParts(attemptUrl)
         const token = credential ?? (
           isHttps && attemptParts?.host.toLowerCase() === 'github.com'
-            ? safeLoadGithubToken(loadStoredGithubToken)
+            ? await safeLoadGithubToken(loadStoredGithubToken)
             : null
         )
         const askpass = token ? await createGitAskpassHelper() : null
@@ -830,11 +826,11 @@ function listSshPublicKeys(): string[] {
   }
 }
 
-function safeLoadGithubToken(
+async function safeLoadGithubToken(
   loader: typeof loadGithubToken = loadGithubToken,
 ): ReturnType<typeof loadGithubToken> {
   try {
-    return loader()
+    return await loader()
   } catch {
     return null
   }

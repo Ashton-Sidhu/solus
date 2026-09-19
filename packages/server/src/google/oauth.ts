@@ -1,19 +1,15 @@
 import { randomBytes } from 'crypto'
-import { join } from 'path'
 import { OAuth2Client, CodeChallengeMethod } from 'google-auth-library'
 import { z } from 'zod'
 import { createLogger } from '../logger'
-import { dataDir } from '../platform/paths'
-import { secretStore } from '../platform/secrets'
 import { GOOGLE_CLIENT_ID } from './client-id'
 import { GOOGLE_CLIENT_SECRET } from './client-secret'
-import { EncryptionUnavailableError } from '../providers/github/token-store'
+import { currentCredentialUserId, withCredentialScope } from '../vault/credential-scope'
+import { clearProviderCredential, EncryptionUnavailableError, readProviderCredential, writeProviderCredential } from '../vault/provider-credentials'
 import { hostForUrl } from '@solus/contracts/entrypoint'
 import { GOOGLE_DRIVE_FILE_SCOPE, GOOGLE_OAUTH_SCOPES, parseGoogleScopes } from '@solus/contracts/google-auth'
 
 const log = createLogger('main', 'google-oauth')
-
-const TOKEN_KEY = 'google-oauth'
 
 const SCOPE = GOOGLE_OAUTH_SCOPES.join(' ')
 /** What a grant recorded before scopes were persisted can only have held: the
@@ -46,6 +42,8 @@ interface PendingOAuthFlow {
   verifier: string
   redirectUri: string
   expiresAt: number
+  /** Whose connection this becomes: the callback carries no principal, so the flow remembers (cloud-service-model.md §22). */
+  userId: string | null
 }
 
 export interface GoogleOAuthStartOptions {
@@ -66,27 +64,22 @@ export interface GoogleOAuthCallbackResult {
 
 const pendingFlows = new Map<string, PendingOAuthFlow>()
 
-function tokenFile(): string {
-  return join(dataDir(), 'google-oauth.bin')
-}
-
-function loadStored(): StoredToken | null {
-  return secretStore().loadJson(TOKEN_KEY, tokenFile(), storedTokenSchema)
+/** Where the grant is kept — the host's store, the scoped person's vault row, or a runner's lease — is `provider-credentials`' choice (§22). */
+function loadStored(): Promise<StoredToken | null> {
+  return readProviderCredential('google', storedTokenSchema)
 }
 
 /** Never writes a token in plaintext: an unusable keyring fails the connect
  *  rather than degrading storage, as GitHub and Atlassian already do. */
-function persist(token: StoredToken): void {
-  const store = secretStore()
-  if (!store.canSave()) throw new EncryptionUnavailableError()
-  store.saveJson(TOKEN_KEY, tokenFile(), token)
+function persist(token: StoredToken): Promise<void> {
+  return writeProviderCredential('google', token)
 }
 
 /** A refresh cannot ask the user anything, so a write failure there is logged
  *  and the in-memory token is still returned; the next connect surfaces it. */
-function persistRefreshed(token: StoredToken): void {
+async function persistRefreshed(token: StoredToken): Promise<void> {
   try {
-    persist(token)
+    await persist(token)
   } catch (err) {
     log.warn('google_token_persist_failed', { error: err instanceof Error ? err.message : String(err) })
   }
@@ -97,8 +90,8 @@ function persistRefreshed(token: StoredToken): void {
  * written before this field existed reports the scope that build asked for, so
  * drift is detected rather than assumed away.
  */
-export function grantedGoogleScopes(): string[] | null {
-  const stored = loadStored()
+export async function grantedGoogleScopes(): Promise<string[] | null> {
+  const stored = await loadStored()
   if (!stored) return null
   return stored.scopes ?? LEGACY_GRANTED_SCOPES
 }
@@ -160,7 +153,9 @@ export async function startGoogleOAuthFlow(opts: GoogleOAuthStartOptions): Promi
   cleanupExpiredPendingFlows()
 
   const redirectUri = buildRedirectUri(opts)
-  const existing = [...pendingFlows.values()].find(flow => flow.redirectUri === redirectUri)
+  const userId = currentCredentialUserId()
+  // One flow per person and callback: two people on the service must not share a URL.
+  const existing = [...pendingFlows.values()].find(flow => flow.redirectUri === redirectUri && flow.userId === userId)
   if (existing) return { authUrl: existing.authUrl, expiresAt: existing.expiresAt }
 
   const client = oauthClient(redirectUri)
@@ -177,7 +172,7 @@ export async function startGoogleOAuthFlow(opts: GoogleOAuthStartOptions): Promi
     state,
   })
 
-  pendingFlows.set(state, { authUrl, verifier: codeVerifier, redirectUri, expiresAt })
+  pendingFlows.set(state, { authUrl, verifier: codeVerifier, redirectUri, expiresAt, userId })
   return { authUrl, expiresAt }
 }
 
@@ -218,7 +213,8 @@ export async function completeGoogleOAuthCallback(params: URLSearchParams): Prom
       expiresAt: tokens.expiry_date ?? Date.now() + DEFAULT_ACCESS_TOKEN_TTL_MS,
     }
     if (granted.length) token.scopes = granted
-    persist(token)
+    // The browser's request names nobody; the flow does.
+    await withCredentialScope(flow!.userId, () => persist(token))
     return callbackPage(200, "You're connected", 'Return to Solus to continue.')
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
@@ -273,7 +269,7 @@ function escapeHtml(value: string): string {
 export async function getAccessToken(): Promise<string | null> {
   assertConfigured()
 
-  const stored = loadStored()
+  const stored = await loadStored()
   if (!stored) return null
 
   const client = oauthClient()
@@ -283,7 +279,9 @@ export async function getAccessToken(): Promise<string | null> {
     expiry_date: stored.expiresAt,
   })
   // Google rotates the refresh token on some refreshes; persist whatever the
-  // library obtains so we never fall back to a stale/revoked grant.
+  // library obtains so we never fall back to a stale/revoked grant. The
+  // listener fires inside the library, so the caller's scope is carried in by hand.
+  const userId = currentCredentialUserId()
   client.on('tokens', (tokens) => {
     const granted = parseGoogleScopes(tokens.scope)
     const refreshed: StoredToken = {
@@ -295,7 +293,7 @@ export async function getAccessToken(): Promise<string | null> {
     // keep what was recorded rather than losing the record of it.
     const scopes = granted.length ? granted : stored.scopes
     if (scopes) refreshed.scopes = scopes
-    persistRefreshed(refreshed)
+    void withCredentialScope(userId, () => persistRefreshed(refreshed))
   })
 
   try {
@@ -309,8 +307,6 @@ export async function getAccessToken(): Promise<string | null> {
   }
 }
 
-export function disconnect(): void {
-  try {
-    secretStore().remove(TOKEN_KEY, tokenFile())
-  } catch {}
+export async function disconnect(): Promise<void> {
+  await clearProviderCredential('google')
 }

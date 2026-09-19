@@ -2,8 +2,10 @@ import type { RpcMethod } from '@solus/contracts/rpc'
 import type { SolusAPI } from '@solus/contracts/host-api'
 import type { PlanPublishRequest, WorkPublishRequest } from '@solus/contracts/docs'
 import { createLogger, isDebugEnabled } from '../logger'
+import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
+import { withCredentialScope } from '../vault/credential-scope'
 import { assertRpcAccess, type ResourceAccess } from './access-policy'
-import { INTERNAL_PRINCIPAL, type Principal } from './principal'
+import { INTERNAL_PRINCIPAL, principalOwnerId, type Principal } from './principal'
 import { ALL_ROLES, assertPlaneServed, type SolusRole } from './roles'
 
 const log = createLogger('server', 'server.ts')
@@ -85,12 +87,16 @@ export class SolusServer {
     }
     const handler = this.handlers.get(method)
     if (!handler) throw new Error(`SolusServer: no handler for "${method}"`)
-    if (!isDebugEnabled()) return await handler(args, ctx)
+    // Whose provider connections the handler acts with (cloud-service-model.md
+    // §22): the calling person's, or the host's own for its owner and itself.
+    const credentialUserId = principalOwnerId(ctx.principal)
+    const run = () => withCredentialScope(credentialUserId === HOST_OWNER_USER_ID ? null : credentialUserId, () => handler(args, ctx))
+    if (!isDebugEnabled()) return await run()
     // The part of a handler that runs before its first await is the part that
     // blocks every other request. Debug builds report it when it is long
     // enough to matter, so a slow boot names the handler that held the loop.
     const startedAt = performance.now()
-    const pending = handler(args, ctx)
+    const pending = run()
     const blockedMs = Math.round(performance.now() - startedAt)
     if (blockedMs >= 20) log.warn('rpc_handler_blocked_loop', { method, clientId: ctx.clientId, blockedMs })
     return await pending

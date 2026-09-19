@@ -195,7 +195,8 @@ export interface SolusAPI {
   cloudflareDisconnect(): Promise<void>
 
   atlassianStatus(): Promise<AtlassianStatus>
-  atlassianStartOAuth(): Promise<AtlassianOAuthStartResult>
+  /** `callbackBaseUrl` is the origin the client reached the workspace service by; a host ignores it and uses its loopback listener. */
+  atlassianStartOAuth(callbackBaseUrl?: string): Promise<AtlassianOAuthStartResult>
   atlassianCancelOAuth(): Promise<void>
   atlassianDisconnect(): Promise<void>
   atlassianJiraProjects(): Promise<AtlassianJiraProject[]>

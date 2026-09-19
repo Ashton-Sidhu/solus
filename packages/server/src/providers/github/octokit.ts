@@ -108,7 +108,7 @@ function createClient(credential: GithubCredential): GitHubClient {
     clientsByToken.delete(credential.token)
     if (credential.source === 'host') {
       log.warn('github_unauthorized_token_cleared')
-      clearToken()
+      void clearToken()
     } else {
       log.warn('github_unauthorized_credential', { source: credential.source })
     }

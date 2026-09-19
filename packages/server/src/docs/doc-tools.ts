@@ -57,7 +57,7 @@ async function resolveTarget(url: string | undefined): Promise<{
   limitation: string
 }> {
   if (!url) throw new Error('Pass the document `url`.')
-  const resolved = resolveDocUrl(url)
+  const resolved = await resolveDocUrl(url)
   if (!resolved) throw new Error(`"${url}" is not a document link Solus recognizes.`)
   const { limitation } = await requireAdapter(resolved.ref.provider)
   return { ...resolved, limitation }

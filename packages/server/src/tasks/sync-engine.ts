@@ -10,8 +10,11 @@ import type {
   TicketPatch,
 } from '@solus/contracts/task-types'
 import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
+import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { sql } from 'drizzle-orm'
 import { getDatabase } from '../db/database'
+import { resourceOwner } from '../sharing/schema'
+import { withCredentialScope } from '../vault/credential-scope'
 import { taskLinks, tasks } from './schema'
 import { createLogger } from '../logger'
 import { loadProjectConfig } from '../project-config/project-config'
@@ -43,6 +46,18 @@ import { z } from 'zod'
 
 const log = createLogger('main', 'task-sync')
 const PUSH_DEBOUNCE_MS = 2_000
+
+const ownerRowSchema = z.object({ owner_user_id: z.string() })
+
+/** Whose credential a task's link syncs with: its owner's; null (the host's own) for the host owner or a task nobody claimed. */
+async function taskOwnerCredentialUserId(organizationId: string, taskId: string): Promise<string | null> {
+  const row = ownerRowSchema.nullish().parse(await getDatabase().get(sql`
+    SELECT owner_user_id FROM ${resourceOwner}
+    WHERE organization_id = ${organizationId} AND resource_kind = 'task' AND resource_id = ${taskId}
+  `))
+  const ownerUserId = row?.owner_user_id ?? null
+  return ownerUserId === HOST_OWNER_USER_ID ? null : ownerUserId
+}
 const POLL_INTERVAL_MS = 5 * 60_000
 
 export interface TaskSyncEngineOptions {
@@ -301,9 +316,13 @@ export class TaskSyncEngine {
   ): Promise<TaskExternalLink | null> {
     const current = this.syncs.get(taskId)
     if (current) return current
-    const pending = this.performSync(organizationId, taskId, options).finally(() => {
-      if (this.syncs.get(taskId) === pending) this.syncs.delete(taskId)
-    })
+    // A link is polled and pushed as the task's owner (cloud-service-model.md
+    // §22): their Jira or GitHub connection, whoever or whatever asked for the sync.
+    const pending = taskOwnerCredentialUserId(organizationId, taskId)
+      .then((userId) => withCredentialScope(userId, () => this.performSync(organizationId, taskId, options)))
+      .finally(() => {
+        if (this.syncs.get(taskId) === pending) this.syncs.delete(taskId)
+      })
     this.syncs.set(taskId, pending)
     return pending
   }

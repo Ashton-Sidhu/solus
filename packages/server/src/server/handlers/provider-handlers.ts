@@ -278,7 +278,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
   server.register('providerDisconnect', async (args) => {
     const [ctx] = args
     const provider = await providerForContext(ctx)
-    provider?.auth.disconnect()
+    await provider?.auth.disconnect()
   })
 
   // The desktop renderer is itself a WS-paired device, so without this gate any
@@ -288,7 +288,7 @@ export function registerProviderHandlers(server: SolusServer, deps: ProviderHand
       throw new Error('Only this device can export its GitHub credential.')
     }
 
-    const token = loadToken()
+    const token = await loadToken()
     if (!token) throw new Error('Connect GitHub on this device first.')
 
     const login = token.login ?? await getProvider('github')?.review.getViewer()

@@ -20,7 +20,7 @@ export function registerGoogleHandlers(server: SolusServer, deps: GoogleHandlers
     // `drive.readonly` shipped is still connected but cannot read a doc Solus
     // did not create, and the client turns that into a reconnect prompt.
     const status: GoogleAuthStatus = { connected, configured }
-    const scopes = connected ? grantedGoogleScopes() : null
+    const scopes = connected ? await grantedGoogleScopes() : null
     if (scopes) status.scopes = scopes
     return status
   })
@@ -31,6 +31,6 @@ export function registerGoogleHandlers(server: SolusServer, deps: GoogleHandlers
   })
 
   server.register('googleDisconnect', async () => {
-    disconnect()
+    await disconnect()
   })
 }

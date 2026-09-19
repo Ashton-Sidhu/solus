@@ -19,10 +19,10 @@ export interface GithubCredential {
   token: string
 }
 
-/** The account this host is connected as. */
-export function hostGithubToken(): string | null {
+/** The account this host is connected as — or, for a scoped person on a runner or the service, their own (cloud-service-model.md §22). */
+export async function hostGithubToken(): Promise<string | null> {
   try {
-    return loadToken()?.accessToken ?? null
+    return (await loadToken())?.accessToken ?? null
   } catch {
     return null
   }
@@ -101,7 +101,7 @@ export async function githubCredentialChain(host: string, cwd?: string): Promise
   const chain: GithubCredential[] = []
   const delegated = cwd ? await delegatedCheckoutToken(cwd) : null
   if (delegated) chain.push({ source: 'delegated', token: delegated })
-  const hostToken = hostGithubToken()
+  const hostToken = await hostGithubToken()
   if (hostToken) chain.push({ source: 'host', token: hostToken })
   const cliToken = await ghCliGithubToken(host)
   if (cliToken) chain.push({ source: 'gh-cli', token: cliToken })

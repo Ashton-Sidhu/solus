@@ -18,6 +18,7 @@ import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from 
 import { TranscriptMirror, listOwnInterruptedSessions } from '../mirror/transcript-mirror'
 import { leaseRunnerCredential, lockRunnerCredential, unlockRunnerCredential, writebackRunnerCredential } from './runner-intake'
 import { VaultClient } from '../vault/vault-client'
+import { useProviderVault } from '../vault/provider-credentials'
 import { VaultSeatManager } from '../vault/vault-seats'
 import { touchOrganizationMember, vaultConfigured } from '../vault/vault'
 import { applyWorkspaceMode, isWorkspaceMode, workspaceConfig } from './workspace-mode'
@@ -277,7 +278,10 @@ function startRunnerCloud(deps: {
     link: () => deps.uplinkManager.currentLink(),
     hostToken: () => deps.uplinkManager.hostToken(),
   })
-  deps.localSeats?.useVault(new VaultClient(delivery))
+  const vaultClient = new VaultClient(delivery)
+  deps.localSeats?.useVault(vaultClient)
+  // Members' GitHub, Google, and Atlassian connections are leased the same way (§22).
+  useProviderVault(vaultClient)
   // A turn the previous process left unsettled is mirrored once this runner
   // holds a grant: the mirror log appends nothing before then.
   let stopInterruptedSweep: (() => void) | null = null

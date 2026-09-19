@@ -52,15 +52,15 @@ describe('Google scope drift', () => {
 })
 
 describe('grantedGoogleScopes', () => {
-  test('reports what a grant stored before this field existed can only have held', () => {
+  test('reports what a grant stored before this field existed can only have held', async () => {
     records.clear()
     // No `scopes` key: written by a build that asked for `drive.file` alone.
     records.set('google-oauth', { refreshToken: 'r', accessToken: 'a', expiresAt: Date.now() + 60_000 })
-    expect(grantedGoogleScopes()).toEqual([GOOGLE_DRIVE_FILE_SCOPE])
-    expect(missingGoogleScopes(grantedGoogleScopes() ?? undefined)).toEqual([GOOGLE_DRIVE_READONLY_SCOPE])
+    expect(await grantedGoogleScopes()).toEqual([GOOGLE_DRIVE_FILE_SCOPE])
+    expect(missingGoogleScopes(await grantedGoogleScopes() ?? undefined)).toEqual([GOOGLE_DRIVE_READONLY_SCOPE])
   })
 
-  test('reports the recorded scopes when the grant has them', () => {
+  test('reports the recorded scopes when the grant has them', async () => {
     records.clear()
     records.set('google-oauth', {
       refreshToken: 'r',
@@ -68,12 +68,12 @@ describe('grantedGoogleScopes', () => {
       expiresAt: Date.now() + 60_000,
       scopes: [GOOGLE_DRIVE_FILE_SCOPE, GOOGLE_DRIVE_READONLY_SCOPE],
     })
-    expect(missingGoogleScopes(grantedGoogleScopes() ?? undefined)).toEqual([])
+    expect(missingGoogleScopes(await grantedGoogleScopes() ?? undefined)).toEqual([])
   })
 
-  test('is null when nothing is stored', () => {
+  test('is null when nothing is stored', async () => {
     records.clear()
-    expect(grantedGoogleScopes()).toBeNull()
+    expect(await grantedGoogleScopes()).toBeNull()
   })
 })
 

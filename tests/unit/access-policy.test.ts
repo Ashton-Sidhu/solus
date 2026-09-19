@@ -4,12 +4,14 @@ import type { ResourceRole, ShareResource } from '@solus/contracts/sharing'
 import {
   GUEST_HOST_RPC_METHODS,
   HOST_ADMIN_RPC_METHODS,
+  PER_PERSON_ON_SERVICE_RPC_METHODS,
   RESOURCE_RPC_RULES,
   RpcAccessError,
   assertRpcAccess,
   rpcAccessMap,
 } from '@solus/server/server/access-policy'
 import type { Principal } from '@solus/server/server/principal'
+import { resetWorkspaceModeForTests } from '@solus/server/server/workspace-mode'
 
 // docs/plans/multiplayer-sharing.md §3.7: every method has exactly one class; a call
 // that names a session or work is checked against the caller's role on it; a guest
@@ -220,6 +222,29 @@ describe('host administration', () => {
   test('local-only methods refuse even the organization owner of a managed host', async () => {
     await expect(assertRpcAccess('uplinkLink', ORG_OWNER_MANAGED, [{}])).rejects.toThrow(/local connection/)
     await expect(assertRpcAccess('uplinkLink', OWNER, [{}])).resolves.toBeUndefined()
+  })
+
+  test("a provider connection is the host's on a host, and each person's own on the workspace service", async () => {
+    // WHY (cloud-service-model.md §22): on a host `providerConnect` replaces the
+    // machine's one GitHub token, so only its administrator may; on the service
+    // the handler writes the caller's own vault row, so every member may.
+    expect(rpcAccessMap().get('providerConnect')).toBe('host-admin')
+    await expect(assertRpcAccess('providerConnect', OWNER, [ctx('s1')])).resolves.toBeUndefined()
+    await expect(assertRpcAccess('providerConnect', MEMBER, [ctx('s1')])).rejects.toThrow(RpcAccessError)
+    process.env.SOLUS_WORKSPACE = '1'
+    resetWorkspaceModeForTests()
+    try {
+      for (const method of [...PER_PERSON_ON_SERVICE_RPC_METHODS]) {
+        await expect(assertRpcAccess(method, MEMBER, [ctx('s1')], undefined, true)).resolves.toBeUndefined()
+        await expect(assertRpcAccess(method, GUEST, [ctx('s1')], undefined, true)).rejects.toThrow(/not available to a guest/)
+      }
+      // Exporting the host's token stays the host's alone, service or not.
+      await expect(assertRpcAccess('githubExportCredential', MEMBER, [], undefined, true)).rejects.toThrow(RpcAccessError)
+    } finally {
+      delete process.env.SOLUS_WORKSPACE
+      resetWorkspaceModeForTests()
+    }
+    await expect(assertRpcAccess('providerConnect', MEMBER, [ctx('s1')])).rejects.toThrow(RpcAccessError)
   })
 })
 

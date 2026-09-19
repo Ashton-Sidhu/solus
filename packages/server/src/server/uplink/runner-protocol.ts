@@ -154,7 +154,8 @@ export type InsightsMirrorPayload = z.infer<typeof insightsMirrorPayloadSchema>
 
 // ── The credential vault (§5) ────────────────────────────────────────────────
 
-export const vaultProviderSchema = z.enum(['claude-code', 'codex'])
+/** The agent seats, and the connections a person makes once on the service (cloud-service-model.md §22). */
+export const vaultProviderSchema = z.enum(['claude-code', 'codex', 'github', 'google', 'atlassian'])
 export type VaultProvider = z.infer<typeof vaultProviderSchema>
 
 /**

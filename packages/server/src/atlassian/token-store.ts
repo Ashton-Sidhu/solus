@@ -1,13 +1,5 @@
-import { join } from 'path'
 import { z } from 'zod'
-import { createLogger } from '../logger'
-import { dataDir } from '../platform/paths'
-import { secretStore } from '../platform/secrets'
-import { EncryptionUnavailableError } from '../providers/github/token-store'
-
-const log = createLogger('main', 'atlassian-token-store')
-
-const TOKEN_KEY = 'atlassian-oauth'
+import { clearProviderCredential, readProviderCredential, writeProviderCredential } from '../vault/provider-credentials'
 
 /**
  * One account, one site, one grant approved in a browser.
@@ -15,6 +7,9 @@ const TOKEN_KEY = 'atlassian-oauth'
  * `cloudId` is the site identity rather than the hostname: an OAuth token is
  * spent against `api.atlassian.com/ex/<product>/<cloudId>`, and every external
  * key persisted later is built from it, so a renamed site keeps working.
+ *
+ * Where it lives — the host's secret store, the scoped person's vault row, or a
+ * runner's lease — is `provider-credentials`' choice (cloud-service-model.md §22).
  */
 export interface AtlassianStoredCredential {
   siteUrl: string
@@ -40,26 +35,16 @@ const atlassianStoredCredentialSchema = z.object({
   scopes: z.array(z.string()),
 })
 
-function tokenFile(): string {
-  return join(dataDir(), 'atlassian-oauth.bin')
+export function loadCredential(): Promise<AtlassianStoredCredential | null> {
+  return readProviderCredential('atlassian', atlassianStoredCredentialSchema)
 }
 
-export function loadCredential(): AtlassianStoredCredential | null {
-  return secretStore().loadJson(TOKEN_KEY, tokenFile(), atlassianStoredCredentialSchema)
+export function persistCredential(credential: AtlassianStoredCredential): Promise<void> {
+  return writeProviderCredential('atlassian', credential)
 }
 
-export function persistCredential(credential: AtlassianStoredCredential): void {
-  const store = secretStore()
-  if (!store.canSave()) throw new EncryptionUnavailableError()
-  store.saveJson(TOKEN_KEY, tokenFile(), credential)
-}
-
-export function clearCredential(): void {
-  try {
-    secretStore().remove(TOKEN_KEY, tokenFile())
-  } catch (err) {
-    log.warn('token_file_remove_failed', { error: err instanceof Error ? err.message : String(err) })
-  }
+export function clearCredential(): Promise<void> {
+  return clearProviderCredential('atlassian')
 }
 
 // Consumers load through `currentCredential()` in oauth.ts, which refreshes

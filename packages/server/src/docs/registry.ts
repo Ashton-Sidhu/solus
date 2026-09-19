@@ -37,9 +37,9 @@ export async function docProviderStatuses(): Promise<DocProviderStatus[]> {
 
 /** The first adapter that claims the URL. Users hand agents links, not ids, so
  *  this — not a provider argument — is the usual way a doc is addressed. */
-export function resolveDocUrl(url: string): { adapter: DocProviderAdapter; ref: DocRef } | null {
+export async function resolveDocUrl(url: string): Promise<{ adapter: DocProviderAdapter; ref: DocRef } | null> {
   for (const adapter of adapters.values()) {
-    const ref = adapter.resolveUrl(url)
+    const ref = await adapter.resolveUrl(url)
     if (ref) return { adapter, ref }
   }
   return null

@@ -1,5 +1,6 @@
 import { createLogger } from '../../logger'
 import { GITHUB_OAUTH_SCOPES, parseGithubScopes } from '@solus/contracts/github-auth'
+import { currentCredentialUserId } from '../../vault/credential-scope'
 import { GITHUB_CLIENT_ID } from './client-id'
 import { githubCredentialChain } from './credentials'
 import { loadToken, persistToken, clearToken, type GithubStoredToken } from './token-store'
@@ -164,14 +165,17 @@ function toStatus(token: GithubStoredToken | null): AuthStatus {
  * so getAccessToken() is just "load from disk, throw if absent".
  */
 export class GitHubAuth implements ProviderAuth {
-  private connecting = false
-  private abort: AbortController | null = null
+  /** One device flow per person: on the workspace service several people may be connecting at once (cloud-service-model.md §22). */
+  private readonly connecting = new Map<string, AbortController>()
 
   async connect(onUserCode: (c: DeviceCodePrompt) => void): Promise<AuthStatus> {
     if (!GITHUB_CLIENT_ID) throw new Error('GitHub client ID not configured')
-    if (this.connecting) throw new Error('A GitHub connection is already in progress.')
-    this.connecting = true
-    this.abort = new AbortController()
+    // The scope set at dispatch carries through every await below, so the token
+    // lands in the caller's own store; the key only serializes their attempts.
+    const who = currentCredentialUserId() ?? 'host'
+    if (this.connecting.has(who)) throw new Error('A GitHub connection is already in progress.')
+    const abort = new AbortController()
+    this.connecting.set(who, abort)
     try {
       const device = await requestDeviceCode()
       onUserCode({
@@ -180,40 +184,39 @@ export class GitHubAuth implements ProviderAuth {
         expiresIn: device.expires_in,
       })
 
-      const token = await pollForToken(device.device_code, device.interval, device.expires_in, this.abort.signal)
+      const token = await pollForToken(device.device_code, device.interval, device.expires_in, abort.signal)
       const { login, scopes } = await fetchLogin(token.accessToken)
       token.login = login
       // Trust the token's real granted scopes (header) over the exchange echo, so
       // the Projects-scope hint reflects what the token can actually do.
       if (scopes) token.scope = scopes
-      persistToken(token)
+      await persistToken(token)
       return toStatus(token)
     } finally {
-      this.connecting = false
-      this.abort = null
+      this.connecting.delete(who)
     }
   }
 
   cancelConnect(): void {
-    this.abort?.abort()
+    this.connecting.get(currentCredentialUserId() ?? 'host')?.abort()
   }
 
   async getAccessToken(): Promise<string> {
-    const token = loadToken()
+    const token = await loadToken()
     if (!token) throw new Error('GitHub is not connected')
     return token.accessToken
   }
 
   async status(): Promise<AuthStatus> {
-    return toStatus(loadToken())
+    return toStatus(await loadToken())
   }
 
   async hasCredential(host: string, cwd?: string): Promise<boolean> {
     return (await githubCredentialChain(host, cwd)).length > 0
   }
 
-  disconnect(): void {
-    clearToken()
+  async disconnect(): Promise<void> {
+    await clearToken()
     log.info('github_disconnected')
   }
 }

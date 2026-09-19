@@ -79,7 +79,7 @@ export class GoogleDriveDocAdapter implements DocProviderAdapter {
       }
     }
     const status: DocProviderStatus = { provider: this.id, connected: true }
-    if (!hasGoogleDriveReadScope(grantedGoogleScopes() ?? undefined)) {
+    if (!hasGoogleDriveReadScope(await grantedGoogleScopes() ?? undefined)) {
       status.limitation = DRIVE_READ_LIMITATION
     }
     return status

@@ -541,7 +541,12 @@ login writes the provider's files into a seat directory, `markConnected` reads
 them into the vault and deletes them; a pasted token goes in as a `token`
 credential; for Claude, pasted `.credentials.json` contents are a `login`
 credential. The website links a signed-in person to `/app/#/w/<orgId>/connections`,
-which mounts the same seats surface against the cloud host.
+which mounts the same seats surface against the cloud host, with the person's
+GitHub, Google, and Atlassian connections below it. Settings → Providers on a
+cloud row shows the same four sections; on a runner linked to an organization it
+shows a member one row that opens that page instead, so the member never
+overwrites the host's own connections. The host's owner, a guest, and a
+signed-out client see the host's sections as before.
 
 A runner leases the credential per turn (`POST /runner/credentials/lease`,
 allowed when the person has been admitted to the runner's organization on the
@@ -555,9 +560,8 @@ refused with `no_credential` purges the local copy and refuses the turn with
 `SEAT_REQUIRED`, whose message points at Solus cloud. A signed-out host, and
 the host login, are unchanged.
 
-Not in this slice: the organization GitHub App and the Jira and Google
-connections in the vault (the `provider` column is open for them); usage
-readings on the service.
+Not in this slice: the organization GitHub App; usage readings on the service.
+The Jira, Google, and GitHub connections joined the vault in §22.
 
 ## 21. Proofs
 
@@ -568,3 +572,67 @@ streams a `__MOCK_SLOW__` turn slowly enough to be killed, and rewrites the
 seat's `.credentials.json` after a `__MOCK_REFRESH__` turn as a provider CLI
 refreshing would; every run it is handed records the credential material it
 saw (`mock-runs.ndjson`).
+
+## 22. Provider connections in the vault (P3, §5)
+
+A person's GitHub, Google, and Atlassian (Jira and Confluence) connections are
+theirs, not the host's: made once on the workspace service and leased by every
+runner for calls made on their behalf. The vault's `provider` column takes
+`github`, `google`, and `atlassian` beside the two seats; the material is the
+provider store's own JSON under one file name (`{ files: { 'credential.json':
+… } }`, `packages/server/src/vault/credential-material.ts`), so the vault, the
+lease route, and the write-back keep one shape. `expires_at` is read off the
+Google and Atlassian JSON; a GitHub token has none.
+
+**The scope rule.** Whose credential a call acts with is decided once, at the
+edge, and carried by `AsyncLocalStorage`
+(`packages/server/src/vault/credential-scope.ts`): `SolusServer.handle` sets it
+from the principal (`principalOwnerId`; the host-owner sentinel, the host
+itself, and a runner mean "the host's own", which is `null`); a turn's tools
+run under the turn's actor when the actor is not the host owner
+(`credentialScopedAgentTools` in `control-plane.ts`); a task sync runs under the
+task's owner from `resource_owner` (`tasks/sync-engine.ts`). Every store then
+resolves through `packages/server/src/vault/provider-credentials.ts`, which
+chooses by where the process runs:
+
+| Process | Scoped person | Where the credential is |
+|---|---|---|
+| workspace service | a member | their vault row; no scoped person reads nothing and cannot write |
+| runner with a grant | a member | leased (`POST /runner/credentials/lease`), held in memory only, leased again after five minutes or when the vault says `no_credential`; a refresh is written back under the version leased, and `version_conflict` drops the copy |
+| runner with a grant | the host owner | the host's secret store |
+| any host without a grant | anyone | the host's secret store, as before |
+
+A runner never writes a member's GitHub, Google, or Atlassian credential to
+disk, and a runner's "clear" (a 401, a refused refresh) forgets its copy only;
+the row is the person's to disconnect on the service.
+
+**Where each flow runs.** On the service the connect RPCs act for the calling
+person: `PER_PERSON_ON_SERVICE_RPC_METHODS` in `server/access-policy.ts` makes
+`providerConnect`, `providerCancelConnect`, `providerDisconnect`,
+`googleConnect`, `googleDisconnect`, `atlassianStartOAuth`,
+`atlassianCancelOAuth`, and `atlassianDisconnect` host-wide in workspace mode
+(host-admin on a host, unchanged), and the git-provider auth methods are
+`collaboration` in `rpc-planes.ts` since they need no checkout. The GitHub
+device flow is keyed per person (`GitHubAuth.connecting`) and its result lands
+under the dispatch scope. Google's pending flow records the person at start and
+the callback route, which carries no principal, persists under that scope.
+Disconnect on the service deletes the person's row only.
+
+**The Atlassian route mode.** A host keeps the fixed loopback listener on
+`127.0.0.1:51789`. The service has no loopback a browser can reach, so
+`atlassianStartOAuth(callbackBaseUrl)` in workspace mode names
+`<service origin>/oauth/atlassian/callback` as the redirect URI and
+`GET /oauth/atlassian/callback` in `server/http.ts` completes it; the app the
+service is built with must register that exact URI
+(`packaging/workspace-service/README.md`). Pending flows are keyed by state and
+carry the person; a person's new attempt supersedes only their own.
+
+**What stays on the host.** A paired device's delegated GitHub token and the
+dispatch checkout it drives; `solus git-credential`, a separate process that
+reads the host's own store directly; `githubExportCredential`, execution and
+host-admin; and the host owner's own connections, which never enter a vault.
+
+**Known gap.** Headless work with no scoped person — an automation, a queue
+drain, a poll of a task nobody claimed — uses the host's own credential on a
+host and nothing on the service. A guest's tool calls on a runner are scoped to
+the guest, who has no row; they see no connection rather than the host's.

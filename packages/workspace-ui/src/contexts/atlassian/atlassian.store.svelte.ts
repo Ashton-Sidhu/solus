@@ -3,6 +3,7 @@ import { serverConnections } from '@solus/client-core/server-connections'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import { localApi } from '@solus/client-core/local-api'
 import { SvelteMap } from 'svelte/reactivity'
+import { savedCloudServerIds } from '@solus/client-core/server-registry'
 
 /**
  * The one place the renderer knows anything about the Atlassian site connection.
@@ -121,7 +122,12 @@ export class AtlassianStore {
     this.connectingServers.set(serverId, true)
     this.failures.delete(serverId)
     try {
-      const result = await serverConnections.apiFor(serverId).atlassianStartOAuth()
+      // On the workspace service the browser must return to the cloud origin this
+      // client reaches it at, as Google's flow does; a machine host ignores the
+      // origin and keeps its loopback port.
+      // A cloud row answers the browser's callback on its own origin (cloud-service-model.md §22); a machine host keeps its loopback listener.
+      const callbackBaseUrl = savedCloudServerIds().has(serverId) ? serverConnections.httpOriginFor(serverId) : undefined
+      const result = await serverConnections.apiFor(serverId).atlassianStartOAuth(callbackBaseUrl)
       if (!result.ok) {
         this.failures.set(serverId, { message: result.error })
         return false

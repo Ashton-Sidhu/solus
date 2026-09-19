@@ -39,9 +39,20 @@ fly secrets set --app solus-workspace \
 ```
 
 `SOLUS_VAULT_KEY` (32 bytes, base64) encrypts the credential vault: the provider
-logins members connect once here and runners lease for their turns. Without it the
-service still starts, and every seat call answers `VAULT_NOT_CONFIGURED`. Rotating
-it invalidates every stored credential; members connect again.
+logins members connect once here and runners lease for their turns, and the
+GitHub, Google, and Atlassian connections each member makes here
+(docs/plans/cloud-service-model.md §22). Without it the service still starts, and
+every seat call answers `VAULT_NOT_CONFIGURED`. Rotating it invalidates every
+stored credential; members connect again.
+
+The OAuth clients those connections use are build-time environment of the image
+(`SOLUS_GITHUB_CLIENT_ID`, `SOLUS_GOOGLE_CLIENT_ID` and `SOLUS_GOOGLE_CLIENT_SECRET`,
+`SOLUS_ATLASSIAN_CLIENT_ID` and `SOLUS_ATLASSIAN_CLIENT_SECRET`), not secrets set
+here. The Atlassian app the image is built with must register
+`<service origin>/oauth/atlassian/callback` as its one callback URL — for the
+deployment above, `https://solus-workspace.fly.dev/oauth/atlassian/callback` —
+and the Google client must list `<service origin>/oauth/google/callback`. A
+host's sign-ins use the loopback callbacks instead and are unaffected.
 
 The service refuses to start without all three (`workspace_mode_applied` in the
 log names the engine it opened). Migrations run at open on the first machine to

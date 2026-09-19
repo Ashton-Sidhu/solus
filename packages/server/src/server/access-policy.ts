@@ -270,6 +270,24 @@ export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
 ])
 
 /**
+ * On the workspace service a person's GitHub, Google, and Atlassian connections
+ * are their own rows in the vault (cloud-service-model.md §22), so connecting,
+ * cancelling, and disconnecting are host-wide there: every member may act, and
+ * the handler acts on the caller's row alone. On a host these stay host-admin —
+ * they change the machine's one credential.
+ */
+export const PER_PERSON_ON_SERVICE_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
+  'googleConnect',
+  'googleDisconnect',
+  'atlassianStartOAuth',
+  'atlassianCancelOAuth',
+  'atlassianDisconnect',
+  'providerConnect',
+  'providerCancelConnect',
+  'providerDisconnect',
+])
+
+/**
  * Writes only a process acting for the host makes: a runner reporting a session
  * record to the collaboration plane. No person's connection may call these; a
  * `runner` principal may call nothing else.
@@ -339,6 +357,12 @@ function assertRunnerAccess(method: RpcMethod, accessClass: RpcAccessClass): voi
   throw new RpcAccessError(method, 'runner', `"${method}" is not available to a runner`)
 }
 
+/** The class a call is weighed against on this process: a person's own connection is host-wide on the service, the map's class everywhere else. */
+function accessClassHere(method: RpcMethod): RpcAccessClass {
+  if (PER_PERSON_ON_SERVICE_RPC_METHODS.has(method) && isWorkspaceMode()) return 'host-wide'
+  return rpcAccessClass(method)
+}
+
 /**
  * The one gate every dispatch passes. `resources` is absent only in the desktop's
  * in-process path before the share manager exists; there every caller is the local
@@ -347,7 +371,7 @@ function assertRunnerAccess(method: RpcMethod, accessClass: RpcAccessClass): voi
 export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = isManagedHost() || isWorkspaceMode()): Promise<void> {
   if (managed) assertManagedHostOffers(method, principal)
   if (principal.kind === 'system') return
-  const accessClass = rpcAccessClass(method)
+  const accessClass = accessClassHere(method)
   if (principal.kind === 'runner') return assertRunnerAccess(method, accessClass)
   switch (accessClass) {
     case 'system-only':

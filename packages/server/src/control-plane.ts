@@ -99,6 +99,7 @@ import { activityLeases } from './server/activity-leases'
 import type { SessionHistoryPageRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
 import { SeatRequiredError, type SeatStore, type TurnSeat } from './seats/seat-manager'
+import { withCredentialScope } from './vault/credential-scope'
 import { type TurnActor, type TurnLedger } from './sessions/turn-ledger'
 import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { sessionActivityStateOf, type SessionActiveTurn, type SessionActivity } from '@solus/contracts/presence'
@@ -251,6 +252,20 @@ export interface SessionRunRequest {
 
 /** The host's own work: the owner asked, and the host's login runs it. */
 const HOST_ACTOR: TurnActor = { userId: HOST_OWNER_USER_ID, seatUserId: HOST_OWNER_USER_ID }
+
+/**
+ * A member's turn calls GitHub, Google, and Atlassian as that member
+ * (cloud-service-model.md §22): every tool the run is handed executes under
+ * their credential scope. The host's own work keeps the host's connections.
+ */
+function credentialScopedAgentTools(tools: AgentTool[], actor: TurnActor | undefined): AgentTool[] {
+  if (!actor || actor.userId === HOST_OWNER_USER_ID) return tools
+  const { userId } = actor
+  return tools.map((agentTool) => ({
+    ...agentTool,
+    execute: (input, context) => withCredentialScope(userId, () => agentTool.execute(input, context)),
+  }))
+}
 
 interface StartedRun {
   handle: RunHandle
@@ -3221,12 +3236,12 @@ export class ControlPlane extends EventEmitter {
         provider,
         prompt: options.prompt,
         cwd: effectiveCwd,
-        tools: [
+        tools: credentialScopedAgentTools([
           ...request.tools,
           provider === 'codex'
             ? createClaudeSubagentAgentTool(this)
             : createCodexSubagentAgentTool(this),
-        ],
+        ], request.actor),
         model: effectiveInput.model,
         reasoningEffort: effectiveInput.reasoningEffort,
         permissionMode: effectiveInput.permissionMode,

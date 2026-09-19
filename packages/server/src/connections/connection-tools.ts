@@ -49,7 +49,7 @@ async function cloudflareState(): Promise<ConnectionState> {
 }
 
 async function atlassianState(): Promise<ConnectionState> {
-  const credential = loadAtlassianCredential()
+  const credential = await loadAtlassianCredential()
   if (credential) {
     return { connected: true, source: 'stored', account: credential.siteName ?? credential.siteUrl }
   }

@@ -14,6 +14,7 @@ import {
   isOAuthConfigured,
   startOAuthFlow,
 } from '../../atlassian/oauth'
+import { isWorkspaceMode } from '../workspace-mode'
 
 export interface AtlassianHandlerDependencies {
   cancelOAuthFlow: typeof cancelOAuthFlow
@@ -31,8 +32,8 @@ export function registerAtlassianHandlers(
   server: SolusServer,
   dependencies: AtlassianHandlerDependencies = defaultDependencies,
 ): void {
-  server.register('atlassianStatus', (): AtlassianStatus => {
-    const credential = loadCredential()
+  server.register('atlassianStatus', async (): Promise<AtlassianStatus> => {
+    const credential = await loadCredential()
     if (!credential) return { connected: false, oauthAvailable: dependencies.isOAuthConfigured() }
     const status: AtlassianStatus = {
       connected: true,
@@ -45,8 +46,16 @@ export function registerAtlassianHandlers(
     return status
   })
 
-  server.register('atlassianStartOAuth', async (): Promise<AtlassianOAuthStartResult> => {
+  server.register('atlassianStartOAuth', async (args): Promise<AtlassianOAuthStartResult> => {
     try {
+      // The workspace service has no loopback for a browser to reach: the sign-in
+      // lands on its own callback route at the origin the client reached it by
+      // (cloud-service-model.md §22). A host keeps the fixed-port listener.
+      const [callbackBaseUrl] = args
+      if (isWorkspaceMode()) {
+        if (!callbackBaseUrl) return { ok: false, error: 'The workspace service needs the callback origin to start an Atlassian sign-in.' }
+        return { ok: true, ...(await dependencies.startOAuthFlow({ callbackBaseUrl })) }
+      }
       return { ok: true, ...(await dependencies.startOAuthFlow()) }
     } catch (error) {
       // Both arms are the user's to act on — a build with no client, or a port
@@ -64,9 +73,9 @@ export function registerAtlassianHandlers(
 
   // Local only: this drops Solus's copy of the grant. Revoking it at Atlassian
   // is the user's to do from their account, and is deliberately not implied.
-  server.register('atlassianDisconnect', () => {
+  server.register('atlassianDisconnect', async () => {
     dependencies.cancelOAuthFlow()
-    clearCredential()
+    await clearCredential()
   })
 
   // The choice a project's Jira binding is made from. Nothing else needs the

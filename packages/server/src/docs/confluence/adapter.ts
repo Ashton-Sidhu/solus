@@ -123,7 +123,7 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
   readonly comments = new ConfluenceDocComments()
 
   async status(): Promise<DocProviderStatus> {
-    const credential = loadCredential()
+    const credential = await loadCredential()
     if (!credential) {
       return {
         provider: this.id,
@@ -279,8 +279,8 @@ export class ConfluenceDocAdapter implements DocProviderAdapter {
     await uploadDiagramAttachments(credential.cloudId, pageId, assets, (failure) => docFailure(this.id, failure))
   }
 
-  resolveUrl(url: string): DocRef | null {
-    const credential = loadCredential()
+  async resolveUrl(url: string): Promise<DocRef | null> {
+    const credential = await loadCredential()
     if (!credential) return null
     let parsed: URL
     try {

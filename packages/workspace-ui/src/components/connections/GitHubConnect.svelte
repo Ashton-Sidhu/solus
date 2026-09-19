@@ -11,9 +11,10 @@ import Icon from "@iconify/svelte";
     LoaderCircle as SpinnerGapIcon,
   } from "@lucide/svelte";
   import { onMount } from "svelte";
-  import { getWorkspaceContext, connectionsStore } from "../../contexts";
+  import { getWorkspaceContext, connectionsStore, serversStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
+  import { connectionSectionDescription } from "../seats/lib/connection-copy";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
@@ -27,6 +28,7 @@ import Icon from "@iconify/svelte";
 
   const session = getWorkspaceContext();
   const connections = connectionsStore;
+  const sectionDescription = $derived(connectionSectionDescription("github", serversStore.isCloudHost(serverId)));
 
   ensureIconCollections();
 
@@ -116,7 +118,7 @@ import Icon from "@iconify/svelte";
   }
 </script>
 
-<SettingsSection label="GitHub">
+<SettingsSection label="GitHub" description={sectionDescription}>
   {#snippet icon()}
     <Icon icon={PROVIDER_LOGOS.github} width={13} height={13} />
   {/snippet}

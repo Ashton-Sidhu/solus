@@ -1,4 +1,6 @@
-import { delegatedGithubToken, hostGithubToken } from './credentials'
+import { readHostCredential } from '../../vault/provider-credentials'
+import { delegatedGithubToken } from './credentials'
+import { githubStoredTokenSchema } from './token-store'
 import { text } from 'node:stream/consumers'
 
 /**
@@ -65,7 +67,8 @@ export async function runGitCredentialHelper(
   if (action !== 'get') return
 
   const fields = parseCredentialRequest(await text(stdin))
-  const token = deviceId ? delegatedGithubToken(deviceId) : hostGithubToken()
+  // A separate process with no principal: the host's own store, never a leased credential.
+  const token = deviceId ? delegatedGithubToken(deviceId) : readHostCredential('github', githubStoredTokenSchema)?.accessToken ?? null
   const credential = credentialFor(fields, token)
   if (credential) stdout.write(`username=${credential.username}\npassword=${credential.password}\n`)
 }

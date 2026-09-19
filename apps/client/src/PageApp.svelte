@@ -12,7 +12,7 @@
   import { setupAgentEvents } from "@solus/workspace-ui/hooks/agentEvents.svelte";
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
   import { visibleRef } from "@solus/workspace-ui/contexts/workspace/routing/location";
-  import { seatsStore, serversStore } from "@solus/workspace-ui/contexts";
+  import { atlassianStore, seatsStore, serversStore } from "@solus/workspace-ui/contexts";
   import { connectionStatusLabel } from "@solus/client-core/connection-display";
   import { relativeTime } from "@solus/workspace-ui/lib/relative-time";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
@@ -26,6 +26,9 @@
   import SessionRecordPage from "@solus/workspace-ui/components/session/record/SessionRecordPage.svelte";
   import ShareDialog from "@solus/workspace-ui/components/sharing/ShareDialog.svelte";
   import SeatsSettings from "@solus/workspace-ui/components/seats/SeatsSettings.svelte";
+  import GitHubConnect from "@solus/workspace-ui/components/connections/GitHubConnect.svelte";
+  import GoogleProviderSettings from "@solus/workspace-ui/components/google/GoogleProviderSettings.svelte";
+  import AtlassianProviderSettings from "@solus/workspace-ui/components/atlassian/AtlassianProviderSettings.svelte";
   import { pageRouteFragment, pageRouteSection, parsePageRouteFragment, type PageRoute } from "./lib/page-routes";
   import { PageSessionRecords, sessionRecordTitle } from "./lib/page-session-records.svelte";
   import { webState } from "./lib/web-state.svelte";
@@ -57,6 +60,9 @@
   serversStore.trackConnections();
   // A login connected in the browser lands as `host.seatChanged`; the connections page reads the store.
   onMount(() => seatsStore.listen());
+  // The Atlassian sign-in finishes in a browser tab and lands on the cloud host,
+  // which announces it; the connections page hears it here.
+  onMount(() => atlassianStore.listenForOAuthCompletion());
 
   let overlayEl: HTMLElement | null = $state(null);
   setPopoverLayer({
@@ -323,6 +329,9 @@
             <div class="mx-auto flex w-full max-w-(--solus-reading-max) flex-1 flex-col gap-5 overflow-y-auto px-4 pt-6 pb-10" data-testid="page-connections">
               <p class="text-pretty text-muted-foreground">Connect your Claude and Codex logins once. Every runner uses them for your own turns only.</p>
               <SeatsSettings {serverId} />
+              <GitHubConnect {serverId} />
+              <GoogleProviderSettings {serverId} />
+              <AtlassianProviderSettings {serverId} />
             </div>
           {:else if activeRoute?.kind === "work"}
             <div class="flex min-h-0 flex-1 flex-col">

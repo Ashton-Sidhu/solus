@@ -56,10 +56,24 @@ export function parseClaudeCredentialSet(text: string): string | null {
 }
 
 export function credentialExpiresAt(provider: VaultProvider, material: CredentialMaterial): number | null {
-  if (provider === 'claude-code') {
-    const parsed = parseJson(claudeCredentialsSchema, material.files?.['.credentials.json'])
-    return parsed?.claudeAiOauth?.expiresAt ?? null
+  switch (provider) {
+    case 'claude-code': {
+      const parsed = parseJson(claudeCredentialsSchema, material.files?.['.credentials.json'])
+      return parsed?.claudeAiOauth?.expiresAt ?? null
+    }
+    case 'codex': {
+      const parsed = parseJson(codexAuthSchema, material.files?.['auth.json'])
+      return jwtExpiryMs(parsed?.tokens?.access_token)
+    }
+    // Google and Atlassian store `expiresAt` in milliseconds in their own JSON; a GitHub token does not expire.
+    case 'google':
+    case 'atlassian':
+      return parseJson(expiringCredentialSchema, material.files?.[PROVIDER_CREDENTIAL_FILE])?.expiresAt ?? null
+    case 'github':
+      return null
   }
-  const parsed = parseJson(codexAuthSchema, material.files?.['auth.json'])
-  return jwtExpiryMs(parsed?.tokens?.access_token)
 }
+
+/** The one file a person's GitHub, Google, or Atlassian connection is stored as in the vault (§22). */
+export const PROVIDER_CREDENTIAL_FILE = 'credential.json'
+const expiringCredentialSchema = z.object({ expiresAt: z.number() }).partial()

@@ -4,9 +4,11 @@
   import { serverConnections } from "@solus/client-core/server-connections";
   import { missingGoogleScopes } from "@solus/contracts/google-auth";
   import { LogOut as SignOutIcon } from "@lucide/svelte";
+  import { serversStore } from "../../contexts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { toasts } from "../../lib/toasts";
   import { ensureIconCollections } from "../diagram/iconify";
+  import { connectionSectionDescription } from "../seats/lib/connection-copy";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import SettingsRow from "../settings/SettingsRow.svelte";
   import ProviderConnectedCheck from "../settings/ProviderConnectedCheck.svelte";
@@ -27,6 +29,7 @@
   ensureIconCollections();
 
   const api = $derived(serverConnections.apiFor(serverId));
+  const sectionDescription = $derived(connectionSectionDescription("google", serversStore.isCloudHost(serverId)));
   // A grant approved before `drive.readonly` shipped still publishes, so this is
   // a prompt beside a working connection rather than a disconnected state.
   const needsDriveReadScope = $derived(connected && missingGoogleScopes(grantedScopes).length > 0);
@@ -92,7 +95,7 @@
   }
 </script>
 
-<SettingsSection label="Google Drive">
+<SettingsSection label="Google Drive" description={sectionDescription}>
   {#snippet icon()}
     <Icon icon={PROVIDER_LOGOS.google} width={13} height={13} />
   {/snippet}
