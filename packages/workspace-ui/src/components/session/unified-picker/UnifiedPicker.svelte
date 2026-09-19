@@ -41,6 +41,8 @@
   import type { ListProjectOption } from "../../ui/list-page/list-page";
   import { resolvePickerScope, scopeForChoice } from "./lib/picker-scope";
   import { ConversationSearch } from "./lib/conversation-search.svelte";
+  import { mergeSessionHomes } from "../lib/session-home";
+  import { serversStore } from "../../../contexts";
   import type { PickerSearchMode, PickerSort } from "./lib/picker-search";
   import {
     buildPickerRows,
@@ -111,6 +113,22 @@
       (a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id),
     ),
   );
+  // One row per session across its homes (session-home.ts): a hit from the
+  // cloud record and the same session from its connected runner are one
+  // conversation, and the runner is the one that can open it.
+  const conversationHits = $derived(
+    mergeSessionHomes(
+      conversationSearch.results.map((result) => ({
+        sessionId: result.session.sessionId,
+        serverId: result.session.serverId ?? null,
+        result,
+      })),
+      {
+        isCloudHost: (serverId) => serversStore.isCloudHost(serverId),
+        isConnected: (serverId) => !!serverId && serverConnections.statusFor(serverId) === "connected",
+      },
+    ).map((row) => row.result),
+  );
   // The sidebar already knows every session a task owns — links, mounted tabs
   // and their attention — so the picker asks it rather than keeping a second
   // model of the same tree. It asks about the *task*, not about a sidebar row:
@@ -149,7 +167,7 @@
       sort: session.pickerSort,
       openTaskIds: new Set(sidebarStore.activeTasks.flatMap((row) => row.taskId ?? [])),
       snoozedTaskIds: new Set(sidebarStore.snoozedTasks.flatMap((row) => row.taskId ?? [])),
-      conversations: conversationSearch.results,
+      conversations: conversationHits,
       conversationsCapped: conversationSearch.capped,
     }),
   );

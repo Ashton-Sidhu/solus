@@ -45,7 +45,7 @@ const nowSeconds = Math.floor(NOW / 1000)
 describe('host grant verification', () => {
   test('a grant for this host from the linked issuer is accepted, once', async () => {
     const key = keyPair('k1')
-    const verifier = new HostGrantVerifier({ link: { hostId: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks` }, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
+    const verifier = new HostGrantVerifier({ audience: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
     const grant = signGrant(key.privateKey, key.kid, {}, nowSeconds)
     const first = await verifier.verify(grant)
     expect(first.ok).toBe(true)
@@ -59,7 +59,7 @@ describe('host grant verification', () => {
   test('a grant minted for another host, another issuer, or a stranger\'s key is refused', async () => {
     const key = keyPair('k1')
     const stranger = keyPair('k1')
-    const verifier = new HostGrantVerifier({ link: { hostId: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks` }, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
+    const verifier = new HostGrantVerifier({ audience: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
     expect(await verifier.verify(signGrant(key.privateKey, key.kid, { aud: 'qrstuvwxyzabcdef' }, nowSeconds))).toEqual({ ok: false, reason: 'wrong-audience' })
     expect(await verifier.verify(signGrant(key.privateKey, key.kid, { iss: 'https://evil.example' }, nowSeconds))).toEqual({ ok: false, reason: 'wrong-issuer' })
     // Same kid, different key: the signature is the thing that fails.
@@ -69,7 +69,7 @@ describe('host grant verification', () => {
 
   test('expiry is the revocation mechanism, so it is enforced exactly and never stretched', async () => {
     const key = keyPair('k1')
-    const verifier = new HostGrantVerifier({ link: { hostId: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks` }, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
+    const verifier = new HostGrantVerifier({ audience: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl: jwksFetch([key.jwk]).fetchImpl, now: () => NOW })
     expect(await verifier.verify(signGrant(key.privateKey, key.kid, { iat: nowSeconds - 700, exp: nowSeconds - 1 }, nowSeconds))).toEqual({ ok: false, reason: 'expired' })
     expect(await verifier.verify(signGrant(key.privateKey, key.kid, { exp: nowSeconds + 3_600 }, nowSeconds))).toEqual({ ok: false, reason: 'too-long-lived' })
     expect(await verifier.verify(signGrant(key.privateKey, key.kid, { iat: nowSeconds + 300, exp: nowSeconds + 900 }, nowSeconds))).toEqual({ ok: false, reason: 'not-yet-valid' })
@@ -85,7 +85,7 @@ describe('host grant verification', () => {
       return new Response(JSON.stringify({ keys: served }), { status: 200 })
     }
     let now = NOW
-    const verifier = new HostGrantVerifier({ link: { hostId: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks` }, fetchImpl, now: () => now })
+    const verifier = new HostGrantVerifier({ audience: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl, now: () => now })
     expect((await verifier.verify(signGrant(old.privateKey, 'k1', {}, nowSeconds))).ok).toBe(true)
     expect(calls.count).toBe(1)
 
@@ -107,7 +107,7 @@ describe('host grant verification', () => {
       return new Response(JSON.stringify({ keys: [key.jwk] }), { status: 200 })
     }
     let now = NOW
-    const verifier = new HostGrantVerifier({ link: { hostId: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks` }, fetchImpl, now: () => now })
+    const verifier = new HostGrantVerifier({ audience: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl, now: () => now })
     expect((await verifier.verify(signGrant(key.privateKey, key.kid, {}, nowSeconds))).ok).toBe(true)
     down = true
     now = NOW + 2 * JWKS_REFRESH_MIN_INTERVAL_MS
@@ -117,7 +117,7 @@ describe('host grant verification', () => {
   test('with no keys at all and no control plane, nothing is accepted', async () => {
     const key = keyPair('k1')
     const fetchImpl: FetchLike = async () => { throw new Error('offline') }
-    const verifier = new HostGrantVerifier({ link: { hostId: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks` }, fetchImpl, now: () => NOW })
+    const verifier = new HostGrantVerifier({ audience: HOST_ID, issuer: ISSUER, jwksUrl: `${ISSUER}/jwks`, fetchImpl, now: () => NOW })
     expect(await verifier.verify(signGrant(key.privateKey, key.kid, {}, nowSeconds))).toEqual({ ok: false, reason: 'jwks-unavailable' })
   })
 })

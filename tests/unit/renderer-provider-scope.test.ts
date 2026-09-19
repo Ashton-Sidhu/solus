@@ -10,6 +10,11 @@ let oauthListener: ((serverId: string, event: AtlassianOAuthCompleted) => void) 
 mock.module('@solus/client-core/server-connections', () => ({
   serverConnections: {
     defaultServerId: () => 'host-a',
+    // The works store keeps a host-roles store, which listens for connections.
+    resolveId: (serverId: string) => serverId,
+    connectedServerIds: () => [],
+    onConnectionCreated: () => () => {},
+    onStatusChange: () => () => {},
     apiFor: (serverId: string) => ({
       atlassianStatus: async () => statuses.get(serverId) ?? {
         connected: false,

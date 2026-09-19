@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     ExternalLink as ArrowSquareOutIcon,
+    CloudUpload as CloudUploadIcon,
     Columns3 as ColumnsIcon,
     Copy as CopyIcon,
     FolderOpen as FolderOpenIcon,
@@ -21,6 +22,7 @@
     onTogglePin,
     onOpenSession,
     onOpenSessionSplit,
+    onMoveToCloud,
     onDelete,
     onClose,
   }: {
@@ -32,6 +34,8 @@
     onTogglePin: () => void;
     onOpenSession?: () => void;
     onOpenSessionSplit?: () => void;
+    /** Move the work to the organization's workspace service; absent when there is none connected or it is already there. */
+    onMoveToCloud?: () => void;
     onDelete?: () => void;
     onClose: () => void;
   } = $props();
@@ -93,6 +97,13 @@
       <PushPinIcon />
       {item.pinned ? "Unpin" : "Pin"}
     </ContextMenu.Item>
+
+    {#if onMoveToCloud}
+      <ContextMenu.Item onSelect={() => select(onMoveToCloud)} data-testid="move-item-to-cloud">
+        <CloudUploadIcon />
+        Move to Solus Cloud
+      </ContextMenu.Item>
+    {/if}
 
     <ContextMenu.Separator />
     <ContextMenu.Item onSelect={() => void copyId()}>

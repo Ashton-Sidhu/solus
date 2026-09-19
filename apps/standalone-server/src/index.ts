@@ -83,11 +83,12 @@ async function main(): Promise<void> {
     return
   }
 
-  const [{ bootCore }, auth, { listReachableEndpoints }, { isManagedHost }] = await Promise.all([
+  const [{ bootCore }, auth, { listReachableEndpoints }, { isManagedHost }, { isWorkspaceMode }] = await Promise.all([
     import('@solus/server/boot-core'),
     import('@solus/server/server/auth'),
     import('@solus/server/server/endpoints'),
     import('@solus/server/server/managed-mode'),
+    import('@solus/server/server/workspace-mode'),
   ])
 
   let stopForUpdate: (() => void) | undefined
@@ -131,9 +132,9 @@ async function main(): Promise<void> {
   const baseUrl = `http://${hostForUrl(endpoint.host)}:${endpoint.port}`
   process.stdout.write(`Solus server reachable at ${baseUrl}\n`)
 
-  // A managed host has no pairing (docs/plans/managed-hosts.md §1): a grant is the
-  // only way in, so there is no code to print.
-  if (!isManagedHost()) {
+  // A managed host and the workspace service have no pairing (docs/plans/managed-hosts.md §1,
+  // cloud-service-model.md §15): a grant is the only way in, so there is no code to print.
+  if (!isManagedHost() && !isWorkspaceMode()) {
     const pairToken = auth.generatePairToken()
     const pairUrl = `${baseUrl}/pair#token=${pairToken.token}`
     process.stdout.write([

@@ -17,6 +17,10 @@ import type { VerifiedWsTicket } from './auth'
  *   host an organization owner is also the host's administrator.
  * - `guest` — a visitor with a share link and no account. Bound to exactly one
  *   resource for the socket's lifetime; never host-wide.
+ * - `runner` — a linked host writing to its organization's workspace service
+ *   (docs/plans/cloud-service-model.md §16): admitted from a grant carrying the
+ *   `runner` claim. It reaches the `system-only` methods of its organization and
+ *   nothing else; it is not a person and appears in no room.
  * - `system` — the host acting for itself: automations, agent tools, internal calls.
  */
 export type Principal =
@@ -53,6 +57,18 @@ export type Principal =
       deviceId: string
       /** A task resource reaches the task page and everything linked to it. */
       share: { resource: ShareResource; role: ShareRole; sharedByUserId: string; linkSecretHash: string }
+      expiresAt: number
+      deviceLabel: string
+    }
+  | {
+      kind: 'runner'
+      /** The linked host the grant was minted for. */
+      hostId: string
+      organizationId: string
+      /** The account that linked the host, when the grant names it: who owns what the runner writes. */
+      ownerUserId?: string
+      /** The host id: what the transport keys the client on. */
+      deviceId: string
       expiresAt: number
       deviceLabel: string
     }
@@ -100,6 +116,15 @@ export const principalSchema: z.ZodType<Principal> = z.discriminatedUnion('kind'
     expiresAt: z.number(),
     deviceLabel: z.string(),
   }),
+  z.object({
+    kind: z.literal('runner'),
+    hostId: z.string(),
+    organizationId: z.string(),
+    ownerUserId: z.string().optional(),
+    deviceId: z.string(),
+    expiresAt: z.number(),
+    deviceLabel: z.string(),
+  }),
   z.object({ kind: z.literal('system') }),
 ])
 
@@ -112,6 +137,21 @@ export type AdmissionEvidence =
 
 export const REMOTE_OWNER_DEVICE_LABEL = 'Solus cloud'
 export const GUEST_DEVICE_LABEL = 'Guest link'
+export const RUNNER_DEVICE_LABEL = 'Runner'
+
+/** The principal a runner grant's claims stand for, on the socket and on the runner HTTP routes alike. */
+export function runnerPrincipalFor(runner: { hostId: string; organizationId: string; ownerUserId?: string; expiresAt: number }): Extract<Principal, { kind: 'runner' }> {
+  const principal: Extract<Principal, { kind: 'runner' }> = {
+    kind: 'runner',
+    hostId: runner.hostId,
+    organizationId: runner.organizationId,
+    deviceId: runner.hostId,
+    expiresAt: runner.expiresAt,
+    deviceLabel: RUNNER_DEVICE_LABEL,
+  }
+  if (runner.ownerUserId) principal.ownerUserId = runner.ownerUserId
+  return principal
+}
 
 export function principalFor(evidence: AdmissionEvidence): Principal {
   if (evidence.kind !== 'ticket') return { kind: 'local-owner', deviceId: null, deviceLabel: 'Web' }
@@ -119,6 +159,7 @@ export function principalFor(evidence: AdmissionEvidence): Principal {
   if (ticket.kind === 'pairing') {
     return { kind: 'local-owner', deviceId: ticket.deviceId, deviceLabel: ticket.deviceLabel }
   }
+  if (ticket.kind === 'runner') return runnerPrincipalFor(ticket)
   if (ticket.kind === 'guest') {
     return {
       kind: 'guest',
@@ -168,11 +209,22 @@ export function isHostOwner(principal: Principal): principal is Extract<Principa
 
 /**
  * Who administers the machine: the owner of a personal host, or an organization
- * owner on a managed host. Administration is not resource access (§3.4).
+ * owner on a managed host or the workspace service. Administration is not
+ * resource access (§3.4).
  */
 export function isHostAdmin(principal: Principal): boolean {
   if (isHostOwner(principal)) return true
-  return principal.kind === 'org-member' && principal.hostKind === 'managed' && principal.organizationRole === 'owner'
+  return isOrganizationSpace(principal) && principal.organizationRole === 'owner'
+}
+
+/**
+ * A member of the organization's own space: a managed host (multiplayer-sharing.md
+ * §3.4) or the organization's workspace service (cloud-service-model.md §15). There
+ * every resource is the team's to see and edit, and the owner alone transfers or
+ * deletes. A member admitted to a person's own machine holds only what its rows give.
+ */
+export function isOrganizationSpace(principal: Principal): principal is Extract<Principal, { kind: 'org-member' }> {
+  return principal.kind === 'org-member' && (principal.hostKind === 'managed' || principal.hostKind === 'cloud')
 }
 
 /**
@@ -189,6 +241,7 @@ export function principalOwnerId(principal: Principal): string | null {
       return principal.userId
     case 'guest':
       return `guest:${principal.guestId}`
+    case 'runner':
     case 'system':
       return null
   }
@@ -204,6 +257,8 @@ export function principalDisplayName(principal: Principal): string {
     case 'org-member':
     case 'guest':
       return principal.displayName
+    case 'runner':
+      return RUNNER_DEVICE_LABEL
     case 'system':
       return 'Solus'
   }
@@ -225,9 +280,11 @@ export const LOCAL_ORGANIZATION_ID = 'local'
  * owner over the tunnel, the host acting for itself, and a member admitted to a
  * personal or managed host all read and write `local`. Only in the cloud, where
  * one database serves many organizations, does a member's grant name the
- * organization. A guest is bound to one resource on the host that admitted it.
+ * organization. A guest is bound to one resource on the host that admitted it. A
+ * runner writes to the organization its grant names, and only there.
  */
 export function organizationOf(principal: Principal): string {
+  if (principal.kind === 'runner') return principal.organizationId
   if (principal.kind !== 'org-member') return LOCAL_ORGANIZATION_ID
   if (principal.hostKind === 'personal' || principal.hostKind === 'managed') return LOCAL_ORGANIZATION_ID
   return principal.organizationId
@@ -235,7 +292,7 @@ export function organizationOf(principal: Principal): string {
 
 /** Grant-admitted sockets end at the grant's expiry; the others live as long as the connection. */
 export function principalExpiresAt(principal: Principal): number | null {
-  return principal.kind === 'remote-owner' || principal.kind === 'org-member' || principal.kind === 'guest'
+  return principal.kind === 'remote-owner' || principal.kind === 'org-member' || principal.kind === 'guest' || principal.kind === 'runner'
     ? principal.expiresAt
     : null
 }

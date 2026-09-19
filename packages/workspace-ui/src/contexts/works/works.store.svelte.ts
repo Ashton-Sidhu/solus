@@ -5,6 +5,7 @@ import { uuid } from '@solus/contracts/uuid'
 import { workPreview } from '@solus/contracts/work-preview'
 import { serverConnections } from '@solus/client-core/server-connections'
 import type { HostApi } from '@solus/client-core/host-api'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import type {
   DocDestination,
@@ -327,8 +328,10 @@ export class WorksStore {
     if (this.listLoad) return this.listLoad
     const load = (async () => {
       try {
+        // Every connected host that serves the collaboration plane: a runner
+        // without it (docs/plans/cloud-service-model.md) holds no works.
         const serverIds = serverConnections.connectedServerIds().filter(
-          (serverId) => serverConnections.phaseFor(serverId) === 'connected',
+          (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hostRolesStore.hasCollaboration(serverId),
         )
         const results = await Promise.all(serverIds.map(async (serverId) => {
           try {
@@ -459,6 +462,51 @@ export class WorksStore {
   /** Undo — keep the work; clearing the pending state un-hides it. */
   undoWorkDelete(): void {
     this.pendingWorkDelete = null
+  }
+
+  /**
+   * Move a work to the organization's workspace service, one way
+   * (docs/plans/cloud-service-model.md R6): the same id, title, kind, and content
+   * are created there, then the copy on the machine is deleted. The id survives,
+   * so every link to the work still resolves — on its new host. A failed create
+   * leaves the original where it was; a failed delete leaves a copy behind, and
+   * the store still follows the cloud one.
+   */
+  async moveToCloud(workId: string, cloudServerId: string): Promise<Work> {
+    const sourceServerId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
+    if (!sourceServerId) throw new Error('Primary Solus connection has not been registered')
+    if (sourceServerId === cloudServerId) throw new Error('This work is already in Solus Cloud')
+    const work = await this.ensureContent(workId, 'move-to-cloud')
+    if (!work) throw new Error(`Work not found: ${workId}`)
+    const moved = await serverConnections.apiFor(cloudServerId).createWork(
+      work.title, work.type, work.content, work.preview, undefined, work.agentProvider, work.cwd, work.id,
+    )
+    this.hostByWorkId.set(moved.id, cloudServerId)
+    try {
+      await serverConnections.apiFor(sourceServerId).deleteWork(workId)
+    } catch (err) {
+      if (!isMissingWorkError(err)) throw err
+    }
+    // The threads and the previous snapshot were the old host's; the cloud copy starts clean.
+    this.clearCachedSidecars(workId)
+    if (moved.id !== workId) {
+      delete this.works[workId]
+      this.hostByWorkId.delete(workId)
+      this.works[moved.id] = moved
+      return moved
+    }
+    const existing = this.works[workId]
+    if (existing) {
+      existing.title = moved.title
+      existing.content = moved.content
+      existing.preview = moved.preview
+      existing.updatedAt = moved.updatedAt
+      existing.pinned = moved.pinned
+      existing.mirroredDoc = moved.mirroredDoc
+    } else {
+      this.works[moved.id] = moved
+    }
+    return moved
   }
 
   async duplicate(workId: string): Promise<Work> {

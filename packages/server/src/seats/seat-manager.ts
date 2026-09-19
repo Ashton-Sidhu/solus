@@ -114,6 +114,7 @@ export function seatUserFor(principal: Principal): string {
       return principal.share.sharedByUserId
     case 'local-owner':
     case 'remote-owner':
+    case 'runner':
     case 'system':
       return HOST_OWNER_USER_ID
   }

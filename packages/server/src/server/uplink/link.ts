@@ -90,6 +90,12 @@ export class UplinkLinkManager {
     return this.persisted?.desired === 'linked' ? this.persisted.link : null
   }
 
+  /** The host token of the current link, for the runner delivery's grant exchange; null when unlinked or the credentials are gone. */
+  hostToken(): string | null {
+    if (!this.currentLink()) return null
+    return this.loadTokens()?.hostToken ?? null
+  }
+
   status(): UplinkStatus {
     if (!this.persisted || this.persisted.desired !== 'linked') return { linked: false }
     const state: UplinkLinkState = this.observedError

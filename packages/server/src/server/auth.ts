@@ -286,7 +286,19 @@ export interface GuestWsTicket {
   jti: string
 }
 
-export type VerifiedWsTicket = PairingWsTicket | GrantWsTicket | GuestWsTicket
+/** A ticket for a linked host that presented a runner grant (cloud-service-model.md §16): one organization, system-only writes. */
+export interface RunnerWsTicket {
+  kind: 'runner'
+  hostId: string
+  organizationId: string
+  /** The account that linked the host, when the grant names it. */
+  ownerUserId?: string
+  expiresAt: number
+  issuedAt: number
+  jti: string
+}
+
+export type VerifiedWsTicket = PairingWsTicket | GrantWsTicket | GuestWsTicket | RunnerWsTicket
 
 const grantMembershipSchema = z.object({
   organizationId: z.string().min(1),
@@ -325,6 +337,15 @@ const wsTicketPayloadSchema = z.discriminatedUnion('kind', [
       sharedByUserId: z.string().min(1),
       linkSecretHash: z.string().min(1),
     }).strict(),
+    expiresAt: z.number(),
+    issuedAt: z.number(),
+    jti: z.string().min(1),
+  }).strict(),
+  z.object({
+    kind: z.literal('runner'),
+    hostId: z.string().min(1),
+    organizationId: z.string().min(1),
+    ownerUserId: z.string().min(1).optional(),
     expiresAt: z.number(),
     issuedAt: z.number(),
     jti: z.string().min(1),
@@ -379,6 +400,13 @@ export function issueGuestWsTicket(guest: GuestTicketSubject, now = Date.now()):
   return signWsTicket({ kind: 'guest', ...guest, issuedAt: now, jti: randomBytes(12).toString('hex') })
 }
 
+export type RunnerTicketSubject = Omit<RunnerWsTicket, 'kind' | 'issuedAt' | 'jti'>
+
+/** A runner grant earns a ticket for the organization it names and nothing about a person. */
+export function issueRunnerWsTicket(runner: RunnerTicketSubject, now = Date.now()): string {
+  return signWsTicket({ kind: 'runner', ...runner, issuedAt: now, jti: randomBytes(12).toString('hex') })
+}
+
 /** Checks a ticket without spending it. Admission uses `consumeWsTicket`. */
 export function verifyWsTicket(ticket: string, now = Date.now()): VerifiedWsTicket | null {
   const keys = loadOrCreateKeys()
@@ -404,7 +432,7 @@ export function verifyWsTicket(ticket: string, now = Date.now()): VerifiedWsTick
   // process started is refused outright: a restart must not reopen a spent one.
   if (payload.issuedAt < PROCESS_STARTED_AT) return null
   // Revoking a device on the Access tab ends both a paired device and a cloud session.
-  if (payload.kind !== 'guest' && _revokedDevices.has(payload.deviceId)) return null
+  if ((payload.kind === 'pairing' || payload.kind === 'grant') && _revokedDevices.has(payload.deviceId)) return null
   if (payload.kind !== 'pairing' && payload.expiresAt <= now) return null
   return payload
 }

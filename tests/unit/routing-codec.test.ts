@@ -57,6 +57,7 @@ const SAMPLES: RouteRef[] = [
   { name: 'files', params: { serverId: 'host_a', cwd: '/repo/app', path: 'src/a/b.ts' } },
   { name: 'files', params: { serverId: 'host_a', cwd: '/repo/app', path: 'src/a/b.ts', line: 412 } },
   { name: 'subagent', params: { sessionId: 'sess_a', messageId: 'msg_1' } },
+  { name: 'sessionRecord', params: { sessionId: 'sess_a', serverId: 'workspace:org-1' } },
   { name: 'browser', params: {} },
   { name: 'browser', params: { browserPageId: 'browser_7' } },
   { name: 'browser', params: { browserPageId: 'browser_7', serverId: 'studio-host' } },

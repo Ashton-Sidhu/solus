@@ -20,6 +20,13 @@ bun lab run guest-revoke --keep          # keep the data directory and lab.log f
 
 `bun lab` is `scripts/lab.ts`. Each run prints every check and a report; the exit code is non-zero on any failed check. The timeline of every dial, call, event, and check is `<dataDir>/lab/lab.log` (NDJSON), the host's own log is `<dataDir>/dev.log`, and its stdout is `<dataDir>/lab/host.log`.
 
+The `cloud-workspace` scenario boots its own **workspace service** (`src/workspace.ts`: the same build in workspace mode, `SOLUS_WORKSPACE=1`, on a temporary data directory, SQLite by default) and its own **runner** (a personal host the issuer links and attaches to the organization). It runs once on SQLite, and once more on Postgres when `POSTGRES_ADMIN_URL` names a server the Lab may create a database on (one fresh database per run, dropped after):
+
+```bash
+docker run -d -e POSTGRES_PASSWORD=solus -p 54335:5432 postgres:17
+POSTGRES_ADMIN_URL=postgres://postgres:solus@localhost:54335/postgres bun lab run cloud-workspace --host personal
+```
+
 ## Personas
 
 | Persona | Kind | Standing |
@@ -29,6 +36,7 @@ bun lab run guest-revoke --keep          # keep the data directory and lab.log f
 | cara | organization member | in team A |
 | dan | organization member | in no team |
 | maya | guest | a visitor with a share link and no account |
+| carol | owner of another organization | on the workspace service, sees nothing of the Lab organization |
 
 `--host personal` makes alice the machine's owner too: the issuer mints her an owner grant, and `ctx.client('alice', { route: 'local' })` reaches the ordinary listener credential-free. `--host managed` has no owner person; alice reaches the host only through grants.
 
@@ -41,6 +49,7 @@ bun lab run guest-revoke --keep          # keep the data directory and lab.log f
 - `presence` — the host names every participant; a session's room is its connected watchers; typing and focus reach the other watcher; a guest gets its one room and never the host roster; a dropped socket leaves every room at once.
 - `task-share` — a task shared with a person by name opens its page, the session under it, and the document linked to it at the task's role; the person's own row survives a scope change; a guest with a task link reaches exactly the task and its contents, prompts as an editor on the sharer's seat, and is ended when the link is turned off; only the owner deletes.
 - `seats` — a member with no provider seat is refused with `SEAT_REQUIRED` and nothing is spawned; a pasted token seat rides the run; a guest runs on the sharer's seat; two members run at once on their own seats; only the administrator removes a seat. The mock backend records every run it is handed in `<dataDir>/lab/mock-runs.ndjson`, which `src/oracle.ts` reads.
+- `cloud-workspace` (personal flavor only; docs/plans/cloud-service-model.md §15–§16) — alice and bob reach the workspace service with workspace grants; alice's task reaches bob live; a runner linked to the organization runs a mock-agent turn (`__MOCK_AGENT_TOOLS__`, the real `create_task` and `create_work` tools) whose task and work land on the service and not in the runner's own tables; the runner's session record is listed by the service, which keeps all three after the runner stops; carol, of another organization, sees none of it; execution methods answer `PLANE_DISABLED`.
 
 A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as('bob')` is a connected client, `ctx.client(...)` a fresh one, `expectOk` and `expectRefused` record checks, and `src/oracle.ts` holds the invariants scenarios call between steps.
 

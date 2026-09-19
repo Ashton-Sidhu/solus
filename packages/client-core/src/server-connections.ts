@@ -3,6 +3,7 @@ import type { SolusAPI } from '@solus/contracts/host-api'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from './server-connection'
 import {
   installationIdDecision,
+  isCloudServer,
   loadServers,
   LOCAL_SERVER_ID,
   nextRouteUrl,
@@ -456,6 +457,10 @@ export class ServerConnections {
     // The primary web bootstrap is not necessarily a saved host. There is no
     // durable identity to compare until the user pairs and saves it.
     if (!saved) return true
+    // One workspace service answers for every organization, so its installation
+    // id can never name one `workspace:<orgId>` row. Its identity is the grant:
+    // the service only admits a ticket minted for its audience.
+    if (isCloudServer(saved)) return true
 
     const health = await this.probeHealth(target.id, true)
     // Only a successful health response can establish or reject identity. A

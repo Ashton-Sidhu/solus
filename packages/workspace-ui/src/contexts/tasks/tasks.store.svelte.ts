@@ -1,5 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity'
 import { serverConnections } from '@solus/client-core/server-connections'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
 import type {
   PrepareSessionTaskResult,
   Task as TaskRecord,
@@ -514,8 +515,10 @@ export class TasksStore {
           // A host that fails after acceptance is reported rather than emptying
           // the list: losing one machine's tasks must not read as "the sidebar
           // lost my tasks" for every other machine.
+          // A host must serve the collaboration plane to hold tasks at all
+          // (docs/plans/cloud-service-model.md).
           const serverIds = serverConnections.connectedServerIds().filter(
-            (serverId) => serverConnections.phaseFor(serverId) === 'connected',
+            (serverId) => serverConnections.phaseFor(serverId) === 'connected' && hostRolesStore.hasCollaboration(serverId),
           )
           const snapshots = await Promise.all(
             serverIds.map(async (serverId) => {

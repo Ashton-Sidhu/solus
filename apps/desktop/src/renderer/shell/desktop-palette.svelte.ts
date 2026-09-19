@@ -427,7 +427,8 @@ export function createDesktopPalette(
       });
     }
 
-    const switchServerChildren: Command[] = serversStore.servers.map(
+    // The new-work default must be a machine; the workspace service takes no session.
+    const switchServerChildren: Command[] = serversStore.executionServers.map(
       (server) => ({
         id: `switch-server:${server.id}`,
         label: server.label,

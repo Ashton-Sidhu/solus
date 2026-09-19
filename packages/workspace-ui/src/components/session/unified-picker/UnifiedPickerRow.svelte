@@ -267,7 +267,7 @@
       <SessionStatusGlyph attention={child.attention} />
       <span class="min-w-0 flex-1">
         <span class="block truncate {isRunning || isSelected ? 'text-(--solus-text-primary)' : 'text-(--solus-text-secondary) max-md:text-(--solus-text-primary)'}"
-          >{@render marked(highlightWordRuns(child.label, query))}</span
+          >{@render marked(highlightWordRuns(child.label, query))}{#if child.runnerOffline}<span class="ml-1.5 text-micro text-(--solus-text-tertiary)" data-testid="picker-runner-offline">runner offline</span>{/if}</span
         >
         <!-- The glyph beside it already says running or idle. A thumb's second
              line spends itself on the one thing the row cannot show otherwise:

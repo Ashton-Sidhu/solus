@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     Check as CheckIcon,
+    CloudOff as CloudOffIcon,
     Laptop as LaptopIcon,
     Moon as MoonIcon,
     LoaderCircle as SpinnerGapIcon,
@@ -248,7 +249,11 @@
              never omitted: a subtask list mixes hosts freely, so "here" has to
              be stated rather than inferred from the absence of a mark. -->
         <span class="flex shrink-0 items-center">
-          {#if isRemote}
+          {#if session.runnerOffline}
+            <!-- The cloud record of a session whose runner is not connected:
+                 it opens read-only until that machine is back. -->
+            <CloudOffIcon size={11} class="text-(--solus-text-quaternary)" aria-label="Runner offline" data-testid="session-runner-offline" />
+          {:else if isRemote}
             <HostOperatingSystemIcon
               os={remoteOs}
               managed={hostIsManaged(host)}

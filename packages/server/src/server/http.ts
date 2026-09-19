@@ -13,11 +13,13 @@ import formidable, { type File as FormidableFile } from 'formidable'
 import { resolve as pathResolve, isAbsolute } from 'path'
 import { tmpdir } from 'os'
 import { z } from 'zod'
-import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, isDeviceRevoked, issueGrantWsTicket, issueGuestWsTicket, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken, type GrantMembership } from './auth'
+import { consumePairToken, generatePairToken, getInstallationId, getServerFingerprint, isDeviceRevoked, issueGrantWsTicket, issueGuestWsTicket, issueRunnerWsTicket, issueSessionToken, issueWsTicket, listRevokedDevices, refreshSessionToken, revokeDevice, verifyPairOpenAdminRequest, verifySessionToken, type GrantMembership, type RunnerTicketSubject } from './auth'
 import { listReachableEndpoints } from './endpoints'
-import type { GrantVerdict } from './host-grants'
+import type { GrantVerdict, VerifyOptions } from './host-grants'
+import { runnerPrincipalFor, type Principal } from './principal'
 import type { ResolvedLinkShare } from '../sharing/share-manager'
-import { normalizeDisplayName, parseGrantSubject, type HostGrantClaims } from '@solus/contracts/uplink'
+import { normalizeDisplayName, parseGrantSubject, type GrantSubject, type HostGrantClaims } from '@solus/contracts/uplink'
+import { RUNNER_OUTBOX_PATH, RUNNER_SESSION_RECORDS_PATH, runnerOutboxRequestSchema, runnerSessionRecordsRequestSchema, type RunnerOutboxRequest, type RunnerOutboxResponse, type RunnerSessionRecordsRequest, type RunnerSessionRecordsResponse } from './uplink/runner-protocol'
 import { createTokenBucketRateLimiter } from './rate-limit'
 import { filePathsToAttachments } from './attachment-utils'
 import { createLogger } from '../logger'
@@ -57,16 +59,25 @@ export interface HttpServerOptions {
   /** True for a request that arrived through the tunnel's proxied listener. It is
    *  loopback on the wire and must never be trusted for it; pairing is not offered there. */
   isTunnelRequest?: (incoming: IncomingMessage) => boolean
-  /** Managed mode (docs/plans/managed-hosts.md §1): pairing does not exist, on either listener. */
+  /** Managed mode (docs/plans/managed-hosts.md §1) and the workspace service alike: pairing does not exist, on either listener. */
   isManagedHost?: boolean
-  /** Verifies (and consumes) a control-plane grant presented at `/auth/ws-ticket`.
+  /** Workspace mode (cloud-service-model.md §15): only a member grant or a runner grant is a credential; owners and guests do not exist. */
+  isWorkspaceMode?: boolean
+  /** Verifies (and consumes, unless told otherwise) a control-plane grant presented at `/auth/ws-ticket` or on a runner route.
    *  Absent on a host that is not linked: grants are then simply not a credential here. */
-  verifyHostGrant?: (grant: string) => Promise<GrantVerdict>
+  verifyHostGrant?: (grant: string, options?: VerifyOptions) => Promise<GrantVerdict>
   /** A guest grant is worth nothing without the share secret naming one resource (§3.4). */
   resolveShareSecret?: (secret: string) => Promise<ResolvedLinkShare | null>
+  /** The workspace service's runner routes (cloud-service-model.md §16); mounted in workspace mode only, so the routes exist nowhere else. */
+  runner?: {
+    applyOutbox: (runner: RunnerPrincipal, request: RunnerOutboxRequest) => Promise<RunnerOutboxResponse>
+    applySessionRecords: (runner: RunnerPrincipal, request: RunnerSessionRecordsRequest) => Promise<RunnerSessionRecordsResponse>
+  }
   /** Long-form voice transcription implementation supplied by the host. */
   transcribeAudio?: (samples: Float32Array) => Promise<{ error: string | null; transcript: string | null }>
 }
+
+type RunnerPrincipal = Extract<Principal, { kind: 'runner' }>
 
 /** The Node req/res the @hono/node-server adapter exposes as `c.env`. */
 type NodeBindings = { incoming: IncomingMessage; outgoing: ServerResponse }
@@ -135,6 +146,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
   app.use('/auth/refresh', publicCors)
   app.use('/auth/ws-ticket', publicCors)
   app.use('/auth/revoke', publicCors)
+  app.use('/runner/*', publicCors)
 
   app.onError((err, c) => {
     log.error('http_handler_error', { error: err instanceof Error ? err.message : String(err) })
@@ -333,7 +345,7 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       if (!verdict.ok) {
         log.info('host_grant_rejected', { reason: verdict.reason })
       } else {
-        const outcome = await ticketForGrant(verdict.claims, await readJson(c, wsTicketRequestSchema), opts.resolveShareSecret)
+        const outcome = await ticketForGrant(verdict.claims, await readJson(c, wsTicketRequestSchema), opts.resolveShareSecret, { workspace: opts.isWorkspaceMode ?? false })
         if (outcome.ok) ticket = outcome.ticket
         else log.info('host_grant_rejected', { reason: outcome.reason })
       }
@@ -341,6 +353,45 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
     if (!ticket) return c.json({ error: 'Unauthorized' }, 401)
     return c.json({ ticket })
   })
+
+  // The runner routes (cloud-service-model.md §16): the workspace service only.
+  // A runner grant is the bearer credential of every request for its lifetime,
+  // so it is verified without being consumed, and the body's `hostId` must be the
+  // grant's own: a runner cannot deliver as another.
+  if (opts.isWorkspaceMode && opts.runner) {
+    const runner = opts.runner
+    const admitRunner = async (c: Ctx): Promise<RunnerPrincipal | null> => {
+      const bearer = readBearer(c)
+      if (!bearer || !opts.verifyHostGrant) return null
+      const verdict = await opts.verifyHostGrant(bearer, { consume: false })
+      if (!verdict.ok) {
+        log.info('runner_grant_rejected', { reason: verdict.reason })
+        return null
+      }
+      const { claims } = verdict
+      if (!claims.runner || !claims.organizationId) {
+        log.info('runner_grant_rejected', { reason: 'not-a-runner' })
+        return null
+      }
+      return runnerPrincipalFor({ hostId: claims.runner.hostId, organizationId: claims.organizationId, ownerUserId: claims.hostOwnerUserId, expiresAt: claims.exp * 1000 })
+    }
+    app.post(RUNNER_OUTBOX_PATH, async (c) => {
+      const principal = await admitRunner(c)
+      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
+      const body = await readJson(c, runnerOutboxRequestSchema)
+      if (!body) return c.json({ error: 'invalid_request' }, 400)
+      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
+      return c.json(await runner.applyOutbox(principal, body))
+    })
+    app.post(RUNNER_SESSION_RECORDS_PATH, async (c) => {
+      const principal = await admitRunner(c)
+      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
+      const body = await readJson(c, runnerSessionRecordsRequestSchema)
+      if (!body) return c.json({ error: 'invalid_request' }, 400)
+      if (body.hostId !== principal.hostId) return c.json({ error: 'forbidden' }, 403)
+      return c.json(await runner.applySessionRecords(principal, body))
+    })
+  }
 
   app.post('/auth/revoke', async (c) => {
     if (!verifySessionToken(readBearer(c))) return c.json({ error: 'Unauthorized' }, 401)
@@ -378,21 +429,28 @@ const wsTicketRequestSchema = z.object({ shareSecret: z.string().min(1).max(256)
 
 type GrantTicketOutcome =
   | { ok: true; ticket: string }
-  | { ok: false; reason: 'device-revoked' | 'guest-needs-secret' | 'not-shared' | 'guest-name' }
+  | { ok: false; reason: 'device-revoked' | 'guest-needs-secret' | 'not-shared' | 'guest-name' | 'runner-organization' | 'member-required' }
 
 /**
- * One door, three key types (docs/plans/personal-uplink.md H1; multiplayer-sharing §3.2–3.4).
- * An owner grant and a member grant become a grant ticket; a guest grant becomes a
- * guest ticket only together with a share secret the host recognizes.
+ * One door, four key types (docs/plans/personal-uplink.md H1; multiplayer-sharing
+ * §3.2–3.4; cloud-service-model.md §15–§16). An owner grant and a member grant
+ * become a grant ticket; a guest grant becomes a guest ticket only together with a
+ * share secret the host recognizes; a runner grant becomes a runner ticket for
+ * the organization it names. On the workspace service only members and runners
+ * exist: an owner grant and a guest grant are refused there.
  */
 export async function ticketForGrant(
   claims: HostGrantClaims,
   body: { shareSecret?: string } | null,
   resolveShareSecret: HttpServerOptions['resolveShareSecret'],
+  options: { workspace?: boolean } = {},
 ): Promise<GrantTicketOutcome> {
   const subject = parseGrantSubject(claims.sub)
   const expiresAt = claims.exp * 1000
-  if (claims.access === 'guest' || subject.kind === 'guest') {
+  const runner = runnerTicketFor(claims, subject, expiresAt)
+  if (runner) return runner
+  if (options.workspace && !isMemberGrant(claims)) return { ok: false, reason: 'member-required' }
+  if (isGuestGrant(claims, subject)) {
     if (!body?.shareSecret || !resolveShareSecret) return { ok: false, reason: 'guest-needs-secret' }
     const share = await resolveShareSecret(body.shareSecret)
     if (!share) return { ok: false, reason: 'not-shared' }
@@ -421,6 +479,24 @@ export async function ticketForGrant(
     ok: true,
     ticket: issueGrantWsTicket({ userId: subject.id, deviceId: claims.deviceId, expiresAt, membership, displayName }),
   }
+}
+
+/** A runner grant's outcome, or null when the grant is a person's (cloud-service-model.md §16). */
+function runnerTicketFor(claims: HostGrantClaims, subject: GrantSubject, expiresAt: number): GrantTicketOutcome | null {
+  if (!claims.runner && subject.kind !== 'host') return null
+  if (!claims.runner || !claims.organizationId) return { ok: false, reason: 'runner-organization' }
+  const runner: RunnerTicketSubject = { hostId: claims.runner.hostId, organizationId: claims.organizationId, expiresAt }
+  if (claims.hostOwnerUserId) runner.ownerUserId = claims.hostOwnerUserId
+  return { ok: true, ticket: issueRunnerWsTicket(runner) }
+}
+
+function isGuestGrant(claims: HostGrantClaims, subject: GrantSubject): boolean {
+  return claims.access === 'guest' || subject.kind === 'guest'
+}
+
+/** A grant that names an organization and the subject's role in it. */
+function isMemberGrant(claims: HostGrantClaims): boolean {
+  return claims.access === 'org-member' && !!claims.organizationId && !!claims.organizationRole
 }
 
 /** A request for a build file (`/assets/index-lLoEVyX3.js`), not a client route. */

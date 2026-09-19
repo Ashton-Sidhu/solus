@@ -11,7 +11,7 @@ const log = createLogger('main', 'connections-handlers')
 
 export interface ConnectionsDeps {
   /** Returns the bound host/port — these change on each launch when port==0. */
-  getServerInfo(): Pick<ConnectionsServerInfo, 'host' | 'port' | 'allowLan' | 'remoteAccess' | 'requireAuth' | 'trustLocalNetwork' | 'hostKind'>
+  getServerInfo(): Pick<ConnectionsServerInfo, 'host' | 'port' | 'allowLan' | 'remoteAccess' | 'requireAuth' | 'trustLocalNetwork' | 'hostKind' | 'roles'>
   /** Returns currently-connected WebSocket clients. */
   getActiveSessions(): ActiveConnectionSession[]
   discoverLanServers(): Promise<DiscoveredServer[]>

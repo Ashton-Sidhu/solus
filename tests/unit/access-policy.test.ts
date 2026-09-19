@@ -61,6 +61,19 @@ describe('the host itself', () => {
     await expect(assertRpcAccess('sessionRecordList', MEMBER, [{}])).resolves.toBeUndefined()
     await expect(assertRpcAccess('sessionRecordList', GUEST, [{}])).rejects.toThrow(/not available to a guest/)
   })
+
+  test('a runner of the organization makes the system-only writes and nothing else', async () => {
+    // WHY (cloud-service-model.md §16): the runner grant is a machine's credential for
+    // its organization's workspace; a machine that could list or read would be a
+    // member without a person behind it.
+    const RUNNER: Principal = { kind: 'runner', hostId: 'h1', organizationId: 'org1', deviceId: 'h1', expiresAt: 0, deviceLabel: 'Runner' }
+    const report = [{ sessionId: 's1', provider: 'claude-code', projectPath: '-p', lastActivityAt: 1 }]
+    await expect(assertRpcAccess('sessionRecordUpsert', RUNNER, report)).resolves.toBeUndefined()
+    for (const method of ['sessionRecordList', 'tasksList', 'listWorks', 'connectionsGetServerInfo', 'configUpdate', 'shareGet'] as const) {
+      await expect(assertRpcAccess(method, RUNNER, [{}])).rejects.toThrow(/not available to a runner/)
+    }
+    await expect(assertRpcAccess('loadWork', RUNNER, ['w1'], resources({ 'work:w1': 'owner' }))).rejects.toThrow(/not available to a runner/)
+  })
 })
 
 describe('resource calls', () => {

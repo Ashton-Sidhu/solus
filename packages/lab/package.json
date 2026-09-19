@@ -7,6 +7,7 @@
   "scripts": { "check": "tsc --noEmit -p tsconfig.json" },
   "dependencies": {
     "@solus/contracts": "workspace:*",
+    "postgres": "^3.4.9",
     "socket.io-client": "^4.8.1",
     "zod": "^4.5.4"
   },

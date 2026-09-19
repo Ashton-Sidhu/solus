@@ -27,6 +27,7 @@ import type { HostGrantResponse, HostKind, OrganizationDirectory, UplinkDirector
 import type { ShareLink, ShareList, ShareResource, ShareRole, ShareSetLinkRequest, ShareSetRequest, ShareTransferRequest } from './sharing'
 import type { SeatConnectCodeRequest, SeatConnectStartResult, SeatConnectTokenRequest, SeatProviderRequest, SeatRemoveRequest, SeatStatus } from './seats'
 import type { PresenceSetComposingRequest, PresenceSetFocusRequest, PresenceSnapshotResult } from './presence'
+import type { RpcPlane } from './rpc-planes'
 
 /** How this host is reached and who this client is to it. */
 export interface ConnectionsServerInfo {
@@ -37,10 +38,13 @@ export interface ConnectionsServerInfo {
   remoteAccess: boolean
   requireAuth: boolean
   trustLocalNetwork: boolean
-  /** `managed` when Solus cloud provisioned this host (managed-hosts.md §1): the link is system-owned and pairing does not exist. */
+  /** `managed` when Solus cloud provisioned this host (managed-hosts.md §1): the link is system-owned and pairing does not exist;
+   *  `cloud` for an organization's workspace service (cloud-service-model.md), which is not a machine. */
   hostKind: HostKind
+  /** The planes this host serves (cloud-service-model.md §1). A host without `execution` runs no agent: a client keeps it out of its execution targets. */
+  roles: RpcPlane[]
   /** How this client was admitted; only a `local-owner` may change how the host is reached. */
-  principal: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'system'
+  principal: 'local-owner' | 'remote-owner' | 'org-member' | 'guest' | 'runner' | 'system'
   /** The account behind a grant-admitted client; absent on a local connection. */
   userId?: string
   /** The organization an `org-member` reached this host through; the share dialog reads its directory. */

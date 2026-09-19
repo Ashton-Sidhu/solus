@@ -142,7 +142,7 @@
       : "Local",
   );
   const otherHosts = $derived(
-    hostsToRunOn(serversStore.servers, currentHostId),
+    hostsToRunOn(serversStore.executionServers, currentHostId),
   );
   // Whether this run sits in a git checkout: the header offers worktree mode
   // only then, and a non-git folder shows a plain host list instead.
@@ -695,7 +695,7 @@
             {/if}
           {:else}
             <DropdownMenu.Label>Start the next session on</DropdownMenu.Label>
-            {#each serversStore.servers as server (server.id)}
+            {#each serversStore.executionServers as server (server.id)}
               {@render serverRow(server)}
             {/each}
             {@render targetNote()}

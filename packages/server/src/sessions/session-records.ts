@@ -11,6 +11,7 @@ import {
   type SessionStatus,
 } from '@solus/contracts/types'
 import { getDatabase, type Db } from '../db/database'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { sessionRecords } from './schema'
 
 /**
@@ -83,6 +84,32 @@ export async function getSessionRecord(organizationId: string, sessionId: string
   return readRecord(getDatabase(), organizationId, sessionId)
 }
 
+type SessionRecordListener = (record: SessionRecord) => void
+const changedListeners = new Set<SessionRecordListener>()
+
+/**
+ * Hear every change this host makes to one of its own (`local`) records, with
+ * the whole record as stored: how the runner delivery mirrors them to the
+ * workspace service (docs/plans/cloud-service-model.md §16). Never fired for a
+ * record another organization owns; a runner reporting into the service is not
+ * this host's own fact to forward again.
+ */
+export function onSessionRecordChanged(listener: SessionRecordListener): () => void {
+  changedListeners.add(listener)
+  return () => changedListeners.delete(listener)
+}
+
+function emitChanged(organizationId: string, record: SessionRecord | null): void {
+  if (organizationId !== LOCAL_ORGANIZATION_ID || !record) return
+  for (const listener of changedListeners) listener(record)
+}
+
+/** The stored record after a partial write, handed to the listeners. */
+async function emitStored(organizationId: string, sessionId: string): Promise<void> {
+  if (organizationId !== LOCAL_ORGANIZATION_ID || changedListeners.size === 0) return
+  emitChanged(organizationId, await getSessionRecord(organizationId, sessionId))
+}
+
 /**
  * Write what the caller knows. A field left out keeps the stored value, so the
  * indexer's sweep and the control plane's status report never erase each
@@ -139,7 +166,7 @@ function mergeRecord(existing: SessionRecord | null, input: SessionRecordUpsert)
 }
 
 export async function upsertSessionRecord(organizationId: string, input: SessionRecordUpsert): Promise<SessionRecord> {
-  return getDatabase().transaction(async (db) => {
+  const merged = await getDatabase().transaction(async (db) => {
     const merged = mergeRecord(await readRecord(db, organizationId, input.sessionId), input)
     await db.run(sql`
       INSERT INTO ${sessionRecords} (
@@ -172,6 +199,8 @@ export async function upsertSessionRecord(organizationId: string, input: Session
     `)
     return merged
   })
+  emitChanged(organizationId, merged)
+  return merged
 }
 
 /** The transcript is gone from the runner and nothing else holds the session: the record goes with it. */
@@ -183,17 +212,19 @@ export async function deleteSessionRecord(organizationId: string, sessionId: str
 
 /** The record's status as the control plane reports it; a session with no record yet is left for its start to write. */
 export async function setSessionRecordStatus(organizationId: string, sessionId: string, status: SessionRecordStatus): Promise<void> {
-  await getDatabase().run(sql`
+  const result = await getDatabase().run(sql`
     UPDATE ${sessionRecords} SET status = ${status}, last_activity_at = ${Date.now()}
     WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
   `)
+  if (result.changes > 0) await emitStored(organizationId, sessionId)
 }
 
 export async function setSessionRecordTitle(organizationId: string, sessionId: string, customTitle: string | null): Promise<void> {
-  await getDatabase().run(sql`
+  const result = await getDatabase().run(sql`
     UPDATE ${sessionRecords} SET custom_title = ${customTitle}
     WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
   `)
+  if (result.changes > 0) await emitStored(organizationId, sessionId)
 }
 
 /**

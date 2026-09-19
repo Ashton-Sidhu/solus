@@ -164,7 +164,7 @@ export function createDesktopProjectPicker(
    */
   function openProjectHosts(): HostOption[] {
     const activeId = serversStore.activeServerId;
-    return [...serversStore.servers].sort(
+    return [...serversStore.executionServers].sort(
       (a, b) => Number(b.id === activeId) - Number(a.id === activeId),
     );
   }

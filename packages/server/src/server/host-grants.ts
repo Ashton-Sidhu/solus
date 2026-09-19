@@ -1,15 +1,18 @@
 import { createPublicKey, verify as verifySignature, type KeyObject } from 'crypto'
 import { z } from 'zod'
-import { HOST_GRANT_TTL_SECONDS, hostGrantClaimsSchema, type HostGrantClaims, type UplinkLinkConfig } from '@solus/contracts/uplink'
+import { HOST_GRANT_TTL_SECONDS, hostGrantClaimsSchema, type HostGrantClaims } from '@solus/contracts/uplink'
 import { createLogger } from '../logger'
 
 const log = createLogger('main', 'host-grants')
 
 /**
- * Verifies control-plane grants on the host (docs/plans/personal-uplink.md, H1).
- * The host trusts exactly one issuer and one key set, both named in its link config,
- * and accepts a grant once: `jti` is consumed for the grant's lifetime, so a captured
- * grant cannot open a second socket.
+ * Verifies control-plane grants (docs/plans/personal-uplink.md, H1). A host trusts
+ * exactly one issuer and one key set, both named in its link config, and accepts a
+ * grant minted for one audience: its own host id, or `WORKSPACE_AUDIENCE` for the
+ * workspace service (docs/plans/cloud-service-model.md §15). A grant is accepted
+ * once: `jti` is consumed for the grant's lifetime, so a captured grant cannot open
+ * a second socket. A runner's grant is the exception it asks for: it is the bearer
+ * credential of many HTTP requests, so the runner routes verify without consuming.
  *
  * JWKS is cached and survives a control-plane outage: keys already seen keep
  * verifying until the grant TTL would have expired them anyway. An unknown `kid`
@@ -39,11 +42,19 @@ export type GrantVerdict =
 export type FetchLike = (input: string | URL, init?: RequestInit) => Promise<Response>
 
 export interface HostGrantVerifierOptions {
-  link: Pick<UplinkLinkConfig, 'hostId' | 'issuer' | 'jwksUrl'>
+  issuer: string
+  jwksUrl: string
+  /** The `aud` every accepted grant must carry: the host id, or the workspace audience. */
+  audience: string
   fetchImpl?: FetchLike
   now?: () => number
   /** Grants issued before this instant are refused; defaults to construction time. */
   startedAt?: number
+}
+
+export interface VerifyOptions {
+  /** Spend the grant's `jti`. Default true; the runner routes pass false to reuse one grant for its lifetime. */
+  consume?: boolean
 }
 
 /** Do not refetch JWKS for unknown kids more often than this. */
@@ -86,12 +97,12 @@ export class HostGrantVerifier {
     this.startedAt = options.startedAt ?? options.now?.() ?? Date.now()
   }
 
-  get hostId(): string {
-    return this.options.link.hostId
+  get audience(): string {
+    return this.options.audience
   }
 
-  /** Verifies and consumes one grant. */
-  async verify(token: string): Promise<GrantVerdict> {
+  /** Verifies one grant, and consumes it unless told otherwise. */
+  async verify(token: string, verifyOptions: VerifyOptions = {}): Promise<GrantVerdict> {
     const now = this.options.now?.() ?? Date.now()
     this.pruneUsedGrantIds(now)
 
@@ -122,18 +133,17 @@ export class HostGrantVerifier {
     }
     if (!valid) return { ok: false, reason: 'bad-signature' }
 
-    if (claims.iss !== this.options.link.issuer) return { ok: false, reason: 'wrong-issuer' }
+    if (claims.iss !== this.options.issuer) return { ok: false, reason: 'wrong-issuer' }
     const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
-    if (!audiences.includes(this.options.link.hostId)) return { ok: false, reason: 'wrong-audience' }
+    if (!audiences.includes(this.options.audience)) return { ok: false, reason: 'wrong-audience' }
     if (claims.exp * 1000 <= now) return { ok: false, reason: 'expired' }
     if (claims.iat * 1000 > now + IAT_SKEW_MS) return { ok: false, reason: 'not-yet-valid' }
     if (claims.iat * 1000 < this.startedAt - IAT_SKEW_MS) return { ok: false, reason: 'replayed' }
     if (claims.exp - claims.iat > HOST_GRANT_TTL_SECONDS) return { ok: false, reason: 'too-long-lived' }
     if (this.usedGrantIds.has(claims.jti)) return { ok: false, reason: 'replayed' }
 
-    this.usedGrantIds.set(claims.jti, claims.exp * 1000)
-    const audience = audiences.find((entry) => entry === this.options.link.hostId) ?? this.options.link.hostId
-    return { ok: true, claims: { ...claims, aud: audience } }
+    if (verifyOptions.consume !== false) this.usedGrantIds.set(claims.jti, claims.exp * 1000)
+    return { ok: true, claims: { ...claims, aud: this.options.audience } }
   }
 
   private async keyFor(kid: string, now: number): Promise<KeyObject | null> {
@@ -150,7 +160,7 @@ export class HostGrantVerifier {
     this.refreshInFlight = (async () => {
       const fetchImpl: FetchLike = this.options.fetchImpl ?? fetch
       try {
-        const response = await fetchImpl(this.options.link.jwksUrl, { signal: AbortSignal.timeout(5_000) })
+        const response = await fetchImpl(this.options.jwksUrl, { signal: AbortSignal.timeout(5_000) })
         if (!response.ok) throw new Error(`JWKS answered ${response.status}`)
         const body = jwksSchema.parse(await response.json())
         const next = new Map<string, KeyObject>()

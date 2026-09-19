@@ -12,6 +12,8 @@ import type { ShareManager } from './share-manager'
  */
 export async function eventVisibleTo(principal: Principal, event: HostEvent, shares: ShareManager): Promise<boolean> {
   if (principal.kind === 'system' || isHostOwner(principal)) return true
+  // A runner writes; it reads nothing back from the people's side.
+  if (principal.kind === 'runner') return false
   const resource = eventResource(event)
   if (event.type === 'share.changed') {
     if (await shares.roleFor(principal, event.payload.resource) !== 'none') return true

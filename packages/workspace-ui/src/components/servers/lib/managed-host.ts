@@ -26,6 +26,16 @@ export function hostIsManaged(host: { uplink?: SavedServerUplink } | { unknown: 
   return !!host && 'uplink' in host && isManagedHost(host.uplink)
 }
 
+/** A cloud row: the organization's workspace service, which wears the cloud mark and takes no work. */
+export function isCloudHostRow(uplink: SavedServerUplink | undefined): boolean {
+  return uplink?.kind === 'cloud'
+}
+
+/** The line under a workspace service's name in Connections. */
+export function cloudHostSubtitle(uplink: SavedServerUplink | undefined): string | null {
+  return isCloudHostRow(uplink) ? 'Workspace · tasks, documents, and shares' : null
+}
+
 /**
  * The line under a managed host's name: `Managed · <team>` when the compute is ready,
  * `Managed · <state>` while it is not. Null for a personal host, whose line is its
@@ -49,8 +59,9 @@ export function managedHostStateLabel(uplink: SavedServerUplink | undefined): st
   return state === 'ready' ? null : LIFECYCLE_LABELS[state]
 }
 
-/** A managed host takes work only when its compute is ready; it stays listed the rest of the time so its state is visible. */
+/** A managed host takes work only when its compute is ready; it stays listed the rest of the time so its state is visible. A cloud row never takes work. */
 export function canRunOnHost(uplink: SavedServerUplink | undefined): boolean {
+  if (isCloudHostRow(uplink)) return false
   if (!isManagedHost(uplink)) return true
   return (uplink?.managedState ?? 'ready') === 'ready'
 }

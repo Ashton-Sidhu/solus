@@ -17,7 +17,7 @@ import type { LabIssuer } from './issuer'
 export interface LabHostOptions {
   flavor: HostKind
   /** The Lab's own issuer, or a real control plane the host should trust instead. */
-  issuer: Pick<LabIssuer, 'issuer' | 'jwksUrl'> & Partial<Pick<LabIssuer, 'issueManagedLink'>>
+  issuer: Pick<LabIssuer, 'issuer' | 'jwksUrl'> & Partial<Pick<LabIssuer, 'issueManagedLink' | 'attachHostToOrganization'>>
   /** The host id the link names; defaults to the Lab's fixed id. A real cloud names its own. */
   hostId?: string
   /** Path to `dist/main/standalone.js`; defaults to the worktree's build. */
@@ -32,6 +32,13 @@ export interface LabHostOptions {
    * issuer can issue links (the Lab's own), else `record` (a real cloud).
    */
   managedLink?: 'env' | 'record'
+  /**
+   * Boot the host as a runner of this organization (docs/plans/cloud-service-model.md
+   * §16): the issuer issues it a real link with tokens, attaches it to the
+   * organization, and the host's delivery mints a runner grant at boot. Personal
+   * flavor only; the issuer must be the Lab's own.
+   */
+  runnerOf?: string
 }
 
 export interface LabHost {
@@ -116,6 +123,20 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     env.SOLUS_MANAGED = '1'
     env[MANAGED_LINK_ENV] = JSON.stringify(managedLink)
     env.SOLUS_TUNNEL_PORT = String(proxiedPort)
+    writeConnectorShim(dataDir)
+  } else if (options.runnerOf) {
+    // A linked host with its credentials, shared with an organization: the record
+    // and the tokens the real cloud's enrollment would have left, so the host's
+    // generation check passes and its runner delivery can mint a grant.
+    if (options.flavor !== 'personal') throw new Error('A runner is a personal host')
+    if (!options.issuer.issueManagedLink || !options.issuer.attachHostToOrganization) throw new Error('A runner needs the Lab issuer')
+    const enrolled = options.issuer.issueManagedLink(hostId, proxiedPort)
+    options.issuer.attachHostToOrganization(hostId, options.runnerOf)
+    writeFileSync(linkFile, JSON.stringify({ version: 1, desired: 'linked', link: enrolled.link }, null, 2), { mode: 0o600 })
+    // The standalone server keeps secrets in files under the data directory.
+    const secrets = join(dataDir, 'secrets')
+    mkdirSync(secrets, { recursive: true, mode: 0o700 })
+    writeFileSync(join(secrets, 'uplink-tokens.json'), JSON.stringify({ connectorToken: enrolled.connectorToken, hostToken: enrolled.hostToken }), { mode: 0o600 })
     writeConnectorShim(dataDir)
   } else {
     // The link record the real cloud would have written at enrolment. No tokens: the

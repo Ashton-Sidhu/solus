@@ -8,9 +8,9 @@ import { hostOperatingSystem } from '../platform/host-operating-system'
 
 /** A managed host (docs/plans/managed-hosts.md §1) has no local network to announce itself on. */
 export function isLanDiscoveryDisabled(
-  env: { SOLUS_TEST_MODE?: string; SOLUS_NO_LAN_DISCOVERY?: string; SOLUS_MANAGED?: string } = process.env,
+  env: { SOLUS_TEST_MODE?: string; SOLUS_NO_LAN_DISCOVERY?: string; SOLUS_MANAGED?: string; SOLUS_WORKSPACE?: string } = process.env,
 ): boolean {
-  return env.SOLUS_TEST_MODE === '1' || env.SOLUS_NO_LAN_DISCOVERY === '1' || env.SOLUS_MANAGED === '1'
+  return env.SOLUS_TEST_MODE === '1' || env.SOLUS_NO_LAN_DISCOVERY === '1' || env.SOLUS_MANAGED === '1' || env.SOLUS_WORKSPACE === '1'
 }
 
 const log = createLogger('main', 'lan-discovery')

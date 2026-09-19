@@ -16,7 +16,8 @@
     sharesStore,
     type ServerItem,
   } from "../../contexts";
-  import { managedHostSubtitle } from "./lib/managed-host";
+  import { cloudHostSubtitle, isCloudHostRow, isManagedHost, managedHostSubtitle } from "./lib/managed-host";
+  import { cloudConnectionsLabel } from "../../contexts/connections/host-label";
   import { Button } from "../ui/button";
   import SettingsSection from "../settings/SettingsSection.svelte";
   import { connectionsNav } from "../connections/connections-nav.svelte";
@@ -32,7 +33,7 @@
     // Opening Connections is one of the directory's refresh points (C1).
     void serversStore.refreshDirectory();
     void serversStore.probeHosts().then(() =>
-      hostSetupStore.probeUnprobedOnline(serversStore.servers),
+      hostSetupStore.probeUnprobedOnline(serversStore.executionServers),
     );
   });
 
@@ -44,6 +45,7 @@
       status,
       ...routeBadges(server.routes),
       managedHostSubtitle(server.uplink, sharesStore.directories.get(server.id)?.name),
+      cloudHostSubtitle(server.uplink),
     ];
     if (hostSetupStore.hasProbed(server.id)) {
       const summary = hostReadinessSummary(hostSetupStore.stepsFor(server.id));
@@ -85,14 +87,14 @@
           {#if server.local}
             <DesktopTowerIcon size={15} />
           {:else}
-            <HostOperatingSystemIcon os={server.os} managed={isManagedHost(server.uplink)} size={15} />
+            <HostOperatingSystemIcon os={server.os} managed={isManagedHost(server.uplink) || isCloudHostRow(server.uplink)} size={15} />
           {/if}
         </span>
         <span class="min-w-0 flex-1">
           <span
             class="flex min-w-0 items-center gap-2 text-workspace-chrome font-medium text-(--solus-text-primary)"
           >
-            <span class="truncate">{server.label}</span>
+            <span class="truncate">{isCloudHostRow(server.uplink) ? cloudConnectionsLabel(server.label) : server.label}</span>
             {#if hostUpdatesStore.pendingCountFor(server.id)}<span class="size-1.5 shrink-0 rounded-full bg-(--solus-accent)" aria-label="Updates available"></span>{/if}
           </span>
           <span

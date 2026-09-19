@@ -353,6 +353,21 @@ ALTER TABLE sessions ADD COLUMN viewed_at INTEGER;
   // development host that applied the earlier migration retains its numbering.
   `SELECT 1;`,
 
+  // Runner delivery (docs/plans/cloud-service-model.md §16). An outbox op bound
+  // for the workspace service is `destination = 'cloud'` and carries the seq the
+  // runner numbered it with; ops for other hosts keep `'host'` and the client
+  // couriers. `runner_session_reports` queues one merged session-record report
+  // per session for the same delivery; the seq counter for both lives in `kv`.
+  `
+ALTER TABLE outbox_ops ADD COLUMN seq INTEGER;
+ALTER TABLE outbox_ops ADD COLUMN destination TEXT NOT NULL DEFAULT 'host';
+CREATE INDEX outbox_ops_by_destination ON outbox_ops(destination, seq);
+CREATE TABLE runner_session_reports (
+  session_id TEXT PRIMARY KEY,
+  seq INTEGER NOT NULL,
+  payload TEXT NOT NULL
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

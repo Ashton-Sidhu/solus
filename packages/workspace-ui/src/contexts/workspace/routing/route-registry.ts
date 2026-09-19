@@ -140,6 +140,10 @@ export interface RouteParams {
    *  absent id follows whichever page the browser store last made active, which
    *  is how "an agent asked for a surface" lands somewhere. */
   browser: { browserPageId?: string; serverId?: string }
+  /** The record of a session on a host that cannot open its transcript: the
+   *  organization's workspace service while the runner is offline
+   *  (docs/plans/cloud-service-model.md R8). Read-only. */
+  sessionRecord: { sessionId: string; serverId: string }
 }
 
 export type RouteName = keyof RouteParams
@@ -571,6 +575,19 @@ export const ROUTES: RouteTable = {
     placement: 'aside',
     defaultWeight: 0.5,
     component: () => import('../../../components/browser/BrowserPane.svelte'),
+  },
+  sessionRecord: {
+    parse: (s) => {
+      const { id, serverId } = parseScopedId(s)
+      return id && serverId ? { sessionId: id, serverId } : null
+    },
+    serialize: (p) => serializeScopedId(p.sessionId, p.serverId),
+    // A page, like a task: it replaces the list in the leading pane, and its
+    // crumb is the way back.
+    placement: 'any',
+    exclusiveGroup: 'page',
+    ownsTitlebarChrome: true,
+    component: () => import('../../../components/session/record/SessionRecordPage.svelte'),
   },
 }
 

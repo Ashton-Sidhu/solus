@@ -11,7 +11,7 @@ import type {
 } from '@solus/contracts/presence'
 import { PRESENCE_NO_FOCUS } from '@solus/contracts/presence'
 import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
-import { isHostOwner, principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
+import { isHostOwner, LOCAL_ORGANIZATION_ID, organizationOf, principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
 import type { TurnActor } from '../sessions/turn-ledger'
 import { presenceColorIndex } from './presence-color'
 
@@ -22,11 +22,15 @@ import { presenceColorIndex } from './presence-color'
  * keeps its entry. Nothing here touches SQLite; an entry lives as long as its
  * socket does. Session rooms are not stored: a session's participants are the
  * connected clients among the control plane's watchers for it, so the two can
- * never disagree about who is there.
+ * never disagree about who is there. The host room is one organization's
+ * (cloud-service-model.md §15): on a host everyone is `local`; on the workspace
+ * service each organization sees its own people and never another's.
  */
 
 interface PresenceEntry {
   participant: PresenceParticipant
+  /** The organization whose room this client is in. */
+  organizationId: string
   focus: PresenceFocus
   /** The session this client currently has a non-empty draft for, if any. */
   composingSessionId: string | null
@@ -86,8 +90,27 @@ export class PresenceManager {
       joinedAt: this.now(),
     }
     if (author.avatarUrl) participant.avatarUrl = author.avatarUrl
-    this.entries.set(clientId, { participant, focus: PRESENCE_NO_FOCUS, composingSessionId: null })
+    this.entries.set(clientId, { participant, organizationId: organizationOf(principal), focus: PRESENCE_NO_FOCUS, composingSessionId: null })
     return true
+  }
+
+  /** The organization a connected client's room belongs to; undefined for a client not on the host. */
+  organizationOf(clientId: string): string | undefined {
+    return this.entries.get(clientId)?.organizationId
+  }
+
+  /** Every organization with someone in its room. */
+  organizations(): string[] {
+    const ids = new Set<string>()
+    for (const entry of this.entries.values()) ids.add(entry.organizationId)
+    return [...ids]
+  }
+
+  /** The connected clients in one organization's room. */
+  clientsIn(organizationId: string): string[] {
+    const clientIds: string[] = []
+    for (const [clientId, entry] of this.entries) if (entry.organizationId === organizationId) clientIds.push(clientId)
+    return clientIds
   }
 
   /** A client's last socket closed. Returns the session it was composing in, so that room can be told. */
@@ -134,13 +157,14 @@ export class PresenceManager {
   }
 
   /**
-   * Everyone on the host, each with what they have focused. A session focus is
-   * described by the host itself, so a reader who never opened that session still
-   * learns its name and whether its agent runs.
+   * Everyone in one organization's room, each with what they have focused. A
+   * session focus is described by the host itself, so a reader who never opened
+   * that session still learns its name and whether its agent runs.
    */
-  async hostSnapshot(): Promise<HostPresenceSnapshot> {
+  async hostSnapshot(organizationId: string = LOCAL_ORGANIZATION_ID): Promise<HostPresenceSnapshot> {
     const participants: HostParticipant[] = []
     for (const entry of this.entries.values()) {
+      if (entry.organizationId !== organizationId) continue
       const focusedSessionId = entry.focus.kind === 'session' ? entry.focus.sessionId : null
       const participant: HostParticipant = {
         ...entry.participant,

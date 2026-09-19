@@ -2,6 +2,7 @@
   import {
     Copy as CopyIcon,
     ChevronDown as CaretDownIcon,
+    CloudUpload as CloudUploadIcon,
     RotateCcw as ArrowCounterClockwiseIcon,
     Download as DownloadSimpleIcon,
     FileOutput as FileOutputIcon,
@@ -22,7 +23,7 @@
   import * as DropdownMenu from "../ui/dropdown-menu";
   import Kbd from "../ui/Kbd.svelte";
   import { portal } from "../portal";
-  import { getClientShellContext, getWorkspaceContext, sharesStore } from "../../contexts";
+  import { getClientShellContext, getWorkspaceContext, serversStore, sharesStore } from "../../contexts";
   import type { SessionMeta } from "@solus/contracts/types";
   import { exportFileName } from "../pickers/lib/export-file-name";
   import {
@@ -165,6 +166,24 @@
   const people = $derived(
     shareServerId && workId ? presenceStore.peopleFocusedOn(shareServerId, { kind: "work", workId }) : [],
   );
+  // Move to the organization's workspace service (docs/plans/cloud-service-model.md R6):
+  // offered on a work that lives on a machine while a cloud host is connected.
+  const cloudHost = $derived(serversStore.connectedCloudServer);
+  const canMoveToCloud = $derived(!!workId && !!cloudHost && !serversStore.isCloudHost(shareServerId));
+  let movingToCloud = $state(false);
+  async function moveToCloud() {
+    if (!workId || !cloudHost || movingToCloud) return;
+    movingToCloud = true;
+    try {
+      await session.worksStore.moveToCloud(workId, cloudHost.id);
+      toasts.success(`Moved to Solus Cloud · ${cloudHost.label}`);
+    } catch (error) {
+      toasts.error("Couldn't move this work to Solus Cloud", { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      movingToCloud = false;
+    }
+  }
+
   function openShare() {
     if (!shareServerId || !shareResource) return;
     sharesStore.open({ serverId: shareServerId, resource: shareResource, title });
@@ -222,7 +241,7 @@
 <!-- The upstream mirror, inline rather than in the overflow: once a document is
      linked, its sync state is something the reader has to be able to see, not
      something to go looking for. Renders only for docs (2a scope). -->
-{#if workId && shell.hasWorkspace}
+{#if workId && shell.canOpenResource("workspace")}
   <!-- Who else has this work open, before the verbs. -->
   <PresenceStack {people} size={18} class="mr-1" />
   <WorkPublishMenu {workId} {getCurrentContent} {flushSave} />
@@ -258,6 +277,11 @@
       {#if canShare}
         <DropdownMenu.Item data-testid="share-work" onSelect={openShare}>
           <UsersIcon size={14} /><span class="flex-1 text-left">Share…</span>
+        </DropdownMenu.Item>
+      {/if}
+      {#if canMoveToCloud}
+        <DropdownMenu.Item data-testid="move-work-to-cloud" disabled={movingToCloud} onSelect={() => void moveToCloud()}>
+          <CloudUploadIcon size={14} /><span class="flex-1 text-left">{movingToCloud ? "Moving…" : "Move to Solus Cloud"}</span>
         </DropdownMenu.Item>
       {/if}
 

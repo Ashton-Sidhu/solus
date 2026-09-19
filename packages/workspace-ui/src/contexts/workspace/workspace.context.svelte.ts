@@ -2,6 +2,7 @@ import { createAppContext } from '../app/create-app-context'
 import { ToolHistoryStore } from './tool-history.store'
 import { splitHostKey } from '@solus/client-core/host-key'
 import { browserStore } from '../browser/browser.store.svelte'
+import { hostRolesStore } from '../connections/host-roles.store.svelte'
 import type { AgentId, WireNormalizedEvent, EnrichedError, Message, Tab, Prompt, Session, SessionSpec, RunConfig, DiffCommentDraft, DiffComment, Attachment, PlanDescriptor, SessionCtx, IpcContext, TurnSnapshot, QueuedPromptSnapshot, OutboundPrompt, ModelConfig, RuntimeSessionInfo, SessionDescription, SessionMeta, SessionTitleChangedEvent, GitCheckout, Work, WorktreeEntry, PrReviewContext, PromptImageRef, PromptDelivery, ThreadGoal, ThreadGoalSetRequest } from '@solus/contracts/types'
 import { parseGitHubPullRequestUrl, type PrReviewTarget, type PullRequest, type RepoRef } from '@solus/contracts/providers'
 import { parseReviewCommand, reviewGuideKeyForTarget, reviewGuideTargetId, type ReviewTarget } from '@solus/contracts/review'
@@ -2035,6 +2036,12 @@ export class WorkspaceContext {
   ): Promise<string> {
     // A session ref crossing the client names its host — there is no probe.
     if (!meta.serverId) throw new Error(`Session ${meta.sessionId} names no host`)
+    // The workspace service keeps the record and no transcript: while the runner
+    // is offline the session opens read-only (docs/plans/cloud-service-model.md R8).
+    if (!hostRolesStore.hasExecution(meta.serverId)) {
+      this.openSessionRecord(meta.sessionId, meta.serverId)
+      return ''
+    }
     const selectedProvider = meta.provider ?? this.settings.activeAgent
     const selectedApi = serverConnections.apiFor(meta.serverId)
     // One read answers both what the client used to ask in turn: the lineage,
@@ -3402,6 +3409,11 @@ export class WorkspaceContext {
 
   toggleFolio(via: Via = 'click'): void {
     this.togglePage({ name: 'folio', params: {} }, via, 'workspace')
+  }
+
+  /** The read-only record of a session whose transcript this client cannot reach. */
+  openSessionRecord(sessionId: string, serverId: string, via: Via = 'click'): void {
+    this.showPage({ name: 'sessionRecord', params: { sessionId, serverId } }, via, 'tasks')
   }
 
   openFolio(via: Via = 'click', target: 'focused' | 'aside' = 'focused'): void {

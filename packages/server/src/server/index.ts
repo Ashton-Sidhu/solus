@@ -9,11 +9,14 @@ import { join } from 'path'
 import { z } from 'zod'
 import { createServer as createNodeHttpServer, type IncomingMessage, type Server as HttpServer } from 'http'
 import { SolusServer } from './server'
-import { buildHttpServer } from './http'
+import { buildHttpServer, type HttpServerOptions } from './http'
 import { HostGrantVerifier } from './host-grants'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './uplink/connector'
 import { UplinkLinkManager } from './uplink/link'
-import type { UplinkLinkConfig } from '@solus/contracts/uplink'
+import { RunnerDelivery } from './uplink/runner-delivery'
+import { applyRunnerOutbox, applyRunnerSessionRecords } from './runner-intake'
+import { applyWorkspaceMode, isWorkspaceMode, workspaceConfig } from './workspace-mode'
+import { WORKSPACE_AUDIENCE, type HostKind, type UplinkLinkConfig } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './handlers/uplink-handlers'
 import { registerSharingHandlers } from './handlers/sharing-handlers'
 import { ShareManager } from '../sharing/share-manager'
@@ -29,7 +32,7 @@ import { getDb } from '../db'
 import { closeDatabase, getDatabase } from '../db/database'
 import { markOwnRunningSessionRecordsInterrupted } from '../sessions/session-records'
 import { LOCAL_ORGANIZATION_ID } from './principal'
-import { resolveRoles } from './roles'
+import { resolveRoles, type SolusRole } from './roles'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
 import { getHostConfig, getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
@@ -217,6 +220,65 @@ export function acquireLock(host: string, port: number): { release(): void } | n
   }
 }
 
+/** What this process is to its clients: a person's machine, one the cloud provisioned, or the cloud's own workspace service. */
+function resolveHostKind(workspaceMode: boolean): HostKind {
+  if (workspaceMode) return 'cloud'
+  return isManagedHost() ? 'managed' : 'personal'
+}
+
+/** The workspace service serves the collaboration plane and nothing else, whatever SOLUS_ROLES says. */
+function resolveServerRoles(workspaceMode: boolean): ReadonlySet<SolusRole> {
+  return workspaceMode ? new Set<SolusRole>(['collaboration']) : resolveRoles()
+}
+
+/** One verifier per link: a host with no link treats every grant as a stranger's. */
+function grantVerifierForLink(link: UplinkLinkConfig | null): HostGrantVerifier | null {
+  return link ? new HostGrantVerifier({ issuer: link.issuer, jwksUrl: link.jwksUrl, audience: link.hostId }) : null
+}
+
+/** The workspace service's one verifier: the cloud issuer, for `WORKSPACE_AUDIENCE`; null on a host, whose verifier follows its link. */
+function workspaceGrantVerifier(workspaceMode: boolean): HostGrantVerifier | null {
+  return workspaceMode ? new HostGrantVerifier({ ...workspaceConfig(), audience: WORKSPACE_AUDIENCE }) : null
+}
+
+/** The workspace service's runner routes (cloud-service-model.md §16); `buildHttpServer` mounts them in workspace mode only. */
+function runnerRoutes(shares: ShareManager): NonNullable<HttpServerOptions['runner']> {
+  return {
+    applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
+    applySessionRecords: applyRunnerSessionRecords,
+  }
+}
+
+/**
+ * Binds the proxied listener on loopback. The port is part of the link: the
+ * tunnel's ingress points at it, so there is no fallback to another port — a
+ * listener the tunnel cannot reach would only make the status lie. A linked host
+ * whose port is taken reports that instead (`resume` checks it). Answers the
+ * bound port, or 0 when the bind failed.
+ */
+async function bindTunnelListener(tunnelHttp: HttpServer, tunnelListenerPort: number): Promise<number> {
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException) => {
+        tunnelHttp.off('listening', onListening)
+        reject(err)
+      }
+      const onListening = () => {
+        tunnelHttp.off('error', onError)
+        resolve()
+      }
+      tunnelHttp.once('error', onError)
+      tunnelHttp.once('listening', onListening)
+      tunnelHttp.listen(tunnelListenerPort, '127.0.0.1')
+    })
+    log.info('tunnel_listener_bound', { port: tunnelListenerPort })
+    return tunnelListenerPort
+  } catch (err) {
+    log.error('tunnel_listener_failed', { port: tunnelListenerPort, error: err instanceof Error ? err.message : String(err) })
+    return 0
+  }
+}
+
 export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // The renderer's first connection waits on this function. An empty store
   // boots in tens of milliseconds; a real one has cost in the stores and the
@@ -228,16 +290,22 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // Before the database, the listeners, or any child process: the link tokens in
   // the environment must leave it first (managed-hosts.md §1, §2).
   applyManagedMode()
+  // And the workspace service refuses to start half-configured (cloud-service-model.md §15).
+  applyWorkspaceMode()
+  const workspaceMode = isWorkspaceMode()
+  const hostKind = resolveHostKind(workspaceMode)
+  // A managed host and the workspace service demand a credential on every listener, whatever the bind policy says.
+  const credentialAlwaysRequired = hostKind !== 'personal'
   const settings = getServerSettings()
   const initial = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess: settings.remoteAccess })
   let host = initial.host
-  // A managed host demands a credential on every listener, whatever the bind policy says.
-  let requireAuth = initial.requireAuth || isManagedHost()
+  let requireAuth = initial.requireAuth || credentialAlwaysRequired
   const port = opts.port ?? WEB_UI_PORT
   let actualPort = port
 
   const server = new SolusServer()
-  server.useRoles(resolveRoles())
+  const roles = resolveServerRoles(workspaceMode)
+  server.useRoles(roles)
   // Ownership and share lists (docs/plans/multiplayer-sharing.md §3.4): the access
   // policy consults them on every resource call, and the event stream is filtered
   // to what each connected principal may see.
@@ -266,12 +334,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   const events = new HostEventPublisher(clientEvents)
   // Who is here (docs/plans/multiplayer-presence.md): one entry per connected
-  // client, named from its principal at admission. The host room goes to every
-  // admitted client (the audience filter keeps it from guests); a session's room
-  // goes to that session's watchers, who are the room.
+  // client, named from its principal at admission. The host room is one
+  // organization's — the whole host, or each organization of the workspace
+  // service — and goes to the admitted clients in it (the audience filter keeps
+  // it from guests); a session's room goes to that session's watchers, who are the room.
   const presence = new PresenceManager({ describeSession: (sessionId) => opts.controlPlane.sessionActivityFor(sessionId) })
-  const publishHostPresence = (): void => {
-    void presence.hostSnapshot().then((snapshot) => events.broadcast('host.presenceChanged', snapshot))
+  const publishHostPresence = (organizationId?: string): void => {
+    const rooms = organizationId ? [organizationId] : presence.organizations()
+    for (const room of rooms) {
+      void presence.hostSnapshot(room).then((snapshot) => events.publish(presence.clientsIn(room), 'host.presenceChanged', snapshot))
+    }
   }
   const publishSessionPresence = (sessionId: string): void => {
     const watchers = opts.controlPlane.clientsWatching(sessionId)
@@ -335,7 +407,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   registerFolioHandlers(server, { shares })
   registerSharingHandlers(server, { shares })
   registerSeatHandlers(server, { seats, connector: seatConnector })
-  registerPresenceHandlers(server, { presence, onHostChanged: publishHostPresence, onSessionChanged: publishSessionPresence })
+  registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   registerReviewHandlers(server, opts.controlPlane, events)
   registerAutomationHandlers(server)
   // Let session-bound automations run their prompt inside the chat thread they
@@ -555,14 +627,19 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   // Personal Uplink: the tunnel listener, the link to the control plane, and the
   // verifier for its grants. All three exist on every host; only a linked host uses them.
+  // The workspace service has none of them (cloud-service-model.md §15): its one
+  // verifier trusts the cloud issuer for `WORKSPACE_AUDIENCE`, and it never links.
   let tunnelPort = 0
   const isTunnelRequest = (incoming: IncomingMessage): boolean =>
     tunnelPort !== 0 && incoming.socket.localPort === tunnelPort
   // One verifier per link: it follows the link record, and a host with no link
   // treats every grant as a stranger's.
-  let grantVerifier: HostGrantVerifier | null = null
+  let grantVerifier: HostGrantVerifier | null = workspaceGrantVerifier(workspaceMode)
+  let runnerDelivery: RunnerDelivery | null = null
   const followLink = (link: UplinkLinkConfig | null): void => {
-    grantVerifier = link ? new HostGrantVerifier({ link }) : null
+    if (workspaceMode) return
+    grantVerifier = grantVerifierForLink(link)
+    runnerDelivery?.linkChanged()
   }
   let uplinkManager: UplinkLinkManager
   const uplinkConnector = new CloudflaredConnector({
@@ -579,6 +656,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     managedLink: readManagedLinkEnv,
   })
   followLink(uplinkManager.currentLink())
+  // A linked host shared with an organization delivers its cloud-owned writes and
+  // its session records to the organization's workspace service (§16).
+  if (!workspaceMode) {
+    runnerDelivery = new RunnerDelivery({
+      link: () => uplinkManager.currentLink(),
+      hostToken: () => uplinkManager.hostToken(),
+    })
+  }
 
   const { server: http, requestListener } = buildHttpServer({
     isVerifyingUpdate: () => server.isVerifyingUpdate,
@@ -591,11 +676,14 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     requireAuth: () => requireAuth,
     isTrustedRequester: isTrustedRequesterAddress,
     isTunnelRequest,
-    isManagedHost: isManagedHost(),
-    verifyHostGrant: (grant) => grantVerifier
-      ? grantVerifier.verify(grant)
+    // No pairing door on a managed host or the workspace service: a grant is the only credential there.
+    isManagedHost: credentialAlwaysRequired,
+    isWorkspaceMode: workspaceMode,
+    verifyHostGrant: (grant, verifyOptions) => grantVerifier
+      ? grantVerifier.verify(grant, verifyOptions)
       : Promise.resolve({ ok: false, reason: 'not-linked' }),
     resolveShareSecret: (secret) => shares.resolveLinkSecret(secret),
+    runner: runnerRoutes(shares),
     transcribeAudio: opts.transcribeAudio,
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
@@ -649,14 +737,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     const joined = presence.join(clientId, principal, deviceLabel)
     // The newcomer gets the room whether or not it is new: a reconnect has lost
     // its copy. Everyone else hears only about a new face.
-    if (joined) publishHostPresence()
-    else void presence.hostSnapshot().then((snapshot) => events.publish(clientId, 'host.presenceChanged', snapshot))
+    const room = presence.organizationOf(clientId)
+    if (joined) publishHostPresence(room)
+    else if (room !== undefined) void presence.hostSnapshot(room).then((snapshot) => events.publish(clientId, 'host.presenceChanged', snapshot))
     for (const sessionId of opts.controlPlane.sessionsWatchedBy(clientId)) publishSessionPresence(sessionId)
   }
   function handlePresenceDisconnected(clientId: string): void {
+    const room = presence.organizationOf(clientId)
     const left = presence.leave(clientId)
     if (!left) return
-    publishHostPresence()
+    publishHostPresence(room)
     const rooms = new Set(opts.controlPlane.sessionsWatchedBy(clientId))
     if (left.composingSessionId) rooms.add(left.composingSessionId)
     for (const sessionId of rooms) publishSessionPresence(sessionId)
@@ -757,32 +847,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     if (request.url?.startsWith('/ws')) ws.handleUpgrade(request, socket, head)
     else socket.destroy()
   })
-  // The port is part of the link: the tunnel's ingress points at it. No fallback to
-  // another port — a listener the tunnel cannot reach would only make the status lie.
-  // A linked host whose port is taken reports that instead (`resume` checks it).
-  const tunnelListenerPort = uplinkManager.currentLink()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const onError = (err: NodeJS.ErrnoException) => {
-        tunnelHttp.off('listening', onListening)
-        reject(err)
-      }
-      const onListening = () => {
-        tunnelHttp.off('error', onError)
-        resolve()
-      }
-      tunnelHttp.once('error', onError)
-      tunnelHttp.once('listening', onListening)
-      tunnelHttp.listen(tunnelListenerPort, '127.0.0.1')
-    })
-    tunnelPort = tunnelListenerPort
-    log.info('tunnel_listener_bound', { port: tunnelPort })
-  } catch (err) {
-    log.error('tunnel_listener_failed', { port: tunnelListenerPort, error: err instanceof Error ? err.message : String(err) })
+  // The workspace service has no tunnel and no link to resume (cloud-service-model.md §15).
+  if (!workspaceMode) {
+    tunnelPort = await bindTunnelListener(tunnelHttp, uplinkManager.currentLink()?.proxiedPort ?? DEFAULT_TUNNEL_LISTENER_PORT)
+    void uplinkManager.resume().catch((err) => {
+      log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
+    }).finally(() => runnerDelivery?.start())
   }
-  void uplinkManager.resume().catch((err) => {
-    log.warn('uplink_resume_failed', { error: err instanceof Error ? err.message : String(err) })
-  })
 
   const noLanDiscovery: LanDiscoveryService = {
     discoverServers: async () => [],
@@ -808,7 +879,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
 
   async function rebind(remoteAccess: boolean): Promise<void> {
     const next = resolveEffectiveServerOptions({ host: opts.host, requireAuth: opts.requireAuth, remoteAccess })
-    const nextRequireAuth = next.requireAuth || isManagedHost()
+    const nextRequireAuth = next.requireAuth || credentialAlwaysRequired
     if (next.host === host && nextRequireAuth === requireAuth) return
     host = next.host
     requireAuth = nextRequireAuth
@@ -846,7 +917,16 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   }
 
   registerConnectionsHandlers(server, {
-    getServerInfo: () => ({ host, port: actualPort, allowLan: !isLoopbackHost(host), remoteAccess: getServerSettings().remoteAccess, requireAuth, trustLocalNetwork: getServerSettings().trustLocalNetwork, hostKind: isManagedHost() ? 'managed' : 'personal' }),
+    getServerInfo: () => ({
+      host,
+      port: actualPort,
+      allowLan: !isLoopbackHost(host),
+      remoteAccess: getServerSettings().remoteAccess,
+      requireAuth,
+      trustLocalNetwork: getServerSettings().trustLocalNetwork,
+      hostKind,
+      roles: [...roles],
+    }),
     getActiveSessions: () => [...ws.sessions.values()].map(s => ({
       id: s.id,
       deviceLabel: s.deviceLabel,
@@ -894,6 +974,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
         await lanDiscovery.close()
+        await runnerDelivery?.stop()
         await uplinkConnector.stop()
         checksHandlers.handleTransportClosed()
         try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }

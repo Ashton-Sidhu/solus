@@ -3,6 +3,7 @@ import { RPC_INVOKE_METHODS, type RpcMethod } from '@solus/contracts/rpc'
 import { resourceRoleAtLeast, shareResourceSchema, type ResourceRole, type ShareResource } from '@solus/contracts/sharing'
 import { isManagedHost } from './managed-mode'
 import { isHostAdmin, isHostOwner, type Principal, type PrincipalKind } from './principal'
+import { isWorkspaceMode } from './workspace-mode'
 
 /**
  * The access policy of one host (docs/plans/personal-uplink.md P2;
@@ -17,7 +18,8 @@ import { isHostAdmin, isHostOwner, type Principal, type PrincipalKind } from './
  * - `resource`    names a session, a work, or a task. Checked against ownership
  *                 and the share list with the role the method needs.
  * - `system-only` a report from a runner to the collaboration plane
- *                 (docs/plans/cloud-service-model.md). The host itself today.
+ *                 (docs/plans/cloud-service-model.md): the host itself, or a
+ *                 `runner` principal writing to its own organization.
  */
 export type RpcAccessClass = 'local-only' | 'host-admin' | 'host-wide' | 'resource' | 'system-only'
 
@@ -217,10 +219,12 @@ export const LOCAL_ONLY_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
 ])
 
 /**
- * Refused on a managed host (docs/plans/managed-hosts.md §1), whoever calls: pairing
- * does not exist there, admission is never widened, and the link is system-owned —
- * unlinking a managed host is a control-plane delete. Every one is also local-only,
- * so the class map stays exhaustive; this set only names the reason.
+ * Refused on a managed host (docs/plans/managed-hosts.md §1) and on the workspace
+ * service (cloud-service-model.md §15), whoever calls: pairing does not exist
+ * there, admission is never widened, and the link is system-owned — unlinking a
+ * managed host is a control-plane delete, and the service has no link at all.
+ * Every one is also local-only, so the class map stays exhaustive; this set only
+ * names the reason.
  */
 export const MANAGED_HOST_REFUSED_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   'connectionsSetRemoteAccess',
@@ -267,7 +271,8 @@ export const HOST_ADMIN_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>
 
 /**
  * Writes only a process acting for the host makes: a runner reporting a session
- * record to the collaboration plane. No person's connection may call these.
+ * record to the collaboration plane. No person's connection may call these; a
+ * `runner` principal may call nothing else.
  */
 export const SYSTEM_ONLY_RPC_METHODS: ReadonlySet<RpcMethod> = new Set<RpcMethod>([
   'sessionRecordUpsert',
@@ -325,17 +330,27 @@ function assertManagedHostOffers(method: RpcMethod, principal: Principal): void 
 }
 
 /**
+ * A runner is not a person (cloud-service-model.md §16): its organization is the
+ * only scope it writes in (`organizationOf` reads it off the principal), and the
+ * system-only methods are the only ones it reaches.
+ */
+function assertRunnerAccess(method: RpcMethod, accessClass: RpcAccessClass): void {
+  if (accessClass === 'system-only') return
+  throw new RpcAccessError(method, 'runner', `"${method}" is not available to a runner`)
+}
+
+/**
  * The one gate every dispatch passes. `resources` is absent only in the desktop's
  * in-process path before the share manager exists; there every caller is the local
  * owner, for whom the resource class is a no-op.
  */
-export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = isManagedHost()): Promise<void> {
+export async function assertRpcAccess(method: RpcMethod, principal: Principal, args: readonly unknown[] = [], resources?: ResourceAccess, managed = isManagedHost() || isWorkspaceMode()): Promise<void> {
   if (managed) assertManagedHostOffers(method, principal)
   if (principal.kind === 'system') return
   const accessClass = rpcAccessClass(method)
+  if (principal.kind === 'runner') return assertRunnerAccess(method, accessClass)
   switch (accessClass) {
     case 'system-only':
-      // Runner hook: a `runner` principal (the uplink runner claim) of the caller's own organization is admitted here once the principal exists.
       throw new RpcAccessError(method, principal.kind, `"${method}" is only available to the host itself`)
     case 'local-only':
       if (principal.kind !== 'local-owner') throw new RpcAccessError(method, principal.kind, `"${method}" is only available to a local connection`)

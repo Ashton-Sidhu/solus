@@ -1,11 +1,12 @@
-# Cloud service model — P0: engine, `Db`, and the ported domains
+# Cloud service model — P0: engine, `Db`, and the ported domains; P1: the cloud workspace
 
 Solus runs the same server binary on a laptop and in the cloud. A host keeps
 SQLite in its data directory with no configuration; the cloud runs one
 Postgres for every instance. The domain managers are the same code on both.
 P0 lays the storage layer and ports the collaboration-plane domains — tasks,
 works, plans, sharing, and session records — as the pattern every later
-domain follows.
+domain follows. P1 (§15–§17) boots that binary as an organization's workspace
+service and teaches a linked host to write to it.
 
 ## 1. Vocabulary
 
@@ -327,3 +328,151 @@ POSTGRES_ADMIN_URL=postgres://postgres:solus@localhost:54332/postgres \
 With `--engine=postgres` the runner creates a database per test file, passes
 `SOLUS_DB=postgres DATABASE_URL=<that db>` to the child, and drops it after.
 Suites that read the SQLite file itself (`sqlite_master`) skip on Postgres.
+
+## 15. Workspace mode (P1)
+
+`packages/server/src/server/workspace-mode.ts`. `SOLUS_WORKSPACE=1` boots the
+server as the **workspace service**: the cloud process every client of an
+organization connects to first. Read once from the environment at boot,
+before anything else (`applyWorkspaceMode`), and refused when incomplete:
+`SOLUS_CLOUD_ISSUER` and `SOLUS_CLOUD_JWKS_URL` name the one issuer whose
+grants are admitted, and `DATABASE_URL` is required — one Postgres for every
+organization — unless a test says `SOLUS_DB=sqlite` explicitly.
+
+What holds for the life of the process:
+
+- The roles are `collaboration` only, whatever `SOLUS_ROLES` says; every
+  execution method answers `PLANE_DISABLED`.
+- There is no link record, no tunnel listener, no connector, and no runner
+  delivery of its own: the service is nobody's machine. `uplinkLink`,
+  `uplinkUnlink`, and the pairing methods are refused as on a managed host;
+  `/pair*` answers 404; LAN discovery is off; nobody is a trusted requester,
+  loopback included; `requireAuth` is forced on every listener.
+- One grant verifier (`server/host-grants.ts`, which now takes `issuer`,
+  `jwksUrl`, and an `audience` rather than a link) trusts the cloud issuer for
+  `aud: solus-workspace`. At the ticket door (`ticketForGrant`) only a member
+  grant admits a person — as an `org-member` of the grant's organization with
+  `hostKind: 'cloud'` — and only a runner grant admits a runner (§16). An owner
+  grant and a guest grant are refused (`member-required`): `local-owner` and
+  `remote-owner` never exist here, and a guest link is a host's resource.
+- `organizationOf(principal)` is the grant's organization; every ported store
+  call scopes by it, so another organization's rows are not found, not
+  refused. Inside the organization the service is the team's space, as a
+  managed host is (`isOrganizationSpace` in `server/principal.ts`): a resource
+  made there starts shared with the organization as editors, and the owner
+  alone transfers or deletes. A resource a runner's op wrote is claimed as it
+  lands (`ShareManager.claimForRunner`: owned by the account that linked the
+  runner when the grant carries `hostOwnerUserId`, else by the host-owner
+  sentinel, and shared with the organization the same way), so nothing in the
+  cloud is unowned — the managed host's "unowned is the team's" rule would
+  otherwise answer for another organization's ids. An organization `owner` is
+  the service's `isHostAdmin`.
+- `connectionsGetServerInfo` answers `hostKind: 'cloud'`, `organizationId`,
+  and `roles: ['collaboration']` (a new field on every host: the planes it
+  serves), so a client keeps the service out of its execution targets.
+- Presence is one room per organization (`PresenceManager.hostSnapshot(orgId)`,
+  `clientsIn(orgId)`): the host roster is published to the clients of the room
+  that changed, and `presenceSnapshot` answers the caller's own room. On a host
+  every room is `local`, so nothing there changes.
+
+Deployment: `packaging/workspace-service/` (`fly.toml` for two machines behind
+Fly's proxy, health on `/health`, the managed-host image with `SOLUS_MANAGED=0`
+overriding the baked value; the README names the secrets and the
+`WORKSPACE_SERVICE_URL` the control plane needs). Not deployed by this change.
+
+Known limits of P1: `tasks.invalidated` and the other host-wide invalidation
+events are broadcast to every connected client of the service, whichever
+organization it is in — they carry no data, only "re-read"; guests and share
+links on the service are P4; a member's `listSessions`/`loadSession` on the
+service answer from records only, since no transcript is there (P2).
+
+## 16. The runner principal, runner delivery, and the ownership rule (P1)
+
+**The runner principal.** `{ kind: 'runner', hostId, organizationId }`
+(`server/principal.ts`), admitted from a grant that carries the `runner`
+claim — `sub: host:<hostId>`, `aud: solus-workspace`, `organizationId` — on
+the socket (a `runner` ticket kind in `server/auth.ts`) and on the runner HTTP
+routes alike (`runnerPrincipalFor`). `assertRpcAccess` admits it to the
+`system-only` methods and to nothing else; `organizationOf` is its
+organization; it holds no role on any resource, hears no event, and joins no
+room. `sessionRecordUpsert` from a runner stamps `runnerHostId` with the
+runner's own id, whatever the body claimed.
+
+**Delivery.** A linked host that the control plane counts in an organization
+exchanges its host token for a runner grant
+(`POST <directoryUrl>/v1/hosts/<hostId>/runner-grant`, answered with the
+organization and the way to the workspace service) and ships two streams to
+the service, in the order it numbered them:
+
+- `POST <workspace>/runner/outbox` — `{ hostId, ops: [{ seq, op }] }` →
+  `{ lastSeq, failed: [{ seq, error, permanent }] }`: outbox ops of the `tasks`
+  and `works` domains.
+- `POST <workspace>/runner/session-records` — `{ hostId, reports: [{ seq, record }] }`
+  → `{ lastSeq }`: session-record upserts.
+
+Both under `Authorization: Bearer <runner grant>`, verified without consuming
+the grant's `jti` (one grant serves its ten minutes), with the body's `hostId`
+required to be the grant's own. The schemas are
+`server/uplink/runner-protocol.ts`; the runner side is
+`server/uplink/runner-delivery.ts` (`RunnerDelivery`), the service side
+`server/runner-intake.ts`.
+
+On the runner: `outbox_ops` gained `seq` (one counter for both streams, in
+`kv`, assigned inside the recording transaction so it is durable before the
+row is) and `destination` (`host` for the client couriers, `cloud` for this
+delivery; `outboxList` never shows a pending cloud op to a courier);
+`runner_session_reports` queues one merged report per session (a later report
+merges into the queued one as the record store would merge it, and takes a
+fresh `seq`, so the queue is bounded by the number of sessions and a late ack
+cannot drop a newer report). `session-records.ts` announces every write to one
+of the host's own records (`onSessionRecordChanged`) with the whole stored
+record; the delivery queues it stamped with the host id. Nothing waits on the
+network: a tool writes its row and returns; the delivery wakes, sends in
+batches of a hundred, and acks by sequence (a dead-lettered op stays visible in
+`outboxList` with its error). A transient failure backs off, one second
+doubling to a minute; a 401 mints a fresh grant; a host in no organization asks
+again every five minutes; a restart resumes from what is still queued. The
+cursor of what was acked is the queue itself.
+
+On the service: `runner_cursors` (`outbox/schema.ts`, ported, generated
+migration `0006_runner_cursors`) keeps `last_seq` per organization, runner,
+and stream. Items at or below it are skipped; each op is applied through the
+existing appliers — now `(op, organizationId)` — in the runner's organization,
+and the op and the cursor advance in one transaction, so a crash between them
+cannot apply anything twice. A `PermanentApplyError` is skipped, named in
+`failed`, and the cursor moves past it; any other error stops the batch there
+and the runner sends the rest again. Session-record reports go through
+`upsertSessionRecord` with `runnerHostId` forced to the runner's id.
+
+**The ownership rule.** On a runner linked to an organization
+(`outbox/cloud-ownership.ts`, set by the delivery once it holds a grant,
+cleared when the link goes) the agent tools' task and work writes are
+**cloud-owned**: `create_task`, `update_task_status`, `comment_task`,
+`link_task`, `create_work`, `update_work`, and `render_artifact` record an op
+with `destination: 'cloud'` and return, and nothing lands in the runner's own
+tables. Ids are minted before dispatch — a task id by `ulid`, a work id by
+`randomUUID` — so the id the agent holds is the id the service writes the row
+under; `createTask` therefore accepts an origin `{ id, now }`. The new op
+verbs are `tasks/create`, `tasks/link`, and `tasks/link-session`
+(`contracts/outbox-types.ts`); a cloud-owned `works/create` carries no
+`taskId` and asks the service to file the work on the session's task itself
+(`linkToSessionTask`). A signed-out or unlinked host applies locally as
+before, and a dispatched session's foreign-task path is unchanged. The reads
+(`read_task`, `list_tasks`, `find_works`, `read_work`) still answer from the
+runner's own tables in P1: an agent cannot read back a cloud-owned row from
+the runner yet.
+
+## 17. The Lab on the cloud
+
+`packages/lab/src/workspace.ts` boots the built server in workspace mode on a
+temporary data directory (`bootWorkspaceService`; SQLite by default, Postgres
+with a fresh database per run from `createLabDatabase` when
+`POSTGRES_ADMIN_URL` is set). `LabIssuer` mints workspace grants
+(`issueWorkspaceGrant`) and runner grants (`issueRunnerGrant`), and plays the
+control plane's `POST /v1/hosts/:id/runner-grant` for a host it has attached
+to an organization (`attachHostToOrganization`, `setWorkspaceRoute`).
+`bootLabHost({ runnerOf })` boots a personal host with a real link and its
+tokens, attached to the organization. The mock backend's `__MOCK_AGENT_TOOLS__`
+directive runs the real `create_task` and `create_work` tools the host handed
+the run. The `cloud-workspace` scenario is the proof, on both engines
+(`packages/lab/README.md`).

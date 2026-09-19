@@ -7,9 +7,11 @@ import { Task } from './task'
 import { applyOpToForeignTask, foreignTaskFor } from './foreign-tasks'
 import { formatTaskLink } from './task-context'
 import { recordOutboxOp } from '../outbox/outbox-store'
+import { cloudOwnedOrganization } from '../outbox/cloud-ownership'
+import { ulid } from './ulid'
 import { getHostConfig } from '../server/settings'
 import { LOCAL_ORGANIZATION_ID } from '../server/principal'
-import type { TaskCommentOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
+import type { TaskCommentOpPayload, TaskCreateOpPayload, TaskLinkOpPayload, TaskLinkSessionOpPayload, TaskSetStatusOpPayload } from '@solus/contracts/outbox-types'
 import type {
   Task as TaskRecord,
   TaskCreateInput,
@@ -166,8 +168,11 @@ async function executeTaskTool(
   const cwd = deps.ctx.cwd
   const projectKey = await resolveRepoRoot(cwd) ?? cwd
   // An agent runs on the machine that holds its session; the tasks it reads
-  // and writes are that machine's own (docs/plans/cloud-service-model.md).
+  // and writes are that machine's own (docs/plans/cloud-service-model.md) —
+  // unless the machine is a runner linked to an organization, whose writes are
+  // cloud-owned (§16): recorded for the workspace service, never applied here.
   const organizationId = LOCAL_ORGANIZATION_ID
+  const cloudOwned = cloudOwnedOrganization() !== null
   try {
     if (name === 'list_tasks') {
       const input = listTasksInputSchema.parse(args)
@@ -232,6 +237,11 @@ async function executeTaskTool(
         applyOpToForeignTask(deps.ctx.solusSessionId, op)
         return { ok: true, text: `Task ${id} is now "${status}".` }
       }
+      if (cloudOwned) {
+        const payload: TaskSetStatusOpPayload = { status, actorLabel: deps.ctx.sessionId }
+        recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'set-status', payload, sessionId: deps.ctx.sessionId, destination: 'cloud' })
+        return { ok: true, text: `Task ${id} is now "${status}".` }
+      }
       const updated = await (await Task.byId(organizationId, id)).update(
         { status },
         { actor: 'agent', actorLabel: deps.ctx.sessionId },
@@ -249,6 +259,7 @@ async function executeTaskTool(
       }
       const labels = parsed.labels?.map((label) => label.trim()).filter(Boolean)
       const isInbox = parsed.inbox === true
+      if (cloudOwned) return recordCloudOwnedTask({ title, projectKey: isInbox ? null : projectKey, body: parsed.body ?? '', kind: parsed.kind ?? 'task', parentId: requestedParentId || null, priority: parsed.priority ?? null, labels, dueDate: parsed.due_date?.trim() || null, status: parsed.status ?? (isInbox ? 'inbox' : 'todo'), originSessionId: deps.ctx.sessionId ?? null, createdAt: 0 }, deps)
       const input: TaskCreateInput = {
         title,
         projectKey: isInbox ? null : projectKey,
@@ -282,6 +293,11 @@ async function executeTaskTool(
         applyOpToForeignTask(deps.ctx.solusSessionId, op)
         return { ok: true, text: `Comment added to task ${id}.` }
       }
+      if (cloudOwned) {
+        const payload: TaskCommentOpPayload = { body, author: 'agent', originSessionId: deps.ctx.sessionId }
+        recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'comment', payload, sessionId: deps.ctx.sessionId, destination: 'cloud' })
+        return { ok: true, text: `Comment added to task ${id}.` }
+      }
       await (await Task.byId(organizationId, id)).comment(body, {
         author: 'agent',
         originSessionId: deps.ctx.sessionId,
@@ -304,6 +320,11 @@ async function executeTaskTool(
       if (kind === 'session') {
         const sessionId = input.target_id?.trim() || deps.ctx.sessionId
         if (!sessionId) return { ok: false, text: 'link_task with kind=session requires target_id when no calling session id is available.' }
+        if (cloudOwned) {
+          const payload: TaskLinkSessionOpPayload = { sessionId, role: input.role ?? 'working' }
+          recordOutboxOp({ domain: 'tasks', resourceId: taskId, name: 'link-session', payload, sessionId: deps.ctx.sessionId, destination: 'cloud' })
+          return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
+        }
         await (await Task.byId(organizationId, taskId)).linkSession(sessionId, input.role ?? 'working')
         return { ok: true, text: `Linked task ${taskId} to session ${sessionId}.` }
       }
@@ -327,7 +348,7 @@ async function executeTaskTool(
         if (externalPr) targetKey = String(externalPr.number)
       }
 
-      await (await Task.byId(organizationId, taskId)).link({
+      const link: TaskLinkOpPayload = {
         kind,
         targetScope,
         targetKey,
@@ -335,9 +356,15 @@ async function executeTaskTool(
           ? `#${externalPr.number} ${externalPr.baseRepo.owner}/${externalPr.baseRepo.repo}`
           : undefined),
         url: externalPr?.url,
-        createdBy: 'agent',
         originSessionId: deps.ctx.sessionId ?? null,
-      }, { actor: 'agent', actorLabel: deps.ctx.sessionId })
+        actorLabel: deps.ctx.sessionId,
+      }
+      if (cloudOwned) {
+        recordOutboxOp({ domain: 'tasks', resourceId: taskId, name: 'link', payload: link, sessionId: deps.ctx.sessionId, destination: 'cloud' })
+        return { ok: true, text: `Linked ${kind} ${targetKey} to task ${taskId}.` }
+      }
+
+      await (await Task.byId(organizationId, taskId)).link({ ...link, createdBy: 'agent' }, { actor: 'agent', actorLabel: deps.ctx.sessionId })
       return { ok: true, text: `Linked ${kind} ${targetKey} to task ${taskId}.` }
     }
 
@@ -352,6 +379,32 @@ async function executeTaskTool(
  *  task exists, but on another host this one cannot reach. */
 function foreignWriteUnsupported(operation: string, taskId: string): string {
   return `Task ${taskId} lives on another host (this session was dispatched), and ${operation} is not supported from here. Use comment_task or update_task_status — those sync back — or note it in your final message.`
+}
+
+/**
+ * The cloud-owned create (cloud-service-model.md §16). The id and the clock are
+ * minted here, before the op leaves: the agent holds the id the workspace service
+ * writes the row under, and the row is not here to read back, so the answer is
+ * what was sent.
+ */
+function recordCloudOwnedTask(fields: TaskCreateOpPayload, deps: TaskToolDeps): TaskToolResult {
+  const now = Date.now()
+  const id = ulid(now)
+  const payload: TaskCreateOpPayload = { ...fields, createdAt: now }
+  recordOutboxOp({ domain: 'tasks', resourceId: id, name: 'create', payload, sessionId: deps.ctx.sessionId, destination: 'cloud' })
+  deps.onTaskCreated?.({ taskId: id, title: payload.title, url: null })
+  return { ok: true, text: formatCloudTaskForAgent(id, payload) }
+}
+
+function formatCloudTaskForAgent(id: string, payload: TaskCreateOpPayload): string {
+  const lines = [
+    `${payload.kind === 'epic' ? 'Epic' : 'Task'} ${id} — "${payload.title}"`,
+    `status: ${payload.status}`,
+  ]
+  if (payload.labels?.length) lines.push(`labels: ${payload.labels.join(', ')}`)
+  if (payload.parentId) lines.push(`parent: ${payload.parentId}`)
+  lines.push('', payload.body.trim() || '(no description)')
+  return lines.join('\n')
 }
 
 function formatTaskForAgent(

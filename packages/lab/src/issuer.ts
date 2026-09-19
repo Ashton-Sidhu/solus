@@ -3,10 +3,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import { z } from 'zod'
 import {
   HOST_GRANT_TTL_SECONDS,
+  WORKSPACE_AUDIENCE,
+  workspaceHostId,
   type EnrollHostResponse,
   type HostGrantClaims,
   type HostKind,
   type HostLinkResponse,
+  type RunnerGrantResponse,
 } from '@solus/contracts/uplink'
 import type { Persona } from './personas'
 
@@ -23,6 +26,11 @@ const addressSchema = z.object({ port: z.number().int().positive() })
  * same link record and tokens enrollment answers with. That record is then served
  * back at `GET /v1/hosts/:id/link` under the host token, so a rebooted host passes
  * its generation check exactly as it would against the real directory.
+ *
+ * For the cloud workspace (docs/plans/cloud-service-model.md §15–§16) it mints
+ * workspace grants for members and runner grants for linked hosts, and answers
+ * `POST /v1/hosts/:id/runner-grant` under the host token for a host it has
+ * attached to an organization, naming the way to the workspace service.
  */
 
 function base64Url(value: string | Buffer): string {
@@ -38,6 +46,7 @@ interface IssuedLink {
 type IssuerReply =
   | { keys: Array<JsonWebKey & { kid: string }> }
   | HostLinkResponse
+  | RunnerGrantResponse
   | { error: string; message?: string }
 
 function sendJson(response: ServerResponse, status: number, body: IssuerReply): void {
@@ -62,6 +71,9 @@ export class LabIssuer {
   private port = 0
   private minted = 0
   private readonly links = new Map<string, IssuedLink>()
+  /** Host id → the organization the owner shared it with. */
+  private readonly hostOrganizations = new Map<string, string>()
+  private workspaceUrl: string | null = null
 
   /**
    * A fresh key and a free port by default. A proof that reboots a host against the
@@ -148,10 +160,67 @@ export class LabIssuer {
     return this.links.get(hostId)?.link ?? null
   }
 
+  /** The owner shared a host with an organization (`POST /v1/hosts/:id/organization` on the real cloud). */
+  attachHostToOrganization(hostId: string, organizationId: string | null): void {
+    if (organizationId === null) this.hostOrganizations.delete(hostId)
+    else this.hostOrganizations.set(hostId, organizationId)
+  }
+
+  /** Where the workspace service is; the runner-grant answer names it as the tunnel route. */
+  setWorkspaceRoute(url: string | null): void {
+    this.workspaceUrl = url
+  }
+
+  /** A workspace grant for a member (cloud-service-model.md §15): `aud: solus-workspace`, `hostKind: cloud`. */
+  issueWorkspaceGrant(persona: Persona, ttlSeconds?: number): string {
+    return this.mint(persona, { hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud', ttlSeconds })
+  }
+
+  /** A runner grant for a linked host (§16): `sub: host:<id>`, the organization, and the `runner` claim. */
+  issueRunnerGrant(hostId: string, organizationId: string, ttlSeconds = HOST_GRANT_TTL_SECONDS) {
+    const nowSeconds = Math.floor(Date.now() / 1000)
+    this.minted += 1
+    const claims: HostGrantClaims = {
+      iss: this.issuer,
+      aud: WORKSPACE_AUDIENCE,
+      sub: `host:${hostId}`,
+      deviceId: hostId,
+      jti: `lab-${this.minted}-${nowSeconds}`,
+      iat: nowSeconds,
+      exp: nowSeconds + ttlSeconds,
+      hostKind: 'cloud',
+      organizationId,
+      runner: { hostId },
+    }
+    return { grant: this.sign(claims), expiresAt: claims.exp * 1000 }
+  }
+
   private async handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const url = new URL(request.url ?? '/', this.issuer)
     if (url.pathname === '/jwks') {
       sendJson(response, 200, { keys: [this.jwk] })
+      return
+    }
+    const runnerGrantMatch = /^\/v1\/hosts\/([^/]+)\/runner-grant$/.exec(url.pathname)
+    if (runnerGrantMatch && request.method === 'POST') {
+      const hostId = runnerGrantMatch[1]!
+      const issued = this.links.get(hostId)
+      const presented = request.headers.authorization?.replace(/^Bearer\s+/i, '')
+      if (!issued || presented !== issued.hostToken) {
+        sendJson(response, 401, { error: 'invalid_host_token' })
+        return
+      }
+      const organizationId = this.hostOrganizations.get(hostId)
+      if (!organizationId) {
+        sendJson(response, 404, { error: 'host_not_in_organization' })
+        return
+      }
+      if (!this.workspaceUrl) {
+        sendJson(response, 404, { error: 'workspace_not_configured' })
+        return
+      }
+      const { grant, expiresAt } = this.issueRunnerGrant(hostId, organizationId)
+      sendJson(response, 200, { grant, hostId: workspaceHostId(organizationId), expiresAt, organizationId, routes: [{ kind: 'tunnel', url: this.workspaceUrl }] })
       return
     }
     const linkMatch = /^\/v1\/hosts\/([^/]+)\/link$/.exec(url.pathname)
@@ -212,6 +281,10 @@ export class LabIssuer {
         claims = { ...base, sub: `guest:${persona.guestId}`, deviceId: persona.guestId, access: 'guest' }
         break
     }
+    return this.sign(claims)
+  }
+
+  private sign(claims: HostGrantClaims): string {
     const header = base64Url(JSON.stringify({ alg: 'ES256', kid: this.kid, typ: 'JWT' }))
     const body = base64Url(JSON.stringify(claims))
     const signature = sign('sha256', Buffer.from(`${header}.${body}`), { key: this.privateKey, dsaEncoding: 'ieee-p1363' })

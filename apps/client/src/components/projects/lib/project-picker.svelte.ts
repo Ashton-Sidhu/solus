@@ -258,7 +258,7 @@ export function createWebProjectPicker(session: WorkspaceContext) {
 
   function openProjectHosts() {
     const activeId = serversStore.activeServer?.id;
-    return [...serversStore.servers].sort(
+    return [...serversStore.executionServers].sort(
       (a, b) => Number(b.id === activeId) - Number(a.id === activeId),
     );
   }

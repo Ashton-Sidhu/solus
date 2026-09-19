@@ -58,6 +58,7 @@ export { savedPrompts } from './saved-prompts/saved-prompts.store.svelte'
 export { connectionsStore } from './connections/connections.store.svelte'
 export { serversStore } from './connections/servers.store.svelte'
 export { hostCapabilitiesStore } from './connections/host-capabilities.store.svelte'
+export { hostRolesStore } from './connections/host-roles.store.svelte'
 export {
   compareNearbyHosts,
   discoveredServerUrl,

@@ -56,6 +56,15 @@ export interface SavedServer {
   uplink?: SavedServerUplink
 }
 
+/**
+ * The organization's workspace service (docs/plans/cloud-service-model.md): a
+ * `cloud` directory row. It is not a machine — no pairing, no LAN route, no
+ * execution plane — and it is dialed with a grant like any directory host.
+ */
+export function isCloudServer(server: { uplink?: Pick<SavedServerUplink, 'kind'> } | null | undefined): boolean {
+  return server?.uplink?.kind === 'cloud'
+}
+
 /** The routes to dial, oldest entries included: `url` is always one of them, as a direct route. */
 export function savedServerRoutes(server: Pick<SavedServer, 'url' | 'routes'>): HostRoute[] {
   const routes = server.routes ?? []
@@ -151,6 +160,24 @@ export function loadServers(): SavedServer[] {
     localStorage.removeItem(KEY)
   } catch {}
   return []
+}
+
+let cloudServerIdsCache: { raw: string | null; ids: ReadonlySet<string> } | null = null
+
+/**
+ * The ids of the saved cloud rows. Read on hot paths (every host row, every
+ * sidebar pass), so the answer is memoized on the stored blob: a read costs a
+ * string compare, and only a changed registry costs a parse.
+ */
+export function savedCloudServerIds(): ReadonlySet<string> {
+  let raw: string | null = null
+  try {
+    raw = localStorage.getItem(KEY)
+  } catch {}
+  if (cloudServerIdsCache && cloudServerIdsCache.raw === raw) return cloudServerIdsCache.ids
+  const ids = new Set(loadServers().filter(isCloudServer).map((server) => server.id))
+  cloudServerIdsCache = { raw, ids }
+  return ids
 }
 
 export function saveServers(servers: SavedServer[]): void {

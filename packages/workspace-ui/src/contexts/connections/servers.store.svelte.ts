@@ -19,6 +19,7 @@ import { mergeDirectoryIntoSaved } from '@solus/client-core/uplink-session'
 import { SvelteMap, SvelteSet } from 'svelte/reactivity'
 import {
   getActiveServerId,
+  isCloudServer,
   loadServers,
   LOCAL_SERVER_ID,
   onServerRemoving,
@@ -45,7 +46,8 @@ import {
   type NearbyHost,
 } from './discovery'
 import { hostCapabilitiesStore } from './host-capabilities.store.svelte'
-import { hostRowLabel } from './host-label'
+import { hostRolesStore } from './host-roles.store.svelte'
+import { hostRowLabel, SOLUS_CLOUD_LABEL } from './host-label'
 import { hostAffinityGlyph, type HostAffinityGlyph } from './host-affinity'
 
 export type ServerItemStatus = 'online' | 'connecting' | 'offline' | 'saved' | 'different-server'
@@ -173,12 +175,41 @@ class ServersStore {
   }
 
   /**
+   * The hosts work can start on: every row that serves the execution plane
+   * (docs/plans/cloud-service-model.md). The organization's workspace service is
+   * a host with no checkout and no agent process, so the Run-on picker, the
+   * project dialog, and every dispatch target read this list, never `servers`.
+   */
+  get executionServers(): ServerItem[] {
+    return this.servers.filter((server) => hostRolesStore.hasExecution(server.id))
+  }
+
+  /**
    * Remotes reachable right now, not merely saved. A host answers a health
    * probe or holds a live transport before it counts, so the run-on picker
    * only offers machines a session could actually start on.
    */
   get connectedRemotes(): ServerItem[] {
-    return this.servers.filter((server) => !server.local && server.status === 'online')
+    return this.executionServers.filter((server) => !server.local && server.status === 'online')
+  }
+
+  /** The organizations' workspace services this account knows, connected or not. */
+  get cloudServers(): ServerItem[] {
+    return this.servers.filter((server) => isCloudServer(server))
+  }
+
+  /** The workspace service a work can move to: the first cloud host with a live transport. */
+  get connectedCloudServer(): ServerItem | null {
+    return this.cloudServers.find((server) => server.status === 'online') ?? null
+  }
+
+  isCloudHost(serverId: string | null | undefined): boolean {
+    return isCloudServer(this.servers.find((server) => server.id === serverId))
+  }
+
+  /** "Solus Cloud" for a record whose home is the workspace service; null for a machine's. */
+  cloudHomeLabel(serverId: string | null | undefined): string | null {
+    return this.isCloudHost(serverId) ? SOLUS_CLOUD_LABEL : null
   }
 
   /** On web the primary connection plays the local role; see `servers`.

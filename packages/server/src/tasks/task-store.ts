@@ -271,6 +271,8 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
   status: TaskStatus
   source: TaskSource
   now: number
+  /** A runner minted the id before the op left it (cloud-service-model.md §16); the row keeps it. */
+  id?: string
 }): Promise<Task> {
   assertTaskStatus(input.status)
   const title = input.title.trim()
@@ -286,7 +288,7 @@ export async function writeTask(db: Db, organizationId: string, input: TaskCreat
     projectKey = parent.project_key
   }
 
-  const id = ulid(input.now)
+  const id = input.id ?? ulid(input.now)
   const triagedAt = input.status === 'inbox' ? null : input.now
   const doneAt = input.status === 'done' ? input.now : null
   await db.run(sql`
@@ -354,7 +356,8 @@ export async function commentsForTask(taskId: string, db: Db): Promise<TaskComme
   return rows.map(commentFromRow)
 }
 
-export async function createTask(organizationId: string, input: TaskCreateInput): Promise<Task> {
+/** `origin` is the runner's own id and clock for a task it created before the op reached this database. */
+export async function createTask(organizationId: string, input: TaskCreateInput, origin?: { id: string; now: number }): Promise<Task> {
   const task = await database().transaction((db) => {
     const projectKey = normalizedOptional(input.projectKey)
     const source = input.source ?? 'user'
@@ -365,7 +368,8 @@ export async function createTask(organizationId: string, input: TaskCreateInput)
       source,
       status,
       titleSource: source === 'session' ? 'prompt' : 'manual',
-      now: Date.now(),
+      now: origin?.now ?? Date.now(),
+      id: origin?.id,
     })
   })
   emitChanged()

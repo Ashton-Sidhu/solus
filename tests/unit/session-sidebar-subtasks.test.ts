@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import type { Task } from '@solus/contracts/task-types'
 import type { SidebarTask } from '@solus/workspace-ui/components/session/lib/task-list'
 import { SessionSidebarStore } from '@solus/workspace-ui/contexts/workspace/session-sidebar.store.svelte'
+import type { SessionHomeHosts } from '@solus/workspace-ui/components/session/lib/session-home'
 
 type SidebarStoreHarness = Pick<
   SessionSidebarStore,
@@ -14,14 +15,20 @@ type SidebarStoreHarness = Pick<
   tabIdBySessionId: Map<string, string>
   sessionsByTaskId: Map<string, unknown>
   pickerSessionsByTaskId: Map<string, unknown>
+  sessionHomes: SessionHomeHosts
   projectsSessionUnder(
     rootTaskId: string,
     link: { sessionId: string; role?: 'working' | 'referenced' },
   ): boolean
 }
 
+/** No cloud host and every runner up: the rows merge to themselves (session-home.ts). */
+const ONE_HOME: SessionHomeHosts = { isCloudHost: () => false, isConnected: () => true }
+
 function sidebarStore(): SidebarStoreHarness {
-  return Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
+  const store = Object.create(SessionSidebarStore.prototype) as SidebarStoreHarness
+  store.sessionHomes = ONE_HOME
+  return store
 }
 
 function task(id: string, title: string, parentId?: string): Task {

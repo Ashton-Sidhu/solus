@@ -8,6 +8,7 @@ export type Persona =
   | { id: string; kind: 'guest'; guestId: string; displayName: string }
 
 export const ORGANIZATION_ID = 'org-lab'
+export const OTHER_ORGANIZATION_ID = 'org-elsewhere'
 export const TEAM_A = 'team-a'
 
 /**
@@ -16,6 +17,7 @@ export const TEAM_A = 'team-a'
  * cara    an organization member in team A.
  * dan     an organization member in no team, who starts the seats scenario with no provider seat.
  * maya    a visitor with a link and no account.
+ * carol   a member of another organization altogether; on the workspace service she sees none of the above.
  */
 export const PERSONAS = {
   alice: { id: 'alice', kind: 'org-member', userId: 'user-alice', displayName: 'Alice', organizationId: ORGANIZATION_ID, organizationRole: 'owner', teamIds: [] },
@@ -23,6 +25,7 @@ export const PERSONAS = {
   cara: { id: 'cara', kind: 'org-member', userId: 'user-cara', displayName: 'Cara', organizationId: ORGANIZATION_ID, organizationRole: 'member', teamIds: [TEAM_A] },
   dan: { id: 'dan', kind: 'org-member', userId: 'user-dan', displayName: 'Dan', organizationId: ORGANIZATION_ID, organizationRole: 'member', teamIds: [] },
   maya: { id: 'maya', kind: 'guest', guestId: 'guest-maya-0123456789', displayName: 'Maya' },
+  carol: { id: 'carol', kind: 'org-member', userId: 'user-carol', displayName: 'Carol', organizationId: OTHER_ORGANIZATION_ID, organizationRole: 'owner', teamIds: [] },
 } as const satisfies Record<string, Persona>
 
 export type PersonaId = keyof typeof PERSONAS

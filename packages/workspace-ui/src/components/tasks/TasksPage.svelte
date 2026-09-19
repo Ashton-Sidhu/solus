@@ -32,6 +32,7 @@
   import type { TaskProviderChoice } from "./provider/lib/task-provider";
   import {
     atlassianStore,
+    getClientShellContext,
     getWorkspaceContext,
     getProjectConfigStore,
     getSessionSidebarStore,
@@ -112,6 +113,9 @@
   let { paneId }: InlinePageProps = $props();
 
   const session = getWorkspaceContext();
+  const shell = getClientShellContext();
+  /** A task whose home is the workspace service says so on its row and card. */
+  const homeFor = (taskId: string) => serversStore.cloudHomeLabel(session.tasksStore.get(taskId).serverId);
   const pane = paneActions(() => paneId);
   const store = session.tasksStore;
   const projectConfig = getProjectConfigStore();
@@ -444,7 +448,7 @@
     !query.trim() && !runningOnly && !overdueOnly && !assignedOnly,
   );
 
-  const groups = $derived(taskGroups(visibleTasks, sessionsFor, now));
+  const groups = $derived(taskGroups(visibleTasks, sessionsFor, now, homeFor));
   const inboxGroups = $derived.by(() => {
     const ticketGroups = taskInboxGroups(
       scopedInboxTasks,
@@ -815,13 +819,15 @@
       return;
     }
     const [owner, repo] = entry.pullRequest.externalKey.split("/");
-    void session.openPullRequest({
-      number: entry.pullRequest.number,
-      title: entry.pullRequest.title,
-      url: entry.pullRequest.url,
-      baseRepo: owner && repo ? { host: "github.com", owner, repo } : undefined,
-    }, {
-      ctx: session.ctxForDirectory(location.projectKey),
+    shell.openResource({
+      kind: "pull-request",
+      target: {
+        number: entry.pullRequest.number,
+        title: entry.pullRequest.title,
+        url: entry.pullRequest.url,
+        baseRepo: owner && repo ? { host: "github.com", owner, repo } : undefined,
+      },
+      projectDirectory: location.projectKey,
       serverId: location.serverId,
     });
   }
@@ -1310,6 +1316,7 @@
         {:else if boardLayout}
           <TaskBoard
             tasks={boardTasks}
+            {homeFor}
             projectKey={cwd}
             canReorder={view === "global" && boardUnfiltered}
             {selectedKey}

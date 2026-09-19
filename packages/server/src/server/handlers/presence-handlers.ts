@@ -1,6 +1,6 @@
 import { presenceSetComposingRequestSchema, presenceSetFocusRequestSchema, PRESENCE_NO_FOCUS, type PresenceFocus } from '@solus/contracts/presence'
 import type { PresenceManager } from '../../presence/presence-manager'
-import type { Principal } from '../principal'
+import { organizationOf, type Principal } from '../principal'
 import type { SolusServer } from '../server'
 
 /**
@@ -11,18 +11,20 @@ import type { SolusServer } from '../server'
  */
 export function registerPresenceHandlers(server: SolusServer, deps: {
   presence: PresenceManager
-  onHostChanged: () => void
+  /** The client whose room changed; the caller republishes that room. */
+  onHostChanged: (clientId: string) => void
   onSessionChanged: (sessionId: string) => void
 }): void {
   server.register('presenceSnapshot', async (_args, ctx) => ({
     clientId: ctx.clientId,
     // A guest is never told about the host: it sees its one session's room, nothing more.
-    host: ctx.principal.kind === 'guest' ? { participants: [] } : await deps.presence.hostSnapshot(),
+    // Everyone else gets their organization's room: the whole host, or one organization of the workspace service.
+    host: ctx.principal.kind === 'guest' ? { participants: [] } : await deps.presence.hostSnapshot(organizationOf(ctx.principal)),
   }))
 
   server.register('presenceSetFocus', (args, ctx) => {
     const { focus } = presenceSetFocusRequestSchema.parse(args[0])
-    if (deps.presence.setFocus(ctx.clientId, guestScopedFocus(focus, ctx.principal))) deps.onHostChanged()
+    if (deps.presence.setFocus(ctx.clientId, guestScopedFocus(focus, ctx.principal))) deps.onHostChanged(ctx.clientId)
   })
 
   server.register('presenceSetComposing', (args, ctx) => {
@@ -32,7 +34,7 @@ export function registerPresenceHandlers(server: SolusServer, deps: {
     // The roster row marks a draft in the focused session only, so the host
     // hears about a draft exactly when it moves into or out of that session.
     const focus = deps.presence.focusOf(ctx.clientId)
-    if (focus?.kind === 'session' && changed.includes(focus.sessionId)) deps.onHostChanged()
+    if (focus?.kind === 'session' && changed.includes(focus.sessionId)) deps.onHostChanged(ctx.clientId)
   })
 }
 

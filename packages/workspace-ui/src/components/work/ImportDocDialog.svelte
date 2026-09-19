@@ -3,7 +3,7 @@
   import { portal } from "../portal";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getClientShellContext, getWorkspaceContext } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import type { DocProviderId } from "@solus/contracts/docs";
   import { importDocCopy } from "./lib/import-doc";
@@ -27,6 +27,7 @@
   const copy = $derived(importDocCopy(provider));
 
   const session = getWorkspaceContext();
+  const shell = getClientShellContext();
 
   let url = $state("");
   let importing = $state(false);
@@ -50,7 +51,7 @@
       toasts.success(`Imported “${work.title}”`);
       url = "";
       onClose();
-      void session.openWorkModal(work.id, work.title, { via: "palette" });
+      shell.openResource({ kind: "work", workId: work.id, title: work.title, via: "palette" });
     } catch (error) {
       toasts.error("Couldn't import that document", {
         description: error instanceof Error ? error.message : String(error),

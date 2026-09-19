@@ -7,6 +7,7 @@ import {
   type HostGrantResponse,
   type OrganizationDirectory,
   type UplinkDirectory,
+  type HostRoute,
   type UplinkEnrollmentTicket,
 } from '@solus/contracts/uplink'
 import { savedServerRoutes, type SavedServer, type SavedServerUplink } from './server-registry'
@@ -119,9 +120,29 @@ export function organizationIdFor(hostAnswer: string | null | undefined, saved: 
   return hostAnswer ?? saved?.organizationId ?? null
 }
 
+/** The tunnel routes of a directory row: all a cloud row may ever carry. */
+function tunnelRoutes(host: DirectoryHost): HostRoute[] {
+  return host.routes.filter((route) => route.kind === 'tunnel')
+}
+
 /** The registry entry a directory row becomes when this client has never paired with the host. */
 export function savedServerFromDirectory(host: DirectoryHost, directoryUrl: string, now: number): SavedServer {
   const tunnel = host.routes.find((route) => route.kind === 'tunnel') ?? host.routes[0]
+  // A cloud row (docs/plans/cloud-service-model.md) is the organization's
+  // workspace service: its id is the directory's `workspace:<organizationId>`,
+  // its label the organization's name, and the tunnel its only way in.
+  if (host.kind === 'cloud') {
+    return {
+      id: host.hostId,
+      label: host.label,
+      url: tunnel?.url ?? '',
+      sessionToken: '',
+      installationId: host.installationId,
+      lastConnected: now,
+      routes: tunnelRoutes(host),
+      uplink: uplinkOf(host, directoryUrl),
+    }
+  }
   return {
     id: host.installationId,
     label: host.label,
@@ -141,6 +162,10 @@ export function savedServerFromDirectory(host: DirectoryHost, directoryUrl: stri
  * tunnel route; a host only listed is saved with the tunnel route alone; a saved
  * host the directory stopped listing loses its tunnel route and, if it was never
  * paired, disappears. Hosts from another directory origin are left untouched.
+ *
+ * A cloud row follows the directory alone: it is created and updated from the
+ * row (name, organization, tunnel) and never keeps a pairing or a LAN route, and
+ * it disappears the moment the directory stops listing it.
  */
 export function mergeDirectoryIntoSaved(
   saved: SavedServer[],
@@ -152,6 +177,11 @@ export function mergeDirectoryIntoSaved(
   const merged: SavedServer[] = []
   for (const server of saved) {
     const listed = byInstallation.get(server.installationId)
+    if (listed?.kind === 'cloud') {
+      byInstallation.delete(server.installationId)
+      merged.push({ ...savedServerFromDirectory(listed, directoryUrl, now), lastConnected: server.lastConnected })
+      continue
+    }
     if (listed) {
       byInstallation.delete(server.installationId)
       const direct = savedServerRoutes(server).filter((route) => route.kind !== 'tunnel')
@@ -167,6 +197,8 @@ export function mergeDirectoryIntoSaved(
       merged.push(server)
       continue
     }
+    // A cloud row has no life outside the directory.
+    if (server.uplink.kind === 'cloud') continue
     // Unlinked (or deleted) on the cloud side: only the tunnel goes away.
     if (!server.sessionToken) continue
     const { uplink: _dropped, ...rest } = server

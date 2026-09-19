@@ -103,8 +103,13 @@ function sourceFor(task: Task): ListRowSource {
  * the second is only ever a state that genuinely needs colour, so a row that is
  * merely open carries no colour at all.
  */
-function chipsFor(task: Task, now: number): ListChipSpec[] {
+/** Where a record lives, when that is not this machine: "Solus Cloud" for the workspace service. */
+export type TaskHomeLabel = (taskId: string) => string | null
+
+function chipsFor(task: Task, now: number, homeFor?: TaskHomeLabel): ListChipSpec[] {
   const chips: ListChipSpec[] = []
+  const home = homeFor?.(task.id)
+  if (home) chips.push({ label: home })
   const label = visibleLabels(task)[0]
   if (label) chips.push({ label, labelColor: 'var(--solus-accent)' })
 
@@ -138,13 +143,13 @@ function metaFor(task: Task, activeSessions: number): string {
   return ''
 }
 
-export function taskRow(task: Task, activeSessions: number, now: number): ListRowSpec {
+export function taskRow(task: Task, activeSessions: number, now: number, homeFor?: TaskHomeLabel): ListRowSpec {
   return {
     key: task.id,
     ident: identFor(task),
     source: sourceFor(task),
     title: task.title,
-    chips: chipsFor(task, now),
+    chips: chipsFor(task, now, homeFor),
     meta: metaFor(task, activeSessions),
     people: task.assignee
       ? [personFrom(task.assignee, undefined, task.assigneeAvatarUrl)]
@@ -183,7 +188,7 @@ export interface BoardCardSpec {
   timeTitle?: string
 }
 
-export function taskBoardCard(task: Task, activeSessions: number, now: number): BoardCardSpec {
+export function taskBoardCard(task: Task, activeSessions: number, now: number, homeFor?: TaskHomeLabel): BoardCardSpec {
   return {
     key: task.id,
     ident: identFor(task),
@@ -194,7 +199,7 @@ export function taskBoardCard(task: Task, activeSessions: number, now: number): 
     status: metaFor(task, activeSessions),
     live: activeSessions > 0,
     attention: activeSessions === 0 && task.status === 'in_review',
-    chips: chipsFor(task, now),
+    chips: chipsFor(task, now, homeFor),
     people: task.assignee ? [personFrom(task.assignee, undefined, task.assigneeAvatarUrl)] : [],
     time: compactRelativeTime(task.updatedAt, now),
     timeTitle: absoluteTime(task.updatedAt),
@@ -206,13 +211,14 @@ export function taskGroups(
   tasks: Task[],
   sessionsFor: (taskId: string) => number,
   now: number,
+  homeFor?: TaskHomeLabel,
 ): ListGroupSpec[] {
   return TASK_STATUS_GROUPS.map((group) => ({
     key: group.key,
     label: group.label,
     rows: tasks
       .filter((task) => group.statuses.includes(task.status))
-      .map((task) => taskRow(task, sessionsFor(task.id), now)),
+      .map((task) => taskRow(task, sessionsFor(task.id), now, homeFor)),
   })).filter((group) => group.rows.length > 0)
 }
 

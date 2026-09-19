@@ -1,11 +1,11 @@
 <script lang="ts">
-  import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, Globe as GlobeIcon, Link as LinkIcon, Lock as LockIcon, Users as UsersIcon, X as XIcon } from "@lucide/svelte";
+  import { Building2 as OrganizationIcon, Check as CheckIcon, ChevronDown as CaretDownIcon, CloudUpload as CloudUploadIcon, Globe as GlobeIcon, Link as LinkIcon, Lock as LockIcon, Users as UsersIcon, X as XIcon } from "@lucide/svelte";
   import type { ShareRole } from "@solus/contracts/sharing";
   import * as DropdownMenu from "../ui/dropdown-menu";
   import { Button } from "../ui/button";
   import { Input } from "../ui/input";
   import BottomSheet from "../ui/bottom-sheet/bottom-sheet.svelte";
-  import { runtime, sharesStore, uplinkStore } from "../../contexts";
+  import { getWorkspaceContext, runtime, serversStore, sharesStore, uplinkStore } from "../../contexts";
   import { toasts } from "../../lib/toasts";
   import { requestInputFocus } from "../../lib/inputFocus";
   import { linkPresentation, ownerLabel, personCandidates, personRows, scopeKey, scopeOf, scopeOptions, type PersonRow, type ScopeOption } from "./lib/share-rows";
@@ -20,6 +20,7 @@
    * The card sets the chrome rung once; every secondary line is `em`-relative to
    * it, so the whole dialog steps with the display like the settings rows do.
    */
+  const session = getWorkspaceContext();
   const target = $derived(sharesStore.dialog);
   const list = $derived(target ? sharesStore.listFor(target.serverId, target.resource) : undefined);
   const directory = $derived(target ? (sharesStore.directories.get(target.serverId) ?? null) : null);
@@ -92,6 +93,30 @@
   /** Copy is one click on every open. With no link yet it widens the scope to the
    *  link first, so the dialog never sends the person to a choice before the verb. */
   const canCopy = $derived(canShare && !sharesStore.busy && link?.kind !== "checking" && link?.kind !== "unavailable");
+
+  // A work on a machine, with the organization's workspace service connected:
+  // the durable share is the cloud row, so the dialog offers the move and then
+  // reopens on it (docs/plans/cloud-service-model.md R6). Not for sessions and
+  // tasks, which are not moved this way.
+  const cloudHost = $derived(serversStore.connectedCloudServer);
+  const offersMoveToCloud = $derived(
+    !!target && target.resource.kind === "work" && !!cloudHost && !serversStore.isCloudHost(target.serverId) && canShare,
+  );
+  let movingToCloud = $state(false);
+  async function moveToCloudAndShare(): Promise<void> {
+    if (!target || !cloudHost || movingToCloud) return;
+    const { resource, title: workTitle } = target;
+    movingToCloud = true;
+    try {
+      await session.worksStore.moveToCloud(resource.id, cloudHost.id);
+      sharesStore.open({ serverId: cloudHost.id, resource, title: workTitle });
+      toasts.success(`Moved to Solus Cloud · ${cloudHost.label}`);
+    } catch (error) {
+      toasts.error("Couldn't move this work to Solus Cloud", { description: error instanceof Error ? error.message : String(error) });
+    } finally {
+      movingToCloud = false;
+    }
+  }
 
   async function copyLink(): Promise<void> {
     if (!target || !list || !canCopy) return;
@@ -291,7 +316,12 @@
 <!-- The footer is the dialog's two verbs: the link, one click away on every open,
      and the way out. The URL itself never needs to be read, so it is not shown. -->
 {#snippet dialogFooter()}
-  {#if canShare}
+  {#if offersMoveToCloud}
+    <Button size="sm" variant="outline" class="gap-1.5 text-workspace-chrome pointer-coarse:h-10" onclick={() => void moveToCloudAndShare()} disabled={movingToCloud || sharesStore.busy} data-testid="share-move-to-cloud">
+      <CloudUploadIcon />
+      {movingToCloud ? "Moving…" : "Move to Solus Cloud and share"}
+    </Button>
+  {:else if canShare}
     <Button size="sm" variant="outline" class="gap-1.5 text-workspace-chrome pointer-coarse:h-10" onclick={copyLink} disabled={!canCopy} data-testid="share-copy-link" data-link={copyText ?? undefined}>
       {#if copied}<CheckIcon />{:else}<LinkIcon />{/if}
       {copied ? "Copied" : "Copy link"}

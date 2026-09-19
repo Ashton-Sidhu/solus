@@ -1,6 +1,6 @@
 <script lang="ts">
   import { LoaderCircle as SpinnerIcon } from "@lucide/svelte";
-  import { getWorkspaceContext } from "../../contexts";
+  import { getClientShellContext, getWorkspaceContext } from "../../contexts";
   import { relativeTime } from "../../lib/relative-time";
   import {
     MAX_SHEETS,
@@ -22,6 +22,7 @@
   let { entries, linkContext, skipMotion = false }: Props = $props();
 
   const session = getWorkspaceContext();
+  const shell = getClientShellContext();
 
   // Selection lives for the life of the card, not as a preference: the reader
   // picked a sheet in this turn, not a favourite.
@@ -56,7 +57,7 @@
   );
 
   function open(entry: DocumentStackEntry | undefined) {
-    if (entry) void session.openWorkModal(entry.workId, entry.title);
+    if (entry) shell.openResource({ kind: "work", workId: entry.workId, title: entry.title });
   }
 
   function openInSplit(entry: DocumentStackEntry | undefined) {

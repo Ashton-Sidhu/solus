@@ -2,6 +2,7 @@
 // drizzle-kit reads named exports only, so each table is listed by hand; a
 // ported domain adds its tables here and in `sqlite.ts`.
 import * as folioSchema from '../../folio/schema'
+import * as outboxSchema from '../../outbox/schema'
 import * as plansSchema from '../../plans/schema'
 import * as sessionsSchema from '../../sessions/schema'
 import * as sharingSchema from '../../sharing/schema'
@@ -25,3 +26,4 @@ export const plan_index_providers = plansSchema.planIndexProviders.pg
 export const resource_owner = sharingSchema.resourceOwner.pg
 export const share_grant = sharingSchema.shareGrant.pg
 export const session_records = sessionsSchema.sessionRecords.pg
+export const runner_cursors = outboxSchema.runnerCursors.pg

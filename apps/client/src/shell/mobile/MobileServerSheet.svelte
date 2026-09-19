@@ -68,7 +68,8 @@
 <MobileSheet {open} {onClose} title="Servers">
   <div class="px-4">
   <div class="flex flex-col overflow-hidden rounded-2xl border border-(--solus-container-border) bg-(--solus-surface-hover)">
-    {#each serversStore.servers as server, index (server.id)}
+    <!-- The sheet picks where new work starts, so only execution hosts are rows here. -->
+    {#each serversStore.executionServers as server, index (server.id)}
       {#if index > 0}
         <div class="ml-12 h-px bg-(--solus-container-border) opacity-60"></div>
       {/if}

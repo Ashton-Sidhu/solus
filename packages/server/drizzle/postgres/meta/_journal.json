@@ -43,6 +43,13 @@
       "when": 1789786487819,
       "tag": "0005_session_records",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789794682187,
+      "tag": "0006_runner_cursors",
+      "breakpoints": true
     }
   ]
 }

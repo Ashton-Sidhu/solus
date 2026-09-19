@@ -21,7 +21,7 @@ import {
 } from '@solus/contracts/sharing'
 import type { Db } from '../db/database'
 import { createLogger } from '../logger'
-import { isHostOwner, organizationOf, principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
+import { isHostOwner, isOrganizationSpace, organizationOf, principalDisplayName, principalOwnerId, type Principal } from '../server/principal'
 import { resourceOwner, shareGrant } from './schema'
 
 const log = createLogger('main', 'share-manager')
@@ -167,9 +167,10 @@ export class ShareManager {
    * The first principal to start a session or create a work owns it. A later call
    * for the same resource changes nothing, so every entry point may claim freely.
    *
-   * A resource made on a managed host starts shared with the organization the
-   * host serves: the machine is the team's, so its work is visible to the team
-   * until the owner narrows it. A personal host's resources start private.
+   * A resource made on a managed host or the organization's workspace service
+   * starts shared with the organization: the space is the team's, so its work is
+   * visible to the team until the owner narrows it. A personal host's resources
+   * start private.
    */
   async claimOwner(resource: ShareResource, principal: Principal): Promise<string | null> {
     const organizationId = organizationOf(principal)
@@ -181,7 +182,7 @@ export class ShareManager {
       VALUES (${canonical.kind}, ${canonical.id}, ${ownerUserId}, ${this.now()}, ${organizationId})
       ON CONFLICT(resource_kind, resource_id) DO NOTHING
     `)
-    if (inserted.changes > 0 && principal.kind === 'org-member' && principal.hostKind === 'managed') {
+    if (inserted.changes > 0 && isOrganizationSpace(principal)) {
       await this.deps.db.run(sql`
         INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
         VALUES (${randomUUID()}, ${canonical.kind}, ${canonical.id}, 'organization', ${principal.organizationId}, ${SCOPE_ROLE}, NULL, ${ownerUserId}, ${this.now()}, ${organizationId})
@@ -189,6 +190,30 @@ export class ShareManager {
       `)
     }
     return this.ownerOf(organizationId, canonical)
+  }
+
+  /**
+   * A resource a runner's op wrote into the organization's workspace
+   * (cloud-service-model.md §16): owned by the account that linked the runner when
+   * the grant names one, else by the host-owner sentinel, and shared with the
+   * organization as editors like anything made in the organization's space. A
+   * resource that already has an owner is left as it is.
+   */
+  async claimForRunner(resource: ShareResource, runner: Extract<Principal, { kind: 'runner' }>): Promise<void> {
+    const organizationId = organizationOf(runner)
+    const canonical = this.canonical(resource)
+    const ownerUserId = runner.ownerUserId ?? HOST_OWNER_USER_ID
+    const inserted = await this.deps.db.run(sql`
+      INSERT INTO ${resourceOwner} (resource_kind, resource_id, owner_user_id, created_at, organization_id)
+      VALUES (${canonical.kind}, ${canonical.id}, ${ownerUserId}, ${this.now()}, ${organizationId})
+      ON CONFLICT(resource_kind, resource_id) DO NOTHING
+    `)
+    if (inserted.changes === 0) return
+    await this.deps.db.run(sql`
+      INSERT INTO ${shareGrant} (id, resource_kind, resource_id, subject_kind, subject_id, role, link_secret_hash, granted_by_user_id, created_at, organization_id)
+      VALUES (${randomUUID()}, ${canonical.kind}, ${canonical.id}, 'organization', ${organizationId}, ${SCOPE_ROLE}, NULL, ${ownerUserId}, ${this.now()}, ${organizationId})
+      ON CONFLICT(resource_kind, resource_id, subject_kind, subject_id) DO NOTHING
+    `)
   }
 
   /** Only the owner may hand a resource to another member; the change is announced to everyone with access. */
@@ -220,6 +245,8 @@ export class ShareManager {
     const canonical = this.canonical(resource)
     if (principal.kind === 'system') return 'owner'
     if (isHostOwner(principal)) return 'owner'
+    // A runner holds no role on anything; its writes go through the system-only methods.
+    if (principal.kind === 'runner') return 'none'
     const organizationId = organizationOf(principal)
     if (principal.kind === 'guest') {
       const bound = this.canonical(principal.share.resource)
@@ -330,6 +357,7 @@ export class ShareManager {
     const visible = await this.visibleIds(principal, kind)
     if (visible === 'all') return items
     // On a managed host, a resource nobody owns is the host's own work and the team's to see.
+    // (In the cloud a runner's work is claimed for the organization as it lands, so nothing is unowned there.)
     const owned = principal.kind === 'org-member' && principal.hostKind === 'managed'
       ? new Set(ownerRowsSchema.parse(await this.deps.db.all(sql`
           SELECT resource_id FROM ${resourceOwner}

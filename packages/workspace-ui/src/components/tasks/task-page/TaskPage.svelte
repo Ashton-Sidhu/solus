@@ -158,7 +158,7 @@
   const taskServerId = $derived(store.get(taskId).serverId);
   // Sharing needs a host to ask and a workspace to share from; a guest shell has neither to offer.
   const shareServerId = $derived(
-    shell.hasWorkspace ? (taskServerId ?? serverConnections.defaultServerId()) : null,
+    shell.canOpenResource("workspace") ? (taskServerId ?? serverConnections.defaultServerId()) : null,
   );
   const canShare = $derived(!!shareServerId && sharesStore.canShareFrom(shareServerId));
   function openShare(record: Task): void {
@@ -435,11 +435,13 @@
   function openLink(link: TaskLink) {
     switch (link.kind) {
       case "work":
-        void session.openWorkModal(
-          link.targetKey,
-          link.liveTitle || link.title,
-          { secondary: true, via: "click" },
-        );
+        shell.openResource({
+          kind: "work",
+          workId: link.targetKey,
+          title: link.liveTitle || link.title,
+          secondary: true,
+          via: "click",
+        });
         break;
       case "plan":
         void session.openPlanModal(
@@ -459,16 +461,12 @@
             taskProjectDirectory: projectCwd,
             linkProjectDirectory: link.targetScope,
           });
-          void session.openPullRequest({
-            number,
-            title: link.title,
-            url: link.url,
-          }, {
-            ctx: target.projectDirectory
-              ? session.ctxForDirectory(target.projectDirectory)
-              : session.ctx,
-            serverId: target.serverId,
-            target: paneId
+          shell.openResource({
+            kind: "pull-request",
+            target: { number, title: link.title, url: link.url },
+            projectDirectory: target.projectDirectory ?? undefined,
+            serverId: target.serverId ?? undefined,
+            navTarget: paneId
               ? session.router.targetAcrossFrom(paneId)
               : "aside",
           });

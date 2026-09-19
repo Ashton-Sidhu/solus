@@ -162,8 +162,12 @@
   }
 
   function handleOpenChat(mode: "resume" | "new") {
-    void session.openChatForWork(params.workId, mode);
+    shell.openResource({ kind: "chat", workId: params.workId, mode });
   }
+
+  // A guest shell has nowhere for these to lead, so the surfaces offer no way there.
+  const canOpenWorkspace = $derived(shell.canOpenResource("workspace"));
+  const canOpenChat = $derived(shell.canOpenResource("chat"));
 
   function handleRename(newTitle: string) {
     void session.worksStore.save(params.workId, { title: newTitle });
@@ -254,8 +258,8 @@
                 shellDirty = d;
               }}
               onClose={handleClose}
-              onOpenWorkspace={shell.hasWorkspace ? openWorkspacePage : undefined}
-              onOpenChat={shell.hasWorkspace ? handleOpenChat : undefined}
+              onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
+              onOpenChat={canOpenChat ? handleOpenChat : undefined}
               {originalSessionMeta}
               onRename={handleRename}
               onRevert={handleRevert}
@@ -277,8 +281,8 @@
             title={work.title}
             workId={work.id}
             onClose={handleClose}
-            onOpenWorkspace={shell.hasWorkspace ? openWorkspacePage : undefined}
-            onOpenChat={shell.hasWorkspace ? handleOpenChat : undefined}
+            onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
+            onOpenChat={canOpenChat ? handleOpenChat : undefined}
             {originalSessionMeta}
             onRename={handleRename}
             onRevert={handleRevert}
@@ -308,10 +312,10 @@
                 shellDirty = d;
               }}
               onClose={handleClose}
-              onOpenWorkspace={shell.hasWorkspace ? openWorkspacePage : undefined}
+              onOpenWorkspace={canOpenWorkspace ? openWorkspacePage : undefined}
               inline
               minimizeOutline={!pane.isLeading}
-              onOpenChat={shell.hasWorkspace ? handleOpenChat : undefined}
+              onOpenChat={canOpenChat ? handleOpenChat : undefined}
               {originalSessionMeta}
               onRename={handleRename}
               onRevert={handleRevert}
@@ -333,7 +337,7 @@
     <!-- After the content: the shell toolbars above are window drag regions,
          and a drag rect later in the DOM would re-cover this cluster's no-drag
          holes. A guest shell has no pane row to close into, so it gets none. -->
-    {#if shell.hasWorkspace}
+    {#if canOpenWorkspace}
       <PaneChrome
         onClose={handleClose}
         onOpenInSplit={shell.hasCompanionPanes ? pane.moveAcross : undefined}

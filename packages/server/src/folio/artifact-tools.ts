@@ -83,6 +83,8 @@ export async function executeArtifactTool(
     deps.onArtifact?.({ html, workId: created.workId, title: created.title })
     const syncNote = created.foreignTaskId
       ? ` It syncs to the task's host and links to task ${created.foreignTaskId}.`
+      : created.cloudOwned
+        ? ` It syncs to the organization's workspace${input.link_to_task ? ' and links to the session\'s task there' : ''}.`
       : input.link_to_task
         ? ' It is linked to the session\'s task.'
         : ' It is not linked to a task; pass link_to_task: true, or the reader can link it from the rail.'

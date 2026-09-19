@@ -28,6 +28,7 @@ import { trackSessionReviewGuides } from '../../components/review/lib/session-gu
 import { trackBranchReviewGuides } from '../../components/review/lib/branch-guide-tracker.svelte'
 import { toasts } from '../../lib/toasts'
 import { notificationsStore } from '../notifications/notifications.store.svelte'
+import { serversStore } from '../connections/servers.store.svelte'
 
 export interface AppCore {
   settings: SettingsContext
@@ -73,7 +74,13 @@ export function createAppCore(shell: ClientShellContext): AppCore {
     pullRequests,
     agent,
   )
-  const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects)
+  // The shell opens resources in the workspace it now has.
+  shell.attachWorkspace(session)
+  const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects, {
+    // Reactive: a runner coming back or a cloud row appearing re-merges the rows.
+    isCloudHost: (serverId) => serversStore.isCloudHost(serverId),
+    isConnected: (serverId) => !!serverId && serversStore.statusFor(serverId) === 'online',
+  })
   session.trackVisibleConversations()
   trackSessionReviewGuides(session)
   trackBranchReviewGuides(session, sessionEnvironmentStore)

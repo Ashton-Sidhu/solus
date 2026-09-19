@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import type { DirectoryHost } from '@solus/contracts/uplink'
-import { dialableRoutes, loadServers, nextRouteUrl, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
+import { dialableRoutes, isCloudServer, loadServers, nextRouteUrl, savedServerRoutes, type SavedServer } from '@solus/client-core/server-registry'
 import { mergeDirectoryIntoSaved, organizationIdFor, savedServerFromDirectory } from '@solus/client-core/uplink-session'
 
 // docs/plans/personal-uplink.md C1: the account's directory is a fourth source of
@@ -138,6 +138,36 @@ describe('merging the directory into saved hosts', () => {
     const reloaded = loadServers()
     expect(reloaded[0].uplink?.kind).toBe('managed')
     expect(reloaded[1].uplink?.managedState).toBeUndefined()
+  })
+
+  test('a cloud row is the organization\'s workspace: named by the directory id, labelled by the organization, tunnel only, never paired', () => {
+    // WHY: docs/plans/cloud-service-model.md — the workspace service is a host of
+    // kind `cloud`. It is not a machine: no LAN route can reach it and no pairing
+    // exists for it, so the directory row is its whole registry entry.
+    const workspace = listed({
+      hostId: 'workspace:org-1', installationId: 'workspace:org-1', label: 'Acme', kind: 'cloud', organizationId: 'org-1',
+      os: undefined, routes: [{ kind: 'direct', url: 'http://10.0.0.1:1' }, { kind: 'tunnel', url: 'https://ws.example.test' }],
+    })
+    const merged = mergeDirectoryIntoSaved([paired()], [listed(), workspace], DIRECTORY, 10)
+    const cloud = merged.find((server) => server.id === 'workspace:org-1')
+    expect(cloud).toEqual({
+      id: 'workspace:org-1', label: 'Acme', url: 'https://ws.example.test', sessionToken: '', installationId: 'workspace:org-1',
+      lastConnected: 10, routes: [{ kind: 'tunnel', url: 'https://ws.example.test' }],
+      uplink: { hostId: 'workspace:org-1', directoryUrl: DIRECTORY, organizationId: 'org-1', kind: 'cloud' },
+    })
+    expect(isCloudServer(cloud)).toBe(true)
+    expect(isCloudServer(merged[0])).toBe(false)
+
+    // The next read renames the organization and moves the tunnel: the row follows, and never
+    // keeps a route or a pairing a stale save may have stamped on it.
+    const stale = { ...cloud!, sessionToken: 'never', routes: [{ kind: 'direct' as const, url: 'http://lan' }, ...cloud!.routes] }
+    const renamed = mergeDirectoryIntoSaved([stale], [{ ...workspace, label: 'Acme Corp', routes: [{ kind: 'tunnel', url: 'https://ws2.example.test' }] }], DIRECTORY, 11)
+    expect(renamed[0]).toMatchObject({ id: 'workspace:org-1', label: 'Acme Corp', url: 'https://ws2.example.test', sessionToken: '', lastConnected: 10 })
+    expect(renamed[0].routes).toEqual([{ kind: 'tunnel', url: 'https://ws2.example.test' }])
+
+    // Gone from the directory (the account left the organization): the row goes with it, pairing or not.
+    expect(mergeDirectoryIntoSaved([stale], [], DIRECTORY, 12)).toEqual([])
+    expect(mergeDirectoryIntoSaved([cloud!, paired()], [], DIRECTORY, 12).map((server) => server.id)).toEqual(['inst-1'])
   })
 
   test('hosts from another directory origin are left alone', () => {

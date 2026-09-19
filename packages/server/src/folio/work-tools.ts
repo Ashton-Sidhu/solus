@@ -22,6 +22,7 @@ import {
   foreignTaskIdFor,
 } from '../tasks/foreign-tasks'
 import { recordOutboxOp } from '../outbox/outbox-store'
+import { cloudOwnedOrganization } from '../outbox/cloud-ownership'
 import type { WorkCreateOpPayload, WorkUpdateOpPayload } from '@solus/contracts/outbox-types'
 
 const log = createLogger('folio', 'work-tools.ts')
@@ -143,6 +144,9 @@ export interface AgentWorkCreated {
   /** Set when the work was recorded as an outbox op for a dispatched
    *  session's task host instead of landing in this host's store. */
   foreignTaskId: string | null
+  /** Set when the work was recorded for the organization's workspace service
+   *  (cloud-service-model.md §16) instead of landing in this host's store. */
+  cloudOwned: boolean
 }
 
 /**
@@ -151,7 +155,9 @@ export interface AgentWorkCreated {
  * belongs to its task's host, not this borrowed machine: it becomes an outbox
  * op the client couriers there, with an overlay so the agent's own reads see
  * it before delivery and the owner-side link brings it back with the next
- * snapshot re-ship. Shared by `create_work` and `render_artifact`.
+ * snapshot re-ship. On a runner linked to an organization the work is
+ * cloud-owned: the same op, addressed to the workspace service, which links it
+ * to the session's task itself. Shared by `create_work` and `render_artifact`.
  */
 export async function createAgentWork(
   title: string,
@@ -178,8 +184,10 @@ export async function createAgentWork(
     }
     const op = recordOutboxOp({ domain: 'works', resourceId: workId, name: 'create', payload, sessionId: ctx?.sessionId })
     applyWorkOpToForeignTask(ctx?.solusSessionId, op)
-    return { workId, title, foreignTaskId }
+    return { workId, title, foreignTaskId, cloudOwned: false }
   }
+
+  if (cloudOwnedOrganization() !== null) return recordCloudOwnedWork(title, docType, content, ctx, linkToTask)
 
   const created = await createWork(
     LOCAL_ORGANIZATION_ID,
@@ -205,7 +213,23 @@ export async function createAgentWork(
       })
     })
   }
-  return { workId: created.id, title: created.title, foreignTaskId: null }
+  return { workId: created.id, title: created.title, foreignTaskId: null, cloudOwned: false }
+}
+
+/** The cloud-owned create: the id is minted here, the row is the workspace service's to write. */
+function recordCloudOwnedWork(title: string, docType: WorkType, content: string, ctx: WorkCreateCtx | undefined, linkToTask: boolean): AgentWorkCreated {
+  const workId = randomUUID()
+  const payload: WorkCreateOpPayload = {
+    title,
+    docType,
+    content,
+    agentProvider: ctx?.agentProvider ?? 'claude-code',
+    originSessionId: ctx?.sessionId,
+    cwd: ctx?.cwd,
+    linkToSessionTask: linkToTask && !!ctx?.sessionId,
+  }
+  recordOutboxOp({ domain: 'works', resourceId: workId, name: 'create', payload, sessionId: ctx?.sessionId, destination: 'cloud' })
+  return { workId, title, foreignTaskId: null, cloudOwned: true }
 }
 
 /** The ready-made embed token for a work that can be embedded, so an agent
@@ -313,7 +337,9 @@ export async function executeWorkTool(
         : ''
       const syncNote = created.foreignTaskId
         ? ` It syncs to the task's host and links to task ${created.foreignTaskId}.`
-        : ''
+        : created.cloudOwned
+          ? ' It syncs to the organization\'s workspace.'
+          : ''
       return { ok: true, text: `Created "${created.title}" (id: ${created.workId}).${syncNote}${embedGuidance}` }
     }
 
@@ -323,6 +349,15 @@ export async function executeWorkTool(
       const content = args.content ?? ''
       if (!content.trim()) return { ok: false, text: 'update_work requires non-empty content.' }
       const title = args.title
+
+      if (cloudOwnedOrganization() !== null) {
+        // The row lives in the organization's workspace; the update travels as an op.
+        const payload: WorkUpdateOpPayload = { content }
+        if (title !== undefined) payload.title = title
+        recordOutboxOp({ domain: 'works', resourceId: workId, name: 'update', payload, sessionId: deps.ctx?.sessionId, destination: 'cloud' })
+        deps.onWorkUpdated?.({ workId, title: title ?? '', docType: 'doc', content, updatedAt: new Date().toISOString() })
+        return { ok: true, text: `Updated work ${workId}. The change syncs to the organization's workspace.` }
+      }
 
       const existing = await loadWork(LOCAL_ORGANIZATION_ID, workId)
       if (!existing) {

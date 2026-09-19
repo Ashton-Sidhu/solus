@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { BaseAgentBackend } from '@solus/server/agents/base-backend'
 import { solusDir } from '@solus/server/platform/paths'
 import { agentSaveWork, createWork } from '@solus/server/folio/works'
+import { executeAgentTool } from '@solus/server/agents/tools/agent-tool'
 import { workPreview } from '@solus/contracts/work-preview'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
 import type {
@@ -122,18 +123,18 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     this.pendingRuns.push(handle)
 
     // Emit events asynchronously so the caller can register listeners first.
-    setImmediate(() => this._emitConversation(handle, request.prompt))
+    setImmediate(() => this._emitConversation(handle, request))
 
     return handle
   }
 
-  private _emitConversation(handle: RunHandle, rawPrompt: string) {
+  private _emitConversation(handle: RunHandle, request: AgentRunRequest) {
     if (handle.abortController.signal.aborted) return
 
     // The chat input is a markdown editor that backslash-escapes underscores on
     // serialize (e.g. `__MOCK_DOCUMENT__` → `\__MOCK_DOCUMENT_\_`). Strip the
     // escapes so the literal trigger strings below (and in specs) still match.
-    const prompt = rawPrompt.replace(/\\/g, '')
+    const prompt = request.prompt.replace(/\\/g, '')
     const responseText = this._responseFor(prompt)
 
     this.promoteToActive(handle, MOCK_SESSION_ID)
@@ -144,6 +145,14 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       model: 'mock-model',
       skills: [],
     } satisfies NormalizedEvent)
+
+    // Run the real create_task and create_work tools the host handed this run,
+    // exactly as a provider adapter would (the Lab's cloud-workspace proof:
+    // where an agent's writes land depends on the host, not on the backend).
+    if (prompt.includes('__MOCK_AGENT_TOOLS__')) {
+      void this._runAgentTools(handle, request)
+      return
+    }
 
     // Emit a plan event for plan-triggering prompts.
     if (prompt.includes('__MOCK_PLAN__')) {
@@ -358,6 +367,38 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     }
 
     this._completeRun(handle, responseText)
+  }
+
+  /** `__MOCK_AGENT_TOOLS__`: one `create_task` and one `create_work` through the
+   *  host's own tool executors, with the context a provider adapter builds. The
+   *  completion text carries both results, so a reader can see the ids. */
+  private async _runAgentTools(handle: RunHandle, request: AgentRunRequest): Promise<void> {
+    const context = {
+      provider: this.id,
+      cwd: request.cwd,
+      sessionId: () => handle.agentSessionId ?? MOCK_SESSION_ID,
+      solusSessionId: () => handle.sessionId,
+      abortSignal: handle.abortController.signal,
+      parentToolUseId: () => undefined,
+      emit: (event: NormalizedEvent) => this.emit('normalized', MOCK_SESSION_ID, event),
+    }
+    const results: string[] = []
+    const calls: Array<[string, Record<string, string>]> = [
+      ['create_task', { title: 'Runner task from the mock agent', body: 'Filed by __MOCK_AGENT_TOOLS__.' }],
+      ['create_work', { title: 'Runner work from the mock agent', doc_type: 'doc', content: '# Runner work\n\nWritten by __MOCK_AGENT_TOOLS__.' }],
+    ]
+    for (const [index, [name, input]] of calls.entries()) {
+      if (handle.abortController.signal.aborted) return
+      const agentTool = request.tools.find((candidate) => candidate.name === name)
+      const toolId = `mock-agent-tool-${index}`
+      this.emit('normalized', MOCK_SESSION_ID, { type: 'tool_call', toolName: `mcp__solus__${name}`, toolId, index } satisfies NormalizedEvent)
+      const result = agentTool
+        ? await executeAgentTool(agentTool, input, context)
+        : { ok: false, text: `The host handed this run no ${name} tool.` }
+      this.emit('normalized', MOCK_SESSION_ID, { type: 'tool_call_complete', index, toolId, toolInput: JSON.stringify(input) } satisfies NormalizedEvent)
+      results.push(`${name}: ${result.ok ? 'ok' : 'failed'} — ${result.text}`)
+    }
+    this._completeRun(handle, results.join('\n'))
   }
 
   /** Drive the full create_work path: a tool call whose input arrives in chunks

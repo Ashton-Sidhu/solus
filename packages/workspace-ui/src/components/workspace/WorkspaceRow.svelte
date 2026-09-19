@@ -56,6 +56,8 @@
     /** Set while the ledger spans more than one project — the row then names
      *  the project it came from, which is otherwise implied by the scope. */
     showProject: boolean;
+    /** "Solus Cloud" when the artifact's home is the workspace service; null for this machine's. */
+    homeLabel?: string | null;
     /** Active free-text query, marked inside the title. */
     query: string;
     /** The origin session's name once the index has it; the chip stands in with
@@ -80,6 +82,7 @@
     item,
     selected,
     showProject,
+    homeLabel = null,
     query,
     sessionLabel,
     onOpen,
@@ -297,6 +300,9 @@
     >
       {item.projectLabel}
     </span>
+    {#if homeLabel}
+      <span class="shrink-0 rounded-full border border-(--solus-container-border) px-1.5 text-[0.8125em] leading-[1.4] text-(--solus-text-tertiary)" data-testid="workspace-row-home">{homeLabel}</span>
+    {/if}
 
     <!-- Upstream is a logo-only column. Its fixed slot keeps the status and time
          columns aligned for local works and plans without adding placeholder

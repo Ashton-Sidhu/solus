@@ -70,6 +70,8 @@ import {
 } from '../../components/review/review-guide.store.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { readSessionMeta } from '@solus/client-core/session-meta'
+import { savedCloudServerIds } from '@solus/client-core/server-registry'
+import { mergeSessionHomes, type SessionHomeHosts } from '../../components/session/lib/session-home'
 import { subscribeAllHosts } from '@solus/client-core/host-events'
 import {
   prLinkDiscoveryAttempts,
@@ -139,6 +141,9 @@ export type SidebarSessionChild = {
   /** Durable walkthrough state shown in the row tooltip after its notification
    * mark has been acknowledged. */
   reviewGuideTooltipStatus?: 'generating' | 'ready' | null
+  /** The row is the cloud record of a session whose runner is not connected
+   *  (docs/plans/cloud-service-model.md R8): it opens read-only. */
+  runnerOffline?: boolean
 }
 
 function projectLabel(projectKey: string): string {
@@ -176,6 +181,14 @@ export function sidebarSessionIds(
     session?.forked ? null : session?.agentSessionId,
     session?.forkedFromSessionId,
   ].filter((sessionId): sessionId is string => !!sessionId)
+}
+
+/** The homes as the saved-host registry and the live sockets know them, without a reactive store. */
+export function registrySessionHomes(): SessionHomeHosts {
+  return {
+    isCloudHost: (serverId) => !!serverId && savedCloudServerIds().has(serverId),
+    isConnected: (serverId) => !!serverId && serverConnections.statusFor(serverId) === 'connected',
+  }
 }
 
 export class SessionSidebarStore {
@@ -856,6 +869,10 @@ export class SessionSidebarStore {
     private session: WorkspaceContext,
     private planStore: PlanStore,
     private pullRequestProjects: PrsStore,
+    /** Which hosts are the cloud and which are up, for one row per session across
+     *  its homes. The app core hands in the reactive servers store; the registry
+     *  answers on its own for a store built without one. */
+    private readonly sessionHomes: SessionHomeHosts = registrySessionHomes(),
   ) {
     const persistedOpenTaskIds = loadOpenSidebarTaskIds()
     this.openTaskIds = new SvelteSet(persistedOpenTaskIds ?? [])
@@ -1323,7 +1340,9 @@ export class SessionSidebarStore {
       })
     }
 
-    return children
+    // One row per session across its homes: the runner while it is connected,
+    // else the cloud record, marked.
+    return mergeSessionHomes(children, this.sessionHomes)
   }
 
   selectTab(tabId: string): void {

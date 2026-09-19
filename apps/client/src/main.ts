@@ -5,6 +5,8 @@ import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } f
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, mintGuestGrant, newGuestId, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
 import { parseGuestLinkFragment, type GuestLink } from '@solus/contracts/sharing'
+import { workspaceHostId } from '@solus/contracts/uplink'
+import { parsePageRouteFragment, type PageRoute } from './lib/page-routes'
 import { guestBoot } from './lib/guest-boot.svelte'
 import { serverConnections } from '@solus/client-core/server-connections'
 import { setConnectionState, subscribe } from '@solus/client-core/connection-state'
@@ -394,14 +396,98 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
   }
 }
 
+// ── Organization pages ────────────────────────────────────────────────────────
+// `#/w/<orgId>/…` on the account origin (docs/plans/cloud-service-model.md): the
+// signed-in account's directory names the organization's workspace service, a
+// grant opens it, and the page shell mounts one of its lists or records against
+// that host alone. The hash stays in the address bar so a reload walks the same door.
+
+let pageAppImport: Promise<typeof import('./PageApp.svelte')> | null = null
+
+function loadPageApp(): Promise<typeof import('./PageApp.svelte')> {
+  if (!pageAppImport) {
+    pageAppImport = import('./PageApp.svelte').catch((error) => {
+      pageAppImport = null
+      throw error
+    })
+  }
+  return pageAppImport
+}
+
+async function bootPage(route: PageRoute): Promise<void> {
+  void loadPageApp().catch(() => {})
+  cloudOrigin.kind = await adoptCloudOriginIfPresent(location.origin)
+  if (cloudOrigin.kind === 'signed-out') {
+    // The account is the only way in: sign in, then come back to this page.
+    location.assign(cloudOrigin.signInUrlReturningTo(`${BASE}${location.hash}`))
+    return
+  }
+  if (cloudOrigin.kind !== 'signed-in') {
+    toasts.error('This page needs the Solus cloud account origin')
+    void bootFromCatalog()
+    return
+  }
+  const directory = await uplinkAccountSource()?.listDirectory()
+  if (!directory) {
+    toasts.error('Solus cloud did not answer')
+    void bootFromCatalog()
+    return
+  }
+  const merged = mergeDirectoryIntoSaved(loadServers(), directory.hosts, directory.directoryUrl, Date.now())
+  saveServers(merged)
+  const server = merged.find((saved) => saved.id === workspaceHostId(route.organizationId))
+  if (!server) {
+    toasts.error('You are not a member of this organization, or it has no workspace yet')
+    void bootFromCatalog()
+    return
+  }
+  await connectPage(server, route)
+}
+
+async function connectPage(server: SavedServer, route: PageRoute): Promise<void> {
+  const generation = ++connectionGeneration
+  toasts.dismiss()
+  const target = savedServerTarget(server)
+  const { transport, api } = createSolusConnection(target, {
+    verifyConnectedHost: () => serverConnections.verifySavedServerIdentity(target),
+    onStatusChange: (status: ConnectionStatus, attempt: number) => {
+      serverConnections.updateStatus(server.id, status, attempt)
+      setConnectionState({ status, attempt, target })
+    },
+  })
+  installWindowSolusApi(api)
+  serverConnections.registerPrimary(server.id, api, transport, target)
+  activeTransport = transport
+  transport.start()
+  try {
+    const { default: PageApp } = await loadPageApp()
+    if (generation !== connectionGeneration || activeTransport !== transport) {
+      transport.destroy()
+      return
+    }
+    solusApp = mount(PageApp, {
+      target: root,
+      props: { serverId: server.id, organizationId: route.organizationId, organizationName: server.label, workspaceUrl: BASE },
+    })
+  } catch (error) {
+    if (generation !== connectionGeneration) return
+    if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
+    else toasts.error(error instanceof Error ? error.message : 'The page failed to load')
+  }
+}
+
 const bootPairToken = pairTokenFromLocation(location.href, BASE)
 // Only the account origin serves guest links: a host has no `/v1` to mint a grant at.
 const bootGuestLink = BASE === '/' ? null : parseGuestLinkFragment(location.hash)
+// Likewise an organization's pages: only the account origin has the directory that names its workspace.
+const bootPageRoute = BASE === '/' ? null : parsePageRouteFragment(location.hash)
 
 if (bootPairToken) {
   void pairFromLocation(bootPairToken)
 } else if (bootGuestLink) {
   void bootGuest(bootGuestLink)
+} else if (bootPageRoute) {
+  void bootPage(bootPageRoute)
 } else {
   void bootFromCatalog()
 }

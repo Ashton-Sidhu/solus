@@ -15,10 +15,17 @@ import type { SavedServerUplink } from '@solus/client-core/server-registry'
  * name is an identifier nobody chose, and every surface answers "where does this
  * run", not which machine. Which team it serves belongs to Connections.
  *
+ * A cloud row is the organization's workspace service
+ * (docs/plans/cloud-service-model.md): its label is the organization's name, as
+ * the directory said it, and the service reports no machine name worth printing
+ * over it. Connections prefixes it with "Solus Cloud"; a list badge says only
+ * "Solus Cloud", because the organization is implied by the account.
+ *
  * The exception is a name the user typed. Renaming the machine must not rewrite
  * their wording, so `hasUserLabel` outranks the host's own answer.
  */
 export const CLOUD_HOST_LABEL = 'Cloud'
+export const SOLUS_CLOUD_LABEL = 'Solus Cloud'
 
 export function hostRowLabel(
   saved: { label: string; hasUserLabel?: boolean; uplink?: Pick<SavedServerUplink, 'kind'> },
@@ -26,5 +33,11 @@ export function hostRowLabel(
 ): string {
   if (saved.hasUserLabel) return saved.label
   if (saved.uplink?.kind === 'managed') return CLOUD_HOST_LABEL
+  if (saved.uplink?.kind === 'cloud') return saved.label
   return reportedName || saved.label
+}
+
+/** The Connections row for a workspace service: "Solus Cloud · <organization>". */
+export function cloudConnectionsLabel(organizationName: string): string {
+  return organizationName ? `${SOLUS_CLOUD_LABEL} · ${organizationName}` : SOLUS_CLOUD_LABEL
 }

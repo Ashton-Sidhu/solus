@@ -487,6 +487,12 @@
 
   /** What to call the session an artifact came from. A session open in a tab
    *  knows its own name; the index answers for everything else. */
+  /** "Solus Cloud" when the artifact lives on the workspace service. */
+  function homeLabel(item: WorkspaceItem): string | null {
+    const serverId = item.source.kind === "work" ? session.worksStore.hostFor(item.id) : item.source.descriptor.serverId;
+    return serversStore.cloudHomeLabel(serverId);
+  }
+
   function originLabel(item: WorkspaceItem): string | null {
     if (!item.sessionId) return null;
     return (
@@ -683,6 +689,21 @@
     void planStore.toggleBookmarkDescriptor(d);
   }
 
+  /** Works only: one way to the organization's workspace service (R6). */
+  const cloudHost = $derived(serversStore.connectedCloudServer);
+  function canMoveToCloud(item: WorkspaceItem): boolean {
+    return item.source.kind === "work" && !!cloudHost && !serversStore.isCloudHost(session.worksStore.hostFor(item.id));
+  }
+  async function moveItemToCloud(item: WorkspaceItem) {
+    if (item.source.kind !== "work" || !cloudHost) return;
+    try {
+      await session.worksStore.moveToCloud(item.id, cloudHost.id);
+      toasts.success(`Moved to Solus Cloud · ${cloudHost.label}`);
+    } catch (error) {
+      toasts.error("Couldn't move this work to Solus Cloud", { description: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
   /** Works only — a plan is a session artifact and has no delete. */
   function deleteItem(item: WorkspaceItem) {
     if (item.source.kind !== "work") return;
@@ -773,6 +794,7 @@
     {item}
     selected={index === selectedIndex}
     {showProject}
+    homeLabel={homeLabel(item)}
     query={filter.text}
     onOpen={() =>
       stacked && !isHtmlArtifact(item) ? peek.raise(item) : openItem(item)}
@@ -1226,6 +1248,9 @@
           : undefined}
         onOpenSessionSplit={menuItem.sessionId
           ? () => void openSessionInSplit(menuItem)
+          : undefined}
+        onMoveToCloud={canMoveToCloud(menuItem)
+          ? () => void moveItemToCloud(menuItem)
           : undefined}
         onDelete={menuItem.source.kind === "work"
           ? () => deleteItem(menuItem)

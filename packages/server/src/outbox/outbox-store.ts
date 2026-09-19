@@ -1,8 +1,10 @@
 import { getDb, withTx } from '../db'
 import { ulid } from '../tasks/ulid'
 import { createLogger } from '../logger'
+import { LOCAL_ORGANIZATION_ID } from '../server/principal'
 import { z } from 'zod'
 import type { OutboxApplyResult, OutboxDomain, OutboxOp } from '@solus/contracts/outbox-types'
+import type { SessionRecordUpsert } from '@solus/contracts/types'
 
 const log = createLogger('main', 'outbox-store.ts')
 
@@ -11,7 +13,15 @@ const log = createLogger('main', 'outbox-store.ts')
  * module: *recorder* (record → list → ack, for writes it cannot deliver) and
  * *owner* (apply, under the idempotence guard, for ops other hosts recorded
  * against resources that live here). Clients ferry ops between the two.
+ *
+ * A runner linked to an organization records a third kind
+ * (docs/plans/cloud-service-model.md §16): an op whose destination is the
+ * workspace service. Those never reach a client courier; the runner's own
+ * delivery ships them in sequence order and acks by sequence.
  */
+
+/** Where a recorded op is going: another host through a client courier, or the workspace service through the runner's delivery. */
+export type OutboxDestination = 'host' | 'cloud'
 
 const outboxOpRowSchema = z.object({
   id: z.string(),
@@ -23,6 +33,8 @@ const outboxOpRowSchema = z.object({
   recorded_at: z.number(),
   state: z.enum(['pending', 'failed']),
   error: z.string().nullable(),
+  seq: z.number().nullable(),
+  destination: z.enum(['host', 'cloud']),
 })
 
 type OutboxOpRow = z.infer<typeof outboxOpRowSchema>
@@ -64,11 +76,12 @@ function emitChanged(): void {
 }
 
 /**
- * An op's applier: performs the domain write on the owner host. Runs inside the
- * applied-ops guard, so it executes at most once per op id. Throw
- * `PermanentApplyError` when retrying can never succeed.
+ * An op's applier: performs the domain write on the owner host, in the
+ * organization the caller names (`local` on a host; the runner's on the
+ * workspace service). Runs inside the applied-ops guard, so it executes at most
+ * once per op id. Throw `PermanentApplyError` when retrying can never succeed.
  */
-export type OutboxApplier = (op: OutboxOp) => Promise<void>
+export type OutboxApplier = (op: OutboxOp, organizationId: string) => Promise<void>
 
 export class PermanentApplyError extends Error {}
 
@@ -79,6 +92,17 @@ export function registerOutboxApplier(domain: OutboxDomain, applier: OutboxAppli
   appliers.set(domain, applier)
 }
 
+const DELIVERY_SEQ_KEY = 'runner_delivery_seq'
+const seqRowSchema = z.object({ value: z.string().nullable() })
+
+/** The next number in this host's delivery order; durable before the row that carries it. Call inside `withTx`. */
+function nextDeliverySeq(): number {
+  const row = seqRowSchema.nullish().parse(getDb().prepare('SELECT value FROM kv WHERE key = ?').get(DELIVERY_SEQ_KEY))
+  const next = (row?.value ? Number(row.value) : 0) + 1
+  getDb().prepare('INSERT INTO kv(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(DELIVERY_SEQ_KEY, String(next))
+  return next
+}
+
 /** Record a write this host cannot deliver. Returns the durable op, already
  *  visible to `outboxList` and announced to connected clients. */
 export function recordOutboxOp(input: {
@@ -87,8 +111,11 @@ export function recordOutboxOp(input: {
   name: string
   payload: unknown
   sessionId?: string
+  /** Defaults to `host`: a client courier carries it to the owner host. */
+  destination?: OutboxDestination
 }): OutboxOp {
   const now = Date.now()
+  const destination = input.destination ?? 'host'
   const op: OutboxOp = {
     id: ulid(now),
     domain: input.domain,
@@ -99,21 +126,50 @@ export function recordOutboxOp(input: {
     state: 'pending',
   }
   if (input.sessionId !== undefined) op.sessionId = input.sessionId
-  getDb().prepare(`
-    INSERT INTO outbox_ops(id, domain, resource_id, name, payload, session_id, recorded_at, state)
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')
-  `).run(op.id, op.domain, op.resourceId, op.name, JSON.stringify(op.payload), op.sessionId ?? null, now)
-  log.info('outbox_op_recorded', { opId: op.id, domain: op.domain, resourceId: op.resourceId, name: op.name })
+  withTx(() => {
+    getDb().prepare(`
+      INSERT INTO outbox_ops(id, domain, resource_id, name, payload, session_id, recorded_at, state, seq, destination)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    `).run(op.id, op.domain, op.resourceId, op.name, JSON.stringify(op.payload), op.sessionId ?? null, now, nextDeliverySeq(), destination)
+  })
+  log.info('outbox_op_recorded', { opId: op.id, domain: op.domain, resourceId: op.resourceId, name: op.name, destination })
   emitChanged()
   return op
 }
 
-/** Every op still on this host, pending first, in record (id) order. */
+/** Every op a client courier may see: host-bound ops in record (id) order, pending
+ *  first, plus any dead-lettered cloud op so its failure stays visible. */
 export function listOutboxOps(): OutboxOp[] {
   const rows = z.array(outboxOpRowSchema).parse(getDb().prepare(`
-    SELECT * FROM outbox_ops ORDER BY id
+    SELECT * FROM outbox_ops WHERE destination = 'host' OR state = 'failed' ORDER BY id
   `).all())
   return rows.map(opFromRow)
+}
+
+/** One numbered op of the runner's delivery stream. */
+export interface SequencedOutboxOp {
+  seq: number
+  op: OutboxOp
+}
+
+/** The pending cloud-bound ops in delivery order, oldest first. */
+export function listCloudOutboxOps(limit: number): SequencedOutboxOp[] {
+  const rows = z.array(outboxOpRowSchema).parse(getDb().prepare(`
+    SELECT * FROM outbox_ops
+    WHERE destination = 'cloud' AND state = 'pending' AND seq IS NOT NULL
+    ORDER BY seq
+    LIMIT ?
+  `).all(limit))
+  return rows.map((row) => ({ seq: row.seq ?? 0, op: opFromRow(row) }))
+}
+
+/** The workspace service applied everything through `seq`: those ops leave the queue. A dead-lettered one stays, visible. */
+export function ackCloudOutboxOpsThrough(seq: number): number {
+  const result = getDb().prepare(`
+    DELETE FROM outbox_ops WHERE destination = 'cloud' AND state = 'pending' AND seq IS NOT NULL AND seq <= ?
+  `).run(seq)
+  if (Number(result.changes) > 0) emitChanged()
+  return Number(result.changes)
 }
 
 /** Pending ops recorded against one resource — the read-your-writes overlay for
@@ -165,6 +221,16 @@ export function markOutboxOpsFailed(failures: Array<{ id: string; error: string 
 }
 
 /**
+ * Runs one op's domain write with no guard of its own. The workspace service's
+ * runner intake calls this under its sequence cursor, which is the guard there.
+ */
+export async function applyOutboxOp(op: OutboxOp, organizationId: string): Promise<void> {
+  const applier = appliers.get(op.domain)
+  if (!applier) throw new Error(`No applier registered for domain "${op.domain}".`)
+  await applier(op, organizationId)
+}
+
+/**
  * Owner-side apply. An op whose id is already guarded reports `applied` without
  * re-running — that is what makes redelivery and concurrent couriers safe. The
  * guard row lands after the applier (appliers are async; the sqlite driver is
@@ -186,7 +252,7 @@ export async function applyOutboxOps(ops: OutboxOp[]): Promise<OutboxApplyResult
       continue
     }
     try {
-      await applier(op)
+      await applier(op, LOCAL_ORGANIZATION_ID)
       getDb().prepare('INSERT OR IGNORE INTO applied_ops(op_id, resource_id, applied_at) VALUES (?, ?, ?)')
         .run(op.id, op.resourceId, Date.now())
       result.applied.push(op.id)
@@ -198,4 +264,57 @@ export async function applyOutboxOps(ops: OutboxOp[]): Promise<OutboxApplyResult
     }
   }
   return result
+}
+
+// ─── The runner's session-record reports ───
+
+const sessionReportRowSchema = z.object({
+  session_id: z.string(),
+  seq: z.number(),
+  payload: z.string(),
+})
+
+/** One numbered session-record report of the runner's delivery stream. */
+export interface SequencedSessionReport {
+  seq: number
+  record: SessionRecordUpsert
+}
+
+/**
+ * Queue a session-record report for the workspace service. One row per session:
+ * a report merges into the one still queued the way the record store merges it
+ * (a field given later wins, a field left out keeps its value, activity never
+ * runs backwards), and takes a fresh seq, so the queue stays bounded by the
+ * number of sessions and a later ack cannot drop a newer report.
+ */
+export function queueSessionReport(record: SessionRecordUpsert): void {
+  withTx(() => {
+    const existing = sessionReportRowSchema.nullish().parse(
+      getDb().prepare('SELECT session_id, seq, payload FROM runner_session_reports WHERE session_id = ?').get(record.sessionId),
+    )
+    let merged: SessionRecordUpsert = record
+    if (existing) {
+      const queued: SessionRecordUpsert = z.custom<SessionRecordUpsert>().parse(JSON.parse(existing.payload))
+      merged = { ...queued, ...record, lastActivityAt: Math.max(queued.lastActivityAt, record.lastActivityAt) }
+    }
+    getDb().prepare(`
+      INSERT INTO runner_session_reports(session_id, seq, payload) VALUES (?, ?, ?)
+      ON CONFLICT(session_id) DO UPDATE SET seq = excluded.seq, payload = excluded.payload
+    `).run(record.sessionId, nextDeliverySeq(), JSON.stringify(merged))
+  })
+  emitChanged()
+}
+
+/** The queued session reports in delivery order, oldest first. */
+export function listSessionReports(limit: number): SequencedSessionReport[] {
+  const rows = z.array(sessionReportRowSchema).parse(getDb().prepare(`
+    SELECT session_id, seq, payload FROM runner_session_reports ORDER BY seq LIMIT ?
+  `).all(limit))
+  return rows.map((row) => ({ seq: row.seq, record: z.custom<SessionRecordUpsert>().parse(JSON.parse(row.payload)) }))
+}
+
+/** The workspace service applied every report through `seq`: those rows leave the queue; a report re-queued since keeps its newer seq and stays. */
+export function ackSessionReportsThrough(seq: number): number {
+  const result = getDb().prepare('DELETE FROM runner_session_reports WHERE seq <= ?').run(seq)
+  return Number(result.changes)
 }

@@ -51,7 +51,8 @@
   let showOutput = $state(false);
   let hostMenuOpen = $state(false);
 
-  const hosts = $derived(serversStore.servers);
+  // A project lives on a machine: the workspace service is never a destination.
+  const hosts = $derived(serversStore.executionServers);
   const multiHost = $derived(hosts.length > 1);
   const selectedHost = $derived(hosts.find((host) => host.id === store.serverId));
   // GitHub credentials are per-machine, but the question home asks is about
