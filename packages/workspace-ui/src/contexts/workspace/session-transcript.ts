@@ -95,6 +95,8 @@ export interface SessionTranscriptLoadArgs {
   before?: string
   pendingMessages?: WireSessionLoadMessage[]
   shouldApply?: () => boolean
+  /** The host the page was read from, when no tab's run names it (a cloud record). */
+  serverId?: string
 }
 
 interface SessionTranscriptLoadResult {
@@ -151,7 +153,7 @@ export function materializeSessionTranscript(
   args: SessionTranscriptLoadArgs,
   loaded: SessionHistoryPage | WireSessionLoadMessage[],
 ): SessionTranscriptLoadResult {
-  const serverId = serverConnections.serverIdForApi(ctx.apiForSession(args.ctx.session.sessionId))
+  const serverId = args.serverId ?? serverConnections.serverIdForApi(ctx.apiForSession(args.ctx.session.sessionId))
   const pageMessages = Array.isArray(loaded) ? loaded : loaded.messages
   const history = args.pendingMessages?.length ? pageMessages.concat(args.pendingMessages) : pageMessages
   const before = Array.isArray(loaded) ? undefined : loaded.before

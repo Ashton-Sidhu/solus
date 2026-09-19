@@ -1,4 +1,4 @@
-# Cloud service model — P0: engine, `Db`, and the ported domains; P1: the cloud workspace
+# Cloud service model — P0: engine, `Db`, and the ported domains; P1: the cloud workspace; P2: sessions and the mirror; P3: the credential vault
 
 Solus runs the same server binary on a laptop and in the cloud. A host keeps
 SQLite in its data directory with no configuration; the cloud runs one
@@ -6,7 +6,10 @@ Postgres for every instance. The domain managers are the same code on both.
 P0 lays the storage layer and ports the collaboration-plane domains — tasks,
 works, plans, sharing, and session records — as the pattern every later
 domain follows. P1 (§15–§17) boots that binary as an organization's workspace
-service and teaches a linked host to write to it.
+service and teaches a linked host to write to it. P2 (§18–§19) mirrors
+transcripts and insights to the service and gives a cloud session a durable
+prompt queue; P3 (§20) moves provider credentials into a vault every runner
+leases.
 
 ## 1. Vocabulary
 
@@ -383,8 +386,9 @@ overriding the baked value; the README names the secrets and the
 Known limits of P1: `tasks.invalidated` and the other host-wide invalidation
 events are broadcast to every connected client of the service, whichever
 organization it is in — they carry no data, only "re-read"; guests and share
-links on the service are P4; a member's `listSessions`/`loadSession` on the
-service answer from records only, since no transcript is there (P2).
+links on the service are P4; `loadSessionPreview` and `loadSessionMessageWindow` on
+the service still read the local index, which is empty there (§18 covers
+`loadSession` and `loadSessionPage`).
 
 ## 16. The runner principal, runner delivery, and the ownership rule (P1)
 
@@ -476,3 +480,101 @@ tokens, attached to the organization. The mock backend's `__MOCK_AGENT_TOOLS__`
 directive runs the real `create_task` and `create_work` tools the host handed
 the run. The `cloud-workspace` scenario is the proof, on both engines
 (`packages/lab/README.md`).
+
+## 18. The mirror (P2, §6 of the work)
+
+A runner produces two things the collaboration plane must be able to read
+with the runner off: session transcripts and insights. Both go through one
+pattern. The producer appends to the runner's **mirror log**
+(`packages/server/src/mirror/mirror-log.ts`, table `mirror_log`), numbered by
+the same `kv` counter the outbox and the session reports use, and returns; the
+runner delivery ships the log as a third stream (`POST /runner/mirror`) in
+sequence order and truncates it on acknowledgement; the service applies each
+item through the sink for its domain under the `mirror` cursor of
+`runner_cursors`, in one transaction per item. A host that holds no runner
+grant appends nothing (`mirrorEnabled()`): there is nowhere to ship to, and
+the durable copies on the machine — the provider's transcript files,
+`metrics.db` — are untouched by any of this.
+
+**Transcripts.** The unit is the history row the client already replays, a
+`SessionLoadMessage` at its position in the transcript the control plane's
+lineage-aware reader produces (`loadSession`). `TranscriptMirror`
+(`packages/server/src/mirror/transcript-mirror.ts`) is touched on every
+broadcast event and every status change of a session, debounces two seconds
+per session, reads the transcript, and appends the positions whose content
+hash changed since the last pass (`transcript_mirror_rows`) plus a
+`truncateFrom` item when the transcript shrank; a settlement flushes at once.
+A restart touches every session the previous process left `running` (marked
+`interrupted` at boot), so the rows of a killed turn reach the cloud once the
+runner is back. The sink upserts `session_transcripts` by
+`(organization, session, position)`; in workspace mode `loadSession`,
+`loadSessionPage` (the cursor is a position), and the session description read
+from that table and from `session_records`, so a member opens a session with
+its runner dead.
+
+**Insights.** `SqliteSpanExporter` appends every finished span that belongs to
+a session — the turn tree — with the log events it owns, after
+`writeSpanRecord` succeeded; host-internal spans stay local. The sink upserts
+`insight_spans` and `insight_log_events` keyed by the runner and the span or
+event id. Nothing queries them on the service yet; the tables are the durable
+copy the rollover on the runner may delete from `metrics.db`.
+
+## 19. The durable prompt queue and the runner lease (P2, §4)
+
+On the workspace service a prompt to a session whose runner is away lands in
+`session_prompt_queue` (`sessionPromptEnqueue`, an editor of the session; text
+only in this slice) as `waiting`, and every client of the organization hears
+`session.promptQueueChanged`. A runner claims the waiting prompts of the
+sessions its records name (`POST /runner/queue/claim`) under the session's
+lease in `session_runner_leases`: the same host renews, another host takes an
+expired lease at the next epoch, a live lease of another host is skipped. The
+runner dispatches each claim as an authored turn through `promptSession` — the
+author's seat, or the host login when the author is the runner's owner
+(`ownerUserId` on the runner grant answer) — and settles it
+(`POST /runner/queue/settle`) as `dispatched` or `failed` under the epoch it
+claimed. The turn itself shows in the mirrored transcript. A waiting prompt can
+be withdrawn by its author or a host administrator
+(`sessionPromptQueueCancel`); a claimed one cannot. On a host that is not the
+workspace service the enqueue is refused: the runner's own composer prompts
+live.
+
+The client's record page (`SessionRecordPage.svelte`) shows the mirrored
+transcript and the queue, and its composer enqueues; the picker's cloud row
+stays marked "runner offline" until the runner is back.
+
+## 20. The credential vault (P3, §5)
+
+`credential_vault` holds one encrypted credential set per person and provider
+(`SOLUS_VAULT_KEY`, AES-256-GCM; `packages/server/src/vault/vault.ts`). On the
+workspace service the seat RPCs are served by `VaultSeatManager`: a relayed CLI
+login writes the provider's files into a seat directory, `markConnected` reads
+them into the vault and deletes them; a pasted token goes in as a `token`
+credential; for Claude, pasted `.credentials.json` contents are a `login`
+credential. The website links a signed-in person to `/app/#/w/<orgId>/connections`,
+which mounts the same seats surface against the cloud host.
+
+A runner leases the credential per turn (`POST /runner/credentials/lease`,
+allowed when the person has been admitted to the runner's organization on the
+service — `organization_members`), materializes it into that person's seat
+directory only, and runs. When the material is near expiry the runner takes
+the refresh lock (`credential_locks`, D2) for the turn; a second runner waits
+for the lock, then re-leases and finds the refreshed version. After the turn
+the runner reads the files back and, if they changed, writes them back with
+the version it leased (`version_conflict` drops the local copy). A lease
+refused with `no_credential` purges the local copy and refuses the turn with
+`SEAT_REQUIRED`, whose message points at Solus cloud. A signed-out host, and
+the host login, are unchanged.
+
+Not in this slice: the organization GitHub App and the Jira and Google
+connections in the vault (the `provider` column is open for them); usage
+readings on the service.
+
+## 21. Proofs
+
+`bun lab run cloud-sessions` (P2) and `bun lab run cloud-vault` (P3), both on
+SQLite and, with `POSTGRES_ADMIN_URL`, on Postgres. The mock backend keeps a
+transcript on disk for a session whose first prompt carries `__MOCK_CLOUD__`,
+streams a `__MOCK_SLOW__` turn slowly enough to be killed, and rewrites the
+seat's `.credentials.json` after a `__MOCK_REFRESH__` turn as a provider CLI
+refreshing would; every run it is handed records the credential material it
+saw (`mock-runs.ndjson`).

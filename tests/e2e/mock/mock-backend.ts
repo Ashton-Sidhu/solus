@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { BaseAgentBackend } from '@solus/server/agents/base-backend'
@@ -33,10 +33,25 @@ export interface MockRunRecord {
   at: number
   prompt: string
   seat: AgentRunRequest['seat'] | null
+  /** What the provider CLI would have read: the seat's `.credentials.json`, or the env token; null for the host login. */
+  credential: string | null
+}
+
+/** The Lab's cloud proofs (docs/plans/cloud-service-model.md §5): the credential material a run saw. */
+function credentialSeenBy(request: AgentRunRequest): string | null {
+  const seat = request.seat
+  if (!seat || seat.isHostLogin) return null
+  if (seat.envToken) return `token:${seat.envToken}`
+  const file = join(seat.home, '.credentials.json')
+  try {
+    return existsSync(file) ? readFileSync(file, 'utf8').slice(0, 4_000) : null
+  } catch {
+    return null
+  }
 }
 
 function recordRun(request: AgentRunRequest): void {
-  const record: MockRunRecord = { at: Date.now(), prompt: request.prompt, seat: request.seat ?? null }
+  const record: MockRunRecord = { at: Date.now(), prompt: request.prompt, seat: request.seat ?? null, credential: credentialSeenBy(request) }
   try {
     mkdirSync(join(solusDir(), 'lab'), { recursive: true })
     appendFileSync(MOCK_RUNS_FILE, `${JSON.stringify(record)}\n`)
@@ -44,6 +59,55 @@ function recordRun(request: AgentRunRequest): void {
     // A host with no writable data directory still runs; only the Lab reads this.
   }
 }
+/**
+ * A transcript on disk for the cloud proofs (§4, §6): a real provider keeps its
+ * history in a file the host reads back, and a runner mirrors that file to the
+ * workspace service. The mock keeps one only for sessions whose first prompt
+ * carried `__MOCK_CLOUD__`, so every other test still opens on an empty page
+ * and sees the live stream alone.
+ */
+function transcriptFile(sessionId: string): string {
+  return join(solusDir(), 'lab', 'transcripts', `${sessionId}.json`)
+}
+
+function readTranscript(sessionId: string): SessionLoadMessage[] {
+  const file = transcriptFile(sessionId)
+  if (!existsSync(file)) return []
+  try {
+    return JSON.parse(readFileSync(file, 'utf8')) as SessionLoadMessage[]
+  } catch {
+    return []
+  }
+}
+
+function appendTranscript(sessionId: string, message: SessionLoadMessage): void {
+  mkdirSync(join(solusDir(), 'lab', 'transcripts'), { recursive: true })
+  const rows = readTranscript(sessionId)
+  rows.push(message)
+  writeFileSync(transcriptFile(sessionId), JSON.stringify(rows))
+}
+
+/**
+ * `__MOCK_REFRESH__`: the provider CLI swapped its refresh token during the turn
+ * and wrote the new credential set (§5). Bumps a counter in the seat's file so a
+ * runner's write-back is observable.
+ */
+function refreshCredentialFile(request: AgentRunRequest): void {
+  const seat = request.seat
+  if (!seat || seat.isHostLogin) return
+  const file = join(seat.home, '.credentials.json')
+  if (!existsSync(file)) return
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as { claudeAiOauth?: { accessToken?: string; refreshCount?: number } }
+    const oauth = parsed.claudeAiOauth ?? {}
+    const count = (oauth.refreshCount ?? 0) + 1
+    parsed.claudeAiOauth = { ...oauth, accessToken: `refreshed-${count}`, refreshCount: count, expiresAt: Date.now() + 60 * 60_000 }
+    writeFileSync(file, JSON.stringify(parsed), { mode: 0o600 })
+  } catch {
+    // A file the mock cannot read is not the proof's concern.
+  }
+}
+
 const MOCK_PLAN_CONTENT = `# Implementation Plan
 
 ## Overview
@@ -108,7 +172,8 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     let _rejectRun!: (err: Error) => void
     const runPromise = new Promise<void>((res, rej) => { _resolveRun = res; _rejectRun = rej })
 
-    const handle: RunHandle = {
+    const handle: RunHandle & { request?: AgentRunRequest } = {
+      request,
       agentSessionId: null,
       persistence: request.persistence,
       startedAt: Date.now(),
@@ -145,6 +210,17 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       model: 'mock-model',
       skills: [],
     } satisfies NormalizedEvent)
+
+    // A cloud session keeps a transcript on disk from its first prompt on.
+    const keepsTranscript = prompt.includes('__MOCK_CLOUD__') || existsSync(transcriptFile(MOCK_SESSION_ID))
+    if (keepsTranscript) appendTranscript(MOCK_SESSION_ID, { role: 'user', content: prompt, timestamp: Date.now() })
+
+    // A turn long enough to be killed in the middle: one assistant row per chunk
+    // lands in the transcript as it streams, as a provider's file would grow.
+    if (prompt.includes('__MOCK_SLOW__')) {
+      void this._streamSlowly(handle, request, keepsTranscript)
+      return
+    }
 
     // Run the real create_task and create_work tools the host handed this run,
     // exactly as a provider adapter would (the Lab's cloud-workspace proof:
@@ -504,7 +580,7 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
   }
 
   private _completeRun(
-    handle: RunHandle,
+    handle: RunHandle & { request?: AgentRunRequest },
     responseText: string,
     permissionDenials: Array<{ toolName: string; toolUseId: string }> = [],
     usage: UsageData = {},
@@ -534,11 +610,26 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
       permissionDenials,
     } satisfies NormalizedEvent)
 
+    if (existsSync(transcriptFile(sessionId))) appendTranscript(sessionId, { role: 'assistant', content: responseText, timestamp: Date.now() })
+    if (handle.request?.prompt.includes('__MOCK_REFRESH__')) refreshCredentialFile(handle.request)
+
     handle._resolveRun()
     this.emit('exit', sessionId, 0, null)
     this.activeRuns.delete(sessionId)
     this.finishedRuns.set(sessionId, handle)
     setTimeout(() => this.finishedRuns.delete(sessionId), 5000)
+  }
+
+  /** `__MOCK_SLOW__`: eight chunks, four hundred milliseconds apart, each a transcript row of its own. */
+  private async _streamSlowly(handle: RunHandle, request: AgentRunRequest, keepsTranscript: boolean): Promise<void> {
+    for (let index = 1; index <= 8; index++) {
+      await new Promise((r) => setTimeout(r, 400))
+      if (handle.abortController.signal.aborted) return
+      const text = `slow chunk ${index} of 8`
+      this.emit('normalized', MOCK_SESSION_ID, { type: 'text_chunk', text: `${index === 1 ? '' : ' '}${text}` } satisfies NormalizedEvent)
+      if (keepsTranscript) appendTranscript(MOCK_SESSION_ID, { role: 'assistant', content: text, timestamp: Date.now() })
+    }
+    this._completeRun(handle, 'slow run done')
   }
 
   private _responseFor(prompt: string): string {
@@ -558,16 +649,21 @@ export class MockAgentBackend extends BaseAgentBackend implements AgentBackend {
     return []
   }
 
-  async loadSession(_sessionId: string, _projectPath?: string, _limit?: number): Promise<SessionLoadMessage[]> {
-    return []
+  async loadSession(sessionId: string, _projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> {
+    const rows = readTranscript(sessionId)
+    return limit === undefined ? rows : rows.slice(-limit)
   }
 
-  // The mock keeps no transcript on disk, so every session opens on an empty
-  // page and the live turn is what a client sees. Without this the control
-  // plane refuses the read outright, and a client cannot tell that from a
-  // failed one — a resumed session would show an error instead of the stream.
-  async loadSessionPage(_sessionId: string, _projectPath: string | undefined, _limit: number, _before?: string): Promise<ProviderHistoryPage> {
-    return { messages: [], before: null }
+  // The mock keeps no transcript on disk unless a prompt asked for one, so a
+  // session opens on an empty page and the live turn is what a client sees.
+  // Without this the control plane refuses the read outright, and a client
+  // cannot tell that from a failed one — a resumed session would show an error
+  // instead of the stream.
+  async loadSessionPage(sessionId: string, _projectPath: string | undefined, limit: number, before?: string): Promise<ProviderHistoryPage> {
+    const rows = readTranscript(sessionId)
+    const end = before === undefined ? rows.length : Math.max(0, Math.min(rows.length, Number(before)))
+    const start = Math.max(0, end - limit)
+    return { messages: rows.slice(start, end), before: start > 0 ? String(start) : null }
   }
 
   async listPlans(_projectPath: string | undefined, _allProjects: boolean): Promise<PlanDescriptor[]> {

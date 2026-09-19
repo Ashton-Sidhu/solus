@@ -5,13 +5,14 @@
     FileText as FileTextIcon,
     MessageSquare as MessageSquareIcon,
     PanelRight as PanelRightIcon,
+    Plug as PlugIcon,
     SquareCheck as SquareCheckIcon,
   } from "@lucide/svelte";
   import { setPopoverLayer } from "@solus/workspace-ui/components/popoverLayer.svelte";
   import { setupAgentEvents } from "@solus/workspace-ui/hooks/agentEvents.svelte";
   import { createAppCore } from "@solus/workspace-ui/contexts/app/app-core";
   import { visibleRef } from "@solus/workspace-ui/contexts/workspace/routing/location";
-  import { serversStore } from "@solus/workspace-ui/contexts";
+  import { seatsStore, serversStore } from "@solus/workspace-ui/contexts";
   import { connectionStatusLabel } from "@solus/client-core/connection-display";
   import { relativeTime } from "@solus/workspace-ui/lib/relative-time";
   import * as Tooltip from "@solus/workspace-ui/components/ui/tooltip";
@@ -24,6 +25,7 @@
   import WorkPane from "@solus/workspace-ui/components/work/WorkPane.svelte";
   import SessionRecordPage from "@solus/workspace-ui/components/session/record/SessionRecordPage.svelte";
   import ShareDialog from "@solus/workspace-ui/components/sharing/ShareDialog.svelte";
+  import SeatsSettings from "@solus/workspace-ui/components/seats/SeatsSettings.svelte";
   import { pageRouteFragment, pageRouteSection, parsePageRouteFragment, type PageRoute } from "./lib/page-routes";
   import { PageSessionRecords, sessionRecordTitle } from "./lib/page-session-records.svelte";
   import { webState } from "./lib/web-state.svelte";
@@ -32,8 +34,9 @@
 
   /**
    * One organization's pages on the account origin (docs/plans/cloud-service-model.md):
-   * the task board, one task, the works list, one work, the session records, and
-   * one session — against the organization's workspace service alone. The URL
+   * the task board, one task, the works list, one work, the session records, one
+   * session, and the person's connections — against the organization's workspace
+   * service alone. The URL
    * hash is the location; the workspace router below it is kept in step so the
    * shared surfaces (the task page, the work pane, the record page) render as
    * they do in the workspace. There are no panes, no chat, and no host to run
@@ -52,6 +55,8 @@
   const { settings, session } = createAppCore(shell);
   setupAgentEvents(session);
   serversStore.trackConnections();
+  // A login connected in the browser lands as `host.seatChanged`; the connections page reads the store.
+  onMount(() => seatsStore.listen());
 
   let overlayEl: HTMLElement | null = $state(null);
   setPopoverLayer({
@@ -160,6 +165,7 @@
       case "tasks": return "Tasks";
       case "works": return "Works";
       case "sessions": return "Sessions";
+      case "connections": return "Connections";
       case "task": return session.tasksStore.peek(route.taskId)?.title ?? "Task";
       case "work": return session.worksStore.get(route.workId)?.title ?? "Document";
       case "session": return "Session";
@@ -205,6 +211,8 @@
           <FileTextIcon size={14} class="shrink-0 text-muted-foreground" />
         {:else if section === "sessions"}
           <MessageSquareIcon size={14} class="shrink-0 text-muted-foreground" />
+        {:else if section === "connections"}
+          <PlugIcon size={14} class="shrink-0 text-muted-foreground" />
         {:else}
           <SquareCheckIcon size={14} class="shrink-0 text-muted-foreground" />
         {/if}
@@ -310,6 +318,11 @@
                   </button>
                 {/each}
               {/if}
+            </div>
+          {:else if route.page === "connections"}
+            <div class="mx-auto flex w-full max-w-(--solus-reading-max) flex-1 flex-col gap-5 overflow-y-auto px-4 pt-6 pb-10" data-testid="page-connections">
+              <p class="text-pretty text-muted-foreground">Connect your Claude and Codex logins once. Every runner uses them for your own turns only.</p>
+              <SeatsSettings {serverId} />
             </div>
           {:else if activeRoute?.kind === "work"}
             <div class="flex min-h-0 flex-1 flex-col">

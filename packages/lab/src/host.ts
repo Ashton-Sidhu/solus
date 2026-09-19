@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
-import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
@@ -39,6 +39,14 @@ export interface LabHostOptions {
    * flavor only; the issuer must be the Lab's own.
    */
   runnerOf?: string
+  /** With `runnerOf`: the account that owns the runner, named on its runner grant answer. */
+  runnerOwnerUserId?: string
+  /**
+   * Boot on an existing data directory instead of a fresh one: how a scenario
+   * restarts a host it stopped and proves what survived. Must be a temp location
+   * this Lab made earlier.
+   */
+  dataDir?: string
 }
 
 export interface LabHost {
@@ -55,7 +63,8 @@ export interface LabHost {
   readonly managedLink: EnrollHostResponse | null
   /** True when the server runs in managed mode (`SOLUS_MANAGED=1`). */
   readonly managedMode: boolean
-  stop(): Promise<void>
+  /** Ends the process; `{ kill: true }` sends SIGKILL at once, the way a machine dies mid-turn. */
+  stop(options?: { kill?: boolean }): Promise<void>
 }
 
 /** The Lab runs no tunnel: the connector gets a binary that only waits, never a real `cloudflared`. */
@@ -66,6 +75,14 @@ function writeConnectorShim(dataDir: string): void {
 }
 
 const HOST_ID = 'labhostabcdefghi'
+const linkFileSchema = z.object({ link: z.object({ proxiedPort: z.number().int().positive() }) })
+
+/** A restarted host must bind the proxied port its link names, or its record would be stale. */
+function restartProxiedPort(dataDir: string): number {
+  const parsed = linkFileSchema.safeParse(JSON.parse(readFileSync(join(dataDir, 'uplink-link.json'), 'utf8')))
+  if (!parsed.success) throw new Error(`The Lab cannot restart a host without a link record in ${dataDir}`)
+  return parsed.data.link.proxiedPort
+}
 const lockFileSchema = z.object({ port: z.number().int().positive(), host: z.string() })
 const addressSchema = z.object({ port: z.number().int().positive() })
 
@@ -100,9 +117,13 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
   const entry = options.entry ?? resolve(process.cwd(), 'dist/main/standalone.js')
   if (!existsSync(entry)) throw new Error(`No standalone build at ${entry}; run \`bun run build:test\` first.`)
   const tempRoot = options.tempRoot ?? tmpdir()
-  const dataDir = mkdtempSync(join(tempRoot, `solus-lab-${options.flavor}-`))
+  const restarting = options.dataDir !== undefined
+  const dataDir = options.dataDir ?? mkdtempSync(join(tempRoot, `solus-lab-${options.flavor}-`))
   assertTemporary(dataDir)
-  const proxiedPort = await freePort()
+  if (restarting && !existsSync(join(dataDir, 'server.lock')) && !existsSync(join(dataDir, 'solus.db'))) {
+    throw new Error(`The Lab refuses to restart on a data directory no host used: ${dataDir}`)
+  }
+  const proxiedPort = restarting ? restartProxiedPort(dataDir) : await freePort()
   const hostId = options.hostId ?? HOST_ID
   const linkSource = options.managedLink ?? (options.flavor === 'managed' && options.issuer.issueManagedLink ? 'env' : 'record')
   const managedMode = options.flavor === 'managed' && linkSource === 'env'
@@ -114,7 +135,14 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     SOLUS_PORT: '0',
     SOLUS_NO_LAN_DISCOVERY: '1',
   }
-  if (managedMode) {
+  if (restarting) {
+    // The record, tokens, and connector shim are already on the directory; the
+    // previous process's lock file must go so the wait below sees the new one.
+    rmSync(join(dataDir, 'server.lock'), { force: true })
+    if (options.runnerOf && options.issuer.attachHostToOrganization) {
+      options.issuer.attachHostToOrganization(hostId, options.runnerOf, options.runnerOwnerUserId)
+    }
+  } else if (managedMode) {
     // No record: the host boots as a Fly machine does, in managed mode with the
     // provisioner's link in its environment, and stores it (§2). The proxied port is
     // pinned so the link names the port the host bound.
@@ -131,7 +159,7 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     if (options.flavor !== 'personal') throw new Error('A runner is a personal host')
     if (!options.issuer.issueManagedLink || !options.issuer.attachHostToOrganization) throw new Error('A runner needs the Lab issuer')
     const enrolled = options.issuer.issueManagedLink(hostId, proxiedPort)
-    options.issuer.attachHostToOrganization(hostId, options.runnerOf)
+    options.issuer.attachHostToOrganization(hostId, options.runnerOf, options.runnerOwnerUserId)
     writeFileSync(linkFile, JSON.stringify({ version: 1, desired: 'linked', link: enrolled.link }, null, 2), { mode: 0o600 })
     // The standalone server keeps secrets in files under the data directory.
     const secrets = join(dataDir, 'secrets')
@@ -197,9 +225,14 @@ export async function bootLabHost(options: LabHostOptions): Promise<LabHost> {
     logPath,
     managedLink,
     managedMode,
-    stop: async () => {
+    stop: async (stopOptions) => {
       if (exited) return
       // Only the PID this Lab started, never a name match.
+      if (stopOptions?.kill) {
+        child.kill('SIGKILL')
+        await new Promise<void>((r) => child.once('exit', () => r()))
+        return
+      }
       child.kill('SIGTERM')
       await Promise.race([
         new Promise<void>((r) => child.once('exit', () => r())),

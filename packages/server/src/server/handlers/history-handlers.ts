@@ -8,8 +8,11 @@ import { recordOtelDuration } from '../../otel'
 import type { HandlerCtx, SolusServer } from '../server'
 import { organizationOf } from '../principal'
 import type { ShareManager } from '../../sharing/share-manager'
-import { getIndexedSession, getSessionMessageWindow, searchIndexedSessions, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
-import { listSessionRecords, upsertSessionRecord } from '../../sessions/session-records'
+import { getIndexedSession, getSessionMessageWindow, searchIndexedSessions, sessionMetaFromRecord, setSessionBranch, setSessionCustomTitle } from '../../db/session-indexer'
+import { getSessionRecord, listSessionRecords, upsertSessionRecord } from '../../sessions/session-records'
+import { readTranscript, readTranscriptPage } from '../../mirror/transcript-reads'
+import { isWorkspaceMode } from '../workspace-mode'
+import type { SessionLoadMessage } from '@solus/contracts/session-history'
 import { renamePinnedSession } from '../../sessions/pinned-sessions'
 import { projectsVisibleTo } from './setup-handlers'
 import { generateSessionMetadata } from '../../sessions/session-title'
@@ -34,6 +37,19 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
   const { controlPlane, events, agentIdFromContext } = deps
   const visibleSessions = async <T>(handlerCtx: HandlerCtx, sessions: T[], sessionIdOf: (item: T) => string): Promise<T[]> =>
     deps.shares ? deps.shares.filterVisible(handlerCtx.principal, 'session', sessions, sessionIdOf) : sessions
+  // On the workspace service the history is the mirrored copy
+  // (cloud-service-model.md §6): no provider files live there.
+  const historyOf = (handlerCtx: HandlerCtx, agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> =>
+    isWorkspaceMode()
+      ? readTranscript(organizationOf(handlerCtx.principal), sessionId, limit)
+      : controlPlane.loadSession(agentId, sessionId, projectPath, limit)
+  // The service has no transcript index; a session it knows by record alone answers from the record.
+  const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> => {
+    const meta = await controlPlane.getSessionInfo(sessionId)
+    if (meta || !isWorkspaceMode()) return meta
+    const record = await getSessionRecord(organizationOf(handlerCtx.principal), sessionId)
+    return record ? sessionMetaFromRecord(record) : null
+  }
 
   server.register('listSessions', async (args, handlerCtx) => {
     const [projectPath, , , streamId, requestedLimit] = args
@@ -155,12 +171,12 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('loadSession', async (args) => {
+  server.register('loadSession', async (args, handlerCtx) => {
     const [sessionId, projectPath, ctx, provider, limit, options] = args
     const agentId = provider ?? agentIdFromContext(ctx)
     log.info('rpc_load_session', { sessionId, projectPath, limit })
     try {
-      const messages = await controlPlane.loadSession(agentId, sessionId, projectPath, limit)
+      const messages = await historyOf(handlerCtx, agentId, sessionId, projectPath, limit)
       if (isDebugEnabled()) {
         // Serialize each message once and sum for the total, instead of
         // stringifying the whole multi-MB transcript a second time.
@@ -186,7 +202,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('loadSessionPage', async ([input]) => {
+  server.register('loadSessionPage', async ([input], handlerCtx) => {
     const startedAt = Date.now()
     const request = z.object({
       sessionId: z.string().min(1),
@@ -196,7 +212,9 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       before: z.string().max(16384).optional(),
       deferToolInputs: z.boolean().optional(),
     }).parse(input)
-    const page = await controlPlane.loadSessionPage(request)
+    const page = isWorkspaceMode()
+      ? await readTranscriptPage(organizationOf(handlerCtx.principal), request.sessionId, request.limit ?? 200, request.before)
+      : await controlPlane.loadSessionPage(request)
     const messages = projectSessionHistory(page.messages)
     recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
     log.info('session_history_page_loaded', {
@@ -209,12 +227,12 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('loadSessionToolInputs', async ([request]) => {
+  server.register('loadSessionToolInputs', async ([request], handlerCtx) => {
     if (!request.keys.length) return []
     if (request.keys.length > MAX_SESSION_TOOL_INPUTS || request.keys.some((key) => !/^[a-f0-9]{64}$/.test(key))) {
       throw new Error('Invalid session tool input keys')
     }
-    const messages = await controlPlane.loadSession(request.provider, request.sessionId, request.projectPath)
+    const messages = await historyOf(handlerCtx, request.provider, request.sessionId, request.projectPath)
     return selectSessionToolInputs(messages, request.keys)
   })
 
@@ -240,21 +258,21 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('getSessionInfo', async (args) => {
+  server.register('getSessionInfo', async (args, handlerCtx) => {
     const [sessionId] = args
     try {
-      return await controlPlane.getSessionInfo(sessionId)
+      return await sessionInfoOf(handlerCtx, sessionId)
     } catch (err) {
       log.error('get_session_info_failed', { error: String(err), sessionId })
       return null
     }
   })
 
-  server.register('getSessionInfos', async (args) => {
+  server.register('getSessionInfos', async (args, handlerCtx) => {
     const [sessionIds] = args
     return Promise.all(sessionIds.map(async (sessionId) => {
       try {
-        return await controlPlane.getSessionInfo(sessionId)
+        return await sessionInfoOf(handlerCtx, sessionId)
       } catch (err) {
         log.error('get_session_info_failed', { error: String(err), sessionId })
         return null
@@ -272,10 +290,12 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     }
   })
 
-  server.register('describeSession', async (args) => {
+  server.register('describeSession', async (args, handlerCtx) => {
     const [provider, providerSessionId] = args
     try {
-      return await controlPlane.describeSession(provider, providerSessionId)
+      const description = await controlPlane.describeSession(provider, providerSessionId)
+      if (description.meta || !isWorkspaceMode()) return description
+      return { ...description, meta: await sessionInfoOf(handlerCtx, providerSessionId) }
     } catch (err) {
       log.error('describe_session_failed', { error: String(err), provider, providerSessionId })
       return { lineage: null, meta: null }

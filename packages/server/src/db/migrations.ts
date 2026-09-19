@@ -368,6 +368,28 @@ CREATE TABLE runner_session_reports (
   payload TEXT NOT NULL
 );
 `,
+
+  // The mirror log (docs/plans/cloud-service-model.md §6): what this runner
+  // produced and has not yet shipped to the workspace service, one row per
+  // item in delivery order, numbered by the same `kv` counter as the outbox.
+  // Rows leave when the service acknowledges them. `transcript_mirror_rows`
+  // remembers the hash of every transcript row already mirrored, so a pass
+  // re-sends only positions whose content changed.
+  `
+CREATE TABLE mirror_log (
+  seq INTEGER PRIMARY KEY,
+  domain TEXT NOT NULL,
+  key TEXT NOT NULL,
+  payload TEXT NOT NULL,
+  recorded_at INTEGER NOT NULL
+);
+CREATE TABLE transcript_mirror_rows (
+  session_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  hash TEXT NOT NULL,
+  PRIMARY KEY (session_id, position)
+);
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

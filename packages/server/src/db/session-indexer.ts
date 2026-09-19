@@ -915,22 +915,26 @@ async function sessionsFromRecords(records: SessionRecord[]): Promise<SessionMet
   const rowsById = new Map(rows.map((row) => [row.session_id, row]))
   return records.map((record) => {
     const row = rowsById.get(record.sessionId)
-    if (row) return rowToSession(row)
-    return {
-      provider: record.provider,
-      sessionId: record.sessionId,
-      slug: null,
-      firstMessage: record.title,
-      customTitle: record.customTitle ?? undefined,
-      lastTimestamp: new Date(record.lastActivityAt).toISOString(),
-      size: record.size,
-      cwd: '',
-      projectPath: record.projectPath,
-      model: record.model ?? undefined,
-      reasoningEffort: record.reasoningEffort ?? undefined,
-      serverId: record.runnerHostId ?? undefined,
-    }
+    return row ? rowToSession(row) : sessionMetaFromRecord(record)
   })
+}
+
+/** A session known by its record alone: what the record carries, and nothing the transcript index would add. */
+export function sessionMetaFromRecord(record: SessionRecord): SessionMeta {
+  return {
+    provider: record.provider,
+    sessionId: record.sessionId,
+    slug: null,
+    firstMessage: record.title,
+    customTitle: record.customTitle ?? undefined,
+    lastTimestamp: new Date(record.lastActivityAt).toISOString(),
+    size: record.size,
+    cwd: '',
+    projectPath: record.projectPath,
+    model: record.model ?? undefined,
+    reasoningEffort: record.reasoningEffort ?? undefined,
+    serverId: record.runnerHostId ?? undefined,
+  }
 }
 
 export async function listIndexedSessions(projectPaths: string[], limit?: number): Promise<SessionMeta[]> {

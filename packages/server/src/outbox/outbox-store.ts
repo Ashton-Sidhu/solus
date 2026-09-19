@@ -95,8 +95,8 @@ export function registerOutboxApplier(domain: OutboxDomain, applier: OutboxAppli
 const DELIVERY_SEQ_KEY = 'runner_delivery_seq'
 const seqRowSchema = z.object({ value: z.string().nullable() })
 
-/** The next number in this host's delivery order; durable before the row that carries it. Call inside `withTx`. */
-function nextDeliverySeq(): number {
+/** The next number in this host's delivery order, shared by every stream the runner ships; durable before the row that carries it. Call inside `withTx`. */
+export function nextDeliverySeq(): number {
   const row = seqRowSchema.nullish().parse(getDb().prepare('SELECT value FROM kv WHERE key = ?').get(DELIVERY_SEQ_KEY))
   const next = (row?.value ? Number(row.value) : 0) + 1
   getDb().prepare('INSERT INTO kv(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(DELIVERY_SEQ_KEY, String(next))

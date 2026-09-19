@@ -84,6 +84,24 @@ export async function getSessionRecord(organizationId: string, sessionId: string
   return readRecord(getDatabase(), organizationId, sessionId)
 }
 
+/**
+ * Writes to one record apply in the order they were asked for. A start report is
+ * a read-merge-write while a status change is one update; without this, a
+ * turn that settles quickly could see its start report land after its settle
+ * and leave the record `running`.
+ */
+const inFlight = new Map<string, Promise<unknown>>()
+
+function serialized<T>(sessionId: string, work: () => Promise<T>): Promise<T> {
+  const previous = inFlight.get(sessionId) ?? Promise.resolve()
+  const next = previous.catch(() => undefined).then(work)
+  inFlight.set(sessionId, next)
+  void next.catch(() => undefined).finally(() => {
+    if (inFlight.get(sessionId) === next) inFlight.delete(sessionId)
+  })
+  return next
+}
+
 type SessionRecordListener = (record: SessionRecord) => void
 const changedListeners = new Set<SessionRecordListener>()
 
@@ -165,7 +183,11 @@ function mergeRecord(existing: SessionRecord | null, input: SessionRecordUpsert)
   }
 }
 
-export async function upsertSessionRecord(organizationId: string, input: SessionRecordUpsert): Promise<SessionRecord> {
+export function upsertSessionRecord(organizationId: string, input: SessionRecordUpsert): Promise<SessionRecord> {
+  return serialized(input.sessionId, () => upsertSessionRecordNow(organizationId, input))
+}
+
+async function upsertSessionRecordNow(organizationId: string, input: SessionRecordUpsert): Promise<SessionRecord> {
   const merged = await getDatabase().transaction(async (db) => {
     const merged = mergeRecord(await readRecord(db, organizationId, input.sessionId), input)
     await db.run(sql`
@@ -204,27 +226,33 @@ export async function upsertSessionRecord(organizationId: string, input: Session
 }
 
 /** The transcript is gone from the runner and nothing else holds the session: the record goes with it. */
-export async function deleteSessionRecord(organizationId: string, sessionId: string): Promise<void> {
-  await getDatabase().run(sql`
-    DELETE FROM ${sessionRecords} WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
-  `)
+export function deleteSessionRecord(organizationId: string, sessionId: string): Promise<void> {
+  return serialized(sessionId, async () => {
+    await getDatabase().run(sql`
+      DELETE FROM ${sessionRecords} WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
+    `)
+  })
 }
 
 /** The record's status as the control plane reports it; a session with no record yet is left for its start to write. */
-export async function setSessionRecordStatus(organizationId: string, sessionId: string, status: SessionRecordStatus): Promise<void> {
-  const result = await getDatabase().run(sql`
-    UPDATE ${sessionRecords} SET status = ${status}, last_activity_at = ${Date.now()}
-    WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
-  `)
-  if (result.changes > 0) await emitStored(organizationId, sessionId)
+export function setSessionRecordStatus(organizationId: string, sessionId: string, status: SessionRecordStatus): Promise<void> {
+  return serialized(sessionId, async () => {
+    const result = await getDatabase().run(sql`
+      UPDATE ${sessionRecords} SET status = ${status}, last_activity_at = ${Date.now()}
+      WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
+    `)
+    if (result.changes > 0) await emitStored(organizationId, sessionId)
+  })
 }
 
-export async function setSessionRecordTitle(organizationId: string, sessionId: string, customTitle: string | null): Promise<void> {
-  const result = await getDatabase().run(sql`
-    UPDATE ${sessionRecords} SET custom_title = ${customTitle}
-    WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
-  `)
-  if (result.changes > 0) await emitStored(organizationId, sessionId)
+export function setSessionRecordTitle(organizationId: string, sessionId: string, customTitle: string | null): Promise<void> {
+  return serialized(sessionId, async () => {
+    const result = await getDatabase().run(sql`
+      UPDATE ${sessionRecords} SET custom_title = ${customTitle}
+      WHERE organization_id = ${organizationId} AND session_id = ${sessionId}
+    `)
+    if (result.changes > 0) await emitStored(organizationId, sessionId)
+  })
 }
 
 /**

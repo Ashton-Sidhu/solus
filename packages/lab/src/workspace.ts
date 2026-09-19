@@ -24,6 +24,8 @@ export interface WorkspaceServiceOptions {
   /** Path to `dist/main/standalone.js`; defaults to the worktree's build. */
   entry?: string
   tempRoot?: string
+  /** Base64 of 32 random bytes: the credential vault's key (cloud-service-model.md §5). Absent means no vault. */
+  vaultKey?: string
 }
 
 export interface WorkspaceService {
@@ -72,6 +74,8 @@ export async function bootWorkspaceService(options: WorkspaceServiceOptions): Pr
     SOLUS_DB: options.engine,
     DATABASE_URL: options.engine === 'postgres' ? options.databaseUrl : '',
   }
+  if (options.vaultKey) env.SOLUS_VAULT_KEY = options.vaultKey
+  else delete env.SOLUS_VAULT_KEY
   // No managed link, no host token: a workspace service is nobody's machine.
   delete env.SOLUS_MANAGED
   delete env.SOLUS_MANAGED_LINK

@@ -23,7 +23,10 @@ describe('the plane map', () => {
     expect(rpcPlaneOf('prompt')).toBe('execution')
     expect(rpcPlaneOf('gitRunAction')).toBe('execution')
     expect(rpcPlaneOf('prGetDiff')).toBe('execution')
-    expect(rpcPlaneOf('seatConnectStart')).toBe('execution')
+    // A credential is connected where it is kept (cloud-service-model.md §5): the
+    // workspace service relays the CLI login and stores the result in the vault.
+    expect(rpcPlaneOf('seatConnectStart')).toBe('collaboration')
+    expect(rpcPlaneOf('sessionPromptEnqueue')).toBe('collaboration')
   })
 })
 

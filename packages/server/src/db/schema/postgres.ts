@@ -2,11 +2,13 @@
 // drizzle-kit reads named exports only, so each table is listed by hand; a
 // ported domain adds its tables here and in `sqlite.ts`.
 import * as folioSchema from '../../folio/schema'
+import * as mirrorSchema from '../../mirror/schema'
 import * as outboxSchema from '../../outbox/schema'
 import * as plansSchema from '../../plans/schema'
 import * as sessionsSchema from '../../sessions/schema'
 import * as sharingSchema from '../../sharing/schema'
 import * as tasksSchema from '../../tasks/schema'
+import * as vaultSchema from '../../vault/schema'
 
 export const tasks = tasksSchema.tasks.pg
 export const task_counters = tasksSchema.taskCounters.pg
@@ -27,3 +29,11 @@ export const resource_owner = sharingSchema.resourceOwner.pg
 export const share_grant = sharingSchema.shareGrant.pg
 export const session_records = sessionsSchema.sessionRecords.pg
 export const runner_cursors = outboxSchema.runnerCursors.pg
+export const session_prompt_queue = sessionsSchema.sessionPromptQueue.pg
+export const session_runner_leases = sessionsSchema.sessionRunnerLeases.pg
+export const session_transcripts = mirrorSchema.sessionTranscripts.pg
+export const insight_spans = mirrorSchema.insightSpans.pg
+export const insight_log_events = mirrorSchema.insightLogEvents.pg
+export const credential_vault = vaultSchema.credentialVault.pg
+export const credential_locks = vaultSchema.credentialLocks.pg
+export const organization_members = vaultSchema.organizationMembers.pg

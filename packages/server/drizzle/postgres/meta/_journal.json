@@ -50,6 +50,13 @@
       "when": 1789794682187,
       "tag": "0006_runner_cursors",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789841542851,
+      "tag": "0007_cloud_sessions_vault",
+      "breakpoints": true
     }
   ]
 }

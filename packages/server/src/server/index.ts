@@ -14,7 +14,15 @@ import { HostGrantVerifier } from './host-grants'
 import { CloudflaredConnector, resolveCloudflaredBinary } from './uplink/connector'
 import { UplinkLinkManager } from './uplink/link'
 import { RunnerDelivery } from './uplink/runner-delivery'
-import { applyRunnerOutbox, applyRunnerSessionRecords } from './runner-intake'
+import { applyRunnerMirror, applyRunnerOutbox, applyRunnerSessionRecords } from './runner-intake'
+import { TranscriptMirror, listOwnInterruptedSessions } from '../mirror/transcript-mirror'
+import { claimRunnerQueue, settleRunnerQueue } from './runner-intake'
+import { leaseRunnerCredential, lockRunnerCredential, unlockRunnerCredential, writebackRunnerCredential } from './runner-intake'
+import { VaultClient } from '../vault/vault-client'
+import { VaultSeatManager } from '../vault/vault-seats'
+import { touchOrganizationMember, vaultConfigured } from '../vault/vault'
+import { QueueDrain } from './uplink/queue-drain'
+import { registerPromptQueueHandlers } from './handlers/prompt-queue-handlers'
 import { applyWorkspaceMode, isWorkspaceMode, workspaceConfig } from './workspace-mode'
 import { WORKSPACE_AUDIENCE, type HostKind, type UplinkLinkConfig } from '@solus/contracts/uplink'
 import { registerUplinkHandlers } from './handlers/uplink-handlers'
@@ -24,7 +32,7 @@ import { taskShareContents, tasksContaining } from '../tasks/task-sharing'
 import { registerSeatHandlers } from './handlers/seat-handlers'
 import { registerPresenceHandlers } from './handlers/presence-handlers'
 import { PresenceManager } from '../presence/presence-manager'
-import { SeatManager, seatUserFor, turnActorFor } from '../seats/seat-manager'
+import { SeatManager, seatUserFor, turnActorFor, type SeatStore } from '../seats/seat-manager'
 import { SeatConnector } from '../seats/seat-connect'
 import { TurnLedger } from '../sessions/turn-ledger'
 import { eventVisibleTo } from '../sharing/event-audience'
@@ -49,7 +57,7 @@ import type { ControlPlane } from '../control-plane'
 import type { AgentMetadata, NormalizedEvent, EnrichedError, SessionIndexUpdatedEvent } from '@solus/contracts/types'
 import type { HostEventMap } from '@solus/contracts/host-events'
 import type { AgentId, IpcContext } from '@solus/contracts/types'
-import { DEFAULT_SERVER_PORT } from '@solus/contracts/types'
+import { DEFAULT_SERVER_PORT, isSessionBusyStatus } from '@solus/contracts/types'
 import { registerWindowHandlers, type WindowDeps } from './handlers/window-handlers'
 import { enrichAgentMetadata, registerSessionHandlers, type SessionDeps } from './handlers/session-handlers'
 import { registerWorktreeHandlers } from './handlers/worktree-handlers'
@@ -241,11 +249,81 @@ function workspaceGrantVerifier(workspaceMode: boolean): HostGrantVerifier | nul
   return workspaceMode ? new HostGrantVerifier({ ...workspaceConfig(), audience: WORKSPACE_AUDIENCE }) : null
 }
 
+/**
+ * The seats a host serves (Step 2 plan): local directories and rows on a host;
+ * the credential vault on the workspace service (cloud-service-model.md §5),
+ * which boots without a vault key and answers VAULT_NOT_CONFIGURED to every
+ * seat call until one is set.
+ */
+function seatStoreFor(workspaceMode: boolean): { seats: SeatStore; localSeats: SeatManager | null } {
+  if (!workspaceMode) {
+    const localSeats = new SeatManager({ db: getDb() })
+    return { seats: localSeats, localSeats }
+  }
+  if (!vaultConfigured()) log.warn('vault_not_configured', { hint: 'set SOLUS_VAULT_KEY to offer provider seats' })
+  return { seats: new VaultSeatManager(), localSeats: null }
+}
+
+/**
+ * What a host does for its organization's workspace service once it is linked
+ * and shared (cloud-service-model.md §4–§6, §16): the delivery of its streams,
+ * members' seats leased from the vault, the mirror of turns its previous
+ * process left unsettled, and the drain of prompts that waited in the cloud.
+ * Nothing starts until the delivery holds a grant.
+ */
+function startRunnerCloud(deps: {
+  controlPlane: ControlPlane
+  uplinkManager: UplinkLinkManager
+  localSeats: SeatManager | null
+  transcriptMirror: TranscriptMirror
+  interruptSweep: Promise<unknown>
+}): { delivery: RunnerDelivery; drain: QueueDrain } {
+  const delivery = new RunnerDelivery({
+    link: () => deps.uplinkManager.currentLink(),
+    hostToken: () => deps.uplinkManager.hostToken(),
+  })
+  deps.localSeats?.useVault(new VaultClient(delivery))
+  // A turn the previous process left unsettled is mirrored once this runner
+  // holds a grant: the mirror log appends nothing before then.
+  let stopInterruptedSweep: (() => void) | null = null
+  stopInterruptedSweep = delivery.onGrant((grant) => {
+    if (!grant) return
+    stopInterruptedSweep?.()
+    void deps.interruptSweep.then(listOwnInterruptedSessions).then((sessions) => {
+      for (const session of sessions) deps.transcriptMirror.touch(session.sessionId, session)
+    }).catch((error) => {
+      log.warn('transcript_mirror_interrupted_sweep_failed', { error: String(error) })
+    })
+  })
+  const drain = new QueueDrain({
+    delivery,
+    holdsSession: (sessionId) => deps.controlPlane.isKnownSession(sessionId),
+    promptSession: (sessionId, text, actor) => deps.controlPlane.promptSession(sessionId, text, 'queue', { actor }),
+  })
+  drain.start()
+  return { delivery, drain }
+}
+
 /** The workspace service's runner routes (cloud-service-model.md §16); `buildHttpServer` mounts them in workspace mode only. */
-function runnerRoutes(shares: ShareManager): NonNullable<HttpServerOptions['runner']> {
+function runnerRoutes(shares: ShareManager, onQueueChanged: (sessionIds: string[]) => void): NonNullable<HttpServerOptions['runner']> {
   return {
     applyOutbox: (runner, request) => applyRunnerOutbox(runner, request, shares),
-    applySessionRecords: applyRunnerSessionRecords,
+    applySessionRecords: (runner, request) => applyRunnerSessionRecords(runner, request, shares),
+    applyMirror: applyRunnerMirror,
+    claimQueue: async (runner, request) => {
+      const { response, sessionIds } = await claimRunnerQueue(runner, request)
+      onQueueChanged(sessionIds)
+      return response
+    },
+    settleQueue: async (runner, request) => {
+      const { response, sessionIds } = await settleRunnerQueue(runner, request)
+      onQueueChanged(sessionIds)
+      return response
+    },
+    leaseCredential: leaseRunnerCredential,
+    lockCredential: lockRunnerCredential,
+    unlockCredential: unlockRunnerCredential,
+    writebackCredential: writebackRunnerCredential,
   }
 }
 
@@ -318,14 +396,27 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   })
   server.useResourceAccess(shares)
   // Provider seats and the turn ledger (Step 2 plan): every turn runs on its
-  // author's own login, and the host records whose it was.
-  const seats = new SeatManager({ db: getDb() })
+  // author's own login, and the host records whose it was. The workspace service
+  // keeps seats in the credential vault instead (cloud-service-model.md §5), and
+  // runners lease them; it boots without a vault key, answering
+  // VAULT_NOT_CONFIGURED to every seat call.
+  const { seats, localSeats } = seatStoreFor(workspaceMode)
   const turnLedger = new TurnLedger(getDb())
   // A record this host left `running` names a turn the previous process never settled.
-  void markOwnRunningSessionRecordsInterrupted(LOCAL_ORGANIZATION_ID).catch((error) => {
+  const interruptSweep = markOwnRunningSessionRecordsInterrupted(LOCAL_ORGANIZATION_ID).catch((error) => {
     log.warn('session_records_interrupt_sweep_failed', { error: String(error) })
   })
   phaseDone('db_opened')
+  // The transcript mirror (cloud-service-model.md §6): a runner ships each
+  // session's history rows to its organization's workspace service. On a host
+  // that mirrors nowhere, and on the service itself, a touch does nothing.
+  const transcriptMirror = new TranscriptMirror({
+    loadSession: (provider, sessionId, projectPath) => opts.controlPlane.loadSession(provider, sessionId, projectPath),
+  })
+  const touchTranscript = (sessionId: string): void => {
+    const source = opts.controlPlane.sessionTranscriptSource(sessionId)
+    if (source) transcriptMirror.touch(source.agentSessionId, source)
+  }
   opts.controlPlane.useSeats(seats, turnLedger)
   const seatConnector = new SeatConnector({ seats })
   const clientEvents = new ClientEventRegistry((clientId, event) => {
@@ -402,6 +493,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     agentIdFromContext: opts.agentIdFromContext,
     shares,
   })
+  registerPromptQueueHandlers(server, { events })
   await opts.registerHostHandlers?.(server)
   phaseDone('host_handlers_registered')
   registerFolioHandlers(server, { shares })
@@ -588,6 +680,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // One publish per watching client. Two panes on one renderer are one client
   // and receive one payload; desktop and web are two, with the same payload.
   opts.controlPlane.on('event', (sessionId: string, event: NormalizedEvent, to?: { only?: string; except?: string }) => {
+    // A broadcast event is a change to the session's history; one aimed at a single client is not.
+    if (!to) touchTranscript(sessionId)
     const projectedEvent = projectSessionEvent(event)
     if (!projectedEvent) return
     // Measure the projected event — the payload that actually ships to clients.
@@ -622,6 +716,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // and so does the roster row of everyone who has the session focused.
     publishSessionPresence(event.sessionId)
     if (presence.isSessionFocused(event.sessionId)) publishHostPresence()
+    // A settled turn is mirrored at once, so the cloud copy is whole when the session goes quiet.
+    touchTranscript(event.sessionId)
+    if (event.agentSessionId && !isSessionBusyStatus(event.status)) void transcriptMirror.flushNow(event.agentSessionId)
   })
   opts.controlPlane.on('watchers-changed', (sessionId: string) => publishSessionPresence(sessionId))
 
@@ -636,6 +733,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // treats every grant as a stranger's.
   let grantVerifier: HostGrantVerifier | null = workspaceGrantVerifier(workspaceMode)
   let runnerDelivery: RunnerDelivery | null = null
+  let queueDrain: QueueDrain | null = null
   const followLink = (link: UplinkLinkConfig | null): void => {
     if (workspaceMode) return
     grantVerifier = grantVerifierForLink(link)
@@ -659,10 +757,13 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // A linked host shared with an organization delivers its cloud-owned writes and
   // its session records to the organization's workspace service (§16).
   if (!workspaceMode) {
-    runnerDelivery = new RunnerDelivery({
-      link: () => uplinkManager.currentLink(),
-      hostToken: () => uplinkManager.hostToken(),
-    })
+    ({ delivery: runnerDelivery, drain: queueDrain } = startRunnerCloud({
+      controlPlane: opts.controlPlane,
+      uplinkManager,
+      localSeats,
+      transcriptMirror,
+      interruptSweep,
+    }))
   }
 
   const { server: http, requestListener } = buildHttpServer({
@@ -683,7 +784,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       ? grantVerifier.verify(grant, verifyOptions)
       : Promise.resolve({ ok: false, reason: 'not-linked' }),
     resolveShareSecret: (secret) => shares.resolveLinkSecret(secret),
-    runner: runnerRoutes(shares),
+    runner: runnerRoutes(shares, (sessionIds) => {
+      for (const sessionId of sessionIds) void events.broadcast('session.promptQueueChanged', { sessionId })
+    }),
     transcribeAudio: opts.transcribeAudio,
   })
   const responseReceiptBudget = new ResponseReceiptBudget()
@@ -733,6 +836,11 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   function handlePresenceConnected(clientId: string): void {
     const principal = ws.principalOf(clientId)
     if (!principal) return
+    // The service remembers who it admitted: the membership a runner's credential lease is checked against (§5).
+    if (workspaceMode && principal.kind === 'org-member') {
+      touchOrganizationMember(principal.organizationId, principal.userId, principal.displayName)
+        .catch((error) => log.warn('organization_member_touch_failed', { userId: principal.userId, error: error instanceof Error ? error.message : String(error) }))
+    }
     const deviceLabel = [...ws.sessions.values()].find((session) => session.clientId === clientId)?.deviceLabel ?? 'Web'
     const joined = presence.join(clientId, principal, deviceLabel)
     // The newcomer gets the room whether or not it is new: a reconnect has lost
@@ -974,6 +1082,8 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         clearInterval(seatSweepTimer)
         await seatConnector.stopAll()
         await lanDiscovery.close()
+        queueDrain?.stop()
+        transcriptMirror.dispose()
         await runnerDelivery?.stop()
         await uplinkConnector.stop()
         checksHandlers.handleTransportClosed()

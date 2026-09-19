@@ -1,5 +1,6 @@
 import { runnerGrantResponseSchema, uplinkErrorBodySchema, type UplinkLinkConfig } from '@solus/contracts/uplink'
 import type { SessionRecord } from '@solus/contracts/types'
+import type { z } from 'zod'
 import { createLogger } from '../../logger'
 import {
   ackCloudOutboxOpsThrough,
@@ -11,15 +12,20 @@ import {
   queueSessionReport,
 } from '../../outbox/outbox-store'
 import { setCloudOwnedOrganization } from '../../outbox/cloud-ownership'
+import { ackMirrorThrough, listMirror, onMirrorChanged } from '../../mirror/mirror-log'
 import { onSessionRecordChanged } from '../../sessions/session-records'
 import type { FetchLike } from '../host-grants'
 import {
   RUNNER_BATCH_LIMIT,
+  RUNNER_MIRROR_PATH,
   RUNNER_OUTBOX_PATH,
   RUNNER_SESSION_RECORDS_PATH,
+  runnerMirrorResponseSchema,
   runnerOutboxResponseSchema,
   runnerSessionRecordsResponseSchema,
+  type RunnerMirrorRequest,
   type RunnerOutboxRequest,
+  type RunnerRequestBody,
   type RunnerSessionRecordsRequest,
 } from './runner-protocol'
 
@@ -27,10 +33,11 @@ const log = createLogger('main', 'runner-delivery')
 
 /**
  * The runner's side of delivery to its organization's workspace service
- * (docs/plans/cloud-service-model.md §16). A linked host that is shared with an
- * organization exchanges its host token for a runner grant, learns the
- * organization and the way to the service, and from then on ships two streams
- * in sequence order: cloud-bound outbox ops and session-record reports.
+ * (docs/plans/cloud-service-model.md §16, §6). A linked host that is shared with
+ * an organization exchanges its host token for a runner grant, learns the
+ * organization and the way to the service, and from then on ships three
+ * streams in sequence order: cloud-bound outbox ops, session-record reports,
+ * and the mirror log.
  *
  * Nothing here is on the producer's path: a tool or the indexer writes its row
  * and returns; the delivery wakes up, sends what is queued, and acks by
@@ -38,6 +45,11 @@ const log = createLogger('main', 'runner-delivery')
  * still queued; a 401 mints a fresh grant. A host the control plane does not
  * count in any organization keeps asking, slowly, so attaching it later needs
  * no restart.
+ *
+ * The delivery is also the runner's one authenticated way to the service:
+ * `call()` posts under the current grant for the queue drain (§4) and the
+ * credential vault (§5), and `onGrant()` tells them when a grant exists and
+ * which organization it is for.
  */
 
 export interface RunnerDeliveryDeps {
@@ -58,12 +70,27 @@ export interface RunnerDeliveryStatus {
   error: string | null
 }
 
-interface RunnerGrant {
-  grant: string
+/** What a grant says about this runner, handed to whoever asked to hear of it. */
+export interface RunnerGrantInfo {
+  hostId: string
   organizationId: string
   workspaceUrl: string
+  /** The account that owns a personal runner; absent on a managed one. */
+  ownerUserId: string | null
+}
+
+interface RunnerGrant extends RunnerGrantInfo {
+  grant: string
   expiresAt: number
 }
+
+/** What `call()` answers: the parsed body, or why there is none. */
+export type RunnerCallResult<T> =
+  | { kind: 'ok'; body: T }
+  | { kind: 'refused'; status: number; error: string | null }
+  | { kind: 'unauthorized' }
+  | { kind: 'unreachable'; error: string }
+  | { kind: 'no-grant' }
 
 const RETRY_BASE_MS = 1_000
 const RETRY_MAX_MS = 60_000
@@ -82,6 +109,8 @@ export class RunnerDelivery {
   private timer: ReturnType<typeof setTimeout> | null = null
   private unsubscribes: Array<() => void> = []
   private stopped = false
+  private readonly grantListeners = new Set<(info: RunnerGrantInfo | null) => void>()
+  private readonly cycleListeners = new Set<() => Promise<void> | void>()
 
   constructor(private readonly deps: RunnerDeliveryDeps) {}
 
@@ -89,10 +118,35 @@ export class RunnerDelivery {
     return { ...this.status }
   }
 
+  /** The grant's facts while one is held; null while unlinked, unshared, or failing. */
+  currentGrant(): RunnerGrantInfo | null {
+    if (!this.grant) return null
+    const { hostId, organizationId, workspaceUrl, ownerUserId } = this.grant
+    return { hostId, organizationId, workspaceUrl, ownerUserId }
+  }
+
+  /** Hear when the runner gains or loses a grant (organization changes included). Called at once with the current state. */
+  onGrant(listener: (info: RunnerGrantInfo | null) => void): () => void {
+    this.grantListeners.add(listener)
+    listener(this.currentGrant())
+    return () => { this.grantListeners.delete(listener) }
+  }
+
+  /**
+   * Run after every delivery pass that found a grant, and on the idle tick: how
+   * the queue drain polls without a timer of its own. A listener that throws is
+   * logged and does not stop the others.
+   */
+  onCycle(listener: () => Promise<void> | void): () => void {
+    this.cycleListeners.add(listener)
+    return () => { this.cycleListeners.delete(listener) }
+  }
+
   /** Subscribes to the queues and starts the first cycle. */
   start(): void {
     this.stopped = false
     this.unsubscribes.push(onOutboxChanged(() => this.kick()))
+    this.unsubscribes.push(onMirrorChanged(() => this.kick()))
     this.unsubscribes.push(onSessionRecordChanged((record) => this.reportSession(record)))
     this.kick()
   }
@@ -101,15 +155,47 @@ export class RunnerDelivery {
     this.stopped = true
     for (const unsubscribe of this.unsubscribes.splice(0)) unsubscribe()
     this.clearTimer()
-    this.setOrganization(null)
+    this.setGrant(null)
   }
 
   /** The link changed (made, removed, superseded): forget the grant and start over. */
   linkChanged(): void {
-    this.grant = null
+    this.setGrant(null)
     this.attempts = 0
-    this.setOrganization(null)
     this.kick()
+  }
+
+  /** Runs a cycle soon, once, however many times it is asked while one runs. */
+  kick(): void {
+    if (this.stopped) return
+    this.wanted = true
+    if (this.running) return
+    this.clearTimer()
+    this.schedule(0)
+  }
+
+  /**
+   * One authenticated request to the service, for the drain and the vault. A
+   * 401 forgets the grant so the next cycle mints another; the caller gets
+   * `unauthorized` and tries again later. Nothing here retries on its own.
+   */
+  async call<T>(path: string, body: RunnerRequestBody, schema: z.ZodType<T>): Promise<RunnerCallResult<T>> {
+    const link = this.deps.link()
+    const hostToken = link ? this.deps.hostToken() : null
+    if (!link || !hostToken) return { kind: 'no-grant' }
+    const minted = await this.ensureGrant(link, hostToken)
+    const grant = this.grant
+    if (minted !== 'ok' || !grant) return { kind: 'no-grant' }
+    const answered = await this.post(grant, path, body)
+    if (answered.kind === 'unauthorized') {
+      this.grant = null
+      return { kind: 'unauthorized' }
+    }
+    if (answered.kind === 'refused') return answered
+    if (answered.kind === 'unreachable') return answered
+    const parsed = schema.safeParse(answered.body)
+    if (!parsed.success) return { kind: 'refused', status: 200, error: `unreadable answer from ${path}` }
+    return { kind: 'ok', body: parsed.data }
   }
 
   /** A change to one of this host's own records: queue it, and send it when the host is linked. */
@@ -118,15 +204,6 @@ export class RunnerDelivery {
     if (!link) return
     queueSessionReport({ ...record, runnerHostId: link.hostId })
     this.kick()
-  }
-
-  /** Runs a cycle soon, once, however many times it is asked while one runs. */
-  private kick(): void {
-    if (this.stopped) return
-    this.wanted = true
-    if (this.running) return
-    this.clearTimer()
-    this.schedule(0)
   }
 
   private schedule(delayMs: number): void {
@@ -155,6 +232,7 @@ export class RunnerDelivery {
       if (this.stopped) return
       if (outcome === 'idle') {
         this.attempts = 0
+        await this.runCycleListeners()
         if (this.wanted) this.schedule(0)
       } else if (outcome === 'unshared') {
         this.attempts = 0
@@ -170,13 +248,22 @@ export class RunnerDelivery {
     }
   }
 
-  /** One pass: a grant, then every queued item of both streams. */
+  private async runCycleListeners(): Promise<void> {
+    for (const listener of this.cycleListeners) {
+      try {
+        await listener()
+      } catch (error) {
+        log.warn('runner_cycle_listener_failed', { error: error instanceof Error ? error.message : String(error) })
+      }
+    }
+  }
+
+  /** One pass: a grant, then every queued item of every stream. */
   private async deliverAll(): Promise<'idle' | 'unlinked' | 'unshared' | 'failed'> {
     const link = this.deps.link()
     const hostToken = link ? this.deps.hostToken() : null
     if (!link || !hostToken) {
-      this.grant = null
-      this.setOrganization(null)
+      this.setGrant(null)
       return 'unlinked'
     }
     const minted = await this.ensureGrant(link, hostToken)
@@ -186,13 +273,18 @@ export class RunnerDelivery {
       if (!grant) return 'failed'
       const ops = listCloudOutboxOps(RUNNER_BATCH_LIMIT)
       const reports = listSessionReports(RUNNER_BATCH_LIMIT)
-      if (ops.length === 0 && reports.length === 0) return 'idle'
+      const mirrored = listMirror(RUNNER_BATCH_LIMIT)
+      if (ops.length === 0 && reports.length === 0 && mirrored.length === 0) return 'idle'
       if (ops.length > 0) {
         const outcome = await this.deliverOutbox(grant, link.hostId, ops)
         if (outcome !== 'ok') return outcome === 'unauthorized' ? this.retryAfterUnauthorized() : 'failed'
       }
       if (reports.length > 0) {
         const outcome = await this.deliverSessionReports(grant, link.hostId, reports)
+        if (outcome !== 'ok') return outcome === 'unauthorized' ? this.retryAfterUnauthorized() : 'failed'
+      }
+      if (mirrored.length > 0) {
+        const outcome = await this.deliverMirror(grant, link.hostId, mirrored)
         if (outcome !== 'ok') return outcome === 'unauthorized' ? this.retryAfterUnauthorized() : 'failed'
       }
     }
@@ -231,18 +323,15 @@ export class RunnerDelivery {
       this.fail('runner_grant_no_route', new Error('The runner grant named no way to the workspace'))
       return 'failed'
     }
-    this.grant = {
+    this.status.error = null
+    this.setGrant({
       grant: parsed.data.grant,
+      hostId: link.hostId,
       organizationId: parsed.data.organizationId,
       workspaceUrl: new URL(route.url).origin,
+      ownerUserId: parsed.data.ownerUserId ?? null,
       expiresAt: parsed.data.expiresAt,
-    }
-    this.status.error = null
-    if (this.status.organizationId !== this.grant.organizationId || this.status.workspaceUrl !== this.grant.workspaceUrl) {
-      log.info('runner_grant_minted', { hostId: link.hostId, organizationId: this.grant.organizationId, workspaceUrl: this.grant.workspaceUrl })
-    }
-    this.status.workspaceUrl = this.grant.workspaceUrl
-    this.setOrganization(this.grant.organizationId)
+    })
     return 'ok'
   }
 
@@ -255,8 +344,7 @@ export class RunnerDelivery {
     }
     // Not shared with an organization (or the cloud has no workspace yet): the host's writes stay its own.
     if (this.status.organizationId !== null) log.info('runner_grant_unshared', { hostId: link.hostId, code: code ?? null })
-    this.grant = null
-    this.setOrganization(null)
+    this.setGrant(null)
     this.status.error = null
     return 'unshared'
   }
@@ -264,7 +352,7 @@ export class RunnerDelivery {
   private async deliverOutbox(grant: RunnerGrant, hostId: string, ops: ReturnType<typeof listCloudOutboxOps>): Promise<'ok' | 'unauthorized' | 'failed'> {
     const body: RunnerOutboxRequest = { hostId, ops }
     const answered = await this.post(grant, RUNNER_OUTBOX_PATH, body)
-    if (answered.kind !== 'ok') return answered.kind
+    if (answered.kind !== 'ok') return this.streamOutcome(answered)
     const parsed = runnerOutboxResponseSchema.safeParse(answered.body)
     if (!parsed.success) {
       this.fail('runner_outbox_unreadable', new Error('The workspace answered with an unreadable outbox receipt'))
@@ -291,7 +379,7 @@ export class RunnerDelivery {
   private async deliverSessionReports(grant: RunnerGrant, hostId: string, reports: ReturnType<typeof listSessionReports>): Promise<'ok' | 'unauthorized' | 'failed'> {
     const body: RunnerSessionRecordsRequest = { hostId, reports }
     const answered = await this.post(grant, RUNNER_SESSION_RECORDS_PATH, body)
-    if (answered.kind !== 'ok') return answered.kind
+    if (answered.kind !== 'ok') return this.streamOutcome(answered)
     const parsed = runnerSessionRecordsResponseSchema.safeParse(answered.body)
     if (!parsed.success) {
       this.fail('runner_session_records_unreadable', new Error('The workspace answered with an unreadable session-record receipt'))
@@ -302,7 +390,30 @@ export class RunnerDelivery {
     return 'ok'
   }
 
-  private async post(grant: RunnerGrant, path: string, body: RunnerOutboxRequest | RunnerSessionRecordsRequest): Promise<{ kind: 'ok'; body: unknown } | { kind: 'unauthorized' | 'failed' }> {
+  private async deliverMirror(grant: RunnerGrant, hostId: string, items: ReturnType<typeof listMirror>): Promise<'ok' | 'unauthorized' | 'failed'> {
+    const body: RunnerMirrorRequest = { hostId, items }
+    const answered = await this.post(grant, RUNNER_MIRROR_PATH, body)
+    if (answered.kind !== 'ok') return this.streamOutcome(answered)
+    const parsed = runnerMirrorResponseSchema.safeParse(answered.body)
+    if (!parsed.success) {
+      this.fail('runner_mirror_unreadable', new Error('The workspace answered with an unreadable mirror receipt'))
+      return 'failed'
+    }
+    const acked = ackMirrorThrough(parsed.data.lastSeq)
+    log.info('runner_mirror_delivered', { hostId, organizationId: grant.organizationId, sent: items.length, acked, lastSeq: parsed.data.lastSeq })
+    return 'ok'
+  }
+
+  private streamOutcome(answered: Exclude<Awaited<ReturnType<RunnerDelivery['post']>>, { kind: 'ok' }>): 'unauthorized' | 'failed' {
+    return answered.kind === 'unauthorized' ? 'unauthorized' : 'failed'
+  }
+
+  private async post(grant: RunnerGrant, path: string, body: RunnerRequestBody): Promise<
+    | { kind: 'ok'; body: unknown }
+    | { kind: 'unauthorized' }
+    | { kind: 'refused'; status: number; error: string | null }
+    | { kind: 'unreachable'; error: string }
+  > {
     let response: Response
     try {
       response = await this.request(`${grant.workspaceUrl}${path}`, {
@@ -311,16 +422,19 @@ export class RunnerDelivery {
         body: JSON.stringify(body),
       })
     } catch (err) {
-      this.fail('runner_delivery_unreachable', err instanceof Error ? err : new Error(String(err)))
-      return { kind: 'failed' }
+      const error = err instanceof Error ? err : new Error(String(err))
+      this.fail('runner_delivery_unreachable', error)
+      return { kind: 'unreachable', error: error.message }
     }
     if (response.status === 401) {
       log.info('runner_delivery_unauthorized', { path })
       return { kind: 'unauthorized' }
     }
     if (!response.ok) {
-      this.fail('runner_delivery_refused', new Error(`${path} answered ${response.status}`))
-      return { kind: 'failed' }
+      const detail = uplinkErrorBodySchema.safeParse(await response.json().catch(() => ({})))
+      const error = detail.success ? String(detail.data.error) : null
+      this.fail('runner_delivery_refused', new Error(`${path} answered ${response.status}${error ? ` ${error}` : ''}`))
+      return { kind: 'refused', status: response.status, error }
     }
     return { kind: 'ok', body: await response.json().catch(() => null) }
   }
@@ -335,11 +449,27 @@ export class RunnerDelivery {
     log.warn(event, { error: error.message, attempts: this.attempts })
   }
 
-  private setOrganization(organizationId: string | null): void {
-    if (this.status.organizationId === organizationId) return
-    this.status.organizationId = organizationId
-    if (organizationId === null) this.status.workspaceUrl = null
-    setCloudOwnedOrganization(organizationId)
-    log.info('runner_delivery_organization_changed', { organizationId })
+  /** Holds or drops the grant, and tells the world only when what it says changed. */
+  private setGrant(next: RunnerGrant | null): void {
+    const before = this.currentGrant()
+    this.grant = next
+    const after = this.currentGrant()
+    const organizationId = after?.organizationId ?? null
+    const changed = before?.organizationId !== after?.organizationId
+      || before?.workspaceUrl !== after?.workspaceUrl
+      || before?.ownerUserId !== after?.ownerUserId
+    if (this.status.organizationId !== organizationId) {
+      this.status.organizationId = organizationId
+      setCloudOwnedOrganization(organizationId)
+      log.info('runner_delivery_organization_changed', { organizationId })
+    }
+    this.status.workspaceUrl = after?.workspaceUrl ?? null
+    if (!changed) return
+    if (after) log.info('runner_grant_minted', { hostId: after.hostId, organizationId: after.organizationId, workspaceUrl: after.workspaceUrl })
+    for (const listener of this.grantListeners) {
+      try { listener(after) } catch (error) {
+        log.warn('runner_grant_listener_failed', { error: error instanceof Error ? error.message : String(error) })
+      }
+    }
   }
 }

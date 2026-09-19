@@ -92,8 +92,8 @@ describe('the host login is the owner\'s seat', () => {
     expect(existsSync(join(root, 'seats'))).toBe(false)
     // A missing login is the provider's own error at spawn, as it always was.
     signedIn = false
-    expect(seats.resolveForTurn(HOST_OWNER_USER_ID, 'claude-code')).toMatchObject({ userId: HOST_OWNER_USER_ID, home: join(root, 'home', '.claude'), isHostLogin: true })
-    expect(seats.resolveForTurn(HOST_OWNER_USER_ID, 'claude-code')?.envToken).toBeUndefined()
+    expect(await seats.resolveForTurn(HOST_OWNER_USER_ID, 'claude-code')).toMatchObject({ userId: HOST_OWNER_USER_ID, home: join(root, 'home', '.claude'), isHostLogin: true })
+    expect((await seats.resolveForTurn(HOST_OWNER_USER_ID, 'claude-code'))?.envToken).toBeUndefined()
   })
 
   test('a finished CLI login leaves no row behind; a pasted token is Solus\'s to keep and to delete; the home is never removed', async () => {
@@ -103,11 +103,11 @@ describe('the host login is the owner\'s seat', () => {
     await seats.markConnected(HOST_OWNER_USER_ID, 'claude-code', 'login')
     expect(await seats.status(HOST_OWNER_USER_ID, 'claude-code')).toMatchObject({ state: 'connected', method: 'login', hostLogin: true })
     await seats.storeToken(HOST_OWNER_USER_ID, 'claude-code', 'owner-token')
-    expect(seats.resolveForTurn(HOST_OWNER_USER_ID, 'claude-code')).toMatchObject({ isHostLogin: true, envToken: 'owner-token' })
+    expect(await seats.resolveForTurn(HOST_OWNER_USER_ID, 'claude-code')).toMatchObject({ isHostLogin: true, envToken: 'owner-token' })
     expect(await seats.status(HOST_OWNER_USER_ID, 'claude-code')).toMatchObject({ method: 'token', usageCapable: false, hostLogin: true })
     await seats.disconnect(HOST_OWNER_USER_ID, 'claude-code')
     expect(existsSync(join(root, 'home', '.claude', 'solus-seat-token'))).toBe(false)
-    expect(seats.resolveForTurn(HOST_OWNER_USER_ID, 'claude-code')?.envToken).toBeUndefined()
+    expect((await seats.resolveForTurn(HOST_OWNER_USER_ID, 'claude-code'))?.envToken).toBeUndefined()
     await expect(seats.remove(HOST_OWNER_USER_ID)).rejects.toThrow(/host login/)
     expect(existsSync(join(root, 'home', '.claude'))).toBe(true)
   })
@@ -116,9 +116,9 @@ describe('the host login is the owner\'s seat', () => {
 describe('resolving a turn', () => {
   test('a member with no seat is refused with SEAT_REQUIRED before anything runs; a non-seat provider has none', async () => {
     const { seats } = manager()
-    expect(seats.resolveForTurn('bob', 'opencode')).toBeNull()
+    expect(await seats.resolveForTurn('bob', 'opencode')).toBeNull()
     let refusal: unknown
-    try { seats.resolveForTurn('bob', 'claude-code') } catch (error) { refusal = error }
+    try { await seats.resolveForTurn('bob', 'claude-code') } catch (error) { refusal = error }
     expect(refusal).toBeInstanceOf(SeatRequiredError)
     expect((refusal as SeatRequiredError).code).toBe('SEAT_REQUIRED')
     expect((refusal as SeatRequiredError).state).toBe('none')
@@ -127,15 +127,15 @@ describe('resolving a turn', () => {
   test('a connecting or expired seat is not a seat; a connected one names its directory', async () => {
     const { seats } = manager()
     await seats.markConnecting('bob', 'claude-code')
-    expect(() => seats.resolveForTurn('bob', 'claude-code')).toThrow(SeatRequiredError)
+    await expect(seats.resolveForTurn('bob', 'claude-code')).rejects.toThrow(SeatRequiredError)
     await seats.markConnected('bob', 'claude-code', 'login')
-    const seat = seats.resolveForTurn('bob', 'claude-code')
+    const seat = await seats.resolveForTurn('bob', 'claude-code')
     expect(seat?.home).toBe(seats.homeFor('bob', 'claude-code'))
     expect(seat?.envToken).toBeUndefined()
     expect(await seats.status('bob', 'claude-code')).toMatchObject({ state: 'connected', method: 'login', usageCapable: true })
     await seats.markExpired('bob', 'claude-code', '401 from the provider')
     let refusal: unknown
-    try { seats.resolveForTurn('bob', 'claude-code') } catch (error) { refusal = error }
+    try { await seats.resolveForTurn('bob', 'claude-code') } catch (error) { refusal = error }
     expect((refusal as SeatRequiredError).state).toBe('expired')
     expect((await seats.status('bob', 'claude-code')).error).toBe('401 from the provider')
   })
@@ -143,7 +143,7 @@ describe('resolving a turn', () => {
   test('a pasted Claude token rides the env for that turn and cannot show usage', async () => {
     const { seats } = manager()
     await seats.storeToken('bob', 'claude-code', 'sk-ant-oat01-test\n')
-    const seat = seats.resolveForTurn('bob', 'claude-code')
+    const seat = await seats.resolveForTurn('bob', 'claude-code')
     expect(seat?.envToken).toBe('sk-ant-oat01-test')
     expect(await seats.status('bob', 'claude-code')).toMatchObject({ state: 'connected', method: 'token', usageCapable: false })
     expect(statSync(join(seat!.home, 'solus-seat-token')).mode & 0o777).toBe(0o600)
@@ -153,7 +153,7 @@ describe('resolving a turn', () => {
     const { seats } = manager()
     await expect(seats.storeToken('bob', 'codex', 'not json')).rejects.toThrow(/auth\.json/)
     await seats.storeToken('bob', 'codex', '{"tokens":{"access_token":"x"}}')
-    const seat = seats.resolveForTurn('bob', 'codex')
+    const seat = await seats.resolveForTurn('bob', 'codex')
     expect(JSON.parse(readFileSync(join(seat!.home, 'auth.json'), 'utf8'))).toEqual({ tokens: { access_token: 'x' } })
     expect((await seats.status('bob', 'codex')).usageCapable).toBe(true)
   })
@@ -190,7 +190,7 @@ describe('lifecycle', () => {
     await seats.storeToken('cara', 'codex', '{}')
     await seats.storeToken(HOST_OWNER_USER_ID, 'claude-code', 'owner-token')
     now += SEAT_IDLE_REMOVAL_MS - 1
-    seats.resolveForTurn('cara', 'codex')
+    await seats.resolveForTurn('cara', 'codex')
     now += 2
     expect(await seats.sweep()).toBe(1)
     expect((await seats.status('bob', 'codex')).state).toBe('none')

@@ -84,6 +84,7 @@ const resourceRpcRules = {
   loadSessionToolInputs: viewer(sessionFieldAt(0, 'sessionId')),
   loadSessionPreview: viewer(sessionIdAt(0)),
   loadSessionMessageWindow: viewer(sessionFieldAt(0, 'sessionId')),
+  sessionPromptQueueList: viewer(sessionIdAt(0)),
   getSessionInfo: viewer(sessionIdAt(0)),
   getSessionInfos: viewer(singleSessionIdAt(0)),
   // Opening a session by id resolves its lineage first; the share manager canonicalizes
@@ -105,6 +106,8 @@ const resourceRpcRules = {
   prompt: editor(ctxAt(0)),
   retry: editor(ctxAt(0)),
   promptSession: editor(sessionIdAt(0)),
+  // The cloud queue (§4): sending to a session someone may prompt; withdrawing is the author's or an administrator's, checked in the handler.
+  sessionPromptEnqueue: editor(sessionFieldAt(0, 'sessionId')),
   stopSession: editor(sessionIdAt(0)),
   resetSession: editor(ctxAt(0)),
   switchSessionAgent: editor(sessionIdAt(0)),

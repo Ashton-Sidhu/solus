@@ -2,7 +2,7 @@ import type { AgentUsageLimits } from '@solus/contracts/types'
 import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import type { ControlPlane } from '../../control-plane'
 import { createLogger } from '../../logger'
-import { isSeatProvider, seatUserFor, type SeatManager, type TurnSeat } from '../../seats/seat-manager'
+import { isSeatProvider, seatUserFor, type SeatStore, type TurnSeat } from '../../seats/seat-manager'
 import type { SolusServer } from '../server'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 
@@ -19,7 +19,7 @@ export interface UsageHandlerDeps {
   controlPlane: ControlPlane
   events: HostEventPublisher
   /** Provider seats (docs/plans/provider-seats.md §3.5): every caller's quota is their own seat's. */
-  seats?: SeatManager
+  seats?: SeatStore
   /** The clients a seat's numbers go to; without it every snapshot is broadcast. */
   clientsForSeatUser?: (seatUserId: string) => string[]
 }

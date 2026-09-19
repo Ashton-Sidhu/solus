@@ -2202,6 +2202,35 @@ export interface SessionRecordUpsert extends Partial<Omit<SessionRecord, 'sessio
   lastActivityAt: number
 }
 
+/**
+ * A prompt on a cloud session's durable queue (docs/plans/cloud-service-model.md
+ * §4). `waiting` until the session's runner claims it; `claimed` while the runner
+ * holds it; `dispatched` once the runner handed it to the agent (the turn itself
+ * shows in the transcript); `failed` with a reason; `cancelled` when withdrawn.
+ */
+export type CloudQueuedPromptState = 'waiting' | 'claimed' | 'dispatched' | 'failed' | 'cancelled'
+
+export interface CloudQueuedPrompt {
+  queueId: string
+  sessionId: string
+  text: string
+  author: { userId: string; displayName: string | null }
+  state: CloudQueuedPromptState
+  createdAt: number
+  /** The runner that claimed it, once one did. */
+  claimedByHostId: string | null
+  settledAt: number | null
+  error: string | null
+}
+
+/** `sessionPromptEnqueue`: text only in this slice; images stay on the runner's own composer. */
+export interface SessionPromptEnqueueRequest {
+  sessionId: string
+  text: string
+  /** The client's own id for the bubble it drew, echoed on the answer so it can be reconciled. */
+  clientPromptId?: string
+}
+
 /** `sessionRecordList`: the picker's filters. `projectPath` is a plain path; the
  *  host encodes it as the provider does, and `includeWorktrees` adds the
  *  project's worktree folders beneath it. */

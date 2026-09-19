@@ -57,8 +57,10 @@ export type SeatConnectCodeRequest = z.infer<typeof seatConnectCodeRequestSchema
 
 /**
  * `seatConnectToken`: a credential the member made elsewhere. Claude: the output of
- * `claude setup-token` (inference-only, so no usage meter). Codex: the contents of
- * the member's `auth.json`.
+ * `claude setup-token` (inference-only, so no usage meter), or on the workspace
+ * service the contents of `.credentials.json` from a `claude auth login` made on
+ * another machine (a login credential, with usage). Codex: the contents of the
+ * member's `auth.json`.
  */
 export const seatConnectTokenRequestSchema = z.object({
   provider: seatProviderSchema,

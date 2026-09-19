@@ -3,19 +3,21 @@
     ExternalLink as ExternalLinkIcon,
     FileText as FileTextIcon,
     MessageSquare as MessageSquareIcon,
+    Plug as PlugIcon,
     SquareCheck as SquareCheckIcon,
   } from "@lucide/svelte";
-  import { pageRouteFragment } from "../lib/page-routes";
+  import { pageRouteFragment, type PageSection } from "../lib/page-routes";
 
   /**
    * The page shell's rail (docs/plans/cloud-service-model.md): one organization's
-   * three lists and the way to the workspace. A side rail where the window is wide,
-   * a strip under the band on a phone — the same four destinations either way.
+   * three lists, the person's connections, and the way to the workspace. A side
+   * rail where the window is wide, a strip under the band on a phone — the same
+   * five destinations either way.
    */
   interface Props {
     organizationId: string;
     organizationName: string;
-    section: "tasks" | "works" | "sessions";
+    section: PageSection;
     variant: "side" | "strip";
     onOpenWorkspace: () => void;
   }
@@ -25,6 +27,7 @@
     { key: "tasks" as const, label: "Tasks", icon: SquareCheckIcon, href: pageRouteFragment({ organizationId, page: "tasks" }) },
     { key: "works" as const, label: "Works", icon: FileTextIcon, href: pageRouteFragment({ organizationId, page: "works" }) },
     { key: "sessions" as const, label: "Sessions", icon: MessageSquareIcon, href: pageRouteFragment({ organizationId, page: "sessions" }) },
+    { key: "connections" as const, label: "Connections", icon: PlugIcon, href: pageRouteFragment({ organizationId, page: "connections" }) },
   ]);
 </script>
 

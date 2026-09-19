@@ -34,8 +34,14 @@ Secrets, never in the file:
 fly secrets set --app solus-workspace \
   DATABASE_URL='postgres://…' \
   SOLUS_CLOUD_ISSUER='https://app.solus.sh' \
-  SOLUS_CLOUD_JWKS_URL='https://app.solus.sh/api/auth/jwks'
+  SOLUS_CLOUD_JWKS_URL='https://app.solus.sh/api/auth/jwks' \
+  SOLUS_VAULT_KEY="$(openssl rand -base64 32)"
 ```
+
+`SOLUS_VAULT_KEY` (32 bytes, base64) encrypts the credential vault: the provider
+logins members connect once here and runners lease for their turns. Without it the
+service still starts, and every seat call answers `VAULT_NOT_CONFIGURED`. Rotating
+it invalidates every stored credential; members connect again.
 
 The service refuses to start without all three (`workspace_mode_applied` in the
 log names the engine it opened). Migrations run at open on the first machine to

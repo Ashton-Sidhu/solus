@@ -65,5 +65,5 @@ export function mergeSessionHomes<Row extends SessionHomeRow>(rows: readonly Row
   return merged
 }
 
-/** What a read-only record says in place of a prompt. */
-export const RUNNER_OFFLINE_REASON = "This session's runner is offline."
+/** What the record page says beside its composer: the prompt is taken, and waits. */
+export const RUNNER_OFFLINE_NOTE = "This session's runner is offline. A prompt you send waits for it."

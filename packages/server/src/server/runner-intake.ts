@@ -5,10 +5,33 @@ import { createLogger } from '../logger'
 import { applyOutboxOp, PermanentApplyError } from '../outbox/outbox-store'
 import { runnerCursors } from '../outbox/schema'
 import { upsertSessionRecord } from '../sessions/session-records'
+import { claimForRunner, settleForRunner } from '../sessions/prompt-queue'
+import { applyMirrorItem } from '../mirror/mirror-sinks'
 import type { ShareManager } from '../sharing/share-manager'
 import type { Principal } from './principal'
 import type { OutboxOp } from '@solus/contracts/outbox-types'
-import type { RunnerOutboxRequest, RunnerOutboxResponse, RunnerSessionRecordsRequest, RunnerSessionRecordsResponse } from './uplink/runner-protocol'
+import { acquireLock, credentialExpiresAt, isOrganizationMember, readCredential, releaseLock, vaultConfigured, writeBack } from '../vault/vault'
+import {
+  RUNNER_BATCH_LIMIT,
+  type RunnerCredentialError,
+  type RunnerCredentialLeaseRequest,
+  type RunnerCredentialLeaseResponse,
+  type RunnerCredentialLockRequest,
+  type RunnerCredentialLockResponse,
+  type RunnerCredentialUnlockRequest,
+  type RunnerCredentialWritebackRequest,
+  type RunnerCredentialWritebackResponse,
+  type RunnerMirrorRequest,
+  type RunnerMirrorResponse,
+  type RunnerOutboxRequest,
+  type RunnerOutboxResponse,
+  type RunnerQueueClaimRequest,
+  type RunnerQueueClaimResponse,
+  type RunnerQueueSettleRequest,
+  type RunnerQueueSettleResponse,
+  type RunnerSessionRecordsRequest,
+  type RunnerSessionRecordsResponse,
+} from './uplink/runner-protocol'
 
 const log = createLogger('main', 'runner-intake')
 
@@ -23,7 +46,7 @@ const log = createLogger('main', 'runner-intake')
 
 export type RunnerPrincipal = Extract<Principal, { kind: 'runner' }>
 
-type RunnerStream = 'outbox' | 'session-records'
+type RunnerStream = 'outbox' | 'session-records' | 'mirror'
 
 const cursorRowSchema = z.object({ last_seq: z.number() })
 
@@ -82,7 +105,7 @@ export async function applyRunnerOutbox(runner: RunnerPrincipal, request: Runner
   return { lastSeq, failed }
 }
 
-export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request: RunnerSessionRecordsRequest): Promise<RunnerSessionRecordsResponse> {
+export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request: RunnerSessionRecordsRequest, shares?: ShareManager): Promise<RunnerSessionRecordsResponse> {
   const database = getDatabase()
   let lastSeq = await readCursor(database, runner, 'session-records')
   for (const { seq, record } of ascending(request.reports)) {
@@ -90,9 +113,110 @@ export async function applyRunnerSessionRecords(runner: RunnerPrincipal, request
     // The record names the runner that holds the transcript; a runner cannot speak for another.
     await database.transaction(async (db) => {
       await upsertSessionRecord(runner.organizationId, { ...record, runnerHostId: runner.hostId })
+      // A session the runner reports is the organization's to open, like anything else it writes here.
+      if (shares) await shares.claimForRunner({ kind: 'session', id: record.sessionId }, runner)
       await writeCursor(db, runner, 'session-records', seq)
     })
     lastSeq = seq
   }
   return { lastSeq }
+}
+
+/**
+ * The mirrored domains (§6): transcript rows and insights. A malformed item is
+ * skipped and the cursor moves past it; any other failure holds the cursor
+ * where it is, and the runner sends the rest again.
+ */
+export async function applyRunnerMirror(runner: RunnerPrincipal, request: RunnerMirrorRequest): Promise<RunnerMirrorResponse> {
+  const database = getDatabase()
+  const origin = { organizationId: runner.organizationId, hostId: runner.hostId }
+  let lastSeq = await readCursor(database, runner, 'mirror')
+  for (const { seq, domain, key, payload } of ascending(request.items)) {
+    if (seq <= lastSeq) continue
+    try {
+      await database.transaction(async (db) => {
+        await applyMirrorItem(origin, { domain, payload })
+        await writeCursor(db, runner, 'mirror', seq)
+      })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const permanent = error instanceof PermanentApplyError
+      log.warn('runner_mirror_item_failed', { hostId: runner.hostId, organizationId: runner.organizationId, seq, domain, key, permanent, error: message })
+      if (!permanent) break
+      await writeCursor(database, runner, 'mirror', seq)
+    }
+    lastSeq = seq
+  }
+  return { lastSeq }
+}
+
+// ── The durable prompt queue (§4) ────────────────────────────────────────────
+
+/** The prompts this runner may dispatch now, claimed under its sessions' leases; the session ids touched are answered beside them. */
+export async function claimRunnerQueue(runner: RunnerPrincipal, request: RunnerQueueClaimRequest): Promise<{ response: RunnerQueueClaimResponse; sessionIds: string[] }> {
+  const prompts = await claimForRunner(runner.organizationId, runner.hostId, request.limit ?? RUNNER_BATCH_LIMIT)
+  if (prompts.length > 0) log.info('runner_queue_claimed', { hostId: runner.hostId, organizationId: runner.organizationId, count: prompts.length })
+  return { response: { prompts }, sessionIds: [...new Set(prompts.map((prompt) => prompt.sessionId))] }
+}
+
+/** The runner's word on one claim; refused (settled: false) when the claim is no longer this runner's under this epoch. */
+export async function settleRunnerQueue(runner: RunnerPrincipal, request: RunnerQueueSettleRequest): Promise<{ response: RunnerQueueSettleResponse; sessionIds: string[] }> {
+  const outcome = await settleForRunner(runner.organizationId, runner.hostId, request.queueId, request.epoch, request.state, request.error)
+  if (!outcome.settled) {
+    log.info('runner_queue_settle_refused', { hostId: runner.hostId, organizationId: runner.organizationId, queueId: request.queueId, epoch: request.epoch })
+    return { response: { settled: false }, sessionIds: [] }
+  }
+  return { response: { settled: true }, sessionIds: [outcome.sessionId] }
+}
+
+// ── The credential vault (§5) ────────────────────────────────────────────────
+
+/** A credential route's answer: the body, or the refusal and the status it rides on. */
+export type RunnerCredentialOutcome<T> =
+  | { kind: 'ok'; body: T }
+  | { kind: 'refused'; status: 403 | 404 | 409 | 503; error: RunnerCredentialError }
+
+/**
+ * Whether this runner may touch this person's credential: the vault must have a
+ * key, and the person must have been admitted to the runner's organization.
+ */
+async function admitCredentialRequest(runner: RunnerPrincipal, userId: string): Promise<Extract<RunnerCredentialOutcome<never>, { kind: 'refused' }> | null> {
+  if (!vaultConfigured()) return { kind: 'refused', status: 503, error: 'vault_not_configured' }
+  if (!await isOrganizationMember(runner.organizationId, userId)) {
+    log.info('runner_credential_refused', { hostId: runner.hostId, organizationId: runner.organizationId, userId, reason: 'not_a_member' })
+    return { kind: 'refused', status: 403, error: 'not_a_member' }
+  }
+  return null
+}
+
+export async function leaseRunnerCredential(runner: RunnerPrincipal, request: RunnerCredentialLeaseRequest): Promise<RunnerCredentialOutcome<RunnerCredentialLeaseResponse>> {
+  const refused = await admitCredentialRequest(runner, request.userId)
+  if (refused) return refused
+  const credential = await readCredential(request.userId, request.provider)
+  if (!credential) return { kind: 'refused', status: 404, error: 'no_credential' }
+  log.info('runner_credential_leased', { hostId: runner.hostId, organizationId: runner.organizationId, userId: request.userId, provider: request.provider, version: credential.version })
+  return { kind: 'ok', body: credential }
+}
+
+export async function lockRunnerCredential(runner: RunnerPrincipal, request: RunnerCredentialLockRequest): Promise<RunnerCredentialOutcome<RunnerCredentialLockResponse>> {
+  const refused = await admitCredentialRequest(runner, request.userId)
+  if (refused) return refused
+  const lock = await acquireLock(request.userId, request.provider, runner.hostId, request.ttlMs ?? 90_000)
+  return { kind: 'ok', body: lock }
+}
+
+export async function unlockRunnerCredential(runner: RunnerPrincipal, request: RunnerCredentialUnlockRequest): Promise<RunnerCredentialOutcome<{ released: boolean }>> {
+  const refused = await admitCredentialRequest(runner, request.userId)
+  if (refused) return refused
+  return { kind: 'ok', body: { released: await releaseLock(request.userId, request.provider, runner.hostId) } }
+}
+
+export async function writebackRunnerCredential(runner: RunnerPrincipal, request: RunnerCredentialWritebackRequest): Promise<RunnerCredentialOutcome<RunnerCredentialWritebackResponse>> {
+  const refused = await admitCredentialRequest(runner, request.userId)
+  if (refused) return refused
+  const expiresAt = request.expiresAt === undefined ? credentialExpiresAt(request.provider, request.material) : request.expiresAt
+  const outcome = await writeBack(request.userId, request.provider, request.baseVersion, request.material, expiresAt)
+  if (outcome.kind === 'ok') return { kind: 'ok', body: { version: outcome.version } }
+  if (outcome.kind === 'no_credential') return { kind: 'refused', status: 404, error: 'no_credential' }
+  return { kind: 'refused', status: 409, error: 'version_conflict' }
 }

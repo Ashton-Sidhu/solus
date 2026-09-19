@@ -1,15 +1,16 @@
 import { seatConnectCodeRequestSchema, seatConnectTokenRequestSchema, seatProviderRequestSchema, seatRemoveRequestSchema } from '@solus/contracts/seats'
 import type { SeatConnector } from '../../seats/seat-connect'
-import { seatUserFor, type SeatManager } from '../../seats/seat-manager'
+import { seatUserFor, type SeatStore } from '../../seats/seat-manager'
 import type { SolusServer } from '../server'
 
 /**
  * The caller's own provider seats on this host (docs/plans/provider-seats.md
  * §3.6). The seat user comes from the principal, never from the request: the host
  * owner's seat is the host login, a member's is their own, and a guest is refused
- * by the access policy. Removal is the administrator's.
+ * by the access policy. Removal is the administrator's. On the workspace service
+ * the store is the credential vault (cloud-service-model.md §5).
  */
-export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatManager; connector: SeatConnector }): void {
+export function registerSeatHandlers(server: SolusServer, deps: { seats: SeatStore; connector: SeatConnector }): void {
   server.register('seatList', (_args, ctx) => deps.seats.list(seatUserFor(ctx.principal)))
 
   server.register('seatConnectStart', (args, ctx) => {

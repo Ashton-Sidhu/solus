@@ -14,6 +14,7 @@ import {
   type SpanStatus,
 } from './registries'
 import { writeSpanRecord, type LogEventRow, type SpanRow } from './span-table'
+import { mirrorInsightSpan } from '../mirror/insight-mirror'
 
 // ─── metrics.db as a span exporter ───
 //
@@ -157,17 +158,39 @@ function logEventRows(span: ReadableSpan): LogEventRow[] {
   return rows
 }
 
+/** One span as it landed in `metrics.db`: the rows written and the ids the log events took. */
+interface WrittenSpan {
+  row: SpanRow
+  events: LogEventRow[]
+  eventIds: number[]
+}
+
 /** Writes finished spans into `metrics.db`, the record Insights reads. */
 export class SqliteSpanExporter implements SpanExporter {
   export(spans: ReadableSpan[], resultCallback: (result: ExportResult) => void): void {
     for (const span of spans) {
+      let record: WrittenSpan
       try {
-        writeSpanRecord(spanRow(span), logEventRows(span))
+        const row = spanRow(span)
+        const events = logEventRows(span)
+        record = { row, events, eventIds: writeSpanRecord(row, events) }
       } catch (error) {
         // One unwritable span must not cost the rest of the batch, and an
         // exporter that throws would take the ending span's caller with it.
         log.warn('span_write_failed', {
           spanId: span.spanContext().spanId,
+          name: span.name,
+          error: error instanceof Error ? error.message : String(error),
+        })
+        continue
+      }
+      try {
+        // The span is the record's; the mirror is a copy of it for the cloud
+        // (mirror/insight-mirror.ts), and a copy that fails costs nothing here.
+        mirrorInsightSpan(record.row, record.events, record.eventIds)
+      } catch (error) {
+        log.warn('span_mirror_failed', {
+          spanId: record.row.spanId,
           name: span.name,
           error: error instanceof Error ? error.message : String(error),
         })

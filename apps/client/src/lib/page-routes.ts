@@ -11,6 +11,7 @@ import type { ResourceRoute } from '@solus/workspace-ui/contexts/app/resource-ro
  *   #/w/<orgId>/works/<workId>        one work
  *   #/w/<orgId>/sessions              the session records
  *   #/w/<orgId>/sessions/<sessionId>  one session: the record, read-only while its runner is offline
+ *   #/w/<orgId>/connections           the person's Claude and Codex logins, kept in Solus cloud
  *
  * The share link `#/h/<hostId>/s/<secret>` is another door and is parsed before this one.
  */
@@ -21,12 +22,16 @@ export type PageRoute =
   | { organizationId: string; page: 'work'; workId: string }
   | { organizationId: string; page: 'sessions' }
   | { organizationId: string; page: 'session'; sessionId: string }
+  | { organizationId: string; page: 'connections' }
 
 export type PageRouteName = PageRoute['page']
 
+/** The rail entry a route belongs under. */
+export type PageSection = 'tasks' | 'works' | 'sessions' | 'connections'
+
 // An id as `encodeURIComponent` writes it: the `%` of an escaped character included.
 const ID = '[A-Za-z0-9_.:%-]+'
-const FRAGMENT = new RegExp(`^#?/w/(${ID})(?:/(tasks|works|sessions)(?:/(${ID}))?)?/?$`)
+const FRAGMENT = new RegExp(`^#?/w/(${ID})(?:/(tasks|works|sessions|connections)(?:/(${ID}))?)?/?$`)
 
 export function parsePageRouteFragment(hash: string): PageRoute | null {
   const match = FRAGMENT.exec(hash)
@@ -36,6 +41,7 @@ export function parsePageRouteFragment(hash: string): PageRoute | null {
   const id = match[3] ? decodeURIComponent(match[3]) : null
   if (list === 'tasks') return id ? { organizationId, page: 'task', taskId: id } : { organizationId, page: 'tasks' }
   if (list === 'works') return id ? { organizationId, page: 'work', workId: id } : { organizationId, page: 'works' }
+  if (list === 'connections') return id ? null : { organizationId, page: 'connections' }
   return id ? { organizationId, page: 'session', sessionId: id } : { organizationId, page: 'sessions' }
 }
 
@@ -48,6 +54,7 @@ export function pageRouteFragment(route: PageRoute): string {
     case 'work': return `${base}/works/${encodeURIComponent(route.workId)}`
     case 'sessions': return `${base}/sessions`
     case 'session': return `${base}/sessions/${encodeURIComponent(route.sessionId)}`
+    case 'connections': return `${base}/connections`
   }
 }
 
@@ -62,8 +69,9 @@ export function pageRouteForResource(organizationId: string, route: ResourceRout
 }
 
 /** Which rail entry a route belongs under. */
-export function pageRouteSection(route: PageRoute): 'tasks' | 'works' | 'sessions' {
+export function pageRouteSection(route: PageRoute): PageSection {
   if (route.page === 'task' || route.page === 'tasks') return 'tasks'
   if (route.page === 'work' || route.page === 'works') return 'works'
+  if (route.page === 'connections') return 'connections'
   return 'sessions'
 }

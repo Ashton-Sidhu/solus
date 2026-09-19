@@ -98,7 +98,7 @@ import { indexLivePlan } from './plans/plan-index'
 import { activityLeases } from './server/activity-leases'
 import type { SessionHistoryPageRequest, ProviderHistoryPage, SessionLoadMessage, SessionPreviewResult } from '@solus/contracts/session-history'
 import { SessionEmitter, annotateDispatch, dispatchStep, dispatchStepSync } from './observability/session-emitter'
-import { SeatRequiredError, type SeatManager, type TurnSeat } from './seats/seat-manager'
+import { SeatRequiredError, type SeatStore, type TurnSeat } from './seats/seat-manager'
 import { type TurnActor, type TurnLedger } from './sessions/turn-ledger'
 import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { sessionActivityStateOf, type SessionActiveTurn, type SessionActivity } from '@solus/contracts/presence'
@@ -361,7 +361,7 @@ export class ControlPlane extends EventEmitter {
   private readonly handoffBuilder: typeof buildHandoff
   private readonly sessionTaskPreparer: typeof prepareSessionTask
   /** Provider seats and the turn ledger, once the host has opened its database. */
-  private seats: SeatManager | null = null
+  private seats: SeatStore | null = null
   private turnLedger: TurnLedger | null = null
 
   constructor(backends: Map<AgentId, AgentBackend>, opts: ControlPlaneOptions = {}) {
@@ -414,6 +414,14 @@ export class ControlPlane extends EventEmitter {
    *  backend. Null before session_init. */
   private _agentSessionIdFor(sessionId: string): string | null {
     return this.activeSessions.get(sessionId)?.agentSessionId ?? null
+  }
+
+  /** What the transcript mirror needs to read a session's history: the provider,
+   *  its thread id, and the project folder. Null before session_init. */
+  sessionTranscriptSource(sessionId: string): { provider: AgentId; agentSessionId: string; projectPath: string | undefined } | null {
+    const session = this.activeSessions.get(sessionId)
+    if (!session?.agentSessionId) return null
+    return { provider: session.backendId, agentSessionId: session.agentSessionId, projectPath: session.runInput?.projectPath }
   }
 
   /** Restore a provisional handoff after a server restart. The SQLite chain is
@@ -1729,13 +1737,17 @@ export class ControlPlane extends EventEmitter {
    * Provider seats (Step 2 plan §3.3). Every turn with an actor resolves its seat
    * before anything is spawned; the host's own work runs on the host's login.
    */
-  useSeats(seats: SeatManager, turnLedger: TurnLedger): void {
+  useSeats(seats: SeatStore, turnLedger: TurnLedger): void {
     this.seats = seats
     this.turnLedger = turnLedger
   }
 
-  /** The seat a turn runs under, or null for the host's login. Throws `SeatRequiredError` when the author has none. */
-  seatForTurn(actor: TurnActor | undefined, provider: AgentId): TurnSeat | null {
+  /**
+   * The seat a turn runs under, or null for the host's login. Throws
+   * `SeatRequiredError` when the author has none. Asynchronous because a runner
+   * in an organization leases a member's credential from the vault (§5).
+   */
+  async seatForTurn(actor: TurnActor | undefined, provider: AgentId): Promise<TurnSeat | null> {
     if (!this.seats || !actor) return null
     return this.seats.resolveForTurn(actor.seatUserId, provider)
   }
@@ -1942,7 +1954,7 @@ export class ControlPlane extends EventEmitter {
     // No seat, no turn: refused here, before the prompt is echoed or queued, so the
     // client can show the connect card instead of a bubble that never answers.
     const provider = ctx.session.provider ?? resolveSessionLineageById(proposedSessionId)?.active.provider
-    if (provider && ctx.session.preferredModel !== AUTO_MODEL_ID) this.seatForTurn(origin?.actor, provider)
+    if (provider && ctx.session.preferredModel !== AUTO_MODEL_ID) await this.seatForTurn(origin?.actor, provider)
     if (options.clientPromptId) {
       const dedupeKey = `${proposedSessionId}:${options.clientPromptId}`
       if (this.acceptedClientPromptIds.has(dedupeKey)) {
@@ -2148,7 +2160,7 @@ export class ControlPlane extends EventEmitter {
       }
     }
     if (permissionMode) input.permissionMode = permissionMode
-    this.seatForTurn(actor, input.provider)
+    await this.seatForTurn(actor, input.provider)
 
     const lifecycle = await this.runTurn({
       input,
@@ -2234,7 +2246,7 @@ export class ControlPlane extends EventEmitter {
    */
   async createSession(req: CreateSessionRequest, actor?: TurnActor): Promise<{ agentSessionId: string; taskId?: string }> {
     // No seat, no session: refused before anything is spawned (Step 2 plan §3.3).
-    this.seatForTurn(actor, req.provider)
+    await this.seatForTurn(actor, req.provider)
     const model = req.modelId ?? ''
     const input: SessionRunInput = {
       provider: req.provider,
@@ -2796,10 +2808,11 @@ export class ControlPlane extends EventEmitter {
           async (annotate) => {
             const metadata = await installedRoutingProviders([...this.backends.values()].map(backend => backend.metadata))
             controller.signal.throwIfAborted()
-            const available = metadata.filter(agent => {
-              try { this.seatForTurn(request.actor, agent.id); return true }
-              catch (error) { if (error instanceof SeatRequiredError) return false; throw error }
-            })
+            const available: typeof metadata = []
+            for (const agent of metadata) {
+              try { await this.seatForTurn(request.actor, agent.id); available.push(agent) }
+              catch (error) { if (!(error instanceof SeatRequiredError)) throw error }
+            }
             const route = await routeModelPrompt(options.displayPrompt ?? options.prompt, getHostConfig().config.modelRouting, available, controller.signal)
             annotate({ provider: route.provider, modelId: route.modelId, category: route.category, usedFallback: route.usedFallback })
             return route
@@ -3143,6 +3156,15 @@ export class ControlPlane extends EventEmitter {
 
     let handle: RunHandle
     const activeRun: SessionRunRequest = { ...request, input: effectiveInput }
+    // A leased seat's settlement (cloud-service-model.md §5): once the turn is
+    // over, a refreshed credential goes back to the vault and the lock is released.
+    let releaseSeat: TurnSeat['release']
+    const settleSeat = (): void => {
+      const release = releaseSeat
+      releaseSeat = undefined
+      if (!release) return
+      release().catch((error) => log.warn('seat_release_failed', { sessionId, error: error instanceof Error ? error.message : String(error) }))
+    }
     try {
       this.activeRunRequests.set(sessionId, activeRun)
       if (!dispatchAgentSessionId) {
@@ -3173,7 +3195,8 @@ export class ControlPlane extends EventEmitter {
       const promptImages = await resolvePromptImages(options)
       // Resolved again here, not only at submit: a queued prompt drains later, and
       // the author's seat may have been removed or expired in between.
-      const seat = this.seatForTurn(request.actor, provider)
+      const seat = await this.seatForTurn(request.actor, provider)
+      releaseSeat = seat?.release
       // Spawning the provider is where the run input, the tool list, and the
       // transport are assembled — the last thing the turn does before it stops
       // being Solus's time and starts being the agent's. Timed without an
@@ -3223,7 +3246,9 @@ export class ControlPlane extends EventEmitter {
       }))
       handle = agentRun.handle
       handle.sessionId = sessionId
+      handle.runPromise.then(settleSeat, settleSeat)
     } catch (err) {
+      settleSeat()
       this.activeRunRequests.delete(sessionId)
       this._setStatus(sessionId, 'failed')
       this.activeSessions.delete(sessionId)

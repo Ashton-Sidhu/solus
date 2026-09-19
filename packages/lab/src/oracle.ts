@@ -43,6 +43,8 @@ const recordedRunSchema = z.object({
     isHostLogin: z.literal(true).optional(),
     envToken: z.string().optional(),
   }).nullable(),
+  /** The credential material the run saw (`.credentials.json`, or `token:<value>`); null for the host login or a run before the field existed. */
+  credential: z.string().nullable().optional(),
 })
 export type RecordedRun = z.infer<typeof recordedRunSchema>
 

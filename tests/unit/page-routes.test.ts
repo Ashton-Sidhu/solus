@@ -13,6 +13,7 @@ describe('the page shell routes', () => {
       { organizationId: 'org-1', page: 'work', workId: 'work-a' },
       { organizationId: 'org-1', page: 'sessions' },
       { organizationId: 'org-1', page: 'session', sessionId: 'sess:1' },
+      { organizationId: 'org-1', page: 'connections' },
     ] as const
     for (const route of routes) {
       expect(parsePageRouteFragment(pageRouteFragment(route))).toEqual(route)
@@ -26,6 +27,13 @@ describe('the page shell routes', () => {
     expect(parsePageRouteFragment('#/chat/abc~local')).toBeNull()
     expect(parsePageRouteFragment('#/w/org-1/plans/x')).toBeNull()
     expect(parsePageRouteFragment('')).toBeNull()
+  })
+
+  test('the connections page has no id under it', () => {
+    // WHY: the logins are the person's, one set per organization; there is no
+    // "one connection" to address.
+    expect(parsePageRouteFragment('#/w/org-1/connections')).toEqual({ organizationId: 'org-1', page: 'connections' })
+    expect(parsePageRouteFragment('#/w/org-1/connections/claude-code')).toBeNull()
   })
 
   test('a resource opens on its page; a kind the shell has no page for opens nowhere', () => {
@@ -42,5 +50,6 @@ describe('the page shell routes', () => {
     expect(pageRouteSection({ organizationId: 'o', page: 'task', taskId: 't' })).toBe('tasks')
     expect(pageRouteSection({ organizationId: 'o', page: 'work', workId: 'w' })).toBe('works')
     expect(pageRouteSection({ organizationId: 'o', page: 'sessions' })).toBe('sessions')
+    expect(pageRouteSection({ organizationId: 'o', page: 'connections' })).toBe('connections')
   })
 })

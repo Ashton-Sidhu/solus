@@ -136,3 +136,14 @@ describe('session records', () => {
     expect((await indexer.listIndexedSessions([ENCODED]))[0]?.customTitle).toBe('Renamed')
   })
 })
+
+test('writes to one record apply in call order, so a fast settle is not undone by its start report', async () => {
+  const { upsertSessionRecord, setSessionRecordStatus, getSessionRecord } = await import('@solus/server/sessions/session-records')
+  const sessionId = 'ordered-1'
+  await upsertSessionRecord('local', { sessionId, provider: 'claude-code', projectPath: 'p', lastActivityAt: 1 })
+  // The start report (a read-merge-write) is asked for first, the settle second; the settle must win.
+  const start = upsertSessionRecord('local', { sessionId, provider: 'claude-code', projectPath: 'p', status: 'running', lastActivityAt: 2 })
+  const settle = setSessionRecordStatus('local', sessionId, 'idle')
+  await Promise.all([start, settle])
+  expect((await getSessionRecord('local', sessionId))?.status).toBe('idle')
+})

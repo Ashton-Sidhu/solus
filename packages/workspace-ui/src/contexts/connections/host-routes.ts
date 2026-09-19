@@ -13,6 +13,16 @@ export function hostWebsiteUrl(directoryUrl: string, hostId: string): string {
   return `${directoryUrl.replace(/\/$/, '')}/hosts/${encodeURIComponent(hostId)}`
 }
 
+/**
+ * The person's connections page for one organization on the account website: the
+ * Claude and Codex logins kept in Solus cloud, which every runner of the organization
+ * uses for that person's turns. The fragment is the page shell's
+ * (`apps/client/src/lib/page-routes.ts`), served from `/app/` on the account origin.
+ */
+export function organizationConnectionsUrl(directoryUrl: string, organizationId: string): string {
+  return `${directoryUrl.replace(/\/$/, '')}/app/#/w/${encodeURIComponent(organizationId)}/connections`
+}
+
 /** The one line under the Solus cloud control on a host's Access tab. */
 export function uplinkStatusDescription(status: UplinkStatus | undefined): string {
   if (!status) return 'Checking the link…'

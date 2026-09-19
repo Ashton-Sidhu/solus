@@ -131,4 +131,17 @@ describe('runner intake', () => {
     expect((await records.listSessionRecords('org1')).map((record) => record.sessionId).sort()).toEqual(['s1', 's2'])
     expect(await taskStore.listTasks('local')).toMatchObject({ tasks: [] })
   })
+
+  test('the queue routes claim under the runner\'s own id and name the sessions they touched, so the service can tell their watchers', async () => {
+    const queue = await import('@solus/server/sessions/prompt-queue')
+    const { queueId } = await queue.enqueuePrompt('org1', { sessionId: 's1', authorUserId: 'alice', authorDisplayName: 'Alice', text: 'go' })
+    const claimed = await intake.claimRunnerQueue(runner(), { hostId: 'runner-1' })
+    expect(claimed.response.prompts.map((prompt) => [prompt.queueId, prompt.epoch])).toEqual([[queueId, 1]])
+    expect(claimed.sessionIds).toEqual(['s1'])
+    // Nothing waits now: a claim with nothing to take names no session.
+    expect(await intake.claimRunnerQueue(runner(), { hostId: 'runner-1' })).toEqual({ response: { prompts: [] }, sessionIds: [] })
+    expect(await intake.settleRunnerQueue(runner(), { hostId: 'runner-1', queueId, epoch: 2, state: 'dispatched' })).toEqual({ response: { settled: false }, sessionIds: [] })
+    expect(await intake.settleRunnerQueue(runner(), { hostId: 'runner-1', queueId, epoch: 1, state: 'dispatched' })).toEqual({ response: { settled: true }, sessionIds: ['s1'] })
+    expect((await queue.listQueue('org1', 's1'))[0]?.state).toBe('dispatched')
+  })
 })

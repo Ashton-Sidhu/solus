@@ -4,7 +4,7 @@ import { HOST_OWNER_USER_ID } from '@solus/contracts/sharing'
 import { getCliEnv } from '../cli-env'
 import { createLogger } from '../logger'
 import { providerLoginConnected, seatEnv } from './seat-login'
-import { seatProviderLabel, type SeatManager } from './seat-manager'
+import { seatProviderLabel, type SeatStore } from './seat-manager'
 
 const log = createLogger('main', 'seat-connect')
 
@@ -33,7 +33,7 @@ export class SeatConnector {
   private readonly verifyLogin: (provider: SeatProvider, home: string | null) => Promise<boolean>
 
   constructor(private readonly deps: {
-    seats: SeatManager
+    seats: SeatStore
     spawnProcess?: SpawnProcess
     /** Whether the CLI left a working credential in the seat's directory (`null`: the host's defaults). */
     verifyLogin?: (provider: SeatProvider, home: string | null) => Promise<boolean>

@@ -70,8 +70,9 @@ function insertSpan(row: SpanRow): void {
   )
 }
 
-function insertLogEvent(row: LogEventRow): void {
-  getMetricsDb().prepare(`
+/** Inserts one event and answers the `event_id` the table assigned it. */
+function insertLogEvent(row: LogEventRow): number {
+  const result = getMetricsDb().prepare(`
     INSERT INTO log_events (
       trace_id, span_id, occurred_at, level, name, tag, file, attrs
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -85,6 +86,7 @@ function insertLogEvent(row: LogEventRow): void {
     row.file,
     JSON.stringify(row.attrs ?? {}),
   )
+  return Number(result.lastInsertRowid)
 }
 
 /** Records one finished span. The record is append-only: a span arrives here
@@ -95,14 +97,16 @@ export function writeSpan(row: SpanRow): void {
 
 /** Records one completed span and every structured log event it owns as one
  * transaction. A reader never observes an event without its span or a span
- * whose completed event set is only partly present. */
-export function writeSpanRecord(row: SpanRow, events: LogEventRow[]): void {
+ * whose completed event set is only partly present. Answers the `event_id` of
+ * each event, in the order given: the ids the mirror names them by. */
+export function writeSpanRecord(row: SpanRow, events: LogEventRow[]): number[] {
   const db = getMetricsDb()
   db.exec('BEGIN IMMEDIATE')
   try {
     insertSpan(row)
-    for (const event of events) insertLogEvent(event)
+    const eventIds = events.map(insertLogEvent)
     db.exec('COMMIT')
+    return eventIds
   } catch (error) {
     db.exec('ROLLBACK')
     throw error

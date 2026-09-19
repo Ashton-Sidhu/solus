@@ -90,6 +90,9 @@ export const RPC_PLANES = {
   searchSessions: 'collaboration',
   sessionRecordList: 'collaboration',
   sessionRecordUpsert: 'collaboration',
+  sessionPromptEnqueue: 'collaboration',
+  sessionPromptQueueList: 'collaboration',
+  sessionPromptQueueCancel: 'collaboration',
   loadSession: 'collaboration',
   loadSessionPage: 'collaboration',
   loadSessionToolInputs: 'collaboration',
@@ -190,10 +193,10 @@ export const RPC_PLANES = {
 
   // Provider seats: status is a record, connecting is a login on the machine
   seatList: 'collaboration',
-  seatConnectStart: 'execution',
-  seatConnectSubmitCode: 'execution',
-  seatConnectCancel: 'execution',
-  seatConnectToken: 'execution',
+  seatConnectStart: 'collaboration',
+  seatConnectSubmitCode: 'collaboration',
+  seatConnectCancel: 'collaboration',
+  seatConnectToken: 'collaboration',
   seatDisconnect: 'collaboration',
   seatRemove: 'collaboration',
 
