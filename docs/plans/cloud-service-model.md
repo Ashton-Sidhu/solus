@@ -496,9 +496,14 @@ grant appends nothing (`mirrorEnabled()`): there is nowhere to ship to, and
 the durable copies on the machine — the provider's transcript files,
 `metrics.db` — are untouched by any of this.
 
-**Transcripts.** The unit is the history row the client already replays, a
-`SessionLoadMessage` at its position in the transcript the control plane's
-lineage-aware reader produces (`loadSession`). `TranscriptMirror`
+**Transcripts.** The unit is the history row the client already replays, at
+its position in the transcript the control plane's lineage-aware reader
+produces (`loadSession`) — in the projected form a client may see (decision
+2026-09-19): a tool result's body never reaches the cloud, only its size, its
+error head, a sub-agent's report, and the facts the cards read from it; tool
+inputs stay, since the service serves them on demand; a person's image
+attachments stay on their rows. The service serves the stored rows as they
+are. `TranscriptMirror`
 (`packages/server/src/mirror/transcript-mirror.ts`) is touched on every
 broadcast event and every status change of a session, debounces two seconds
 per session, reads the transcript, and appends the positions whose content

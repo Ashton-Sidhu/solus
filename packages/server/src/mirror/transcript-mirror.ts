@@ -2,11 +2,12 @@ import { createHash } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { AgentId } from '@solus/contracts/types'
-import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { getDb, withTx } from '../db'
 import { getDatabase } from '../db/database'
 import { createLogger } from '../logger'
 import { LOCAL_ORGANIZATION_ID } from '../server/principal'
+import { projectSessionHistory } from '../server/result-projection'
 import type { TranscriptMirrorPayload } from '../server/uplink/runner-protocol'
 import { sessionRecords } from '../sessions/schema'
 import { appendMirror, mirrorEnabled } from './mirror-log'
@@ -22,6 +23,13 @@ const log = createLogger('main', 'transcript-mirror')
  * got shorter, so the service drops the rows past its end. The hashes and the
  * log entries are written in one transaction: a crash cannot leave a row
  * marked mirrored that never reached the log.
+ *
+ * What is mirrored is the row a client can see (decision 2026-09-19): the
+ * same projection the history RPCs apply before a row leaves a host, so a tool
+ * result's body never reaches the cloud — only its size, its error head, a
+ * sub-agent's report, and the facts the cards read from it. A person's image
+ * attachments stay on their rows. The service serves the stored rows as they
+ * are.
  *
  * A host that mirrors nowhere (`mirrorEnabled()` false) does nothing here and
  * keeps nothing: its hash table stays as it was.
@@ -47,7 +55,7 @@ interface PendingSync extends TranscriptSource {
 
 const hashRowSchema = z.object({ position: z.number(), hash: z.string() })
 
-function hashOf(message: SessionLoadMessage): string {
+function hashOf(message: WireSessionLoadMessage): string {
   return createHash('sha1').update(JSON.stringify(message)).digest('hex')
 }
 
@@ -96,7 +104,7 @@ export class TranscriptMirror {
 
   private async sync(sessionId: string, source: TranscriptSource): Promise<void> {
     if (this.disposed || !mirrorEnabled()) return
-    const messages = await this.deps.loadSession(source.provider, sessionId, source.projectPath)
+    const messages = projectSessionHistory(await this.deps.loadSession(source.provider, sessionId, source.projectPath))
     const hashes = messages.map(hashOf)
     withTx(() => {
       // The grant may have gone while the transcript was read; then nothing is appended and nothing marked.

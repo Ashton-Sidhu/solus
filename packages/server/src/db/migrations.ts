@@ -390,6 +390,13 @@ CREATE TABLE transcript_mirror_rows (
   PRIMARY KEY (session_id, position)
 );
 `,
+
+  // The mirror now sends the projected row (cloud-service-model.md §18); the
+  // hashes of the raw rows sent before are forgotten, so every session touched
+  // from here on is sent again in its new shape.
+  `
+DELETE FROM transcript_mirror_rows;
+`,
 ]
 
 export function runMigrations(db: DatabaseSync): void {

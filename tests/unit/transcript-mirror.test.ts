@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
-import type { SessionLoadMessage } from '@solus/contracts/session-history'
+import type { SessionLoadMessage, WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
@@ -44,6 +44,15 @@ const loads: string[] = []
 
 function message(content: string): SessionLoadMessage {
   return { role: 'assistant', content, timestamp: 1 }
+}
+
+/** A person's prompt with a screenshot, and the tool call and result the agent made on it. */
+function turnWithTool(): SessionLoadMessage[] {
+  return [
+    { role: 'user', content: 'look at this', imageAttachments: [{ mimeType: 'image/png', dataUrl: 'data:image/png;base64,AAAA' }], timestamp: 1 },
+    { role: 'tool', content: 'the whole file', toolName: 'Read', toolId: 't1', toolInput: '{"path":"secret.env"}', toolStatus: 'completed', timestamp: 2 },
+    { role: 'tool_result', content: 'API_KEY=hunter2', toolResultForId: 't1', toolResultIsError: true, timestamp: 3 },
+  ]
 }
 
 function rememberedPositions(sessionId: string): number[] {
@@ -116,6 +125,26 @@ describe('transcript mirror', () => {
       { domain: 'transcripts', key: 's1:truncate', payload: { sessionId: 's1', truncateFrom: 2 } },
     ])
     expect(rememberedPositions('s1')).toEqual([0, 1])
+    producer.dispose()
+  })
+
+  test('what is mirrored is the row a client may see: tool bodies are gone, their size and error head stay, images stay', async () => {
+    ownership.setCloudOwnedOrganization('org1')
+    const producer = mirror()
+    transcripts.set('shown', turnWithTool())
+    producer.touch('shown', { provider: 'claude-code', projectPath: '-repo' })
+    await producer.flushNow('shown')
+    const rows = drainLog().map((item) => item.payload)
+    const stored = JSON.stringify(rows)
+    // The tool call's body (what the tool printed) never leaves the host.
+    expect(stored).not.toContain('the whole file')
+    expect(stored).toContain('data:image/png;base64,AAAA')
+    // The tool input stays: the service serves it on demand, as a host does.
+    expect(stored).toContain('secret.env')
+    const messageAt = (position: number) => rows.find((payload): payload is { sessionId: string; position: number; message: WireSessionLoadMessage } => 'position' in payload && payload.position === position)?.message
+    expect(messageAt(1)).toMatchObject({ role: 'tool', content: '', status: 'ok', contentBytes: 14 })
+    // A failed result keeps the head a client shows on the card, and nothing more of its body.
+    expect(messageAt(2)).toMatchObject({ role: 'tool_result', content: '', status: 'error', errorHead: 'API_KEY=hunter2', contentBytes: 15 })
     producer.dispose()
   })
 

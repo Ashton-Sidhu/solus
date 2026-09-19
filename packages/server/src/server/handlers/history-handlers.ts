@@ -21,7 +21,7 @@ import { emitChanged } from '../../tasks/task-store'
 import type { HostEventPublisher } from '../../events/host-event-publisher'
 import { projectSessionHistory, serializedBytes } from '../result-projection'
 import { deferSessionToolInputs, selectSessionToolInputs } from '../session-tool-inputs'
-import { MAX_SESSION_TOOL_INPUTS } from '@solus/contracts/session-history'
+import { MAX_SESSION_TOOL_INPUTS, type SessionHistoryPage, type WireSessionLoadMessage } from '@solus/contracts/session-history'
 
 const log = createLogger('main', 'history-handlers')
 
@@ -39,11 +39,15 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
     deps.shares ? deps.shares.filterVisible(handlerCtx.principal, 'session', sessions, sessionIdOf) : sessions
   // On the workspace service the history is the mirrored copy
   // (cloud-service-model.md §6): no provider files live there.
-  const historyOf = (handlerCtx: HandlerCtx, agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<SessionLoadMessage[]> =>
+  /**
+   * A session's history as a client may see it: on the workspace service the
+   * rows a runner mirrored, already projected; on a host the provider's
+   * transcript, projected here.
+   */
+  const historyOf = async (handlerCtx: HandlerCtx, agentId: AgentId, sessionId: string, projectPath?: string, limit?: number): Promise<WireSessionLoadMessage[]> =>
     isWorkspaceMode()
       ? readTranscript(organizationOf(handlerCtx.principal), sessionId, limit)
-      : controlPlane.loadSession(agentId, sessionId, projectPath, limit)
-  // The service has no transcript index; a session it knows by record alone answers from the record.
+      : projectSessionHistory(await controlPlane.loadSession(agentId, sessionId, projectPath, limit))
   const sessionInfoOf = async (handlerCtx: HandlerCtx, sessionId: string): Promise<SessionMeta | null> => {
     const meta = await controlPlane.getSessionInfo(sessionId)
     if (meta || !isWorkspaceMode()) return meta
@@ -194,8 +198,7 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
         }
         log.debug('session_load_bytes', { sessionId, bytes: totalBytes, messageCount: messages.length })
       }
-      const projected = projectSessionHistory(messages)
-      return options?.deferToolInputs ? deferSessionToolInputs(projected) : projected
+      return options?.deferToolInputs ? deferSessionToolInputs(messages) : messages
     } catch (err) {
       log.error('load_session_failed', { error: String(err), sessionId, projectPath })
       return []
@@ -212,10 +215,10 @@ export function registerHistoryHandlers(server: SolusServer, deps: HistoryDeps):
       before: z.string().max(16384).optional(),
       deferToolInputs: z.boolean().optional(),
     }).parse(input)
-    const page = isWorkspaceMode()
+    const page: SessionHistoryPage = isWorkspaceMode()
       ? await readTranscriptPage(organizationOf(handlerCtx.principal), request.sessionId, request.limit ?? 200, request.before)
-      : await controlPlane.loadSessionPage(request)
-    const messages = projectSessionHistory(page.messages)
+      : await controlPlane.loadSessionPage(request).then((loaded) => ({ messages: projectSessionHistory(loaded.messages), before: loaded.before }))
+    const messages = page.messages
     recordOtelDuration('load_session_page', Date.now() - startedAt, { provider: request.provider, count: messages.length })
     log.info('session_history_page_loaded', {
       sessionId: request.sessionId, provider: request.provider, messageCount: messages.length,

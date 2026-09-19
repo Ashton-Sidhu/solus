@@ -64,6 +64,13 @@
       "when": 1789845014955,
       "tag": "0008_drop_prompt_queue",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1789850955388,
+      "tag": "0009_transcripts_projected",
+      "breakpoints": true
     }
   ]
 }
