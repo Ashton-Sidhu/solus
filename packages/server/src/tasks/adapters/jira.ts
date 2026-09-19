@@ -36,7 +36,6 @@ import {
 } from './jira-model'
 import { assetReferencesIn, withPublishedAssets, type AssetReference } from '../task-assets'
 import { publishedAssetUrl, recordAssetPublication } from '../asset-publications'
-import { withTx } from '../../db'
 import { readFile } from 'node:fs/promises'
 import { z } from 'zod'
 import { storedAssetPath } from '../../server/asset-paths'
@@ -337,7 +336,7 @@ export class JiraTaskSyncAdapter implements TaskSyncAdapter {
     const target = `${cloudId}/${ref.externalId}`
     const urlByAssetId = new Map<string, string>()
     for (const assetId of new Set(references.map((reference) => reference.assetId))) {
-      const published = publishedAssetUrl(assetId, this.id, target)
+      const published = await publishedAssetUrl(assetId, this.id, target)
       if (published) {
         urlByAssetId.set(assetId, published)
         continue
@@ -345,7 +344,7 @@ export class JiraTaskSyncAdapter implements TaskSyncAdapter {
       const url = await uploadJiraAttachment(cloudId, ref.externalId, assetId)
       // Record before the body is sent. An upload cannot be undone, so a failure
       // after this point must not cost a second one when the caller retries.
-      withTx(() => recordAssetPublication(assetId, this.id, target, url))
+      await recordAssetPublication(assetId, this.id, target, url)
       urlByAssetId.set(assetId, url)
     }
     return withPublishedAssets(body, urlByAssetId, jiraAssetMarkdown)

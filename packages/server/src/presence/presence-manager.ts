@@ -57,13 +57,13 @@ export function turnAuthorOf(actor: TurnActor | undefined): TurnAuthor | null {
 
 export interface PresenceManagerOptions {
   /** What a focused session is doing, for the host roster; the control plane answers on a real host. */
-  describeSession?: (sessionId: string) => SessionActivity | null
+  describeSession?: (sessionId: string) => SessionActivity | null | Promise<SessionActivity | null>
   now?: () => number
 }
 
 export class PresenceManager {
   private readonly entries = new Map<string, PresenceEntry>()
-  private readonly describeSession: (sessionId: string) => SessionActivity | null
+  private readonly describeSession: (sessionId: string) => SessionActivity | null | Promise<SessionActivity | null>
   private readonly now: () => number
 
   constructor(options: PresenceManagerOptions = {}) {
@@ -138,7 +138,7 @@ export class PresenceManager {
    * described by the host itself, so a reader who never opened that session still
    * learns its name and whether its agent runs.
    */
-  hostSnapshot(): HostPresenceSnapshot {
+  async hostSnapshot(): Promise<HostPresenceSnapshot> {
     const participants: HostParticipant[] = []
     for (const entry of this.entries.values()) {
       const focusedSessionId = entry.focus.kind === 'session' ? entry.focus.sessionId : null
@@ -147,7 +147,7 @@ export class PresenceManager {
         focus: entry.focus,
         isComposing: focusedSessionId !== null && entry.composingSessionId === focusedSessionId,
       }
-      const activity = focusedSessionId ? this.describeSession(focusedSessionId) : null
+      const activity = focusedSessionId ? await this.describeSession(focusedSessionId) : null
       if (activity) participant.activity = activity
       participants.push(participant)
     }

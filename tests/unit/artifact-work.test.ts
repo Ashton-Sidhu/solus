@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { resetTestDatabase } from './helpers/test-db'
 import type { NormalizedEvent } from '@solus/contracts/types'
 import { artifactPreview, resolveArtifactTitle, workPreview } from '@solus/contracts/work-preview'
 
@@ -41,8 +42,8 @@ beforeAll(async () => {
   taskArtifacts = await import('@solus/server/tasks/task-artifacts')
 })
 
-afterEach(() => {
-  db.closeDb()
+afterEach(async () => {
+  await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 

@@ -15,14 +15,14 @@ const BOB: Principal = { kind: 'org-member', userId: 'bob', organizationId: 'org
 const MAYA: Principal = { kind: 'guest', guestId: 'g1', displayName: 'Maya', deviceId: 'g1', share: { resource: { kind: 'session', id: 's1' }, role: 'viewer', sharedByUserId: 'bob', linkSecretHash: 'h' }, expiresAt: 0, deviceLabel: 'Guest link' }
 
 describe('identity comes from the principal', () => {
-  test('owner, member, and guest are named by the host; the host itself is nobody', () => {
+  test('owner, member, and guest are named by the host; the host itself is nobody', async () => {
     let now = 100
     const presence = new PresenceManager({ now: () => now++ })
     expect(presence.join('c-owner', OWNER, 'Mac')).toBe(true)
     expect(presence.join('c-bob', BOB, 'Solus cloud')).toBe(true)
     expect(presence.join('c-maya', MAYA, 'Guest link')).toBe(true)
     expect(presence.join('c-system', { kind: 'system' }, 'Web')).toBe(false)
-    const rows = presence.hostSnapshot().participants
+    const rows = (await presence.hostSnapshot()).participants
     expect(rows.map((row) => [row.userId, row.displayName, row.access])).toEqual([
       [HOST_OWNER_USER_ID, 'Host owner', 'owner'],
       ['bob', 'Bob', 'member'],
@@ -34,13 +34,13 @@ describe('identity comes from the principal', () => {
     expect(rows.map((row) => row.joinedAt)).toEqual([100, 101, 102])
   })
 
-  test('a reconnect keeps the entry rather than doubling it', () => {
+  test('a reconnect keeps the entry rather than doubling it', async () => {
     const presence = new PresenceManager()
     presence.join('c-bob', BOB, 'Solus cloud')
     presence.setFocus('c-bob', { kind: 'session', sessionId: 's1' })
     expect(presence.join('c-bob', BOB, 'Solus cloud')).toBe(false)
-    expect(presence.hostSnapshot().participants).toHaveLength(1)
-    expect(presence.hostSnapshot().participants[0]?.focus).toEqual({ kind: 'session', sessionId: 's1' })
+    expect((await presence.hostSnapshot()).participants).toHaveLength(1)
+    expect((await presence.hostSnapshot()).participants[0]?.focus).toEqual({ kind: 'session', sessionId: 's1' })
   })
 
   test('the turn author is the principal, with the same colour the room shows', () => {
@@ -61,7 +61,7 @@ describe('identity comes from the principal', () => {
 })
 
 describe('rooms', () => {
-  test('a session room is the connected watchers; a dropped socket leaves it at once', () => {
+  test('a session room is the connected watchers; a dropped socket leaves it at once', async () => {
     const presence = new PresenceManager()
     presence.join('c-owner', OWNER, 'Mac')
     presence.join('c-bob', BOB, 'Solus cloud')
@@ -69,10 +69,10 @@ describe('rooms', () => {
     expect(presence.sessionSnapshot('s1', watchers, null).participants.map((row) => row.clientId)).toEqual(['c-owner', 'c-bob'])
     presence.leave('c-bob')
     expect(presence.sessionSnapshot('s1', watchers, null).participants.map((row) => row.clientId)).toEqual(['c-owner'])
-    expect(presence.hostSnapshot().participants).toHaveLength(1)
+    expect((await presence.hostSnapshot()).participants).toHaveLength(1)
   })
 
-  test('focus changes report only when they differ', () => {
+  test('focus changes report only when they differ', async () => {
     const presence = new PresenceManager()
     presence.join('c-bob', BOB, 'Solus cloud')
     expect(presence.setFocus('c-bob', { kind: 'work', workId: 'w1' })).toBe(true)
@@ -81,7 +81,7 @@ describe('rooms', () => {
     expect(presence.setFocus('c-unknown', { kind: 'none' })).toBe(false)
   })
 
-  test('the roster describes a focused session from the host, and marks a draft only in the focused session', () => {
+  test('the roster describes a focused session from the host, and marks a draft only in the focused session', async () => {
     // WHY: a teammate's row must say "In Fix login, agent running" on a client
     // that never opened that session, so the host, not the sidebar, names it.
     const describeSession = (sessionId: string): SessionActivity | null => sessionId === 's1'
@@ -93,18 +93,18 @@ describe('rooms', () => {
     presence.setFocus('c-bob', { kind: 'session', sessionId: 's1' })
     presence.setFocus('c-owner', { kind: 'work', workId: 'w1' })
     presence.setComposing('c-bob', 's2', true)
-    const [bob, owner] = presence.hostSnapshot().participants
+    const [bob, owner] = (await presence.hostSnapshot()).participants
     expect(bob?.activity).toMatchObject({ title: 'Fix login', taskId: 't1', state: 'running', activeTurn: { authorUserId: 'bob' } })
     expect(bob?.isComposing).toBe(false)
     expect(owner?.activity).toBeUndefined()
     presence.setComposing('c-bob', 's1', true)
-    expect(presence.hostSnapshot().participants[0]?.isComposing).toBe(true)
+    expect((await presence.hostSnapshot()).participants[0]?.isComposing).toBe(true)
     // The handler republishes the host when the draft moves through the focused session.
     expect(presence.focusOf('c-bob')).toEqual({ kind: 'session', sessionId: 's1' })
     expect(presence.focusOf('c-nobody')).toBeUndefined()
     // An unindexed session has no description, and the row simply has none.
     presence.setFocus('c-bob', { kind: 'session', sessionId: 's-unknown' })
-    expect(presence.hostSnapshot().participants[0]?.activity).toBeUndefined()
+    expect((await presence.hostSnapshot()).participants[0]?.activity).toBeUndefined()
     expect(presence.isSessionFocused('s-unknown')).toBe(true)
     expect(presence.isSessionFocused('s1')).toBe(false)
   })

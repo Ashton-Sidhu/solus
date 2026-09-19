@@ -1,6 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from 'bun:test'
 import type { ProjectConfig } from '@solus/contracts/types'
 import type { Task } from '@solus/contracts/task-types'
+import type { SQL } from 'drizzle-orm'
+import { SQLiteSyncDialect } from 'drizzle-orm/sqlite-core'
 
 let config: ProjectConfig | null = {
   version: 1,
@@ -25,35 +27,32 @@ interface CacheRow {
 const cacheRows = new Map<string, CacheRow>()
 const cacheKey = (projectKey: string, provider: string, externalKey: string, scope: string) =>
   `${projectKey}\0${provider}\0${externalKey}\0${scope}`
+/** The tasks store's `Db`, answered from memory: the rendered text says which
+ *  read or write the service made, and the bound values are its arguments. */
+const dialect = new SQLiteSyncDialect()
 const db = {
-  prepare(sql: string) {
-    return {
-      get(projectKey: string, provider: string, externalKey: string, scope: string) {
-        if (!sql.includes('SELECT fetched_at')) throw new Error(`Unexpected get: ${sql}`)
-        return cacheRows.get(cacheKey(projectKey, provider, externalKey, scope))
-      },
-      all(provider: string, externalKey: string) {
-        if (!sql.includes('FROM task_external_links')) throw new Error(`Unexpected all: ${sql}`)
-        expect([provider, externalKey]).toEqual(['github', 'example/repo'])
-        return [...mirroredExternalIds].map((external_id) => ({ external_id }))
-      },
-      run(
-        projectKey: string,
-        provider: string,
-        externalKey: string,
-        scope: string,
-        fetchedAt: number,
-        truncated: number | null,
-        tasks: string,
-      ) {
-        if (!sql.includes('INSERT INTO upstream_task_cache')) throw new Error(`Unexpected run: ${sql}`)
-        cacheRows.set(cacheKey(projectKey, provider, externalKey, scope), {
-          fetched_at: fetchedAt,
-          truncated,
-          tasks,
-        })
-      },
-    }
+  engine: 'sqlite' as const,
+  async get(query: SQL) {
+    const { sql, params } = dialect.sqlToQuery(query)
+    if (!sql.includes('SELECT fetched_at')) throw new Error(`Unexpected get: ${sql}`)
+    const [projectKey, provider, externalKey, scope] = params as string[]
+    return cacheRows.get(cacheKey(projectKey!, provider!, externalKey!, scope!))
+  },
+  async all(query: SQL) {
+    const { sql, params } = dialect.sqlToQuery(query)
+    if (!sql.includes('FROM "task_external_links"')) throw new Error(`Unexpected all: ${sql}`)
+    expect(params).toEqual(['github', 'example/repo'])
+    return [...mirroredExternalIds].map((external_id) => ({ external_id }))
+  },
+  async run(query: SQL) {
+    const { sql, params } = dialect.sqlToQuery(query)
+    if (!sql.includes('INSERT INTO "upstream_task_cache"')) throw new Error(`Unexpected run: ${sql}`)
+    const [projectKey, provider, externalKey, scope, fetchedAt, truncated, tasks] = params as [string, string, string, string, number, number | null, string]
+    cacheRows.set(cacheKey(projectKey, provider, externalKey, scope), { fetched_at: fetchedAt, truncated, tasks })
+    return { changes: 1 }
+  },
+  transaction<T>(fn: (tx: typeof db) => Promise<T>): Promise<T> {
+    return fn(db)
   },
 }
 
@@ -72,11 +71,9 @@ const upstreamTask: Task = {
 mock.module('@solus/server/logger', () => ({
   createLogger: () => ({ info() {}, warn() {}, error() {}, child() { return this } }),
 }))
-mock.module('@solus/server/db', () => ({
-  getDb: () => db,
-  // The adapter records an asset publication inside a transaction; these tests
-  // never publish one, so running the body directly is enough.
-  withTx: (fn: () => void) => fn(),
+mock.module('@solus/server/db/database', () => ({
+  getDatabase: () => db,
+  closeDatabase: async () => {},
 }))
 mock.module('@solus/server/project-config/project-config', () => ({
   loadProjectConfig: async () => config,

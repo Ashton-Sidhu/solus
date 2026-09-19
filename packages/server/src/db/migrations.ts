@@ -1,139 +1,13 @@
 import type { DatabaseSync } from 'node:sqlite'
 
 /**
- * A session has one owning task from here on (`transferSessionOwnership` in
- * `task-sessions.ts`). Rows written before that rule could hold several
- * `working` links for one session — an auto-minted task beside the one the
- * agent linked — and the sidebar drew the conversation once per task. The
- * newest working link is the owner, as a live transfer would have decided;
- * the older ones become `referenced` so the relationship survives without a
- * row. The demoted set is collected first so the update reads a stable table.
- *
- * A placeholder minted for the session that then moved on is dropped when it
- * holds nothing else — the same emptiness test the live transfer applies.
- * Exported so the rewrite can be exercised against seeded duplicate rows.
+ * The host's hand-written SQLite migrations, indexed by `PRAGMA user_version`.
+ * A released slot is never rewritten: a database past that index skips the
+ * replacement forever. Slots that once created or changed the tasks tables
+ * are reserved; those tables are generated from the ported schema now.
  */
-export const SINGLE_SESSION_OWNER_MIGRATION = `
-CREATE TEMP TABLE demoted_session_owners AS
-SELECT older.task_id, older.session_id
-FROM task_session_links AS older
-WHERE older.role = 'working'
-  AND EXISTS (
-    SELECT 1 FROM task_session_links AS newer
-    WHERE newer.session_id = older.session_id
-      AND newer.role = 'working'
-      AND newer.task_id <> older.task_id
-      AND (
-        newer.linked_at > older.linked_at
-        OR (newer.linked_at = older.linked_at AND newer.task_id > older.task_id)
-      )
-  );
-
-UPDATE task_session_links SET role = 'referenced'
-WHERE EXISTS (
-  SELECT 1 FROM demoted_session_owners
-  WHERE demoted_session_owners.task_id = task_session_links.task_id
-    AND demoted_session_owners.session_id = task_session_links.session_id
-);
-
-CREATE TEMP TABLE empty_session_placeholders AS
-SELECT tasks.id
-FROM tasks
-JOIN demoted_session_owners
-  ON demoted_session_owners.task_id = tasks.id
-  AND demoted_session_owners.session_id = tasks.origin_session_id
-WHERE tasks.source = 'session'
-  AND NOT EXISTS (
-    SELECT 1 FROM task_session_links
-    WHERE task_session_links.task_id = tasks.id
-      AND task_session_links.session_id <> tasks.origin_session_id
-  )
-  AND NOT EXISTS (SELECT 1 FROM tasks AS child WHERE child.parent_id = tasks.id)
-  AND NOT EXISTS (SELECT 1 FROM task_comments WHERE task_comments.task_id = tasks.id)
-  AND NOT EXISTS (SELECT 1 FROM task_links WHERE task_links.task_id = tasks.id);
-
-DELETE FROM tasks WHERE id IN (SELECT id FROM empty_session_placeholders);
-
-DROP TABLE empty_session_placeholders;
-DROP TABLE demoted_session_owners;
-`
-
-/**
- * PR links used to accept either a project path or a repository as their
- * scope. The URL is the stable identity already stored on every valid PR row,
- * so retain the strongest authored snapshot and enforce that identity without
- * changing the rules for works, plans, or automations.
- */
-export const UNIQUE_TASK_PR_LINK_MIGRATION = `
-DELETE FROM task_links
-WHERE rowid IN (
-  SELECT rowid
-  FROM (
-    SELECT
-      rowid,
-      ROW_NUMBER() OVER (
-        PARTITION BY task_id, url COLLATE NOCASE
-        ORDER BY
-          CASE created_by
-            WHEN 'user' THEN 0
-            WHEN 'agent' THEN 1
-            WHEN 'automation' THEN 2
-            WHEN 'system' THEN 3
-            ELSE 4
-          END,
-          linked_at DESC,
-          rowid DESC
-      ) AS identity_rank
-    FROM task_links
-    WHERE kind = 'pr' AND url IS NOT NULL
-  ) AS ranked_pr_links
-  WHERE identity_rank > 1
-);
-
-CREATE UNIQUE INDEX task_pr_links_by_url
-ON task_links(task_id, url COLLATE NOCASE)
-WHERE kind = 'pr' AND url IS NOT NULL;
-`
-
 const migrations = [
   `
-CREATE TABLE tasks (
-  id TEXT PRIMARY KEY,
-  project_key TEXT NOT NULL,
-  title TEXT NOT NULL,
-  body TEXT,
-  status TEXT NOT NULL,
-  kind TEXT NOT NULL DEFAULT 'task',
-  parent_id TEXT,
-  assignee TEXT,
-  due_date TEXT,
-  priority TEXT,
-  branch TEXT,
-  pr TEXT,
-  labels TEXT,
-  raw TEXT,
-  created_at INTEGER,
-  updated_at INTEGER
-);
-CREATE INDEX tasks_project_status ON tasks(project_key, status, updated_at DESC);
-CREATE INDEX tasks_parent ON tasks(parent_id);
-
-CREATE TABLE task_session_links (
-  task_id TEXT NOT NULL,
-  session_id TEXT NOT NULL,
-  project_key TEXT NOT NULL,
-  linked_at INTEGER,
-  PRIMARY KEY (task_id, session_id)
-);
-CREATE INDEX links_by_project ON task_session_links(project_key);
-
-CREATE TABLE task_cache (
-  project_key TEXT PRIMARY KEY,
-  fetched_at INTEGER,
-  truncated INTEGER,
-  tasks TEXT
-);
-
 CREATE TABLE automations (
   id TEXT PRIMARY KEY,
   name TEXT,
@@ -339,184 +213,18 @@ CREATE INDEX saved_prompts_by_project ON saved_prompts(project_root, created_at 
   `
 ALTER TABLE sessions ADD COLUMN custom_title TEXT;
 `,
-  // Tasks become a Solus-owned, local-first record. This is intentionally a
-  // clean-slate migration: provider-mirrored tasks and renderer-written session
-  // bindings belong to the retired model and must not be interpreted as native
-  // task history. Existing sessions are not walked or backfilled here.
-  `
-DROP TABLE IF EXISTS tasks;
-DROP TABLE IF EXISTS task_session_links;
-DROP TABLE IF EXISTS task_cache;
-
-CREATE TABLE tasks (
-  id TEXT PRIMARY KEY,
-  short_id INTEGER UNIQUE,
-  project_key TEXT,
-  parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
-  title TEXT NOT NULL,
-  title_source TEXT NOT NULL DEFAULT 'prompt',
-  body TEXT NOT NULL DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'inbox',
-  kind TEXT NOT NULL DEFAULT 'task',
-  assignee TEXT,
-  due_date TEXT,
-  priority TEXT,
-  labels TEXT NOT NULL DEFAULT '[]',
-  branch TEXT,
-  pr TEXT,
-  worktree_key TEXT,
-  source TEXT NOT NULL DEFAULT 'user',
-  origin_session_id TEXT,
-  origin_automation_id TEXT,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL,
-  triaged_at INTEGER,
-  done_at INTEGER
-);
-CREATE INDEX tasks_by_project ON tasks(project_key, status, updated_at DESC);
-CREATE INDEX tasks_by_status ON tasks(status, created_at DESC);
-CREATE INDEX tasks_parent ON tasks(parent_id);
-CREATE INDEX tasks_by_worktree ON tasks(worktree_key, status, updated_at DESC);
-
-CREATE TABLE task_session_links (
-  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  session_id TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'working',
-  branch TEXT,
-  pr TEXT,
-  injected_at INTEGER,
-  linked_at INTEGER NOT NULL,
-  PRIMARY KEY (task_id, session_id)
-);
-CREATE INDEX task_session_links_by_session ON task_session_links(session_id);
-
-CREATE TABLE task_comments (
-  id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  author TEXT,
-  source TEXT NOT NULL DEFAULT 'local',
-  external_id TEXT,
-  origin_session_id TEXT,
-  body TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  dirty INTEGER NOT NULL DEFAULT 0
-);
-CREATE INDEX task_comments_by_task ON task_comments(task_id, created_at);
-
-CREATE TABLE task_links (
-  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL,
-  external_key TEXT NOT NULL,
-  external_id TEXT NOT NULL,
-  url TEXT NOT NULL,
-  external_updated_at TEXT,
-  snapshot TEXT,
-  dirty_fields TEXT NOT NULL DEFAULT '[]',
-  sync_state TEXT NOT NULL DEFAULT 'ok',
-  sync_error TEXT,
-  last_synced_at INTEGER
-);
-CREATE UNIQUE INDEX task_links_external ON task_links(provider, external_key, external_id);
-`,
-  // Task links and task activity. `task_links` becomes the generic "linked
-  // anything" edge — docs/works, plans, automations and PRs — which is what the
-  // name always read as. Its previous occupant was an external-ticket-sync
-  // mirror that nothing ever wrote, so it is provably empty and dropped here
-  // rather than migrated; external sync, when it lands, gets its own table.
-  //
-  // `target_scope` is the qualifier a bare key lacks: a PR number is only
-  // unique within a repo, and a plan is identified by (session, tool use). It
-  // is NOT NULL DEFAULT '' rather than nullable because SQLite permits NULLs in
-  // a non-INTEGER primary key column, which would silently break uniqueness.
-  //
-  // `title`/`url` are a snapshot taken at link time so a row always renders,
-  // even for a PR or a deleted target. Live titles are re-derived at read time
-  // by LEFT JOIN for the kinds whose targets live in this database.
-  `
-DROP TABLE IF EXISTS task_links;
-
-CREATE TABLE task_links (
-  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,
-  target_scope TEXT NOT NULL DEFAULT '',
-  target_key TEXT NOT NULL,
-  title TEXT NOT NULL DEFAULT '',
-  url TEXT,
-  created_by TEXT NOT NULL DEFAULT 'user',
-  origin_session_id TEXT,
-  linked_at INTEGER NOT NULL,
-  PRIMARY KEY (task_id, kind, target_scope, target_key)
-);
-CREATE INDEX task_links_by_target ON task_links(kind, target_scope, target_key);
-
-CREATE TABLE task_events (
-  id TEXT PRIMARY KEY,
-  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
-  kind TEXT NOT NULL,
-  actor TEXT NOT NULL DEFAULT 'user',
-  actor_label TEXT,
-  from_value TEXT,
-  to_value TEXT,
-  target_kind TEXT,
-  target_scope TEXT,
-  target_key TEXT,
-  target_title TEXT,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX task_events_by_task ON task_events(task_id, created_at, id);
-
-INSERT INTO task_links(task_id, kind, target_scope, target_key, title, url, created_by, linked_at)
-  SELECT
-    id,
-    'pr',
-    COALESCE(project_key, ''),
-    CAST(json_extract(pr, '$.number') AS TEXT),
-    '#' || CAST(json_extract(pr, '$.number') AS TEXT),
-    json_extract(pr, '$.url'),
-    'migration',
-    updated_at
-  FROM tasks
-  WHERE pr IS NOT NULL
-    AND json_valid(pr)
-    AND json_extract(pr, '$.number') IS NOT NULL
-    AND json_extract(pr, '$.number') > 0;
-
-INSERT INTO task_events(id, task_id, kind, actor, to_value, created_at)
-  SELECT
-    'backfill-' || id,
-    id,
-    'created',
-    CASE source
-      WHEN 'user' THEN 'user'
-      WHEN 'session' THEN 'agent'
-      WHEN 'agent' THEN 'agent'
-      WHEN 'automation' THEN 'automation'
-      ELSE 'system'
-    END,
-    status,
-    created_at
-  FROM tasks;
-`,
-  // Upstream providers remain remote-owned, but their last successful list is
-  // retained so a temporary auth/network failure does not make those rows
-  // disappear beside native Solus tasks. Scope is part of the key because an
-  // assignee-filtered read must never replace the project's complete snapshot.
-  `
-CREATE TABLE upstream_task_cache (
-  project_key TEXT NOT NULL,
-  provider TEXT NOT NULL,
-  scope TEXT NOT NULL,
-  fetched_at INTEGER NOT NULL,
-  truncated INTEGER,
-  tasks TEXT NOT NULL,
-  PRIMARY KEY (project_key, provider, scope)
-);
-`,
-  // `task_comments.dirty` was a speculative upstream-push flag nothing ever
-  // read or set.
-  `
-ALTER TABLE task_comments DROP COLUMN dirty;
-`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
   // Sessions created by another session remain ordinary provider sessions;
   // these columns only preserve Solus orchestration lineage. Keeping them on
   // the indexed row makes every existing session listing surface receive the
@@ -555,14 +263,9 @@ CREATE TABLE applied_ops (
   applied_at INTEGER NOT NULL
 );
 `,
-  // Where the attempt actually ran. A link is always written on the *task's*
-  // host (ADR-0006), so without this column a dispatched session was
-  // indistinguishable from one that ran here — and every surface that reads a
-  // closed attempt reported it as local. Null means "the task's own host",
-  // which is what a non-dispatch is; a value is the execution host's id.
-  `
-ALTER TABLE task_session_links ADD COLUMN execution_server_id TEXT;
-`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
   // Where the session itself lives. A machine cannot name itself — only the
   // client knows a host as "Studio" — so this is null for every session sitting
   // in its own host's index, and set only on the stub a client records when it
@@ -590,44 +293,12 @@ INSERT INTO pinned_sessions(session_id, server_id, provider, title, cwd, pinned_
   FROM pinned_sessions_unscoped;
 DROP TABLE pinned_sessions_unscoped;
 `,
-  // Durable task-sidebar presentation state. Snooze preserves the task's
-  // workflow status; reminders can be projected into a linked session when
-  // the wake time passes.
-  `
-ALTER TABLE tasks ADD COLUMN snoozed_until INTEGER;
-ALTER TABLE tasks ADD COLUMN snoozed_at INTEGER;
-ALTER TABLE tasks ADD COLUMN snooze_note TEXT;
-ALTER TABLE tasks ADD COLUMN last_read_at INTEGER;
-CREATE INDEX tasks_by_snooze ON tasks(snoozed_until) WHERE snoozed_until IS NOT NULL;
-`,
-  // Native tasks own their state. An external ticket is an optional sync edge,
-  // separate from the generic task_links table that points at workspace
-  // artifacts. Dirty fields are coalesced because SQLite and the main process
-  // are the durable queue; there is no second outbox to reconcile.
-  `
-CREATE TABLE task_external_links (
-  task_id TEXT PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
-  provider TEXT NOT NULL,
-  external_key TEXT NOT NULL,
-  external_id TEXT NOT NULL,
-  url TEXT NOT NULL,
-  external_updated_at TEXT,
-  snapshot TEXT,
-  dirty_fields TEXT NOT NULL DEFAULT '[]',
-  sync_state TEXT NOT NULL DEFAULT 'ok',
-  sync_error TEXT,
-  last_synced_at INTEGER,
-  retry_at INTEGER,
-  failure_count INTEGER NOT NULL DEFAULT 0
-);
-CREATE UNIQUE INDEX task_external_links_external
-  ON task_external_links(provider, external_key, external_id);
-
-ALTER TABLE task_comments ADD COLUMN dirty INTEGER NOT NULL DEFAULT 0;
-CREATE UNIQUE INDEX task_comments_external
-  ON task_comments(task_id, external_id)
-  WHERE external_id IS NOT NULL;
-`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
   // New cross-provider handoffs only. Provider transcript files remain the
   // source of conversation content; this table records membership, order, and
   // the active endpoint. Sessions that never enter a Solus handoff have no row.
@@ -713,158 +384,40 @@ CREATE TABLE saved_metrics_queries (
   updated_at INTEGER NOT NULL
 );
 `,
-  // A first dispatch was briefly linked twice: the renderer used the stable
-  // Solus session id while ControlPlane used the provider thread id. Fold the
-  // provider aliases into their lineage id so existing task rows stop showing
-  // the same conversation twice. New writes use the stable id at both edges.
-  `
-INSERT INTO task_session_links(
-  task_id, session_id, role, branch, pr, execution_server_id, linked_at
-)
-SELECT
-  task_session_links.task_id,
-  session_lineage_members.session_id,
-  task_session_links.role,
-  task_session_links.branch,
-  task_session_links.pr,
-  task_session_links.execution_server_id,
-  task_session_links.linked_at
-FROM task_session_links
-JOIN session_lineage_members
-  ON session_lineage_members.provider_session_id = task_session_links.session_id
-WHERE session_lineage_members.session_id <> task_session_links.session_id
-ON CONFLICT(task_id, session_id) DO UPDATE SET
-  role = excluded.role,
-  branch = COALESCE(excluded.branch, task_session_links.branch),
-  pr = COALESCE(excluded.pr, task_session_links.pr),
-  execution_server_id = COALESCE(excluded.execution_server_id, task_session_links.execution_server_id),
-  linked_at = MIN(excluded.linked_at, task_session_links.linked_at);
-
-UPDATE tasks
-SET origin_session_id = (
-  SELECT session_lineage_members.session_id
-  FROM session_lineage_members
-  WHERE session_lineage_members.provider_session_id = tasks.origin_session_id
-)
-WHERE EXISTS (
-  SELECT 1
-  FROM session_lineage_members
-  WHERE session_lineage_members.provider_session_id = tasks.origin_session_id
-    AND session_lineage_members.session_id <> tasks.origin_session_id
-);
-
-DELETE FROM task_session_links
-WHERE EXISTS (
-  SELECT 1
-  FROM session_lineage_members
-  WHERE session_lineage_members.provider_session_id = task_session_links.session_id
-    AND session_lineage_members.session_id <> task_session_links.session_id
-);
-`,
-  // Tasks belong to projects. Branches and worktrees describe individual
-  // session attempts, so keep that metadata only on task_session_links.
-  `
-DROP INDEX IF EXISTS tasks_by_worktree;
-ALTER TABLE tasks DROP COLUMN branch;
-ALTER TABLE tasks DROP COLUMN worktree_key;
-`,
-  // Branch and execution host describe a session attempt, not its relationship
-  // to one task. Backfill the session row before removing the duplicated link
-  // columns. The lineage join covers links keyed by the stable Solus id whose
-  // indexed transcript still uses the current provider id.
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Branch describes a session attempt, so it lives on the session row.
   `
 ALTER TABLE sessions ADD COLUMN branch TEXT;
-
-UPDATE sessions
-SET branch = COALESCE(branch, (
-  SELECT task_session_links.branch
-  FROM task_session_links
-  LEFT JOIN session_lineage_members
-    ON session_lineage_members.session_id = task_session_links.session_id
-  WHERE task_session_links.branch IS NOT NULL
-    AND (
-      task_session_links.session_id = sessions.session_id
-      OR session_lineage_members.provider_session_id = sessions.session_id
-    )
-  ORDER BY task_session_links.linked_at DESC
-  LIMIT 1
-));
-
-UPDATE sessions
-SET server_id = COALESCE(server_id, (
-  SELECT task_session_links.execution_server_id
-  FROM task_session_links
-  LEFT JOIN session_lineage_members
-    ON session_lineage_members.session_id = task_session_links.session_id
-  WHERE task_session_links.execution_server_id IS NOT NULL
-    AND (
-      task_session_links.session_id = sessions.session_id
-      OR session_lineage_members.provider_session_id = sessions.session_id
-    )
-  ORDER BY task_session_links.linked_at DESC
-  LIMIT 1
-));
-
-ALTER TABLE task_session_links DROP COLUMN branch;
-ALTER TABLE task_session_links DROP COLUMN execution_server_id;
 `,
-  // An upload to a provider cannot be undone, and the sync engine retries a
-  // failed post. Record what was uploaded where, so a retry references the
-  // asset already on the provider instead of uploading the bytes again. The
-  // asset id is a content digest, so a hit is exact by construction: one
-  // screenshot pasted into many comments on one target uploads once.
-  `
-CREATE TABLE asset_publications (
-  asset_id   TEXT NOT NULL,
-  provider   TEXT NOT NULL,
-  target_key TEXT NOT NULL,
-  remote_url TEXT NOT NULL,
-  created_at INTEGER NOT NULL,
-  PRIMARY KEY (asset_id, provider, target_key)
-);
-`,
-  // Provider-owned task snapshots are scoped by the pinned binding. Rebinding
-  // from one repo or Jira project to another must never serve the old scope's
-  // rows. The cache is disposable, so old unscoped snapshots are dropped.
-  `
-DROP TABLE IF EXISTS upstream_task_cache;
-CREATE TABLE upstream_task_cache (
-  project_key TEXT NOT NULL,
-  provider TEXT NOT NULL,
-  external_key TEXT NOT NULL,
-  scope TEXT NOT NULL,
-  fetched_at INTEGER NOT NULL,
-  truncated INTEGER,
-  tasks TEXT NOT NULL,
-  PRIMARY KEY (project_key, provider, external_key, scope)
-);
-`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
   // A plan revision can mirror the same provider document as a Folio work.
   // Keep the link with the plan's durable review annotations because provider
   // transcript content is an index, not the owner of user-managed state.
   `
 ALTER TABLE plan_annotations ADD COLUMN mirrored_doc TEXT;
 `,
-  // Snooze is session-sidebar view state, not task state: it hides a row under
-  // a shelf until a wake time and says nothing about the work. It now lives
-  // with the sidebar's other per-client view state, so the task columns, their
-  // index, and their history entries are dropped rather than left orphaned.
-  // `last_read_at` stays — unread tracking is a separate concern.
-  `
-DROP INDEX IF EXISTS tasks_by_snooze;
-ALTER TABLE tasks DROP COLUMN snoozed_until;
-ALTER TABLE tasks DROP COLUMN snoozed_at;
-ALTER TABLE tasks DROP COLUMN snooze_note;
-DELETE FROM task_events WHERE kind IN ('snoozed', 'woke');
-`,
-  SINGLE_SESSION_OWNER_MIGRATION,
-  UNIQUE_TASK_PR_LINK_MIGRATION,
-  // A task page shows one artifact open above its linked table. Which one is
-  // durable and cross-host, so it belongs on the link rather than in per-client
-  // view state.
-  `
-ALTER TABLE task_links ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
-`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
+  // Reserved: this slot held a tasks migration. Tasks tables are now generated
+  // from packages/server/src/tasks/schema.ts (docs/plans/cloud-service-model.md).
+  `SELECT 1;`,
   // Named browser profiles: one project, several signed-in identities. Only the
   // named ones have rows — the project's automatic profile is the partition it
   // always was, so nothing here backfills a login that already exists.

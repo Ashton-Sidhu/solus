@@ -24,7 +24,6 @@ import {
 } from '../../providers/github/asset-upload'
 import { publishedAssetUrl, recordAssetPublication } from '../asset-publications'
 import { assetReferencesIn, withPublishedAssets, type AssetReference } from '../task-assets'
-import { withTx } from '../../db'
 import type { TaskSyncAdapter } from './types'
 
 interface GitHubRepositoryRef {
@@ -210,7 +209,7 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
       const target = await resolveUploadTarget(client, repo.owner, repo.repo)
       const urlByAssetId = new Map<string, string>()
       for (const assetId of new Set(references.map((reference) => reference.assetId))) {
-        const published = publishedAssetUrl(assetId, this.id, ref.externalKey)
+        const published = await publishedAssetUrl(assetId, this.id, ref.externalKey)
         if (published) {
           urlByAssetId.set(assetId, published)
           continue
@@ -218,7 +217,7 @@ export class GitHubTaskSyncAdapter implements TaskSyncAdapter {
         const url = await uploadGithubAsset(client, target, assetId)
         // Record before the body is sent. An upload cannot be undone, so a failure
         // after this point must not cost a second one when the caller retries.
-        withTx(() => recordAssetPublication(assetId, this.id, ref.externalKey, url))
+        await recordAssetPublication(assetId, this.id, ref.externalKey, url)
         urlByAssetId.set(assetId, url)
       }
       return withPublishedAssets(body, urlByAssetId, githubAssetMarkdown)

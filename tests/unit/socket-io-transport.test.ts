@@ -54,13 +54,13 @@ describe('Socket.IO transport', () => {
       })
     }
     expect(harness.transport.sessions.size).toBe(3)
-    expect(presence.hostSnapshot().participants).toHaveLength(2)
-    const watchers = presence.hostSnapshot().participants.map((person) => person.clientId)
+    expect((await presence.hostSnapshot()).participants).toHaveLength(2)
+    const watchers = (await presence.hostSnapshot()).participants.map((person) => person.clientId)
     harness.transport.close()
     harness.transport.close()
     expect(disconnected).toHaveLength(2)
     expect(new Set(disconnected).size).toBe(2)
-    expect(presence.hostSnapshot().participants).toEqual([])
+    expect((await presence.hostSnapshot()).participants).toEqual([])
     expect(presence.sessionSnapshot('session-1', watchers, null).participants).toEqual([])
   })
 

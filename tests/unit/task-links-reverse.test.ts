@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -30,8 +31,8 @@ beforeAll(async () => {
   works = await import('@solus/server/folio/works')
 })
 
-afterEach(() => {
-  db.closeDb()
+afterEach(async () => {
+  await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 
@@ -54,7 +55,7 @@ describe('which tasks link a target', () => {
     await second.link({ kind: 'work', targetKey: work.id })
     await second.link({ kind: 'plan', targetScope: 'session-1', targetKey: 'plan-1', title: 'A plan' })
 
-    const linked = taskLinks.readTasksLinkingTargets(db.getDb(), [
+    const linked = await taskLinks.readTasksLinkingTargets(taskStore.database(), [
       { kind: 'work', targetScope: '', targetKey: work.id },
       { kind: 'plan', targetScope: 'session-1', targetKey: 'plan-1' },
       { kind: 'automation', targetScope: '', targetKey: 'nothing-links-this' },
@@ -80,12 +81,12 @@ describe('which tasks link a target', () => {
     const task = await tasks.Task.byId((await taskStore.createTask({ title: 'Fix sync' })).id)
     await task.link({ kind: 'automation', targetKey: 'auto-1', title: 'Nightly' })
     const target = { kind: 'automation' as const, targetScope: '', targetKey: 'auto-1' }
-    expect(taskLinks.readTasksLinkingTargets(db.getDb(), [target])).toHaveLength(1)
+    expect(await taskLinks.readTasksLinkingTargets(taskStore.database(), [target])).toHaveLength(1)
     await task.unlink('automation', 'auto-1', '')
-    expect(taskLinks.readTasksLinkingTargets(db.getDb(), [target])).toEqual([])
+    expect(await taskLinks.readTasksLinkingTargets(taskStore.database(), [target])).toEqual([])
   })
 
-  test('an empty ask makes no query', () => {
-    expect(taskLinks.readTasksLinkingTargets(db.getDb(), [])).toEqual([])
+  test('an empty ask makes no query', async () => {
+    expect(await taskLinks.readTasksLinkingTargets(taskStore.database(), [])).toEqual([])
   })
 })

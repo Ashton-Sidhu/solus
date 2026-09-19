@@ -1003,7 +1003,7 @@ export class ControlPlane extends EventEmitter {
    * thread, so the lineage answers which thread is current; a session not yet
    * indexed has no name and rests.
    */
-  sessionActivityFor(sessionId: string): SessionActivity {
+  async sessionActivityFor(sessionId: string): Promise<SessionActivity> {
     const providerSessionId = resolveSessionLineageById(sessionId)?.active.providerSessionId
       ?? this._agentSessionIdFor(sessionId)
       ?? sessionId
@@ -1011,7 +1011,7 @@ export class ControlPlane extends EventEmitter {
     return {
       sessionId,
       title: meta?.customTitle || meta?.firstMessage?.replace(/\s+/g, ' ') || meta?.slug || null,
-      taskId: taskIdForSession(sessionId),
+      taskId: await taskIdForSession(sessionId),
       state: sessionActivityStateOf(this.activeSessions.get(sessionId)?.status),
       activeTurn: this.activeTurnFor(sessionId),
     }
@@ -1121,7 +1121,7 @@ export class ControlPlane extends EventEmitter {
   }
 
   /** Clear the stored provider thread so the next dispatch won't inject a stale --resume. */
-  resetSession(ctx: IpcContext): void {
+  async resetSession(ctx: IpcContext): Promise<void> {
     const sessionId = this._sessionIdForCtx(ctx)
     if (!sessionId) return
     const session = this.activeSessions.get(sessionId)
@@ -1130,7 +1130,7 @@ export class ControlPlane extends EventEmitter {
     const pendingHandoff = this._pendingHandoffFor(sessionId)
     if (pendingHandoff) {
       const restoredHandoff = cancelProvisionalSessionHandoff(sessionId)
-      if (!restoredHandoff) rekeyTaskSessionLinks(sessionId, pendingHandoff.fromSessionId)
+      if (!restoredHandoff) await rekeyTaskSessionLinks(sessionId, pendingHandoff.fromSessionId)
     }
     this.pendingHandoffs.delete(sessionId)
 

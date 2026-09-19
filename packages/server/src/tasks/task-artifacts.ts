@@ -64,7 +64,7 @@ export async function attachArtifactToTask(taskId: string, workId: string, cwd?:
     dataUrl: `data:text/html;base64,${Buffer.from(work.content, 'utf8').toString('base64')}`,
   })
 
-  const provider = externalLinkForTask(taskId)?.provider ?? null
+  const provider = (await externalLinkForTask(taskId))?.provider ?? null
   const sourceFileName = `${fileBase}.html`
   const includeSource = sourceTravelsTo(provider, source.uri, sourceFileName)
 

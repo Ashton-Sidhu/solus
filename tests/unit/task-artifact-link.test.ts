@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -27,8 +28,8 @@ beforeAll(async () => {
   lineage = await import('@solus/server/sessions/session-lineage')
 })
 
-afterEach(() => {
-  db.closeDb()
+afterEach(async () => {
+  await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 

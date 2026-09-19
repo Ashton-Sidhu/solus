@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { resetTestDatabase } from './helpers/test-db'
 import type {
   CandidateTicket,
   ExternalTicketRef,
@@ -183,8 +184,8 @@ beforeEach(() => {
   adapter.reset()
 })
 
-afterEach(() => {
-  db.closeDb()
+afterEach(async () => {
+  await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 
@@ -215,7 +216,7 @@ async function linkedTask() {
     projectKey: '/workspace/solus',
     labels: adapter.remote.labels,
   })
-  db.withTx(() => syncStore.writeExternalLink(db.getDb(), created.id, adapter.remote, 1))
+  await syncStore.writeExternalLink(taskStore.database(), created.id, adapter.remote, 1)
   return tasks.Task.byId(created.id)
 }
 
@@ -253,12 +254,12 @@ describe('task sync engine', () => {
     // pending change on the task page that has nowhere to land.
     const task = await linkedTask()
     await task.update({ priority: 'urgent' })
-    expect(syncStore.externalLinkForTask(task.id)?.dirtyFields).toEqual(['priority'])
+    expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['priority'])
 
     await engine().syncTask(task.id)
 
     expect(adapter.pushes).toEqual([])
-    expect(syncStore.externalLinkForTask(task.id)).toMatchObject({
+    expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
       dirtyFields: [],
       syncState: 'ok',
     })
@@ -271,12 +272,12 @@ describe('task sync engine', () => {
     await task.update({ title: 'Local title' })
     await task.update({ body: 'Local body' })
 
-    expect(syncStore.externalLinkForTask(task.id)?.dirtyFields).toEqual(['title', 'body'])
+    expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['title', 'body'])
 
     await engine().syncTask(task.id)
 
     expect(adapter.pushes).toEqual([{ title: 'Local title', body: 'Local body' }])
-    expect(syncStore.externalLinkForTask(task.id)).toMatchObject({
+    expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
       dirtyFields: [],
       syncState: 'ok',
       externalUpdatedAt: 'remote-2',
@@ -289,12 +290,12 @@ describe('task sync engine', () => {
     const task = await linkedTask()
     await task.update({ assignee: 'octocat' })
 
-    expect(syncStore.externalLinkForTask(task.id)?.dirtyFields).toEqual(['assignee'])
+    expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toEqual(['assignee'])
 
     await engine().syncTask(task.id)
 
     expect(adapter.pushes).toEqual([{ assignee: 'octocat' }])
-    expect(syncStore.externalLinkForTask(task.id)).toMatchObject({
+    expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
       dirtyFields: [],
       syncState: 'ok',
     })
@@ -311,7 +312,7 @@ describe('task sync engine', () => {
 
     expect((await tasks.Task.byId(task.id)).title).toBe('New remote title')
     expect(adapter.pushes).toHaveLength(0)
-    expect(syncStore.externalLinkForTask(task.id)).toMatchObject({ dirtyFields: [], syncState: 'ok' })
+    expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({ dirtyFields: [], syncState: 'ok' })
   })
 
   test('applies an external priority change during pull sync', async () => {
@@ -336,7 +337,7 @@ describe('task sync engine', () => {
     await engine().syncTask(task.id)
 
     expect(adapter.pushes).toEqual([{ title: 'First edit' }])
-    expect(syncStore.externalLinkForTask(task.id)).toMatchObject({
+    expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
       dirtyFields: ['body'],
       syncState: 'dirty',
     })
@@ -384,7 +385,7 @@ describe('task sync engine', () => {
     // the row itself, a task the user just published keeps reading as local.
     const task = await linkedTask()
 
-    const listed = taskStore.listTasks().tasks.find((row) => row.id === task.id)
+    const listed = (await taskStore.listTasks()).tasks.find((row) => row.id === task.id)
 
     expect(listed?.mirroredTicket).toEqual({
       provider: 'github',
@@ -440,7 +441,7 @@ describe('task sync engine', () => {
     await engine().syncTask(task.id)
 
     expect(adapter.pushes.at(-1)?.body).toBe('rewritten upstream body')
-    const link = syncStore.externalLinkForTask(task.id)!
+    const link = (await syncStore.externalLinkForTask(task.id))!
     expect(link.dirtyFields).not.toContain('body')
   })
 
@@ -483,7 +484,7 @@ describe('task sync engine', () => {
     const sync = engine()
 
     await sync.syncTask(task.id, { retryAuth: false })
-    expect(syncStore.externalLinkForTask(task.id)).toMatchObject({
+    expect(await syncStore.externalLinkForTask(task.id)).toMatchObject({
       syncState: 'auth_error',
       syncError: 'Reconnect GitHub.',
     })
@@ -495,7 +496,7 @@ describe('task sync engine', () => {
 
     await sync.syncTask(task.id, { retryAuth: true })
     expect(adapter.fetches).toBe(2)
-    expect(syncStore.externalLinkForTask(task.id)?.syncState).toBe('ok')
+    expect((await syncStore.externalLinkForTask(task.id))?.syncState).toBe('ok')
   })
 
   test('completes a task whose one pull request merged, whatever column it was in', async () => {
@@ -510,7 +511,7 @@ describe('task sync engine', () => {
     expect(await syncEngine.completeTasksForMergedPullRequest('github.com/owner/repo', 17, mergedNow({ isMerged: neverMerged })))
       .toEqual([task.id])
     expect((await tasks.Task.byId(task.id)).status).toBe('done')
-    expect(syncStore.externalLinkForTask(task.id)?.dirtyFields).toContain('status')
+    expect((await syncStore.externalLinkForTask(task.id))?.dirtyFields).toContain('status')
   })
 
   test('leaves a task alone that was touched after its pull request merged', async () => {
@@ -596,12 +597,12 @@ describe('polling many links', () => {
       projectKey: '/workspace/solus',
       labels: [],
     })
-    db.withTx(() => syncStore.writeExternalLink(
-      db.getDb(),
+    await syncStore.writeExternalLink(
+      taskStore.database(),
       created.id,
       ticket({ externalId, externalUpdatedAt: `remote-${externalId}` }),
       1,
-    ))
+    )
     return tasks.Task.byId(created.id)
   }
 

@@ -4,6 +4,7 @@ import type { PlanPublishRequest, WorkPublishRequest } from '@solus/contracts/do
 import { createLogger, isDebugEnabled } from '../logger'
 import { assertRpcAccess, type ResourceAccess } from './access-policy'
 import { INTERNAL_PRINCIPAL, type Principal } from './principal'
+import { ALL_ROLES, assertPlaneServed, type SolusRole } from './roles'
 
 const log = createLogger('server', 'server.ts')
 
@@ -27,10 +28,16 @@ export class SolusServer {
 
   private handlers = new Map<RpcMethod, Handler>()
   private resources: ResourceAccess | undefined
+  private roles: ReadonlySet<SolusRole> = ALL_ROLES
 
   /** Ownership and share lists, once the host has opened its database. */
   useResourceAccess(resources: ResourceAccess): void {
     this.resources = resources
+  }
+
+  /** The planes this host serves (`SOLUS_ROLES`); a method outside them is refused. */
+  useRoles(roles: ReadonlySet<SolusRole>): void {
+    this.roles = roles
   }
 
   register<M extends RpcMethod>(method: M, handler: RpcHandler<M>): void {
@@ -45,6 +52,8 @@ export class SolusServer {
   async handle(method: RpcMethod, args: RpcInvocationArgs, ctx: HandlerCtx): Promise<RpcInvocationResult> {
     // Fail closed: a call that names no principal is refused before any handler runs.
     if (!ctx?.principal) throw new Error(`SolusServer: "${method}" was called without a principal`)
+    // The host calling itself crosses no plane; a client's call must land on one this host serves.
+    if (ctx.principal.kind !== 'system') assertPlaneServed(method, this.roles)
     assertRpcAccess(method, ctx.principal, args, this.resources)
     if (this.updateTrial && method !== 'hostUpdateStatus') throw new Error('Solus is verifying an update. Try again after it restarts.')
     if (isDebugEnabled() && method !== 'activityLease') {

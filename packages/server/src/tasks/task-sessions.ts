@@ -1,9 +1,11 @@
-import type { DatabaseSync } from 'node:sqlite'
+import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { stableSessionIdForProviderThread } from '../sessions/session-lineage'
-import { getDb, withTx } from '../db'
+import { getDatabase, type Db } from '../db/database'
 import { persistRemoteSessionStart } from '../db/session-indexer'
 import { appendTaskEvent, diffTaskEvents, type EventActor } from './task-events'
+import { sessionRecordsFor, sessionTitleFor, type SessionRecord } from './host-records'
+import { taskComments, taskLinks, taskSessionLinks, tasks } from './schema'
 import {
   database,
   emitChanged,
@@ -37,19 +39,9 @@ const taskSessionLinkRowSchema = z.object({
   task_id: z.string(),
   session_id: z.string(),
   role: taskSessionRoleSchema,
-  branch: z.string().nullable(),
   /** Legacy capture — populated by earlier versions, read-only today. */
   pr: z.string().nullable(),
   linked_at: z.number(),
-  /** Joined from `sessions` by `LINK_SELECT`, which is the only way links are
-   *  read. Null when the session is not in the index yet. */
-  session_title: z.string().nullable(),
-  session_provider: z.enum(['claude', 'claude-code', 'codex', 'opencode']).nullable(),
-  session_model: z.string().nullable(),
-  session_server_id: z.string().nullable(),
-  session_is_worktree: z.number().nullable(),
-  session_started_at: z.number().nullable(),
-  last_activity_at: z.number().nullable(),
 })
 const rekeySessionLinkRowSchema = z.object({
   task_id: z.string(),
@@ -74,26 +66,50 @@ interface TaskSessionsByTask {
   [taskId: string]: TaskSessionLink[]
 }
 
-function linkFromRow(row: TaskSessionLinkRow): TaskSessionLink {
+/** A link whose session is not indexed yet reads as a session with nothing known about it. */
+const UNINDEXED_SESSION: SessionRecord = {
+  session_id: '',
+  session_title: null,
+  session_provider: null,
+  session_model: null,
+  session_server_id: null,
+  branch: null,
+  session_is_worktree: null,
+  session_started_at: null,
+  last_activity_at: null,
+}
+
+/** A link row joined to its session's display metadata. Every link the
+ * renderer sees comes through here: a second reader that skipped the session
+ * record once already shipped a sidebar full of sessions named after their
+ * parent task and a task panel full of raw session ids. */
+function linkFromRow(row: TaskSessionLinkRow, session: SessionRecord = UNINDEXED_SESSION): TaskSessionLink {
   const link: TaskSessionLink = {
     taskId: row.task_id,
     sessionId: row.session_id,
-    sessionTitle: row.session_title ?? null,
-    provider: row.session_provider === 'claude' ? 'claude-code' : row.session_provider,
-    model: row.session_model ?? null,
-    startedAt: row.session_started_at ?? null,
-    lastActivityAt: row.last_activity_at ?? null,
+    sessionTitle: session.session_title,
+    provider: session.session_provider === 'claude' ? 'claude-code' : session.session_provider,
+    model: session.session_model,
+    startedAt: session.session_started_at,
+    lastActivityAt: session.last_activity_at,
     // Execution facts are projected from the session row. The relationship
     // itself owns no host or checkout metadata.
-    executionServerId: row.session_server_id,
+    executionServerId: session.session_server_id,
     role: row.role,
     linkedAt: row.linked_at,
   }
-  if (row.branch !== null) link.branch = row.branch
-  if (row.session_is_worktree !== null) link.isolatedCheckout = row.session_is_worktree === 1
+  if (session.branch !== null) link.branch = session.branch
+  if (session.session_is_worktree !== null) link.isolatedCheckout = session.session_is_worktree === 1
   const pr = jsonValue(row.pr, taskPrSchema)
   if (pr) link.pr = pr
   return link
+}
+
+function linksFromRows(rows: TaskSessionLinkRow[]): TaskSessionsByTask {
+  const sessions = sessionRecordsFor(rows.map((row) => row.session_id))
+  const links: TaskSessionsByTask = {}
+  for (const row of rows) (links[row.task_id] ??= []).push(linkFromRow(row, sessions.get(row.session_id)))
+  return links
 }
 
 export interface SessionLinkDetails {
@@ -107,15 +123,15 @@ export interface SessionLinkDetails {
 
 /** Writes the attempt row and task provenance. Runs inside the
  * caller's transaction. The public write is the `Task` object's `linkSession`. */
-export function writeSessionLink(
-  db: DatabaseSync,
+export async function writeSessionLink(
+  db: Db,
   taskId: string,
   sessionId: string,
   role: TaskSessionRole,
   details: SessionLinkDetails,
   now: number,
-): void {
-  requireTask(taskId, db)
+): Promise<void> {
+  await requireTask(taskId, db)
   const execution = details.execution ?? null
   const executionServerId = normalizedOptional(execution?.serverId)
   // The session record is what later reads ask, so a machine this host cannot
@@ -132,24 +148,25 @@ export function writeSessionLink(
   }
   // Re-linking an existing attempt is bookkeeping, not history — only a genuine
   // first binding is a session start.
-  const isNewLink = !db.prepare('SELECT 1 FROM task_session_links WHERE task_id = ? AND session_id = ?')
-    .get(taskId, sessionId)
-  if (role === 'working') transferSessionOwnership(db, taskId, sessionId, now)
-  db.prepare(`
-    INSERT INTO task_session_links(task_id, session_id, role, linked_at)
-    VALUES (?, ?, ?, ?)
+  const isNewLink = !(await db.get(sql`
+    SELECT 1 AS present FROM ${taskSessionLinks} WHERE task_id = ${taskId} AND session_id = ${sessionId}
+  `))
+  if (role === 'working') await transferSessionOwnership(db, taskId, sessionId, now)
+  await db.run(sql`
+    INSERT INTO ${taskSessionLinks}(task_id, session_id, role, linked_at)
+    VALUES (${taskId}, ${sessionId}, ${role}, ${now})
     ON CONFLICT(task_id, session_id) DO UPDATE SET
       role = excluded.role
-  `).run(taskId, sessionId, role, now)
-  db.prepare(`
-    UPDATE tasks SET
-      origin_session_id = COALESCE(origin_session_id, ?),
-      updated_at = ?
-    WHERE id = ?
-  `).run(normalizedOptional(details.originSessionId) ?? sessionId, now, taskId)
+  `)
+  await db.run(sql`
+    UPDATE ${tasks} SET
+      origin_session_id = COALESCE(origin_session_id, ${normalizedOptional(details.originSessionId) ?? sessionId}),
+      updated_at = ${now}
+    WHERE id = ${taskId}
+  `)
 
   if (isNewLink) {
-    appendTaskEvent(db, taskId, {
+    await appendTaskEvent(db, taskId, {
       kind: 'session_started',
       actor: 'agent',
       targetKind: 'session',
@@ -169,34 +186,34 @@ export function writeSessionLink(
  * automation, an older build. A `referenced` link is a relationship, not
  * ownership, and is left alone.
  */
-function transferSessionOwnership(
-  db: DatabaseSync,
+async function transferSessionOwnership(
+  db: Db,
   taskId: string,
   sessionId: string,
   now: number,
-): void {
-  const previousOwners = previousOwnerRowSchema.array().parse(db.prepare(`
+): Promise<void> {
+  const previousOwners = previousOwnerRowSchema.array().parse(await db.all(sql`
     SELECT task_session_links.task_id, tasks.source, tasks.origin_session_id
-    FROM task_session_links
-    JOIN tasks ON tasks.id = task_session_links.task_id
-    WHERE task_session_links.session_id = ?
+    FROM ${taskSessionLinks}
+    JOIN ${tasks} ON tasks.id = task_session_links.task_id
+    WHERE task_session_links.session_id = ${sessionId}
       AND task_session_links.role = 'working'
-      AND task_session_links.task_id <> ?
-  `).all(sessionId, taskId))
+      AND task_session_links.task_id <> ${taskId}
+  `))
   for (const owner of previousOwners) {
-    deleteSessionLink(db, owner.task_id, sessionId, {}, now)
+    await deleteSessionLink(db, owner.task_id, sessionId, {}, now)
     if (owner.source !== 'session' || owner.origin_session_id !== sessionId) continue
     // The placeholder minted for this session is empty once the session leaves
     // it: nothing else links to it, nothing hangs under it, nobody wrote on it.
     // Anything more than that makes it a task in its own right, which stays.
-    const stillHoldsSomething = db.prepare(`
-      SELECT 1 FROM task_session_links WHERE task_id = ?
-      UNION ALL SELECT 1 FROM tasks WHERE parent_id = ?
-      UNION ALL SELECT 1 FROM task_comments WHERE task_id = ?
-      UNION ALL SELECT 1 FROM task_links WHERE task_id = ?
+    const stillHoldsSomething = await db.get(sql`
+      SELECT 1 AS present FROM ${taskSessionLinks} WHERE task_id = ${owner.task_id}
+      UNION ALL SELECT 1 AS present FROM ${tasks} WHERE parent_id = ${owner.task_id}
+      UNION ALL SELECT 1 AS present FROM ${taskComments} WHERE task_id = ${owner.task_id}
+      UNION ALL SELECT 1 AS present FROM ${taskLinks} WHERE task_id = ${owner.task_id}
       LIMIT 1
-    `).get(owner.task_id, owner.task_id, owner.task_id, owner.task_id)
-    if (!stillHoldsSomething) db.prepare('DELETE FROM tasks WHERE id = ?').run(owner.task_id)
+    `)
+    if (!stillHoldsSomething) await db.run(sql`DELETE FROM ${tasks} WHERE id = ${owner.task_id}`)
   }
 }
 
@@ -205,99 +222,59 @@ function transferSessionOwnership(
  * origin capture stays put. Runs
  * inside the caller's transaction; the public write is the `Task` object's
  * `unlinkSession`. */
-export function deleteSessionLink(
-  db: DatabaseSync,
+export async function deleteSessionLink(
+  db: Db,
   taskId: string,
   sessionId: string,
   actor: EventActor = {},
   now = Date.now(),
-): boolean {
-  requireTask(taskId, db)
-  const removed = db.prepare('DELETE FROM task_session_links WHERE task_id = ? AND session_id = ?')
-    .run(taskId, sessionId).changes > 0
+): Promise<boolean> {
+  await requireTask(taskId, db)
+  const removed = (await db.run(sql`
+    DELETE FROM ${taskSessionLinks} WHERE task_id = ${taskId} AND session_id = ${sessionId}
+  `)).changes > 0
   if (!removed) return false
-  db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(now, taskId)
+  await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
   // Carries the session's display title so the feed still reads
   // "unlinked <name>" after the link is gone. Null when it was never indexed.
-  const titleRow = z.object({ title: z.string().nullable() }).nullish().parse(db.prepare(
-    'SELECT COALESCE(custom_title, first_message) AS title FROM sessions WHERE session_id = ?',
-  ).get(sessionId))
-  appendTaskEvent(db, taskId, {
+  await appendTaskEvent(db, taskId, {
     ...actor,
     kind: 'unlinked',
     targetKind: 'session',
     targetKey: sessionId,
-    targetTitle: titleRow?.title ?? null,
+    targetTitle: sessionTitleFor(sessionId),
   }, now)
   return true
 }
 
-/** The one way session links are read. Every link the renderer sees comes from
- * here, joined to its session's display metadata: a second reader that skipped
- * the join once already shipped a sidebar full of sessions named after their
- * parent task and a task panel full of raw session ids. */
-const LINK_SELECT = `
-  SELECT
-    task_session_links.task_id,
-    task_session_links.session_id,
-    task_session_links.role,
-    task_session_links.pr,
-    task_session_links.linked_at,
-    COALESCE(sessions.custom_title, sessions.first_message) AS session_title,
-    sessions.provider AS session_provider,
-    sessions.model AS session_model,
-    sessions.server_id AS session_server_id,
-    sessions.branch AS branch,
-    sessions.is_worktree AS session_is_worktree,
-    (
-      SELECT MIN(started_at)
-      FROM session_lineage_members
-      WHERE session_id = task_session_links.session_id
-    ) AS session_started_at,
-    sessions.last_timestamp AS last_activity_at
-  FROM task_session_links
-  LEFT JOIN session_lineage_members AS active_lineage
-    ON active_lineage.session_id = task_session_links.session_id
-    AND active_lineage.position = (
-      SELECT MAX(position)
-      FROM session_lineage_members
-      WHERE session_id = task_session_links.session_id
-    )
-  LEFT JOIN sessions
-    ON sessions.session_id = COALESCE(active_lineage.provider_session_id, task_session_links.session_id)
-`
-
 /** Move the existing task attempt onto the stable Solus id when that session
  * first enters a new handoff chain. Ordinary and older sessions are untouched. */
-export function rekeyTaskSessionLinks(sourceSessionId: string, targetSessionId: string): void {
+export async function rekeyTaskSessionLinks(sourceSessionId: string, targetSessionId: string): Promise<void> {
   if (sourceSessionId === targetSessionId) return
-  const changed = withTx(() => {
-    const db = getDb()
-    const rows = rekeySessionLinkRowSchema.array().parse(db.prepare(`
+  const changed = await database().transaction(async (db) => {
+    const rows = rekeySessionLinkRowSchema.array().parse(await db.all(sql`
       SELECT task_id, role, pr, linked_at
-      FROM task_session_links
-      WHERE session_id = ?
-    `).all(sourceSessionId))
+      FROM ${taskSessionLinks}
+      WHERE session_id = ${sourceSessionId}
+    `))
     for (const row of rows) {
-      db.prepare(`
-        INSERT INTO task_session_links(task_id, session_id, role, pr, linked_at)
-        VALUES (?, ?, ?, ?, ?)
+      await db.run(sql`
+        INSERT INTO ${taskSessionLinks}(task_id, session_id, role, pr, linked_at)
+        VALUES (${row.task_id}, ${targetSessionId}, ${row.role}, ${row.pr}, ${row.linked_at})
         ON CONFLICT(task_id, session_id) DO UPDATE SET
           role = excluded.role,
           pr = COALESCE(excluded.pr, task_session_links.pr),
-          linked_at = MIN(excluded.linked_at, task_session_links.linked_at)
-      `).run(
-        row.task_id,
-        targetSessionId,
-        row.role,
-        row.pr,
-        row.linked_at,
-      )
+          linked_at = CASE
+            WHEN excluded.linked_at < task_session_links.linked_at THEN excluded.linked_at
+            ELSE task_session_links.linked_at
+          END
+      `)
     }
     if (rows.length) {
-      db.prepare('DELETE FROM task_session_links WHERE session_id = ?').run(sourceSessionId)
-      db.prepare('UPDATE tasks SET origin_session_id = ? WHERE origin_session_id = ?')
-        .run(targetSessionId, sourceSessionId)
+      await db.run(sql`DELETE FROM ${taskSessionLinks} WHERE session_id = ${sourceSessionId}`)
+      await db.run(sql`
+        UPDATE ${tasks} SET origin_session_id = ${targetSessionId} WHERE origin_session_id = ${sourceSessionId}
+      `)
     }
     return rows.length > 0
   })
@@ -305,45 +282,44 @@ export function rekeyTaskSessionLinks(sourceSessionId: string, targetSessionId: 
 }
 
 /** Task-keyed attempts for either one task or the complete global store. */
-export function taskSessions(taskId?: string): TaskSessionsByTask {
+export async function taskSessions(taskId?: string): Promise<TaskSessionsByTask> {
   const rowValues = taskId
-    ? getDb().prepare(`${LINK_SELECT}
-        WHERE task_session_links.task_id = ?
-        ORDER BY task_session_links.linked_at, task_session_links.session_id
-      `).all(taskId)
-    : getDb().prepare(`${LINK_SELECT}
-        ORDER BY task_session_links.linked_at, task_session_links.task_id, task_session_links.session_id
-      `).all()
-  const rows = taskSessionLinkRowSchema.array().parse(rowValues)
-  const links: TaskSessionsByTask = {}
-  for (const row of rows) (links[row.task_id] ??= []).push(linkFromRow(row))
-  return links
+    ? await getDatabase().all(sql`
+        SELECT task_id, session_id, role, pr, linked_at FROM ${taskSessionLinks}
+        WHERE task_id = ${taskId}
+        ORDER BY linked_at, session_id
+      `)
+    : await getDatabase().all(sql`
+        SELECT task_id, session_id, role, pr, linked_at FROM ${taskSessionLinks}
+        ORDER BY linked_at, task_id, session_id
+      `)
+  return linksFromRows(taskSessionLinkRowSchema.array().parse(rowValues))
+}
+
+/** The task a session works on: its owner first, a later `referenced` relationship never outranks it. */
+export async function taskIdForSession(sessionId: string): Promise<string | null> {
+  const link = taskIdRowSchema.nullish().parse(await getDatabase().get(sql`
+    SELECT task_id FROM ${taskSessionLinks}
+    WHERE session_id = ${sessionId}
+    ORDER BY CASE role WHEN 'working' THEN 0 ELSE 1 END, linked_at DESC
+    LIMIT 1
+  `))
+  return link?.task_id ?? null
 }
 
 /** Resolve a session into the durable two-level task tree without loading or
  * starting any sibling sessions. */
-/** The task a session works on: its owner first, a later `referenced` relationship never outranks it. */
-export function taskIdForSession(sessionId: string): string | null {
-  const link = taskIdRowSchema.nullish().parse(getDb().prepare(`
-    SELECT task_id FROM task_session_links
-    WHERE session_id = ?
-    ORDER BY CASE role WHEN 'working' THEN 0 ELSE 1 END, linked_at DESC
-    LIMIT 1
-  `).get(sessionId))
-  return link?.task_id ?? null
-}
-
 export async function tasksForSession(sessionId: string): Promise<TaskForSessionResult | null> {
-  const taskId = taskIdForSession(sessionId)
+  const taskId = await taskIdForSession(sessionId)
   if (!taskId) return null
 
-  const task = loadTaskRecord(taskId)
+  const task = await loadTaskRecord(taskId)
   if (!task) return null
-  const parent = task.parentId ? loadTaskRecord(task.parentId) : null
+  const parent = task.parentId ? await loadTaskRecord(task.parentId) : null
   const rootId = parent?.id ?? task.id
-  const subtasks = listTaskChildren(rootId)
+  const subtasks = await listTaskChildren(rootId)
   const siblings = task.parentId ? subtasks.filter((subtask) => subtask.id !== task.id) : []
-  const attemptsByTask = taskSessions()
+  const attemptsByTask = await taskSessions()
   const attempts = [rootId, ...subtasks.map((subtask) => subtask.id)]
     .flatMap((id) => attemptsByTask[id] ?? [])
   return { task, parent, subtasks, siblings, attempts }
@@ -375,8 +351,7 @@ interface PrepareSessionTaskInput {
  * read, write, notification, or repair happens. */
 export async function prepareSessionTask(input: PrepareSessionTaskInput): Promise<Task | null> {
   if (input.existingAgentSessionId) return null
-  const task = withTx(() => {
-    const db = database()
+  const task = await database().transaction(async (db) => {
     const now = Date.now()
     const existingTaskId = normalizedOptional(input.existingTaskId)
     const parentTaskId = normalizedOptional(input.parentTaskId)
@@ -389,25 +364,25 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
     const projectKey = rawProjectKey ? worktreeProjectRoot(rawProjectKey) : null
     let task: Task
     if (existingTaskId) {
-      const existing = requireTask(existingTaskId, db)
-      db.prepare(`
-        UPDATE tasks SET
-          project_key = COALESCE(project_key, ?),
+      const existing = await requireTask(existingTaskId, db)
+      await db.run(sql`
+        UPDATE ${tasks} SET
+          project_key = COALESCE(project_key, ${projectKey}),
           status = CASE WHEN status IN ('inbox', 'todo') THEN 'in_progress' ELSE status END,
           triaged_at = CASE
-            WHEN status IN ('inbox', 'todo') THEN COALESCE(triaged_at, ?)
+            WHEN status IN ('inbox', 'todo') THEN COALESCE(triaged_at, ${now})
             ELSE triaged_at
           END,
-          updated_at = ?
-        WHERE id = ?
-      `).run(projectKey, now, now, existingTaskId)
+          updated_at = ${now}
+        WHERE id = ${existingTaskId}
+      `)
       // This promotes inbox/todo straight to in_progress without going through
       // updateTask, so the diff has to happen here or the move is unrecorded.
-      const updated = requireTask(existingTaskId, db)
-      diffTaskEvents(db, existingTaskId, existing, updated, { actor: 'agent' }, now)
+      const updated = await requireTask(existingTaskId, db)
+      await diffTaskEvents(db, existingTaskId, existing, updated, { actor: 'agent' }, now)
       task = taskFromRow(updated)
     } else {
-      task = writeTask(db, {
+      task = await writeTask(db, {
         title: promptTitle(input.prompt),
         projectKey,
         parentId: parentTaskId,
@@ -420,10 +395,10 @@ export async function prepareSessionTask(input: PrepareSessionTaskInput): Promis
     }
 
     if (input.sessionId) {
-      writeSessionLink(db, task.id, input.sessionId, 'working', {
+      await writeSessionLink(db, task.id, input.sessionId, 'working', {
         originSessionId: input.originSessionId,
       }, now)
-      task = taskFromRow(requireTask(task.id, db))
+      task = taskFromRow(await requireTask(task.id, db))
     }
     return task
   })
@@ -447,34 +422,33 @@ export async function updateGeneratedMetadataForSession(
   const generatedTitle = title.trim()
   const generatedDescription = description.trim()
   if (!generatedTitle || !generatedDescription) return null
-  const task = withTx(() => {
-    const db = database()
-    const taskSessionId = stableSessionIdForProviderThread(sessionId, db) ?? sessionId
-    const row = generatedMetadataTaskRowSchema.nullish().parse(db.prepare(`
+  const task = await database().transaction(async (db) => {
+    const taskSessionId = stableSessionIdForProviderThread(sessionId) ?? sessionId
+    const row = generatedMetadataTaskRowSchema.nullish().parse(await db.get(sql`
       SELECT tasks.id, tasks.title_source, tasks.body
-      FROM tasks
-      JOIN task_session_links ON task_session_links.task_id = tasks.id
-      WHERE task_session_links.session_id = ?
+      FROM ${tasks}
+      JOIN ${taskSessionLinks} ON task_session_links.task_id = tasks.id
+      WHERE task_session_links.session_id = ${taskSessionId}
         AND task_session_links.role = 'working'
         AND tasks.source = 'session'
         AND tasks.origin_session_id = task_session_links.session_id
       ORDER BY task_session_links.linked_at DESC
       LIMIT 1
-    `).get(taskSessionId))
+    `))
     if (!row) return null
     const canUpdateTitle = row.title_source === 'prompt'
     const canUpdateDescription = row.body.trim() === ''
     if (!canUpdateTitle && !canUpdateDescription) return null
     const now = Date.now()
-    db.prepare(`
-      UPDATE tasks SET
-        title = CASE WHEN title_source = 'prompt' THEN ? ELSE title END,
+    await db.run(sql`
+      UPDATE ${tasks} SET
+        title = CASE WHEN title_source = 'prompt' THEN ${generatedTitle} ELSE title END,
         title_source = CASE WHEN title_source = 'prompt' THEN 'generated' ELSE title_source END,
-        body = CASE WHEN TRIM(body) = '' THEN ? ELSE body END,
-        updated_at = ?
-      WHERE id = ?
-    `).run(generatedTitle, generatedDescription, now, row.id)
-    return taskFromRow(requireTask(row.id, db))
+        body = CASE WHEN TRIM(body) = '' THEN ${generatedDescription} ELSE body END,
+        updated_at = ${now}
+      WHERE id = ${row.id}
+    `)
+    return taskFromRow(await requireTask(row.id, db))
   })
   if (task) emitChanged()
   return task

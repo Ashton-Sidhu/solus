@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { sql } from 'drizzle-orm'
+import { resetTestDatabase } from './helpers/test-db'
 import type { ExternalTicketRef } from '@solus/contracts/task-types'
 import { githubClientState, installGithubClientMock, mockedGithubClient, mockedRepository } from './helpers/github-client-mock.ts'
 
@@ -99,7 +101,7 @@ async function uploadFailureReason(assetId: string): Promise<string> {
   }
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   requests = []
   githubClientState.repository = mockedRepository('write')
   respond = () => Response.json({ url: 'https://github.com/user-attachments/assets/be9b3920' }, { status: 201 })
@@ -107,11 +109,11 @@ beforeEach(() => {
   upload.forgetUploadTarget('solus', 'site')
   // Publications are durable by design, so each test starts from none rather
   // than inheriting what an earlier one uploaded.
-  db.getDb().exec('DELETE FROM asset_publications')
+  await (await import('@solus/server/db/database')).getDatabase().run(sql`DELETE FROM ${(await import('@solus/server/tasks/schema')).assetPublications}`)
 })
 
-afterEach(() => {
-  db.closeDb()
+afterEach(async () => {
+  await resetTestDatabase()
 })
 
 afterAll(() => {

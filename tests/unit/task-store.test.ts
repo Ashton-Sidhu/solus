@@ -3,11 +3,12 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { sql } from 'drizzle-orm'
+import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
 type DbModule = typeof import('@solus/server/db')
-type MigrationsModule = typeof import('@solus/server/db/migrations')
 type TaskStoreModule = typeof import('@solus/server/tasks/task-store')
 type TaskModule = typeof import('@solus/server/tasks/task')
 type TaskSessionsModule = typeof import('@solus/server/tasks/task-sessions')
@@ -16,7 +17,6 @@ type UlidModule = typeof import('@solus/server/tasks/ulid')
 
 let dataDir: string
 let db: DbModule
-let migrations: MigrationsModule
 let taskStore: TaskStoreModule
 let tasks: TaskModule
 let taskSessions: TaskSessionsModule
@@ -29,7 +29,6 @@ beforeAll(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'solus-task-store-'))
   process.env.SOLUS_DATA_DIR = dataDir
   db = await import('@solus/server/db')
-  migrations = await import('@solus/server/db/migrations')
   taskStore = await import('@solus/server/tasks/task-store')
   tasks = await import('@solus/server/tasks/task')
   taskSessions = await import('@solus/server/tasks/task-sessions')
@@ -38,8 +37,8 @@ beforeAll(async () => {
   testHandlerCtx = (await import('./helpers/handler-ctx')).TEST_HANDLER_CTX
 })
 
-afterEach(() => {
-  db.closeDb()
+afterEach(async () => {
+  await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 
@@ -57,196 +56,50 @@ describe('native task migration', () => {
     expect(() => ids.ulid(-1)).toThrow('ULID timestamp')
   })
 
-  test('the clean-slate entry discards legacy mirrored rows without backfilling them', () => {
-    // WHY: old provider tasks and renderer-written bindings have different
-    // ownership semantics; carrying them forward would fabricate task history.
-    const legacy = new Database(':memory:')
+  // The file is the store only on SQLite; on Postgres these tables are not in it.
+  test.skipIf(process.env.SOLUS_DB === 'postgres')('the ported tables come from the generated migration; a file that already has them opens as it is', () => {
+    // WHY: the hand-written migrations no longer create task tables, and a
+    // developer's existing solus.db already holds them in their last hand-made
+    // shape. Both files must open: the generated migration is `IF NOT EXISTS`.
+    const fresh = db.getDb()
+    const ported = [
+      'asset_publications', 'task_comments', 'task_counters', 'task_events', 'task_external_links',
+      'task_links', 'task_session_links', 'tasks', 'upstream_task_cache',
+    ]
+    const tables = () => db.getDb().prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE '%task%' OR name = 'asset_publications' ORDER BY name",
+    ).all().map((row) => (row as { name: string }).name)
+    expect(tables()).toEqual(ported)
+    expect(fresh.prepare('SELECT COUNT(*) AS count FROM __drizzle_migrations').get()).toEqual({ count: 1 })
+    db.closeDb()
+    for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
+
+    const legacy = new Database(join(dataDir, 'solus.db'))
     legacy.exec(`
-      PRAGMA user_version = 7;
-      CREATE TABLE sessions(session_id TEXT PRIMARY KEY, last_timestamp INTEGER);
-      CREATE TABLE tasks(id TEXT PRIMARY KEY);
-      INSERT INTO tasks VALUES ('legacy-task');
-      CREATE TABLE task_session_links(task_id TEXT, session_id TEXT);
-      INSERT INTO task_session_links VALUES ('legacy-task', 'legacy-session');
-      CREATE TABLE task_cache(project_key TEXT, tasks TEXT);
-      INSERT INTO task_cache VALUES ('legacy-project', '[]');
-      CREATE TABLE pinned_sessions(
-        session_id TEXT PRIMARY KEY,
-        provider TEXT,
-        title TEXT,
-        cwd TEXT,
-        pinned_at INTEGER
-      );
-      CREATE TABLE plan_annotations(
-        session_id TEXT NOT NULL,
-        plan_tool_use_id TEXT NOT NULL,
-        PRIMARY KEY (session_id, plan_tool_use_id)
-      );
-    `)
-
-    // SAFETY: Bun's in-memory Database implements the DatabaseSync methods the migration runner uses.
-    migrations.runMigrations(legacy as never)
-
-    expect(legacy.query('SELECT COUNT(*) AS count FROM tasks').get()).toEqual({ count: 0 })
-    expect(legacy.query('SELECT COUNT(*) AS count FROM task_session_links').get()).toEqual({ count: 0 })
-    expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_cache'").get()).toBeNull()
-    expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'upstream_task_cache'").get())
-      .toEqual({ name: 'upstream_task_cache' })
-    expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('task_comments', 'task_events', 'task_links') ORDER BY name").all())
-      .toEqual([{ name: 'task_comments' }, { name: 'task_events' }, { name: 'task_links' }])
-    expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'task_external_links'").get())
-      .toEqual({ name: 'task_external_links' })
-    // task_links is the generic linked-anything edge now, not the external-sync
-    // mirror it briefly named.
-    expect(legacy.query('SELECT name FROM pragma_table_info(?)').all('task_links').map((c: { name: string }) => c.name))
-      .toContain('target_key')
-    // WHY: `user_version` is an index into the migration array, so a released
-    // slot may never be rewritten — a database that already passed that index
-    // silently skips the replacement forever. These two shipped one after the
-    // other; if either is missing here, one overwrote the other's slot.
-    expect(legacy.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'asset_publications'").get())
-      .toEqual({ name: 'asset_publications' })
-    expect(legacy.query('SELECT name FROM pragma_table_info(?)').all('plan_annotations').map((c: { name: string }) => c.name))
-      .toContain('mirrored_doc')
-    legacy.close()
-  })
-
-  test('migration folds provider task links into the stable session id', () => {
-    // WHY: affected databases already contain both ids for one conversation.
-    // Preventing the next duplicate is not enough; the upgrade must remove the
-    // existing duplicate without losing its branch or first-link timestamp.
-    const legacy = new Database(':memory:')
-    legacy.exec(`
-      PRAGMA user_version = 23;
+      PRAGMA user_version = 1000;
       CREATE TABLE tasks (
         id TEXT PRIMARY KEY,
-        parent_id TEXT,
-        source TEXT,
-        origin_session_id TEXT,
-        branch TEXT,
-        worktree_key TEXT,
-        snoozed_until INTEGER,
-        snoozed_at INTEGER,
-        snooze_note TEXT
+        short_id INTEGER UNIQUE,
+        project_key TEXT,
+        parent_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'inbox',
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
       );
-      CREATE TABLE task_comments(task_id TEXT NOT NULL);
-      CREATE TABLE task_links (
-        task_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        target_scope TEXT NOT NULL DEFAULT '',
-        target_key TEXT NOT NULL,
-        title TEXT NOT NULL DEFAULT '',
-        url TEXT,
-        created_by TEXT NOT NULL DEFAULT 'user',
-        origin_session_id TEXT,
-        linked_at INTEGER NOT NULL,
-        PRIMARY KEY (task_id, kind, target_scope, target_key)
-      );
-      CREATE TABLE task_session_links (
-        task_id TEXT NOT NULL,
-        session_id TEXT NOT NULL,
-        role TEXT NOT NULL,
-        branch TEXT,
-        pr TEXT,
-        execution_server_id TEXT,
-        linked_at INTEGER NOT NULL,
-        PRIMARY KEY (task_id, session_id)
-      );
-      CREATE TABLE session_lineage_members (
-        session_id TEXT NOT NULL,
-        position INTEGER NOT NULL,
-        provider TEXT NOT NULL,
-        provider_session_id TEXT,
-        cwd TEXT NOT NULL,
-        started_at INTEGER NOT NULL,
-        ended_at INTEGER,
-        updated_at INTEGER NOT NULL,
-        PRIMARY KEY (session_id, position)
-      );
-      CREATE TABLE sessions (
-        session_id TEXT PRIMARY KEY,
-        server_id TEXT
-      );
-      INSERT INTO sessions VALUES ('provider-session', NULL);
-      INSERT INTO tasks(id, origin_session_id, branch, worktree_key)
-        VALUES ('task-1', 'provider-session', 'fix/duplicate', 'old-worktree');
-      INSERT INTO session_lineage_members VALUES (
-        'solus-session', 0, 'codex', 'provider-session', '/workspace/solus', 1, NULL, 1
-      );
-      INSERT INTO task_session_links VALUES (
-        'task-1', 'solus-session', 'working', NULL, NULL, NULL, 20
-      );
-      INSERT INTO task_session_links VALUES (
-        'task-1', 'provider-session', 'working', 'fix/duplicate', NULL, NULL, 10
-      );
-      CREATE TABLE task_events(id TEXT PRIMARY KEY, kind TEXT NOT NULL);
-      CREATE TABLE plan_annotations(
-        session_id TEXT NOT NULL,
-        plan_tool_use_id TEXT NOT NULL,
-        PRIMARY KEY (session_id, plan_tool_use_id)
-      );
+      INSERT INTO tasks(id, short_id, title, created_at, updated_at) VALUES ('kept', 1, 'A task from before', 1, 1);
     `)
-
-    // SAFETY: Bun's in-memory Database implements the DatabaseSync methods the migration runner uses.
-    migrations.runMigrations(legacy as never)
-
-    expect(legacy.query(`
-      SELECT task_id, session_id, linked_at
-      FROM task_session_links
-    `).all()).toEqual([{
-      task_id: 'task-1',
-      session_id: 'solus-session',
-      linked_at: 10,
-    }])
-    expect(legacy.query('SELECT branch FROM sessions WHERE session_id = ?').get('provider-session'))
-      .toEqual({ branch: 'fix/duplicate' })
-    expect(legacy.query('SELECT origin_session_id FROM tasks').get()).toEqual({
-      origin_session_id: 'solus-session',
-    })
-    expect(legacy.query("SELECT name FROM pragma_table_info('tasks') WHERE name IN ('branch', 'worktree_key')").all())
-      .toEqual([])
     legacy.close()
+
+    const reopened = db.getDb()
+    expect(tables()).toEqual(ported)
+    expect(reopened.prepare('SELECT id FROM tasks').all()).toEqual([{ id: 'kept' }])
+    expect(reopened.prepare("SELECT name FROM pragma_table_info('tasks')").all().map((row) => (row as { name: string }).name))
+      .not.toContain('organization_id')
   })
 })
 
 describe('native task CRUD', () => {
-  test('migration removes duplicate PR identities without folding other link kinds', () => {
-    const legacy = new Database(':memory:')
-    legacy.exec(`
-      PRAGMA user_version = 31;
-      CREATE TABLE task_links (
-        task_id TEXT NOT NULL,
-        kind TEXT NOT NULL,
-        target_scope TEXT NOT NULL DEFAULT '',
-        target_key TEXT NOT NULL,
-        title TEXT NOT NULL DEFAULT '',
-        url TEXT,
-        created_by TEXT NOT NULL DEFAULT 'user',
-        origin_session_id TEXT,
-        linked_at INTEGER NOT NULL,
-        PRIMARY KEY (task_id, kind, target_scope, target_key)
-      );
-      INSERT INTO task_links VALUES
-        ('task-1', 'pr', '/workspace/solus', '321', '#321 discovered',
-          'https://github.com/acme/solus/pull/321', 'system', 'session-1', 1),
-        ('task-1', 'pr', 'github.com/acme/solus', '321', '#321 explicit',
-          'https://github.com/acme/solus/pull/321', 'agent', 'session-2', 2),
-        ('task-1', 'work', '', 'work-1', 'First work',
-          'https://example.com/shared', 'user', NULL, 1),
-        ('task-1', 'work', '', 'work-2', 'Second work',
-          'https://example.com/shared', 'user', NULL, 2);
-    `)
-
-    migrations.runMigrations(legacy as never)
-
-    expect(legacy.query("SELECT target_scope, title FROM task_links WHERE kind = 'pr'").all()).toEqual([
-      { target_scope: 'github.com/acme/solus', title: '#321 explicit' },
-    ])
-    expect(legacy.query("SELECT target_key FROM task_links WHERE kind = 'work' ORDER BY target_key").all())
-      .toEqual([{ target_key: 'work-1' }, { target_key: 'work-2' }])
-    legacy.close()
-  })
-
   test('lists more than 99 tasks without truncation', async () => {
     // WHY: the global task picker consumes this complete native snapshot. A
     // hidden two-digit boundary would make older work impossible to search.
@@ -285,7 +138,7 @@ describe('native task CRUD', () => {
       createdBy: 'user',
     })
 
-    expect(taskLinks.readTaskPrLinks(db.getDb())).toEqual({
+    expect(await taskLinks.readTaskPrLinks(taskStore.database())).toEqual({
       [task.id]: [
         {
           number: 43,
@@ -312,12 +165,16 @@ describe('native task CRUD', () => {
     // list; the task still lists, only its ticket is left out.
     const known = await taskStore.createTask({ title: 'Mirrored issue', projectKey: '/workspace/solus' })
     const unknown = await taskStore.createTask({ title: 'Foreign ticket', projectKey: '/workspace/solus' })
-    const link = db.getDb().prepare(`
-      INSERT INTO task_external_links(task_id, provider, external_key, external_id, url)
-      VALUES (?, ?, ?, ?, ?)
-    `)
-    link.run(known.id, 'github', 'solus/solus', '7', 'https://github.com/solus/solus/issues/7')
-    link.run(unknown.id, 'linear', 'workspace/FE', 'FE-2', 'https://linear.app/workspace/issue/FE-2')
+    const { taskExternalLinks } = await import('@solus/server/tasks/schema')
+    for (const [taskId, provider, externalKey, externalId, url] of [
+      [known.id, 'github', 'solus/solus', '7', 'https://github.com/solus/solus/issues/7'],
+      [unknown.id, 'linear', 'workspace/FE', 'FE-2', 'https://linear.app/workspace/issue/FE-2'],
+    ]) {
+      await taskStore.database().run(sql`
+        INSERT INTO ${taskExternalLinks}(task_id, provider, external_key, external_id, url)
+        VALUES (${taskId}, ${provider}, ${externalKey}, ${externalId}, ${url})
+      `)
+    }
 
     const listed = (await taskStore.listTasks()).tasks
     expect(listed.map((task) => task.id).sort()).toEqual([known.id, unknown.id].sort())
@@ -492,10 +349,11 @@ describe('session minting and durable links', () => {
     })
     // Simulate a pre-canonical-URL snapshot. Rediscovery must repair the durable
     // edge itself, not only the task's compact capture.
-    db.getDb().prepare(`
-      UPDATE task_links SET url = NULL, title = '#321', origin_session_id = NULL
-      WHERE task_id = ? AND kind = 'pr'
-    `).run(task!.id)
+    await taskStore.database().run(sql`
+      UPDATE ${(await import('@solus/server/tasks/schema')).taskLinks}
+      SET url = NULL, title = '#321', origin_session_id = NULL
+      WHERE task_id = ${task!.id} AND kind = 'pr'
+    `)
     await taskInstance!.linkPullRequest({
       ...pullRequest,
       originSessionId: 'session-with-pr',
@@ -914,7 +772,7 @@ describe('session minting and durable links', () => {
     ])
     // A stored Claude name must not block the snapshot for every task.
     const { readTaskSidebarSnapshot } = await import('@solus/server/tasks/task-sidebar')
-    expect(readTaskSidebarSnapshot().sessionsByTask[task!.id][0].provider).toBe(provider)
+    expect((await readTaskSidebarSnapshot()).sessionsByTask[task!.id][0].provider).toBe(provider)
   })
 
   test('performs no write for any dispatch with an existing provider session', async () => {
@@ -1109,9 +967,10 @@ describe('session minting and durable links', () => {
     await bag.linkSession('bound-session', 'working', {
       originSessionId: 'provider-session',
     })
-    db.getDb().prepare(`
-      UPDATE task_session_links SET linked_at = 1 WHERE task_id = ? AND session_id = ?
-    `).run(task.id, 'bound-session')
+    await taskStore.database().run(sql`
+      UPDATE ${(await import('@solus/server/tasks/schema')).taskSessionLinks}
+      SET linked_at = 1 WHERE task_id = ${task.id} AND session_id = ${'bound-session'}
+    `)
     // An explicit idempotent retry does not create new history or move the row.
     await bag.linkSession('bound-session', 'working', {})
 
@@ -1233,7 +1092,7 @@ describe('one owning task per session', () => {
       expect.objectContaining({ sessionId: 'moving-session', role: 'working' }),
     ])
     expect(links[placeholder!.id]).toBeUndefined()
-    expect(taskStore.loadTaskRecord(placeholder!.id)).toBeNull()
+    expect(await taskStore.loadTaskRecord(placeholder!.id)).toBeNull()
     expect(await taskSessions.tasksForSession('moving-session')).toMatchObject({
       task: { id: existing.id },
     })
@@ -1254,7 +1113,7 @@ describe('one owning task per session', () => {
 
     await (await tasks.Task.byId(existing.id)).linkSession('commented-session', 'working')
 
-    expect(taskStore.loadTaskRecord(placeholder!.id)).not.toBeNull()
+    expect(await taskStore.loadTaskRecord(placeholder!.id)).not.toBeNull()
     expect((await taskSessions.taskSessions())[placeholder!.id]).toBeUndefined()
   })
 
@@ -1268,7 +1127,7 @@ describe('one owning task per session', () => {
     const links = await taskSessions.taskSessions()
     expect(links[first.id]).toBeUndefined()
     expect(links[second.id]).toHaveLength(1)
-    expect(taskStore.loadTaskRecord(first.id)).not.toBeNull()
+    expect(await taskStore.loadTaskRecord(first.id)).not.toBeNull()
     const firstDetails = await (await tasks.Task.byId(first.id)).details()
     expect(firstDetails.events.map((event) => event.kind)).toContain('unlinked')
   })
@@ -1280,7 +1139,9 @@ describe('one owning task per session', () => {
     const owner = await taskStore.createTask({ title: 'Owner' })
     const referrer = await taskStore.createTask({ title: 'Referrer' })
     await (await tasks.Task.byId(owner.id)).linkSession('shared-session', 'working')
-    db.getDb().prepare('UPDATE task_session_links SET linked_at = 1 WHERE task_id = ?').run(owner.id)
+    await taskStore.database().run(sql`
+      UPDATE ${(await import('@solus/server/tasks/schema')).taskSessionLinks} SET linked_at = 1 WHERE task_id = ${owner.id}
+    `)
 
     await (await tasks.Task.byId(referrer.id)).linkSession('shared-session', 'referenced')
 
@@ -1297,37 +1158,4 @@ describe('one owning task per session', () => {
     expect((await tasks.Task.forSession('shared-session'))?.id).toBe(owner.id)
   })
 
-  test('the migration settles existing duplicates the way a live transfer would', async () => {
-    // WHY: rows written before the rule can hold several working links for one
-    // session. On upgrade the newest becomes the owner, an older task of the
-    // user's keeps the relationship as a reference, and the untouched
-    // placeholder that started the duplicate is dropped.
-    const placeholder = await taskSessions.prepareSessionTask({
-      sessionId: 'legacy-session',
-      projectKey: '/workspace/solus',
-      prompt: 'Auto-minted placeholder',
-    })
-    const userTask = await taskStore.createTask({ title: 'Task the user made' })
-    const agentLinked = await taskStore.createTask({ title: 'Task the agent linked' })
-    const database = db.getDb()
-    database.prepare('UPDATE task_session_links SET linked_at = 1 WHERE task_id = ?').run(placeholder!.id)
-    // Written directly: the live write path would transfer, and this reproduces
-    // the state the rule did not yet exist to prevent.
-    const insertWorking = database.prepare(
-      "INSERT INTO task_session_links(task_id, session_id, role, linked_at) VALUES (?, 'legacy-session', 'working', ?)",
-    )
-    insertWorking.run(userTask.id, 2)
-    insertWorking.run(agentLinked.id, 3)
-
-    database.exec(migrations.SINGLE_SESSION_OWNER_MIGRATION)
-
-    const links = await taskSessions.taskSessions()
-    expect(links[agentLinked.id]).toEqual([
-      expect.objectContaining({ sessionId: 'legacy-session', role: 'working' }),
-    ])
-    expect(links[userTask.id]).toEqual([
-      expect.objectContaining({ sessionId: 'legacy-session', role: 'referenced' }),
-    ])
-    expect(taskStore.loadTaskRecord(placeholder!.id)).toBeNull()
-  })
 })

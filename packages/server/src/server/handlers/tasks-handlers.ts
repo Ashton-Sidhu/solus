@@ -14,7 +14,7 @@ import { attachLinkedContent } from '../../tasks/linked-content'
 import { attachArtifactToTask } from '../../tasks/task-artifacts'
 import { prepareSessionTask, rekeyTaskSessionLinks, taskSessions, tasksForSession } from '../../tasks/task-sessions'
 import { markTaskRead, recordTaskActivity } from '../../tasks/task-lifecycle'
-import { getDb } from '../../db'
+import { getDatabase } from '../../db/database'
 import { readTaskSidebarSnapshot } from '../../tasks/task-sidebar'
 import {
   importTaskTickets,
@@ -96,14 +96,14 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
     return syncTasksNow(id)
   })
 
-  server.register('tasksList', (args, ctx) => {
+  server.register('tasksList', async (args, ctx) => {
     const [filter] = args
-    const result = listTasks(filter)
+    const result = await listTasks(filter)
     return { ...result, tasks: visibleTasks(ctx, result.tasks) }
   })
 
-  server.register('tasksSidebarSnapshot', (_args, ctx) => {
-    const snapshot = readTaskSidebarSnapshot()
+  server.register('tasksSidebarSnapshot', async (_args, ctx) => {
+    const snapshot = await readTaskSidebarSnapshot()
     const tasks = visibleTasks(ctx, snapshot.tasks)
     if (tasks.length === snapshot.tasks.length) return snapshot
     const visible = new Set(tasks.map((task) => task.id))
@@ -181,9 +181,9 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
   /** A provider handoff happens on the execution host. For a dispatched run,
    * the task attempt belongs to another host, so the client forwards the stable
    * identity change here instead of leaving the old provider attempt behind. */
-  server.register('tasksRekeySession', (args) => {
+  server.register('tasksRekeySession', async (args) => {
     const [sourceSessionId, targetSessionId] = args
-    rekeyTaskSessionLinks(sourceSessionId, targetSessionId)
+    await rekeyTaskSessionLinks(sourceSessionId, targetSessionId)
   })
 
   server.register('tasksLink', async (args) => {
@@ -198,7 +198,7 @@ export function registerTasksHandlers(server: SolusServer, deps: { shares?: Shar
 
   server.register('tasksLinkedTo', (args) => {
     const [targets] = args
-    return readTasksLinkingTargets(getDb(), targets)
+    return readTasksLinkingTargets(getDatabase(), targets)
   })
 
   server.register('tasksAttachArtifact', (args) => {

@@ -10,7 +10,9 @@ import type {
   TicketPatch,
 } from '@solus/contracts/task-types'
 import { TASKS_AUTH_ERROR_PREFIX } from '@solus/contracts/task-types'
-import { getDb, withTx } from '../db'
+import { sql } from 'drizzle-orm'
+import { getDatabase } from '../db/database'
+import { taskLinks, tasks } from './schema'
 import { createLogger } from '../logger'
 import { loadProjectConfig } from '../project-config/project-config'
 import { pullRequestIsMerged } from '../prs/code-host'
@@ -184,7 +186,7 @@ export class TaskSyncEngine {
   }
 
   async poll(): Promise<TaskExternalLink[]> {
-    const links = listExternalLinks()
+    const links = await listExternalLinks()
     if (!links.length) return []
     const results: TaskExternalLink[] = []
     for (const link of await this.linksDueForPoll(links)) {
@@ -230,7 +232,7 @@ export class TaskSyncEngine {
       for (const link of group) {
         const mustVisit = link.lastSyncedAt == null
           || link.syncState !== 'ok'
-          || hasPendingSync(link.taskId)
+          || await hasPendingSync(link.taskId)
         if (mustVisit || changed.has(link.externalId)) due.push(link)
       }
     }
@@ -279,7 +281,7 @@ export class TaskSyncEngine {
   }
 
   async syncNow(taskId?: string): Promise<TaskExternalLink[]> {
-    const links = listExternalLinks(taskId)
+    const links = await listExternalLinks(taskId)
     const results: TaskExternalLink[] = []
     for (const link of links) {
       const synced = await this.syncTask(link.taskId, { retryAuth: true })
@@ -305,7 +307,7 @@ export class TaskSyncEngine {
     taskId: string,
     options: { retryAuth: boolean },
   ): Promise<TaskExternalLink | null> {
-    const link = externalLinkForTask(taskId)
+    const link = await externalLinkForTask(taskId)
     if (!link) return null
     const now = this.now()
     if (!options.retryAuth && link.syncState === 'auth_error') return link
@@ -325,10 +327,10 @@ export class TaskSyncEngine {
 
       // Comments can arrive without a meaningful issue-field change. Import
       // them on every successful fetch; the external-id index makes this safe.
-      const changedCommentCount = withTx(() => insertExternalComments(getDb(), taskId, external.comments))
+      const changedCommentCount = await getDatabase().transaction((db) => insertExternalComments(db, taskId, external.comments))
 
       let lastTicket = external
-      const currentLink = externalLinkForTask(taskId)!
+      const currentLink = (await externalLinkForTask(taskId))!
       let pushedPatch: TicketPatch = {}
       if (currentLink.dirtyFields.length) {
         const task = (await TaskModel.byId(taskId)).record()
@@ -346,18 +348,18 @@ export class TaskSyncEngine {
         }
       }
 
-      const dirtyComments = dirtyCommentsForTask(taskId)
+      const dirtyComments = await dirtyCommentsForTask(taskId)
       for (const comment of dirtyComments) {
         // Assets go up before the text that references them, and the durable
         // comment keeps its `asset://` reference: only the posted body carries
         // the provider URL.
         const publishedBody = await adapter.publishAssets(refFor(currentLink), comment.body)
         const posted = await adapter.postComment(refFor(currentLink), publishedBody)
-        withTx(() => markCommentSynced(getDb(), comment.id, posted.externalId))
+        await markCommentSynced(getDatabase(), comment.id, posted.externalId)
       }
       const currentTask = (await TaskModel.byId(taskId)).record()
-      withTx(() => acknowledgeExternalPush(
-        getDb(),
+      await getDatabase().transaction((db) => acknowledgeExternalPush(
+        db,
         taskId,
         lastTicket,
         acknowledgedFields(adapter, currentTask, currentLink, pushedPatch),
@@ -371,7 +373,7 @@ export class TaskSyncEngine {
       return externalLinkForTask(taskId)
     } catch (error) {
       const classified = providerError(error)
-      withTx(() => markExternalLinkError(getDb(), taskId, classified.state, classified.message, now))
+      await getDatabase().transaction((db) => markExternalLinkError(db, taskId, classified.state, classified.message, now))
       emitChanged()
       log.warn('task_sync_failed', {
         taskId,
@@ -397,9 +399,9 @@ export class TaskSyncEngine {
       assignee: ticket.assignee ?? null,
       status: reconcileStatus(adapter, ticket.status, task.status),
     }, { actor: 'system' }, { markSyncDirty: false })
-    withTx(() => {
-      insertExternalComments(getDb(), taskId, ticket.comments)
-      updateExternalLinkAfterSync(getDb(), taskId, ticket, this.now())
+    await getDatabase().transaction(async (db) => {
+      await insertExternalComments(db, taskId, ticket.comments)
+      await updateExternalLinkAfterSync(db, taskId, ticket, this.now())
     })
     emitChanged()
   }
@@ -422,7 +424,7 @@ export class TaskSyncEngine {
     const tickets = await target.adapter.fetchTickets(refs)
     const imported: TaskDetails[] = []
     for (const ticket of tickets) {
-      const existing = externalLinkForTicket(ticket)
+      const existing = await externalLinkForTicket(ticket)
       if (existing) {
         imported.push(await (await TaskModel.byId(existing.taskId)).details())
         continue
@@ -438,10 +440,10 @@ export class TaskSyncEngine {
         source: 'import',
       })
       try {
-        withTx(() => writeExternalLink(getDb(), task.id, ticket, this.now()))
+        await getDatabase().transaction((db) => writeExternalLink(db, task.id, ticket, this.now()))
         imported.push(await (await TaskModel.byId(task.id)).details())
       } catch (error) {
-        const winner = externalLinkForTicket(ticket)
+        const winner = await externalLinkForTicket(ticket)
         if (!winner) throw error
         await (await TaskModel.byId(task.id)).delete()
         imported.push(await (await TaskModel.byId(winner.taskId)).details())
@@ -462,7 +464,7 @@ export class TaskSyncEngine {
   }
 
   private async performPublish(taskId: string, cwd: string): Promise<TaskDetails> {
-    const existing = externalLinkForTask(taskId)
+    const existing = await externalLinkForTask(taskId)
     if (existing) return (await TaskModel.byId(taskId)).details()
     const target = await resolveTaskPublishTarget(cwd)
     if (!target) throw new Error('This project has no task publish target.')
@@ -475,7 +477,7 @@ export class TaskSyncEngine {
       priority: task.priority ?? null,
       assignee: task.assignee ?? null,
     })
-    withTx(() => writeExternalLink(getDb(), taskId, ticket, this.now()))
+    await getDatabase().transaction((db) => writeExternalLink(db, taskId, ticket, this.now()))
     emitChanged()
     return (await TaskModel.byId(taskId)).details()
   }
@@ -509,10 +511,6 @@ export function importTaskTickets(cwd: string, externalIds: string[]): Promise<T
 
 export function publishTask(taskId: string, cwd: string): Promise<TaskDetails> {
   return engine.publishTask(taskId, cwd)
-}
-
-export function taskHasPendingSync(taskId: string): boolean {
-  return hasPendingSync(taskId, getDb())
 }
 
 export interface MergedPullRequestCompletion {
@@ -551,25 +549,25 @@ export async function completeTasksForMergedPullRequest(
   const isMerged = completion.isMerged ?? (({ projectScope, number: linked }) =>
     pullRequestIsMerged(projectScope, linked))
   const mergedAtMs = Date.parse(completion.mergedAt)
-  const db = getDb()
-  const rows = z.array(z.object({ id: z.string(), project_key: z.string().nullable(), updated_at: z.number() })).parse(db.prepare(`
+  const db = getDatabase()
+  const rows = z.array(z.object({ id: z.string(), project_key: z.string().nullable(), updated_at: z.number() })).parse(await db.all(sql`
     SELECT DISTINCT tasks.id, tasks.project_key, tasks.updated_at
-    FROM tasks
-    JOIN task_links ON task_links.task_id = tasks.id
+    FROM ${tasks}
+    JOIN ${taskLinks} ON task_links.task_id = tasks.id
     WHERE tasks.status NOT IN ('done', 'dropped')
       AND task_links.kind = 'pr'
-      AND task_links.target_key = ?
-      AND task_links.target_scope = ?
-  `).all(String(number), repositoryScope))
+      AND task_links.target_key = ${String(number)}
+      AND task_links.target_scope = ${repositoryScope}
+  `))
 
   const completed: string[] = []
   for (const row of rows) {
     const config = row.project_key ? await loadProjectConfig(row.project_key) : null
     if (config?.taskDoneOnMerge === false) continue
     if (Number.isFinite(mergedAtMs) && row.updated_at > mergedAtMs) continue
-    const working = (taskSessions(row.id)[row.id] ?? []).filter((link) => link.role === 'working')
+    const working = ((await taskSessions(row.id))[row.id] ?? []).filter((link) => link.role === 'working')
     if (working.some((link) => completion.isSessionBusy(link.sessionId))) continue
-    const others = readTaskLinks(db, row.id).flatMap((link) => {
+    const others = (await readTaskLinks(db, row.id)).flatMap((link) => {
       if (link.kind !== 'pr') return []
       const linkedNumber = Number(link.targetKey)
       if (!Number.isSafeInteger(linkedNumber) || linkedNumber <= 0) return []

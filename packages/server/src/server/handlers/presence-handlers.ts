@@ -14,10 +14,10 @@ export function registerPresenceHandlers(server: SolusServer, deps: {
   onHostChanged: () => void
   onSessionChanged: (sessionId: string) => void
 }): void {
-  server.register('presenceSnapshot', (_args, ctx) => ({
+  server.register('presenceSnapshot', async (_args, ctx) => ({
     clientId: ctx.clientId,
     // A guest is never told about the host: it sees its one session's room, nothing more.
-    host: ctx.principal.kind === 'guest' ? { participants: [] } : deps.presence.hostSnapshot(),
+    host: ctx.principal.kind === 'guest' ? { participants: [] } : await deps.presence.hostSnapshot(),
   }))
 
   server.register('presenceSetFocus', (args, ctx) => {

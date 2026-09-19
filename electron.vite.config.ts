@@ -1,3 +1,4 @@
+import { cpSync } from 'fs'
 import { dirname, resolve } from 'path'
 import { createRequire } from 'module'
 import { defineConfig, loadEnv } from 'electron-vite'
@@ -38,6 +39,16 @@ export default defineConfig(({ mode }) => {
   return {
   main: {
     define: oauthDefines,
+    plugins: [
+      // The generated database migrations are read from disk at boot
+      // (packages/server/src/db/migration-files.ts); they ship beside the bundle.
+      {
+        name: 'solus-copy-db-migrations',
+        closeBundle() {
+          cpSync(resolve(__dirname, 'packages/server/drizzle'), resolve(__dirname, 'dist/main/drizzle'), { recursive: true })
+        },
+      },
+    ],
     resolve: {
       // An array, not an object: the test aliases are `{ find, replacement }`
       // entries, and spreading them into an object keyed them "0" and "1", so

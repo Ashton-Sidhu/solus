@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { resetTestDatabase } from './helpers/test-db'
 
 mock.module('node:sqlite', () => ({ DatabaseSync: Database }))
 
@@ -30,8 +31,8 @@ beforeAll(async () => {
   tasks = await import('@solus/server/tasks/task')
 })
 
-afterEach(() => {
-  db.closeDb()
+afterEach(async () => {
+  await resetTestDatabase()
   for (const suffix of ['', '-wal', '-shm']) rmSync(join(dataDir, `solus.db${suffix}`), { force: true })
 })
 
@@ -73,7 +74,7 @@ describe('task sidebar lifecycle', () => {
 
       expect(active.status).toBe('in_progress')
       expect(active.doneAt).toBeUndefined()
-      expect(taskEvents.readTaskEvents(taskStore.database(), task.id)).toContainEqual(
+      expect(await taskEvents.readTaskEvents(taskStore.database(), task.id)).toContainEqual(
         expect.objectContaining({
           kind: 'status_changed',
           from: status,

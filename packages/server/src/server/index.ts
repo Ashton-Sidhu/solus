@@ -26,6 +26,8 @@ import { SeatConnector } from '../seats/seat-connect'
 import { TurnLedger } from '../sessions/turn-ledger'
 import { eventVisibleTo } from '../sharing/event-audience'
 import { getDb } from '../db'
+import { closeDatabase } from '../db/database'
+import { resolveRoles } from './roles'
 import { hostOperatingSystem } from '../platform/host-operating-system'
 import { hostDisplayName } from '../platform/host-display-name'
 import { getHostConfig, getServerSettings, setRemoteAccess, setTrustLocalNetwork } from './settings'
@@ -233,6 +235,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   let actualPort = port
 
   const server = new SolusServer()
+  server.useRoles(resolveRoles())
   // Ownership and share lists (docs/plans/multiplayer-sharing.md §3.4): the access
   // policy consults them on every resource call, and the event stream is filtered
   // to what each connected principal may see.
@@ -261,7 +264,9 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   // admitted client (the audience filter keeps it from guests); a session's room
   // goes to that session's watchers, who are the room.
   const presence = new PresenceManager({ describeSession: (sessionId) => opts.controlPlane.sessionActivityFor(sessionId) })
-  const publishHostPresence = (): void => { events.broadcast('host.presenceChanged', presence.hostSnapshot()) }
+  const publishHostPresence = (): void => {
+    void presence.hostSnapshot().then((snapshot) => events.broadcast('host.presenceChanged', snapshot))
+  }
   const publishSessionPresence = (sessionId: string): void => {
     const watchers = opts.controlPlane.clientsWatching(sessionId)
     if (!watchers.length) return
@@ -639,7 +644,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     // The newcomer gets the room whether or not it is new: a reconnect has lost
     // its copy. Everyone else hears only about a new face.
     if (joined) publishHostPresence()
-    else events.publish(clientId, 'host.presenceChanged', presence.hostSnapshot())
+    else void presence.hostSnapshot().then((snapshot) => events.publish(clientId, 'host.presenceChanged', snapshot))
     for (const sessionId of opts.controlPlane.sessionsWatchedBy(clientId)) publishSessionPresence(sessionId)
   }
   function handlePresenceDisconnected(clientId: string): void {
@@ -888,6 +893,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
         try { ws.close() } catch (err) { log.warn('ws_close_failed', { error: err instanceof Error ? err.message : String(err) }) }
         await new Promise<void>((resolve) => http.close(() => resolve()))
         await new Promise<void>((resolve) => tunnelHttp.close(() => resolve()))
+        await closeDatabase()
         lock?.release()
       })()
       return shutdownPromise

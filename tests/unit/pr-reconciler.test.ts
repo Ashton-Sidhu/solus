@@ -108,6 +108,8 @@ describe('reconciling pull requests changed outside Solus', () => {
       targetScope: second.projectScope,
       url: 'https://github.com/owner/second-repository/pull/1',
     })
+    // The merges come after the link: a task's last touch must not outrank them.
+    first.host.now = second.host.now = Date.now()
 
     first.host.state = 'merged'
     await first.reconciler.poll()
@@ -191,13 +193,13 @@ describe('reconciling pull requests changed outside Solus', () => {
     // WHY: a pull request nobody's task points at has no Solus surface to go
     // stale, and a task that is done has stopped asking what became of its
     // pull request. This query is what keeps the poll small.
-    const db = await import('@solus/server/db')
+    const { getDatabase } = await import('@solus/server/db/database')
     const links = await import('@solus/server/tasks/task-links')
     const going = await project('watch-list-active', 'in_review')
     const finished = await project('watch-list-finished', 'todo')
     await (await tasks.Task.byId(finished.task.id)).update({ status: 'done' })
 
-    const watched = links.readActivePrLinkTargets(db.getDb())
+    const watched = await links.readActivePrLinkTargets(getDatabase())
 
     expect(watched).toContainEqual({ projectScope: going.projectScope, number: 1 })
     expect(watched).not.toContainEqual({ projectScope: finished.projectScope, number: 1 })
@@ -247,7 +249,7 @@ describe('host memory PR summaries on boot and reload', () => {
 
   test('failed PR reads retain their cooldown across workers and leave a saved summary visible', async () => {
     const fixture = await project('failure-cooldown')
-    const { getDb } = await import('@solus/server/db')
+    const { getDatabase } = await import('@solus/server/db/database')
     const { readTaskPrLinks } = await import('@solus/server/tasks/task-links')
     await fixture.reconciler.poll()
     fixture.host.fail = true
@@ -261,7 +263,7 @@ describe('host memory PR summaries on boot and reload', () => {
     })
     for (let i = 0; i < 3; i++) {
       await restarted.poll()
-      expect(readTaskPrLinks(getDb())[fixture.task.id]?.[0]?.snapshot?.state).toBe('open')
+      expect((await readTaskPrLinks(getDatabase()))[fixture.task.id]?.[0]?.snapshot?.state).toBe('open')
     }
     expect(fixture.host.reads).toBe(2)
     fixture.host.now += 300_001
@@ -313,6 +315,7 @@ test('an older worker response cannot replace a newer explicit PR update', async
 
 test('host branch discovery links local isolated attempts once per repository and branch', async () => {
   const { getDb } = await import('@solus/server/db')
+  const { getDatabase } = await import('@solus/server/db/database')
   const { PrLinkDiscovery } = await import('@solus/server/prs/pr-link-discovery')
   const { readTaskPrLinks } = await import('@solus/server/tasks/task-links')
   const scope = 'github.com/owner/branch-discovery'
@@ -339,7 +342,7 @@ test('host branch discovery links local isolated attempts once per repository an
   await discovery.poll()
   await discovery.poll()
   expect(lists).toBe(1)
-  const links = readTaskPrLinks(getDb())
+  const links = await readTaskPrLinks(getDatabase())
   expect(links[owners[0]!]?.[0]?.number).toBe(4)
   expect(links[owners[1]!]?.[0]?.number).toBe(4)
   expect(links[owners[2]!]).toBeUndefined()
@@ -367,6 +370,7 @@ test('a missing PR is tried once across reloads; explicit reads bypass backgroun
 
 test('branch discovery discards ownership that changed while the provider read was pending', async () => {
   const { getDb } = await import('@solus/server/db')
+  const { getDatabase } = await import('@solus/server/db/database')
   const { PrLinkDiscovery } = await import('@solus/server/prs/pr-link-discovery')
   const { readTaskPrLinks } = await import('@solus/server/tasks/task-links')
   const created = await taskStore.createTask({ title: 'Branch moved', projectKey: 'github.com/owner/moved-branch', status: 'todo' })
@@ -392,7 +396,7 @@ test('branch discovery discards ownership that changed while the provider read w
   getDb().prepare("UPDATE sessions SET branch = 'new' WHERE session_id = 'moved-session'").run()
   release()
   await poll
-  expect(readTaskPrLinks(getDb())[created.id]).toBeUndefined()
+  expect((await readTaskPrLinks(getDatabase()))[created.id]).toBeUndefined()
 })
 
 test('a fresh merged summary from branch discovery completes work without another provider read', async () => {

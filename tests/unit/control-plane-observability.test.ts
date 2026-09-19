@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { execFileSync } from 'node:child_process'
 import { Database } from 'bun:sqlite'
+import { resetTestDatabase } from './helpers/test-db'
 import type { AgentBackend, PermissionResponder, RunHandle } from '@solus/server/agents/agent-backend'
 import type { AgentRunRequest } from '@solus/server/agents/agent-runner'
 import type { AgentMetadata, IpcContext, NormalizedEvent, SessionRunInput, WireNormalizedEvent } from '@solus/contracts/types'
@@ -34,9 +35,11 @@ beforeEach(() => {
   metricsDb.getMetricsDb().prepare("DELETE FROM spans WHERE session_id IN ('solus-queue', 'solus-failed')").run()
 })
 
-afterEach(() => {
+afterEach(async () => {
+  await resetTestDatabase()
+  // Closed right before the files go: an await here would let a run still
+  // finishing reopen the metrics file under the delete.
   metricsDb.closeMetricsDb()
-  db.closeDb()
   for (const file of ['metrics.db', 'metrics.db-wal', 'metrics.db-shm', 'solus.db', 'solus.db-wal', 'solus.db-shm']) {
     rmSync(join(dataDir, file), { force: true })
   }
@@ -627,7 +630,7 @@ describe.serial('ControlPlane observability hooks', () => {
 
     const backend = new Backend()
     backend.onStart = () => {
-      expect(taskSessions.taskSessions(record.id)[record.id] ?? []).toEqual([])
+      void taskSessions.taskSessions(record.id).then((links) => expect(links[record.id] ?? []).toEqual([]))
     }
     const plane = new controlPlaneModule.ControlPlane(new Map([['codex', backend]]))
     plane.on('error', () => {})
@@ -638,7 +641,7 @@ describe.serial('ControlPlane observability hooks', () => {
     })
     expect(await lifecycle.agentSessionId).toMatchObject({ agentSessionId: 'thread-1' })
 
-    expect(taskSessions.taskSessions(record.id)[record.id]).toEqual([
+    expect((await taskSessions.taskSessions(record.id))[record.id]).toEqual([
       expect.objectContaining({ sessionId: 'solus-task' }),
     ])
     expect(await taskSessions.updateGeneratedMetadataForSession(

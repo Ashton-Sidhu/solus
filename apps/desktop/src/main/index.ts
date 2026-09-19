@@ -25,6 +25,7 @@ import { registerBrowserWebviewHost } from './browser/webview-driver'
 import { preserveApplicationReloadShortcut } from './browser/guest-shortcuts'
 import { getInstallationId, issueSessionToken, refreshSessionToken, verifySessionToken } from '@solus/server/server/auth'
 import { closeDb } from '@solus/server/db'
+import { closeDatabase } from '@solus/server/db/database'
 import { startSessionIndexer, stopSessionIndexer } from '@solus/server/db/session-indexer'
 import { createShutdownCoordinator } from '@solus/desktop-main/shutdown-coordinator'
 import { watchLauncher } from '@solus/desktop-main/launcher-watch'
@@ -1066,6 +1067,7 @@ app.on('will-quit', () => {
     sessionIndexerStartTimer = null
   }
   stopSessionIndexer()
+  void closeDatabase()
   closeDb()
   if (powerSaveBlockerId !== null && powerSaveBlocker.isStarted(powerSaveBlockerId)) {
     powerSaveBlocker.stop(powerSaveBlockerId)

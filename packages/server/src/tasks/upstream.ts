@@ -1,6 +1,8 @@
 import { connectedSite } from '../atlassian/api'
 import { createLogger } from '../logger'
-import { getDb } from '../db'
+import { sql } from 'drizzle-orm'
+import { getDatabase } from '../db/database'
+import { upstreamTaskCache } from './schema'
 import { loadProjectConfig, resolveProjectKey } from '../project-config/project-config'
 import { linkedExternalIds } from './task-sync-store'
 import { resolveRepoRef } from '../git/git-helpers'
@@ -45,17 +47,17 @@ function isTaskSyncField(field: string): field is TaskSyncField {
   return TASK_SYNC_FIELDS.includes(field)
 }
 
-function readUpstreamCache(
+async function readUpstreamCache(
   projectKey: string,
   provider: string,
   externalKey: string,
   cacheScope = CACHE_SCOPE,
-): { tasks: Task[]; fetchedAt: number; truncated?: boolean } | null {
-  const parsedRow = upstreamTaskCacheRowSchema.safeParse(getDb().prepare(`
+): Promise<{ tasks: Task[]; fetchedAt: number; truncated?: boolean } | null> {
+  const parsedRow = upstreamTaskCacheRowSchema.safeParse(await getDatabase().get(sql`
     SELECT fetched_at, truncated, tasks
-    FROM upstream_task_cache
-    WHERE project_key = ? AND provider = ? AND external_key = ? AND scope = ?
-  `).get(projectKey, provider, externalKey, cacheScope))
+    FROM ${upstreamTaskCache}
+    WHERE project_key = ${projectKey} AND provider = ${provider} AND external_key = ${externalKey} AND scope = ${cacheScope}
+  `))
   if (!parsedRow.success) return null
   const row: UpstreamTaskCacheRow = parsedRow.data
   try {
@@ -76,30 +78,25 @@ function readUpstreamCache(
   }
 }
 
-function writeUpstreamCache(
+async function writeUpstreamCache(
   projectKey: string,
   provider: string,
   externalKey: string,
   result: { tasks: Task[]; truncated?: boolean },
   fetchedAt: number,
   cacheScope = CACHE_SCOPE,
-): void {
-  getDb().prepare(`
-    INSERT INTO upstream_task_cache(project_key, provider, external_key, scope, fetched_at, truncated, tasks)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+): Promise<void> {
+  await getDatabase().run(sql`
+    INSERT INTO ${upstreamTaskCache}(project_key, provider, external_key, scope, fetched_at, truncated, tasks)
+    VALUES (
+      ${projectKey}, ${provider}, ${externalKey}, ${cacheScope}, ${fetchedAt},
+      ${result.truncated === undefined ? null : result.truncated ? 1 : 0}, ${JSON.stringify(result.tasks)}
+    )
     ON CONFLICT(project_key, provider, external_key, scope) DO UPDATE SET
       fetched_at = excluded.fetched_at,
       truncated = excluded.truncated,
       tasks = excluded.tasks
-  `).run(
-    projectKey,
-    provider,
-    externalKey,
-    cacheScope,
-    fetchedAt,
-    result.truncated === undefined ? null : result.truncated ? 1 : 0,
-    JSON.stringify(result.tasks),
-  )
+  `)
 }
 
 function withProjectKey(task: Task, projectKey: string): Task {
@@ -118,8 +115,8 @@ function withProjectKey(task: Task, projectKey: string): Task {
  * faithful snapshot of the provider and linking a ticket later hides it without
  * needing another fetch.
  */
-function withoutMirroredTickets(tasks: Task[], target: TaskPublishTarget): Task[] {
-  const mirrored = linkedExternalIds(target.adapter.id, target.ref.externalKey)
+async function withoutMirroredTickets(tasks: Task[], target: TaskPublishTarget): Promise<Task[]> {
+  const mirrored = await linkedExternalIds(target.adapter.id, target.ref.externalKey)
   return mirrored.size ? tasks.filter((task) => !mirrored.has(task.id)) : tasks
 }
 
@@ -172,7 +169,7 @@ export async function listUpstreamTasks(
   // the complete one. A failed search reports the failure instead.
   const cached = query
     ? null
-    : readUpstreamCache(projectKey, target.adapter.id, target.ref.externalKey, cacheScope)
+    : await readUpstreamCache(projectKey, target.adapter.id, target.ref.externalKey, cacheScope)
 
   // Match the original task-provider contract: every list read asks the
   // provider for current issues. SQLite is an offline fallback, never the
@@ -184,11 +181,11 @@ export async function listUpstreamTasks(
     })
     const fetchedAt = Date.now()
     if (!query) {
-      writeUpstreamCache(projectKey, target.adapter.id, target.ref.externalKey, result, fetchedAt, cacheScope)
+      await writeUpstreamCache(projectKey, target.adapter.id, target.ref.externalKey, result, fetchedAt, cacheScope)
     }
     return {
       ...result,
-      tasks: withoutMirroredTickets(result.tasks, target).map((task) => withProjectKey(task, cwd)),
+      tasks: (await withoutMirroredTickets(result.tasks, target)).map((task) => withProjectKey(task, cwd)),
       fetchedAt,
     }
   } catch (error) {
@@ -201,7 +198,7 @@ export async function listUpstreamTasks(
       })
       return {
         ...cached,
-        tasks: withoutMirroredTickets(cached.tasks, target).map((task) => withProjectKey(task, cwd)),
+        tasks: (await withoutMirroredTickets(cached.tasks, target)).map((task) => withProjectKey(task, cwd)),
         fromCache: true,
       }
     }

@@ -1,6 +1,8 @@
-import type { DatabaseSync } from 'node:sqlite'
+import { sql } from 'drizzle-orm'
 import { z } from 'zod'
+import type { Db } from '../db/database'
 import { ulid } from './ulid'
+import { taskEvents } from './schema'
 import type { TaskActor, TaskEvent, TaskEventKind, TaskLinkKind } from '@solus/contracts/task-types'
 
 /** Cap on the events returned with a task's details. The activity feed is a
@@ -75,31 +77,22 @@ function eventFromRow(row: TaskEventRow): TaskEvent {
 
 /** Append one event inside the caller's transaction. This never opens its own:
  * an event must commit or roll back with the mutation that caused it. */
-export function appendTaskEvent(
-  db: DatabaseSync,
+export async function appendTaskEvent(
+  db: Db,
   taskId: string,
   event: TaskEventInput,
   now = Date.now(),
-): void {
-  db.prepare(`
-    INSERT INTO task_events(
+): Promise<void> {
+  await db.run(sql`
+    INSERT INTO ${taskEvents}(
       id, task_id, kind, actor, actor_label, from_value, to_value,
       target_kind, target_scope, target_key, target_title, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    ulid(now),
-    taskId,
-    event.kind,
-    event.actor ?? 'user',
-    event.actorLabel ?? null,
-    event.from ?? null,
-    event.to ?? null,
-    event.targetKind ?? null,
-    event.targetScope ?? null,
-    event.targetKey ?? null,
-    event.targetTitle ?? null,
-    now,
-  )
+    ) VALUES (
+      ${ulid(now)}, ${taskId}, ${event.kind}, ${event.actor ?? 'user'}, ${event.actorLabel ?? null},
+      ${event.from ?? null}, ${event.to ?? null}, ${event.targetKind ?? null}, ${event.targetScope ?? null},
+      ${event.targetKey ?? null}, ${event.targetTitle ?? null}, ${now}
+    )
+  `)
 }
 
 /** Label sets compare as sets, so reordering the same labels is not history. */
@@ -130,29 +123,29 @@ const DIFFED_FIELDS: Array<{ column: keyof TaskFieldsForDiff; kind: TaskEventKin
  * `body`, `pr`, `project_key` and the timestamps are
  * deliberately not logged — body edits would flood the feed and the rest is
  * machine bookkeeping nobody asked to see. */
-export function diffTaskEvents(
-  db: DatabaseSync,
+export async function diffTaskEvents(
+  db: Db,
   taskId: string,
   before: TaskFieldsForDiff,
   after: TaskFieldsForDiff,
   actor: EventActor = {},
   now = Date.now(),
-): void {
+): Promise<void> {
   for (const field of DIFFED_FIELDS) {
     const from = field.column === 'labels' ? sortedLabels(before.labels) : before[field.column]
     const to = field.column === 'labels' ? sortedLabels(after.labels) : after[field.column]
     if (from === to) continue
-    appendTaskEvent(db, taskId, { ...actor, kind: field.kind, from, to }, now)
+    await appendTaskEvent(db, taskId, { ...actor, kind: field.kind, from, to }, now)
   }
 }
 
 /** Oldest-first, capped to the newest `TASK_EVENT_LIMIT` entries. */
-export function readTaskEvents(db: DatabaseSync, taskId: string): TaskEvent[] {
-  const rows = z.array(taskEventRowSchema).parse(db.prepare(`
-    SELECT * FROM task_events
-    WHERE task_id = ?
+export async function readTaskEvents(db: Db, taskId: string): Promise<TaskEvent[]> {
+  const rows = z.array(taskEventRowSchema).parse(await db.all(sql`
+    SELECT * FROM ${taskEvents}
+    WHERE task_id = ${taskId}
     ORDER BY created_at DESC, id DESC
-    LIMIT ?
-  `).all(taskId, TASK_EVENT_LIMIT))
+    LIMIT ${TASK_EVENT_LIMIT}
+  `))
   return rows.reverse().map(eventFromRow)
 }

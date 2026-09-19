@@ -7,6 +7,7 @@ import type { ClientEventRegistry } from '../events/client-event-registry'
 import type { BrowserFrameChannel } from '../browser/browser-frame-channel'
 import { consumeWsTicket } from '../server/auth'
 import { RpcAccessError } from '../server/access-policy'
+import { PlaneDisabledError } from '../server/roles'
 import { SeatRequiredError } from '../seats/seat-manager'
 import { principalExpiresAt, principalFor, principalSchema, type AdmissionEvidence, type Principal } from '../server/principal'
 import { createLogger } from '../logger'
@@ -377,6 +378,8 @@ function getCachedResponse(
       }
       // No seat, no turn: the code is what lets the client raise the connect card.
       if (err instanceof SeatRequiredError) return { error: { message: err.message, code: err.code } }
+      // A plane this host does not serve: the client asks the host that does.
+      if (err instanceof PlaneDisabledError) return { error: { message: err.message, code: err.code } }
       return { error: { message: err instanceof Error ? err.message : String(err) } }
     }
   })

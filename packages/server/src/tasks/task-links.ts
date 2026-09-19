@@ -1,8 +1,11 @@
-import type { DatabaseSync } from 'node:sqlite'
+import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import type { PullRequest } from '@solus/contracts/providers'
+import type { Db } from '../db/database'
 import { prIndex } from '../prs/pr-index'
 import { appendTaskEvent, type EventActor } from './task-events'
+import { linkTargetRecordKey, linkTargetRecordsFor } from './host-records'
+import { taskLinks, tasks } from './schema'
 import type {
   TaskLink,
   TaskLinkInput,
@@ -31,14 +34,7 @@ const taskLinkRowSchema = z.object({
   origin_session_id: z.string().nullable(),
   linked_at: z.number(),
   pinned: z.number(),
-  work_title: z.string().nullable(),
-  work_type: z.string().nullable(),
-  automation_title: z.string().nullable(),
-  automation_enabled: z.number().nullable(),
-  plan_title: z.string().nullable(),
-  plan_status: z.string().nullable(),
 })
-const nullableTitleRowSchema = z.object({ title: z.string().nullable() })
 const titleRowSchema = z.object({ title: z.string() })
 const taskPrLinkRowSchema = z.object({
   task_id: z.string(),
@@ -78,50 +74,27 @@ export interface PrLinkTarget {
   number: number
 }
 
-interface LiveTaskLinkFields {
-  liveTitle?: string
-  liveStatus?: string
-}
-
 interface TaskSidebarPrLinks {
   [taskId: string]: TaskSidebarPrLink[]
 }
 
-/** Live title/status per kind. `work`, `plan` and `automation` all live in this
- * database, so a rename shows up immediately; `pr` state is a GitHub round trip
+/** Live title/status per kind. `work`, `plan` and `automation` all live on this
+ * host, so a rename shows up immediately; `pr` state is a GitHub round trip
  * and must not make a task read network-bound, so it stays on the snapshot and
  * the renderer overlays from its own PR store. */
-function liveFields(row: TaskLinkRow): LiveTaskLinkFields {
-  const fields: LiveTaskLinkFields = {}
-  switch (row.kind) {
-    case 'work':
-      if (row.work_title !== null) fields.liveTitle = row.work_title
-      if (row.work_type !== null) fields.liveStatus = row.work_type
-      return fields
-    case 'automation':
-      if (row.automation_title !== null) fields.liveTitle = row.automation_title
-      if (row.automation_enabled !== null) fields.liveStatus = row.automation_enabled === 1 ? 'Active' : 'Paused'
-      return fields
-    case 'plan':
-      if (row.plan_title !== null) fields.liveTitle = row.plan_title
-      if (row.plan_status !== null) fields.liveStatus = row.plan_status
-      return fields
-    default:
-      return fields
-  }
-}
-
-function linkFromRow(row: TaskLinkRow): TaskLink {
+function linkFromRow(row: TaskLinkRow, live: Map<string, { title: string | null; status: string | null }>): TaskLink {
   const link: TaskLink = {
     taskId: row.task_id,
     kind: row.kind,
     targetScope: row.target_scope,
     targetKey: row.target_key,
     title: row.title,
-    ...liveFields(row),
     createdBy: row.created_by,
     linkedAt: row.linked_at,
   }
+  const record = live.get(linkTargetRecordKey({ kind: row.kind, targetScope: row.target_scope, targetKey: row.target_key }))
+  if (record?.title !== null && record?.title !== undefined) link.liveTitle = record.title
+  if (record?.status !== null && record?.status !== undefined) link.liveStatus = record.status
   if (row.url !== null) link.url = row.url
   if (row.origin_session_id !== null) link.originSessionId = row.origin_session_id
   if (row.pinned === 1) link.pinned = true
@@ -130,85 +103,60 @@ function linkFromRow(row: TaskLinkRow): TaskLink {
 
 /** The snapshot label, so a row renders even once its target is gone. Resolved
  * from the target's own table when the caller did not supply one. */
-function snapshotTitle(db: DatabaseSync, input: TaskLinkInput): string {
+function snapshotTitle(input: TaskLinkInput): string {
   const supplied = input.title?.trim()
   if (supplied) return supplied
-  const scope = input.targetScope ?? ''
-  switch (input.kind) {
-    case 'work': {
-      const row = nullableTitleRowSchema.nullish().parse(
-        db.prepare('SELECT title FROM works WHERE id = ?').get(input.targetKey),
-      )
-      return row?.title?.trim() || 'Untitled doc'
-    }
-    case 'automation': {
-      const row = z.object({ name: z.string().nullable() }).nullish().parse(
-        db.prepare('SELECT name FROM automations WHERE id = ?').get(input.targetKey),
-      )
-      return row?.name?.trim() || 'Untitled automation'
-    }
-    case 'plan': {
-      const row = nullableTitleRowSchema.nullish().parse(db.prepare(
-        'SELECT title FROM plan_annotations WHERE session_id = ? AND plan_tool_use_id = ?',
-      ).get(scope, input.targetKey))
-      return row?.title?.trim() || 'Untitled plan'
-    }
-    case 'pr':
-      return `#${input.targetKey}`
-  }
+  const targetScope = input.targetScope ?? ''
+  const fallback = { work: 'Untitled doc', automation: 'Untitled automation', plan: 'Untitled plan' }
+  if (input.kind === 'pr') return `#${input.targetKey}`
+  const target = { kind: input.kind, targetScope: input.kind === 'plan' ? targetScope : '', targetKey: input.targetKey }
+  const record = linkTargetRecordsFor([target]).get(linkTargetRecordKey(target))
+  return record?.title?.trim() || fallback[input.kind]
 }
 
-export function writeTaskLink(
-  db: DatabaseSync,
+export async function writeTaskLink(
+  db: Db,
   taskId: string,
   input: TaskLinkInput,
   actor: EventActor = {},
   now = Date.now(),
-): void {
+): Promise<void> {
   const targetKey = input.targetKey.trim()
   if (!targetKey) throw new Error('A task link needs a target.')
   const targetScope = (input.targetScope ?? '').trim()
-  const title = snapshotTitle(db, { ...input, targetKey, targetScope })
+  const title = snapshotTitle({ ...input, targetKey, targetScope })
 
   // A pin is a choice, and `undefined` is the absence of one: a re-link that
   // knows nothing about pinning must leave the existing pin alone. NULL is how
   // that reaches the COALESCE, so it is never written to the column itself.
   const pinned = input.pinned === undefined ? null : input.pinned ? 1 : 0
 
-  db.prepare(`
-    INSERT INTO task_links(
+  await db.run(sql`
+    INSERT INTO ${taskLinks}(
       task_id, kind, target_scope, target_key, title, url, created_by,
       origin_session_id, linked_at, pinned
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE(?, 0))
+    ) VALUES (
+      ${taskId}, ${input.kind}, ${targetScope}, ${targetKey}, ${title}, ${input.url?.trim() || null},
+      ${input.createdBy ?? actor.actor ?? 'user'}, ${input.originSessionId?.trim() || null}, ${now},
+      COALESCE(${pinned}, 0)
+    )
     ON CONFLICT(task_id, kind, target_scope, target_key) DO UPDATE SET
       title = excluded.title,
       url = COALESCE(excluded.url, task_links.url),
       linked_at = excluded.linked_at,
-      pinned = COALESCE(?, task_links.pinned)
-  `).run(
-    taskId,
-    input.kind,
-    targetScope,
-    targetKey,
-    title,
-    input.url?.trim() || null,
-    input.createdBy ?? actor.actor ?? 'user',
-    input.originSessionId?.trim() || null,
-    now,
-    pinned,
-    pinned,
-  )
+      pinned = COALESCE(${pinned}, task_links.pinned)
+  `)
   // One artifact is open on a task at a time, so pinning one clears the rest in
   // the same transaction rather than leaving two rows claiming the slot.
   if (pinned === 1) {
-    db.prepare(`
-      UPDATE task_links SET pinned = 0
-      WHERE task_id = ? AND pinned = 1
-        AND NOT (kind = ? AND target_scope = ? AND target_key = ?)
-    `).run(taskId, input.kind, targetScope, targetKey)
+    await db.run(sql`
+      UPDATE ${taskLinks} SET pinned = 0
+      WHERE task_id = ${taskId} AND pinned = 1
+        AND NOT (kind = ${input.kind} AND target_scope = ${targetScope} AND target_key = ${targetKey})
+    `)
   }
-  db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(now, taskId)
-  appendTaskEvent(db, taskId, {
+  await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
+  await appendTaskEvent(db, taskId, {
     ...actor,
     kind: 'linked',
     targetKind: input.kind,
@@ -226,53 +174,55 @@ export function writeTaskLink(
  * changed which artifact the page opens with. Returns false when the pin is
  * already where it was asked to be, so the caller can skip the broadcast.
  */
-export function setTaskLinkPin(
-  db: DatabaseSync,
+export async function setTaskLinkPin(
+  db: Db,
   taskId: string,
   target: TaskLinkTarget,
   pinned: boolean,
   now = Date.now(),
-): boolean {
-  const changed = db.prepare(`
-    UPDATE task_links SET pinned = ?
-    WHERE task_id = ? AND kind = ? AND target_scope = ? AND target_key = ? AND pinned <> ?
-  `).run(pinned ? 1 : 0, taskId, target.kind, target.targetScope, target.targetKey, pinned ? 1 : 0)
+): Promise<boolean> {
+  const flag = pinned ? 1 : 0
+  const changed = await db.run(sql`
+    UPDATE ${taskLinks} SET pinned = ${flag}
+    WHERE task_id = ${taskId} AND kind = ${target.kind} AND target_scope = ${target.targetScope}
+      AND target_key = ${target.targetKey} AND pinned <> ${flag}
+  `)
   if (changed.changes === 0) return false
   if (pinned) {
-    db.prepare(`
-      UPDATE task_links SET pinned = 0
-      WHERE task_id = ? AND pinned = 1
-        AND NOT (kind = ? AND target_scope = ? AND target_key = ?)
-    `).run(taskId, target.kind, target.targetScope, target.targetKey)
+    await db.run(sql`
+      UPDATE ${taskLinks} SET pinned = 0
+      WHERE task_id = ${taskId} AND pinned = 1
+        AND NOT (kind = ${target.kind} AND target_scope = ${target.targetScope} AND target_key = ${target.targetKey})
+    `)
   }
-  db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(now, taskId)
+  await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
   return true
 }
 
 /** Returns false when there was nothing to unlink, so the caller can skip the
  * change broadcast on a no-op. */
-export function deleteTaskLink(
-  db: DatabaseSync,
+export async function deleteTaskLink(
+  db: Db,
   taskId: string,
   kind: TaskLinkKind,
   targetKey: string,
   targetScope = '',
   actor: EventActor = {},
   now = Date.now(),
-): boolean {
-  const existing = titleRowSchema.nullish().parse(db.prepare(`
-    SELECT title FROM task_links
-    WHERE task_id = ? AND kind = ? AND target_scope = ? AND target_key = ?
-  `).get(taskId, kind, targetScope, targetKey))
+): Promise<boolean> {
+  const existing = titleRowSchema.nullish().parse(await db.get(sql`
+    SELECT title FROM ${taskLinks}
+    WHERE task_id = ${taskId} AND kind = ${kind} AND target_scope = ${targetScope} AND target_key = ${targetKey}
+  `))
   if (!existing) return false
 
-  db.prepare(`
-    DELETE FROM task_links
-    WHERE task_id = ? AND kind = ? AND target_scope = ? AND target_key = ?
-  `).run(taskId, kind, targetScope, targetKey)
-  db.prepare('UPDATE tasks SET updated_at = ? WHERE id = ?').run(now, taskId)
+  await db.run(sql`
+    DELETE FROM ${taskLinks}
+    WHERE task_id = ${taskId} AND kind = ${kind} AND target_scope = ${targetScope} AND target_key = ${targetKey}
+  `)
+  await db.run(sql`UPDATE ${tasks} SET updated_at = ${now} WHERE id = ${taskId}`)
   // Carries the title so the feed still reads "unlinked <name>" afterwards.
-  appendTaskEvent(db, taskId, {
+  await appendTaskEvent(db, taskId, {
     ...actor,
     kind: 'unlinked',
     targetKind: kind,
@@ -283,29 +233,14 @@ export function deleteTaskLink(
   return true
 }
 
-export function readTaskLinks(db: DatabaseSync, taskId: string): TaskLink[] {
-  const rows = taskLinkRowSchema.array().parse(db.prepare(`
-    SELECT
-      task_links.*,
-      works.title AS work_title,
-      works.type AS work_type,
-      automations.name AS automation_title,
-      automations.enabled AS automation_enabled,
-      plan_annotations.title AS plan_title,
-      plan_annotations.status AS plan_status
-    FROM task_links
-    LEFT JOIN works
-      ON task_links.kind = 'work' AND works.id = task_links.target_key
-    LEFT JOIN automations
-      ON task_links.kind = 'automation' AND automations.id = task_links.target_key
-    LEFT JOIN plan_annotations
-      ON task_links.kind = 'plan'
-     AND plan_annotations.session_id = task_links.target_scope
-     AND plan_annotations.plan_tool_use_id = task_links.target_key
-    WHERE task_links.task_id = ?
-    ORDER BY task_links.linked_at DESC, task_links.kind, task_links.target_key
-  `).all(taskId))
-  return rows.map(linkFromRow)
+export async function readTaskLinks(db: Db, taskId: string): Promise<TaskLink[]> {
+  const rows = taskLinkRowSchema.array().parse(await db.all(sql`
+    SELECT * FROM ${taskLinks}
+    WHERE task_id = ${taskId}
+    ORDER BY linked_at DESC, kind, target_key
+  `))
+  const live = linkTargetRecordsFor(rows.map((row) => ({ kind: row.kind, targetScope: row.target_scope, targetKey: row.target_key })))
+  return rows.map((row) => linkFromRow(row, live))
 }
 
 /**
@@ -318,20 +253,20 @@ export function readTaskLinks(db: DatabaseSync, taskId: string): TaskLink[] {
  * rather than failing the read: a card missing a label is recoverable, a
  * transcript with no labels is not.
  */
-export function readTasksLinkingTargets(db: DatabaseSync, targets: TaskLinkTarget[]): TaskLinkedTask[] {
+export async function readTasksLinkingTargets(db: Db, targets: TaskLinkTarget[]): Promise<TaskLinkedTask[]> {
   const wanted = targets.slice(0, LINKED_TASKS_TARGET_CAP)
   if (!wanted.length) return []
-  const clause = wanted.map(() => '(task_links.kind = ? AND task_links.target_scope = ? AND task_links.target_key = ?)').join(' OR ')
-  const params = wanted.flatMap((target) => [target.kind, target.targetScope, target.targetKey])
-  const rows = linkedTaskRowSchema.array().parse(db.prepare(`
+  const clause = sql.join(wanted.map((target) =>
+    sql`(task_links.kind = ${target.kind} AND task_links.target_scope = ${target.targetScope} AND task_links.target_key = ${target.targetKey})`), sql` OR `)
+  const rows = linkedTaskRowSchema.array().parse(await db.all(sql`
     SELECT
       task_links.task_id, task_links.kind, task_links.target_scope, task_links.target_key,
       tasks.title, tasks.status, tasks.short_id, tasks.project_key
-    FROM task_links
-    JOIN tasks ON tasks.id = task_links.task_id
+    FROM ${taskLinks}
+    JOIN ${tasks} ON tasks.id = task_links.task_id
     WHERE ${clause}
     ORDER BY task_links.linked_at DESC
-  `).all(...params))
+  `))
   return rows.map((row) => {
     const linked: TaskLinkedTask = {
       taskId: row.task_id,
@@ -356,15 +291,15 @@ export function readTasksLinkingTargets(db: DatabaseSync, targets: TaskLinkTarge
  * asking what became of its pull request. Distinct, because several tasks
  * commonly link one pull request and it is one question either way.
  */
-export function readActivePrLinkTargets(db: DatabaseSync): PrLinkTarget[] {
-  const rows = prLinkTargetRowSchema.array().parse(db.prepare(`
+export async function readActivePrLinkTargets(db: Db): Promise<PrLinkTarget[]> {
+  const rows = prLinkTargetRowSchema.array().parse(await db.all(sql`
     SELECT DISTINCT task_links.target_scope, task_links.target_key
-    FROM task_links
-    JOIN tasks ON tasks.id = task_links.task_id
+    FROM ${taskLinks}
+    JOIN ${tasks} ON tasks.id = task_links.task_id
     WHERE task_links.kind = 'pr'
       AND tasks.status NOT IN ('done', 'dropped')
       AND task_links.target_scope <> ''
-  `).all())
+  `))
   const targets: PrLinkTarget[] = []
   for (const row of rows) {
     const number = Number(row.target_key)
@@ -385,13 +320,13 @@ function toTaskPrSnapshot(detail: PullRequest): TaskPrSnapshot {
 
 /** Compact PR edges for the sidebar's cold-start snapshot. Links are newest
  * first. Invalid legacy keys stay out of the renderer contract. */
-export function readTaskPrLinks(db: DatabaseSync): TaskSidebarPrLinks {
-  const rows = taskPrLinkRowSchema.array().parse(db.prepare(`
+export async function readTaskPrLinks(db: Db): Promise<TaskSidebarPrLinks> {
+  const rows = taskPrLinkRowSchema.array().parse(await db.all(sql`
     SELECT task_id, target_scope, target_key, title, url, created_by, origin_session_id
-    FROM task_links
+    FROM ${taskLinks}
     WHERE kind = 'pr'
-    ORDER BY linked_at DESC, task_links.rowid DESC
-  `).all())
+    ORDER BY linked_at DESC, task_id, target_scope, target_key DESC
+  `))
   const links: TaskSidebarPrLinks = {}
   for (const row of rows) {
     const number = Number(row.target_key)
@@ -406,8 +341,8 @@ export function readTaskPrLinks(db: DatabaseSync): TaskSidebarPrLinks {
     if (detail) link.snapshot = toTaskPrSnapshot(detail)
     if (row.url !== null) link.url = row.url
     if (row.origin_session_id !== null) link.originSessionId = row.origin_session_id
-    const taskLinks = links[row.task_id]
-    if (taskLinks) taskLinks.push(link)
+    const taskPrLinks = links[row.task_id]
+    if (taskPrLinks) taskPrLinks.push(link)
     else links[row.task_id] = [link]
   }
   return links

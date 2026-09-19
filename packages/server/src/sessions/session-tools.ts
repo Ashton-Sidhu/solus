@@ -324,7 +324,7 @@ async function taskContextForSession(sessionId: string): Promise<{
   if (!boundTask) return null
   const task = boundTask.record()
   const parent = task.parentId ? (await Task.byId(task.parentId)).record() : null
-  const subtasks = listTaskChildren(parent?.id ?? task.id)
+  const subtasks = await listTaskChildren(parent?.id ?? task.id)
   const siblings = parent ? subtasks.filter((candidate) => candidate.id !== task.id) : []
   const relationship = parent ? `subtask of ${parent.id}` : 'top-level task'
   const details = [`task: ${task.id} [${task.status}] ${task.title} (${relationship})`]

@@ -1,5 +1,5 @@
 import type * as Contracts from '@solus/contracts/providers'
-import { getDb } from '../db'
+import { getDatabase } from '../db/database'
 import { createLogger } from '../logger'
 import { completeTasksForMergedPullRequest } from '../tasks/sync-engine'
 import { emitChanged } from '../tasks/task-store'
@@ -29,7 +29,7 @@ export interface PrReconcilerDeps {
   announce: (projectRoot: string, detail: Contracts.PullRequest) => void
   /** Whether a Solus session is still mid-turn; a task under one is not finished yet. */
   isSessionBusy?: (sessionId: string) => boolean
-  watchList?: () => PrLinkTarget[]
+  watchList?: () => PrLinkTarget[] | Promise<PrLinkTarget[]>
   codeHost?: (projectScope: string) => Promise<CodeHost | null>
   intervalMs?: number
   now?: () => number
@@ -40,7 +40,7 @@ export interface PrReconcilerDeps {
  * What it reads lands in `PrIndex`, where every surface reads it. */
 export class PrReconciler {
   private readonly discovery = new PrLinkDiscovery()
-  private readonly watchList: () => PrLinkTarget[]
+  private readonly watchList: () => PrLinkTarget[] | Promise<PrLinkTarget[]>
   private readonly codeHost: NonNullable<PrReconcilerDeps['codeHost']>
   private readonly isSessionBusy: NonNullable<PrReconcilerDeps['isSessionBusy']>
   private readonly intervalMs: number
@@ -49,7 +49,7 @@ export class PrReconciler {
   private polling: Promise<void> | null = null
 
   constructor(private readonly deps: PrReconcilerDeps) {
-    this.watchList = deps.watchList ?? (() => readActivePrLinkTargets(getDb()))
+    this.watchList = deps.watchList ?? (() => readActivePrLinkTargets(getDatabase()))
     this.codeHost = deps.codeHost ?? codeHostFor
     this.isSessionBusy = deps.isSessionBusy ?? (() => false)
     this.intervalMs = deps.intervalMs ?? POLL_INTERVAL_MS
@@ -82,7 +82,7 @@ export class PrReconciler {
     let changed = false
     const seen = new Set<string>()
     const hosts = new Map<string, CodeHost | null>()
-    for (const { projectScope, number } of this.watchList()) {
+    for (const { projectScope, number } of await this.watchList()) {
       let scope = projectScope
       let key = `${scope}#${number}`
       try {

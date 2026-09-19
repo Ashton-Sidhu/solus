@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Database } from 'bun:sqlite'
+import { sql } from 'drizzle-orm'
+import { resetTestDatabase } from './helpers/test-db'
 import { z } from 'zod'
 import type { ExternalTicketRef } from '@solus/contracts/task-types'
 import type { AtlassianRequest } from '@solus/server/atlassian/api'
@@ -72,14 +74,14 @@ beforeAll(async () => {
   db = await import('@solus/server/db')
 })
 
-beforeEach(() => {
+beforeEach(async () => {
   requests = []
   attachmentCounter = 0
-  db.getDb().exec('DELETE FROM asset_publications')
+  await (await import('@solus/server/db/database')).getDatabase().run(sql`DELETE FROM ${(await import('@solus/server/tasks/schema')).assetPublications}`)
 })
 
-afterEach(() => {
-  db.closeDb()
+afterEach(async () => {
+  await resetTestDatabase()
 })
 
 afterAll(() => {

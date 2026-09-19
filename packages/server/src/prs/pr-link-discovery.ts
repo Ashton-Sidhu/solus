@@ -1,4 +1,4 @@
-import { getDb } from '../db'
+import { getDatabase } from '../db/database'
 import { readTaskPrLinks } from '../tasks/task-links'
 import { listTasks, emitChanged } from '../tasks/task-store'
 import { taskSessions } from '../tasks/task-sessions'
@@ -40,8 +40,8 @@ export class PrLinkDiscovery {
   private async interests(): Promise<Map<string, BranchInterest>> {
     const interests = new Map<string, BranchInterest>()
     const hosts = new Map<string, CodeHost | null>()
-    const sessions = taskSessions()
-    for (const task of listTasks().tasks) {
+    const sessions = await taskSessions()
+    for (const task of (await listTasks()).tasks) {
       if (!task.projectKey || task.status === 'done' || task.status === 'dropped') continue
       const attempts = (sessions[task.id] ?? []).filter((attempt) =>
         attempt.isolatedCheckout && attempt.branch)
@@ -70,8 +70,8 @@ export class PrLinkDiscovery {
     if (!pr) return
     prIndex.pullRequest(host.repo, host.provider, pr.number).seed(pr)
     emitChanged()
-    const links = readTaskPrLinks(getDb())
-    const currentSessions = taskSessions()
+    const links = await readTaskPrLinks(getDatabase())
+    const currentSessions = await taskSessions()
     for (const owner of owners) {
       if (!currentSessions[owner.taskId]?.some((attempt) => attempt.sessionId === owner.sessionId
         && attempt.isolatedCheckout && attempt.branch === branch)) continue
