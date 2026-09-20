@@ -641,3 +641,72 @@ host-admin; and the host owner's own connections, which never enter a vault.
 drain, a poll of a task nobody claimed — uses the host's own credential on a
 host and nothing on the service. A guest's tool calls on a runner are scoped to
 the guest, who has no row; they see no connection rather than the host's.
+
+## 23. P4 — Cloud sharing (2026-09-19)
+
+Public shares now terminate at the workspace service. The account website serves
+`/w/<workId>#<secret>`, `/s/<sessionId>#<secret>`, and `/t/<taskId>#<secret>`.
+The fragment keeps the secret out of the account server's request URL. The client
+requests a short grant from `POST /v1/workspace/guest-grant`, then presents the
+secret only to the service's ticket door. The service resolves the resource and
+organization from its share row. A caller cannot supply the organization.
+
+The old per-host guest-grant endpoint is removed. Personal and managed runners
+refuse guest admission, including guest tickets. They cannot create public share
+links. Local ownership and named access rows/RPCs remain because existing local
+session authorization uses them; this is a narrower removal than the original
+proposal to delete ShareManager wholesale. Public sharing has one cloud path.
+Account-free local use and existing member access are retained.
+
+### Work push
+
+Share on a local work pushes it to its linked organization's workspace before
+opening the dialog. `worksCloudExport`, `worksCloudImport`, and `worksCloudRemove`
+carry an exact snapshot, including comments, previous content and metadata.
+Import is atomic and refuses a conflicting ID or different existing version.
+The source is removed only after the cloud acknowledges the snapshot, and only
+if its fingerprint still matches. A failed removal leaves the local copy and an
+error; it does not silently discard edits. A completed push keeps the global ID.
+Local tasks are not copied by this action: share their cloud-owned counterpart.
+Session sharing requires its mirrored cloud record to exist first.
+
+### Reads and prompts
+
+Guests read cloud works, tasks and mirrored session history with runners stopped.
+Task links retain inherited access to their linked works and sessions. The guest
+shell shows the cloud session record, not a direct runner conversation.
+`session.transcriptChanged` tells mounted readers to reload a bounded history page;
+unchanged message objects stay in place. Reconnect also reloads the cloud copy.
+
+Editor links can send text prompts while the assigned runner is online. The
+service holds a short-lived request until that runner confirms receipt. There is
+no durable cloud prompt queue and no automatic retry. A lost receipt is reported
+as uncertain so the person checks the transcript before resending. The runner's
+existing in-memory queue handles contention. Offline sends are refused.
+
+The service chooses the actor and seat, never the client. Anonymous visitors use
+the link creator's seat; a signed-in link visitor uses the verified account
+subject and their own seat. No usable credential means refusal, with no fallback
+to the runner's login. The runner forces ask mode; the visitor has no execution
+permission RPCs and cannot approve tools through the service.
+
+This live relay is process-local. Deploy one workspace service instance for this
+slice. Shared relay routing is required before scaling it to several instances.
+
+### Verification and remaining manual checks
+
+The Lab's cloud-sharing, cloud-sessions, guest-revoke, share-matrix and task-share
+scenarios exercise the workspace on SQLite and Postgres. Other scenarios retain
+local/managed owner, member, presence, seat and admission coverage. Provider turns
+in the Lab use the mock backend and synthetic credentials.
+
+Focused tests cover organization/resource isolation, viewer refusal, fresh-ticket
+admission, link revocation, correct seat attribution, no accepted offline prompt,
+ID collisions and preservation of comments/previous content on push.
+
+The updated manual test plan covers real account login, real provider turns,
+permissions, desktop Share, phone/laptop cloud links, light/dark layouts and
+keyboard focus. The revised `scripts/lab-guest-proof.ts` is available for an
+explicit browser verification run; it was not run for this change. No deployment
+is part of this implementation. Yjs/live co-editing and binary prompt attachments
+remain outside P4.

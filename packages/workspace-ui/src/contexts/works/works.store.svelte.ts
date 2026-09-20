@@ -476,18 +476,11 @@ export class WorksStore {
     const sourceServerId = this.hostByWorkId.get(workId) ?? serverConnections.defaultServerId()
     if (!sourceServerId) throw new Error('Primary Solus connection has not been registered')
     if (sourceServerId === cloudServerId) throw new Error('This work is already in Solus Cloud')
-    const work = await this.ensureContent(workId, 'move-to-cloud')
-    if (!work) throw new Error(`Work not found: ${workId}`)
-    const moved = await serverConnections.apiFor(cloudServerId).createWork(
-      work.title, work.type, work.content, work.preview, undefined, work.agentProvider, work.cwd, work.id,
-    )
+    const sourceApi = serverConnections.apiFor(sourceServerId)
+    const transfer = await sourceApi.worksCloudExport(workId)
+    const moved = await serverConnections.apiFor(cloudServerId).worksCloudImport(transfer)
+    await sourceApi.worksCloudRemove(workId, transfer.fingerprint)
     this.hostByWorkId.set(moved.id, cloudServerId)
-    try {
-      await serverConnections.apiFor(sourceServerId).deleteWork(workId)
-    } catch (err) {
-      if (!isMissingWorkError(err)) throw err
-    }
-    // The threads and the previous snapshot were the old host's; the cloud copy starts clean.
     this.clearCachedSidecars(workId)
     if (moved.id !== workId) {
       delete this.works[workId]

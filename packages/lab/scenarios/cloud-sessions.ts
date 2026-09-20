@@ -1,3 +1,5 @@
+import { randomBytes } from 'node:crypto'
+import { recordedRuns } from '../src/oracle'
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import type { IpcContext, SessionCtx, SettingsCtx, StatusBarCtx } from '@solus/contracts/types'
@@ -6,7 +8,7 @@ import type { WireSessionLoadMessage } from '@solus/contracts/session-history'
 import { LabClient } from '../src/client'
 import { bootLabHost, type LabHost } from '../src/host'
 import { ORGANIZATION_ID, personaForHost } from '../src/personas'
-import { expectOk, scenario, type ScenarioContext } from '../src/scenario'
+import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
 import { bootWorkspaceService, createLabDatabase, type WorkspaceEngine, type WorkspaceService } from '../src/workspace'
 
 /**
@@ -63,8 +65,8 @@ interface Proof {
   clients: LabClient[]
 }
 
-function cloudClient(proof: Proof, personaId: string): LabClient {
-  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: proof.service.url, issuer: proof.ctx.issuer, hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud' })
+function cloudClient(proof: Proof, personaId: string, shareSecret?: string): LabClient {
+  const client = new LabClient({ persona: personaForHost(personaId, 'managed'), hostUrl: proof.service.url, issuer: proof.ctx.issuer, hostId: WORKSPACE_AUDIENCE, hostKind: 'cloud', shareSecret })
   proof.clients.push(client)
   return client
 }
@@ -146,7 +148,7 @@ async function memberStep(proof: Proof, alice: LabClient, sessionId: string): Pr
 }
 
 async function proveSessions(ctx: ScenarioContext, engine: WorkspaceEngine, databaseUrl?: string): Promise<void> {
-  const service = await bootWorkspaceService({ issuer: ctx.issuer, engine, databaseUrl })
+  const service = await bootWorkspaceService({ issuer: ctx.issuer, engine, databaseUrl, vaultKey: randomBytes(32).toString('base64') })
   ctx.issuer.setWorkspaceRoute(service.url)
   const proof: Proof = { ctx, tag: `[${engine}]`, service, clients: [] }
   let runner: LabHost | null = null
@@ -154,7 +156,31 @@ async function proveSessions(ctx: ScenarioContext, engine: WorkspaceEngine, data
     const started = await streamStep(proof)
     runner = started.runner
     await killStep(proof, runner, started.alice, started.sessionId)
+    const resource = { kind: 'session' as const, id: started.sessionId }
+    const link = await started.alice.rpc('shareSetLink', { resource, role: 'editor' })
+    const guest = cloudClient(proof, 'maya', link!.secret)
+    ctx.check(`${engine}: guest opens session with runner stopped`, (await guest.connect()).ok)
+    ctx.check(`${engine}: guest reads mirrored history`, (await transcriptOn(guest, started.sessionId)).length > 0)
+    await until(() => guest.rpc('sharedSessionAvailable', started.sessionId), (online) => !online, 10_000)
+    try {
+      await guest.rpc('sharedSessionPrompt', { sessionId: started.sessionId, text: 'must not run offline' })
+      ctx.check('offline guest prompt is not accepted', false)
+    } catch (error) {
+      ctx.check('offline guest prompt is not accepted', error instanceof Error && error.message.includes('offline'))
+    }
     runner = await restartStep(proof, runner.dataDir, started.alice, started.sessionId)
+    await started.alice.rpc('seatConnectToken', { provider: 'claude-code', token: 'lab-token-sharer' })
+    ctx.check(`${engine}: guest sees runner return`, await until(() => guest.rpc('sharedSessionAvailable', started.sessionId), (online) => online, 15_000))
+    const sent = await guest.rpc('sharedSessionPrompt', { sessionId: started.sessionId, text: 'P4 guest prompt' })
+    ctx.check(`${engine}: runner acknowledges guest prompt`, sent.accepted)
+    const run = await until(async () => recordedRuns({ ...ctx, host: runner! }).find((item) => item.prompt.includes('P4 guest prompt')), (item) => !!item, 15_000)
+    ctx.check(`${engine}: guest runs on sharer seat`, run?.seat?.userId === 'user-alice')
+    ctx.check(`${engine}: guest uses the vault token`, run?.seat?.envToken === 'lab-token-sharer')
+    const transcript = await until(() => transcriptOn(guest, started.sessionId), (rows) => rows.some((row) => row.content.includes('P4 guest prompt')), 15_000)
+    ctx.check(`${engine}: guest prompt reaches cloud transcript`, transcript.some((row) => row.content.includes('P4 guest prompt')))
+    await started.alice.rpc('shareSetLink', { resource, role: 'viewer' })
+    await expectRefused(ctx, 'downgraded guest cannot prompt', guest.rpc('sharedSessionPrompt', { sessionId: started.sessionId, text: 'must not run as viewer' }))
+
     await memberStep(proof, started.alice, started.sessionId)
   } finally {
     for (const client of proof.clients) client.close()

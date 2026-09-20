@@ -71,6 +71,7 @@ export function registerConnectionsHandlers(server: SolusServer, deps: Connectio
     if (principal.kind === 'guest') {
       // The one thing a guest client needs to know at boot: what it was let in to see.
       answer.displayName = principal.displayName
+      answer.userId = principal.accountUserId
       answer.share = { resource: principal.share.resource, role: principal.share.role }
     }
     return answer

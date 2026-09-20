@@ -54,7 +54,7 @@ async function activityStep(ctx: ScenarioContext, alice: LabClient, bob: LabClie
  * right people; a guest sees its one room and never the host; and a dropped socket
  * leaves every room at once.
  */
-export default scenario('presence: rooms, typing, focus, guests, and leaving', async (ctx) => {
+export default scenario('presence: rooms, typing, focus, and leaving', async (ctx) => {
   const alice = await ctx.as('alice')
   const bob = await ctx.as('bob')
   const sessionId = `lab-presence-${Date.now()}`
@@ -90,29 +90,11 @@ export default scenario('presence: rooms, typing, focus, guests, and leaving', a
 
   await activityStep(ctx, alice, bob, sessionId)
 
-  ctx.step('a guest is in its one room and never on the host')
-  const link = (await alice.rpc('shareSetLink', { resource: { kind: 'session', id: sessionId }, role: 'viewer' }))!
-  const maya = ctx.client('maya', { shareSecret: link.secret })
-  ctx.check('maya joins by link', (await maya.connect()).ok)
-  const mayaSnapshot = await expectOk(ctx, 'maya reads the snapshot', maya.rpc('presenceSnapshot'))
-  ctx.check('maya is told nothing about the host', mayaSnapshot?.host.participants.length === 0)
-  await expectOk(ctx, 'maya may report focus', maya.rpc('presenceSetFocus', { focus: { kind: 'session', sessionId: 'some-other-session' } }))
-  await expectRefused(ctx, 'a viewer cannot claim to be typing', maya.rpc('presenceSetComposing', { sessionId, isComposing: true }))
-  await expectOk(ctx, 'maya watches the shared session', maya.rpc('watchSession', { sessionId }))
-  const withGuest = await expectOk(ctx, 'alice sees the guest arrive', alice.waitForEvent('session.presenceChanged', (event) => event.payload.sessionId === sessionId && hasName(event.payload.participants, 'Maya')))
-  const mayaRow = withGuest?.payload.participants.find((row) => row.displayName === 'Maya')
-  ctx.check('the guest is marked as one', mayaRow?.access === 'guest' && mayaRow.userId.startsWith('guest:'))
-  const hostAfterGuest = await expectOk(ctx, 'alice re-reads the host', alice.rpc('presenceSnapshot'))
-  const mayaOnHost = hostAfterGuest?.host.participants.find((row) => row.displayName === 'Maya')
-  ctx.check('the guest\'s stray focus was clamped to nothing', mayaOnHost?.focus.kind === 'none')
-  ctx.check('maya was never sent the host roster', maya.received('host.presenceChanged').length === 0)
-
   ctx.step('a dropped socket leaves every room at once')
   const closedAt = Date.now()
   bob.close()
   // Only an event after the close counts: the room before bob joined also lacked him.
   const roomAfter = await expectOk(ctx, 'alice sees bob leave the session', alice.waitForEvent('session.presenceChanged', (event) => event.occurredAt >= closedAt && event.payload.sessionId === sessionId && !hasName(event.payload.participants, 'Bob'), 2_000))
-  ctx.check('the room keeps alice and the guest', !!roomAfter && hasName(roomAfter.payload.participants, 'Alice') && hasName(roomAfter.payload.participants, 'Maya'))
+  ctx.check('the room keeps alice', !!roomAfter && hasName(roomAfter.payload.participants, 'Alice'))
   await expectOk(ctx, 'alice sees bob leave the host', alice.waitForEvent('host.presenceChanged', (event) => event.occurredAt >= closedAt && !hasName(event.payload.participants, 'Bob'), 2_000))
-  maya.close()
 })

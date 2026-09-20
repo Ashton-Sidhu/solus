@@ -102,6 +102,8 @@ const resourceRpcRules = {
   setSessionReadState: viewer(sessionIdAt(0)),
   togglePinnedSession: viewer(sessionFieldAt(0, 'sessionId')),
   // Sessions — driving
+  sharedSessionAvailable: viewer(sessionIdAt(0)),
+  sharedSessionPrompt: editor(sessionFieldAt(0, 'sessionId')),
   prompt: editor(ctxAt(0)),
   retry: editor(ctxAt(0)),
   promptSession: editor(sessionIdAt(0)),
@@ -154,6 +156,8 @@ const resourceRpcRules = {
   linkWorkSession: editor(workIdAt(0)),
   duplicateWork: viewer(workIdAt(0)),
   worksExport: viewer(workFieldAt(0)),
+  worksCloudExport: owner(workIdAt(0)),
+  worksCloudRemove: owner(workIdAt(0)),
   refreshWorkGoogleComments: editor(workIdAt(0)),
   sendWorkGoogleComment: editor(workIdAt(0)),
   refreshWorkExternalComments: editor(workIdAt(0)),

@@ -66,3 +66,17 @@ A scenario is `scenario(name, async (ctx) => { ... })` in `scenarios/`; `ctx.as(
 ## Not yet
 
 `lab up`, `lab as <persona> …` (a daemon behind a Unix socket for a fleet of subagents), the mock Codex backend and prompt directives, the browser lane, and the convergence and presence invariants arrive with the phases that need them. The seat scenario uses pasted tokens; the relayed browser login is a real-provider proof done by hand.
+
+### Cloud sharing (P4)
+
+`cloud-sharing` proves work snapshot push, offline work/task reads, cross-organization
+refusal and the absence of a runner guest door. `cloud-sessions` additionally proves
+an offline guest transcript and an online prompt under the sharer's vault seat.
+`share-matrix`, `guest-revoke` and `task-share` now run against the workspace service,
+not the personal/managed host. Set `POSTGRES_ADMIN_URL` to a disposable Postgres
+server to run both workspace engines. `bun scripts/lab.ts run all` is the command.
+
+The optional browser proof is `bun scripts/lab-guest-proof.ts` after `build:test`;
+run it only when browser verification is authorized. It checks `/w/<id>#<secret>`
+on laptop and phone sizes with no runner. Never run `build` while Lab processes
+use the test bundle.

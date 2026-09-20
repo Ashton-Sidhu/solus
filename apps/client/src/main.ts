@@ -4,7 +4,7 @@ import '@solus/workspace-ui/index.css'
 import { TransportDisconnectedError, type ConnectionStatus, type WsTransport } from '@solus/client-core/ws-transport'
 import { createSolusConnection, savedServerTarget, type SolusServerTarget } from '@solus/client-core/server-connection'
 import { guestRouteUrl, loadGuestIdentity, mintGuestGrant, newGuestId, saveGuestIdentity, type GuestIdentity } from '@solus/client-core/guest-link'
-import { parseGuestLinkFragment, type GuestLink } from '@solus/contracts/sharing'
+import { parseCloudShareLink, type GuestLink } from '@solus/contracts/sharing'
 import { workspaceHostId } from '@solus/contracts/uplink'
 import { parsePageRouteFragment, type PageRoute } from './lib/page-routes'
 import { guestBoot } from './lib/guest-boot.svelte'
@@ -298,11 +298,8 @@ async function bootFromCatalog(): Promise<void> {
 }
 
 // ── Guest links ───────────────────────────────────────────────────────────────
-// `#/h/<hostId>/s/<secret>` on the account origin (docs/plans/multiplayer-sharing.md
-// §4.2). The visitor has no account: the origin mints a guest grant for the host,
-// the host admits the grant only with the secret, and the shell opens the one
-// resource the host names. Nothing is saved to the host registry; the hash stays
-// in the address bar so a reload walks the same door.
+// Cloud resource paths keep the secret in the fragment. Only the workspace
+// service resolves it; the account server never receives the secret.
 
 let guestAppImport: Promise<typeof import('./GuestApp.svelte')> | null = null
 
@@ -334,18 +331,18 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
   saveGuestIdentity(identity)
   void loadGuestApp().catch(() => {})
 
-  const first = await mintGuestGrant(location.origin, link.hostId, identity)
+  const first = await mintGuestGrant(location.origin, identity)
   if (!first) {
-    guestBoot.fail('Solus cloud does not know this host, or the link is not complete.')
+    guestBoot.fail('Solus cloud could not open this link. Try again.')
     return
   }
   const url = guestRouteUrl(first.routes, location.origin)
   if (!url) {
-    guestBoot.fail('This host has no route this page can reach.')
+    guestBoot.fail('The cloud workspace has no route this page can reach.')
     return
   }
-  const serverId = `guest:${link.hostId}`
-  const target: SolusServerTarget = { id: serverId, label: 'Shared host', url, sessionToken: '', local: false, routes: first.routes }
+  const serverId = 'guest:workspace'
+  const target: SolusServerTarget = { id: serverId, label: 'Shared cloud resource', url, sessionToken: '', local: false, routes: first.routes }
   // The grant just minted opens the first dial; every later dial mints its own.
   let unspentGrant: string | null = first.grant
   const generation = ++connectionGeneration
@@ -359,7 +356,7 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
           unspentGrant = null
           return grant
         }
-        return (await mintGuestGrant(location.origin, link.hostId, identity))?.grant ?? null
+        return (await mintGuestGrant(location.origin, identity))?.grant ?? null
       },
     },
     onStatusChange: (status: ConnectionStatus, attempt: number) => {
@@ -377,11 +374,12 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
   try {
     const info = await api.connectionsGetServerInfo()
     if (generation !== connectionGeneration) return
-    if (info.principal !== 'guest' || !info.share) {
-      guestBoot.fail('The host did not open this link as a guest link.')
+    if (info.principal !== 'guest' || !info.share || info.share.resource.kind !== link.resource.kind || info.share.resource.id !== link.resource.id) {
+      guestBoot.fail('This link does not match the shared resource.')
       return
     }
     guestBoot.serverId = serverId
+    guestBoot.accountUserId = info.userId ?? null
     guestBoot.share = info.share
     guestBoot.displayName = info.displayName ?? displayName
     const { default: GuestApp } = await loadGuestApp()
@@ -392,7 +390,7 @@ async function connectGuest(link: GuestLink, displayName: string, onShellMounted
   } catch (error) {
     if (generation !== connectionGeneration || guestBoot.revoked) return
     if (error instanceof Error && isStaleBuildError(error)) reportStaleBuild()
-    else guestBoot.fail(error instanceof Error ? error.message : 'The host did not answer')
+    else guestBoot.fail(error instanceof Error ? error.message : 'The cloud workspace did not answer')
   }
 }
 
@@ -478,7 +476,7 @@ async function connectPage(server: SavedServer, route: PageRoute): Promise<void>
 
 const bootPairToken = pairTokenFromLocation(location.href, BASE)
 // Only the account origin serves guest links: a host has no `/v1` to mint a grant at.
-const bootGuestLink = BASE === '/' ? null : parseGuestLinkFragment(location.hash)
+const bootGuestLink = BASE === '/' ? null : parseCloudShareLink(location.pathname, location.hash)
 // Likewise an organization's pages: only the account origin has the directory that names its workspace.
 const bootPageRoute = BASE === '/' ? null : parsePageRouteFragment(location.hash)
 
@@ -486,6 +484,11 @@ if (bootPairToken) {
   void pairFromLocation(bootPairToken)
 } else if (bootGuestLink) {
   void bootGuest(bootGuestLink)
+} else if (BASE !== '/' && /^\/(w|s|t)\//.test(location.pathname)) {
+  void import('./routes/GuestLanding.svelte').then(({ default: GuestLanding }) => {
+    guestBoot.fail('This link is incomplete. Ask the sharer to copy it again.')
+    mount(GuestLanding, { target: root, props: { onContinue: () => {} } })
+  })
 } else if (bootPageRoute) {
   void bootPage(bootPageRoute)
 } else {

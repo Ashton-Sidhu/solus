@@ -1,3 +1,4 @@
+import { isWorkspaceMode } from '../server/workspace-mode'
 import { randomBytes } from 'crypto'
 import type { IncomingMessage, Server as HttpServer } from 'http'
 import type { Duplex } from 'stream'
@@ -160,6 +161,10 @@ export function attachWebSocketTransport(
     const admit = (evidence: AdmissionEvidence): void => {
       const instanceId = auth.clientInstanceId ?? randomBytes(16).toString('hex')
       const principal = principalFor(evidence)
+      if (principal.kind === 'guest' && !isWorkspaceMode()) {
+        next(Object.assign(new Error('unauthorized'), { data: { code: 'UNAUTHORIZED' } }))
+        return
+      }
       const deviceId = principal.kind === 'system' ? null : principal.deviceId
       const data: ClientData = {
         clientId: `ws:${deviceId ?? 'local'}:${instanceId}`,

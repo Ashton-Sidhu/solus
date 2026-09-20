@@ -88,6 +88,8 @@ export const RPC_PLANES = {
   bindRuntimeSession: 'execution',
   listSessions: 'collaboration',
   searchSessions: 'collaboration',
+  sharedSessionAvailable: 'collaboration',
+  sharedSessionPrompt: 'collaboration',
   sessionRecordList: 'collaboration',
   sessionRecordUpsert: 'collaboration',
   loadSession: 'collaboration',
@@ -249,6 +251,9 @@ export const RPC_PLANES = {
   linkWorkSession: 'collaboration',
   // Writes a file on the machine that runs the call.
   worksExport: 'execution',
+  worksCloudExport: 'collaboration',
+  worksCloudImport: 'collaboration',
+  worksCloudRemove: 'collaboration',
   loadWorkAnnotations: 'collaboration',
   applyWorkComment: 'collaboration',
   markWorkCommentRead: 'collaboration',

@@ -1,3 +1,5 @@
+import { isWorkspaceMode } from '../workspace-mode'
+import { exportWorkForCloud, importWorkFromHost, removePushedWork } from '../../folio/works'
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import { readWorkExternalComments, refreshWorkExternalComments, sendWorkExternalComment } from '../../folio/work-comments'
@@ -43,6 +45,7 @@ export function registerFolioHandlers(server: SolusServer, deps: { shares?: Shar
   server.register('createWork', async (args, ctx) => {
     const [title, type, content, preview, sessionId, agentProvider, cwd, id] = args
     const organizationId = organizationOf(ctx.principal)
+    if (id && await loadWork(organizationId, id)) throw new Error('This work already exists. Open its cloud copy instead.')
     const work = await createWork(organizationId, title, type, content, preview, sessionId, agentProvider, cwd, id)
     // The person who made the work owns it (docs/plans/multiplayer-sharing.md §3.4).
     await deps.shares?.claimOwner({ kind: 'work', id: work.id }, ctx.principal)
@@ -67,6 +70,24 @@ export function registerFolioHandlers(server: SolusServer, deps: { shares?: Shar
     const works = await listWorks(organizationOf(ctx.principal))
     // A list never returns an id the caller cannot open (§3.7).
     return deps.shares ? deps.shares.filterVisible(ctx.principal, 'work', works, (work) => work.id) : works
+  })
+
+  server.register('worksCloudExport', (args, ctx) => exportWorkForCloud(organizationOf(ctx.principal), args[0]))
+  server.register('worksCloudImport', async (args, ctx) => {
+    if (!isWorkspaceMode()) throw new Error('A cloud push needs the workspace service.')
+    const organizationId = organizationOf(ctx.principal)
+    const transfer = args[0]
+    if (await loadWork(organizationId, transfer.work.id)) await deps.shares?.assertRole(ctx.principal, { kind: 'work', id: transfer.work.id }, 'owner')
+    const work = await importWorkFromHost(organizationId, transfer)
+    await deps.shares?.claimOwner({ kind: 'work', id: work.id }, ctx.principal)
+    await linkWorkToSessionTasks(organizationId, work)
+    return work
+  })
+  server.register('worksCloudRemove', async (args, ctx) => {
+    if (isWorkspaceMode()) throw new Error('The cloud copy is the work’s home.')
+    const organizationId = organizationOf(ctx.principal)
+    await removePushedWork(organizationId, args[0], args[1])
+    await deps.shares?.forget(organizationId, { kind: 'work', id: args[0] })
   })
 
   server.register('deleteWork', async (args, ctx) => {

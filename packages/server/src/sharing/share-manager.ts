@@ -47,6 +47,7 @@ const SCOPE_ROLE: ShareRole = 'editor'
  */
 
 const grantRowSchema = z.object({
+  organization_id: z.string(),
   resource_kind: z.enum(['session', 'work', 'task']),
   resource_id: z.string(),
   subject_kind: z.enum(['user', 'team', 'organization', 'everyone']),
@@ -96,6 +97,7 @@ export class ShareAccessError extends Error {
 }
 
 export interface ResolvedLinkShare {
+  organizationId: string
   resource: ShareResource
   role: ShareRole
   sharedByUserId: string
@@ -271,6 +273,7 @@ export class ShareManager {
     const organizationId = organizationOf(principal)
     const owner = await this.ownerOf(organizationId, canonical)
     if (owner === principal.userId) return 'owner'
+    // Runner access is host-wide. Resource share lists belong to the workspace service.
     // A session the host has never seen is being started right now: it is the
     // starter's, and the prompt that follows records that.
     if (owner === null && canonical.kind === 'session' && this.deps.sessionExists && !this.deps.sessionExists(canonical.id)) return 'owner'
@@ -512,6 +515,7 @@ export class ShareManager {
     `))
     if (!row) return null
     return {
+      organizationId: row.organization_id,
       resource: { kind: row.resource_kind, id: row.resource_id },
       role: row.role,
       sharedByUserId: row.granted_by_user_id,

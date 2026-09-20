@@ -1,4 +1,6 @@
-import { randomUUID } from 'node:crypto'
+import type { WorkTransfer } from '@solus/contracts/work-transfer'
+import { loadWorkAnnotations } from './work-annotations'
+import { createHash, randomUUID } from 'node:crypto'
 import { sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { createLogger } from '../logger'
@@ -120,19 +122,6 @@ async function insertWork(db: Db, organizationId: string, id: string, meta: Work
       ${meta.agentProvider}, ${meta.cwd}, ${meta.pinned === undefined ? null : meta.pinned ? 1 : 0},
       ${content}, ${epochMs(meta.createdAt)}, ${epochMs(meta.updatedAt)}, ${metaJson(meta)}, ${organizationId}
     )
-    ON CONFLICT(id) DO UPDATE SET
-      title = excluded.title,
-      preview = excluded.preview,
-      type = excluded.type,
-      session_id = excluded.session_id,
-      agent_provider = excluded.agent_provider,
-      cwd = excluded.cwd,
-      pinned = excluded.pinned,
-      content = excluded.content,
-      created_at = excluded.created_at,
-      updated_at = excluded.updated_at,
-      meta = excluded.meta,
-      organization_id = excluded.organization_id
   `)
 }
 
@@ -415,4 +404,48 @@ export function workExportExtension(type: WorkType): 'md' | 'json' | 'html' {
     case 'slides':
       return 'json'
   }
+}
+
+/** Capture all state shown in a work, in the same database transaction. */
+export async function exportWorkForCloud(organizationId: string, id: string): Promise<WorkTransfer> {
+  return database().transaction(async (db) => {
+    const row = await requireWorkRow(db, organizationId, id)
+    const snapshot = {
+      work: { id, content: row.content ?? '', ...metaFromRow(row) },
+      annotations: await loadWorkAnnotations(organizationId, id),
+      previous: await loadWorkPrevious(organizationId, id),
+    }
+    return { ...snapshot, fingerprint: transferFingerprint(snapshot) }
+  })
+}
+
+function transferFingerprint(snapshot: Omit<WorkTransfer, 'fingerprint'>): string {
+  return createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
+}
+
+/** An import is atomic. An existing different work is never overwritten. */
+export async function importWorkFromHost(organizationId: string, transfer: WorkTransfer): Promise<Work> {
+  const { work, annotations, previous, fingerprint } = transfer
+  if (fingerprint !== transferFingerprint({ work, annotations, previous })) throw new Error('The work snapshot is incomplete.')
+  if (annotations && annotations.workId !== work.id) throw new Error('The comments belong to another work.')
+  return database().transaction(async (db) => {
+    const existing = await workRow(db, organizationId, work.id)
+    if (existing) {
+      if ((await exportWorkForCloud(organizationId, work.id)).fingerprint !== fingerprint) throw new Error('The cloud already has a different version. Open it before sharing.')
+      return work
+    }
+    await insertWork(db, organizationId, work.id, work, work.content)
+    if (annotations) await db.run(sql`INSERT INTO ${workAnnotations} (work_id, data, updated_at, organization_id) VALUES (${work.id}, ${JSON.stringify(annotations)}, ${annotations.updatedAt}, ${organizationId})`)
+    if (previous) await insertRevision(db, organizationId, work.id, previous.content, previous.updatedAt)
+    return work
+  })
+}
+
+/** A successful cloud write does not authorize deleting newer local edits. */
+export async function removePushedWork(organizationId: string, id: string, fingerprint: string): Promise<void> {
+  await database().transaction(async () => {
+    const snapshot = await exportWorkForCloud(organizationId, id)
+    if (snapshot.fingerprint !== fingerprint) throw new Error('The work changed during the cloud push. Its local copy was kept.')
+    await deleteWork(organizationId, id)
+  })
 }

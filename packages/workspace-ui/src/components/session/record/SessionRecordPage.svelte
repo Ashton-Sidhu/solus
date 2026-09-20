@@ -1,9 +1,8 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import type { Snippet } from "svelte";
+  import { SessionRecordStore } from "../../../contexts/sessions/session-record.store.svelte";
   import { CloudOff as CloudOffIcon, MessageSquare as MessageSquareIcon, Send as SendIcon } from "@lucide/svelte";
-  import type { Message, SessionMeta } from "@solus/contracts/types";
-  import { readSessionMeta } from "@solus/client-core/session-meta";
-  import { getClientShellContext, getWorkspaceContext, loadSessionRecordTranscript, serversStore } from "../../../contexts";
+  import { getClientShellContext, getWorkspaceContext, serversStore } from "../../../contexts";
   import type { RouteSurfaceProps } from "../../ui/lib/pane-surface";
   import { paneActions } from "../../ui/lib/pane-actions.svelte";
   import PaneChrome from "../../ui/PaneChrome.svelte";
@@ -21,56 +20,23 @@
    * a prompt goes to the runner that holds the session, so it can be sent
    * once that runner is back. The chip and the composer say so.
    */
-  let { params, paneId }: RouteSurfaceProps<"sessionRecord"> = $props();
+  let { params, paneId, composer }: RouteSurfaceProps<"sessionRecord"> & { composer?: Snippet } = $props();
 
   const workspace = getWorkspaceContext();
   const shell = getClientShellContext();
   const pane = paneActions(() => paneId);
 
-  let meta = $state<SessionMeta | null>(null);
-  let loadError = $state<string | null>(null);
-  let loading = $state(true);
-  let messages = $state<Message[] | null>(null);
-  let transcriptError = $state<string | null>(null);
-  let scrollEl = $state<HTMLDivElement | null>(null);
-
+  let record = $state<SessionRecordStore | null>(null);
   $effect(() => {
-    const { serverId, sessionId } = params;
-    let active = true;
-    loading = true;
-    loadError = null;
-    messages = null;
-    transcriptError = null;
-    void readSessionMeta(serverId, sessionId).then(
-      async (loaded) => {
-        if (!active) return;
-        meta = loaded;
-        loading = false;
-        if (!loaded) {
-          loadError = "The workspace has no record of this session.";
-          return;
-        }
-        try {
-          const transcript = await loadSessionRecordTranscript(workspace, serverId, loaded);
-          if (!active) return;
-          messages = transcript;
-          await tick();
-          scrollEl?.scrollTo({ top: scrollEl.scrollHeight });
-        } catch (error) {
-          if (!active) return;
-          transcriptError = error instanceof Error ? error.message : String(error);
-        }
-      },
-      (error) => {
-        if (!active) return;
-        loading = false;
-        loadError = error instanceof Error ? error.message : String(error);
-      },
-    );
-    return () => {
-      active = false;
-    };
+    const current = new SessionRecordStore(workspace, params.serverId, params.sessionId);
+    record = current;
+    return () => current.dispose();
   });
+  const meta = $derived(record?.meta ?? null);
+  const messages = $derived(record?.messages ?? null);
+  const loading = $derived(record?.loading ?? true);
+  const loadError = $derived(record?.error ?? null);
+  const transcriptError = $derived(record?.transcriptError ?? null);
 
   const header = $derived(meta ? sessionRecordHeader(meta) : null);
   const home = $derived(serversStore.hostFor(params.serverId));
@@ -90,13 +56,13 @@
       <Skeleton class="h-3.5 w-40" />
       <span class="flex-1"></span>
     {/if}
-    <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2 text-[0.875em] text-(--solus-text-tertiary)" title={RUNNER_OFFLINE_REASON} data-testid="session-record-state">
+    <span class="inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border border-(--solus-container-border) px-2 text-[0.875em] text-(--solus-text-tertiary)" title={composer ? "Saved transcript from Solus cloud" : RUNNER_OFFLINE_REASON} data-testid="session-record-state">
       <CloudOffIcon size={12} />
-      Runner offline
+      {composer ? "Cloud transcript" : "Runner offline"}
     </span>
   </header>
 
-  <div bind:this={scrollEl} class="min-h-0 flex-1 overflow-y-auto">
+  <div class="min-h-0 flex-1 overflow-y-auto">
     <div class="mx-auto flex w-full max-w-(--solus-reading-max) flex-col gap-4 px-6 pt-8 pb-4">
       {#if loading}
         <div class="flex flex-col gap-3" role="status" aria-busy="true">
@@ -138,17 +104,22 @@
     </div>
   </div>
 
+  {#if composer}
+    {@render composer()}
+  {:else}
   <!-- The composer, present and inert: the reverse state of a prompt is a bar
        that says why it takes none, and when it will again. -->
   <div class="px-4 pt-2.5 pb-[max(0.625rem,env(safe-area-inset-bottom,0px))]" data-testid="session-record-composer">
     <p class="mx-auto max-w-(--solus-reading-max) pb-1.5 text-[0.875em] text-(--solus-text-tertiary)" data-testid="session-record-composer-note">A prompt can be sent once the runner is back.</p>
     <div class="mx-auto flex max-w-(--solus-reading-max) items-center gap-3 rounded-2xl border border-(--solus-container-border) bg-(--solus-container-bg) px-4 py-3 text-(--solus-text-tertiary)" aria-disabled="true">
       <span class="min-w-0 flex-1 truncate">{RUNNER_OFFLINE_REASON}</span>
-      <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={RUNNER_OFFLINE_REASON}>
+      <Button size="icon-sm" variant="ghost" disabled aria-label="Send" title={composer ? "Saved transcript from Solus cloud" : RUNNER_OFFLINE_REASON}>
         <SendIcon size={14} />
       </Button>
     </div>
   </div>
+
+  {/if}
 
   {#if shell.canOpenResource("workspace") && paneId}
     <PaneChrome onClose={close} isLeading={pane.isLeading} closeLabel="Close session record" />

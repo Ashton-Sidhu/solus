@@ -75,6 +75,7 @@
     onRequestPrevious?: (() => void) | null;
     onRequestNext?: (() => void) | null;
     onOpenRoute?: () => void;
+    onOpenSession?: (sessionId: string) => void;
   }
 
   let {
@@ -86,6 +87,7 @@
     onRequestPrevious,
     onRequestNext,
     onOpenRoute,
+    onOpenSession,
   }: Props = $props();
 
   const session = getWorkspaceContext();
@@ -518,6 +520,7 @@
   }
 
   async function openSession(sessionId: string) {
+    if (onOpenSession) { onOpenSession(sessionId); return; }
     try {
       const tabId = await reveal(sessionId, false);
       if (!tabId) return notifySessionUnavailable();

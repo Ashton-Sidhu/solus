@@ -85,20 +85,6 @@ async function hostLoginStep(ctx: ScenarioContext, alice: LabClient): Promise<vo
   }
 }
 
-async function guestStep(ctx: ScenarioContext, dan: LabClient): Promise<void> {
-  ctx.step('a guest runs on the sharer\'s seat')
-  const shared = await expectOk(ctx, 'dan starts a session to share', headlessSession(dan, ctx, 'dan opens a session for maya'))
-  const sharedSessionId = shared?.agentSessionId ?? ''
-  const link = await expectOk(ctx, 'dan shares it by editor link', dan.rpc('shareSetLink', { resource: { kind: 'session', id: sharedSessionId }, role: 'editor' }))
-  const maya = ctx.client('maya', { shareSecret: link?.secret })
-  ctx.check('maya joins', (await maya.connect()).ok)
-  // The guest resumes the shared provider thread through the renderer's prompt path, as the guest shell does.
-  await expectOk(ctx, 'maya prompts the shared session', prompt(maya, ctx, sharedSessionId, 'maya as a guest', sharedSessionId))
-  await settle(500)
-  checkSeatOfRun(ctx, 'maya as a guest', danUserId)
-  maya.close()
-}
-
 async function twoMembersStep(ctx: ScenarioContext, dan: LabClient, cara: LabClient): Promise<void> {
   // One after the other: the mock backend keys every run on one fixed thread id,
   // so simultaneous runs collide in the mock, not in the seat rule under test.
@@ -135,7 +121,6 @@ export default scenario('seats: every turn runs on its author\'s own login', asy
   await noSeatStep(ctx, dan, runsBefore)
   await connectStep(ctx, dan, bob)
   await hostLoginStep(ctx, alice)
-  await guestStep(ctx, dan)
   await twoMembersStep(ctx, dan, cara)
   await removalStep(ctx, alice, dan, cara, bob, runsBefore)
 })

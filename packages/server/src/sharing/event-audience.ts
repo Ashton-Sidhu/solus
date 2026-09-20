@@ -47,6 +47,7 @@ export function eventResource(event: HostEvent): ShareResource | null {
     case 'session.errorReceived':
     case 'session.titleChanged':
     case 'session.readStateChanged':
+    case 'session.transcriptChanged':
     case 'session.statusChanged':
     case 'session.presenceChanged':
       return { kind: 'session', id: event.payload.sessionId }

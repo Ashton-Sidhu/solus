@@ -1,3 +1,5 @@
+import { workspaceHostId } from '@solus/contracts/uplink'
+import type { WorksStore } from '../works/works.store.svelte'
 import { SvelteMap } from 'svelte/reactivity'
 import type { ConnectionsServerInfo } from '@solus/contracts/host-api'
 import type { OrganizationDirectory } from '@solus/contracts/uplink'
@@ -37,6 +39,7 @@ function listKey(serverId: string, resource: ShareResource): string {
 }
 
 class SharesStore {
+  works: WorksStore | null = null
   readonly lists = new SvelteMap<string, ShareList>()
   readonly identities = new SvelteMap<string, HostIdentity>()
   readonly directories = new SvelteMap<string, OrganizationDirectory | null>()
@@ -170,10 +173,29 @@ class SharesStore {
   }
 
   open(target: ShareDialogTarget): void {
-    this.dialog = target
-    void this.load(target.serverId, target.resource, { force: true })
-    void this.reloadDirectory(target.serverId)
-    void uplinkStore.refresh(target.serverId)
+    if (this.busy) return
+    this.busy = true
+    void this.openCloud(target).catch((error) => toasts.error(error instanceof Error ? error.message : 'Could not open cloud sharing')).finally(() => { this.busy = false })
+  }
+
+  private async openCloud(target: ShareDialogTarget): Promise<void> {
+    await serversStore.refreshDirectory()
+    const saved = loadServers().find((server) => server.id === target.serverId)
+    let cloudServerId = target.serverId
+    if (saved?.uplink?.kind !== 'cloud') {
+      const identity = await this.identityFor(target.serverId)
+      if (!identity.organizationId) throw new Error('Sign in and connect this host to an organization before sharing.')
+      cloudServerId = workspaceHostId(identity.organizationId)
+      if (target.resource.kind === 'work') {
+        if (!this.works) throw new Error('The workspace is still loading.')
+        this.works.rememberHost(target.resource.id, target.serverId)
+        await this.works.moveToCloud(target.resource.id, cloudServerId)
+      }
+    }
+    const list = await this.load(cloudServerId, target.resource, { force: true })
+    if (!list) throw new Error('This resource has not reached Solus cloud yet. Open its cloud copy before sharing.')
+    this.dialog = { ...target, serverId: cloudServerId }
+    await this.reloadDirectory(cloudServerId)
   }
 
   /**

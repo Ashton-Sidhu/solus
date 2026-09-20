@@ -68,12 +68,12 @@ describes; the tag in `fly.toml` must name that push):
 fly apps create solus-workspace
 fly postgres create --name solus-workspace-db   # or any Postgres; only DATABASE_URL matters
 fly secrets set --app solus-workspace DATABASE_URL=… SOLUS_CLOUD_ISSUER=… SOLUS_CLOUD_JWKS_URL=…
-fly deploy --config packaging/workspace-service/fly.toml --ha
-fly scale count 2 --app solus-workspace
+fly deploy --config packaging/workspace-service/fly.toml --ha=false
+fly scale count 1 --app solus-workspace
 ```
 
-`fly deploy` rolls the two machines one at a time; the health check on `/health`
-(which answers `requireAuth: true` here) gates each. A new release is a new image
+`fly deploy` replaces the single machine; this briefly interrupts connections.
+The health check on `/health` (which answers `requireAuth: true` here) gates it. A new release is a new image
 tag in `fly.toml` and another `fly deploy`; nothing on a machine survives it and
 nothing needs to.
 
@@ -114,3 +114,17 @@ grant's own:
 - `/runner/session-records` — `{ hostId, reports: [{ seq, record }] }` → `{ lastSeq }`
 
 `packages/server/src/server/uplink/runner-protocol.ts` is the schema of both.
+
+### P4 public sharing
+
+Deploy the account Worker and the workspace service together. The Worker must have
+`WORKSPACE_SERVICE_URL`; `/w/:id`, `/s/:id`, and `/t/:id` serve the client bundle.
+`/v1/workspace/guest-grant` replaces the per-host guest-grant endpoint. Old host links
+must be recreated in the cloud. Runners must also use the updated image to receive
+live shared-session prompts.
+
+Run **one workspace service instance** while using the P4 process-local prompt
+relay. A stopped runner remains readable through mirrored history but accepts no
+prompt. The relay does not retry an uncertain receipt or retain prompts across
+service restarts. Prompts are text-only. Local ownership/access tables are still
+used by the signed-out host; they are not a public guest-sharing backend.

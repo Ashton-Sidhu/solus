@@ -51,6 +51,8 @@ export type Principal =
     }
   | {
       kind: 'guest'
+      accountUserId?: string
+      organizationId?: string
       guestId: string
       displayName: string
       /** The guestId: what the transport keys the client on. */
@@ -104,6 +106,8 @@ export const principalSchema: z.ZodType<Principal> = z.discriminatedUnion('kind'
   }),
   z.object({
     kind: z.literal('guest'),
+    accountUserId: z.string().min(1).optional(),
+    organizationId: z.string().min(1).optional(),
     guestId: z.string(),
     displayName: z.string(),
     deviceId: z.string(),
@@ -163,9 +167,11 @@ export function principalFor(evidence: AdmissionEvidence): Principal {
   if (ticket.kind === 'guest') {
     return {
       kind: 'guest',
+      accountUserId: ticket.accountUserId,
+      organizationId: ticket.organizationId,
       guestId: ticket.guestId,
       displayName: ticket.displayName,
-      deviceId: ticket.guestId,
+      deviceId: ticket.accountSessionId ?? ticket.guestId,
       share: ticket.share,
       expiresAt: ticket.expiresAt,
       deviceLabel: GUEST_DEVICE_LABEL,
@@ -284,6 +290,7 @@ export const LOCAL_ORGANIZATION_ID = 'local'
  * runner writes to the organization its grant names, and only there.
  */
 export function organizationOf(principal: Principal): string {
+  if (principal.kind === 'guest') return principal.organizationId ?? LOCAL_ORGANIZATION_ID
   if (principal.kind === 'runner') return principal.organizationId
   if (principal.kind !== 'org-member') return LOCAL_ORGANIZATION_ID
   if (principal.hostKind === 'personal' || principal.hostKind === 'managed') return LOCAL_ORGANIZATION_ID

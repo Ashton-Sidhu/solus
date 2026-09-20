@@ -46,6 +46,7 @@ export interface HostEventMap {
   'session.readStateChanged': { sessionId: string; viewedAt: number | null }
   /** `agentSessionId` is a correlation attribute, not a second address: the
    *  picker and agent-conversation cards hold only a provider thread id. */
+  'session.transcriptChanged': { sessionId: string }
   'session.statusChanged': { sessionId: string; agentSessionId: string | null; status: SessionStatus; at: number }
   'setup.statusChanged': SetupStatusEvent
   'setup.logAppended': SetupLogEvent
@@ -129,6 +130,7 @@ export const HOST_EVENT_DEFINITIONS = {
   'session.scanProgressed': { owner: 'sessions', category: 'targeted', recovery: 'reset', description: 'A requested session scan produced progress.' },
   'session.indexChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session index changed.' },
   'session.titleChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A persisted session title changed.' },
+  'session.transcriptChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'The cloud transcript changed.' },
   'session.statusChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A provider session changed live status.' },
   'session.readStateChanged': { owner: 'sessions', category: 'delta', recovery: 'reload', description: 'A session was read or returned to unread on some client.' },
   'setup.statusChanged': { owner: 'setup', category: 'targeted', recovery: 'reset', description: 'A host setup step changed status.' },

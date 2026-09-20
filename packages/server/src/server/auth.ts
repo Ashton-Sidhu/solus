@@ -272,6 +272,9 @@ export interface GrantWsTicket {
 /** A ticket for a visitor who presented a guest grant and a share secret: one resource, one role. */
 export interface GuestWsTicket {
   kind: 'guest'
+  accountUserId?: string
+  accountSessionId?: string
+  organizationId?: string
   guestId: string
   displayName: string
   share: {
@@ -329,6 +332,9 @@ const wsTicketPayloadSchema = z.discriminatedUnion('kind', [
   }).strict(),
   z.object({
     kind: z.literal('guest'),
+    accountUserId: z.string().min(1).optional(),
+    accountSessionId: z.string().min(1).optional(),
+    organizationId: z.string().min(1).optional(),
     guestId: z.string().min(1),
     displayName: z.string().min(1),
     share: z.object({

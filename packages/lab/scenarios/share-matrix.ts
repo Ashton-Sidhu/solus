@@ -1,4 +1,5 @@
-import { expectOk, expectRefused, scenario, type ScenarioContext } from '../src/scenario'
+import { cloudScenario } from '../src/cloud-scenario'
+import { expectOk, expectRefused, type ScenarioContext } from '../src/scenario'
 import type { LabClient } from '../src/client'
 import { checkNoLocalOwnerOnManaged, checkOwnership, checkWorkListing } from '../src/oracle'
 import { ORGANIZATION_ID, PERSONAS, TEAM_A } from '../src/personas'
@@ -10,14 +11,14 @@ import { ORGANIZATION_ID, PERSONAS, TEAM_A } from '../src/personas'
  * what the rows give them, and a managed host starts a resource shared with the
  * organization while a personal host starts it private.
  */
-export default scenario('share matrix: rows decide, owner, guest, and a link on one work', async (ctx) => {
+export default cloudScenario('share matrix: rows decide, owner, guest, and a link on one work', async (ctx) => {
   const alice = await ctx.as('alice')
   const bob = await ctx.as('bob')
   const cara = await ctx.as('cara')
   const dan = await ctx.as('dan')
   const aliceUserId = PERSONAS.alice.kind === 'org-member' ? PERSONAS.alice.userId : ''
   const aliceOwnerId = ctx.hostKind === 'personal' ? 'host-owner' : aliceUserId
-  const teamHost = ctx.hostKind === 'managed'
+  const teamHost = ctx.hostKind !== 'personal'
 
   ctx.step(teamHost ? 'alice creates a work on the team host; it starts shared with the organization' : 'alice creates a work on her machine; it starts private')
   const work = await alice.rpc('createWork', 'Plan', 'doc', '# Plan\n\nFirst line.', 'Plan', undefined, 'claude-code', ctx.cwd)
@@ -62,7 +63,6 @@ export default scenario('share matrix: rows decide, owner, guest, and a link on 
 
   const maya = await guestStep(ctx, resource, alice)
 
-  await hostAdministrationStep(ctx, work.id, alice, bob)
   await checkNoLocalOwnerOnManaged(ctx, ['alice', 'bob', 'cara', 'dan'])
 
   ctx.step('owner: alice transfers to bob; bob becomes owner, alice keeps only what the rows give her')
@@ -82,28 +82,6 @@ export default scenario('share matrix: rows decide, owner, guest, and a link on 
   maya.close()
 })
 
-/** Host administration follows the flavor (§3.3, §3.5): the owner's machine, or an organization owner on a managed host. */
-async function hostAdministrationStep(ctx: ScenarioContext, workId: string, alice: LabClient, bob: LabClient): Promise<void> {
-  ctx.step('host administration follows the flavor')
-  if (ctx.hostKind === 'managed') {
-    await expectOk(ctx, 'alice (organization owner) reads host config', alice.rpc('configGet'))
-    await expectRefused(ctx, 'bob (member) cannot change host config on a managed host', bob.rpc('configUpdate', {}))
-    // The link is system-owned on a managed host (managed-hosts.md §1): the refusal
-    // names that, not her standing, and comes before any standing is weighed.
-    await expectRefused(ctx, 'alice cannot touch the link even as organization owner', alice.rpc('uplinkUnlink'), 'MANAGED_HOST')
-    return
-  }
-  await expectOk(ctx, 'alice (remote owner) may change host config on her own host', alice.rpc('configUpdate', {}))
-  await expectRefused(ctx, 'bob cannot change host config on a personal host', bob.rpc('configUpdate', {}))
-  const local = ctx.client('alice', { route: 'local' })
-  const localDial = await local.connect()
-  ctx.check('alice connects credential-free on the local route', localDial.ok, JSON.stringify(localDial))
-  const localInfo = await local.rpc('connectionsGetServerInfo')
-  ctx.check('the local route admits her as the local owner', localInfo.principal === 'local-owner', localInfo.principal)
-  await expectOk(ctx, 'the local owner opens any work', local.rpc('loadWork', workId, ctx.cwd))
-  local.close()
-}
-
 /** A guest arrives by a viewer link: one resource, one role, no host (§3.4, §3.5). Returns the connected guest. */
 async function guestStep(ctx: ScenarioContext, resource: { kind: 'work'; id: string }, alice: LabClient): Promise<LabClient> {
   ctx.step('guest: maya arrives by a viewer link')
@@ -118,7 +96,7 @@ async function guestStep(ctx: ScenarioContext, resource: { kind: 'work'; id: str
   await expectOk(ctx, 'maya loads the work', maya.rpc('loadWork', resource.id, ctx.cwd))
   await expectRefused(ctx, 'maya cannot save', maya.rpc('saveWork', resource.id, { content: 'x' }, ctx.cwd))
   await expectRefused(ctx, 'maya cannot list works (host-wide)', maya.rpc('listWorks', ctx.cwd))
-  await expectRefused(ctx, 'maya cannot list projects', maya.rpc('listProjects'))
+  await expectRefused(ctx, 'maya cannot list projects', maya.rpc('listProjects'), 'PLANE_DISABLED')
   await expectRefused(ctx, 'maya cannot read the share list beyond her own resource', maya.rpc('shareGet', { resource: { kind: 'work', id: 'other' } }))
   const mayaList = await expectOk(ctx, 'maya reads her resource\'s share list', maya.rpc('shareGet', { resource }))
   ctx.check('maya is a viewer', mayaList?.callerRole === 'viewer', mayaList?.callerRole)

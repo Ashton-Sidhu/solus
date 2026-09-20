@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { guestLinkFragment, parseGuestLinkFragment } from '@solus/contracts/sharing'
+import { cloudShareUrl, parseCloudShareLink } from '@solus/contracts/sharing'
 import {
   guestRouteUrl,
   loadGuestIdentity,
@@ -12,14 +12,18 @@ import {
 // the account origin. The visitor keeps one identity in the browser; the origin mints a
 // guest grant that names the host's route; the page dials the first route it can open.
 
-describe('the guest link fragment', () => {
-  test('round-trips through the parser and rejects anything else', () => {
-    expect(parseGuestLinkFragment(guestLinkFragment('abcdefghijklmnop', 's3cret-_x'))).toEqual({ hostId: 'abcdefghijklmnop', secret: 's3cret-_x' })
-    expect(parseGuestLinkFragment('/h/abc/s/def')).toEqual({ hostId: 'abc', secret: 'def' })
-    // A workspace route, an empty hash, or a secret with a path in it is not a link.
-    expect(parseGuestLinkFragment('#/chat/abc~local')).toBeNull()
-    expect(parseGuestLinkFragment('')).toBeNull()
-    expect(parseGuestLinkFragment('#/h/abc/s/de/f')).toBeNull()
+describe('cloud resource links', () => {
+  test('all resource kinds keep the secret in the fragment and reject host links', () => {
+    for (const kind of ['work', 'session', 'task'] as const) {
+      const resource = { kind, id: 'resource-1' }
+      const secret = 'a'.repeat(43)
+      const url = new URL(cloudShareUrl('https://app.example.test', resource, secret))
+      expect(parseCloudShareLink(url.pathname, url.hash)).toEqual({ resource, secret })
+      expect(url.search).toBe('')
+    }
+    expect(parseCloudShareLink('/app/', '#/h/host/s/secret')).toBeNull()
+    expect(parseCloudShareLink('/w/id', '#short')).toBeNull()
+    expect(parseCloudShareLink('/w/../id', '#' + 'a'.repeat(43))).toBeNull()
   })
 })
 
@@ -65,17 +69,17 @@ describe('minting a guest grant', () => {
         routes: [{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }],
       })
     }
-    const grant = await mintGuestGrant('https://app.solus.sh', 'abcdefghijklmnop', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'Maya' }, fetchImpl)
+    const grant = await mintGuestGrant('https://app.solus.sh', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'Maya' }, fetchImpl)
     expect(grant?.routes).toEqual([{ kind: 'tunnel', url: 'https://h-abcdefghijklmnop.solus.sh' }])
-    expect(calls[0]?.url).toBe('https://app.solus.sh/v1/hosts/abcdefghijklmnop/guest-grant')
+    expect(calls[0]?.url).toBe('https://app.solus.sh/v1/workspace/guest-grant')
     expect(JSON.parse(calls[0]!.body)).toEqual({ guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'Maya' })
   })
 
   test('a refusal or an answer without routes is no grant', async () => {
     const refused: typeof fetch = async () => new Response('', { status: 404 })
-    expect(await mintGuestGrant('https://app.solus.sh', 'x', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'M' }, refused)).toBeNull()
+    expect(await mintGuestGrant('https://app.solus.sh', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'M' }, refused)).toBeNull()
     const legacy: typeof fetch = async () => Response.json({ grant: 'g', hostId: 'x', expiresAt: 1, guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'M' })
-    expect(await mintGuestGrant('https://app.solus.sh', 'x', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'M' }, legacy)).toBeNull()
+    expect(await mintGuestGrant('https://app.solus.sh', { guestId: 'abcdefghijklmnopqrstuvwx', displayName: 'M' }, legacy)).toBeNull()
   })
 
   test('the page dials the first route it can open: no http route from an https page', () => {

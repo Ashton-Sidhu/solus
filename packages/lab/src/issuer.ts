@@ -177,7 +177,7 @@ export class LabIssuer {
   }
 
   /** A runner grant for a linked host (§16): `sub: host:<id>`, the organization, and the `runner` claim. */
-  issueRunnerGrant(hostId: string, organizationId: string, ttlSeconds = HOST_GRANT_TTL_SECONDS) {
+  issueRunnerGrant(hostId: string, organizationId: string, ttlSeconds = HOST_GRANT_TTL_SECONDS, ownerUserId?: string) {
     const nowSeconds = Math.floor(Date.now() / 1000)
     this.minted += 1
     const claims: HostGrantClaims = {
@@ -191,6 +191,7 @@ export class LabIssuer {
       hostKind: 'cloud',
       organizationId,
       runner: { hostId },
+      hostOwnerUserId: ownerUserId,
     }
     return { grant: this.sign(claims), expiresAt: claims.exp * 1000 }
   }

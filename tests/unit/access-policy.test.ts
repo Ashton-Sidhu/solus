@@ -38,7 +38,7 @@ describe('the access map', () => {
     // A method that names a session or a work in its name must carry a resource rule
     // unless it is a catalog read (listSessions, listWorks) or a creation.
     // `tasksPrepareForSession` mints a task before any session exists; the others list or create.
-    const catalog = new Set(['listSessions', 'searchSessions', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses'])
+    const catalog = new Set(['listSessions', 'searchSessions', 'sessionRecordList', 'sessionRecordUpsert', 'listWorks', 'createWork', 'worksCloudImport', 'createHeadlessSession', 'connectionsListSessions', 'pinnedSessionsList', 'tasksPrepareForSession', 'generateSessionMetadata', 'importDocFromUrl', 'docDestinations', 'docProviderStatuses', 'connectionsSetTrustLocalNetwork', 'sessionGuideStatuses'])
     const unclassified = RPC_INVOKE_METHODS.filter((method) => /session|work(?!tree)/i.test(method) && !catalog.has(method) && !RESOURCE_RPC_RULES.has(method))
     expect(unclassified).toEqual([])
   })

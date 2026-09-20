@@ -102,7 +102,7 @@ export const shareSetLinkRequestSchema = z.object({
 })
 export type ShareSetLinkRequest = z.infer<typeof shareSetLinkRequestSchema>
 
-/** The secret leaves the host exactly once, in this answer; only its hash is stored. */
+/** The service stores the secret for editors to copy; admission compares its hash. */
 export const shareLinkSchema = z.object({
   role: shareRoleSchema,
   secret: z.string().min(1),
@@ -125,20 +125,24 @@ export interface ShareChangedEvent {
   removedUserIds: string[]
 }
 
-/** The share-link fragment: `#/h/<hostId>/s/<secret>`; the secret never reaches the cloud server. */
-export function guestLinkFragment(hostId: string, secret: string): string {
-  return `#/h/${hostId}/s/${secret}`
-}
-
+/** Cloud resource links keep the bearer secret in the fragment. */
 export interface GuestLink {
-  hostId: string
+  resource: ShareResource
   secret: string
 }
 
-/** The inverse of `guestLinkFragment`: null for any other hash, including a workspace route. */
-export function parseGuestLinkFragment(hash: string): GuestLink | null {
-  const match = /^#?\/h\/([A-Za-z0-9_-]+)\/s\/([A-Za-z0-9_-]+)\/?$/.exec(hash)
-  return match ? { hostId: match[1]!, secret: match[2]! } : null
+const SHARE_PATHS = { work: 'w', session: 's', task: 't' } as const
+
+export function cloudShareUrl(origin: string, resource: ShareResource, secret: string): string {
+  return `${origin.replace(/\/$/, '')}/${SHARE_PATHS[resource.kind]}/${encodeURIComponent(resource.id)}#${secret}`
+}
+
+export function parseCloudShareLink(pathname: string, hash: string): GuestLink | null {
+  const path = /^\/(w|s|t)\/([A-Za-z0-9_-]+)\/?$/.exec(pathname)
+  const secret = /^#([A-Za-z0-9_-]{32,256})$/.exec(hash)
+  if (!path || !secret) return null
+  const kind = path[1] === 'w' ? 'work' : path[1] === 's' ? 'session' : 'task'
+  return { resource: { kind, id: path[2]! }, secret: secret[1]! }
 }
 
 export const SHARE_ERROR_CODES = ['FORBIDDEN', 'NOT_FOUND', 'NOT_SHARED', 'SEAT_REQUIRED'] as const

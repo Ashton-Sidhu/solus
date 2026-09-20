@@ -1,3 +1,6 @@
+import { transcriptMirrorPayloadSchema } from './uplink/runner-protocol'
+import { SharedPromptRelay, sharedPromptRequestSchema } from '../sharing/shared-prompt'
+import { startSharedPromptRunner } from '../sharing/shared-prompt-runner'
 import { RemoteUpdateService } from '../updates/remote-update-service'
 import type { ServerUpdateSupport, SupervisorMessage } from '@solus/contracts/server-update'
 import { UpdateStatusService } from '../updates/update-status-service'
@@ -480,6 +483,12 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
   phaseDone('host_handlers_registered')
   registerFolioHandlers(server, { shares })
   registerSharingHandlers(server, { shares })
+  const sharedPrompts = workspaceMode ? new SharedPromptRelay(shares) : undefined
+  server.register('sharedSessionAvailable', (args, ctx) => sharedPrompts ? sharedPrompts.available(ctx.principal, args[0]) : false)
+  server.register('sharedSessionPrompt', (args, ctx) => {
+    if (!sharedPrompts) throw new Error('Shared prompts use Solus cloud.')
+    return sharedPrompts.prompt(ctx.principal, sharedPromptRequestSchema.parse(args[0]))
+  })
   registerSeatHandlers(server, { seats, connector: seatConnector })
   registerPresenceHandlers(server, { presence, onHostChanged: (clientId) => publishHostPresence(presence.organizationOf(clientId)), onSessionChanged: publishSessionPresence })
   registerReviewHandlers(server, opts.controlPlane, events)
@@ -744,6 +753,7 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
       transcriptMirror,
       interruptSweep,
     })
+    domainEventUnsubscribes.push(startSharedPromptRunner(runnerDelivery, opts.controlPlane))
   }
 
   const { server: http, requestListener } = buildHttpServer({
@@ -763,8 +773,22 @@ export async function bootServer(opts: BootOptions): Promise<BootedServer> {
     verifyHostGrant: (grant, verifyOptions) => grantVerifier
       ? grantVerifier.verify(grant, verifyOptions)
       : Promise.resolve({ ok: false, reason: 'not-linked' }),
-    resolveShareSecret: (secret) => shares.resolveLinkSecret(secret),
-    runner: runnerRoutes(shares),
+    resolveShareSecret: workspaceMode ? (secret) => shares.resolveLinkSecret(secret) : undefined,
+    runner: {
+      ...runnerRoutes(shares),
+      applyMirror: async (runner, request) => {
+        const result = await applyRunnerMirror(runner, request)
+        const changed = new Set<string>()
+        for (const item of request.items) {
+          if (item.domain !== 'transcripts' || item.seq > result.lastSeq) continue
+          const parsed = transcriptMirrorPayloadSchema.safeParse(item.payload)
+          if (parsed.success) changed.add(parsed.data.sessionId)
+        }
+        for (const sessionId of changed) events.broadcast('session.transcriptChanged', { sessionId })
+        return result
+      },
+    },
+    sharedPrompts,
     transcribeAudio: opts.transcribeAudio,
   })
   const responseReceiptBudget = new ResponseReceiptBudget()

@@ -1,3 +1,4 @@
+import type { WorkTransfer } from './work-transfer'
 import type { ExternalCommentCommand, WorkExternalComments } from './work-comments'
 import type { WorkCommentCommand } from './comment-commands'
 import type { AgentId, AgentTaskLifecyclePolicy, AgentUsageLimits, IpcContext, SessionCtx, PromptOptions, PromptDelivery, PromptDispatchResult, Attachment, SessionMeta, SessionSearchResult, SessionGeneratedMetadata, SessionMetadataGenerationContext, RecentProject, DetectedEditor, DetectedTerminal, ResolvedTerminal, TerminalAppId, OpenInEditorRequest, FilePreviewRequest, FilePreviewResult, ProjectContentSearchRequest, ProjectContentSearchResult, ProjectFilesRequest, ProjectFilesResult, ProjectFileMutationRequest, ProjectFileMutationResult, WriteFileRequest, WriteFileResult, FileMatch, DirectoryListResult, CreateDirectoryResult, DesignAnnotation, PluginCommandsResult, RemoteSkill, SkillInstallResult, GitCheckout, TurnSnapshot, DiffResult, DiffFileContentsRequest, DiffFileContentsResult, ChangedFileStat, WorktreeEntry, GitActionRequest, GitActionResult, GitDiscardResult, GitSyncResult, GitCheckoutBranchResult, GitIdentity, GitState, GitStateOptions, GitRepositoryStatus, GitInitRepositoryResult, GithubPublishRepositoryRequest, GithubPublishRepositoryResult, ProjectConfig, ProjectEntry, ProjectIdentity, DispatchHistoryRoot, PlanDescriptor, PlanAnnotations, DiffRequest, RateLimitDecisionAction, RuntimeSessionInfo, SessionDescription, SessionLineageResolution, SessionProviderSwitchResult, WatchSessionInput, WatchSessionResult, ThreadGoal, ThreadGoalSetRequest, Work, WorkMeta, WorkType, WorkAnnotations, WorkPrevious, WorkExportRequest, WorkExportResult, SessionRecord, SessionRecordUpsert, SessionRecordListFilter, PinnedSession, SavedPrompt, AppGlobalShortcuts, SetAppGlobalShortcutsResult, StartInfo, Automation, AutomationAction, AutomationCreator, AutomationRun, AutomationTrigger, AuthStatus, PrCheckoutContext, PrReviewContext, MergeMethod, PrMergeResult, PrConflictResolutionResult, ServerCapabilities, HostCapabilities, DiscoveredServer, SshBootstrapResult, WebPushSubscriptionJSON, SetupAgent, SetupAdoptProjectResult, SetupAgentAuthCheckResult, SetupCloneProjectRequest, SetupCloneProjectResult, SetupPrepareProjectRequest, SetupPrepareProjectResult, SetupSyncProjectRequest, SetupGithubReposResult, SetupSshAccessResult, SetupStepResult, HostReadiness, GitCommitIdentity, VoiceModelStatus, HeadlessSessionRequest, GithubDelegatedCredential, OtelSettings, OtelSettingsSnapshot, TextGenerationSettings, TextGenerationSettingsSnapshot } from './types'
@@ -137,6 +138,8 @@ export interface SolusAPI {
   resetSession(ctx: IpcContext): Promise<void>
   listSessions(projectPath?: string, ctx?: IpcContext, provider?: AgentId, streamId?: string, limit?: number): Promise<SessionMeta[]>
   /** Collaboration plane: the session records of the caller's organization (docs/plans/cloud-service-model.md). */
+  sharedSessionAvailable(sessionId: string): Promise<boolean>
+  sharedSessionPrompt(request: { sessionId: string; text: string }): Promise<{ accepted: true }>
   sessionRecordList(filter?: SessionRecordListFilter): Promise<SessionRecord[]>
   /** Collaboration plane: a runner's report of one session. The host itself and, later, a runner of the organization. */
   sessionRecordUpsert(record: SessionRecordUpsert): Promise<SessionRecord>
@@ -403,6 +406,9 @@ export interface SolusAPI {
   saveWork(id: string, updates: Partial<Pick<Work, 'title' | 'preview' | 'content'>>): Promise<Work>
   loadWork(id: string): Promise<Work | null>
   listWorks(): Promise<(WorkMeta & { id: string })[]>
+  worksCloudExport(id: string): Promise<WorkTransfer>
+  worksCloudImport(transfer: WorkTransfer): Promise<Work>
+  worksCloudRemove(id: string, fingerprint: string): Promise<void>
   deleteWork(id: string): Promise<void>
   duplicateWork(id: string): Promise<Work>
   linkWorkSession(id: string, sessionId: string): Promise<void>

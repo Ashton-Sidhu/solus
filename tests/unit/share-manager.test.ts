@@ -343,7 +343,7 @@ describe('the link and guests', () => {
     await shares.claimOwner(session, member('alice'))
     const link = (await shares.setLink({ resource: session, role: 'viewer' }, member('alice')))!
     expect(link.secret.length).toBeGreaterThan(30)
-    expect(await shares.resolveLinkSecret(link.secret)).toEqual({ resource: session, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) })
+    expect(await shares.resolveLinkSecret(link.secret)).toEqual({ organizationId: 'local', resource: session, role: 'viewer', sharedByUserId: 'alice', linkSecretHash: hashLinkSecret(link.secret) })
     expect(await shares.resolveLinkSecret('nope')).toBeNull()
     expect((await shares.list(session, member('alice'))).link).toEqual({ role: 'viewer', secret: link.secret })
     // Changing the role keeps the secret: no new secret comes back.

@@ -1,5 +1,5 @@
 import type { OrganizationDirectory, UplinkStatus } from '@solus/contracts/uplink'
-import { guestLinkFragment, HOST_OWNER_USER_ID, type ShareList, type ShareRole, type ShareSetRequest } from '@solus/contracts/sharing'
+import { cloudShareUrl, HOST_OWNER_USER_ID, type ShareList, type ShareRole, type ShareSetRequest } from '@solus/contracts/sharing'
 
 /**
  * The share dialog's view model (docs/plans/multiplayer-sharing.md §4.1): the
@@ -232,9 +232,6 @@ export function withoutPerson(list: ShareList, userId: string): ShareSetRequest 
 }
 
 /** The guest link (§4.2): the secret rides the fragment, so the cloud server never sees it. */
-export function guestLinkUrl(directoryUrl: string, hostId: string, secret: string): string {
-  return `${directoryUrl.replace(/\/$/, '')}/app/${guestLinkFragment(hostId, secret)}`
-}
 
 /**
  * Whether a guest link can be built for a host: it needs the host id and the
@@ -271,12 +268,12 @@ export type LinkPresentation =
   | { kind: 'unavailable' }
   | { kind: 'hidden' }
 
-export function linkPresentation(link: ShareList['link'], context: GuestLinkContext, canShare: boolean): LinkPresentation | null {
+export function linkPresentation(link: ShareList['link'], context: GuestLinkContext, canShare: boolean, resource?: ShareList['resource']): LinkPresentation | null {
   if (!link) return null
   if (!canShare) return { kind: 'hidden' }
   if (!link.secret) return { kind: 'unavailable' }
   switch (context.kind) {
-    case 'linked': return { kind: 'url', url: guestLinkUrl(context.directoryUrl, context.hostId, link.secret) }
+    case 'linked': return resource ? { kind: 'url', url: cloudShareUrl(context.directoryUrl, resource, link.secret) } : { kind: 'unavailable' }
     case 'checking': return { kind: 'checking' }
     case 'unlinked': return { kind: 'secret', secret: link.secret }
   }

@@ -1,3 +1,4 @@
+import { isWorkspaceMode } from '../workspace-mode'
 import { shareResourceSchema, shareSetLinkRequestSchema, shareSetRequestSchema, shareTransferRequestSchema } from '@solus/contracts/sharing'
 import type { ShareManager } from '../../sharing/share-manager'
 import type { SolusServer } from '../server'
@@ -14,6 +15,9 @@ export function registerSharingHandlers(server: SolusServer, deps: { shares: Sha
   })
   // The three writes below answer the share manager's own promise.
   server.register('shareSet', (args, ctx) => deps.shares.setGrants(shareSetRequestSchema.parse(args[0]), ctx.principal))
-  server.register('shareSetLink', (args, ctx) => deps.shares.setLink(shareSetLinkRequestSchema.parse(args[0]), ctx.principal))
+  server.register('shareSetLink', (args, ctx) => {
+    if (!isWorkspaceMode()) throw new Error('Share links are available in Solus cloud. Open the cloud resource to share it.')
+    return deps.shares.setLink(shareSetLinkRequestSchema.parse(args[0]), ctx.principal)
+  })
   server.register('shareTransfer', (args, ctx) => deps.shares.transfer(shareTransferRequestSchema.parse(args[0]), ctx.principal))
 }

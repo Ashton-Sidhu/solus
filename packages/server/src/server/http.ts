@@ -1,3 +1,4 @@
+import { sharedPromptPollSchema, sharedPromptResultSchema, type SharedPromptRelay } from '../sharing/shared-prompt'
 import { createServer, type RequestListener, type Server as HttpServer, type IncomingMessage, type ServerResponse } from 'http'
 import { createReadStream, existsSync, realpathSync } from 'fs'
 import { stat as readFileStat } from 'fs/promises'
@@ -73,6 +74,7 @@ export interface HttpServerOptions {
   /** A guest grant is worth nothing without the share secret naming one resource (§3.4). */
   resolveShareSecret?: (secret: string) => Promise<ResolvedLinkShare | null>
   /** The workspace service's runner routes (cloud-service-model.md §16); mounted in workspace mode only, so the routes exist nowhere else. */
+  sharedPrompts?: SharedPromptRelay
   runner?: {
     applyOutbox: (runner: RunnerPrincipal, request: RunnerOutboxRequest) => Promise<RunnerOutboxResponse>
     applySessionRecords: (runner: RunnerPrincipal, request: RunnerSessionRecordsRequest) => Promise<RunnerSessionRecordsResponse>
@@ -393,6 +395,20 @@ export function buildHttpServer(opts: HttpServerOptions = {}): BuiltHttpServer {
       }
       return runnerPrincipalFor({ hostId: claims.runner.hostId, organizationId: claims.organizationId, ownerUserId: claims.hostOwnerUserId, expiresAt: claims.exp * 1000 })
     }
+    app.post('/runner/shared-prompts/poll', async (c) => {
+      const principal = await admitRunner(c)
+      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
+      const body = await readJson(c, sharedPromptPollSchema)
+      if (!body || body.hostId !== principal.hostId || !opts.sharedPrompts) return c.json({ error: 'forbidden' }, 403)
+      return c.json(await opts.sharedPrompts.poll(principal))
+    })
+    app.post('/runner/shared-prompts/result', async (c) => {
+      const principal = await admitRunner(c)
+      if (!principal) return c.json({ error: 'Unauthorized' }, 401)
+      const body = await readJson(c, sharedPromptResultSchema)
+      if (!body || body.hostId !== principal.hostId || !opts.sharedPrompts) return c.json({ error: 'forbidden' }, 403)
+      return c.json(opts.sharedPrompts.result(principal, body))
+    })
     app.post(RUNNER_OUTBOX_PATH, async (c) => {
       const principal = await admitRunner(c)
       if (!principal) return c.json({ error: 'Unauthorized' }, 401)
@@ -497,9 +513,9 @@ type GrantTicketOutcome =
  * One door, four key types (docs/plans/personal-uplink.md H1; multiplayer-sharing
  * §3.2–3.4; cloud-service-model.md §15–§16). An owner grant and a member grant
  * become a grant ticket; a guest grant becomes a guest ticket only together with a
- * share secret the host recognizes; a runner grant becomes a runner ticket for
- * the organization it names. On the workspace service only members and runners
- * exist: an owner grant and a guest grant are refused there.
+ * share secret the workspace service recognizes; a runner grant becomes a runner
+ * ticket for the organization it names. Guest admission exists only on the
+ * service. Personal and managed runners never accept a guest ticket.
  */
 export async function ticketForGrant(
   claims: HostGrantClaims,
@@ -511,17 +527,19 @@ export async function ticketForGrant(
   const expiresAt = claims.exp * 1000
   const runner = runnerTicketFor(claims, subject, expiresAt)
   if (runner) return runner
-  if (options.workspace && !isMemberGrant(claims)) return { ok: false, reason: 'member-required' }
   if (isGuestGrant(claims, subject)) {
+    if (!options.workspace || claims.hostKind !== 'cloud') return { ok: false, reason: 'member-required' }
+    if (isDeviceRevoked(claims.deviceId)) return { ok: false, reason: 'device-revoked' }
     if (!body?.shareSecret || !resolveShareSecret) return { ok: false, reason: 'guest-needs-secret' }
     const share = await resolveShareSecret(body.shareSecret)
     if (!share) return { ok: false, reason: 'not-shared' }
     const displayName = normalizeDisplayName(claims.displayName) ?? 'Guest'
     return {
       ok: true,
-      ticket: issueGuestWsTicket({ guestId: subject.id, displayName, share, expiresAt }),
+      ticket: issueGuestWsTicket({ accountUserId: subject.kind === 'user' ? subject.id : undefined, accountSessionId: subject.kind === 'user' ? claims.deviceId : undefined, guestId: subject.id, displayName, organizationId: share.organizationId, share: { resource: share.resource, role: share.role, sharedByUserId: share.sharedByUserId, linkSecretHash: share.linkSecretHash }, expiresAt }),
     }
   }
+  if (options.workspace && !isMemberGrant(claims)) return { ok: false, reason: 'member-required' }
   // The owner revoked this account session on the Access tab: the host's own
   // kill switch, independent of the control plane.
   if (isDeviceRevoked(claims.deviceId)) return { ok: false, reason: 'device-revoked' }

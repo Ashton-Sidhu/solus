@@ -1,4 +1,5 @@
-import { expectOk, expectRefused, scenario } from '../src/scenario'
+import { cloudScenario } from '../src/cloud-scenario'
+import { expectOk, expectRefused } from '../src/scenario'
 import { PERSONAS } from '../src/personas'
 
 /**
@@ -6,7 +7,7 @@ import { PERSONAS } from '../src/personas'
  * guest socket within a second; removing a member's named row keeps their socket
  * but takes the resource from them (a share is a scope, decision 2026-09-16).
  */
-export default scenario('guest revoke: regenerate and remove the link; remove a member', async (ctx) => {
+export default cloudScenario('guest revoke: regenerate and remove the link; remove a member', async (ctx) => {
   const alice = await ctx.as('alice')
   const bob = await ctx.as('bob')
   const bobUserId = PERSONAS.bob.kind === 'org-member' ? PERSONAS.bob.userId : ''

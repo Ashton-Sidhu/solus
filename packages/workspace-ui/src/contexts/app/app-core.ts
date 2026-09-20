@@ -1,3 +1,4 @@
+import { sharesStore } from '../sharing/shares.store.svelte'
 import { installHostUpdateNotices } from '../updates/host-update-notices.svelte'
 import { onDestroy } from 'svelte'
 import { SettingsContext, setSettingsContext } from './settings.context.svelte'
@@ -76,6 +77,7 @@ export function createAppCore(shell: ClientShellContext): AppCore {
   )
   // The shell opens resources in the workspace it now has.
   shell.attachWorkspace(session)
+  sharesStore.works = session.worksStore
   const sessionSidebarStore = new SessionSidebarStore(settings, session, planStore, pullRequests.projects, {
     // Reactive: a runner coming back or a cloud row appearing re-merges the rows.
     isCloudHost: (serverId) => serversStore.isCloudHost(serverId),

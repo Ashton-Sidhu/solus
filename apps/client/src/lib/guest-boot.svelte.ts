@@ -24,6 +24,7 @@ class GuestBootState {
   phase = $state<GuestPhase>('naming')
   error = $state<string | null>(null)
   displayName = $state('')
+  accountUserId = $state<string | null>(null)
   serverId = $state<string | null>(null)
   share = $state<GuestShare | null>(null)
   link: GuestLink | null = null

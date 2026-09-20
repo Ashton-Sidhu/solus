@@ -5,7 +5,6 @@ import type { SavedServerUplink } from '@solus/client-core/server-registry'
 import {
   grantsFor,
   guestLinkContext,
-  guestLinkUrl,
   linkPresentation,
   linkRoleFor,
   ownerLabel,
@@ -146,10 +145,6 @@ describe('people named on the list', () => {
 })
 
 describe('the guest link', () => {
-  test('carries the secret in the fragment under the account origin', () => {
-    expect(guestLinkUrl('https://app.solus.sh/', 'abcdefghijklmnop', 's3cret')).toBe('https://app.solus.sh/app/#/h/abcdefghijklmnop/s/s3cret')
-  })
-
   test('the host is the authority on whether a guest link can be built', () => {
     // WHY: the desktop's own host is never in the saved-server registry, so a
     // registry-only rule told a linked host it was not in Solus cloud and showed a
@@ -191,7 +186,7 @@ describe('the guest link', () => {
     // WHY: a share control is only useful when the link can be copied any time, not
     // once at creation; a viewer must never be handed the secret through the list.
     const linked = { kind: 'linked' as const, hostId: 'abcdefghijklmnop', directoryUrl: 'https://app.solus.sh' }
-    expect(linkPresentation({ role: 'viewer', secret: 's3' }, linked, true)).toEqual({ kind: 'url', url: 'https://app.solus.sh/app/#/h/abcdefghijklmnop/s/s3' })
+    expect(linkPresentation({ role: 'viewer', secret: 's3' }, linked, true, { kind: 'work', id: 'w1' })).toEqual({ kind: 'url', url: 'https://app.solus.sh/w/w1#s3' })
     expect(linkPresentation({ role: 'viewer', secret: 's3' }, { kind: 'unlinked' }, true)).toEqual({ kind: 'secret', secret: 's3' })
     expect(linkPresentation({ role: 'viewer', secret: 's3' }, { kind: 'checking' }, true)).toEqual({ kind: 'checking' })
     expect(linkPresentation({ role: 'viewer' }, linked, true)).toEqual({ kind: 'unavailable' })

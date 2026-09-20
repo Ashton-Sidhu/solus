@@ -3,11 +3,10 @@ import { z } from 'zod'
 import { dialableRoutes } from './server-registry'
 
 /**
- * A guest's side of a share link (docs/plans/multiplayer-sharing.md §4.2). The link
- * names a host and a secret; the account origin that served this page mints a
- * ten-minute guest grant for that host without any session, and the host admits
- * the grant only together with the secret. The guest keeps one identity in the
- * browser so a returning visitor is the same person, with the same name.
+ * A cloud share link names one resource. The account origin issues a short grant;
+ * only the workspace service receives and resolves its secret. A browser keeps
+ * a visitor identity for anonymous returns. A valid account session supplies the
+ * verified identity when the account server mints the grant.
  */
 
 const GUEST_KEY = 'solus.guest'
@@ -44,15 +43,14 @@ export function newGuestId(): string {
   return Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')
 }
 
-/** `POST /v1/hosts/:id/guest-grant` on the account origin; null when it refused or did not answer. */
+/** `POST /v1/workspace/guest-grant` on the account origin; null when it refused or did not answer. */
 export async function mintGuestGrant(
   origin: string,
-  hostId: string,
   identity: GuestIdentity,
   fetchImpl: typeof fetch = fetch,
 ): Promise<GuestGrantResponse | null> {
   try {
-    const response = await fetchImpl(`${origin}/v1/hosts/${encodeURIComponent(hostId)}/guest-grant`, {
+    const response = await fetchImpl(`${origin}/v1/workspace/guest-grant`, {
       method: 'POST',
       headers: { accept: 'application/json', 'content-type': 'application/json' },
       body: JSON.stringify({ guestId: identity.guestId, displayName: identity.displayName }),

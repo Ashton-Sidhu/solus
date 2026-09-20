@@ -40,8 +40,6 @@ const envelopeSchema = z.object({
 })
 type RpcEnvelope = z.infer<typeof envelopeSchema>
 const infoSchema = z.object({ principal: z.string() })
-const workSchema = z.object({ id: z.string().min(1) })
-const linkSchema = z.object({ secret: z.string().min(1) })
 
 async function cloud(path: string, init: RequestInit & { cookie?: string; origin?: string | null } = {}): Promise<Response> {
   const headers = new Headers(init.headers)
@@ -102,7 +100,6 @@ function rpc<T>(socket: ReturnType<typeof io>, method: string, args: unknown[], 
     resolve({ result: schema.parse(envelope.result) })
   }))
 }
-const nothing = z.unknown()
 
 if (!DEV_LOG) {
   console.error('DEV_LOG is required: the cloud dev server stdout, where the console mailer prints verification links.')
@@ -145,29 +142,9 @@ try {
   const bobInfo = await rpc(bobSocket.socket, 'connectionsGetServerInfo', [], infoSchema)
   check('Bob is an organization member on the host', bobInfo.result?.principal === 'org-member', bobInfo.result?.principal)
 
-  // Alice makes a work and shares it by link; a guest with a cloud guest grant and the secret gets in.
-  const work = await rpc(aliceSocket.socket, 'createWork', ['Proof', 'doc', 'hello', 'hello', undefined, 'claude-code', host.dataDir], workSchema)
-  const workId = work.result!.id
-  const bobBefore = await rpc(bobSocket.socket, 'loadWork', [workId, host.dataDir], workSchema)
-  check('Bob opens Alice\'s work with no share row: members of the organization see everything (the membership came from the cloud grant)', bobBefore.result?.id === workId, JSON.stringify(bobBefore.error))
-  await rpc(aliceSocket.socket, 'shareSet', [{ resource: { kind: 'work', id: workId }, grants: [{ subject: { kind: 'organization', id: org.id }, role: 'viewer' }] }], nothing)
-  const bobAfter = await rpc(bobSocket.socket, 'loadWork', [workId, host.dataDir], workSchema)
-  check('a viewer row does not demote Bob below editor', bobAfter.result?.id === workId, JSON.stringify(bobAfter.error))
-  const link = await rpc(aliceSocket.socket, 'shareSetLink', [{ resource: { kind: 'work', id: workId }, role: 'viewer' }], linkSchema)
-
-  const guestGrant = await parsed(await cloud(`/v1/hosts/${host.hostId}/guest-grant`, { method: 'POST', origin: null, body: JSON.stringify({ displayName: 'Maya' }) }), grantSchema)
-  check('a guest grant without the secret is refused', (await ticketFor(host, guestGrant.grant)).status === 401)
-  const guestGrant2 = await parsed(await cloud(`/v1/hosts/${host.hostId}/guest-grant`, { method: 'POST', origin: null, body: JSON.stringify({ displayName: 'Maya' }) }), grantSchema)
-  const guestTicket = await ticketFor(host, guestGrant2.grant, link.result!.secret)
-  check('a guest grant with the share secret earns a ticket', guestTicket.status === 200)
-  const guestSocket = await dial(host, guestTicket.ticket!)
-  open.push(guestSocket.socket)
-  const guestInfo = await rpc(guestSocket.socket, 'connectionsGetServerInfo', [], infoSchema)
-  check('Maya is a guest on the host', guestInfo.result?.principal === 'guest', guestInfo.result?.principal)
-  const guestWork = await rpc(guestSocket.socket, 'loadWork', [workId, host.dataDir], workSchema)
-  check('Maya reads the shared work', guestWork.result?.id === workId, JSON.stringify(guestWork.error))
-  const guestList = await rpc(guestSocket.socket, 'listWorks', [host.dataDir], nothing)
-  check('Maya cannot list works', guestList.error?.code === 'FORBIDDEN', JSON.stringify(guestList.error))
+  // The public guest door belongs to the workspace, never the runner.
+  const oldGuestDoor = await cloud(`/v1/hosts/${host.hostId}/guest-grant`, { method: 'POST', origin: null, body: '{}' })
+  check('the host guest-grant endpoint was removed', oldGuestDoor.status === 404)
 
   const caraGrant = await cloud(`/v1/hosts/${host.hostId}/grant`, { method: 'POST', cookie: cara.cookie })
   check('a non-member gets no grant from the cloud', caraGrant.status === 404)
