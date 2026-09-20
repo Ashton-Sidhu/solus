@@ -34,6 +34,7 @@ async function main(): Promise<void> {
   try {
     await installNodeRuntime(target, staging)
     await buildServerBundle(staging)
+    cpSync(join(repoRoot, 'packages', 'server', 'drizzle'), join(staging, 'libexec', 'server', 'drizzle'), { recursive: true })
     await buildCliBundle(staging)
     copyClient(staging)
     copyBundledPlugins(staging)
